@@ -103,6 +103,7 @@ import {
   laneSpans,
   needsPrivateRoom,
   roomFitsClass,
+  sellStaffLanes,
   sharesStore,
   type KindedGapCell,
   type RoomPolicy,
@@ -187,6 +188,13 @@ export interface FallbackInput {
   rooms: RoomPolicy
   /** The reserved mask for THIS world (spec §2). Empty for a guard-off store. */
   held: readonly ReservedLaneMask[]
+  /** ⚖ Greptile #815 — the same locked-lane list `gapLayerFor`/`sellLayerFor`
+   *  already take, so this pass can ask `sellStaffLanes` the same question they
+   *  do rather than reading its own copy of the board. Required, not optional:
+   *  every real caller already carries this list (TodayScreen's `locked`
+   *  state), so an absent value here would be a caller that forgot it, not a
+   *  store with nothing locked. */
+  locked: string[]
   /** ⚖ BATCH-5 R3's display floor, for THIS pass's emission (⚖ R6 B1). The same
    *  dial `gapLayerFor` applies to the native layer, applied to the additions
    *  the same way — at the end, over the finished cells. Absent = no floor. */
@@ -365,6 +373,8 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
         name: l?.label ?? laneKey,
         from: s,
         until: e,
+        // TRUE by construction (Greptile #815) — `laneKey` is always a lane the
+        // walk above already found in `sellableLaneKeys`.
         locked: false,
         occupied: [],
         listPrice: l?.listPrice ?? 0,
@@ -395,8 +405,24 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
     return (claimedRooms.get(room.key) ?? []).map((c) => ({ s: c.s - pad, e: c.e + pad }))
   }
 
+  /** ⚖ Greptile #815 — ONE SHIELD, spelled the way `heldDrawnFor` already
+   *  spells it (today-interactions.ts ~:1202): ask `sellStaffLanes` which
+   *  lanes the sell door would sell from at all, rather than re-writing
+   *  `locked`/`listPrice > 0` by hand here. A locked lane or a lane with no
+   *  list price has no sell layer and no gap layer either — `sellStaffLanes`
+   *  drops both — so a fallback offer on either one is a box nobody else on
+   *  the board would draw. シフトロック says in as many words 「オンライン空き枠
+   *  からも除外されます」, and a ¥0 box on an unpriced lane breaks the same
+   *  promise a second way. One spelling covers both, and covers a future third
+   *  way to go unsellable for free. */
+  const sellableLaneKeys = new Set(
+    sellStaffLanes(input.lanes, input.locked)
+      .filter((l) => !l.locked)
+      .map((l) => l.key),
+  )
+
   for (const lane of input.lanes) {
-    if (lane.group !== 'staff' || lane.window == null) continue
+    if (lane.group !== 'staff' || lane.window == null || !sellableLaneKeys.has(lane.key)) continue
     const lost = lostByLane.get(lane.key) ?? []
     if (lost.length === 0 && !gridHoles) continue
 
@@ -465,6 +491,8 @@ export function fallbackCellsFor(input: FallbackInput): FallbackResult {
             name: lane.label,
             from: win.iv.s,
             until: win.iv.e,
+            // TRUE by construction (Greptile #815) — `lane` is this loop's own
+            // `lane`, already filtered through `sellableLaneKeys` above.
             locked: false,
             occupied: subtract([win.iv], clip).map((b) => ({ start: b.s, end: b.e })),
             listPrice: lane.listPrice,

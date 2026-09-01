@@ -177,7 +177,7 @@ interface Run {
  *  R4's reconcile over the SAME claims → the fallback pass over what the
  *  reconcile threw away. Nothing here re-derives anything: every input the pass
  *  takes is what the pipeline above it produced. */
-function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = []): Run {
+function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = [], locked: string[] = []): Run {
   const { price, depth, frame } = priceOf()
   const engine = createGapGuard(w.guard)
   const gap = gapLayerFor(w.lanes, {
@@ -187,7 +187,7 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = []): Run {
     gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
     minSellableMin: w.minSellableMin,
     nowMinute: w.now,
-    locked: [],
+    locked,
     frame,
     depth,
     guard: w.guard,
@@ -197,7 +197,7 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = []): Run {
   const sell = sellLayerFor(w.lanes, w.hours, {
     gridMin: d.gridMin,
     nowMinute: w.now,
-    locked: [],
+    locked,
     showPrice: true,
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
@@ -223,6 +223,9 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = []): Run {
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held,
+      // ⚖ Greptile #815 — the same list handed to `gap`/`sell` above, so this
+      // composer's fallback shields the same lanes the screen's does.
+      locked,
       // ⚖ R6 B1 — the screen hands the pass the store's own floor now
       // (TodayScreen `salesDoor`), so this composer does too: a battery that
       // drives the seam differently from the screen proves the wrong thing.
@@ -495,6 +498,7 @@ describe('1 — the ごろう pin: the shipped engine emits the real fragments',
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held: [],
+      locked: [],
       dials: dialsOf(w, shipped()),
     })
     expect([...r.packed, ...r.scraps, ...r.claims, ...r.clips]).toEqual([])
@@ -671,6 +675,7 @@ function sceneRun(withStandardRoom: boolean): FallbackResult {
     cleanupMinutesByBed: {},
     rooms: { vipStaysPrivate: true, privateIsLastResort: true },
     held: [],
+    locked: [],
     dials: dialsOf({ ...w, now: null }, shipped()),
   })
 }
@@ -726,6 +731,7 @@ describe('3 — class-aware rooms: the 個室 is spent last, both directions', (
       cleanupMinutesByBed: {},
       rooms: { vipStaysPrivate: true, privateIsLastResort: false },
       held: [],
+      locked: [],
       dials: dialsOf({ ...w, now: null }, shipped()),
     })
     // Board order now, so the 個室's longer run wins — the store said 個室 is
@@ -827,6 +833,7 @@ describe('5 — the pass is pure', () => {
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held: maskFor(w, w.guard, 'standard'),
+      locked: [],
       minSellableMin: w.minSellableMin,
     }
     const before = JSON.stringify(input)
@@ -1544,6 +1551,7 @@ describe('9 — merge, then floor, then kind: the fallback finishes as the nativ
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held: [],
+      locked: [],
       minSellableMin: w.minSellableMin,
       dials: dialsOf(w, d),
     })
@@ -1667,5 +1675,42 @@ describe('9 — merge, then floor, then kind: the fallback finishes as the nativ
     const sceneClips = (floor: number) => pass(worldOf(900, 950, floor), dial, dropAt(900)).clips
     expect(sceneClips(0).length).toBeGreaterThan(0)
     expect(sceneClips(30)).toEqual(sceneClips(0))
+  })
+})
+
+// ── 10 · GREPTILE #815 — THE WALK SHIELDS LOCKED AND UNPRICED LANES ─────────
+//
+// The walk filtered only `group !== 'staff' || window == null` — no drop
+// needed for §8's grid-hole trigger to fire, so a LOCKED lane or a
+// `listPrice: 0` lane reached it too. Neither has a sell layer or a gap layer
+// at all (`sellStaffLanes` drops both), so a fallback box on either one is a
+// box nobody else on the board would draw: a locked lane regaining online
+// inventory breaks シフトロック's own promise (「オンライン空き枠からも除外され
+// ます」), and `packedPrice(0, …) = 0` prices the unpriced lane's box at ¥0.
+// ONE shield closes both — the same `sellStaffLanes` read `heldDrawnFor`
+// already uses (today-interactions.ts ~:1202) — asked once, kept beside the
+// walk's own group/window filter.
+
+describe('10 — Greptile #815: the walk shields locked and unpriced lanes', () => {
+  it('a locked lane owning a genuine grid hole emits nothing; the same board unlocked recovers it', () => {
+    const { w, targetKey } = pocketWorld(50)
+    const d: Dials = { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin }
+    const onTarget = (fb: FallbackResult) =>
+      boxes(fb)
+        .filter((c) => c.laneKey === targetKey)
+        .map((c) => span(c.s, c.e))
+
+    // UNLOCKED — §8's own recovery, on this exact scene.
+    expect(onTarget(run(w, d).fallback)).toEqual(['15:00-15:30'])
+
+    // LOCKED — nothing. シフトロック's promise, held.
+    expect(onTarget(run(w, d, [], [targetKey]).fallback)).toEqual([])
+  })
+
+  it('a listPrice:0 lane owning the same grid hole emits nothing', () => {
+    const { w, targetKey } = pocketWorld(50)
+    const zeroed: World = { ...w, lanes: w.lanes.map((l) => (l.key === targetKey ? { ...l, listPrice: 0 } : l)) }
+    const d: Dials = { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin }
+    expect(boxes(run(zeroed, d).fallback).filter((c) => c.laneKey === targetKey)).toEqual([])
   })
 })

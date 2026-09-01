@@ -443,6 +443,9 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
         dials: gapPackingDials(w.lanes, dialOpts),
       })
     : null

@@ -413,6 +413,9 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
         // ⚖ R6 B1 — the screen hands the pass the store's own display floor, so
         // this composer does too (TodayScreen `salesDoor`). A door that differs
         // from the screen's proves the wrong board.

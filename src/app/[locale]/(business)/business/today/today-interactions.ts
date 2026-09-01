@@ -756,7 +756,7 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
-export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
+export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
     .map((l) => ({

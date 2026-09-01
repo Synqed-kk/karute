@@ -1556,6 +1556,11 @@ export function TodayScreen(props: TodayProps) {
       cleanupMinutesByBed: props.bedCleanupMinutes,
       rooms: props.rooms,
       held: heldCommitted,
+      // ⚖ Greptile #815 — the same locked-lane list `gap` above already took, so
+      // this pass can shield the walk with `sellStaffLanes` exactly as
+      // `heldDrawnFor` does, instead of advertising a lane シフトロック has
+      // already promised is excluded from online inventory.
+      locked,
       // ⚖ R6 B1 — ONE FLOOR RULE, ONE ANSWER. `gap` above is already floored
       // inside `gapLayerFor`; until this line the additions merged into
       // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
@@ -1563,7 +1568,7 @@ export function TodayScreen(props: TodayProps) {
       minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, props.guard.minSellableMin, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, locked, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
