@@ -1002,9 +1002,49 @@ describe('4 — what paints, and what stops', () => {
     // the same claim is pinned on the FACT rather than on the array membership.
     for (const f of frags) expect([...on.gapDrawn.packed, ...on.gapDrawn.scraps]).toContain(f)
     for (const f of on.fallback?.packed ?? []) expect(gapKindOf(f)).toBe('packed')
+    // ⚠ this board's fallback has no scraps — the kind of a FALLBACK scrap is
+    // proven where such a scrap exists (fallback-cells.test.ts §9, ⚖ A3).
+    expect(on.fallback?.packed?.length ?? 0).toBeGreaterThan(0)
     for (const f of on.fallback?.scraps ?? []) expect(gapKindOf(f)).toBe('scrap')
     expect(SRC('TodayScreen.tsx')).toContain("const packedHere = gapKindOf(c) === 'packed'")
+    // ⚖ R6 fix round A7 (L4-7) — BROADENED. The old negative named one exact
+    // line, so the identity scan could come back in any other punctuation and
+    // stay green; and the scraps side never had a negative at all. (Text pins
+    // are the declared armor for TodayScreen's un-rendered half — the standing
+    // import-fence rider — so their spelling has to be the part that is wrong,
+    // not one sentence of it. The prose below is a COMMENT in the source, which
+    // is why the negatives are anchored on the assignment.)
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.packed.includes')
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.scraps.includes')
     expect(SRC('TodayScreen.tsx')).not.toContain('const packedHere = gapDrawn.packed.includes(c)')
+  })
+
+  /** ⚖ R6 fix round A3 (L4-3) — THE KIND, ASSERTED AS A FACT ABOUT THE BOXES.
+   *
+   *  The pin above reads the FALLBACK's boxes. Nothing read the NATIVE
+   *  producer's: flip `kinded('packed')` and `kinded('scrap')` at
+   *  today-interactions' `gapLayerFor` return and every 詰め込み box on the board
+   *  becomes a スキマ枠 — wrong wash, wrong word, wrong price format — with the
+   *  whole suite green. And nothing read `gapKindOf` itself, so the reader could
+   *  have been a constant. */
+  it('every native 詰め込み box reads `packed` and every スキマ枠 reads `scrap` — and the reader is not a constant', () => {
+    const w = fixtureWorld()
+    const c: Combo = { ...shipped(), mode: 'off' }
+    const on = door(w, c, maskOf(w, c))
+    // THE PREMISE: both lists have something in them, or the two loops below
+    // prove nothing at all (which is exactly how the fallback half slipped).
+    expect(on.gapDrawn.packed.length).toBeGreaterThan(0)
+    expect(on.gapDrawn.scraps.length).toBeGreaterThan(0)
+    for (const p of on.gapDrawn.packed) expect(gapKindOf(p)).toBe('packed')
+    for (const s of on.gapDrawn.scraps) expect(gapKindOf(s)).toBe('scrap')
+
+    // THE READER ITSELF, on hand-made cells — one tagged each way and one that
+    // was never taught to tag, which must degrade to the answer `.includes`
+    // used to give for anything outside `packed`.
+    const cell = (over: object) => ({ laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff' as const, staff: '', s: 900, e: 960, price: 0, ...over })
+    expect(gapKindOf(cell({ gapKind: 'packed' }))).toBe('packed')
+    expect(gapKindOf(cell({ gapKind: 'scrap' }))).toBe('scrap')
+    expect(gapKindOf(cell({}))).toBe('scrap')
   })
 })
 
