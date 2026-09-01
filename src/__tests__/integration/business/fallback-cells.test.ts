@@ -66,6 +66,7 @@ import {
 import { reservedMaskFor, type ReservedLaneMask } from '@/app/[locale]/(business)/business/today/reserved-mask'
 import {
   allocateBed,
+  gapKindOf,
   gapLayerFor,
   laneSpans,
   sellLayerFor,
@@ -1153,6 +1154,23 @@ function soldInPocket(w: World, d: Dials, targetKey: string, pEnd: number): Arra
 
 const minutesOf = (runs: Array<{ s: number; e: number }>) => runs.reduce((n, x) => n + (x.e - x.s), 0)
 
+/** ONE PERSON, ONE POCKET, ONE FREE ROOM — the smallest board that can hold a
+ *  single free run of an exact length. The day is walled off on both sides so
+ *  `freePockets` hands back exactly `[s, e)` and nothing else can explain a box.
+ *  Used by §8's branch-premise case and by §9's whole scene. */
+const pocketPairLanes = (s: number, e: number): BoardLane[] => [
+  lane({
+    key: 'p-01',
+    group: 'staff',
+    label: '見本ごろう',
+    items: [
+      item({ key: 'wall-before', kind: 'booking', startMin: OPEN, endMin: s }),
+      item({ key: 'wall-after', kind: 'booking', startMin: e, endMin: CLOSE }),
+    ],
+  }),
+  lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+]
+
 describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
   it('gridHoleWindows: canon’s own leftovers, and only the ones no sell slot can reach', () => {
     const S = 60
@@ -1174,17 +1192,208 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
     expect(gridHoleWindows(900, 950, { gridMin: 30, sessionMin: 90 })).toEqual([])
   })
 
-  it('the class is EMPTY at every gridMin >= SELL_SLOT_MIN — the shipped board pays nothing', () => {
-    const offenders: string[] = []
-    for (const gridMin of [60, 90, 120]) {
-      for (let s = 540; s <= 1140; s += 5) {
-        for (const len of [5, 15, 20, 30, 45, 50, 55, 60, 75, 90, 115, 120, 185]) {
-          const found = gridHoleWindows(s, s + len, { gridMin, sessionMin: 60 })
-          if (found.length > 0) offenders.push(`grid=${gridMin} ${span(s, s + len)} → ${found.map((h) => span(h.s, h.e)).join(',')}`)
+  /** ⚖ R6 fix round A1 (L4-1) — AN ORACLE THE FUNCTION CANNOT ANSWER FOR ITSELF.
+   *
+   *  §8's other pins ask `gridHoleWindows` for a window list and then ask the
+   *  battery whether the board sold it — which is the function blessing its own
+   *  output: turn the `< SELL_SLOT_MIN` filter at fallback-cells :268 into
+   *  `<=` and 1699 tests stay green while sell-reachable inventory is invented.
+   *  Every column below is HAND-SPELLED arithmetic — what canon offers, what is
+   *  therefore left, how long that is, and whether one 60-minute sell slot can
+   *  reach it. Nothing here is computed by the function under test. */
+  const ORACLE: Array<{
+    why: string
+    s: number
+    e: number
+    gridMin: number
+    /** `gapFillPieces`' answer, written out by hand from availability.ts:303-314. */
+    canonOffers: Array<{ s: number; e: number }>
+    /** pocket − offers, by hand. */
+    leftover: Array<{ s: number; e: number }>
+    /** …and what `gridHoleWindows` must therefore answer. */
+    holes: Array<{ s: number; e: number }>
+  }> = [
+    {
+      why: 'shape 1 · the grid-aligned core, 30 minutes — under one slot, nobody’s',
+      s: 900, e: 950, gridMin: 30,
+      // gridStart = ceil(900/30)*30 = 900, gridEnd = floor(950/30)*30 = 930:
+      // gridEnd > gridStart, so canon offers the head [900,900) (empty) and the
+      // tail [930,950).
+      canonOffers: [{ s: 930, e: 950 }],
+      leftover: [{ s: 900, e: 930 }],
+      holes: [{ s: 900, e: 930 }],
+    },
+    {
+      why: 'shape 2 · the :312 tail the packet’s core formula computes as empty',
+      s: 905, e: 955, gridMin: 30,
+      // gridStart = 930, gridEnd = 930: gridEnd <= gridStart, so canon offers
+      // the single piece [905, min(905+30, 955)) = [905,935).
+      canonOffers: [{ s: 905, e: 935 }],
+      leftover: [{ s: 935, e: 955 }],
+      holes: [{ s: 935, e: 955 }],
+    },
+    {
+      why: 'shape 1 · a pocket exactly one grid step long — canon offers nothing at all',
+      s: 900, e: 930, gridMin: 30,
+      // gridStart = 900, gridEnd = 930: both slivers are empty.
+      canonOffers: [],
+      leftover: [{ s: 900, e: 930 }],
+      holes: [{ s: 900, e: 930 }],
+    },
+    {
+      why: 'THE `<=` KILLER · a 60-minute leftover is NOT recovered — one sell slot reaches it exactly',
+      s: 900, e: 960, gridMin: 30,
+      // gridStart = 900, gridEnd = 960: the whole pocket is the aligned core and
+      // canon offers neither sliver. 60 minutes is one `SELL_SLOT_MIN` on the
+      // grid, so the sell layer advertises it and recovering it here would put
+      // two producers on one minute. `< SELL_SLOT_MIN` refuses; `<=` would not.
+      canonOffers: [],
+      leftover: [{ s: 900, e: 960 }],
+      holes: [],
+    },
+    {
+      why: 'a long aligned core is the sell layer’s, not this trigger’s',
+      s: 900, e: 1050, gridMin: 30,
+      canonOffers: [],
+      leftover: [{ s: 900, e: 1050 }],
+      holes: [],
+    },
+    {
+      why: 'THE THEOREM AT 60 · shape 2 — canon offers the run entire, nothing is left',
+      s: 900, e: 950, gridMin: 60,
+      // gridStart = 900, gridEnd = 900: the single piece is
+      // [900, min(900+60, 950)) = the whole pocket.
+      canonOffers: [{ s: 900, e: 950 }],
+      leftover: [],
+      holes: [],
+    },
+    {
+      why: 'THE THEOREM AT 60 · shape 1 — the core is a whole number of 60s, never under a slot',
+      s: 900, e: 1020, gridMin: 60,
+      canonOffers: [],
+      leftover: [{ s: 900, e: 1020 }],
+      holes: [],
+    },
+    {
+      why: '⚖ D3 · THE DECLARED REFUSAL at gridMin=90 — the leftover is REAL and is left alone',
+      s: 45, e: 155, gridMin: 90,
+      // gridStart = ceil(45/90)*90 = 90, gridEnd = floor(155/90)*90 = 90:
+      // gridEnd <= gridStart, so canon offers [45, min(45+90, 155)) = [45,135)
+      // and 135-155 reaches nobody — a genuine 20-minute hole. `gridHoleWindows`
+      // answers [] anyway: above one slot the recovery is an unmeasured
+      // generalization, so the trigger's domain stops at `< SELL_SLOT_MIN`.
+      canonOffers: [{ s: 45, e: 135 }],
+      leftover: [{ s: 135, e: 155 }],
+      holes: [],
+    },
+  ]
+
+  it('A1 — an independent oracle: canon’s offers, the leftover, and what may be recovered', () => {
+    for (const row of ORACLE) {
+      const at = `${row.why} · ${span(row.s, row.e)} g=${row.gridMin}`
+      // (i) canon really does offer what the row says by hand.
+      expect({ at, offers: gapFillPieces(row.s, row.e, row.gridMin) }).toEqual({ at, offers: row.canonOffers })
+      // (ii) the row's own leftover is that pocket minus those offers — checked
+      //      against the hand column by an independent walk, so a typo in either
+      //      one shows up here rather than agreeing with itself.
+      const cut = row.canonOffers
+      const byHand = [{ s: row.s, e: row.e }].flatMap((p) => {
+        let runs = [p]
+        for (const c of cut) {
+          runs = runs.flatMap((b) =>
+            c.e <= b.s || c.s >= b.e
+              ? [b]
+              : [...(c.s > b.s ? [{ s: b.s, e: c.s }] : []), ...(c.e < b.e ? [{ s: c.e, e: b.e }] : [])],
+          )
         }
+        return runs
+      })
+      expect({ at, leftover: byHand }).toEqual({ at, leftover: row.leftover })
+      // (iii) the branch check is not what is answering — every row is genuinely
+      //       ON the GRID branch, so the holes column is the FILTER's answer.
+      expect({ at, same: kGridCount(row.s, row.e, row.gridMin, 60) === kPackCount(row.s, row.e, 60) }).toEqual({
+        at,
+        same: true,
+      })
+      // (iv) and the function agrees with the hand-spelled expectation.
+      expect({ at, holes: gridHoleWindows(row.s, row.e, { gridMin: row.gridMin, sessionMin: 60 }) }).toEqual({
+        at,
+        holes: row.holes,
+      })
+    }
+  })
+
+  it('⚖ D3 — the trigger is EMPTY at gridMin=60 by theorem, and REFUSES above it by declaration', () => {
+    // AT 60 — a theorem, brute-forced over every pocket the day can hold. The
+    // two shapes are argued in `gridHoleWindows`' comment; this is the sweep.
+    const offenders: string[] = []
+    for (let s = 540; s <= 1140; s += 5) {
+      for (const len of [5, 15, 20, 30, 45, 50, 55, 60, 75, 90, 115, 120, 185]) {
+        const found = gridHoleWindows(s, s + len, { gridMin: 60, sessionMin: 60 })
+        if (found.length > 0) offenders.push(`${span(s, s + len)} → ${found.map((h) => span(h.s, h.e)).join(',')}`)
       }
     }
     expect(offenders).toEqual([])
+
+    // ABOVE 60 — NOT a theorem. The same sweep at 90 and 120 finds pockets whose
+    // raw arithmetic leaves a real sub-slot leftover, and the trigger declines
+    // every one of them. This is the pin that goes red the day someone widens
+    // the guard without measuring the class first (⚖ D3's rider).
+    const real: string[] = []
+    for (const gridMin of [90, 120]) {
+      for (let s = 540; s <= 1140; s += 5) {
+        for (const len of [75, 90, 115, 120, 185]) {
+          const e = s + len
+          if (kGridCount(s, e, gridMin, 60) !== kPackCount(s, e, 60)) continue
+          const offers = gapFillPieces(s, e, gridMin)
+          const covered = offers.reduce((n, p) => n + (p.e - p.s), 0)
+          const leftover = len - covered
+          if (leftover > 0 && leftover < SELL_SLOT_MIN) real.push(`g=${gridMin} ${span(s, e)} leftover=${leftover}m`)
+          // …and refused, every time, whatever the arithmetic says.
+          expect(gridHoleWindows(s, e, { gridMin, sessionMin: 60 })).toEqual([])
+        }
+      }
+    }
+    // The measurement looked at something — and at real hours of a real day.
+    expect(real.length).toBeGreaterThan(0)
+    expect(real).toContain('g=90 09:35-11:30 leftover=25m')
+    // …plus L1's own construction, which is where the ceiling was found: canon
+    // offers 45–135 of the pocket 45–155 and the last 20 minutes reach nobody.
+    expect(gapFillPieces(45, 155, 90)).toEqual([{ s: 45, e: 135 }])
+    expect(gridHoleWindows(45, 155, { gridMin: 90, sessionMin: 60 })).toEqual([])
+  })
+
+  it('A6 — kGrid ≠ kPack is the PACKER’s class, and the trigger is right to refuse it', () => {
+    // 15:05-16:05 at gridMin=15: exactly one session fits by length (kPack=1)
+    // but not on the grid (from 15:15 there are only 50 minutes left, kGrid=0),
+    // so canon never takes the GRID branch here at all — it packs from the head.
+    const [s, e] = [905, 965]
+    expect(kGridCount(s, e, 15, 60)).toBe(0)
+    expect(kPackCount(s, e, 60)).toBe(1)
+    // The raw arithmetic DOES leave a sub-60 run — this case would be recovered
+    // if the branch check at fallback-cells :267 were deleted…
+    expect(gapFillPieces(s, e, 15)).toEqual([{ s: 905, e: 915 }, { s: 960, e: 965 }])
+    // …45 minutes of it, which is under one slot.
+    expect(960 - 915).toBeLessThan(SELL_SLOT_MIN)
+    // …and the trigger refuses anyway, because the premise it recovers against
+    // (「the GRID branch left this to the sell layer」) is simply not true here.
+    expect(gridHoleWindows(s, e, { gridMin: 15, sessionMin: 60 })).toEqual([])
+    // THE REFUSAL IS CORRECT, proven rather than asserted: canon's packing
+    // branch covers the whole pocket with a full-price session of its own.
+    const { depth, frame } = priceOf()
+    const covered = gapLayerFor(pocketPairLanes(s, e), {
+      gridMin: 15,
+      sessionMin: 60,
+      gapFillMin: REAL.guard.gapFillMinMin,
+      gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
+      minSellableMin: 0,
+      nowMinute: null,
+      locked: [],
+      frame,
+      depth,
+      guard: REAL.guard.config,
+    })
+    expect(covered.packed.filter((c) => c.group === 'staff').map((c) => span(c.s, c.e))).toEqual(['15:05-16:05'])
   })
 
   it('THE MEASURED DEFECT: the 50-minute pocket’s core is advertised at gridMin=30', () => {
@@ -1286,5 +1495,177 @@ describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
       }
     }
     expect(violations).toEqual([])
+  })
+})
+
+// ── 9 · THE TWO PRODUCERS FINISH THE SAME WAY (⚖ R6 fix round D1) ───────────
+//
+// THE DEFECT, found by the round's own blind review (L1-B1 ≡ L2-R1) at tip
+// 5609213d. `gapLayerFor` finishes a layer in three steps and their ORDER is
+// load-bearing: `combineCrumbs` → the store's `minSellableMin` floor → the
+// kind. R6 gave this pass the floor and the kind but not the merge, so it
+// floored canon's UN-combined emission.
+//
+// That matters because canon decomposes. `guardTier` hands a menu-exact
+// residue back in menu-sized pieces — 50 minutes come out of the fixture
+// store's menu as [30, 20] — and those two pieces are ONE bookable span. Floor
+// first and the store's 30-minute dial deletes the 20-minute tail of a run the
+// native layer draws whole at 50: minutes that were advertised before R6 added
+// the floor simply vanish, and the pair that survives charges the ¥10 rounding
+// remainder twice (BATCH-5 R2, which is why `combineCrumbs` re-prices the
+// union with one call).
+//
+// §9 drives L1's own construction — one person, one 50-minute pocket, one free
+// room, the store's SHIPPED dials — and pins the fallback's answer against the
+// native layer's on the same board.
+
+describe('9 — merge, then floor, then kind: the fallback finishes as the native layer does', () => {
+  const worldOf = (s: number, e: number, minSellableMin: number): World => ({
+    name: `pocket ${span(s, e)}`,
+    lanes: pocketPairLanes(s, e),
+    hours: SYNTH_HOURS,
+    now: null,
+    rooms: REAL.rooms,
+    cleanup: {},
+    guard: REAL.guard.config,
+    minSellableMin,
+  })
+  /** The reconcile's own payload for 「this lane lost its 15:00 offer to a room
+   *  clash」 — the trigger the drop class exists for, handed in rather than
+   *  provoked, so the scene is exactly the length under test and nothing else. */
+  const dropAt = (h: number): SellDrop[] => [{ laneKey: 'p-01', h, kind: 'room' } as SellDrop]
+  const pass = (w: World, d: Dials, dropped: SellDrop[]) =>
+    fallbackCellsFor({
+      lanes: w.lanes,
+      closeMin: w.hours.close,
+      dropped,
+      survivors: [],
+      claims: [],
+      cleanupMinutesByBed: w.cleanup,
+      rooms: w.rooms,
+      held: [],
+      minSellableMin: w.minSellableMin,
+      dials: dialsOf(w, d),
+    })
+  const staffRows = (r: FallbackResult) => [...r.packed, ...r.scraps].filter((c) => c.group === 'staff')
+  const nativeOn = (lanes: BoardLane[], d: Dials, minSellableMin: number) => {
+    const { depth, frame } = priceOf()
+    return gapLayerFor(lanes, {
+      gridMin: d.gridMin,
+      sessionMin: d.sessionMin,
+      gapFillMin: d.gapFillMin,
+      gapFillDiscountPct: REAL.guard.gapFillDiscountPct,
+      minSellableMin,
+      nowMinute: null,
+      locked: [],
+      frame,
+      depth,
+      guard: REAL.guard.config,
+    })
+  }
+  const LIST = 7000 // the synthetic lane's 定価 (`lane()`'s own default)
+
+  it('THE MEASURED DEFECT: the 50-minute run comes back WHOLE, at the native layer’s exact ¥', () => {
+    const { depth, frame } = priceOf()
+    // THE PREMISE, measured rather than assumed: this store's menu really does
+    // decompose 50 minutes into two pieces, and 50 really is menu-exact (so
+    // canon calls it a full-price residue, not a discounted scrap).
+    const engine = createGapGuard(REAL.guard.config)
+    expect(engine.fillableExactly(50)).toBe(true)
+    expect(engine.fillDecomposition(50)).toEqual([30, 20])
+    // …and the store's own floor is 30, which is what deletes a 20-minute tail.
+    expect(REAL.guard.minSellableMin).toBe(30)
+
+    // ONE BOX, at the store's SHIPPED dials, whatever the floor says.
+    for (const floor of [0, 30]) {
+      const r = pass(worldOf(900, 950, floor), shipped(), dropAt(900))
+      expect({ floor, boxes: staffRows(r).map((c) => `${span(c.s, c.e)} ¥${c.price} ${c.gapKind}`) }).toEqual({
+        floor,
+        boxes: ['15:00-15:50 ¥5840 packed'],
+      })
+    }
+
+    // …and it is the NATIVE layer's own answer on the same board, to the yen.
+    const native = nativeOn(pocketPairLanes(900, 950), shipped(), 30)
+    expect(native.packed.filter((c) => c.group === 'staff').map((c) => `${span(c.s, c.e)} ¥${c.price}`)).toEqual([
+      '15:00-15:50 ¥5840',
+    ])
+
+    // THE PRICE IS ONE CALL OVER THE UNION, not two rounded pieces added up —
+    // the ¥10 difference is the whole of BATCH-5 R2, computed here from the
+    // pricing home directly rather than by asking the pass twice.
+    const union = packedPrice(LIST, 900, 950, frame, depth)
+    const summed = packedPrice(LIST, 900, 930, frame, depth) + packedPrice(LIST, 930, 950, frame, depth)
+    expect(union).toBe(5840)
+    expect(summed).toBe(5850)
+    expect(union).not.toBe(summed)
+  })
+
+  it('and the floor is the LAST word, on the merged run — a 35-minute scrap survives, a 20-minute one does not', () => {
+    // A scrap is NOT merged (canon's own answer: `raw.scraps.filter(sellable)`),
+    // so the floor meets it exactly as it comes — 35 minutes clears the store's
+    // 30 and is drawn, with its kind said on the box.
+    const scrapRun = pass(worldOf(900, 935, 30), shipped(), dropAt(900))
+    expect(scrapRun.packed).toHaveLength(0)
+    expect(scrapRun.scraps.length).toBeGreaterThan(0)
+    // ⚖ A3 (L4-3) — asserted on a FALLBACK scrap that actually exists. The
+    // flip suite's loop over `fallback.scraps` was iterating an empty array on
+    // its board, so `gapKind` could have been anything at all on this half.
+    for (const c of scrapRun.scraps) expect(gapKindOf(c)).toBe('scrap')
+    for (const c of scrapRun.scraps) expect(c.gapKind).toBe('scrap')
+    expect(staffRows(scrapRun).map((c) => span(c.s, c.e))).toEqual(['15:00-15:35'])
+
+    // …and the same board with a floor above it draws nothing, which is the
+    // dial doing its job rather than the pass having nothing to say.
+    expect(pass(worldOf(900, 935, 40), shipped(), dropAt(900)).claims).toHaveLength(0)
+  })
+
+  it('A9 — the floor bites at the length it names, not nine minutes below it', () => {
+    // A 25-MINUTE CELL, which the battery had no way to build before: at
+    // `gapFillMin` 20 the store offers スキマ枠 down to 20 minutes, so a
+    // 25-minute pocket comes back as a 25-minute scrap. Without it the floor's
+    // pins live at 20 and 30 and every mutation inside that band survives.
+    const d: Dials = { gridMin: 60, sessionMin: 60, gapFillMin: 20 }
+    const at = (floor: number) => staffRows(pass(worldOf(900, 925, floor), d, dropAt(900))).map((c) => `${span(c.s, c.e)} ¥${c.price}`)
+    expect(at(0)).toEqual(['15:00-15:25 ¥2630'])
+    // EQUAL TO THE FLOOR IS SELLABLE — `>=`, not `>`.
+    expect(at(25)).toEqual(['15:00-15:25 ¥2630'])
+    // …and one minute more deletes it, so the comparison is the length's own.
+    expect(at(26)).toEqual([])
+    // …as does the store's real 30, which is what kills a floor quietly
+    // slackened by nine or ten minutes.
+    expect(at(30)).toEqual([])
+  })
+
+  it('A4 — `claims` is the DRAWN list, on a board where the floor really deletes something', () => {
+    // The fixture board at gridMin=30: the floor takes 見本しろう's 20-minute
+    // box off the board entirely. A claim the board never draws is not a claim,
+    // so `claims` must be the filtered pair — not the emission.
+    const open = run({ ...fixtureWorld(), minSellableMin: 0 }, { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin })
+    const floored = run({ ...fixtureWorld(), minSellableMin: 30 }, { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin })
+    // THE PREMISE: the floor is not a no-op here — one box (two rows) is gone.
+    expect(boxes(open.fallback).map((c) => span(c.s, c.e))).toContain('15:45-16:05')
+    expect(boxes(floored.fallback).map((c) => span(c.s, c.e))).not.toContain('15:45-16:05')
+    expect(floored.fallback.claims.length).toBe(open.fallback.claims.length - 2)
+    // …and the claims list is exactly what was drawn, both rows, in order.
+    expect(floored.fallback.claims).toEqual([...floored.fallback.packed, ...floored.fallback.scraps])
+    expect(open.fallback.claims).toEqual([...open.fallback.packed, ...open.fallback.scraps])
+  })
+
+  it('A5 — the floor is applied at the END: the walk itself is byte-identical at floor 0 and 30', () => {
+    // `clips` is the walk's own record (spec §5c). Move the floor up into the
+    // emission and the walk changes shape — a floored box stops spending its
+    // room, the next room in the class order gets handed the same minute, and
+    // the clip list shifts. Pinned on both boards, and on the constructed scene
+    // where the deleted box is the whole of the answer.
+    const dial: Dials = { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin }
+    for (const make of [fixtureWorld, syntheticWorld]) {
+      const clipsAt = (floor: number) => run({ ...make(), minSellableMin: floor }, dial).fallback.clips
+      expect(clipsAt(0).length).toBeGreaterThan(0)
+      expect(clipsAt(30)).toEqual(clipsAt(0))
+    }
+    const sceneClips = (floor: number) => pass(worldOf(900, 950, floor), dial, dropAt(900)).clips
+    expect(sceneClips(0).length).toBeGreaterThan(0)
+    expect(sceneClips(30)).toEqual(sceneClips(0))
   })
 })
