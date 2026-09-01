@@ -29,11 +29,19 @@
 //      RESIDUAL-CLASS-e2, the measurement spec §5c makes the canon flag
 //      conditional on.
 //
-// ⚠ THE FLOOR IS NOT HERE, AND SHOULD NOT BE. `gapLayerFor` applies
-// `combineCrumbs` and the store's `minSellableMin` floor AFTER
-// `deriveGapPackingCells`; the fallback pass stops at canon's raw emission,
-// exactly where the packet puts it, so those two are the seam's business at E3
-// and this file pins the engine's own answer.
+//   §8 THE GRID HOLE (⚖ R6 B1) — `gridHoleWindows`' own arithmetic, the
+//      probe's 50-minute pocket closed at gridMin=30, and the property that a
+//      finer customer grid never takes a pocket from sold to nothing.
+//
+// ⚠ THE FLOOR MOVED AT R6, AND THE E2 NOTE THAT STOOD HERE IS WHY. It read
+// 「THE FLOOR IS NOT HERE, AND SHOULD NOT BE … those two are the seam's business
+// at E3」 — and at E3 the seam took `combineCrumbs`' half and left the other
+// half nowhere, so a fragment shorter than the store's `minSellableMin` was
+// drawn out of the fallback while the native layer deleted the very same shape.
+// `minSellableMin` is now an input to the pass and is applied where
+// `gapLayerFor` applies its own (over the finished cells), so this file drives
+// it exactly as the screen does. `combineCrumbs` is still NOT this pass's — see
+// §8's own note.
 
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/supabase/server', () => ({ createClient: jest.fn() }))
@@ -66,6 +74,7 @@ import {
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
   freePockets,
+  gapFillPieces,
   kGridCount,
   kPackCount,
   type GapCell,
@@ -213,6 +222,10 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = []): Run {
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held,
+      // ⚖ R6 B1 — the screen hands the pass the store's own floor now
+      // (TodayScreen `salesDoor`), so this composer does too: a battery that
+      // drives the seam differently from the screen proves the wrong thing.
+      minSellableMin: w.minSellableMin,
       dials: {
         gridMin: d.gridMin,
         sessionMin: d.sessionMin,
@@ -813,10 +826,19 @@ describe('5 — the pass is pure', () => {
       cleanupMinutesByBed: w.cleanup,
       rooms: w.rooms,
       held: maskFor(w, w.guard, 'standard'),
+      minSellableMin: w.minSellableMin,
     }
     const before = JSON.stringify(input)
-    fallbackCellsFor({ ...input, dials: dialsOf(w, shipped()) })
-    fallbackCellsFor({ ...input, dials: dialsOf(w, shipped()) })
+    // ⚖ R6 B1 — AND AT THE DIALS THE NEW TRIGGER FIRES AT. `shipped()` is
+    // gridMin 60, where the grid-hole class is structurally empty, so the
+    // StrictMode mutant used to walk only the drop class's code. The second
+    // pair drives the same inputs through the trigger that walks a pocket
+    // NOTHING was dropped from — the walk that could most easily have started
+    // writing on the lanes it was handed.
+    const hole: Dials = { ...shipped(), gridMin: 30, sessionMin: 60 }
+    for (const d of [shipped(), shipped(), hole, hole]) {
+      fallbackCellsFor({ ...input, dials: dialsOf(w, d) })
+    }
     expect(JSON.stringify(input)).toBe(before)
   })
 })
@@ -1048,5 +1070,202 @@ describe('7 — the sweep and the residual-class measurement', () => {
     // ⚠ THE STOP CONDITION. A non-zero row is a canon-edit question and the
     // packet forbids answering it here: name the scene and stop.
     expect(offenders).toEqual([])
+  })
+})
+
+// ── 8 · THE GRID HOLE (⚖ R6 B1) ─────────────────────────────────────────────
+//
+// THE DEFECT, measured at tip 4d10d4d5 (PROBE-R5R6 §3). `deriveGapPackingCells`
+// takes its GRID branch when `S === 60 && kGrid === kPack` (availability.ts:427)
+// and then offers only what `gapFillPieces` hands back. The rest it leaves "to
+// the sell layer", which sells `SELL_SLOT_MIN` slots and nothing else — so a
+// leftover shorter than one slot reaches NOBODY. At gridMin=30 a 50-minute
+// pocket with two beds standing empty advertised ZERO of its 50 minutes at the
+// store's own floor. At the shipped gridMin=60 the same pocket sold whole.
+//
+// ⚠ WHAT §8 DELIBERATELY DOES NOT PIN. `combineCrumbs` is still not this pass's:
+// a recovered run that canon's `guardTier` decomposes into two menu-exact pieces
+// comes back as two boxes where the native layer would have merged them into
+// one. Pre-existing (it is true of the drop class too), out of R6's scope, and
+// named here rather than left for someone to rediscover.
+
+/** The probe's own construction (PROBE-R5R6 §3), rebuilt on the FIXTURE's real
+ *  lanes — real labels, real `listPrice`, real shift windows, real room classes
+ *  and the store's real menu — so the pin measures the world the defect was
+ *  measured in. Every staff and bed lane is emptied except the target, which is
+ *  walled into a pocket of exactly `len` minutes at 15:00: after `now`, strictly
+ *  inside its own shift. bed-02 and bed-03 are provably free across the whole
+ *  pocket, so "no bed available" can never be the explanation for a zero. */
+const POCKET_START = 900
+
+function pocketWorld(len: number): { w: World; targetKey: string; pEnd: number } {
+  const base = fixtureWorld()
+  const src = base.lanes.find(
+    (l) =>
+      l.group === 'staff' &&
+      l.listPrice > 0 &&
+      (l.window?.from ?? Number.POSITIVE_INFINITY) <= POCKET_START &&
+      (l.window?.until ?? -1) >= POCKET_START + 60,
+  )
+  if (!src?.window) throw new Error('no fixture staff lane covers the pocket — the scene is not buildable')
+  const from = Math.max(base.hours.open, src.window.from)
+  const until = Math.min(base.hours.close, src.window.until)
+  const pEnd = POCKET_START + len
+  if (!(POCKET_START > from && pEnd < until)) throw new Error(`pocket ${POCKET_START}-${pEnd} outside shift ${from}-${until}`)
+  const bedKeys = base.lanes.filter((l) => l.group === 'beds').map((l) => l.key)
+  const wall = (key: string, s: number, e: number, tag: string): BoardItem =>
+    item({ key, kind: 'booking', startMin: s, endMin: e, tag, caseId: key, title: 'PIN' })
+  const lanes = base.lanes.map((l) => {
+    if (l.group === 'staff' && l.key === src.key) {
+      return {
+        ...l,
+        items: [wall('pin-A', from, POCKET_START, `【${bedKeys[0]}】`), wall('pin-B', pEnd, until, `【${bedKeys[0]}】`)],
+      }
+    }
+    if (l.group === 'staff') return { ...l, items: [] }
+    if (l.key === bedKeys[0]) {
+      return {
+        ...l,
+        items: [wall('pin-A', from, POCKET_START, `【${src.key}】`), wall('pin-B', pEnd, until, `【${src.key}】`)],
+      }
+    }
+    return { ...l, items: [] }
+  })
+  return { w: { ...base, name: `pocket-${len}`, lanes }, targetKey: src.key, pEnd }
+}
+
+/** Minutes of the pocket the board advertises on the TARGET lane, over both
+ *  producers — the native layer's boxes plus the fallback's additions, which is
+ *  exactly what `gapDrawn` hands the renderer (TodayScreen). Staff rows only:
+ *  the bed row is the same offer drawn a second time. */
+function soldInPocket(w: World, d: Dials, targetKey: string, pEnd: number): Array<{ s: number; e: number; from: string }> {
+  const r = run(w, d)
+  const inside = (s: number, e: number) => s >= POCKET_START && e <= pEnd
+  return [
+    ...r.claims
+      .filter((c) => c.group === 'staff' && c.laneKey === targetKey && inside(c.s, c.e))
+      .map((c) => ({ s: c.s, e: c.e, from: 'native' })),
+    ...boxes(r.fallback)
+      .filter((c) => c.laneKey === targetKey && inside(c.s, c.e))
+      .map((c) => ({ s: c.s, e: c.e, from: 'fallback' })),
+  ].sort((a, b) => a.s - b.s)
+}
+
+const minutesOf = (runs: Array<{ s: number; e: number }>) => runs.reduce((n, x) => n + (x.e - x.s), 0)
+
+describe('8 — the GRID hole is closed at sub-60 grids (⚖ R6 B1)', () => {
+  it('gridHoleWindows: canon’s own leftovers, and only the ones no sell slot can reach', () => {
+    const S = 60
+    // (a) THE CORE. 900-950 at gridMin=30: `gapFillPieces` returns only the tail
+    //     930-950, so 900-930 is the leftover — 30 minutes, under one slot.
+    expect(gridHoleWindows(900, 950, { gridMin: 30, sessionMin: S })).toEqual([{ s: 900, e: 930 }])
+    // (b) THE :312 TAIL, which the packet's `[ceil(s/g)*g, floor(e/g)*g)` core
+    //     formula computes as EMPTY and would have recovered nothing from.
+    //     905-955 at gridMin=30 has gridEnd === gridStart === 930, so
+    //     `gapFillPieces` falls to its `[{s, min(s+gridMin, e)}]` tail and offers
+    //     905-935 alone; 935-955 is nobody's.
+    expect(gapFillPieces(905, 955, 30)).toEqual([{ s: 905, e: 935 }])
+    expect(gridHoleWindows(905, 955, { gridMin: 30, sessionMin: S })).toEqual([{ s: 935, e: 955 }])
+    // (c) A LEFTOVER A SELL SLOT CAN REACH IS NOT THE CLASS — the GRID branch's
+    //     premise holds there and the sell layer is the one that answers.
+    expect(gridHoleWindows(900, 1050, { gridMin: 30, sessionMin: S })).toEqual([])
+    // (d) NOT THE GRID BRANCH AT ALL: `S !== 60` takes canon's else branch,
+    //     which packs from the head and scraps the residue itself.
+    expect(gridHoleWindows(900, 950, { gridMin: 30, sessionMin: 90 })).toEqual([])
+  })
+
+  it('the class is EMPTY at every gridMin >= SELL_SLOT_MIN — the shipped board pays nothing', () => {
+    const offenders: string[] = []
+    for (const gridMin of [60, 90, 120]) {
+      for (let s = 540; s <= 1140; s += 5) {
+        for (const len of [5, 15, 20, 30, 45, 50, 55, 60, 75, 90, 115, 120, 185]) {
+          const found = gridHoleWindows(s, s + len, { gridMin, sessionMin: 60 })
+          if (found.length > 0) offenders.push(`grid=${gridMin} ${span(s, s + len)} → ${found.map((h) => span(h.s, h.e)).join(',')}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('THE MEASURED DEFECT: the 50-minute pocket’s core is advertised at gridMin=30', () => {
+    const { w, targetKey, pEnd } = pocketWorld(50)
+    const floor = w.minSellableMin
+    expect(floor).toBeGreaterThan(0) // the shipped floor, or the pin proves nothing about it
+
+    // BEFORE, still true: canon alone offers nothing here. `gapFillPieces` hands
+    // back only the 20-minute tail and the store's own floor deletes even that,
+    // which is the probe's 「0 of 50 with two beds standing empty」.
+    const d: Dials = { gridMin: 30, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin }
+    const native = soldInPocket(w, d, targetKey, pEnd).filter((x) => x.from === 'native')
+    expect(native).toEqual([])
+
+    // AFTER: the core comes back, whole, from the fallback.
+    const sold = soldInPocket(w, d, targetKey, pEnd)
+    expect(sold.map((x) => `${span(x.s, x.e)} ${x.from}`)).toEqual(['15:00-15:30 fallback'])
+
+    // …bed-feasible: it names a room that is genuinely free for its whole span,
+    // and the room is not the one the walls sit on.
+    const r = run(w, d)
+    const cell = boxes(r.fallback)[0]
+    const room = w.lanes.find((l) => l.key === cell.resourceKey)!
+    expect(room.group).toBe('beds')
+    expect(room.items.some((i) => i.endMin > cell.s && i.startMin < cell.e)).toBe(false)
+    // …floor-respecting: nothing this pass emits is shorter than the store's dial.
+    for (const b of boxes(r.fallback)) expect(b.e - b.s).toBeGreaterThanOrEqual(floor)
+    // …and priced by the packing layer's own closures, not by a second home.
+    expect(cell.price).toBe(packedPrice(w.lanes.find((l) => l.key === targetKey)!.listPrice, cell.s, cell.e, priceOf().frame, priceOf().depth))
+  })
+
+  it('the shipped gridMin=60 answer is untouched — the 50-minute pocket still sells whole', () => {
+    const { w, targetKey, pEnd } = pocketWorld(50)
+    const d: Dials = { gridMin: 60, sessionMin: 60, gapFillMin: REAL.guard.gapFillMinMin }
+    // Canon sells it as one 50-minute packed session and the fallback adds
+    // nothing — the class is structurally empty at this grid.
+    expect(soldInPocket(w, d, targetKey, pEnd).map((x) => `${span(x.s, x.e)} ${x.from}`)).toEqual(['15:00-15:50 native'])
+    expect(boxes(run(w, d).fallback)).toEqual([])
+  })
+
+  it('IDENTITY: at the shipped dials no pocket on either board has an uncoverable core, so the pass is E2’s', () => {
+    // The trigger's ONLY reach into the pass is the window list it contributes
+    // (`fallbackCellsFor`'s `windows`), so "no window anywhere" IS "byte-identical
+    // to the pass without the trigger" — asserted over every free pocket of every
+    // staff lane of both boards rather than argued.
+    const d = shipped()
+    const holes: string[] = []
+    for (const make of [fixtureWorld, syntheticWorld]) {
+      const w = make()
+      for (const l of w.lanes) {
+        if (l.group !== 'staff' || l.window == null) continue
+        for (const h of holeWindowsOn(w, d, l.key)) holes.push(`${w.name} ${l.key} ${span(h.s, h.e)}`)
+      }
+    }
+    expect(holes).toEqual([])
+    // …and the measurement looked at something: the same walk at gridMin=30 finds
+    // the class, so the zero above is the DIAL's answer and not an empty loop.
+    const fine: Dials = { ...d, gridMin: 30, sessionMin: 60 }
+    const atFine = [fixtureWorld, syntheticWorld].flatMap((make) => {
+      const w = make()
+      return w.lanes.filter((l) => l.group === 'staff' && l.window != null).flatMap((l) => holeWindowsOn(w, fine, l.key))
+    })
+    expect(atFine.length).toBeGreaterThan(0)
+  })
+
+  it('halving gridMin never takes a pocket from sold to ZERO while a feasible bed exists', () => {
+    const violations: string[] = []
+    for (const len of [45, 50, 55]) {
+      const { w, targetKey, pEnd } = pocketWorld(len)
+      for (const sessionMin of [45, 60, 90]) {
+        for (const minSellableMin of [0, 30]) {
+          const world = { ...w, minSellableMin }
+          const at = (gridMin: number) =>
+            minutesOf(soldInPocket(world, { gridMin, sessionMin, gapFillMin: REAL.guard.gapFillMinMin }, targetKey, pEnd))
+          const coarse = at(60)
+          const fine = at(30)
+          const label = `${len}min pocket · S=${sessionMin} minSell=${minSellableMin}: 60→${coarse} 30→${fine}`
+          if (coarse > 0 && fine === 0) violations.push(label)
+        }
+      }
+    }
+    expect(violations).toEqual([])
   })
 })

@@ -99,7 +99,7 @@ import {
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
-import { DENSITY_CEILING, money, packedPrice, priceAt } from '@/business/lib/canon-logic/pricing'
+import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
 import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
@@ -9087,5 +9087,60 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).done).toBe(false)
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).progress).toBeGreaterThan(1)
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 601)).toEqual({ progress: 0, done: true })
+  })
+})
+
+// ── ⚖ R6 B2 · 次回予約の仮押さえカードの金額 ────────────────────────────────
+//
+// THE LIE, measured at tip 4d10d4d5. `placeNextVisit` wrote
+// `ticketCore: yen(dialogs.pricing.base)` — the store's FLAT 基準価格. It is
+// neither this person's 定価 (staff prices differ: the fixture runs 7,000 /
+// 7,700 / 8,800) nor this hour's (the curve dips 15% at 15:00 and sits at the
+// peak at 17:00), so a ¥7,700 staff member's staged card read ¥6,600 at every
+// hour of every day — and the 仮押さえ bar's own sentence quotes the same field.
+//
+// ⚖ THE LAW IT IS FIXED UNDER: ¥ is the board's own price BY CONSTRUCTION.
+// `priceAt` is the one home the sell layer prices with (today-interactions
+// :1114); minting the staged card through it means the card and the 販売可能枠
+// box it lands on cannot disagree.
+describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not by the flat base', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  /** The store's own levers, exactly as TodayScreen composes them from the HQ
+   *  frame (`clampPriceInputs(hqMax, base, pricingRule)` on fixtures-today's
+   *  6,600 / 6,600 / 7,260) — the same three numbers ⚖ 92's warn-card pins use. */
+  const HI = 7260
+  const HQ_MIN = 6600
+  const DEPTH = 9
+  const BASE = 6600
+
+  it('the spelling is `priceAt`, and the flat base is gone', () => {
+    expect(SRC).toContain(
+      'ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),',
+    )
+    expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
+  })
+
+  it('and it is a real difference — the ¥7,700 staff member’s card was wrong at every hour', () => {
+    // The lane the probe named: a 定価 that is not the store's base at all.
+    const LIST = 7700
+    expect(LIST).not.toBe(BASE)
+    // Every hour the curve knows: the board's answer, and never the flat base.
+    const hours = Object.keys(SELL_CURVE).map(Number).sort((a, b) => a - b)
+    expect(hours.length).toBeGreaterThan(0)
+    for (const h of hours) {
+      const board = priceAt(LIST, h, HI, HQ_MIN, DEPTH)
+      expect({ h, board, base: BASE, same: board === BASE }).toEqual({ h, board, base: BASE, same: false })
+    }
+    // …and the hour actually moves it, so "use priceAt" is not a rename of a
+    // constant: 15:00 sits in the curve's dip and 17:00 at its peak.
+    expect(priceAt(LIST, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 17, HI, HQ_MIN, DEPTH))
+    // …and the staff member's own 定価 moves it too — the other half of the lie.
+    expect(priceAt(7000, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 15, HI, HQ_MIN, DEPTH))
+  })
+
+  it('the staged card asks the SAME function the 販売可能枠 box under it asks', () => {
+    // One home, proven at the two call sites rather than asserted in prose.
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8'))
+      .toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
   })
 })
