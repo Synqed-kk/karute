@@ -370,6 +370,26 @@ describe('⚖ EVERY REFUSAL IS ITS OWN, AND NAMES ITS SEAM', () => {
     expect(readPrefs('{"density":"compact","emphasis":"strong"}')).toEqual({ density: 'compact', emphasis: 'strong' })
   })
 
+  // ⚠ ADDED BY THE BATTERY (M18 survived without it). The census above covers the
+  // sixteen DIAL refusals; the BOUNDARY sentences a gated section renders were
+  // held by nothing, and one of them carries the room's most easily-lost truth.
+  it('a boundary sentence names its seam too — including the token that does not exist', async () => {
+    const props = await room({ store: STORE_A })
+    const structure = props.sections.find((s) => s.id === 'business-structure')!
+    expect(structure.gate).toBe('no-rights')
+    // ⚠ `business.manage` is NOT one of canon's eight real tokens (DIAL-HOME-MAP
+    // (c)2). The honest sentence says the row is unreachable for EVERYONE rather
+    // than implying a permission somebody could be granted, and it names the
+    // registry line that token has to be minted through.
+    expect(structure.boundaryLine).toContain('登録: ②')
+    expect(structure.boundaryLine).toContain('どの役職からも開けない')
+    // …while a row gated on a token that DOES exist stays an ordinary permission
+    // sentence, naming the reader's own role rather than a registry line.
+    const billing = props.sections.find((s) => s.id === 'billing')!
+    expect(billing.boundaryLine).not.toContain('登録:')
+    expect(billing.boundaryLine).toContain(operator.role)
+  })
+
   it('the 保存できません line rides STORE sections only', () => {
     // Printing it under a block that really does save would be the page
     // contradicting the control the reader just used.
@@ -418,6 +438,25 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
 
   it('the screen is keyed by the resolved lens, so an open section cannot survive a switch', () => {
     expect(PAGE_SRC).toContain('<SettingsScreen key={storeKey}')
+  })
+
+  // ⚠ ADDED BY THE BATTERY (M6 survived without it). Every other pin here hands
+  // the room an EXPLICIT store, so the clamp's real job — deciding what happens
+  // when the URL names no store, or names one that is not ours — was held by
+  // nothing. A clamp that answered `null` there would open the page on
+  // すべての店舗 and turn every store section into 「店舗を選んでください」,
+  // which is the ⚖ 8/17 failure from the quiet end rather than the loud one.
+  it('no ?store= and an UNKNOWN ?store= both open on a real store, never on すべての店舗', async () => {
+    for (const store of [undefined, 'store-that-is-not-ours']) {
+      const { props, storeKey } = await settingsProps({ locale: 'ja', store })
+      expect({ store, key: storeKey }).not.toEqual({ store, key: 'all-stores' })
+      expect({ store, label: props.lensLabel }).not.toEqual({ store, label: 'すべての店舗' })
+      // …and the section really carries its dials, rather than the designed
+      // no-store panel a null lens would render.
+      const hours = props.sections.find((s) => s.id === 'store-hours')!
+      expect({ store, dials: hours.dials.length }).toEqual({ store, dials: 5 })
+      expect({ store, kicker: hours.kicker }).not.toEqual({ store, kicker: '店舗を選んでください' })
+    }
   })
 })
 
