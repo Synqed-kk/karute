@@ -243,6 +243,8 @@ export type FacadeEndpointKey =
   | 'customer.consent.read'
   | 'customer.consent.revoke'
   | 'customer.create'
+  | 'customer.deletion.cancel'
+  | 'customer.deletion.schedule'
   | 'customer.lifecycle.set'
   | 'customer.memory.add'
   | 'customer.memory.delete'
@@ -694,6 +696,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer' },
   'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer' },
   'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer' },
+  // The 30-day deletion pair (PHONEWIRE-2B) — the phone twins of the web
+  // actions' privacy.* rows. Category 'privacy', not 'customer': the act is
+  // an APPI erasure decision, and the audit viewer's privacy filter is where
+  // a manager looks for it (the web emitDeletionAudit files it there too).
+  // A guarded no-op files nothing — both routes set ctx.auditSuppress.
+  'customer.deletion.schedule': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_scheduled', targetType: 'customer' },
+  'customer.deletion.cancel': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_canceled', targetType: 'customer' },
   'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
 
   // Photos are the customer (§3.1).

@@ -225,3 +225,27 @@
   argument, and as a client-invokable action a caller could name any business
   · Liam (⚖ 8/20 discard doctrine + ⚖ 8/12 one system two doors, packet
   PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
+- 2026-09-02 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update#scheduleCustomerDeletionWithClient · PHONEWIRE-2B:
+  the 30-day deletion pair's bodies moved into WithClient twins
+  so the web action and the new facade POST run ONE body — the same
+  Core/WithClient split updateCustomerWithClient already uses in this entry,
+  where the shared core stays audit-free. The `customers.update` call inside it
+  is byte-unchanged (same soft-delete set, ⚖ NO hard delete, Liam 2026-07-19);
+  only its enclosing symbol is new, which is why the gate sees an addition.
+  STRICTLY NARROWER than what it replaces: the old symbol
+  `scheduleCustomerDeletion` covered the whole cookie action, this one covers
+  only the shared write body, and the old name was pruned rather than left
+  dead. BOTH doors are covered — the web wrapper still calls emitDeletionAudit
+  (AUDITED_CORES) unconditionally on its success path, and the facade door's
+  new key customer.deletion.schedule is a LIVE FACADE_AUDIT_MAP mutation row
+  emitting privacy.customer_delete_scheduled (a guarded no-op files nothing:
+  the route sets ctx.auditSuppress) · Liam (⚖ 7/19 no-hard-delete + ⚖ 8/12 one
+  system two doors, packet PACKET-PHONEWIRE-2B-2026-09-01.md,
+  karute-field-issues lane)
+- 2026-09-02 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update#cancelCustomerDeletionWithClient · The
+  undo half of the same split, same reasoning line for line: byte-unchanged
+  `customers.update` (deleted_at → null) inside a new, strictly narrower symbol;
+  `cancelCustomerDeletion` pruned; the web wrapper keeps its emitDeletionAudit
+  and the new customer.deletion.cancel key is a LIVE FACADE_AUDIT_MAP mutation
+  row emitting privacy.customer_delete_canceled · Liam (same ruling and packet
+  as the entry above)

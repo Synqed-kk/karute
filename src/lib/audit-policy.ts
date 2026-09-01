@@ -353,10 +353,14 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/customers.ts',
     call: 'customers.update',
-    symbols: ['updateCustomerWithClient', 'scheduleCustomerDeletion', 'cancelCustomerDeletion'],
+    symbols: [
+      'updateCustomerWithClient',
+      'scheduleCustomerDeletionWithClient',
+      'cancelCustomerDeletionWithClient',
+    ],
     justification:
-      "customer.update is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — this call site sits inside updateCustomerWithClient/scheduleCustomerDeletion/cancelCustomerDeletion, none of which are AUDITED_CORES symbols. Web-path coverage: updateCustomerWithClient's caller (updateCustomer) conditionally auditWebs customer.edit (see AUDITED_CORES unproven note); scheduleCustomerDeletion/cancelCustomerDeletion each call emitDeletionAudit (AUDITED_CORES) unconditionally on the success path — verified at source, not lexically provable by symbol-span containment.",
-    dated: '2026-07-27',
+      "customer.update is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — this call site sits inside updateCustomerWithClient/scheduleCustomerDeletionWithClient/cancelCustomerDeletionWithClient, none of which are AUDITED_CORES symbols. Web-path coverage: updateCustomerWithClient's caller (updateCustomer) conditionally auditWebs customer.edit (see AUDITED_CORES unproven note). PHONEWIRE-2B: the deletion pair's bodies moved into WithClient twins so the web actions and the new facade POSTs run ONE body — the same Core/WithClient split as updateCustomerWithClient above, where the shared core stays audit-free. BOTH doors are covered: customer.deletion.schedule / .cancel are LIVE FACADE_AUDIT_MAP mutation rows emitting privacy.customer_delete_scheduled / _canceled (a guarded no-op files nothing — the routes set ctx.auditSuppress), and the web wrappers scheduleCustomerDeletion/cancelCustomerDeletion each call emitDeletionAudit (AUDITED_CORES) unconditionally on their success path — verified at source, not lexically provable by symbol-span containment.",
+    dated: '2026-09-02',
   },
   {
     file: 'src/actions/customers.ts',
