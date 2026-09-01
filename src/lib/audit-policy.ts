@@ -343,6 +343,14 @@ export const SDK_WRITE_ALLOWLIST: {
   },
   {
     file: 'src/actions/customers.ts',
+    call: 'customers.create',
+    symbols: ['createCustomerWithClient', 'createQuickCustomerWithClient'],
+    justification:
+      "PHONEWIRE-1: the create bodies moved into WithClient twins so the web action and the new facade POSTs run ONE body — the same Core/WithClient split as updateCustomerWithClient below, where the shared core stays audit-free. Both doors ARE covered: customer.create / customer.quickCreate are LIVE FACADE_AUDIT_MAP mutation rows (facade auto-emit, target id from ctx.auditTargetId), and the web wrappers createCustomer/createQuickCustomer — both AUDITED_CORES symbols — emit customer.create unconditionally on their success path.",
+    dated: '2026-09-01',
+  },
+  {
+    file: 'src/actions/customers.ts',
     call: 'customers.update',
     symbols: ['updateCustomerWithClient', 'scheduleCustomerDeletion', 'cancelCustomerDeletion'],
     justification:

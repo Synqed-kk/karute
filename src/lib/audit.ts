@@ -242,6 +242,7 @@ export type FacadeEndpointKey =
   | 'customer.consent.grant'
   | 'customer.consent.read'
   | 'customer.consent.revoke'
+  | 'customer.create'
   | 'customer.lifecycle.set'
   | 'customer.memory.add'
   | 'customer.memory.delete'
@@ -258,6 +259,7 @@ export type FacadeEndpointKey =
   | 'customer.photo.delete'
   | 'customer.photo.upload'
   | 'customer.photos.list'
+  | 'customer.quickCreate'
   | 'customer.read'
   | 'customer.update'
   | 'customers.list'
@@ -351,6 +353,16 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // Opening ONE customer's full profile = a view event.
   'customer.read': { kind: 'view', category: 'customer', action: 'customer.view', targetType: 'customer' },
   'customer.update': { kind: 'mutation', category: 'customer', action: 'customer.edit', targetType: 'customer' },
+  // 新規顧客 create, both doors of it. LIVE rows (not 'skip'): the shared
+  // bodies createCustomerWithClient/createQuickCustomerWithClient are
+  // deliberately audit-free — the WEB wrappers own the web emit — so the
+  // generic hook here is the facade's ONE writer, exactly the split
+  // 'customer.update' already uses. Both carry the SAME customer.create
+  // action: quick-create is the same create pathway under one action name
+  // (packet 30 §2), which is what the web wrapper emits too. Neither route
+  // has a path param, so the target id comes from ctx.auditTargetId.
+  'customer.create': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
+  'customer.quickCreate': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
   // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
   // instead — that ONE emit covers the web save actions AND this facade

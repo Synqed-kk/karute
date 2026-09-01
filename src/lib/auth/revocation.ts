@@ -46,6 +46,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // (app-api-revocation-coverage.test.ts) fails if any facade write method ships
   // a key that is not in this set.
   'customer.consent.revoke',
+  // 新規顧客 create (both doors) — a durable customer-PII write, the same
+  // class as customer.update above.
+  'customer.create',
+  'customer.quickCreate',
   'customer.photo.upload',
   'customer.photo.delete',
   'customer.memory.add',

@@ -117,7 +117,34 @@ export type ActionResult =
 // createCustomer
 // ---------------------------------------------------------------------------
 
-export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+/**
+ * Shared create service — takes an EXPLICIT business-scoped client so BOTH the
+ * web server action (cookie identity) AND the facade POST handler (Bearer
+ * identity) run the identical parse, duplicate check, core write and
+ * email-collision guard. Same P-B split as updateCustomerWithClient below.
+ *
+ * Cache invalidation and the audit row stay OUT of here, with the callers:
+ * updateTag is Server-Action-only (it throws from a Route Handler — see
+ * updateCustomerWithClient's note), and the facade's customer.create row is
+ * emitted by logFacadeAudit off FACADE_AUDIT_MAP.
+ *
+ * ⚖ STORE ISOLATION LAW: nothing here reads a store — creation is scoped by
+ * the client's business alone, exactly as web does it. Both doors hand this
+ * body a business-scoped client (cookie business / Bearer business), so the
+ * scope cannot drift between them.
+ */
+export async function createCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  // `unknown`, like updateCustomerWithClient's own input: the facade door hands
+  // this raw JSON off the wire, and CustomerFormSchema below is the ONE parse
+  // both doors run. TWO independent guards keep a smuggled business_id /
+  // store_id / visit_count out of core, and the load-bearing one is the
+  // SECOND: (1) CustomerFormSchema is a z.object, which strips unknown keys at
+  // the parse, and (2) the create payload below is an explicit field list, not
+  // a spread — proven by mutation (a `...input` spread there turns the
+  // store-isolation assertion red; passthrough alone does not).
+  input: unknown,
+): Promise<ActionResult> {
   const parsed = CustomerFormSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -129,8 +156,6 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
   const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender, occupation, member_number } = parsed.data
 
   try {
-    const synqed = await getSynqedClient()
-
     // Check for duplicate name — warn but allow creation
     let duplicateWarning: string | undefined
     const dup = await synqed.customers.checkDuplicate(name)
@@ -167,19 +192,6 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       }
     }
 
-    revalidatePath('/customers')
-    updateTag('customers')
-
-    // Success only, after the write settles (never on the collision return above).
-    await auditWeb({
-      category: 'customer',
-      action: 'customer.create',
-      targetType: 'customer',
-      targetId: customer.id,
-      severity: 'info',
-      requestId: crypto.randomUUID(),
-    })
-
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
     // Keep the raw error in the server log so Anthony can debug; show
@@ -189,13 +201,48 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
   }
 }
 
+/** The WEB door onto the twin above: the cookie identity's client, the two
+ *  cache invalidations (Server-Action-only) and the success-only audit row.
+ *  The collision/validation returns never reach them — the early return is
+ *  the shared body's own `{ success: false }`. */
+export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+  const synqed = await getSynqedClient()
+  const result = await createCustomerWithClient(synqed, input)
+  if (!result.success) return { success: false, error: result.error }
+
+  revalidatePath('/customers')
+  updateTag('customers')
+
+  // Success only, after the write settles (never on the collision return above).
+  await auditWeb({
+    category: 'customer',
+    action: 'customer.create',
+    targetType: 'customer',
+    targetId: result.id,
+    severity: 'info',
+    requestId: crypto.randomUUID(),
+  })
+
+  return result
+}
+
 // ---------------------------------------------------------------------------
 // createQuickCustomer
 // ---------------------------------------------------------------------------
 
-export async function createQuickCustomer(
+export type QuickCustomerResult =
+  | { success: true; id: string; name: string }
+  | { success: false; error: string }
+
+/** Quick-create's shared service — the same P-B split as
+ *  createCustomerWithClient above, and deliberately its own body: the
+ *  name-only path runs NO duplicate check and echoes core's stored name back
+ *  for the picker to select. Folding it into the full-form body would make
+ *  the phone's quick-create do something the web's never does. */
+export async function createQuickCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
   name: string,
-): Promise<{ success: true; id: string; name: string } | { success: false; error: string }> {
+): Promise<QuickCustomerResult> {
   const trimmedName = name.trim()
   if (!trimmedName) {
     return { success: false, error: 'Name is required' }
@@ -205,28 +252,35 @@ export async function createQuickCustomer(
   }
 
   try {
-    const synqed = await getSynqedClient()
     const customer = await synqed.customers.create({ name: trimmedName })
-
-    revalidatePath('/customers')
-    updateTag('customers')
-
-    // Quick-create is the same customer.create action as the full form
-    // (packet 30 §2) — one create pathway, one action name.
-    await auditWeb({
-      category: 'customer',
-      action: 'customer.create',
-      targetType: 'customer',
-      targetId: customer.id,
-      severity: 'info',
-      requestId: crypto.randomUUID(),
-    })
-
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: message }
   }
+}
+
+/** The WEB door onto the twin above — same wrapper duties as createCustomer. */
+export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  const synqed = await getSynqedClient()
+  const result = await createQuickCustomerWithClient(synqed, name)
+  if (!result.success) return { success: false, error: result.error }
+
+  revalidatePath('/customers')
+  updateTag('customers')
+
+  // Quick-create is the same customer.create action as the full form
+  // (packet 30 §2) — one create pathway, one action name.
+  await auditWeb({
+    category: 'customer',
+    action: 'customer.create',
+    targetType: 'customer',
+    targetId: result.id,
+    severity: 'info',
+    requestId: crypto.randomUUID(),
+  })
+
+  return result
 }
 
 // ---------------------------------------------------------------------------

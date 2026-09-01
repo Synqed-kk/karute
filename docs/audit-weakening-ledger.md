@@ -138,3 +138,23 @@
   stamp still can never fail the discard: every failure is one warn line and the
   result is returned unchanged · Liam (⚖ 2026-08-20 kept-discards doctrine,
   packet PACKET-2026-08-31-NAMES-FIX.md, karute-field-issues lane)
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.create · phone
+  customer-create wiring (PHONEWIRE-1): on phones 新規顧客 creation was dead —
+  the actions port's createCustomer/createQuickCustomer were notWired stubs
+  because the customers facade tree had [id]/* subroutes but no create door.
+  Wiring it meant extracting the two create bodies into WithClient twins so the
+  web action and the new facade POSTs run ONE body — the same Core/WithClient
+  split as the customers.update entry above, where the shared core stays
+  audit-free and the callers emit. The write is FULLY AUDITED on both doors,
+  and this entry only registers the shared body's SDK call site as a known
+  writer: customer.create and customer.quickCreate are LIVE FACADE_AUDIT_MAP
+  mutation rows (facade auto-emit via logFacadeAudit, target id handed over as
+  ctx.auditTargetId since a collection POST carries no path param), and the web
+  wrappers createCustomer/createQuickCustomer — both AUDITED_CORES symbols,
+  both walker-proven — emit customer.create unconditionally on their success
+  path. Not a new silent write in any sense: the SAME customer.create action
+  the web form already wrote, now reachable from the phone too. The raw SDK
+  call site is legitimately new (it moved out of the two audited wrappers into
+  the twins) and CP3 requires its own registration · Liam (⚖ 8/12 one system
+  two doors, packet PACKET-PHONEWIRE-1-2026-09-01.md, adjudication
+  ADJUDICATION-PHONEWIRE-1-2026-09-01, karute-field-issues lane)
