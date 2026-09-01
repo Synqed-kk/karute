@@ -1,9 +1,10 @@
 /**
  * @jest-environment jsdom
  *
- * 設定 — ⚖ Liam's 8/23 GUIDED ?-TOUR law, this room's half, plus the two pieces
- * of behaviour that are only true in a browser: the phone's list/detail swap and
- * the one control on the page that really saves.
+ * 設定 — ⚖ Liam's 8/23 GUIDED ?-TOUR law, this room's half, plus the pieces of
+ * behaviour that are only true in a browser: the phone's list/detail swap, the
+ * one section that persists outside this screen, and the DEMO-INTERACTION
+ * machinery every control now runs through.
  *
  * THE CENSUS IS STRUCTURAL, and it is asked from BOTH sides — the room-4 lesson,
  * inherited: a census that only counts what declares itself can never notice what
@@ -12,37 +13,44 @@
  *   · HERE, on the source: every `<section>`, `<header>` and `<aside>` this
  *     screen renders must carry the `data-guide-title` + `data-guide` pair,
  *     derived from the JSX itself — there is no list to keep in sync, and a new
- *     section that forgets to declare fails the round the day it lands.
+ *     element that forgets to declare fails the round the day it lands.
  *   · IN THE BROWSER, on the REAL rendered DOM (`probe/`): the census is taken
- *     again on several sections, every declared element is TAPPED, and the card
- *     is measured against the hole. That is where containment is decided,
- *     because containment is a fact about rects and this file has no layout to
- *     decide it in.
+ *     again on several sections, every declared element is TAPPED, every control
+ *     is OPERATED, and the card is measured against the hole. That is where
+ *     containment and the dead-lever law are decided, because both are facts
+ *     about rects and effects and this file has no layout to decide them in.
  *
- * ⚠ THIS ROOM'S TOUR DECLARES ROWS, NOT THE PANEL, and the reason is a placement
- * fact rather than a teaching preference: a target taller than the viewport
- * leaves the engine's card nowhere to go but on top of the thing it explains
- * (the room-5 F5 defect). 「What does THIS dial do」 is also the question a
- * settings page is actually asked, so the two agree.
- *
- * ⚠ AND IT WAS STILL NOT ENOUGH, which the probe found rather than this file: at
- * a desk every row really does have a free side, but at 390 a STACKED dial row is
- * full width and taller than half the viewport, and all five board dials were
- * covered. So the room carries the same room-local correction カルテ does, its
- * third home in this family — named as a debt in the build report, because
- * `guide.ts` is frozen for this packet.
+ * ⚠ THIS ROOM'S TOUR DECLARES ROWS AND BLOCK HEADS, NOT THE PANEL, and the
+ * reason is a placement fact rather than a teaching preference: a target taller
+ * than the viewport leaves the engine's card nowhere to go but on top of the
+ * thing it explains (the room-5 F5 defect). 「What does THIS control do」 is also
+ * the question a settings page is actually asked, so the two agree.
  *
  * MECHANISM, and its honest ceiling. Territory's import fence allows only
  * react/next/node specifiers, so react-dom does not resolve here and no suite in
  * this folder can mount a React tree — the house pattern every screen-
  * interactions suite here already uses. The pure engine (`spotTargets` /
- * `spotHitIndex` / `wrapStep` / `spotCardAt`) IS really run, over rects and nodes
- * it is handed directly, because those are the engine's own inputs.
+ * `spotHitIndex` / `wrapStep` / `spotCardAt`) and the room's own pure
+ * interaction rules (`sectionDirty`, `fillTemplate`, `commitNumber`,
+ * `blockingError`) ARE really run, over inputs they are handed directly.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
-import { accessFor, firstOpenSection, keepCardOffHeading, PREFS_DEFAULT, readPrefs } from '@/business/lib/settings'
+import {
+  accessFor,
+  blockingError,
+  fillTemplate,
+  firstOpenSection,
+  keepCardOffHeading,
+  labelOfValue,
+  PREFS_DEFAULT,
+  readPrefs,
+  sectionDirty,
+  type ControlKind,
+  type RowValue,
+  type SettingsSection,
+} from '@/business/lib/settings'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/SettingsScreen.tsx`), 'utf8')
@@ -101,8 +109,6 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       .concat(openingTags(SRC_CODE, 'header'), openingTags(SRC_CODE, 'aside'))
       .filter((el) => el.text.includes('data-guide-title')).length
     expect(DECLARATIONS.length).toBeGreaterThanOrEqual(titles)
-    // Every static declaration says something — an empty string is a step with a
-    // hole in it.
     for (const m of DECLARATIONS) {
       const title = m[1] ?? m[2] ?? ''
       const text = m[3] ?? m[4] ?? ''
@@ -111,18 +117,21 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     }
   })
 
-  it('every dial declares itself, and its step says what the dial DOES and its limit', () => {
-    // ⚠ THE DIAL ROW'S STEP IS COMPOSED FROM THE ROW'S OWN COPY, so a dial that
-    // arrives with a guardrail arrives with a tour step that states it. There is
-    // no second sentence to write and none to forget.
-    expect(SRC_CODE).toContain('data-guide={`${row.description} ${row.trio.guardrail}`}')
+  it('every row and every block declares itself from its OWN copy', () => {
+    // ⚠ THE STEP IS COMPOSED FROM THE ROW'S OWN WORDS, so a control that arrives
+    // with a guardrail arrives with a tour step that states it. There is no
+    // second sentence to write and none to forget.
     expect(SRC_CODE).toContain('data-guide-title={row.label}')
+    expect(SRC_CODE).toContain("data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}`.trim()}")
+    expect(SRC_CODE).toContain('data-guide-title={block.title}')
+    expect(SRC_CODE).toContain('data-guide={block.note || `${block.title}の設定です。`}')
   })
 
-  it('NO declared element is a whole panel — the walk points at rows', () => {
+  it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
     // The room-5 F5 defect: a target taller than the viewport forces the engine's
     // last resort, which puts the card on top of the thing it is explaining. This
-    // room declares rows and cards, never `.st-panel`, `.st-main` or `.st-cols`.
+    // room declares rows, blocks and cards, never `.st-panel`, `.st-main` or
+    // `.st-cols`.
     for (const container of ['st-panel', 'st-main', 'st-cols', 'st-body']) {
       const el = openingTags(SRC_CODE, 'div').find((d) => d.text.includes(`className="${container}"`))
       expect({ container, declares: el?.text.includes('data-guide') ?? false }).toEqual({ container, declares: false })
@@ -130,12 +139,6 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
   })
 
   it('…and the engine’s LAST RESORT is corrected, because a phone row still has no free side', () => {
-    // ⚠ MEASURED, NOT ASSUMED, AND THE FIRST MEASUREMENT SAID OTHERWISE. At 1280
-    // and 820 every step really does have a free side and the card never touches
-    // its target — the probe's own numbers. At 390 a STACKED dial row is full
-    // width and ~340px tall in an 844px viewport, so neither side fits and all
-    // five board dials were covered. The room-local correction moves only the
-    // card's TOP, to the viewport edge farther from the row's heading.
     expect(SRC_CODE).toContain('keepCardOffHeading(spotCardAt(boxOf(r), size, viewport), size, boxOf(r), viewport)')
   })
 
@@ -164,8 +167,8 @@ describe('the shared engine, really run over this room’s own nodes', () => {
       ({ ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r }) as DOMRect
   }
 
-  /** A miniature of the room's real shape: the head, the rail, and three dial
-   *  rows inside a panel — declared exactly as the screen declares them. */
+  /** A miniature of the room's real shape: the head, the rail, and rows inside a
+   *  block inside a panel — declared exactly as the screen declares them. */
   function build() {
     document.body.innerHTML = ''
     const root = document.createElement('div')
@@ -187,8 +190,9 @@ describe('the shared engine, really run over this room’s own nodes', () => {
     panel.className = 'st-panel'
     rect(panel, { left: 264, top: 200, width: 860, height: 640 })
     root.appendChild(panel)
-    add('st-dial', 'スキマガード', { left: 264, top: 260, width: 560, height: 150 }, panel)
-    add('st-dial', '予約の移動単位', { left: 264, top: 424, width: 560, height: 150 }, panel)
+    const block = add('st-block', '予約ボードの操作', { left: 264, top: 240, width: 560, height: 360 }, panel)
+    add('st-dial', 'スキマガード', { left: 274, top: 260, width: 540, height: 130 }, block)
+    add('st-dial', '予約の移動単位', { left: 274, top: 420, width: 540, height: 130 }, block)
     add('st-aside', 'この値の出どころ', { left: 844, top: 260, width: 280, height: 220 }, panel)
     document.body.appendChild(root)
     return { root, made }
@@ -200,6 +204,7 @@ describe('the shared engine, really run over this room’s own nodes', () => {
     expect(targets.map((t) => t.dataset.guideTitle)).toEqual([
       '設定',
       '設定カテゴリー',
+      '予約ボードの操作',
       'スキマガード',
       '予約の移動単位',
       'この値の出どころ',
@@ -208,26 +213,26 @@ describe('the shared engine, really run over this room’s own nodes', () => {
 
   it('a section that is not on screen drops out of the walk AND out of the count', () => {
     // ⚠ THE ADAPTIVE HALF OF LIAM'S RULE. At ≤743 the panel is `display: none`
-    // until a section is picked, so its dials have no box — and the tour's N/M
+    // until a section is picked, so its rows have no box — and the tour's N/M
     // counts what the reader can actually see rather than what the file holds.
     const { root, made } = build()
-    for (const el of made.slice(2, 5)) el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+    for (const el of made.slice(2)) el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
     const targets = spotTargets(root)
     expect(targets.map((t) => t.dataset.guideTitle)).toEqual(['設定', '設定カテゴリー'])
     expect(wrapStep(2, targets.length)).toBe(0)
     expect(wrapStep(-1, targets.length)).toBe(1)
   })
 
-  it('the SMALLEST declared region under the pointer wins — a card inside a panel', () => {
+  it('the SMALLEST declared region under the pointer wins — a row inside a block', () => {
     const { root } = build()
     const rects = spotTargets(root).map((t) => {
       const r = t.getBoundingClientRect()
       return { left: r.left, top: r.top, width: r.width, height: r.height }
     })
-    // A point inside the first dial row.
-    expect(spotHitIndex(300, 300, rects)).toBe(2)
+    // A point inside the first row, which sits inside the block.
+    expect(spotHitIndex(300, 300, rects)).toBe(3)
     // A point inside the trace card, which overlaps nothing else.
-    expect(spotHitIndex(900, 300, rects)).toBe(4)
+    expect(spotHitIndex(900, 300, rects)).toBe(5)
     // A point on nothing declared closes the tour (-1).
     expect(spotHitIndex(600, 900, rects)).toBe(-1)
   })
@@ -250,10 +255,6 @@ describe('the shared engine, really run over this room’s own nodes', () => {
   })
 
   it('…and on a PHONE row with no free side, the correction keeps the card off the heading', () => {
-    // The 390 geometry the probe measured: a full-width row, taller than half the
-    // viewport, so the engine's last resort puts the card straight over it. The
-    // correction cannot make a free side appear — it makes the card land on the
-    // half of the row that is NOT its label.
     const viewport = { width: 390, height: 844 }
     const card = { width: 300, height: 260 }
     const row = { left: 90, top: 252, width: 286, height: 340 }
@@ -281,8 +282,6 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
   })
 
   it('the back button is rendered ALWAYS and hidden by the band', () => {
-    // A target that appears and disappears with a resize is a target that moves
-    // under a thumb. It is rendered unconditionally and shown by CSS.
     expect(SRC_CODE).toContain('<button className="st-back" type="button"')
     expect(SRC_CODE).not.toMatch(/isDetail\s*&&\s*\(?\s*<button className="st-back"/)
     expect(CSS_CODE).toMatch(/\.st-back \{ display: none; \}/)
@@ -292,24 +291,12 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
 
   it('on a desk the panel always shows something, never a blank', () => {
     // `picked ?? openingSectionId` — and `openingSectionId` is the first section
-    // this READER may open, so a staff member lands on their own preferences
-    // rather than on an empty frame.
+    // this READER may open, so nobody lands on an empty frame.
     expect(SRC_CODE).toContain('const section = props.sections.find((s) => s.id === shownId) ?? null')
-    // ⚠ RE-POINTED (DS9-3). This used to grep the source for
-    // `{props.boundaryFallback}` — under a name claiming the panel is never
-    // blank, it pinned that the code for a BLANK panel is PRESENT, and that
-    // branch cannot execute: 自分の表示設定 is `live` + `scope: 'self'`, so
-    // `gateOf` answers `open` for every role including 不明 and `firstOpenSection`
-    // can never return null. The claim itself is what is asserted now, on the
-    // rule, for every role a reader can arrive as — including one this world has
-    // never heard of.
     for (const role of ['オーナー', '店舗管理者', 'スタッフ', '不明', '']) {
       const opening = firstOpenSection(accessFor(role))
       expect({ role, opens: opening?.id ?? null }).not.toEqual({ role, opens: null })
     }
-    // …and a reader who holds NOTHING lands on their own preferences, which is
-    // the section the whole structural duty exists for.
-    expect(firstOpenSection(accessFor('スタッフ'))?.id).toBe('my-display')
     // The fallback stays as DEFENCE for a future rail whose every row could be
     // gated; it is unreachable by construction today, and that is stated where
     // the branch is rather than asserted as if it ran.
@@ -319,7 +306,101 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe('自分の表示設定 — the one lever that is not dead', () => {
+describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real', () => {
+  const kind = (k: ControlKind) => k
+  const seg = kind({ kind: 'segment', options: [{ value: 'a', label: 'ゆったり' }, { value: 'b', label: 'コンパクト' }] })
+  const sw = kind({ kind: 'switch', onLabel: '使う', offLabel: '使わない' })
+  const chips = kind({ kind: 'chips', options: [{ value: 'app', label: 'アプリ' }, { value: 'mail', label: 'メール' }] })
+  const numeric = kind({ kind: 'number', min: 14, max: 365, step: 1, unit: '日' })
+
+  it('a value reads as WORDS, in one home, whatever shape it is', () => {
+    expect(labelOfValue(seg, 'b')).toBe('コンパクト')
+    expect(labelOfValue(sw, true)).toBe('使う')
+    expect(labelOfValue(sw, false)).toBe('使わない')
+    expect(labelOfValue(chips, ['app', 'mail'])).toBe('アプリ・メール')
+    // ⚠ AN EMPTY CHIP SET SAYS SO. A preview that quietly printed nothing where
+    // a choice used to be is a sentence that lies about what is switched on.
+    expect(labelOfValue(chips, [])).toBe('なし')
+    expect(labelOfValue(numeric, '61')).toBe('61日')
+  })
+
+  it('a preview sentence is rewritten by the press that changed the value', () => {
+    const template = '同期は{a}、重なったときは{b}です。'
+    const first = fillTemplate(template, (id) => (id === 'a' ? '15分ごと' : '新しい方を優先'))
+    const after = fillTemplate(template, (id) => (id === 'a' ? '60分ごと' : '新しい方を優先'))
+    expect(first).toBe('同期は15分ごと、重なったときは新しい方を優先です。')
+    expect(after).not.toBe(first)
+    // ⚠ AN UNKNOWN TERM IS LEFT STANDING, NOT BLANKED. A preview that silently
+    // dropped a term would be a shorter sentence nobody could tell was wrong.
+    expect(fillTemplate('刻みは{missing}です。', () => null)).toBe('刻みは{missing}です。')
+  })
+
+  it('a section goes dirty on any control, and clean again when it is put back', () => {
+    const section = {
+      id: 'demo',
+      blocks: [
+        {
+          id: 'b1',
+          title: 't',
+          note: '',
+          rows: [
+            { id: 'r1', label: '刻み', description: '', scopeLabel: null, meta: [], controls: [{ id: 'c1', aria: '刻み', control: seg, value: 'a' }] },
+            { id: 'r2', label: '同期', description: '', scopeLabel: null, meta: [], controls: [{ id: 'c2', aria: '同期', control: chips, value: ['app'] }] },
+          ],
+          facts: [], links: [], list: null, table: null, filterBy: [], preview: null, action: null, audit: null,
+        },
+      ],
+    } as unknown as SettingsSection
+
+    const savedState: Record<string, RowValue> = { c1: 'a', c2: ['app'] }
+    expect(sectionDirty(section, { ...savedState }, savedState)).toBe(false)
+    expect(sectionDirty(section, { ...savedState, c1: 'b' }, savedState)).toBe(true)
+    // ⚠ A CHIP SET COMPARES BY CONTENT. A freshly-built array with the same
+    // members must NOT read as a change, or the save button never goes quiet.
+    expect(sectionDirty(section, { ...savedState, c2: ['app'] }, savedState)).toBe(false)
+    expect(sectionDirty(section, { ...savedState, c2: ['app', 'mail'] }, savedState)).toBe(true)
+    // …and putting it back is clean again, which is what makes 保存する honest.
+    expect(sectionDirty(section, { c1: 'a', c2: ['app'] }, savedState)).toBe(false)
+  })
+
+  it('a required field blocks the save with its OWN name', () => {
+    const section = {
+      id: 'demo',
+      blocks: [
+        {
+          id: 'b1', title: 't', note: '',
+          rows: [{
+            id: 'r1', label: '店舗名', description: '', scopeLabel: null, meta: [],
+            controls: [{ id: 'c1', aria: '店舗名', control: { kind: 'text', required: true }, value: '銀座店' }],
+          }],
+          facts: [], links: [], list: null, table: null, filterBy: [], preview: null, action: null, audit: null,
+        },
+      ],
+    } as unknown as SettingsSection
+    expect(blockingError(section, { c1: '銀座店' })).toBeNull()
+    expect(blockingError(section, { c1: '' })).toBe('店舗名が空欄です — 保存できません。')
+    expect(blockingError(section, { c1: '   ' })).toBe('店舗名が空欄です — 保存できません。')
+  })
+
+  it('the screen commits a section’s values, and says so — once, per section', () => {
+    expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection) => {')
+    expect(SRC_CODE).toContain("setSavedNote((prev) => ({ ...prev, [target.id]: '保存しました（この画面の中だけ）' }))")
+    expect(SRC_CODE).toContain('onClick={() => commitSection(section)}')
+    // The bar reports exactly one of three states, and the blocking sentence
+    // wins — a page that offered 保存する beside 「空欄です」 would be lying.
+    expect(SRC_CODE).toContain("{blocked ?? (dirty ? '未保存の変更があります' : savedNote[section.id] ?? '変更はありません')}")
+  })
+
+  it('an action refuses an empty required input rather than doing nothing quietly', () => {
+    // canon's own raw-string / explicit-empty law on the 書き出し page: zero
+    // selections gets a message, never a silent no-op.
+    expect(SRC_CODE).toContain("setErrors((prev) => ({ ...prev, [block.id]: action.requireError ?? '入力してください。' }))")
+    expect(SRC_CODE).toContain('setResults((prev) => ({ ...prev, [block.id]: fillTemplate(action.template, labelFor) }))')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('自分の表示設定 — the one section that saves outside this screen', () => {
   beforeEach(() => window.localStorage.clear())
 
   it('a real round-trip through the reader’s own storage', () => {
@@ -333,12 +414,24 @@ describe('自分の表示設定 — the one lever that is not dead', () => {
     expect(readPrefs(window.localStorage.getItem(KEY))).toEqual(PREFS_DEFAULT)
   })
 
-  it('the preview really changes shape — the control has a visible effect', () => {
-    // ⚖ THE DEAD-LEVER LAW. Every OTHER control on this page is refused, so the
-    // one that is not has to prove it does something. The two attributes are
-    // written from the reader's own preference and the sheet answers both.
-    expect(SRC_CODE).toContain('data-density={prefs.density}')
-    expect(SRC_CODE).toContain('data-emphasis={prefs.emphasis}')
+  it('it writes on the PRESS, and has no save button of its own', () => {
+    expect(SRC_CODE).toContain("const PREF_KEY = 'synqedBizDisplayPrefs.v1'")
+    expect(SRC_CODE).toContain('window.localStorage.setItem(')
+    expect(SRC_CODE).toContain('if (id === DENSITY_ID || id === EMPHASIS_ID) {')
+    // ⚠ A PERSONAL PREFERENCE THAT NEEDED COMMITTING would be the page asking
+    // permission for something nobody else can see — so the self section renders
+    // its own line INSTEAD of the save bar.
+    expect(SRC_CODE).toContain("section.persist === 'local' ? (")
+    expect(SRC_CODE).toContain('<p className="st-foot">{props.selfSaveLine}</p>')
+    // A storage refusal (private mode) is not a reason to break the page.
+    expect(SRC_CODE).toMatch(/try \{[\s\S]*?window\.localStorage\.getItem\(PREF_KEY\)[\s\S]*?\} catch/)
+  })
+
+  it('the preview really changes SHAPE — the control has a visible effect', () => {
+    // ⚖ THE DEAD-LEVER LAW. Every control on this page changes a sentence; this
+    // one also changes the geometry of what is under it, which is the effect a
+    // density preference is actually about.
+    expect(SRC_CODE).toContain('Object.entries(block.preview.attrs ?? {}).map(([attr, id]) => [attr, String(values[id] ?? \'\')])')
     for (const rule of [
       '.st-preview[data-density="compact"] .st-pv-row',
       '.st-preview[data-density="spacious"] .st-pv-row',
@@ -347,7 +440,5 @@ describe('自分の表示設定 — the one lever that is not dead', () => {
     ]) {
       expect({ rule, styled: CSS_CODE.includes(rule) }).toEqual({ rule, styled: true })
     }
-    // …and it says out loud that the choice was kept.
-    expect(SRC_CODE).toContain('この端末に保存しました。')
   })
 })

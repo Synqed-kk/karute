@@ -5426,7 +5426,11 @@ export function TodayScreen(props: TodayProps) {
                           the 設定 room. Naming the room turns a broken-looking
                           badge into a signpost. */}
                       <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
-                      <span className="chip">変更は「設定」＞店舗情報・営業時間で</span>
+                      {/* ⚖ LINKED UP (2026-09-01). The signpost used to NAME the
+                          destination and leave the reader to find it; the 設定
+                          room now reads `?section=`, so the sentence is the way
+                          there. */}
+                      <Link className="chip" href="/business/settings?section=store-hours">変更は「設定」＞店舗情報・営業時間で</Link>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

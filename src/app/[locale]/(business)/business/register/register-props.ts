@@ -76,12 +76,11 @@ const REFUSAL = {
   // ledger is; the screen it opens — choosing the item, the quantity, the
   // payment — is registry ⑪ and is not built here.
   sell: '見本データのため店頭販売を記録できません。売上の記録は在庫と決済に触れる操作のため、商品の登録と実データをつないだあとに有効になります。',
-  // ⑥ しきい値 の変更先. The 設定 room SHIPPED (room 9, 2026-09-01) and shows this
-  // exact value on its 決済 section, so the sentence names the section rather
-  // than calling the room 準備中 — a signpost that outlives its destination's
-  // opening is a check lying about state. The WRITE is still refused, which is
-  // what this sentence is for (registry ④).
-  tolerance: '現金差異の承認しきい値は店舗設定で変更します。いまの値は「設定」＞決済で確認できます。見本データのため、この画面からは変更できません。',
+  // ⑥ しきい値 の変更先 IS NO LONGER A REFUSAL. The 設定 room shipped and its
+  // 決済 section carries this exact value with a working control, so the row's
+  // quiet link now GOES there (`toleranceLinkHref`) instead of explaining why it
+  // cannot. A refusal sentence kept past the opening of its destination is the
+  // 「checks lying about state」 class, so it is deleted rather than reworded.
 } as const
 
 const FOOTNOTE = '見本データのため実行・記録はできません — 実データ接続後に有効になります。'
@@ -523,7 +522,7 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               tolerance: redactMoney(`許容額 ${yen(tolerance)}（現金差異の承認しきい値）`),
               // ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT (registry ④).
               toleranceLinkLabel: '店舗設定で変更',
-              toleranceLinkRefusal: REFUSAL.tolerance,
+              toleranceLinkHref: '/business/settings?section=payments',
               saveLabel: '計数を保存',
               saveRefusal: REFUSAL.cash,
               // ⑩ 金種で数える — the count sheet, collapsed. 実査額 is what these

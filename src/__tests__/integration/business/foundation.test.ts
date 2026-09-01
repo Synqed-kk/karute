@@ -283,7 +283,12 @@ describe('the fixture data door', () => {
     const FORMS = [
       /from\s*'([^'\n]+)'/g,
       /from\s*"([^"\n]+)"/g,
-      /import\s*['"]([^'"\n]+)['"]/g,
+      // ⚠ THE LOOKBEHIND IS LOAD-BEARING. Without it this pattern reads
+      //   `block('io.import', '取り込み', …)`
+      // as a side-effect import of 「, 」 — a string that happens to end in the
+      // word `import` followed by a quoted argument. A real side-effect import
+      // is never preceded by a word character or a dot.
+      /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g,
       /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
       /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
     ]
@@ -625,9 +630,9 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
       ],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
-        './SettingsScreen',
         '@/business/lib/data',
         '@/business/lib/fixtures',
+        '@/business/lib/fixtures-analytics',
         '@/business/lib/fixtures-register',
         '@/business/lib/fixtures-settings',
         '@/business/lib/fixtures-shifts',

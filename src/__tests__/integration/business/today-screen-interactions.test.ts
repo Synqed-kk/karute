@@ -5870,7 +5870,10 @@ describe('BATCH-10b X4 — the two copy items', () => {
     // chip now names the SECTION the dial is on, because it is there to be read:
     // a signpost that still says 準備中 after the destination opened is the
     // 「checks lying about state」 class, not a stale word.
-    expect(SRC).toContain('<span className="chip">変更は「設定」＞店舗情報・営業時間で</span>')
+    // ⚠ AND IT BECAME A LINK IN THE LOOK-FIX ROUND (⚖ LINKED UP, 2026-09-01):
+    // the 設定 room reads `?section=`, so the chip is now the way there rather
+    // than the name of a place the reader has to find.
+    expect(SRC).toContain('<Link className="chip" href="/business/settings?section=store-hours">変更は「設定」＞店舗情報・営業時間で</Link>')
     expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
     expect(SRC).not.toContain('変更は「設定」ルームで（準備中）')
     // The policy word itself is still the STORE's, read-only, unchanged.
