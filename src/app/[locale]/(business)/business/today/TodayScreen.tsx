@@ -49,6 +49,7 @@ import {
   framingSample,
   discountNote,
   hqNote,
+  priceAt,
   priceButtonCaption,
   money,
 } from '@/business/lib/canon-logic/pricing'
@@ -4830,7 +4831,15 @@ export function TodayScreen(props: TodayProps) {
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
       ticketCat: '単発',
-      ticketCore: yen(dialogs.pricing.base),
+      // ⚖ R6 B2 — THE ¥ IS THE BOARD'S OWN PRICE, BY CONSTRUCTION. This used to
+      // read `yen(dialogs.pricing.base)` — the store's FLAT 基準価格, which is
+      // neither this person's 定価 nor this hour's. A ¥7,700 staff member's
+      // staged card said ¥6,600 at every hour of the day, and the 仮押さえ bar
+      // beside it quoted the same wrong number. `priceAt` is the one home the
+      // sell layer prices with (today-interactions.ts:1114) — the same list
+      // price, the same 最高価格 lever, the same hour curve at the same depth —
+      // so the staged card and the 販売可能枠 box it lands on cannot disagree.
+      ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),
       held: false,
       micro: false,
       caseId: id,
