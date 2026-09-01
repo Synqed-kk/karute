@@ -429,6 +429,18 @@ export async function scheduleCustomerDeletion(id: string): Promise<ActionResult
   try {
     // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
     await requireCapability('records.delete')
+    // Roster check, the grantCustomerConsent posture (#452) ported here on the
+    // lane lead's ruling: a stale-session records.delete holder used to
+    // schedule an erasure that emitDeletionAudit filed with actorId:null —
+    // an unattributable record of the one act a customer can legally demand,
+    // and the facade door 403s the same caller. Refused BEFORE the write, so
+    // emitDeletionAudit is unreachable from here. The refusal is the union's
+    // own 'failed' (the consent sibling's { ok: false, error } spelled in this
+    // union's vocabulary): the existing deleteFailed toast keeps working, and
+    // a distinct code would be a new i18n string this packet may not add.
+    if (!(await getCurrentUserStaffId())) {
+      return { success: false, error: 'failed' }
+    }
     const synqed = await getSynqedClient()
 
     const result = await scheduleCustomerDeletionWithClient(synqed, id)
@@ -481,6 +493,11 @@ export async function cancelCustomerDeletionWithClient(
 export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
   try {
     await requireCapability('records.delete')
+    // Same roster check, same ruling as the schedule wrapper above — the undo
+    // is as attributable an act as the schedule, and both doors now agree.
+    if (!(await getCurrentUserStaffId())) {
+      return { success: false, error: 'failed' }
+    }
     const synqed = await getSynqedClient()
 
     const result = await cancelCustomerDeletionWithClient(synqed, id)

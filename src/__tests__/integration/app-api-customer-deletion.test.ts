@@ -271,3 +271,35 @@ describe('POST …/deletion/cancel', () => {
     expect(res.status).toBe(401)
   })
 })
+
+// PHONEWIRE-2B blind round, finding 2 — armor for CustomerDeletionResultDTO's
+// enum. Every test above drives the REAL core, which can only ever return the
+// three listed codes, so nothing above would notice the enum being widened to
+// z.string() (or the .parse() call being dropped). This one stubs the shared
+// core to return a code the DTO does not list and proves the door refuses it
+// LOUDLY — a 500, never a 2xx carrying a guard code no client was written for,
+// and no audit row for a request that wrote nothing.
+describe('CustomerDeletionResultDTO at the door', () => {
+  afterAll(() => {
+    jest.dontMock('@/actions/customers')
+    jest.resetModules()
+  })
+
+  it('an UNLISTED guard code fails loud — 500, no audit row, never a 2xx', async () => {
+    jest.resetModules()
+    jest.doMock('@/actions/customers', () => ({
+      scheduleCustomerDeletionWithClient: async () => ({
+        success: false,
+        error: 'brand_new_guard_nobody_wired',
+      }),
+    }))
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { POST } = require('@/app/api/app/v1/customers/[id]/deletion/schedule/route')
+
+    const res = await POST(req(), route())
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: { code: 'internal', message: 'Internal error' } })
+    expect(audit).not.toHaveBeenCalled()
+  })
+})
