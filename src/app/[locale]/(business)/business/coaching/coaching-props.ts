@@ -28,21 +28,40 @@
 import { jstYmd } from '@/business/lib/clock'
 import {
   accessFor,
+  buildModuleLibrary,
+  buildPatternLibrary,
+  buildRoi,
   buildSelfView,
   buildTriage,
   BAND_LABEL,
+  CONSENT_STATE,
+  effectiveRole,
+  focusAreaFrequency,
   HELP_REFUSAL,
+  isRolePreviewEnabled,
   maturityNote,
   moduleOn,
+  PREVIEW_ROLES,
   sampleFloor,
   STATUS_BODY,
   STATUS_TITLE,
+  type RoiLift,
   type SelfState,
   type TriageView,
 } from '@/business/lib/coaching'
 import { defaultStoreId, listStaff, listStoreOptions, renderNow, type StoreLens } from '@/business/lib/data'
 import { operator } from '@/business/lib/fixtures'
-import { coachingStaff, coachingStores, teamPatterns, type FixtureCoachingStaff } from '@/business/lib/fixtures-coaching'
+import {
+  coachingConsent,
+  coachingStaff,
+  coachingStores,
+  learningModules,
+  patternLibrary,
+  patternLibraryNote,
+  storeRoi,
+  teamPatterns,
+  type FixtureCoachingStaff,
+} from '@/business/lib/fixtures-coaching'
 import type { CoachingProps } from './CoachingScreen'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
@@ -118,11 +137,69 @@ const SHARE_STATE = {
   },
 } as const
 
+/** ⚖ THE NINE ITEMISED FACTS (audit #42), carried WORD FOR WORD from
+ *  `ja.json coaching.data.staffOnly.*` / `.ownerVisible.*` — the phone's own
+ *  legally-reviewed wording, not a paraphrase this room wrote. Two of them
+ *  already lived here as `noticeLines`; the other seven had no home in Business
+ *  at all, which is the largest copy gap the audit found. */
+const TRANSPARENCY = {
+  missionTitle: 'プライバシーに関する考え方',
+  missionBody:
+    'コーチング機能は「成長のサポート」を目的に、個別のセッション内容をAIが分析します。ただし、あなたの会話内容そのものや個別の学習提案は、オーナー・マネージャーに表示されない仕組みになっています。サポートはチームで、プライバシーはあなただけに。',
+  staffOnlyTitle: 'あなたにしか見えない情報',
+  staffOnly: [
+    '会話の録音・文字起こし',
+    '個別のセッション詳細',
+    '具体的なお客様とのやり取り',
+    'あなたが受け取る個別の学習提案',
+    '個人的なメモ',
+  ],
+  ownerVisibleTitle: 'オーナー・マネージャーに見える情報',
+  ownerVisible: [
+    'パフォーマンス指標（成約率、再来店率など）',
+    '成長の傾向',
+    'AIによる成長エリアの分析（カテゴリーレベル）',
+    '学習モジュールの進捗',
+  ],
+  synqedTitle: 'Synqedによるデータ利用',
+  synqedIntro:
+    'Synqedは本サービスの提供事業者として、お店のオーナー・マネージャーとは別の立場で、コーチング機能の運営と継続的な改善のために、以下の範囲でデータにアクセスします。',
+  synqed: [
+    '匿名化された会話パターンの抽出（チーム共有のパターンライブラリ生成のため）',
+    'AIモデルの継続的な改善（個人を特定できない形で学習データとして利用）',
+    'サブ処理事業者: Anthropic（AI推論）、Supabase（データ保管）',
+    '人間がデータを閲覧するのは、削除リクエスト・技術サポート・法的要請の対応時のみで、すべて監査ログに記録されます',
+  ],
+  retentionLabel: 'データ保持期間',
+  retentionBody: 'セッションごとに最大365日。削除リクエスト後は30日以内に完全削除されます。',
+} as const
+
+/** ⚖ 8/25 — A STAT SAYS WHAT IT COUNTS, and a lift says what it is a lift OF.
+ *  These are `ja.json coaching.owner.roi.metric.*`'s own four words. */
+const ROI_METRIC_LABEL: Record<RoiLift['key'], string> = {
+  closingRate: '成約率',
+  rebookingRate: '再来率',
+  avgRevenue: '平均客単価',
+  satisfaction: '満足度',
+}
+
+/** `ja.json coaching.owner.roi.confMature/confBuilding/confEarly`, plus the
+ *  fourth state the ROOM's model has and the phone's three-value chip does not:
+ *  `effectiveness.ts:75`'s `Confidence` includes 'none', and a metric with no
+ *  horizon carrying data has no lift at all. Printing a 0 for it would be the
+ *  silent failure this room rules out. */
+const ROI_CONFIDENCE_LABEL = { mature: '確立', building: '構築中', early: '初期', none: '判定前' } as const
+
 export interface CoachingPropsInput {
   locale: string
   /** The raw `?store=` value. Unknown or missing opens on the operator's own
    *  store, never the business-wide merge — `defaultStoreId` owns that rule. */
   store?: string
+  /** ⚖ THE ROLE PREVIEW's raw `?as=` value (audit #71). Honoured ONLY behind
+   *  `isRolePreviewEnabled()` and only when it names a role the access table
+   *  itself knows — `effectiveRole` owns both rules, and a production build
+   *  folds it to the real role. */
+  as?: string
   /** FIXTURE-SHAPED WORLD OVERRIDES, and the page never passes them. The
    *  evidence harness needs worlds this demo plane does not contain — a 25+
    *  roster for the ANY-ROSTER-SIZE proof, a staff member's own view of the same
@@ -144,14 +221,21 @@ export interface CoachingPropsInput {
 
 export interface CoachingPropsResult {
   props: CoachingProps
-  /** The RESOLVED lens, returned rather than re-derived by the caller so the
-   *  clamp keeps exactly one home. `page.tsx` keys the screen by it, so which
-   *  tab is open and which step of the tour the reader is on reset when the
-   *  store changes — the ⚖ 8/17 isolation law at the frame as well as the read. */
+  /** The RESOLVED lens AND the resolved reading role, returned rather than
+   *  re-derived by the caller so the clamp keeps exactly one home. `page.tsx`
+   *  keys the screen by it, so which tab is open and which step of the tour the
+   *  reader is on reset when the store changes — the ⚖ 8/17 isolation law at the
+   *  frame as well as the read.
+   *
+   *  ⚠ THE ROLE IS IN THE KEY TOO, AND IT HAS TO BE. Previewing as スタッフ
+   *  while standing on 全スタッフ表示 would otherwise keep a tab open that the
+   *  new persona has no panel for — a blank screen where a refusal belongs. The
+   *  screen ALSO clamps its own tab (fail-closed twice, at the frame and at the
+   *  render), because a key is a remount and a clamp is an invariant. */
   storeKey: string
 }
 
-export async function coachingProps({ locale, store, world }: CoachingPropsInput): Promise<CoachingPropsResult> {
+export async function coachingProps({ locale, store, as, world }: CoachingPropsInput): Promise<CoachingPropsResult> {
   void locale
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
@@ -164,10 +248,19 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
   const { y, m } = jstYmd(now)
 
   const roster = world?.roster ?? (await listStaff(lens)).map((s) => ({ id: s.id, name: s.full_name }))
-  const role = world?.role ?? operator.role
+  // ⚖ THE REAL ROLE AND THE ROLE THE PAGE IS BEING READ AS ARE TWO DIFFERENT
+  // FACTS, and both are on screen. `world.role` is the evidence harness's own
+  // seam (it has been here since the build round); `?as=` is the reader's, and
+  // it is honoured only behind the preview gate.
+  const realRole = world?.role ?? operator.role
+  const role = effectiveRole(realRole, as)
+  const previewOn = isRolePreviewEnabled()
   const selfId = world?.selfId ?? operator.staff_id
   const access = accessFor(role)
   const floor = sampleFloor(world?.floor)
+  // The query the pill's links must preserve: switching persona must not throw
+  // the reader back to a different store.
+  const keepStore = clamped ? `?store=${encodeURIComponent(storeId!)}&` : '?'
 
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
@@ -178,7 +271,7 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
   const on = moduleOn(storeId, world?.enabledStores ?? coachingStores)
   const rows = on ? (world?.rows ?? coachingStaff) : []
 
-  const self: SelfState = on ? buildSelfView({ selfId, rows, patterns: teamPatterns }) : { kind: 'none' }
+  const self: SelfState = on ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: coachingConsent }) : { kind: 'none' }
 
   // ⚖ (2) THE TEAM BOARD IS ONLY BUILT FOR A READER WHO HOLDS THE CAPABILITY.
   // Not filtered afterwards — never built, so there is nothing in the payload
@@ -188,6 +281,20 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
       ? buildTriage({ roster, rows, floor, patternCategories: teamPatterns.map((p) => p.categoryKey) })
       : null
 
+  // ⚖ (3) THE ROI SCREEN IS ONLY BUILT FOR A READER WHO HOLDS ITS OWN
+  // CAPABILITY — the same construction as the board, one layer over. A
+  // 店舗管理者's payload contains no money estimate to leak, and a staff
+  // member's contains no store aggregate at all.
+  const roi = on && access.viewRoi ? buildRoi({ roi: clamped ? storeRoi[storeId!] : undefined }) : null
+
+  // The catalog, and the id→title lookup every module REFERENCE resolves
+  // through. One home, so a finding, a focus card and the catalog cannot end up
+  // calling the same module three different things.
+  const myModuleIds = self.kind === 'ready' ? self.view.focus.map((f) => f.moduleId) : []
+  const modules = on ? buildModuleLibrary(learningModules, myModuleIds) : []
+  const moduleTitle = new Map(modules.map((mod) => [mod.moduleId, mod.title]))
+  const shelves = on ? buildPatternLibrary(patternLibrary) : []
+
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
   // personal-findings.ts:219 `window.date_range`, composed from the clock.
   const dateRange = `${fmtDay.format(windowStart)}〜${fmtDay.format(now)}`
@@ -196,9 +303,42 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
   // contract.ts:47-51 MetricPoint — one tick per history point, newest LAST,
   // the axis always ending on the month the reader is in.
   const historyLength = self.kind === 'ready' ? self.view.history.length : 0
-  const trendLabels = Array.from({ length: historyLength }, (_, i) =>
-    fmtMonth.format(new Date(Date.UTC(y, m - 1 - (historyLength - 1 - i), 15))),
-  )
+  // ONE month-tick composer, used by BOTH trends: the self screen's 成約率 bars
+  // and the owner ROI's treated/control lines. Two of them would be two homes
+  // for one arithmetic (⚖ A8) — and the ROI chart's axis and the spine's axis
+  // disagreeing by a month is exactly the kind of drift nobody would spot.
+  const monthTicks = (n: number) =>
+    Array.from({ length: n }, (_, i) => fmtMonth.format(new Date(Date.UTC(y, m - 1 - (n - 1 - i), 15))))
+  const trendLabels = monthTicks(historyLength)
+
+  /** A lift, formatted for its own unit. ⚠ THE SIGN IS ALWAYS SPELLED, including
+   *  on a negative: a coaching lift that came out negative is a fact the owner
+   *  is owed, and 「誇張しません」 is only true if the screen can print a minus. */
+  const liftDisplay = (l: RoiLift): string => {
+    if (l.lift === null) return '—'
+    const sign = l.lift >= 0 ? '+' : '−'
+    const v = Math.abs(l.lift)
+    if (l.unit === 'rate') return `${sign}${(v * 100).toFixed(1)}pt`
+    if (l.unit === 'money') return `${sign}${money({ amount: Math.round(v), currency: 'JPY' })}`
+    return `${sign}${v.toFixed(2)}点`
+  }
+  const levelDisplay = (l: RoiLift, v: number): string =>
+    l.unit === 'rate' ? pct(v) : l.unit === 'money' ? money({ amount: v, currency: 'JPY' }) : `${v.toFixed(1)} / 5.0`
+  const roiLift = (l: RoiLift) => ({
+    key: l.key,
+    label: ROI_METRIC_LABEL[l.key],
+    liftDisplay: liftDisplay(l),
+    beforeDisplay: levelDisplay(l, l.before),
+    afterDisplay: levelDisplay(l, l.after),
+    confidence: l.confidence,
+    confidenceLabel: ROI_CONFIDENCE_LABEL[l.confidence],
+    // ⚖ THE RECEIPT FOR A LIFT IS WHICH WINDOWS IT SURVIVED. A number with no
+    // horizons behind it is 判定前, and it says so rather than reading as 0.
+    horizonNote:
+      l.horizonsUsed.length > 0
+        ? `${l.horizonsUsed.join('・')}日の実績から算出`
+        : 'まだ算出できる期間の実績がありません',
+  })
 
   const props: CoachingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
@@ -226,9 +366,53 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
       'コーチングはKarute（記録・AI）をご利用の事業でのみ表示されます。',
       '会話の録音と文字起こしは、店長・オーナーを含め、この画面のどこにも表示されません。',
     ],
+    // ⚖ THE PRIVACY MARKER, ON EVERY L1 SECTION (audit #10). The phone repeats
+    // 「あなただけが見ることができます」 ten times, on every private card; this
+    // room said it twice, in prose, and had no per-section marker at all — so a
+    // reader scanning the desk could not tell which panels are theirs alone.
+    // ONE string, handed down, so the promise cannot come apart card by card.
+    privacyBadge: 'あなただけが見られます',
+    // ⚖ WHOSE EYES IS THIS? — the audit's §3 found NO viewer-identity label
+    // anywhere in either system, on the phone or here; the dev pill was the only
+    // prior art and it was built to be deleted. The room's own grammar answers
+    // it: one quiet always-visible line in the head that names the role the page
+    // is being read as AND what that role can reach, so orientation does not
+    // depend on having seen the other variant. True in production, where there
+    // is no preview and the role is simply the reader's own.
+    viewerLine: `この画面は「${role}」として表示しています ・ ${
+      access.viewRoi
+        ? '自分のコーチング・全スタッフ表示・経営への効果'
+        : access.viewTeam
+          ? '自分のコーチング・全スタッフ表示'
+          : '自分のコーチングのみ'
+    }`,
+    // ⚖ THE THREE-WAY ROLE PREVIEW (audit #71), and all four of the dormant
+    // mechanism's guard rails are kept:
+    //  1. it is a WORLD override, never a privilege change — `requireBusiness
+    //     Admission()` is untouched and every payload is still built by the
+    //     server for exactly the persona it is handed to;
+    //  2. the real identity is always on screen — the first chip is 実（…）;
+    //  3. previewing the wrong role shows the REFUSAL, not the content: as
+    //     スタッフ the tab row is gone and canon's boundary sentence stands in
+    //     its place, because the board was never built;
+    //  4. production renders NOTHING — not hidden, absent, and `?as=` is not
+    //     read either (`isRolePreviewEnabled` gates both halves).
+    preview: previewOn
+      ? {
+          label: '開発用',
+          note: '表示を切り替えるだけの開発用の機能です。実際の権限は変わりません。本番では表示されません。',
+          realLabel: `実（${realRole}）`,
+          realHref: `${keepStore}`.replace(/[?&]$/, '') || '?',
+          current: role,
+          isOverridden: role !== realRole,
+          roles: PREVIEW_ROLES.map((r) => ({ role: r, href: `${keepStore}as=${encodeURIComponent(r)}` })),
+        }
+      : null,
     selfTabLabel: '自分のコーチング',
     teamTabLabel: '全スタッフ表示',
+    roiTabLabel: '経営への効果',
     canViewTeam: access.viewTeam,
+    canViewRoi: access.viewRoi,
     // canon's boundary-rights sentence (fable-coaching.html:363), kept verbatim
     // in meaning and spelled without the capability code, because a reader is
     // not owed our permission vocabulary.
@@ -238,6 +422,16 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
       self.kind === 'ready'
         ? {
             kind: 'ready',
+            // ⚖ COACHING IS OPT-IN, AND THE PAGE NOW SAYS SO (audit #2/#3/#6).
+            // The room refused the DEPTH-SHARE from day one but never said the
+            // ANALYSIS ITSELF is the staff member's to allow, so the page read
+            // as if coaching simply happens to you. The decision is READ from
+            // the viewer's own record; the CONTROL stays refused, because
+            // writing a consent record is a legal act.
+            consent: {
+              status: self.view.consent.status,
+              ...CONSENT_STATE[self.view.consent.status],
+            },
             status: self.view.status,
             statusTitle: STATUS_TITLE[self.view.status],
             statusBody: STATUS_BODY[self.view.status],
@@ -274,12 +468,26 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
               // not support, the card says the evidence is short.
               countWarning: f.countChecks ? null : '根拠のセッション件数が一致しません。この件数は確認中です。',
               confidenceNote: f.confidenceNote,
+              // personal-findings.ts:242-243 — the loop closed: what fixes this,
+              // named. Null when the run linked nothing, or when the reference
+              // does not resolve — never an id printed at a reader.
+              moduleTitle: moduleTitle.get(f.linkedModuleId ?? '') ?? null,
+              patternBehavior: f.patternBehavior,
             })),
+            // ⚖ staff-focus.ts:200-204 — 「detail MUST cite the evidencing
+            // metric/pattern」, and the plane has carried this since the build
+            // round while the room rendered nothing (audit §5 rank 4). Honest,
+            // not sweet: a strength here is a strength with a receipt attached.
+            strengths: self.view.strengths.map((s) => ({ label: s.label, detail: s.detail })),
             focus: self.view.focus.map((f) => ({
               category: f.category,
               categoryLabel: labelOf(self.view.categories, f.category),
               label: f.label,
               description: f.description,
+              // staff-focus.ts:173 — the module this focus points at, resolved
+              // to the catalog's own title. Before this round `module_id` was a
+              // reference into nothing (audit #8).
+              moduleTitle: moduleTitle.get(f.moduleId ?? '') ?? null,
               // staff-focus.ts:171 — 'early_signal' is capped at priority
               // 'medium' by the module's own rule, and it is SAID rather than
               // hidden: a thin signal presented as settled is the mislabelling
@@ -349,11 +557,128 @@ export async function coachingProps({ locale, store, world }: CoachingPropsInput
             trajectoryLine: r.band ? TRAJECTORY_LINE[r.band] : 'セッションの回数が判断できる数に届いていません。',
             action: r.suggestedAction ? { kind: r.suggestedAction.kind, label: r.suggestedAction.label } : null,
           })),
+          // ⚖ サポートエリア頻度ランキング (audit #24) — the ONE owner-facing
+          // 「what does the whole store need」 answer, and the only surface on
+          // this page that aggregates ACROSS people.
+          //
+          // ⚠ NO LEADERBOARD GRAMMAR, AND THE LABEL SAYS WHAT IT COUNTS
+          // (⚖ 8/25): 「クロージング ・ 3名」 is a fact about the store's shape.
+          // There is no rank number, no 1位, no medal and no arrow — and the
+          // count is of STAFF, never of sessions or of anything a person could
+          // be measured by. It reads the BOARD (bands and leak guard already
+          // applied), so an area too unsafe to print is not counted either.
+          focusRanking: {
+            title: '店舗全体のサポートエリア',
+            note: 'いま支援が必要な場面を、人数で並べています。誰のことかは表示しません。順位ではありません。',
+            rows: focusAreaFrequency(team.rows).map((f) => ({
+              key: f.category,
+              label: f.label,
+              value: `${f.count}名`,
+            })),
+            emptyLine: '支援が必要と判断できたスタッフがまだいません。',
+          },
           adoptionLine: `深い共有を許可しているスタッフ ${team.sharingAdoption.granted}名 / 在籍 ${team.sharingAdoption.total}名`,
           adoptionNote:
             '誰が許可していないかは表示しません。共有はスタッフ本人が決めるもので、断っても勤務には影響しません。',
           limitNote:
             '在籍人数が少ない店舗では、区分だけにしても誰のことか分かってしまいます。区分はここでの見え方を「支援」に寄せるためのもので、匿名にするためのものではありません。',
+        }
+      : null,
+    // ⚖ THE OWNER ROI SCREEN (audit §5 rank 1) — the surface that answers
+    // 「これ、払う価値ある？」, which this room had NO answer for.
+    //
+    // ⚠ EVERY NUMBER ON IT IS A SUBTRACTION. `buildRoi` computes each lift as
+    // 「this store's change − untreated stores' change」, shrinks it toward a
+    // zero prior and labels it by which horizons matured — so a good season
+    // cannot be sold as a coaching win, and a thin sample cannot outrank a
+    // year's work. The honesty note is not decoration beside the numbers; it is
+    // the description of the arithmetic that produced them, which is why it
+    // rides the same object and renders whenever a lift does.
+    roi: roi
+      ? {
+          heroLabel: 'コーチング導入後の売上への効果',
+          hero: roiLift(roi.headline),
+          heroSub: `導入からの${roi.sinceMonths}ヶ月ぶんの実績です。季節や他の要因を差し引いた、コーチングによる押し上げ分だけを表示しています。`,
+          confidenceLead: '確からしさ',
+          trendTitle: '店舗の成約率の推移',
+          trendSub: '縦の線がコーチングを始めた時点です。以降、コーチングを使っていない他店舗の平均との差が開いています。',
+          treatedLabel: 'この店舗',
+          controlLabel: '他店舗平均（コーチング未導入）',
+          trend: {
+            treated: roi.treated,
+            control: roi.control,
+            labels: monthTicks(roi.treated.length),
+            startFraction: roi.coachingStartFraction,
+          },
+          liftsTitle: '指標ごとの押し上げ',
+          liftsSub: 'それぞれ、他の要因を差し引いたコーチングによる効果です。まだ判断が早いものは「初期」「構築中」と表示します。',
+          lifts: roi.lifts.map(roiLift),
+          // ⚖ 「誇張しません」 — ja.json coaching.owner.roi.honestyNote, carried
+          // in the phone's own words and spelled out in plain language, because
+          // it is what makes these numbers safe to show an owner.
+          honestyNote:
+            '数字は「差分の差分法」で出しています — コーチングを受けたこの店舗の変化から、コーチングを使っていない他店舗の自然な変化を差し引き、残った押し上げ分だけを表示しています。データが少ないうちに大きく出た数字は自動的に抑えめに補正し、確からしさが足りないものは正直に「構築中」「初期」と表示します。誇張しません。',
+          pitchTitle: 'この機能は、費用を上回る売上を生んでいます',
+          pitchSub: roi.monthlyValueEstimate
+            ? `この規模の店舗で、月あたり約 ${money(roi.monthlyValueEstimate)} の売上に相当します。`
+            : null,
+          // ⚠ THE ABSENCE IS SAID OUT LOUD, like every other short receipt in
+          // this room: an owner who does not see a money line is told the bar
+          // was not met, rather than left to wonder where it went.
+          pitchWithheld:
+            roi.monthlyValueEstimate === null
+              ? '金額に置き換えた目安は、確からしさが「確立」になるまで表示しません。'
+              : null,
+        }
+      : null,
+    // ⚖ あなたのデータについて (audit #40-#45) — nine itemised facts, the
+    // Synqed-as-processor disclosure and the mission line, all in the phone's
+    // own legally-reviewed words. Two of the nine already lived here as
+    // `noticeLines`; the other seven had no home in Business at all. It is a
+    // SECTION rather than a route because this room is one page — the reader
+    // never has to leave the screen the promise is about.
+    transparency: {
+      title: 'あなたのデータについて',
+      // ⚖ TRUE ON BOTH SIDES OF THE WALL (the room-5 F5-1 law). A staff member
+      // and an owner read the same sentence here, because the facts below are
+      // the same facts whichever side you are on — what changes is which column
+      // is about you.
+      subtitle: 'コーチング機能で扱われる情報と、店長・オーナーに見える範囲です。',
+      ...TRANSPARENCY,
+      staffOnlyLead: '本人だけが見られます。店長・オーナーの画面には表示されません。',
+      ownerVisibleLead: '店長・オーナーが見られる範囲です。これ以外は渡りません。',
+      // ⚖ 削除リクエストは法的な記録 — registry ③（同意の実保存）と同じ seam。
+      deletionTitle: 'データ削除リクエスト',
+      deletionBody:
+        'コーチングで貯まったあなた固有のデータ（会話の録音・文字起こし・個別の学習提案）の削除をリクエストできます。成績などの業務データは対象外です。',
+      deletionCta: 'データ削除をリクエストする',
+      reviewCta: '同意内容を見る',
+    },
+    // ⚖ THE PATTERN LIBRARY (audit #46-#48) — five NAMED shelves with the actual
+    // line a top performer says, where the room used to show two loose anonymous
+    // sentences. Every shelf renders, empty or not.
+    patterns: shelves.length > 0
+      ? {
+          title: 'トップパフォーマーのパターン',
+          subtitle: '成績の良いスタッフのやり方を、名前を伏せてまとめています。誰のやり方かは表示されません。',
+          note: patternLibraryNote,
+          emptyLine: 'この場面のパターンは、今月はまだ見つかっていません。',
+          shelves,
+        }
+      : null,
+    // ⚖ THE LEARNING-MODULE CATALOG (audit #49-#57). The room diagnosed and then
+    // refused into nothing — 学習モジュールを割り当てる pointed at a library that
+    // did not exist. It exists now, as a READ surface: assignment stays the
+    // board's refused action, because it is a write that notifies a person.
+    modules: modules.length > 0
+      ? {
+          title: '学習モジュール',
+          subtitle: '気づきに対して、何をどう練習するかをまとめたものです。AIが上位層のやり方から組み立てています。',
+          calloutTitle: '毎週あたらしいモジュールが増えます',
+          calloutBody:
+            '上位層のやり方からモジュールを自動で組み立てます。効果が確認できたものほど、次からの提案で優先されます。',
+          mineLabel: 'あなたの次の一手',
+          cards: modules,
         }
       : null,
     actionFootnote: FOOTNOTE,

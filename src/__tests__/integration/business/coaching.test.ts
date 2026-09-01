@@ -32,8 +32,24 @@ import {
   bandOf,
   buildSelfView,
   buildTriage,
+  buildModuleLibrary,
+  buildPatternLibrary,
+  buildRoi,
   categoryLabel,
+  confidenceFor,
+  CONSENT_STATE,
   declineLabel,
+  effectiveRole,
+  focusAreaFrequency,
+  horizonEffect,
+  HORIZON_WEIGHTS,
+  MODULE_BASIS,
+  MONEY_LINE_CONFIDENCE,
+  PATTERN_CATEGORIES,
+  PATTERN_SHELF,
+  PREVIEW_ROLES,
+  shrink,
+  SHRINK_K,
   helpActionFor,
   maturityNote,
   maturityOf,
@@ -42,9 +58,10 @@ import {
   sessionsOf,
   summaryLeaks,
 } from '@/business/lib/coaching'
-import { coachingStaff, coachingStores, teamPatterns } from '@/business/lib/fixtures-coaching'
+import { coachingConsent, coachingStaff, coachingStores, learningModules, patternLibrary, storeRoi, teamPatterns } from '@/business/lib/fixtures-coaching'
 import { STORE_A, STORE_B, staff as worldStaff } from '@/business/lib/fixtures'
 import { coachingProps } from '@/app/[locale]/(business)/business/coaching/coaching-props'
+import type { CoachingSelf } from '@/app/[locale]/(business)/business/coaching/CoachingScreen'
 
 const BIZ = join(process.cwd(), 'src/app/[locale]/(business)')
 const ROOM_DIR = join(BIZ, 'business/coaching')
@@ -243,8 +260,25 @@ describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
   it('there is no ranking control, no sort key and no comparator anywhere in the room', () => {
     // ⚖ A TRIAGE BOARD, NEVER A LEADERBOARD. Not a copy rule — a code rule.
     for (const [name, code] of [['lib', LIB_CODE], ['screen', SCREEN_CODE], ['props', stripComments(PROPS_SRC)]] as const) {
-      expect({ name, sortsRoster: /rows\.sort|roster\.sort|\.sort\(\s*\(a, ?b\)\s*=>\s*b\./.test(code) }).toEqual({ name, sortsRoster: false })
+      // ⚠ THE ONE DESCENDING COMPARATOR IN THE ROOM IS EXCLUDED BY NAME, NOT BY
+      // LOOSENING THE PATTERN (the look-fix round). サポートエリア頻度 orders
+      // CATEGORIES by how many staff need each — 「頻度順」 is the surface's own
+      // job — and the two facts that keep it from being a leaderboard are pinned
+      // right below rather than assumed: it takes `TriageRow[]` (bands, already
+      // through the leak guard) and returns rows with no staff field at all, and
+      // the BOARD's own row order is still the roster's.
+      const withoutRanking = code.replace(/export function focusAreaFrequency[\s\S]*?\n\}/, '')
+      expect({ name, sortsRoster: /rows\.sort|roster\.sort|\.sort\(\s*\(a, ?b\)\s*=>\s*b\./.test(withoutRanking) })
+        .toEqual({ name, sortsRoster: false })
     }
+    // …and the carve-out is proven, not trusted: the frequency rows carry a
+    // category, a label and a count, and nothing a person could be identified
+    // or measured by.
+    const freq = focusAreaFrequency(
+      buildTriage({ roster: [{ id: 'p-04', name: 'x' }, { id: 'p-01', name: 'y' }], rows: coachingStaff, floor: FLOOR_DEFAULT }).rows,
+    )
+    for (const row of freq) expect(Object.keys(row).sort()).toEqual(['category', 'count', 'label'])
+    expect(/export function focusAreaFrequency\(rows: TriageRow\[\]\)/.test(LIB_CODE)).toBe(true)
     // The ONE sort in the room ranks a person's OWN findings by severity, which
     // is 「lead with what is costing you」 — never a comparison between people.
     // ⚠ THE ONE SORT IN THE ROOM IS THE RUN'S OWN RANK, not a re-ranking this
@@ -1054,7 +1088,13 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     expect([...rendered].filter((n) => n.startsWith('cg-')).length).toBeGreaterThan(30)
     // The computed names really are the ones this room means.
     expect([...stems].sort()).toEqual(['is-'])
-    expect([...rendered].filter((n) => n.startsWith('is-')).sort()).toEqual(['is-on', 'is-support'])
+    // ⚠ THE LIST IS ENUMERATED ON PURPOSE — a new state modifier must be
+    // ADDED here, so nobody can introduce a bare name the fence has not been
+    // reasoned about. The look-fix round adds four: the ROI chart's two data
+    // series, the catalog's 「this one is yours」 card, and the two columns of
+    // the visibility wall.
+    expect([...rendered].filter((n) => n.startsWith('is-')).sort())
+      .toEqual(['is-control', 'is-mine', 'is-on', 'is-support', 'is-theirs', 'is-treated'])
   })
 
   it('every `is-` state modifier is stated COMPOUNDED with a cg- class, never alone', () => {
@@ -1072,7 +1112,10 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         }
       }
     }
-    expect([...isNames].sort()).toEqual(['is-on', 'is-priority', 'is-strength', 'is-support', 'is-watch'])
+    expect([...isNames].sort()).toEqual([
+      'is-building', 'is-control', 'is-declined', 'is-early', 'is-mature', 'is-mine', 'is-none',
+      'is-on', 'is-priority', 'is-strength', 'is-support', 'is-theirs', 'is-treated', 'is-unset', 'is-watch',
+    ])
     // …and no neighbour states a bare rule on any of them.
     for (const dir of SIBLING_DIRS) {
       const src = readFileSync(join(BIZ, 'business', dir, `${dir}.css`), 'utf8')
@@ -1421,9 +1464,21 @@ describe('⚖ THE VISIBILITY SPEC’s own §7 — the four mistakes, structurall
     unpinClock()
     // every digit in the whole owner payload, and where it lives
     const digits = JSON.stringify(props.team).match(/\d+/g) ?? []
-    // the ONLY numbers are the four band counts and the two adoption integers
-    const allowed = JSON.stringify([props.team!.counts, props.team!.adoptionLine]).match(/\d+/g) ?? []
+    // the ONLY numbers are the four band counts, the two adoption integers, and
+    // — since the look-fix round — the サポートエリア頻度 head-counts, which are
+    // the SAME CLASS of fact as the band counts: how many staff, never which,
+    // never how well. Every one of the three is an aggregate over the roster.
+    const allowed = JSON.stringify([props.team!.counts, props.team!.adoptionLine, props.team!.focusRanking.rows])
+      .match(/\d+/g) ?? []
     expect(digits.sort()).toEqual(allowed.sort())
+    // …and the new one really is an aggregate: every value counts STAFF, and no
+    // row can be tied to a person — the label is a category, never a name.
+    const names = props.team!.rows.map((r) => r.staffLabel)
+    for (const r of props.team!.focusRanking.rows) {
+      expect({ label: r.label, value: r.value, endsWithPeople: /^\d+名$/.test(r.value) })
+        .toEqual({ label: r.label, value: r.value, endsWithPeople: true })
+      expect(names.some((n) => r.label.includes(n) || n.includes(r.label))).toBe(false)
+    }
   })
 
   it('§7-b MODULE ASSIGNMENT IS DECOUPLED FROM CONSENT — the most anxious get help too', () => {
@@ -1888,5 +1943,467 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     const building = props.team!.rows.filter((r) => r.band === null)
     expect(building.length).toBeGreaterThan(0)
     expect(building[0].trajectoryLine).toContain('判断できる数に届いていません')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOOK-FIX ROUND — the surfaces the 9/1 coverage audit found missing.
+//
+// EVERY NEW SHAPE JOINS THE MACHINE FIDELITY GATE. The rule the build round set
+// is unchanged: these pins do not RESTATE a schema, they PARSE it off disk, so a
+// change to a prompt module or to `contract.ts` goes red here rather than in
+// somebody's browser six months from now.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not restated', () => {
+  const P = 'src/lib/karute/coaching/prompts'
+  const PATTERNS_PROMPT = read(`${P}/top-performer-patterns.ts`)
+  const MODULE_PROMPT = read(`${P}/learning-module.ts`)
+  const CONTRACT = read('src/lib/karute/coaching/contract.ts')
+  const EFFECTIVENESS = read('src/lib/karute/coaching/effectiveness.ts')
+  const CONSENT_TYPES = read('src/lib/coaching-consent/types.ts')
+  const DEV_PREVIEW = read('src/lib/coaching-dev-preview/hooks.ts')
+  const CATEGORIES_FILE = read('src/components/coaching/redesign/pattern-categories.ts')
+  const JA = JSON.parse(read('messages/ja.json')) as { coaching: Record<string, never> }
+  const PLANE = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-coaching.ts'), 'utf8')
+
+  const requiredAfter = (src: string, anchor: string): string[] => {
+    const at = src.indexOf(anchor)
+    expect({ anchor, found: at >= 0 }).toEqual({ anchor, found: true })
+    const m = /required:\s*\[([^\]]*)\]/.exec(src.slice(at))
+    if (!m) throw new Error(`no required[] after ${anchor}`)
+    return m[1].split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter(Boolean).sort()
+  }
+  const fieldsOf = (src: string, name: string): string[] => {
+    const at = src.indexOf(`export interface ${name} {`)
+    expect({ name, found: at >= 0 }).toEqual({ name, found: true })
+    const body = src.slice(at + `export interface ${name} {`.length, src.indexOf('\n}', at))
+    return [...body.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/^ {2,}([a-zA-Z_][\w]*)\??:/gm)].map((m) => m[1]).sort()
+  }
+
+  it('the ROI’s raw input mirrors effectiveness.ts’s own HorizonInput', () => {
+    expect(fieldsOf(PLANE, 'FixtureHorizonInput')).toEqual(fieldsOf(EFFECTIVENESS, 'HorizonInput'))
+    // …and the four legal horizons are the module's own list, not this room's.
+    const horizons = /export const HORIZONS = \[([^\]]*)\]/.exec(EFFECTIVENESS)![1]
+      .split(',').map((x) => Number(x.trim())).filter((n) => Number.isFinite(n)).sort((a, b) => a - b)
+    expect(horizons).toEqual([30, 90, 180, 365])
+    expect(Object.keys(HORIZON_WEIGHTS).map(Number).sort((a, b) => a - b)).toEqual(horizons)
+    for (const h of horizons) {
+      const w = new RegExp(`\\n\\s+${h}: ([\\d.]+),`).exec(EFFECTIVENESS)
+      expect({ h, weight: HORIZON_WEIGHTS[h] }).toEqual({ h, weight: Number(w![1]) })
+    }
+    expect(SHRINK_K).toBe(Number(/export const SHRINK_K = (\d+)/.exec(EFFECTIVENESS)![1]))
+  })
+
+  it('the DiD arithmetic is effectiveness.ts’s own three functions, mirrored', () => {
+    // C1 — the subtraction, and it really subtracts.
+    expect(EFFECTIVENESS).toContain('return input.treatedDelta - input.controlDelta')
+    expect(horizonEffect({ treatedDelta: 0.09, controlDelta: 0.02 })).toBeCloseTo(0.07, 10)
+    // C3 — shrinkage, including its n=0 collapse to the prior.
+    expect(EFFECTIVENESS).toContain('return (n * rawScore + k * priorMean) / (n + k)')
+    expect(shrink(1, 0, 0.4)).toBe(0.4)
+    expect(shrink(0.07, 22, 0)).toBeCloseTo((22 * 0.07) / 34, 10)
+    // the confidence ladder, value for value
+    expect(EFFECTIVENESS).toContain("if (used.includes(180) || used.includes(365)) return 'mature'")
+    expect(confidenceFor([])).toBe('none')
+    expect(confidenceFor([30])).toBe('early')
+    expect(confidenceFor([30, 90])).toBe('building')
+    expect(confidenceFor([30, 90, 180])).toBe('mature')
+    expect(confidenceFor([365])).toBe('mature')
+  })
+
+  it('the ROI view mirrors contract.ts’s StoreCoachingRoi and StoreMetricLift', () => {
+    expect(CONTRACT).toContain('export interface StoreCoachingRoi {')
+    expect(CONTRACT).toContain('export interface StoreMetricLift {')
+    // contract.ts:277 — the confidence enum the CHIP is drawn from.
+    expect(CONTRACT).toContain("confidence: 'early' | 'building' | 'mature'")
+    const view = buildRoi({ roi: storeRoi[STORE_A] })!
+    expect(Object.keys(view).sort()).toEqual([
+      'coachingStartFraction', 'control', 'headline', 'lifts', 'monthlyValueEstimate', 'scope', 'sinceMonths', 'treated',
+    ])
+    // ⚠ STORE AGGREGATE ONLY (contract.ts:284-286) — there is no staff field
+    // anywhere in the shape, so no individual can reach the selling screen.
+    expect(JSON.stringify(view)).not.toMatch(/staff|Staff|名前|name/)
+    for (const l of view.lifts) {
+      expect(Object.keys(l).sort()).toEqual(['after', 'before', 'confidence', 'horizonsUsed', 'key', 'lift', 'unit'])
+    }
+    // the money amount is a MoneyAmount, never a bare JPY number.
+    expect(Object.keys(view.monthlyValueEstimate!).sort()).toEqual(['amount', 'currency'])
+  })
+
+  it('the pattern mirrors top-performer-patterns.ts’s own patterns[] item — minus the name it must never carry', () => {
+    const required = requiredAfter(PATTERNS_PROMPT, "required: ['category', 'title'")
+    expect(fieldsOf(PLANE, 'FixtureTopPattern')).toEqual(required)
+    expect(fieldsOf(PLANE, 'FixturePatternEvidence')).toEqual(requiredAfter(PATTERNS_PROMPT, "required: ['presentInTopPerformers'"))
+    // ⚠ THE ABSENCE IS THE GUARANTEE (COACHING_VISIBILITY_MODEL:123 flags the
+    // phone's `showSource = role === 'owner'`): there is no field for a source
+    // name in the plane, in the model, in the props or on the screen — so no
+    // role check can switch one on.
+    // ⚠ MEASURED ON THE CODE, NOT THE PROSE. Each of these files EXPLAINS why
+    // the field is absent, and a raw grep would flag the explanation — the same
+    // trap the SPINE pin's `revisit` check already documents.
+    const code = (src: string) => stripComments(src).replace(/^\s*\/\/.*$/gm, '')
+    for (const [name, src] of [['plane', PLANE], ['lib', LIB_SRC], ['props', PROPS_SRC], ['screen', SCREEN_SRC]] as const) {
+      expect({ name, hasSource: /sourceStaffName|showSource/.test(code(src)) }).toEqual({ name, hasSource: false })
+    }
+  })
+
+  it('the five shelves are pattern-categories.ts’s production taxonomy, in its own order', () => {
+    const declared = /export const PATTERN_CATEGORIES: readonly PatternCategory\[\] = \[([\s\S]*?)\]/.exec(CATEGORIES_FILE)![1]
+      .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean)
+    expect([...PATTERN_CATEGORIES]).toEqual(declared)
+    // …and the shelf titles + descriptions are ja.json's own words, not a
+    // translation this room wrote.
+    const cats = (JA.coaching as unknown as { patterns: { categories: Record<string, { title: string; description: string }> } }).patterns.categories
+    for (const key of PATTERN_CATEGORIES) {
+      expect({ key, ...PATTERN_SHELF[key] }).toEqual({ key, title: cats[key].title, description: cats[key].description })
+    }
+    // EVERY shelf renders, empty or not — the phone's own deliberate choice.
+    const shelves = buildPatternLibrary(patternLibrary)
+    expect(shelves.map((s) => s.key)).toEqual(declared)
+    expect(shelves.some((s) => s.entries.length === 0)).toBe(true)
+    // …and the evidence FRACTION never survives into a rendered entry.
+    for (const s of shelves) {
+      for (const e of s.entries) {
+        expect(Object.keys(e).sort()).toEqual(['adoptionNote', 'behavior', 'confidenceNote', 'example', 'title', 'transferability'])
+        expect(e.adoptionNote).not.toMatch(/\d/)
+      }
+    }
+  })
+
+  it('the module mirrors learning-module.ts’s generated module, plus the ONE id the storage layer owns', () => {
+    const required = requiredAfter(MODULE_PROMPT, "required: ['title', 'description'")
+    expect(fieldsOf(PLANE, 'FixtureLearningModule')).toEqual([...required, 'moduleId'].sort())
+    expect(fieldsOf(PLANE, 'FixtureModuleStep')).toEqual(requiredAfter(MODULE_PROMPT, "required: ['step', 'title', 'detail']"))
+    // the four evidenceBasis values, read off the schema's own enum
+    const basis = /evidenceBasis: \{[\s\S]*?enum: \[([^\]]*)\]/.exec(MODULE_PROMPT)![1]
+      .split(',').map((x) => x.trim().replace(/'/g, '')).filter(Boolean).sort()
+    expect(Object.keys(MODULE_BASIS).sort()).toEqual(basis)
+    // ⚠ NO ASSIGNMENT STATE ANYWHERE — that is a write, and it stays the board's
+    // refused help action. `owner-types.ts:73-82` carries assigned/assignedTo/
+    // completionRate; this plane deliberately carries none of them.
+    const card = buildModuleLibrary(learningModules, ['mod-ack-01'])
+    for (const c of card) {
+      expect(Object.keys(c).sort()).toEqual(['basisLabel', 'description', 'durationLabel', 'isMine', 'moduleId', 'steps', 'title'])
+    }
+    expect(/assigned|completionRate|consentGiven/.test(stripComments(PLANE).replace(/^\s*\/\/.*$/gm, ''))).toBe(false)
+    // …and the two ids the run already pointed at really resolve now (audit #81).
+    const ids = new Set(learningModules.map((m) => m.moduleId))
+    for (const row of coachingStaff) {
+      for (const f of row.findingsRun.findings) if (f.linked_module_id) expect(ids.has(f.linked_module_id)).toBe(true)
+      for (const f of row.focus.focus_recommendations) if (f.module_id) expect(ids.has(f.module_id)).toBe(true)
+    }
+  })
+
+  it('the consent record mirrors coaching-consent/types.ts, three states and all', () => {
+    expect(fieldsOf(PLANE, 'FixtureConsentRecord')).toEqual(fieldsOf(CONSENT_TYPES, 'CoachingConsentRecord'))
+    const statuses = /export type CoachingConsentStatus = ([^\n]*)/.exec(CONSENT_TYPES)![1]
+      .split('|').map((x) => x.trim().replace(/'/g, '')).sort()
+    expect(statuses).toEqual(['declined', 'granted', 'unset'])
+    // every state has its own designed sentence — none falls back to another's
+    for (const s of statuses) expect(Object.keys(CONSENT_STATE)).toContain(s)
+    const bodies = Object.values(CONSENT_STATE).map((c) => c.body)
+    expect(new Set(bodies).size).toBe(3)
+    // ⚠ AND THE PLANE REACHES ALL THREE, so the walk crosses every state.
+    expect(new Set(Object.values(coachingConsent).map((c) => c.status)).size).toBe(3)
+  })
+
+  it('every new mirrored shape CITES the file it mirrors', () => {
+    for (const cite of ['effectiveness.ts:', 'top-performer-patterns.ts:', 'learning-module.ts:', 'coaching-consent/types.ts:']) {
+      expect({ cite, inPlane: PLANE.includes(cite) }).toEqual({ cite, inPlane: true })
+    }
+    for (const cite of ['effectiveness.ts:', 'top-performer-patterns.ts:', 'learning-module.ts:', 'pattern-categories.ts:']) {
+      expect({ cite, inLib: LIB_SRC.includes(cite) }).toEqual({ cite, inLib: true })
+    }
+  })
+
+  it('the role preview mirrors coaching-dev-preview’s own gate, three ways', () => {
+    // the env gate, value for value
+    expect(DEV_PREVIEW).toContain("process.env.NODE_ENV === 'development'")
+    expect(DEV_PREVIEW).toContain("process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW === 'true'")
+    expect(LIB_SRC).toContain("process.env.NODE_ENV === 'development'")
+    expect(LIB_SRC).toContain("process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW === 'true'")
+    // ⚠ THE THREE ROLES ARE THE ACCESS TABLE'S OWN KEYS, derived rather than
+    // restated: a preview offering a role the table does not know is not a value
+    // this room can build.
+    expect(PREVIEW_ROLES).toEqual(['オーナー', '店舗管理者', 'スタッフ'])
+    const table = /const ACCESS_BY_ROLE: Record<string, CoachingAccess> = \{([\s\S]*?)\n\}/.exec(LIB_SRC)![1]
+    expect([...table.matchAll(/^\s*([^\s:]+):/gm)].map((m) => m[1])).toEqual([...PREVIEW_ROLES])
+    // …and every offered role is a role the table really knows, so the preview
+    // cannot render a persona that falls through to NO_ACCESS by accident.
+    // ⚠ THREE DISTINCT OUTCOMES, which is what makes this a three-way preview
+    // rather than a two-way one with a decorative third chip.
+    const known = PREVIEW_ROLES.map((r) => JSON.stringify(accessFor(r)))
+    expect(new Set(known).size).toBe(3)
+    expect(accessFor('オーナー')).toEqual({ viewTeam: true, viewRoi: true })
+    expect(accessFor('店舗管理者')).toEqual({ viewTeam: true, viewRoi: false })
+    expect(accessFor('スタッフ')).toEqual({ viewTeam: false, viewRoi: false })
+    expect(accessFor('constructor')).toEqual({ viewTeam: false, viewRoi: false })
+    // fail-closed on the VALUE as well as on the gate (hooks.ts:88-95)
+    expect(effectiveRole('スタッフ', 'constructor')).toBe('スタッフ')
+    expect(effectiveRole('スタッフ', '__proto__')).toBe('スタッフ')
+    expect(effectiveRole('スタッフ', undefined)).toBe('スタッフ')
+    expect(effectiveRole('スタッフ', 'オーナー')).toBe(process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW === 'true' ? 'オーナー' : 'スタッフ')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE WALL HOLDS UNDER EVERY PERSONA — the role preview walked, per role', () => {
+  /** The three personas the preview offers, and what each may reach. Written as
+   *  DATA so the walk cannot quietly skip one: every persona in `PREVIEW_ROLES`
+   *  must appear here or the last case in this block fails. */
+  const EXPECTED: Record<string, { team: boolean; roi: boolean }> = {
+    オーナー: { team: true, roi: true },
+    店舗管理者: { team: true, roi: false },
+    スタッフ: { team: false, roi: false },
+  }
+
+  it('the walk covers every role the preview offers — no persona goes unpinned', () => {
+    expect(Object.keys(EXPECTED).sort()).toEqual([...PREVIEW_ROLES].sort())
+  })
+
+  for (const [role, can] of Object.entries(EXPECTED)) {
+    it(`${role}: the payload carries exactly what the capability allows, and NOTHING a wall forbids`, async () => {
+      pinClock(MID_MONTH)
+      const { props } = await coachingProps({ ...GINZA, world: { role } })
+      unpinClock()
+
+      // (1) the two capability gates, on the payload rather than on a class name
+      expect({ role, team: props.team !== null }).toEqual({ role, team: can.team })
+      expect({ role, roi: props.roi !== null }).toEqual({ role, roi: can.roi })
+      expect({ role, canViewTeam: props.canViewTeam }).toEqual({ role, canViewTeam: can.team })
+      expect({ role, canViewRoi: props.canViewRoi }).toEqual({ role, canViewRoi: can.roi })
+
+      // (2) L1 IS ALWAYS THE VIEWER'S OWN — the verbatim quote, the consent
+      // record and the strengths are the SAME on every persona, because they
+      // are read by a lookup on the viewer's own id and a role cannot widen it.
+      const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+      expect(self.kind).toBe('ready')
+      expect(self.consent.status).toBe('granted')
+
+      // (3) NO PER-STAFF NUMBER ANYWHERE THE ROLE CAN SEE. The board's digits
+      // are already pinned in §7-a; this is the ROI screen's half — a store
+      // aggregate must carry no roster name at all.
+      if (props.roi) {
+        const roster = (await coachingProps(GINZA)).props.team!.rows.map((r) => r.staffLabel)
+        for (const name of roster) expect(JSON.stringify(props.roi).includes(name)).toBe(false)
+      }
+
+      // (4) THE VIEWER LINE NAMES THIS ROLE, so the page says whose eyes it is.
+      expect(props.viewerLine).toContain(role)
+    })
+  }
+
+  it('a STAFF reader’s payload has no colleague and no store aggregate in it at all', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'スタッフ', selfId: 'p-01' } })
+    unpinClock()
+    expect(props.team).toBeNull()
+    expect(props.roi).toBeNull()
+    // p-04's own numbers exist in the plane and reach nothing here.
+    const blob = JSON.stringify(props)
+    expect(blob).not.toContain('見本 しろう')
+    expect(blob).not.toContain('後で決める」で終えています')
+    // …and the boundary sentence stands where the tab row would be.
+    expect(props.teamBoundaryLine).toContain('権限のあるアカウント')
+  })
+
+  it('the ROI screen is a SEPARATE capability — a 店舗管理者 has no money estimate to leak', async () => {
+    pinClock(MID_MONTH)
+    const manager = await coachingProps({ ...GINZA, world: { role: '店舗管理者' } })
+    const owner = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    expect(manager.props.roi).toBeNull()
+    expect(JSON.stringify(manager.props)).not.toContain('182,000')
+    expect(owner.props.roi!.pitchSub).toContain('182,000')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE OWNER ROI SCREEN — every number is a subtraction, and it says so', () => {
+  it('the lift really is treated MINUS control — deleting the control arm moves the number', () => {
+    const base = buildRoi({ roi: storeRoi[STORE_A] })!
+    const closing = base.lifts.find((l) => l.key === 'closingRate')!
+    // the same world with the untreated stores flat: the lift must GROW, which
+    // is only true if the control arm is being subtracted at all.
+    const noControl = buildRoi({
+      roi: {
+        ...storeRoi[STORE_A],
+        lifts: storeRoi[STORE_A].lifts.map((l) => ({ ...l, horizons: l.horizons.map((h) => ({ ...h, controlDelta: 0 })) })),
+      },
+    })!
+    const closingNoControl = noControl.lifts.find((l) => l.key === 'closingRate')!
+    expect(closingNoControl.lift!).toBeGreaterThan(closing.lift!)
+    // …and the arithmetic is the module's own, to the digit.
+    const h = storeRoi[STORE_A].lifts.find((l) => l.key === 'closingRate')!.horizons
+    const used = h.map((x) => x.horizon).sort((a, b) => a - b)
+    const wSum = used.reduce((s, x) => s + HORIZON_WEIGHTS[x], 0)
+    const expected = h.reduce((s, x) => s + shrink(x.treatedDelta - x.controlDelta, x.n, 0) * (HORIZON_WEIGHTS[x.horizon] / wSum), 0)
+    expect(closing.lift!).toBeCloseTo(expected, 12)
+  })
+
+  it('a thin sample is SHRUNK toward the prior, so a fluke cannot outrank real work', () => {
+    const thin = buildRoi({ roi: { ...storeRoi[STORE_A], lifts: [{ key: 'closingRate', before: 0.3, after: 0.6, unit: 'rate', horizons: [{ horizon: 30, treatedDelta: 0.3, controlDelta: 0, n: 1 }] }] } })!
+    // raw effect .3; shrunk at n=1 toward a zero prior it is a fraction of that.
+    expect(thin.headline.lift!).toBeLessThan(0.3 / 3)
+    expect(thin.headline.confidence).toBe('early')
+  })
+
+  it('the MONEY LINE is gated on the headline’s own confidence, and the withholding is SAID', async () => {
+    const mature = buildRoi({ roi: storeRoi[STORE_A] })!
+    expect(mature.headline.confidence).toBe(MONEY_LINE_CONFIDENCE)
+    expect(mature.monthlyValueEstimate).not.toBeNull()
+    // the same store, with only an early horizon: no estimate, and the screen
+    // is handed the sentence that says why rather than left silent.
+    const early = buildRoi({
+      roi: { ...storeRoi[STORE_A], lifts: storeRoi[STORE_A].lifts.map((l) => ({ ...l, horizons: l.horizons.filter((h) => h.horizon === 30) })) },
+    })!
+    expect(early.headline.confidence).toBe('early')
+    expect(early.monthlyValueEstimate).toBeNull()
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    expect(props.roi!.pitchWithheld).toBeNull()
+    expect(props.roi!.pitchSub).not.toBeNull()
+  })
+
+  it('the HONESTY NOTE cannot be separated from the numbers it describes', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    // it rides the SAME object as the lifts, so there is no payload in which
+    // one exists without the other…
+    expect(props.roi!.lifts.length).toBeGreaterThan(0)
+    expect(props.roi!.honestyNote).toContain('差分の差分法')
+    expect(props.roi!.honestyNote).toContain('誇張しません')
+    // …and the screen renders it unconditionally inside the ROI panel, never
+    // behind a flag a fix could flip.
+    const panel = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelRoi"'), SCREEN_CODE.indexOf('cg-foot'))
+    expect(panel).toContain('{props.roi.honestyNote}')
+    expect(panel).not.toMatch(/\{[^}]*&&\s*<section className="cg-honesty"/)
+  })
+
+  it('every confidence state has a designed label — none renders as a bare zero', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    // ⚠ THE PLANE EXERCISES THREE OF THE FOUR ON ONE SCREEN, so 「構築中」 and
+    // 「初期」 are states a reader meets rather than branches only a test sees.
+    const seen = new Set(props.roi!.lifts.map((l) => l.confidence))
+    expect([...seen].sort()).toEqual(['building', 'early', 'mature'])
+    for (const l of props.roi!.lifts) {
+      expect({ key: l.key, label: l.confidenceLabel, empty: l.confidenceLabel.length === 0 }).toEqual({ key: l.key, label: l.confidenceLabel, empty: false })
+      expect(l.horizonNote.length).toBeGreaterThan(0)
+    }
+    // the fourth state has a word too, so a metric with no data never prints 0.
+    const none = buildRoi({ roi: { ...storeRoi[STORE_A], lifts: [{ key: 'closingRate', before: 0.3, after: 0.3, unit: 'rate', horizons: [] }] } })!
+    expect(none.headline.lift).toBeNull()
+    expect(none.headline.confidence).toBe('none')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () => {
+  it('the CONSENT gate is rendered, and it is a READ with a REFUSED control', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.consent.title).toBe(CONSENT_STATE.granted.title)
+    // the page SAYS coaching is opt-in — the gap §5 rank 6 named.
+    expect(self.consent.body).toContain('取り消せます')
+    expect(CONSENT_STATE.unset.body).toContain('同意しなくても仕事には影響しません')
+    // …and the control is refused, like every other write on this page.
+    expect(SCREEN_CODE).toContain("refused(ready.consent.cta, props.refusals.share, 'cg-consent-btn')")
+  })
+
+  it('あなたの強み and the FULL focus list both reach the payload', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.strengths.length).toBeGreaterThan(0)
+    // staff-focus.ts:203 — the detail MUST cite the evidencing metric.
+    for (const s of self.strengths) expect(s.detail).toMatch(/\d/)
+    // the whole ≤3 list is resolved, not just the hero (audit #31)
+    const view = buildSelfView({
+      selfId: 'p-06',
+      rows: [{ ...coachingStaff[0], focus: { ...coachingStaff[0].focus, focus_recommendations: [
+        ...coachingStaff[0].focus.focus_recommendations,
+        { category: 'next_step', label: '二番目', description: 'x', confidence: 'established', priority: 'medium', module_id: 'mod-next-01', suggested_new_module_title: null },
+      ] } }],
+      patterns: teamPatterns,
+    })
+    expect(view.kind).toBe('ready')
+    expect((view as { kind: 'ready'; view: { focus: unknown[] } }).view.focus.length).toBe(2)
+    expect(SCREEN_CODE).toContain('ready.focus.slice(1)')
+  })
+
+  it('the PRIVACY MARKER is one prop on every L1 section — and on none of the shared ones', () => {
+    // one string, one element, so the promise cannot come apart card by card
+    expect([...SCREEN_CODE.matchAll(/\{lock\}/g)].length).toBeGreaterThanOrEqual(6)
+    expect([...SCREEN_CODE.matchAll(/className="cg-lock"/g)].length).toBe(1)
+    // …and it is NOT on the anonymous team content or the shared library.
+    for (const marker of ['cg-learn', 'cg-patterns', 'cg-modules', 'cg-board', 'cg-adoption', 'cg-ranking']) {
+      const at = SCREEN_CODE.indexOf(`className="${marker}"`)
+      expect({ marker, found: at > 0 }).toEqual({ marker, found: true })
+      const head = SCREEN_CODE.slice(at, at + 900)
+      expect({ marker, locked: head.includes('{lock}') }).toEqual({ marker, locked: false })
+    }
+  })
+
+  it('the FINDING now points at what fixes it — resolved to names, never ids', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    const linked = self.findings.filter((f) => f.moduleTitle !== null)
+    expect(linked.length).toBeGreaterThan(0)
+    for (const f of self.findings) {
+      // never an id at a reader, on either link
+      expect({ id: f.id, mod: f.moduleTitle }).not.toMatchObject({ mod: expect.stringMatching(/^mod-/) })
+      expect({ id: f.id, pat: f.patternBehavior }).not.toMatchObject({ pat: expect.stringMatching(/^tp-/) })
+    }
+    // a dangling reference resolves to null rather than to a printed id
+    const dangling = buildSelfView({
+      selfId: 'p-06',
+      rows: [{ ...coachingStaff[0], findingsRun: { ...coachingStaff[0].findingsRun, findings: coachingStaff[0].findingsRun.findings.map((f) => ({ ...f, pattern_reference: 'tp-nope' })) } }],
+      patterns: teamPatterns,
+    }) as { kind: 'ready'; view: { findings: Array<{ patternBehavior: string | null }> } }
+    for (const f of dangling.view.findings) expect(f.patternBehavior).toBeNull()
+  })
+
+  it('the TRANSPARENCY block carries all NINE facts, plus the processor disclosure', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const t = props.transparency
+    expect(t.staffOnly.length).toBe(5)
+    expect(t.ownerVisible.length).toBe(4)
+    expect(t.synqed.length).toBe(4)
+    // ⚠ THE WORDS ARE ja.json's OWN, not a paraphrase this room wrote.
+    const data = (JSON.parse(read('messages/ja.json')) as { coaching: { data: { staffOnly: Record<string, string>; ownerVisible: Record<string, string>; synqedAccess: Record<string, string>; missionBody: string } } }).coaching.data
+    expect([...t.staffOnly].sort()).toEqual(Object.entries(data.staffOnly).filter(([k]) => k !== 'title').map(([, v]) => v).sort())
+    expect([...t.ownerVisible].sort()).toEqual(Object.entries(data.ownerVisible).filter(([k]) => k !== 'title').map(([, v]) => v).sort())
+    expect([...t.synqed].sort()).toEqual(Object.entries(data.synqedAccess).filter(([k]) => !['title', 'intro'].includes(k)).map(([, v]) => v).sort())
+    expect(t.missionBody).toBe(data.missionBody)
+    // …and it is on the page for EVERY persona, because the wall it describes
+    // does not change when the tab does.
+    expect(SCREEN_CODE.indexOf('className="cg-notice"')).toBeGreaterThan(SCREEN_CODE.indexOf('{props.actionFootnote}'))
+  })
+
+  it('サポートエリア頻度 counts STAFF per category, once each, and orders without ranking people', () => {
+    const rows = buildTriage({
+      roster: [{ id: 'p-04', name: 'a' }, { id: 'p-01', name: 'b' }, { id: 'p-05', name: 'c' }],
+      rows: coachingStaff,
+      floor: FLOOR_DEFAULT,
+    }).rows
+    const freq = focusAreaFrequency(rows)
+    // a staff member with the same category twice counts once
+    const dup = focusAreaFrequency([{ ...rows[0], focusAreas: [...rows[0].focusAreas, ...rows[0].focusAreas] }])
+    expect(dup[0].count).toBe(1)
+    // the total never exceeds the roster
+    for (const f of freq) expect(f.count).toBeLessThanOrEqual(rows.length)
+    // …and the BOARD's own row order is untouched by the ranking existing.
+    expect(rows.map((r) => r.staffLabel)).toEqual(['a', 'b', 'c'])
   })
 })

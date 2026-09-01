@@ -201,6 +201,7 @@
 .biz .pg-coaching .cg-eyebrow,
 .biz .pg-coaching .cg-titleline,
 .biz .pg-coaching .cg-sub,
+.biz .pg-coaching .cg-viewer,
 .biz .pg-coaching .cg-window { grid-column: 1; }
 .biz .pg-coaching .cg-settings { grid-column: 1; justify-self: stretch; margin-top: 4px; }
 .biz .pg-coaching .cg-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
@@ -256,6 +257,15 @@
 .biz .pg-coaching .cg-framing,
 .biz .pg-coaching .cg-board,
 .biz .pg-coaching .cg-adoption,
+.biz .pg-coaching .cg-consent,
+.biz .pg-coaching .cg-strengths,
+.biz .pg-coaching .cg-patterns,
+.biz .pg-coaching .cg-modules,
+.biz .pg-coaching .cg-ranking,
+.biz .pg-coaching .cg-roi-trend,
+.biz .pg-coaching .cg-roi-lifts,
+.biz .pg-coaching .cg-honesty,
+.biz .pg-coaching .cg-pitch,
 .biz .pg-coaching .cg-dormant {
   padding: 18px 20px;
   border: 1px solid var(--cg-panel-line); border-radius: 12px;
@@ -535,6 +545,230 @@
   .biz .pg-coaching .cg-spot-hole { transition: none; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOOK-FIX ROUND — the surfaces the 9/1 coverage audit found missing.
+
+   THE PAGE GREW A LOT, and the composition rules above did the work: every new
+   panel is a `cg-` name (the structural fence), every new panel joined the
+   shared card furniture rather than restating a border and a radius, and NOT
+   ONE new container owns a scroll axis (⚖ page-scroll, ruled twice). The two
+   container thresholds are unchanged — the new sections are full-width readers
+   below the two columns, not a fourth composition.
+
+   ⚖ AND THE ACCENT LEDGER IS UNCHANGED. The three places saturated blue is
+   spent stay: the selected tab, the ? while the tour is up, and the last bar of
+   the 成約率 trend (a data mark under CLAUDE.md's own chart carve-out). The ROI
+   chart's two series are data colours under the same carve-out — ink for this
+   store, grey dashes for the control — and nothing on it invites a press. The
+   role-preview chips are LINKS, so their selected state is a pressable's and
+   the R13 recipe (a /8 wash, never a fill) applies to them exactly as it does
+   to the tabs. There is still no red anywhere on this page.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── whose eyes: the viewer line ───────────────────────────────────────────── */
+/* Quiet by construction — it is orientation, not a control, so it is neutral
+   (the one-way accent law) and sits at the same weight as the window line it
+   pairs with. Two facts about the READING, one line each. */
+.biz .pg-coaching .cg-viewer { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.7; letter-spacing: .01em; }
+
+/* ── the role preview (dev only; absent from the DOM in production) ────────── */
+/* ⚠ IT LOOKS LIKE A TOOL, NOT LIKE THE PRODUCT. A dashed hairline and a 開発用
+   tag, because a reader must never mistake it for a control the salon owns —
+   the dormant pill's own posture (`DevPreviewToggle.tsx:54-55`), moved from a
+   fixed bottom-right corner to the top of the page it changes. FIXED IS WRONG
+   HERE: this room has no bottom nav to clear, the desk door is a scrolling
+   page, and a floating chip over a manager's board is a thing to mis-tap. */
+.biz .pg-coaching .cg-preview {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px dashed var(--control); border-radius: 10px;
+  background: repeating-linear-gradient(135deg, #fbfbfc 0 8px, #f6f6f8 8px 16px);
+}
+.biz .pg-coaching .cg-preview.is-on { border-color: var(--cg-priority); }
+.biz .pg-coaching .cg-preview-tag { padding: 2px 8px; border-radius: 6px; background: var(--cg-priority-soft); color: var(--cg-priority); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-preview-chip {
+  min-height: 30px; display: inline-flex; align-items: center; padding: 0 11px;
+  border: 1px solid var(--control); border-radius: 8px;
+  background: #fff; color: var(--ink-2);
+  font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.biz .pg-coaching .cg-preview-chip:hover { background: #fafafb; }
+/* ⚖ R13 — a light accent wash on the selected chip, never a fill. */
+.biz .pg-coaching .cg-preview-chip.is-on { border-color: var(--cg-accent); background: var(--cg-accent-wash); color: var(--cg-accent); }
+.biz .pg-coaching .cg-preview-note { flex: 1 1 260px; min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+
+/* ── the per-section privacy marker ────────────────────────────────────────── */
+/* Neutral, small, and it never competes with the heading it sits beside — it is
+   a property of the card, not an alert about it. */
+.biz .pg-coaching .cg-lock {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  background: var(--cg-soft); color: var(--ink-3);
+  font-size: 11px; font-weight: 600; letter-spacing: .01em; white-space: nowrap;
+}
+/* The section heads that gained a marker keep the title left and the marker
+   next to it, with any action still pushed to the far right. */
+.biz .pg-coaching .cg-sec-head { justify-content: flex-start; }
+.biz .pg-coaching .cg-sec-head > .btn { margin-left: auto; }
+
+/* ── コーチングを受けることへの同意 ────────────────────────────────────────── */
+/* Three states, three tones, ALL NEUTRAL-TO-WARM and none of them red: a person
+   who declined coaching has not failed at anything (⚖ 8/25's B family). */
+.biz .pg-coaching .cg-consent.is-unset { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-consent.is-declined { background: var(--cg-soft); }
+.biz .pg-coaching .cg-consent-body { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+
+/* ── あなたの強み ──────────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-strength-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-strength { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-radius: 10px; background: var(--cg-strength-soft); }
+.biz .pg-coaching .cg-strength-label { color: var(--cg-strength); font-size: 13px; font-weight: 700; line-height: 1.6; }
+/* THE RECEIPT, and it is the reason this card is not a compliment: staff-focus
+   .ts:203 requires the detail to cite the metric that evidences the strength. */
+.biz .pg-coaching .cg-strength-detail { color: var(--ink-2); font-size: 12.5px; line-height: 1.8; font-variant-numeric: tabular-nums; }
+
+/* ── the focus card's two additions ────────────────────────────────────────── */
+.biz .pg-coaching .cg-focus-mod { margin: 10px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-focus-mod b,
+.biz .pg-coaching .cg-find-pattern b,
+.biz .pg-coaching .cg-find-mod b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-find-pattern,
+.biz .pg-coaching .cg-find-mod { margin: 9px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+/* 「そのあとに効くもの」 — deliberately quieter than the hero and deliberately
+   NOT a numbered list: a rank is the one grammar this room does not use. */
+.biz .pg-coaching .cg-focus-next { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-focus-next > b { display: block; margin-bottom: 6px; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-focus-next ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-focus-next li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+
+/* ── the pattern library: five shelves ─────────────────────────────────────── */
+.biz .pg-coaching .cg-patterns-sub,
+.biz .pg-coaching .cg-modules-sub { margin: 0 0 14px; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+/* ⚠ INTRINSIC, THRESHOLDLESS, like the spine's tiles: the shelves reflow with
+   the room rather than at a number this sheet would have to keep in sync with
+   the ladder. One column on a phone, two on a fold, three on a desk. */
+.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.biz .pg-coaching .cg-shelf { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-shelf-title { margin: 0; font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-coaching .cg-shelf-desc { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
+/* AN EMPTY SHELF IS A DESIGNED STATE, not a missing one — the reader sees the
+   shape of the library, so a quiet month reads as 「nothing new here」. */
+.biz .pg-coaching .cg-shelf-empty { margin: 10px 0 0; padding: 10px 12px; border: 1px dashed var(--cg-panel-line); border-radius: 9px; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-pattern-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-pattern { display: flex; flex-direction: column; gap: 5px; padding: 11px 12px; border-radius: 9px; background: #fff; }
+.biz .pg-coaching .cg-pattern-title { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-pattern-behavior { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+/* THE ACTUAL LINE — set apart exactly as a finding's verbatim moment is, so the
+   two kinds of quote read as the same kind of thing on one page. */
+.biz .pg-coaching .cg-pattern-example { display: block; margin: 3px 0; padding: 9px 12px; border-left: 2.5px solid var(--section); border-radius: 0 8px 8px 0; background: var(--cg-soft); color: var(--ink); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-pattern-note { color: var(--ink-3); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-pattern-transfer { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.biz .pg-coaching .cg-pattern-caveat { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.biz .pg-coaching .cg-patterns-note { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+
+/* ── the learning-module catalog ───────────────────────────────────────────── */
+.biz .pg-coaching .cg-callout { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 11px 13px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-callout b { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-callout span { color: var(--ink-2); font-size: 11.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-module { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; }
+/* The module the reader's OWN focus run named — the same warm treatment the
+   次の一手 card gets, because it is the same recommendation seen from the
+   catalog side. */
+.biz .pg-coaching .cg-module.is-mine { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-module-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-module.is-mine .cg-kicker { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-module-title { color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.55; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-module-desc { margin: 8px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-module-basis { margin: 7px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.75; }
+/* AN ORDERED LIST IS THE RIGHT GRAMMAR HERE, and it is the only one on the
+   page: these are STEPS, which have an order, unlike people, who do not. */
+.biz .pg-coaching .cg-module-steps { display: flex; flex-direction: column; gap: 7px; margin: 11px 0 0; padding: 0 0 0 20px; }
+.biz .pg-coaching .cg-module-steps li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-module-steps b { display: block; color: var(--ink); font-weight: 700; }
+
+/* ── サポートエリア頻度 ────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-ranking-note { margin: 0 0 11px; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-ranking-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+
+/* ── the owner ROI screen ──────────────────────────────────────────────────── */
+/* ⚠ THE HERO IS A CARD, NOT A GRADIENT BANNER. The phone paints teal-to-emerald
+   white-on-colour (`DataDrivenOwnerRoi.tsx:106`); the Business family has no
+   such surface anywhere, and a saturated slab under a manager's tab row would
+   be the loudest thing on a page whose whole argument is restraint. The number
+   carries the emphasis instead — 34px, tabular, on the room's own paper. */
+.biz .pg-coaching .cg-roi-hero { padding: 20px 22px; border: 1px solid var(--cg-strength-soft); border-radius: 12px; background: linear-gradient(180deg, #f4fbf7 0%, #fff 70%); }
+.biz .pg-coaching .cg-roi-eyebrow { display: block; color: var(--cg-strength); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-roi-value { margin: 6px 0 0; color: var(--ink); font-size: 34px; font-weight: 700; line-height: 1.15; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-roi-sub { margin: 8px 0 0; max-width: 62ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-roi-note { margin: 0 0 12px; max-width: 70ch; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+/* ⚖ THE CONFIDENCE CHIP IS THE HONESTY, WEARING A TONE. Neutral washes, and
+   the weakest state is the quietest — never a red, never an alarm. */
+.biz .pg-coaching .cg-conf { display: inline-block; margin-top: 12px; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-conf.is-mature { background: var(--cg-strength-soft); color: var(--cg-strength); }
+.biz .pg-coaching .cg-conf.is-building { background: var(--cg-watch-soft); color: var(--cg-watch); }
+.biz .pg-coaching .cg-conf.is-early { background: var(--section); color: var(--ink-3); }
+.biz .pg-coaching .cg-conf.is-none { background: var(--cg-soft); color: var(--muted); }
+
+.biz .pg-coaching .cg-chart { position: relative; }
+.biz .pg-coaching .cg-chart svg { display: block; }
+.biz .pg-coaching .cg-chart-axis { stroke: var(--section); stroke-width: 1; }
+/* DATA COLOURS, under CLAUDE.md's own chart carve-out — and the treated series
+   is INK rather than the brand blue, so nothing here reads as pressable. */
+.biz .pg-coaching .cg-chart-control { stroke: var(--muted); stroke-width: 1.8; stroke-dasharray: 3 3; }
+.biz .pg-coaching .cg-chart-treated { stroke: var(--cg-strength); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.biz .pg-coaching .cg-chart-mark { position: absolute; top: 0; bottom: 12px; width: 0; border-left: 1.5px dashed var(--cg-priority); }
+.biz .pg-coaching .cg-chart-axis-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-roi-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-roi-legend li { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-roi-key { display: inline-block; width: 18px; height: 0; border-top-style: solid; }
+.biz .pg-coaching .cg-roi-key.is-treated { border-top-width: 2.6px; border-top-color: var(--cg-strength); }
+.biz .pg-coaching .cg-roi-key.is-control { border-top-width: 1.8px; border-top-style: dashed; border-top-color: var(--muted); }
+
+.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-lift { display: flex; flex-direction: column; gap: 3px; padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-lift-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
+.biz .pg-coaching .cg-lift-value { color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-lift-levels { color: var(--ink-3); font-size: 11.5px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-lift .cg-conf { align-self: flex-start; margin-top: 6px; }
+.biz .pg-coaching .cg-lift-basis { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+
+/* THE METHOD, IN PLAIN WORDS — a dashed frame, the same one every 「this is how
+   we know」 block on this page wears. */
+.biz .pg-coaching .cg-honesty { border-style: dashed; background: var(--cg-soft); }
+.biz .pg-coaching .cg-honesty p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.9; }
+.biz .pg-coaching .cg-pitch { border-color: var(--cg-strength-soft); background: #f8fdfa; }
+.biz .pg-coaching .cg-pitch p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-roi-withheld { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+
+/* ── あなたのデータについて ────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-notice { gap: 9px; padding: 18px 20px; }
+.biz .pg-coaching .cg-notice-sub { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-notice-line { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-mission { margin-top: 5px; padding: 12px 14px; border-radius: 10px; background: #fff; }
+.biz .pg-coaching .cg-mission b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12.5px; font-weight: 700; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-mission p { margin: 0; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.9; }
+/* ⚖ TWO COLUMNS IS THE COMPOSITION, and the reason is the content: the whole
+   point of this block is that a reader can hold both lists in one glance and
+   check that nothing appears on both sides. `auto-fit` collapses it to one
+   column on a phone, where a glance is a scroll anyway. */
+.biz .pg-coaching .cg-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.biz .pg-coaching .cg-wall-col { padding: 13px 15px; border-radius: 10px; }
+.biz .pg-coaching .cg-wall-col.is-mine { background: var(--cg-strength-soft); }
+.biz .pg-coaching .cg-wall-col.is-theirs { background: #fff; border: 1px solid var(--cg-panel-line); }
+.biz .pg-coaching .cg-wall-col b { display: block; color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.biz .pg-coaching .cg-wall-lead { margin: 4px 0 8px; color: var(--ink-2); font-size: 11.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-wall-col ul { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0 0 0 18px; }
+.biz .pg-coaching .cg-wall-col li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-synqed { padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: #fff; }
+.biz .pg-coaching .cg-synqed > b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12.5px; font-weight: 700; }
+.biz .pg-coaching .cg-synqed p { margin: 0; max-width: 72ch; color: var(--ink-2); font-size: 12px; line-height: 1.85; }
+.biz .pg-coaching .cg-synqed ul { display: flex; flex-direction: column; gap: 5px; margin: 8px 0 0; padding: 0 0 0 18px; }
+.biz .pg-coaching .cg-synqed li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-retention { margin-top: 9px !important; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-retention b { color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; margin-right: 7px; }
+.biz .pg-coaching .cg-data-actions { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-delete-body { flex: 1 1 320px; min-width: 0; margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-delete-body b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+
 /* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the bands ─────────────────── */
 /* Only the PAGE's own rules live here; the shell's bands (`.biz .app`'s 1180px
    floor, the rail, the topbar) are the family CSS sweep's, and this room joins
@@ -550,7 +784,11 @@
   .biz .pg-coaching .cg-quote-text,
   .biz .pg-coaching .cg-row-line,
   .biz .pg-coaching .cg-dormant p,
-  .biz .pg-coaching .cg-state p { max-width: 66ch; }
+  .biz .pg-coaching .cg-state p,
+  .biz .pg-coaching .cg-honesty p,
+  .biz .pg-coaching .cg-consent-body,
+  .biz .pg-coaching .cg-pattern-behavior,
+  .biz .pg-coaching .cg-module-desc { max-width: 66ch; }
 }
 
 /* ═══ ≤1279 — small laptop / iPad landscape ═══ */
@@ -570,6 +808,8 @@
   .biz .pg-coaching .cg-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .page.pg-coaching .btn { min-height: 44px; }
   .biz .pg-coaching .cg-spot-foot button { min-height: 44px; }
+  /* the role preview's chips are LINKS, and a link is a finger target too. */
+  .biz .pg-coaching .cg-preview-chip { min-height: 44px; }
 }
 
 /* ═══ ≤743 — phone. list-is-the-page: the tabs take the full width so either
@@ -592,5 +832,14 @@
   .biz .pg-coaching .cg-framing,
   .biz .pg-coaching .cg-board,
   .biz .pg-coaching .cg-adoption,
+  .biz .pg-coaching .cg-consent,
+  .biz .pg-coaching .cg-strengths,
+  .biz .pg-coaching .cg-patterns,
+  .biz .pg-coaching .cg-modules,
+  .biz .pg-coaching .cg-ranking,
+  .biz .pg-coaching .cg-roi-trend,
+  .biz .pg-coaching .cg-roi-lifts,
+  .biz .pg-coaching .cg-honesty,
+  .biz .pg-coaching .cg-pitch,
   .biz .pg-coaching .cg-dormant { padding: 15px 14px; }
 }

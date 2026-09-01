@@ -275,14 +275,30 @@ export interface CoachingAccess {
    *  capability COACHING_VISIBILITY_MODEL:22 names for the L2 layer. Without it
    *  the tab does not exist and the reader sees their own screen alone. */
   viewTeam: boolean
+  /** ⚖ THE OWNER'S OWN CAPABILITY, AND IT IS A SECOND ONE ON PURPOSE.
+   *  `contract.ts:281-286` calls `StoreCoachingRoi` 「L2-OWNER — the surface that
+   *  sells the next business」, and a 店舗管理者 is not who that sentence is
+   *  written for: whether the module pays for itself is the person-who-pays'
+   *  question, and it is the one screen on this page that talks about money.
+   *  Folding it into `viewTeam` would have made オーナー and 店舗管理者 render
+   *  IDENTICALLY — which would also have made the three-way role preview a
+   *  control with two distinct outcomes and a decorative third. */
+  viewRoi: boolean
 }
 
-const NO_ACCESS: CoachingAccess = { viewTeam: false }
+const NO_ACCESS: CoachingAccess = { viewTeam: false, viewRoi: false }
 const ACCESS_BY_ROLE: Record<string, CoachingAccess> = {
-  オーナー: { viewTeam: true },
-  店舗管理者: { viewTeam: true },
-  スタッフ: { viewTeam: false },
+  オーナー: { viewTeam: true, viewRoi: true },
+  店舗管理者: { viewTeam: true, viewRoi: false },
+  スタッフ: { viewTeam: false, viewRoi: false },
 }
+
+/** The three roles the preview walks, in the order it offers them — most
+ *  capable first, so 「what does the person below me see」 reads down the pill.
+ *  ⚠ DERIVED FROM THE ACCESS TABLE'S OWN KEYS rather than restated beside it:
+ *  a role added to the table joins the preview by existing, and a preview
+ *  offering a role the table does not know is not a value this room can build. */
+export const PREVIEW_ROLES = Object.keys(ACCESS_BY_ROLE)
 
 /** FAIL-CLOSED on this table's OWN rows (the room-4 F-M1 lesson): a role named
  *  `constructor` must not resolve through the prototype chain. */
@@ -323,6 +339,14 @@ export interface SelfFinding {
   moment: SelfMoment | null
   checklistItemMatched: string | null
   confidenceNote: string | null
+  /** personal-findings.ts:242-243 — the module and the top-performer pattern
+   *  that FIX this finding. Both fields have been in the plane since the build
+   *  round and neither reached a screen (audit #81): the room diagnosed and then
+   *  pointed at nothing. Resolved here to the pattern's own behaviour sentence
+   *  and the module's own title, so the loop closes inside the shapes that
+   *  already exist rather than through a route this room does not have. */
+  linkedModuleId: string | null
+  patternBehavior: string | null
 }
 
 export interface SelfView {
@@ -358,9 +382,18 @@ export interface SelfView {
   categories: Array<{ key: string; label: string; score: number; topBenchmark: number | null; confidence: 'low' | 'medium' | 'high' }>
   findings: SelfFinding[]
   /** staff-focus.ts:163-176 FOCUS_L1. */
-  focus: Array<{ category: string; label: string; description: string; confidence: 'established' | 'early_signal'; priority: 'high' | 'medium' | 'low' }>
+  focus: Array<{ category: string; label: string; description: string; confidence: 'established' | 'early_signal'; priority: 'high' | 'medium' | 'low'; moduleId: string | null }>
+  /** ⚖ staff-focus.ts:200-204 `layer1_specifics.strengths` — 「detail MUST cite
+   *  the evidencing metric/pattern」. L1: the plane has carried this field since
+   *  the build round and the room resolved it into nothing, which is the audit's
+   *  §5 rank 4 — data already in the payload, thrown away. */
+  strengths: Array<{ label: string; detail: string }>
   /** contract.ts:176-183 TeamPattern. */
   learnFromTop: Array<{ id: string; behavior: string; adoptionNote: string }>
+  /** coaching-consent/types.ts:9-16 — the viewer's OWN consent-to-be-coached
+   *  record, read by the same lookup-by-own-id the grant uses. L1 by
+   *  COACHING_VISIBILITY_MODEL:21 (「own grant/consent history」). */
+  consent: { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }
 }
 
 /** The staff member's own run, or the fact that there is not one. `none` is the
@@ -373,8 +406,12 @@ export function buildSelfView(input: {
   selfId: string
   rows: FixtureCoachingStaff[]
   patterns: Array<{ id: string; categoryKey: string; behavior: string; adoptionNote: string }>
+  /** coaching-consent/types.ts:9-16, keyed by staff id. Absent = 'unset', which
+   *  is the type's OWN default-pre-prompt value (:5-6) rather than a state this
+   *  room invented for a missing row. */
+  consent?: Record<string, { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }>
 }): SelfState {
-  const { selfId, rows, patterns } = input
+  const { selfId, rows, patterns, consent = {} } = input
   // ⚖ THE SELF READ IS A LOOKUP BY ID. Nothing else in `rows` is touched, so a
   // colleague's numbers cannot reach this model even by accident.
   const mine = rows.find((r) => r.staffId === selfId)
@@ -433,15 +470,33 @@ export function buildSelfView(input: {
             : null,
           checklistItemMatched: f.evidence.checklist_item_matched,
           confidenceNote: f.confidenceNote,
+          linkedModuleId: f.linked_module_id,
+          // ⚠ RESOLVED THROUGH THE PATTERN PLANE, never printed as an id: a
+          // reference the reader cannot follow is worse than none. A dangling
+          // id resolves to null and the line simply does not render.
+          patternBehavior: patterns.find((p) => p.id === f.pattern_reference)?.behavior ?? null,
         })),
+      // ⚖ THE WHOLE LIST, NOT JUST focus[0] (staff-focus.ts:199 allows ≤3). The
+      // room still leads with ONE — 「一つに絞る」 is its own line — but the
+      // second and third were resolved here and thrown away by the screen, which
+      // is the audit's #31. They now ride as a quiet 「次に効くもの」 list.
       focus: mine.focus.focus_recommendations.map((f) => ({
         category: f.category,
         label: f.label,
         description: f.description,
         confidence: f.confidence,
         priority: f.priority,
+        // staff-focus.ts:173 `module_id` — the reference that lets a focus point
+        // at a real module instead of at nothing (audit #8).
+        moduleId: f.module_id,
       })),
+      strengths: mine.focus.strengths.map((s) => ({ label: s.label, detail: s.detail })),
       learnFromTop: patterns.map((p) => ({ id: p.id, behavior: p.behavior, adoptionNote: p.adoptionNote })),
+      // ⚠ THE VIEWER'S OWN ROW, BY THE SAME LOOKUP. Nobody else's consent state
+      // is read, so no colleague's decision can reach this payload — and the
+      // anti-coercion rule (COACHING_VISIBILITY_MODEL:53-56) is kept by there
+      // being no owner-side consumer of this map at all.
+      consent: consent[selfId] ?? { status: 'unset', policyVersion: null },
     },
   }
 }
@@ -662,4 +717,411 @@ export function keepCardOffHeading(
   const room = { top: zoneMid, bottom: viewport.height - zoneMid }
   const top = room.bottom >= room.top ? viewport.height - card.height - 10 : 10
   return { top: Math.max(10, top), left: at.left }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOOK-FIX ROUND — the derivations behind the surfaces the 9/1 coverage audit
+// found missing. Same laws as everything above: pure, no clock, no React, every
+// shape a mirror with its cite.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── L2-owner — the ROI screen's arithmetic (effectiveness.ts, mirrored) ──────
+
+/** effectiveness.ts:29-30 HORIZONS + :34-39 HORIZON_WEIGHTS, and the weights are
+ *  RENORMALIZED over whichever horizons a store actually has (:135-140) — 「a
+ *  young tenant is scored honestly on its early signal, not a pretend-mature
+ *  composite」 (:22-23). */
+export const HORIZON_WEIGHTS: Record<number, number> = { 30: 0.1, 90: 0.25, 180: 0.45, 365: 0.2 }
+
+/** effectiveness.ts:42 SHRINK_K. */
+export const SHRINK_K = 12
+
+/** ⚖ C1 — effectiveness.ts:61-63 `horizonEffect`. THE ONE SUBTRACTION THE WHOLE
+ *  SCREEN RESTS ON: a module is adopted BECAUSE a store dipped, so it rebounds
+ *  regardless (regression to the mean), and a good season moves everybody.
+ *  Subtracting an untreated control arm cancels both, and only a lift the
+ *  treated store got and the untreated ones did not survives. */
+export function horizonEffect(input: { treatedDelta: number; controlDelta: number }): number {
+  return input.treatedDelta - input.controlDelta
+}
+
+/** ⚖ C3 — effectiveness.ts:66-74 `shrink`. A thinly-sampled score is pulled
+ *  toward the prior, so three good months cannot outrank a year of real work. */
+export function shrink(rawScore: number, n: number, priorMean: number, k: number = SHRINK_K): number {
+  if (n <= 0) return priorMean
+  return (n * rawScore + k * priorMean) / (n + k)
+}
+
+/** effectiveness.ts:93-98 `confidenceFor` — 「confidence from which horizons
+ *  MATURED, not just how many samples」. 'none' is a real value: a metric with no
+ *  horizon carrying data has no lift, and the room says so rather than printing
+ *  a zero. */
+export type RoiConfidence = 'none' | 'early' | 'building' | 'mature'
+export function confidenceFor(used: number[]): RoiConfidence {
+  if (used.length === 0) return 'none'
+  if (used.includes(180) || used.includes(365)) return 'mature'
+  if (used.includes(90)) return 'building'
+  return 'early'
+}
+
+/** effectiveness.ts:107-160 `effectivenessComposite`, mirrored: sanitize the
+ *  prior, drop horizons with no data or an off-contract length, shrink each
+ *  DiD effect, then combine on renormalized weights. */
+export function roiComposite(
+  horizons: Array<{ horizon: number; treatedDelta: number; controlDelta: number; n: number }>,
+  priorMean: number,
+): { composite: number | null; confidence: RoiConfidence; horizonsUsed: number[] } {
+  const prior = Number.isFinite(priorMean) ? priorMean : 0
+  const withData = horizons.filter((h) => h.n > 0 && Object.hasOwn(HORIZON_WEIGHTS, h.horizon))
+  if (withData.length === 0) return { composite: null, confidence: 'none', horizonsUsed: [] }
+  const used = withData.map((h) => h.horizon).sort((a, b) => a - b)
+  const weightSum = used.reduce((s, h) => s + HORIZON_WEIGHTS[h], 0)
+  const composite = withData.reduce(
+    (s, h) => s + shrink(horizonEffect(h), h.n, prior) * (HORIZON_WEIGHTS[h.horizon] / weightSum),
+    0,
+  )
+  return { composite, confidence: confidenceFor(used), horizonsUsed: used }
+}
+
+/** contract.ts:273-279 StoreMetricLift, resolved — with the raw `lift` kept
+ *  beside the display so the props file formats it and nothing composes a
+ *  number twice (the ⚖ A8 rule this room has already been bitten by). */
+export interface RoiLift {
+  key: 'closingRate' | 'rebookingRate' | 'avgRevenue' | 'satisfaction'
+  unit: 'rate' | 'money' | 'score'
+  /** The DiD composite, in metric units. `null` = no horizon had data. */
+  lift: number | null
+  before: number
+  after: number
+  confidence: RoiConfidence
+  horizonsUsed: number[]
+}
+
+/** contract.ts:281-296 StoreCoachingRoi, resolved. STORE AGGREGATE ONLY — read
+ *  the field list: there is no staff id, no name and no per-person number, so
+ *  the selling screen cannot become a league table by a mis-wiring. */
+export interface RoiView {
+  scope: 'owner-aggregate'
+  headline: RoiLift
+  sinceMonths: number
+  treated: number[]
+  control: number[]
+  coachingStartFraction: number
+  lifts: RoiLift[]
+  /** contract.ts:295-296 — 「Null when confidence is too low to responsibly
+   *  state one」. The gate is HERE, and it is the headline's confidence: a money
+   *  claim rides the number it is a translation of, never a different one. */
+  monthlyValueEstimate: { amount: number; currency: string } | null
+}
+
+/** ⚖ THE MONEY LINE'S BAR, NAMED ONCE. 'mature' means a 180d or 365d horizon
+ *  actually carried data — a full business cycle — which is the only state in
+ *  which 「this pays for itself」 is a sentence about evidence rather than about
+ *  hope. Below it the estimate is null and the line does not render. */
+export const MONEY_LINE_CONFIDENCE: RoiConfidence = 'mature'
+
+export function buildRoi(input: {
+  roi?: {
+    headlineKey: RoiLift['key']
+    sinceMonths: number
+    treated: number[]
+    control: number[]
+    coachingStartFraction: number
+    lifts: Array<{ key: RoiLift['key']; before: number; after: number; unit: RoiLift['unit']; horizons: Array<{ horizon: 30 | 90 | 180 | 365; treatedDelta: number; controlDelta: number; n: number }> }>
+    monthlyValueEstimate: { amount: number; currency: string }
+    priorMean: number
+  }
+}): RoiView | null {
+  const roi = input.roi
+  if (!roi) return null
+  const lifts: RoiLift[] = roi.lifts.map((l) => {
+    const { composite, confidence, horizonsUsed } = roiComposite(l.horizons, roi.priorMean)
+    return { key: l.key, unit: l.unit, lift: composite, before: l.before, after: l.after, confidence, horizonsUsed }
+  })
+  const headline = lifts.find((l) => l.key === roi.headlineKey)
+  // A headline key naming a metric this store does not measure is a plane bug,
+  // not a state to render around: without a hero there is no ROI screen.
+  if (!headline) return null
+  return {
+    scope: 'owner-aggregate',
+    headline,
+    sinceMonths: roi.sinceMonths,
+    treated: roi.treated,
+    control: roi.control,
+    coachingStartFraction: roi.coachingStartFraction,
+    lifts,
+    monthlyValueEstimate: headline.confidence === MONEY_LINE_CONFIDENCE ? roi.monthlyValueEstimate : null,
+  }
+}
+
+// ── L2 — サポートエリア頻度ランキング (audit #24) ────────────────────────────
+
+/** ⚖ PLAIN LABELLED COUNTS, AND NO LEADERBOARD GRAMMAR (⚖ 8/25 + this room's
+ *  own 「順位はつけません」 line). The count is 「how many staff have this as a
+ *  focus area」 — a fact about the STORE's shape, not about any person — and it
+ *  says what it counts in the label the props file writes. There is no rank
+ *  number, no medal, no first/second/third, and no order the reader is invited
+ *  to read as a ranking of PEOPLE: two categories with the same count are
+ *  ordered by the category table's own order, not by anything about staff.
+ *
+ *  ⚠ IT READS THE BOARD, NOT THE PLANE. `TriageRow.focusAreas` has already been
+ *  through the L2 leak guard and the band gate, so an area this room could not
+ *  safely print to an owner is not counted either — a count is a smaller leak
+ *  than a sentence, never a safer one. */
+export function focusAreaFrequency(rows: TriageRow[]): Array<{ category: string; label: string; count: number }> {
+  const counts = new Map<string, number>()
+  for (const r of rows) {
+    // A staff member with the same category twice is one staff member.
+    for (const key of new Set(r.focusAreas.map((f) => f.category))) {
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+  }
+  const order = CATEGORY_TOKENS.map((c) => c.key as string)
+  return [...counts.entries()]
+    .map(([category, count]) => ({ category, label: categoryLabel(category), count }))
+    .sort((a, b) => b.count - a.count || order.indexOf(a.category) - order.indexOf(b.category))
+}
+
+// ── the pattern library (audit #46-48) ──────────────────────────────────────
+
+/** `pattern-categories.ts:20-26 PATTERN_CATEGORIES` — the production taxonomy's
+ *  render order, and Anthony's generation prompt classifies into these same five
+ *  slots (`pattern-categories.ts:5-9`). New categories are a coordinated change
+ *  on both ends, which is why this list is a mirror and not a preference. */
+export const PATTERN_CATEGORIES = [
+  'counseling_questions',
+  'conversation_flow',
+  'closing',
+  'rebooking',
+  'objection_handling',
+] as const
+export type PatternCategory = (typeof PATTERN_CATEGORIES)[number]
+
+/** ja.json `coaching.patterns.categories.*` — the phone's own shelf titles and
+ *  descriptions, carried word for word rather than re-written here. */
+export const PATTERN_SHELF: Record<PatternCategory, { title: string; description: string }> = {
+  counseling_questions: {
+    title: 'カウンセリング質問例',
+    description: 'お客様のお悩みを深く理解するための質問の型。トップパフォーマーが実際に使っている言い回しです。',
+  },
+  conversation_flow: {
+    title: '会話フロー',
+    description: 'カウンセリングから提案、リブッキングまでの自然な流れを作るための構造パターン。',
+  },
+  closing: {
+    title: 'クロージングパターン',
+    description: 'お客様が前向きに決断できるタイミングと言葉の運び方。',
+  },
+  rebooking: {
+    title: 'リブッキング会話',
+    description: '次回の目的を一緒に描き、自然にご予約に繋げる会話の型。',
+  },
+  objection_handling: {
+    title: '反対意見への対応',
+    description: '「高い」「考えます」を受け止め、選択肢に変換するアプローチ。',
+  },
+}
+
+/** ⚖ THE DENOMINATOR NEVER REACHES A SCREEN. `top-performer-patterns.ts:152-161`
+ *  gives every pattern an evidence block with real numerators and denominators,
+ *  and the plane keeps them so the mirror is honest — but 「上位層8名中7名」 in a
+ *  salon with eight senior staff tells the reader exactly who the eighth is.
+ *  This is the same sentence-shaped remedy `adoptionNote` already uses on the
+ *  self screen (fixtures-coaching.ts:211-215), applied once, here, so the two
+ *  surfaces cannot say the same evidence two different ways.
+ *
+ *  ⚠ THE THRESHOLDS ARE FRACTIONS OF THE GENERATOR'S OWN DENOMINATOR, so the
+ *  sentence stays true whatever the store's top layer is sized at. */
+export function adoptionSentence(e: { presentInTopPerformers: number; ofTopPerformers: number }): string {
+  if (e.ofTopPerformers <= 0) return '上位層の記録がまだ足りません'
+  const share = e.presentInTopPerformers / e.ofTopPerformers
+  if (share >= 0.9) return '上位層のほぼ全員が実践しています'
+  if (share >= 0.6) return '上位層の多くが実践しています'
+  return '上位層の一部が実践しています'
+}
+
+export interface PatternEntry {
+  title: string
+  behavior: string
+  /** top-performer-patterns.ts:157 — the actual LINE, paraphrased, ≤15 chars
+   *  verbatim. This is what a shelf has that two loose sentences do not. */
+  example: string
+  transferability: string
+  adoptionNote: string
+  confidenceNote: string | null
+}
+
+export interface PatternShelf {
+  key: PatternCategory
+  title: string
+  description: string
+  entries: PatternEntry[]
+}
+
+/** ⚖ EVERY SHELF RENDERS, EMPTY OR NOT (`PatternCategorySection.tsx:9-18`, the
+ *  phone's own deliberate choice): the reader sees the SHAPE of the library, so
+ *  a month with nothing new on one shelf reads as 「nothing new here」 rather
+ *  than as a library that quietly changed size. */
+export function buildPatternLibrary(
+  patterns: Array<{
+    category: string | null
+    title: string
+    behaviorDescription: string
+    anonymizedExample: string
+    evidence: { presentInTopPerformers: number; ofTopPerformers: number }
+    transferability: string
+    confidence: 'high' | 'medium' | 'low'
+  }>,
+): PatternShelf[] {
+  return PATTERN_CATEGORIES.map((key) => ({
+    key,
+    title: PATTERN_SHELF[key].title,
+    description: PATTERN_SHELF[key].description,
+    entries: patterns
+      .filter((p) => p.category === key)
+      .map((p) => ({
+        title: p.title,
+        behavior: p.behaviorDescription,
+        example: p.anonymizedExample,
+        transferability: p.transferability,
+        adoptionNote: adoptionSentence(p.evidence),
+        // top-performer-patterns.ts:163 — said only when it changes how the
+        // pattern should be read, exactly as a category score's is.
+        confidenceNote: p.confidence === 'low' ? '見つかった回数が少なく、参考です' : null,
+      })),
+  }))
+}
+
+// ── the learning-module catalog (audit #49-57) ──────────────────────────────
+
+/** learning-module.ts:152-172's `module`, resolved for display, plus the
+ *  storage id (`owner-types.ts:64-65`) the references join on.
+ *
+ *  ⚠ NO ASSIGNMENT STATE, ANYWHERE IN THIS SHAPE. Assignment is a write that
+ *  sends a staff member a notification; it stays the refused help action the
+ *  board already carries (`helpActionFor` → 学習モジュールを割り当てる, registry
+ *  ①). A `completionRate` here would be a progress bar over data no generator
+ *  produces.
+ *
+ *  ⚠ AND THE PHONE'S CONSENT FILTER IS NOT PORTED.
+ *  `AssignModulesCard.tsx:106` filters assignable staff by `consentGiven`;
+ *  `COACHING_VISIBILITY_MODEL.md:119-122` calls that backwards — it excludes the
+ *  people who most need help. There is no consent field on this shape at all. */
+export interface ModuleCard {
+  moduleId: string
+  title: string
+  description: string
+  durationLabel: string
+  /** learning-module.ts:163-166 `evidenceBasis` — WHY this module is believed to
+   *  work, in words. A catalog that showed a title and a duration would be a
+   *  list; this is the sentence that makes it a recommendation. */
+  basisLabel: string
+  steps: Array<{ step: number; title: string; detail: string }>
+  /** True when this module is the one the viewer's own focus run named. */
+  isMine: boolean
+}
+
+/** learning-module.ts:164-166 — the four `evidenceBasis` values, each with its
+ *  own honest sentence. A module with several carries the FIRST in this table's
+ *  order, which is strongest-evidence-first: a precedent that worked outranks
+ *  「we designed this from first principles」. */
+export const MODULE_BASIS: Record<string, string> = {
+  resembles_high_effectiveness_precedent: '効果が確認できている既存モジュールと同じ組み立てです',
+  avoids_known_ineffective_pattern: '効果が出なかったやり方を避けて組み立てています',
+  no_prior_precedent_first_principles: '前例がないため、上位層のやり方から新しく組み立てています',
+  early_signal_org_under_6_months: '導入から日が浅く、効果の判定はこれからです',
+}
+const BASIS_ORDER = [
+  'resembles_high_effectiveness_precedent',
+  'avoids_known_ineffective_pattern',
+  'no_prior_precedent_first_principles',
+  'early_signal_org_under_6_months',
+]
+
+export function buildModuleLibrary(
+  modules: Array<{
+    moduleId: string
+    title: string
+    description: string
+    durationMin: number
+    evidenceBasis: string[]
+    outline: Array<{ step: number; title: string; detail: string }>
+  }>,
+  myModuleIds: Array<string | null>,
+): ModuleCard[] {
+  const mine = new Set(myModuleIds.filter((id): id is string => id !== null))
+  return modules.map((m) => {
+    const basis = BASIS_ORDER.find((b) => m.evidenceBasis.includes(b))
+    return {
+      moduleId: m.moduleId,
+      title: m.title,
+      description: m.description,
+      durationLabel: `${m.durationMin}分`,
+      // An unknown basis renders its own honest sentence rather than a guessed
+      // one — the same rule `categoryLabel` follows for an unknown key.
+      basisLabel: basis ? MODULE_BASIS[basis] : '組み立ての根拠が記録されていません',
+      steps: [...m.outline].sort((a, b) => a.step - b.step),
+      isMine: mine.has(m.moduleId),
+    }
+  })
+}
+
+// ── コーチングを受けることへの同意 (audit #2/#3/#6) ─────────────────────────
+
+/** ⚖ COACHING IS OPT-IN, AND THE PAGE HAS TO SAY SO (§5 rank 6). The room
+ *  refuses the DEPTH-SHARE already; it never said the ANALYSIS ITSELF is the
+ *  staff member's to allow, so the page read as if coaching simply happens to
+ *  you. Three states, three sentences, and the decline one carries the
+ *  anti-coercion line the phone's own dialog ends with
+ *  (`ja.json coaching.consent.declineFootnote`). */
+export const CONSENT_STATE: Record<'unset' | 'granted' | 'declined', { title: string; body: string; cta: string }> = {
+  unset: {
+    title: 'コーチング機能の同意が必要です',
+    body: 'あなたのセッションを分析して成長をサポートします。何が記録され、店長に何が見えて何が見えないかを確認したうえで、受けるかどうかを選んでください。同意しなくても仕事には影響しません。',
+    cta: '確認する',
+  },
+  granted: {
+    title: 'コーチング機能に同意済み',
+    body: 'あなたのセッションの分析を許可しています。いつでも取り消せます。取り消しても勤務には影響しませんし、取り消したことは表示されません。',
+    cta: '再確認する',
+  },
+  declined: {
+    title: 'コーチング機能は無効です',
+    body: 'あなたのセッションは分析されていません。この画面の成績と気づきは表示されません。気が変わったらいつでも同意できます。断ったことは誰にも表示されません。',
+    cta: '再確認する',
+  },
+}
+
+// ── ⚖ THE ROLE PREVIEW (audit #71 — the owner's explicit ask) ───────────────
+
+/** `coaching-dev-preview/hooks.ts:49-54 isDevPreviewEnabled`, mirrored exactly:
+ *  two build-time constants, either of which opens the affordance. Both are
+ *  INLINED by the bundler rather than read at runtime, so this file stays as
+ *  pure as its header says — a production build with the var unset folds the
+ *  whole preview to nothing and tree-shakes it out.
+ *
+ *  ⚠ AND THE GATE IS ASKED ON THE SERVER, WHICH IS THE POINT. On the phone the
+ *  override is a client render-shell swap over data RLS already scoped
+ *  (`hooks.ts:27-33`). Here the wall is built ABOVE the serializer — the team
+ *  board is never CONSTRUCTED for a reader without the capability — so a preview
+ *  that only swapped a shell would have to ship every persona's payload to every
+ *  reader, which is precisely the thing this room is built not to do. The
+ *  preview therefore re-runs the assembly AS that persona, and each persona's
+ *  payload still contains only what that persona may see. */
+export function isRolePreviewEnabled(): boolean {
+  return (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NEXT_PUBLIC_ENABLE_COACHING_PREVIEW === 'true'
+  )
+}
+
+/** `coaching-dev-preview/hooks.ts:133-137 useEffectiveCoachingRole`, mirrored:
+ *  the real role when the gate is off, otherwise the override when there is a
+ *  legal one. FAIL-CLOSED on the value as well as on the gate — an unknown
+ *  string is no override at all (`hooks.ts:88-95`), never a role this room
+ *  invents, and `accessFor` would fail closed on it a second time anyway. */
+export function effectiveRole(realRole: string, override?: string | null): string {
+  if (!isRolePreviewEnabled()) return realRole
+  if (typeof override !== 'string' || !PREVIEW_ROLES.includes(override)) return realRole
+  return override
 }

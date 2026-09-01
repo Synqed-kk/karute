@@ -121,18 +121,29 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     const titles = DECLARATIONS.map((d) => d.title)
     expect(titles).toEqual(expect.arrayContaining([
       // always
-      'コーチング', 'この画面の見え方',
+      // ⚠ 「この画面の見え方」 BECAME 「あなたのデータについて」 in the look-fix
+      // round: the two-line notice grew into the full nine-fact disclosure, so
+      // the step's name is now the name of the thing it explains.
+      'コーチング', 'あなたのデータについて',
       // the module-off state
       'この店舗の状態',
       // 自分のコーチング
       'あなたの成績', '次の一手', '気づき', '成約率の推移', '不成約の理由', '会話スキル', '上位層から学ぶ',
       'マネージャーへの共有', 'まだ表示できないもの',
+      // …and the look-fix round's own self-tab sections
+      'コーチングを受けることへの同意', 'あなたの強み',
+      'トップパフォーマーのパターン', '学習モジュール',
       // 全スタッフ表示
       '表示の切り替え', '全スタッフ表示の見かた', 'スタッフの状況', '共有の状況',
+      '店舗全体のサポートエリア',
+      // 経営への効果 (the owner's own third screen)
+      'コーチングの効果', '他店舗との比較', '指標ごとの押し上げ', 'この数字の出し方', '費用との比較',
       // and the boundary a staff member gets instead of the tabs
       '全スタッフ表示について',
     ]))
-    expect(titles.length).toBe(17)
+    // ⚠ THE COUNT IS PINNED AS WELL AS THE MEMBERSHIP, so a section added
+    // without a declaration cannot hide behind `arrayContaining`.
+    expect(titles.length).toBe(27)
   })
 
   it('every HEADING the screen prints sits inside a declared element', () => {
@@ -315,11 +326,16 @@ describe('the keyboard is never stranded', () => {
 
   it('the tabs are a real tablist, wired both ways', () => {
     expect(SRC_CODE).toContain('role="tablist"')
-    expect([...SRC_CODE.matchAll(/role="tab"/g)].length).toBe(2)
-    expect([...SRC_CODE.matchAll(/role="tabpanel"/g)].length).toBe(2)
+    // THREE tabs since the look-fix round: the owner's 経営への効果 is its own
+    // screen behind its own capability, so the tab row itself is what separates
+    // the two manager personas the role preview walks.
+    expect([...SRC_CODE.matchAll(/role="tab"/g)].length).toBe(3)
+    expect([...SRC_CODE.matchAll(/role="tabpanel"/g)].length).toBe(3)
     expect(SRC_CODE).toContain('aria-controls="cgPanelSelf"')
     expect(SRC_CODE).toContain('aria-labelledby="cgTabSelf"')
     expect(SRC_CODE).toContain('aria-controls="cgPanelTeam"')
     expect(SRC_CODE).toContain('aria-labelledby="cgTabTeam"')
+    expect(SRC_CODE).toContain('aria-controls="cgPanelRoi"')
+    expect(SRC_CODE).toContain('aria-labelledby="cgTabRoi"')
   })
 })

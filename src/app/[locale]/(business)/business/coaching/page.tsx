@@ -37,14 +37,19 @@ export default async function CoachingPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ store?: string }>
+  searchParams: Promise<{ store?: string; as?: string }>
 }) {
   await requireBusinessAdmission()
   const [{ locale }, query] = await Promise.all([params, searchParams])
   // Everything between the gate and the render lives in `coaching-props.ts`, so
   // the evidence harness renders the SAME assembly this route does rather than a
   // hand-written replica of it.
-  const { props, storeKey } = await coachingProps({ locale, store: query.store })
+  // ⚠ `?as=` IS THE ROLE PREVIEW'S ONLY INPUT, and it is honoured ONLY behind
+  // the build-time preview gate (`isRolePreviewEnabled`, mirrored from
+  // `coaching-dev-preview/hooks.ts:49-54`). A production build folds it to the
+  // reader's real role, so the query cannot become a privilege by being typed —
+  // and the real admission gate above is untouched either way.
+  const { props, storeKey } = await coachingProps({ locale, store: query.store, as: query.as })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen
   // instance, so the open tab and the tour step would survive a lens switch —

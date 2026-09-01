@@ -603,3 +603,381 @@ export const coachingStaff: FixtureCoachingStaff[] = [
     grant: 'none',
   },
 ]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOOK-FIX ROUND — the surfaces the 9/1 coverage audit found missing, and the
+// data that drives them. ADD-ONLY: not one line above this rule moved, so every
+// pin the build round left standing still measures the same bytes.
+//
+// ⚖ THE SAME LAW AS EVERYTHING ABOVE: every shape below MIRRORS a real
+// generator output or a `contract.ts` view type, FIELD FOR FIELD, with its cite.
+// Nothing here is a shape this room invented.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── contract.ts:265-296 — the store's coaching ROI (L2-owner) ────────────────
+
+/** effectiveness.ts:47-58 `HorizonInput`, field for field.
+ *
+ *  ⚠ THIS PLANE STATES THE RAW MEASUREMENT, NEVER A LIFT (deviation C8L-2, and
+ *  it is the load-bearing one on this screen). `contract.ts:273-279` says the
+ *  displays are 「pre-formatted upstream」 — but a plane that simply stated
+ *  「+6pt」 would let the CONTROL ARM be deleted with nothing on the page
+ *  changing, and the control arm is the entire honesty claim: every number on
+ *  the owner's screen is 「treated Δ − control Δ」 (effectiveness.ts:61-63's
+ *  `horizonEffect`), empirical-Bayes-shrunk (:66-74's `shrink`) and labelled by
+ *  which horizons matured (:93-98's `confidenceFor`). So the subtraction happens
+ *  in `coaching.ts`, mirroring those three functions, and the screen shows a
+ *  number that was ACTUALLY produced by subtracting untreated stores. */
+export interface FixtureHorizonInput {
+  /** effectiveness.ts:29 HORIZONS — 30/90/180/365 and nothing else. */
+  horizon: 30 | 90 | 180 | 365
+  /** Mean metric change for THIS store over [t, t+H], in metric units. */
+  treatedDelta: number
+  /** The C1 control arm: same window, stores that did NOT adopt coaching. */
+  controlDelta: number
+  /** Stores contributing at this horizon — drives the shrinkage confidence. */
+  n: number
+}
+
+/** contract.ts:273-279 `StoreMetricLift`'s own inputs. `liftDisplay` and
+ *  `confidence` are DERIVED (above); `before`/`after` are the store's measured
+ *  levels and the props file formats them, because money is multi-country
+ *  (contract.ts:38-43) and a rate is not a currency. */
+export interface FixtureMetricLift {
+  /** The key `ja.json coaching.owner.roi.metric.*` names. */
+  key: 'closingRate' | 'rebookingRate' | 'avgRevenue' | 'satisfaction'
+  before: number
+  after: number
+  /** How the props file must format this metric — never guessed from the key. */
+  unit: 'rate' | 'money' | 'score'
+  horizons: FixtureHorizonInput[]
+}
+
+/** contract.ts:281-296 `StoreCoachingRoi`'s own inputs.
+ *  ⚠ STORE AGGREGATE ONLY (contract.ts:284-286): there is no staff id, no name
+ *  and no per-person field anywhere in this shape, so the owner's selling screen
+ *  cannot become a league table by accident. */
+export interface FixtureStoreRoi {
+  /** Which lift is the hero. Must name one of `lifts[].key`. */
+  headlineKey: FixtureMetricLift['key']
+  /** contract.ts:290 — months since the store switched coaching on. */
+  sinceMonths: number
+  /** contract.ts:291-293 — MetricPoint VALUES, oldest first. The month labels
+   *  are composed by the props file from the render clock, exactly as the self
+   *  trend's are: the demo world is dated relative to today. */
+  treated: number[]
+  control: number[]
+  /** contract.ts:293 — where along the series coaching started, 0..1. */
+  coachingStartFraction: number
+  lifts: FixtureMetricLift[]
+  /** contract.ts:295-296 — 「Null when confidence is too low to responsibly
+   *  state one」. STATED here, NULLED by the model: the gate is a rule, and a
+   *  rule belongs where it can be tested, not in the data it judges. */
+  monthlyValueEstimate: { amount: number; currency: string }
+  /** effectiveness.ts:66-74 `shrink(rawScore, n, priorMean)` — the category
+   *  prior a thin sample is pulled toward. ZERO is the honest prior for a lift:
+   *  「assume no effect until the data says otherwise」. */
+  priorMean: number
+}
+
+/** ⚠ THE NUMBERS ARE BUILT TO EXERCISE THE MATH, NOT TO FLATTER IT. The four
+ *  metrics deliberately land on THREE DIFFERENT confidence labels, because the
+ *  screen's honesty depends on 「構築中」 and 「初期」 being states a reader
+ *  actually meets rather than branches only a test sees:
+ *    · 成約率      30/90/180 → 'mature'   (the hero, and the only one that
+ *                                          unlocks the money line)
+ *    · 満足度      30/90/180 → 'mature'
+ *    · 再来率      30/90     → 'building'
+ *    · 平均客単価  30        → 'early'
+ *  And every control delta is POSITIVE: untreated stores were improving too, so
+ *  a page that forgot to subtract them would print a visibly bigger number. */
+export const storeRoi: Record<string, FixtureStoreRoi> = {
+  [STORE_A]: {
+    headlineKey: 'closingRate',
+    sinceMonths: 6,
+    treated: [0.36, 0.37, 0.36, 0.38, 0.37, 0.39, 0.42, 0.44, 0.45, 0.47, 0.48, 0.5],
+    control: [0.36, 0.36, 0.37, 0.37, 0.38, 0.38, 0.39, 0.39, 0.39, 0.4, 0.4, 0.4],
+    coachingStartFraction: 0.545,
+    lifts: [
+      {
+        key: 'closingRate',
+        before: 0.37,
+        after: 0.5,
+        unit: 'rate',
+        horizons: [
+          { horizon: 30, treatedDelta: 0.02, controlDelta: 0.005, n: 6 },
+          { horizon: 90, treatedDelta: 0.05, controlDelta: 0.01, n: 14 },
+          { horizon: 180, treatedDelta: 0.09, controlDelta: 0.02, n: 22 },
+        ],
+      },
+      {
+        key: 'satisfaction',
+        before: 4.0,
+        after: 4.3,
+        unit: 'score',
+        horizons: [
+          { horizon: 30, treatedDelta: 0.1, controlDelta: 0.05, n: 6 },
+          { horizon: 90, treatedDelta: 0.2, controlDelta: 0.08, n: 13 },
+          { horizon: 180, treatedDelta: 0.3, controlDelta: 0.12, n: 20 },
+        ],
+      },
+      {
+        key: 'rebookingRate',
+        before: 0.6,
+        after: 0.66,
+        unit: 'rate',
+        horizons: [
+          { horizon: 30, treatedDelta: 0.01, controlDelta: 0.004, n: 6 },
+          { horizon: 90, treatedDelta: 0.03, controlDelta: 0.012, n: 12 },
+        ],
+      },
+      {
+        key: 'avgRevenue',
+        before: 8600,
+        after: 9200,
+        unit: 'money',
+        horizons: [{ horizon: 30, treatedDelta: 300, controlDelta: 120, n: 5 }],
+      },
+    ],
+    monthlyValueEstimate: { amount: 182000, currency: 'JPY' },
+    priorMean: 0,
+  },
+}
+
+// ── top-performer-patterns.ts — the pattern library (L2, anonymised) ─────────
+
+/** top-performer-patterns.ts:152-161 — the `evidence` block, field for field.
+ *  ⚠ IT NEVER REACHES A SCREEN AS A FRACTION. `adoptionNote` above is this same
+ *  block 「rendered as a sentence」, and that is what keeps a denominator off a
+ *  staff member's screen — 「上位層8名中7名」 tells a reader in a small salon
+ *  exactly who the eighth is. The model turns these counts into the same
+ *  denominator-free sentence, and the plane keeps them so the mirror is real. */
+export interface FixturePatternEvidence {
+  presentInTopPerformers: number
+  ofTopPerformers: number
+  presentInMedianPerformers: number
+  ofMedianPerformers: number
+  sessionCount: number
+}
+
+/** top-performer-patterns.ts:139-166 — one item of `patterns[]`, field for field.
+ *
+ *  ⚠ THERE IS NO `sourceStaffName`, AND ITS ABSENCE IS THE GUARANTEE — the same
+ *  construction `TriageRow` uses against a per-staff number.
+ *  `COACHING_VISIBILITY_MODEL.md:123` flags the phone's hardcoded
+ *  `showSource = role === 'owner'` (`PatternLibrary.tsx:55`) as ungated by the
+ *  source's own consent, and §5 requires DOUBLE consent for attribution. A field
+ *  that does not exist cannot be switched on by a role check. */
+export interface FixtureTopPattern {
+  /** `pattern-categories.ts:12-17` — the production taxonomy's five keys, or
+   *  null when the generator could not place it (the schema allows null). */
+  category: 'counseling_questions' | 'conversation_flow' | 'closing' | 'rebooking' | 'objection_handling' | null
+  title: string
+  behaviorDescription: string
+  /** top-performer-patterns.ts:157 — 「paraphrase; any verbatim ≤15 chars, no
+   *  names/dates/circumstances」. The actual LINE a top performer says, which is
+   *  the whole reason a shelf beats two loose sentences. */
+  anonymizedExample: string
+  evidence: FixturePatternEvidence
+  transferability: string
+  confidence: 'high' | 'medium' | 'low'
+}
+
+/** ⚠ ONE SHELF IS DELIBERATELY EMPTY (反対意見への対応). `PatternCategorySection
+ *  .tsx:9-18` renders a heading and a description even with no examples on
+ *  purpose — the reader sees the SHAPE of the library rather than a library that
+ *  silently has four shelves this month and five the next. A plane that filled
+ *  all five would leave that state untested. */
+export const patternLibrary: FixtureTopPattern[] = [
+  {
+    category: 'counseling_questions',
+    title: 'いちばん困っている場面を、時間で聞く',
+    behaviorDescription:
+      '「どこがつらいですか」ではなく「一日のうちでいつがいちばんつらいですか」と、場面を時間で特定する聞き方をしています。',
+    anonymizedExample: '一日のうちで、いつがいちばん気になりますか',
+    evidence: { presentInTopPerformers: 7, ofTopPerformers: 8, presentInMedianPerformers: 3, ofMedianPerformers: 11, sessionCount: 96 },
+    transferability: '初回カウンセリングの冒頭でそのまま使えます。業種を選びません。',
+    confidence: 'high',
+  },
+  {
+    category: 'counseling_questions',
+    title: '要望の裏にある予定を聞く',
+    behaviorDescription:
+      '希望を聞いたあとに「そのあと何かご予定はありますか」と一言足して、来店の理由そのものを引き出しています。',
+    anonymizedExample: 'そのあと、何かご予定はありますか',
+    evidence: { presentInTopPerformers: 6, ofTopPerformers: 8, presentInMedianPerformers: 2, ofMedianPerformers: 11, sessionCount: 74 },
+    transferability: '要望を聞いたあとの一言なので、いまの流れを変えずに足せます。',
+    confidence: 'high',
+  },
+  {
+    category: 'conversation_flow',
+    title: '聞く・受けとめる・提案するの順を崩さない',
+    behaviorDescription:
+      'お客様が話し終えて一拍おいてから、聞いた内容をそのまま言い返し、それから提案に入る順番を毎回守っています。',
+    anonymizedExample: '——ということですね。でしたら',
+    evidence: { presentInTopPerformers: 8, ofTopPerformers: 8, presentInMedianPerformers: 4, ofMedianPerformers: 11, sessionCount: 118 },
+    transferability: '順番だけの話なので、話す内容を変えずに今日から試せます。',
+    confidence: 'high',
+  },
+  {
+    category: 'closing',
+    title: '金額の前に、変わることを一つだけ話す',
+    behaviorDescription:
+      '金額を伝える前に、続けた場合に何がどう変わるかを具体的に一つだけ先に話しています。二つ以上は話しません。',
+    anonymizedExample: '続けると、朝の起き上がりが変わります',
+    evidence: { presentInTopPerformers: 6, ofTopPerformers: 8, presentInMedianPerformers: 2, ofMedianPerformers: 11, sessionCount: 81 },
+    transferability: '提示の直前に一文足すだけです。価格表を変える必要はありません。',
+    confidence: 'medium',
+  },
+  {
+    category: 'rebooking',
+    title: '次回の目安を、その場で日付にして渡す',
+    behaviorDescription:
+      '「またお願いします」で終えず、次にいつが目安かをその場で言い切ってから見送っています。',
+    anonymizedExample: '次は二週間後あたりが目安です',
+    evidence: { presentInTopPerformers: 7, ofTopPerformers: 8, presentInMedianPerformers: 3, ofMedianPerformers: 11, sessionCount: 103 },
+    transferability: '見送りの一言を変えるだけです。予約を取る操作は要りません。',
+    confidence: 'high',
+  },
+]
+
+/** top-performer-patterns.ts:168 `note` — 「small-team / empty-baseline caveat;
+ *  anonymized like everything else」. */
+export const patternLibraryNote: string | null =
+  '在籍人数が少ない店舗では、上位層のやり方が特定の一人のやり方になりがちです。合わないと感じたものは無理に取り入れないでください。'
+
+// ── learning-module.ts — the module catalog (L2 read) ────────────────────────
+
+/** learning-module.ts:170-172 — one `outline[]` step, field for field. */
+export interface FixtureModuleStep {
+  step: number
+  title: string
+  detail: string
+}
+
+/** learning-module.ts:152-169 — the generated `module`, field for field, plus
+ *  the ONE field the storage layer owns rather than the generator:
+ *  `owner-types.ts:64-65 LearningModule.id`. The generator mints no id — the
+ *  catalog does — and `personal-findings.ts:242`'s `linked_module_id` and
+ *  `staff-focus.ts:173`'s `module_id` are both references to THAT id, which is
+ *  what closes the loop between a finding and the module that fixes it.
+ *
+ *  ⚠ NO `assigned` / `assignedTo` / `completionRate` (`owner-types.ts:73-82`).
+ *  Assignment state is Anthony's — it is a write with a notification attached —
+ *  and the room refuses it through the help action it already has. Inventing a
+ *  progress bar over data no generator produces would be the poster of a state
+ *  the room-3 zero-state rebuild ended. */
+export interface FixtureLearningModule {
+  moduleId: string
+  title: string
+  description: string
+  /** learning-module.ts:158 — 「intended 10-20 (runtime-checked)」. */
+  durationMin: number
+  generatedFromPatternIds: string[]
+  resembledExemplarIds: string[]
+  evidenceBasis: Array<
+    | 'resembles_high_effectiveness_precedent'
+    | 'avoids_known_ineffective_pattern'
+    | 'no_prior_precedent_first_principles'
+    | 'early_signal_org_under_6_months'
+  >
+  designRationale: string
+  outline: FixtureModuleStep[]
+}
+
+/** ⚠ THE TWO IDS THE PLANE ALREADY POINTS AT ARE REAL HERE. `mod-ack-01` is
+ *  p-06's own focus module (`focus_recommendations[0].module_id`) and the target
+ *  of f-06-1's `linked_module_id`; `mod-next-01` is p-04's. Before this round
+ *  both were references into nothing — the room diagnosed and then pointed at a
+ *  library that did not exist (§5 rank 8). */
+export const learningModules: FixtureLearningModule[] = [
+  {
+    moduleId: 'mod-ack-01',
+    title: '提案の前に、聞いた内容を言い返す',
+    description:
+      'お客様が話し終えてから提案に入るまでの数秒に、聞いた内容をそのまま言い返す型を身につけます。不成約がいちばん多く出ている場面がここだからです。',
+    durationMin: 12,
+    generatedFromPatternIds: ['tp-1'],
+    resembledExemplarIds: [],
+    evidenceBasis: ['no_prior_precedent_first_principles'],
+    designRationale:
+      '上位層が例外なくやっている一拍と言い返しを、話す内容を変えずに順番だけで再現できるところまで分解しています。',
+    outline: [
+      { step: 1, title: '一拍おく', detail: 'お客様が言い終えてから、口を開くまでに一つ数えます。' },
+      { step: 2, title: 'そのまま言い返す', detail: '要約せず、聞いた言葉をできるだけそのまま返します。' },
+      { step: 3, title: '合っているか確かめる', detail: '「——ということですね」で止めて、返事を待ちます。' },
+      { step: 4, title: 'それから提案に入る', detail: '受けとめが済んでから、はじめて提案の話をします。' },
+    ],
+  },
+  {
+    moduleId: 'mod-next-01',
+    title: '返事をもらう日だけを決めて終える',
+    description:
+      'その場で決まらないときに、次にいつ返事をもらうかだけを決めて終える型です。保留のまま消える件数を減らすことだけを狙っています。',
+    durationMin: 10,
+    generatedFromPatternIds: [],
+    resembledExemplarIds: ['mod-ack-01'],
+    evidenceBasis: ['resembles_high_effectiveness_precedent', 'early_signal_org_under_6_months'],
+    designRationale:
+      '決断を迫らずに次の接点だけを固定する型なので、押し売りに感じさせずに「後で決める」の滞留を減らせます。',
+    outline: [
+      { step: 1, title: '決めなくていいと伝える', detail: '「今日決めなくて大丈夫です」を先に言います。' },
+      { step: 2, title: '日だけを決める', detail: '「いつ頃お返事いただけますか」と、日付だけを聞きます。' },
+      { step: 3, title: 'その場で書き留める', detail: '聞いた日をお客様の前で記録に残します。' },
+    ],
+  },
+  {
+    moduleId: 'mod-value-01',
+    title: '金額の前に、変わることを一つ話す',
+    description:
+      '金額を出す前に、続けた場合に何がどう変わるかを一つだけ具体的に伝える型です。二つ以上並べると効果が落ちることも扱います。',
+    durationMin: 15,
+    generatedFromPatternIds: ['tp-2'],
+    resembledExemplarIds: ['mod-ack-01'],
+    evidenceBasis: ['resembles_high_effectiveness_precedent'],
+    designRationale:
+      '「予算」で終わった回のほとんどが、金額の前に価値の話をしていない回でした。順番の問題として扱っています。',
+    outline: [
+      { step: 1, title: '一つだけ選ぶ', detail: 'そのお客様がいちばん気にしていたことを一つ選びます。' },
+      { step: 2, title: '変化を具体で言う', detail: '「〜が楽になります」ではなく、いつ・何がを言います。' },
+      { step: 3, title: 'それから金額を出す', detail: '間を空けず、続けて金額を伝えます。' },
+    ],
+  },
+]
+
+// ── coaching-consent/types.ts — コーチングを受けることへの同意 ───────────────
+
+/** `coaching-consent/types.ts:9-16 CoachingConsentRecord`, field for field, with
+ *  its own 'unset' default-pre-prompt state (:5-6).
+ *
+ *  ⚠ THIS IS A DIFFERENT QUESTION FROM `grant` ABOVE, and conflating the two is
+ *  the gap §5 rank 6 names. `grant` is the DEPTH-SHARE — 「may my manager see
+ *  which場面 to support me in」. THIS is 「may my sessions be analysed at all」.
+ *  A room that renders only the first reads as if coaching simply happens to
+ *  you, which is exactly what the phone's amber banner (`CoachingPageView.tsx
+ *  :78-100`) exists to prevent.
+ *
+ *  ⚠ `decidedAt` IS null THROUGHOUT, AND THAT IS THE PLANE BEING HONEST rather
+ *  than incomplete: the demo world is dated relative to today, so a fixed ISO
+ *  string would be a timestamp this world is not on — the same reason
+ *  `window.date_range` and `MetricPoint.periodStart` are composed from the
+ *  render clock instead of stated here. A screen cannot print a date the plane
+ *  does not have, and it does not. */
+export interface FixtureConsentRecord {
+  status: 'unset' | 'granted' | 'declined'
+  decidedAt: string | null
+  policyVersion: string | null
+}
+
+/** ⚠ ALL THREE STATES ARE REACHABLE FROM THE STORE SWITCHER AND THE ROLE
+ *  SWITCHER, not just from a test: p-06 (the operator's own screen) has decided,
+ *  p-01 has decided, p-04 declined and p-05 was never asked. A staff member
+ *  reading their own screen therefore meets a real decision, and the
+ *  role-preview walk crosses granted / declined / unset. */
+export const coachingConsent: Record<string, FixtureConsentRecord> = {
+  'p-06': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
+  'p-01': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
+  'p-04': { status: 'declined', decidedAt: null, policyVersion: 'v2' },
+  'p-05': { status: 'unset', decidedAt: null, policyVersion: null },
+  'p-09': { status: 'unset', decidedAt: null, policyVersion: null },
+}
