@@ -6896,8 +6896,14 @@ export function TodayScreen(props: TodayProps) {
           // setting, the commit's `kind` already follows it, and a tour that
           // promises a gesture this store turned off is the same untruth this
           // whole face was rebuilt to stop telling.
+          // ⚖ 92 fix round 12 R1 (breaker #12 #1) — AND IT SAYS WHICH CARD. The
+          // clause lands straight after the generic confirm/undo sentence, so
+          // 「確定は長押しです。」 read as a rule for EVERY confirm on this surface
+          // while the long press exists only on the warning face — the clean
+          // face's 確定 is a tap at every store, dial on or off. Naming the face
+          // scopes the promise to the control that actually asks for it.
           data-guide-title="仮押さえの確認"
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>

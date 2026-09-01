@@ -4281,9 +4281,13 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // ⚖ 92 round 11 P2 native-pass reorder — the native JP pass found the warning
     // sentence split the confirm/undo pair and 「場所では」 under-specified the
     // destination; warning now leads, and 「移動先で…場合は」 names it.
+    // ⚖ 92 fix round 12 R1 (breaker #12 #1) — and the press clause names the face
+    // it belongs to. Sitting bare after the confirm/undo sentence it read as a
+    // rule for every 確定 on this surface, when the long press is the WARNING
+    // face's commit alone; the clean face confirms on a tap at every store.
     expect(SRC).toContain(
       'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
-      + "警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
+      + "警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
@@ -8518,6 +8522,52 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // above the gate, so a closed override-stage keeps its pill either way.
     const surface = SRC.slice(SRC.indexOf('{holdPop && ('), SRC.indexOf('{/* ⚖ Liam 19/20'))
     expect(surface.indexOf('className="hp-head"')).toBeLessThan(surface.indexOf('{holdPop.asking && ('))
+  })
+
+  /** ⚖ 92 fix round 12 R2 (breaker #12 #2/#3/#4/#5) — THE WIRING ITSELF, PINNED.
+   *  Every test above this one asks the composer for a model or asks the JSX for
+   *  a shape; none of them held the JOINS between the two. Cutting
+   *  `warn: pendingWarn` to `warn: null` disconnected the entire warning face —
+   *  no impact line, no safe answer, no long press, at every store — and the
+   *  suite stayed green, because the model was still composed correctly and the
+   *  branch that paints it was still written correctly; only the wire between
+   *  them was gone. These are the lines with that property: load-bearing at
+   *  runtime, invisible to a test that reads either side alone. Each is pinned as
+   *  it exists, with the mutation it kills named beside it. */
+  it('the load-bearing joins between the composer and the surface are wired', () => {
+    // MUTATION: `warn: null` — the composer→surface join. Severing it takes the
+    // whole warning face off the card and every other flag-92 test still passes.
+    expect(SRC).toContain('        warn: pendingWarn,\n')
+    // MUTATION: `placeSafe: null` — the safe answer's door. Without it the
+    // `holdPop.placeSafe &&` gate is false and the biggest control never renders.
+    expect(SRC).toContain('        placeSafe: placePendingAt,\n')
+    // MUTATION: an empty arrow — the safe button paints and presses to nothing.
+    // Re-read at the press on purpose (the model is rebuilt every render), which
+    // is why the start comes off `holdPop.warn` here and not off a closure.
+    expect(SRC).toContain("onClick={() => { const p = holdPop.warn?.safePrimary; if (p?.kind === 'place') holdPop.placeSafe?.(p.start) }}\n")
+    // MUTATION: drop the `onClick` — the press-grade commit becomes a dead
+    // button. Pinned as the whole line: `onClick={holdPop.confirm.run}` alone
+    // also lives on the clean face's 確定, so a bare pin would survive this.
+    expect(SRC).toContain('<button className="btn wc-warn-btn" type="button" disabled={!holdPop.warn.commit.enabled} onClick={holdPop.confirm.run}>\n')
+    // MUTATION: drop the was-guard — a CANCELLED press commits. `h.mode` is
+    // cleared on every ending, and only the ending that ran the clock out to
+    // 'hold' may reach `holdComplete`; an unguarded call places the booking the
+    // operator lifted their finger to refuse.
+    expect(SRC).toContain("    if (was === 'hold') holdComplete()\n")
+    // MUTATION: `false &&` — ⚖ 52's law silently repealed. The rows the panel did
+    // not consume vanish and the card shows a nicer face over a hidden record.
+    expect(SRC).toContain('              {holdPop.warn.rows.length > 0 && (\n')
+    // MUTATION: delete the node — the impact sentence loses its closing half and
+    // the headline reads as a fragment ending at the ¥ figure.
+    expect(SRC).toContain('                  {holdPop.warn.impact.tail}\n')
+    // MUTATION: drop the ref — `holdFill` writes to a null node, so the meter
+    // never moves and the 0.6秒 press gives no feedback while it runs.
+    expect(SRC).toContain('<span className="wc-hold-fill" ref={holdFillRef} />\n')
+    // MUTATION: drop the `onClick` — the warn face's 元に戻す stops undoing and
+    // the operator's only way out of the staged move is a reload. Pinned with the
+    // `wc-foot` line above it: the clean face carries a byte-identical button.
+    expect(SRC).toContain('<div className="hp-actions wc-foot">\n'
+      + '                <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>')
   })
 
   it('the CLEAN face’s own render is byte-identical to the card that ships today', () => {
