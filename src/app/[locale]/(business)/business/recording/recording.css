@@ -473,7 +473,14 @@
 @container rchero (max-width: 284px) {
   .biz .pg-recording .rc-hero-meta {
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-    white-space: normal; overflow-wrap: anywhere;
+    /* ⚠ `keep-all` AND `anywhere`, IN THAT ORDER, AND IT IS NOT BELT-AND-BRACES.
+       Japanese breaks between characters by default, so the first wrap landed
+       inside the staffer's NAME — 「担当 見 / 本 あずさ」, which reads as a typo
+       rather than as a wrap. `keep-all` moves the break to the spaces and the
+       ・ separators the line already has; `anywhere` stays as the floor, so a
+       single unbroken run longer than the box still wraps instead of pushing
+       the page sideways. */
+    white-space: normal; word-break: keep-all; overflow-wrap: anywhere;
   }
 }
 
