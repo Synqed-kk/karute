@@ -404,8 +404,20 @@ describe('the fixture data door', () => {
         // the memo body into a function the suite can call
         // (POSTMERGE-CHECK-88b7726c.md findings 1-2: a text pin on the inline
         // body let two severe mutants through). A caller-side wrapper over
-        // `./reserved-mask`, not a fifth module: it adds no derivation and the
-        // screen gains no dependency it did not already have.
+        // `./reserved-mask`, not a fifth module: it adds no derivation of its
+        // own. It IS a new direct import for this screen — one line, this line
+        // — and that is the honest accounting; what it is not is a new MODULE
+        // in the graph, because everything it reaches (`./reserved-mask`,
+        // `./capacity-ledger`, `@/business/lib/today-board`) is already on this
+        // list or already reached through it.
+        //
+        // ⚖ ROUND 1 — and the traffic runs BOTH ways now. The wrapper builds the
+        // committed book itself, through `bedViewsFor`, which this screen
+        // exports — so the two files import each other. That cycle is the
+        // deliberate price of keeping ONE door into the capacity book instead of
+        // opening a second one, and nothing in it runs at module-evaluation
+        // time: the door is a hoisted function declaration, called a render
+        // later. Held-committed.ts is where the reasoning lives, in full.
         './held-committed',
         './reserved-mask',
         './selling-engine-gate',

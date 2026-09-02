@@ -528,14 +528,23 @@ describe('1 — the round gate', () => {
     for (const f of readers) expect({ f, has: SRC(f).includes('SELLING_ENGINE_LAW') }).toEqual({ f, has: false })
     // …and on the screen it appears exactly five times: the import, one prose
     // mention in the memo that explains it, and THREE reads — the committed
-    // world's book, the board world's mask, and the rail's protected-window
+    // world's mask, the board world's mask, and the rail's protected-window
     // door. All three are memo bodies at the top level of the component; none
     // is inside a predicate, a handler or a render path.
+    //
+    // ⚖ PIN MIGRATED at ROUND 1 OF THE FIX ROUND, WITH the decision. The
+    // committed world's read used to sit in a SECOND memo up here (the one that
+    // built the book), and that memo is gone — its book is built inside
+    // `heldCommittedFor` now, because a screen-level book memo was a second
+    // untested seam and a mutation lens went through it. The gate is still read
+    // on the screen and still at the boundary; it is handed to the wrapper as a
+    // bare parameter value instead of spelling a ternary here. Same decision,
+    // same count, one home fewer.
     const screen = SRC('TodayScreen.tsx')
     const reads = [...screen.matchAll(/SELLING_ENGINE_LAW/g)].length
     expect(reads).toBe(5)
     expect(screen).toContain("import { SELLING_ENGINE_LAW } from './selling-engine-gate'")
-    expect(screen).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes')
+    expect(screen).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(screen).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
   })
 
@@ -563,14 +572,26 @@ describe('1 — the round gate', () => {
   // no derivation of its own — held-committed.test.ts pins its answer against a
   // direct call. The gate constant is still read only on the screen (the test
   // above), and the mask is still built once per world per frame.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 1, same decision, one seam fewer. The committed
+  // world's BOOK moved into the wrapper as well: a screen-level book memo was a
+  // second seam no unit test could reach, and pre-gating it on the store's dial
+  // emptied the mask with this whole family green. So the committed site's
+  // first line is the round gate now rather than a book the screen already
+  // built, and `bedViewsFor` — R3's ONE DOOR — is walked inside the wrapper for
+  // that world. Still one construction site per world, still both in a memo.
   it('the mask is built ONCE PER WORLD PER FRAME, in a memo and never in a predicate', () => {
     const screen = SRC('TodayScreen.tsx')
     // One inline construction site left on the screen, one hop away in the
     // wrapper — and the wrapper is a wrapper, not a second derivation home.
     expect(screen.split('reservedMaskFor({').length - 1).toBe(1)
     expect(SRC('held-committed.ts').split('reservedMaskFor({').length - 1).toBe(1)
+    // …and the committed world's book has exactly ONE door and one hand: the
+    // wrapper walks it once, with `null`, because prices read the settled board.
+    expect(SRC('held-committed.ts').split('bedViewsFor(').length - 1).toBe(1)
+    expect(SRC('held-committed.ts')).toContain('bedViewsFor(mask.lanes, rooms, frame, null).world')
     const sites: readonly (readonly [string, string])[] = [
-      ['committed', 'heldCommittedFor({\n        book: committedBook,'],
+      ['committed', 'heldCommittedFor({\n        gateOn: SELLING_ENGINE_LAW,'],
       ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],
     ]
     for (const [world, spelling] of sites) {

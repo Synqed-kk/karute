@@ -2032,8 +2032,8 @@ const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.s
  *  and after S0 (they used `maskOf` already).
  *
  *  These twelve are absent because the fallback RUNS for a guard-off store,
- *  which is today's shipped behaviour (doors :862 measured it) — the doors
- *  suite names it unruled as guard-conditional (doors :851-861). If Liam ever
+ *  which is today's shipped behaviour (doors :883 measured it) — the doors
+ *  suite names it unruled as guard-conditional (doors :872-882). If Liam ever
  *  rules it guard-conditional, these twelve return BY RULING, not by
  *  regression, and the pin is re-frozen with that ruling.
  *
@@ -2109,7 +2109,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
         // `gapGuardMode === 'off'` (reserved-mask.ts:200), TodayScreen's `salesDoor`
         // gates on `!heldCommitted`, and `[]` is truthy — so the §5 fallback RUNS for a
         // guard-off store, with `held: []`. The doors suite already measured what that
-        // store gains from it (selling-engine-doors.test.ts :862). Handing `undefined`
+        // store gains from it (selling-engine-doors.test.ts :883). Handing `undefined`
         // here measured a composition no live screen runs: the fallback's existing
         // triggers switched off. `maskOf` is one spelling for both modes because
         // `reservedMaskFor` itself is where 'off' becomes the empty mask.
@@ -2189,16 +2189,37 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  (finding 2, HIGH). A text pin cannot close a semantic property, so the
    *  property MOVED: the memo body is now a pure pass-through into
    *  `heldCommittedFor` (held-committed.ts), and held-committed.test.ts proves
-   *  the behaviour by CALLING it — mode 'off' ⇒ the frozen empty mask, a null
-   *  book ⇒ `undefined`, and every live mode ⇒ `reservedMaskFor`'s own answer
+   *  the behaviour by CALLING it — the gate off ⇒ `undefined`, mode 'off' ⇒ the
+   *  frozen empty mask, and every live mode ⇒ `reservedMaskFor`'s own answer
    *  byte for byte.
+   *
+   *  ⚖ PIN TIGHTENED at ROUND 1 OF THE FIX ROUND, WITH the decision, and the
+   *  decision is that A PASS-THROUGH PIN IS ONLY AS GOOD AS THE SET IT PINS.
+   *  The blind round after the rewrite found three ways through the version
+   *  that only named four keys and banned five characters: a tenth key added
+   *  beside the nine (a pre-gate on the store's dial, wrapped around the call),
+   *  a `...spread` that overrides a forwarded key further down the literal, and
+   *  a sibling identifier carrying the mask to the doors while this memo sat
+   *  untouched. So the pin now states the WHOLE literal rather than a subset —
+   *  exactly nine `key: value` lines, each one spelled out, and a key COUNT so
+   *  a tenth cannot be added — the ban list grows the spread and both loose
+   *  comparisons, and a CENSUS below reads every `held:` payload on the screen
+   *  so the answer cannot be re-routed around this memo.
    *
    *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
    *  much smaller claim: no decision is spelled in the memo at all. It forwards
-   *  four named inputs and contains no conditional and no literal of any kind —
-   *  no `?`, no `undefined`, no `null`, no quote character — so a mutant cannot
-   *  express a guard-off branch inside the slice, and expressing one outside it
-   *  means changing the tested function, where the unit test is waiting.
+   *  nine named inputs and contains no conditional and no literal of any kind —
+   *  no `?`, no `undefined`, no `null`, no quote character, no spread — so a
+   *  mutant cannot express a guard-off branch inside the slice, and expressing
+   *  one outside it means changing the tested function, where the unit test is
+   *  waiting.
+   *
+   *  ⚠ THE PRICE OF THE QUOTE BAN, PAID KNOWINGLY. Because `'` and `"` are
+   *  banned anywhere in the slice, the COMMENTS inside the memo body may not
+   *  carry an apostrophe either — an English possessive in there is a FALSE RED
+   *  rather than a silent pass. That is the trade: the ban is what kills a
+   *  hardcoded `'standard'`, and a loud red on a comment is the cheapest
+   *  possible failure mode. The memo's own JSDoc says so beside the code.
    *
    *  ⚠ THE HONEST LIMIT (POSTMERGE finding 3, ACCEPTED). The gate assertion at
    *  the end is a text pin on a SENTENCE, and a mutant that rewrites
@@ -2223,21 +2244,56 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect(memo.length).toBeGreaterThan(0)
     expect(memo.length).toBeLessThan(2500)
 
-    // It calls the tested function, and hands it the four inputs a mutant would
-    // have to touch to change what a store is holding — each one FORWARDED as a
-    // bare expression, not a value this memo chose.
+    // It calls the tested function, and the literal it hands over is EXACTLY
+    // these nine lines: the round gate, the world the book is built from, and
+    // the dials. Each one is a bare forwarded expression, not a value this memo
+    // chose — and the count below means a tenth key cannot be smuggled in
+    // beside them.
     expect(memo).toContain('heldCommittedFor(')
-    expect(memo).toContain('book: committedBook')
-    expect(memo).toContain('guard: props.guard.config')
-    expect(memo).toContain('gapGuardMode: props.guard.mode')
+    const FORWARDED = [
+      'gateOn: SELLING_ENGINE_LAW,',
+      'lanes: committedLanes,',
+      'rooms: props.rooms,',
+      'frame: ledgerFrame,',
+      'closeMin: hours.close,',
+      'nowMin: props.sell.nowMinute,',
+      'guard: props.guard.config,',
+      'gapGuardMode: props.guard.mode,',
+      'released: releasedHere,',
+    ]
+    for (const line of FORWARDED) expect({ line, has: memo.includes(line) }).toEqual({ line, has: true })
+    expect((memo.match(/^\s+\w+: /gm) ?? []).length).toBe(FORWARDED.length)
 
-    // …and it decides NOTHING. No conditional and no literal of any kind: any
+    // …and it decides NOTHING. No conditional and no literal of any kind, no
+    // spread that could override one of the nine, no loose comparison: any
     // branch a mutant wants has to be written in `heldCommittedFor`, where
     // held-committed.test.ts calls it. This is the shape the old regex
     // negatives were reaching for and could not hold.
-    for (const banned of ['?', 'undefined', 'null', "'", '"']) {
+    for (const banned of ['?', 'undefined', 'null', "'", '"', '...', '==', '!=']) {
       expect({ banned, at: memo.indexOf(banned) }).toEqual({ banned, at: -1 })
     }
+
+    // THE CENSUS — every `held:` payload on the WHOLE screen, so the answer
+    // cannot be re-routed around the memo this pin guards. A decoy gate plus a
+    // sibling identifier (`heldForDoor = …` handed to the doors instead) leaves
+    // the memo above untouched and every assertion so far green; it cannot
+    // survive here, because it has to appear in this list to be used at all.
+    //
+    // ⚠ MEASURED, AND `held: false` IS IN IT HONESTLY. Six payloads, three
+    // spellings: the sales door's three (the committed mask), the staff strip's
+    // one (the board mask), and TWO `held: false` — which are a DIFFERENT field
+    // entirely, `BoardBooking.held` (today-board.ts:257), the boolean a card
+    // face carries for 「reassigned from」. They are counted rather than filtered
+    // out: a census that quietly drops the spellings it did not expect is a
+    // census a mutant can hide inside.
+    expect([...screen.matchAll(/\bheld: ([^,\n]+),/g)].map((m) => m[1])).toEqual([
+      'heldCommitted',
+      'heldCommitted',
+      'heldCommitted',
+      'heldBoard',
+      'false',
+      'false',
+    ])
 
     // The other half of the claim (mutation A's gate) — kept beside F0 so
     // both halves of "the screen forwards, never invents" live in one place.

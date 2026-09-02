@@ -1378,33 +1378,37 @@ export function TodayScreen(props: TodayProps) {
    *  every seam falls through to the code that shipped, which is what the
    *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
    *  separate and independent no-op: `reservedMaskFor` returns empty before it
-   *  touches the book. */
-  const committedBook = useMemo(
-    // ⚖ R3's ONE DOOR, obeyed rather than worked around: `bedViewsFor` is the
-    // only way into the book on this screen, and `null` is the honest hand for a
-    // world nobody is holding anything out of.
-    () => (SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null),
-    [committedLanes, props.rooms, ledgerFrame],
-  )
-  /** ⚖ R5 POST-MERGE — A PASS-THROUGH, AND NOTHING ELSE. Every decision this
-   *  memo used to spell inline now lives in `heldCommittedFor`
-   *  (held-committed.ts), where the suite can CALL it: the round-gate-off
-   *  fall-through, and the forwarding of the store's スキマガード dial to the
-   *  one function that owns what 'off' means. The reason is measured, not
-   *  stylistic — POSTMERGE-CHECK-88b7726c.md findings 1-2 showed the #817 text
-   *  pin on this body letting two severe mutants through, including a hardcoded
-   *  `gapGuardMode` that would hand a guard-off store a non-empty mask. A text
-   *  pin cannot close a semantic property, so the property moved somewhere a
-   *  unit test can reach it (held-committed.test.ts).
+   *  touches the book.
    *
-   *  Keep this body literal-free and branch-free: flip §9 pins that it contains
-   *  no conditional and no literal at all, so any new decision has to be made
-   *  in the tested function rather than here. */
+   *  ⚖ R5 POST-MERGE, ROUND 1 — ONE SEAM, NOT TWO, AND IT IS NOT HERE. Every
+   *  decision this screen used to spell for the committed world now lives in
+   *  `heldCommittedFor` (held-committed.ts), where the suite can CALL it: the
+   *  round-gate-off fall-through, the forwarding of the store's スキマガード dial
+   *  to the one function that owns what 'off' means, and — round 1's fix — the
+   *  building of the committed book itself. The reason is measured, not
+   *  stylistic. POSTMERGE-CHECK-88b7726c.md findings 1-2 showed the #817 text
+   *  pin on the old inline body letting two severe mutants through, and the
+   *  blind round after it walked through what the first cut left behind: while
+   *  the BOOK was still built in a second memo up here, pre-gating that memo on
+   *  the store's dial emptied the mask for a guarded store with every pin in the
+   *  family green. A text pin cannot close a semantic property, so the property
+   *  moved somewhere a unit test can reach it (held-committed.test.ts) — all of
+   *  it, including R3's ONE DOOR into the book, which the wrapper walks with the
+   *  `null` hand this world has always passed.
+   *
+   *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that it is
+   *  exactly nine forwarded `key: value` lines and that it contains no
+   *  conditional and no literal of any kind, so a new decision cannot be spelled
+   *  here at all. The ban list includes the quote characters, which is why the
+   *  comments INSIDE the memo carry no apostrophes: a stray one is a false red
+   *  rather than a silent pass, and that is the trade this pin is making. */
   const heldCommitted = useMemo(
     () =>
       heldCommittedFor({
-        book: committedBook,
+        gateOn: SELLING_ENGINE_LAW,
         lanes: committedLanes,
+        rooms: props.rooms,
+        frame: ledgerFrame,
         closeMin: hours.close,
         nowMin: props.sell.nowMinute,
         guard: props.guard.config,
@@ -1415,7 +1419,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+    [committedLanes, props.rooms, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the

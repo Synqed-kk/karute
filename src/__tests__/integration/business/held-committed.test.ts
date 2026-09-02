@@ -15,17 +15,28 @@
 //     forwarding (`grep "gapGuardMode: props\." src/__tests__/` → none).
 // A text pin cannot close a semantic property. So the property moved into a
 // function — `heldCommittedFor` (held-committed.ts) — and this file is the
-// proof that the function keeps it. The memo is now a pass-through and flip §9
-// pins only that: a tripwire, with the proof down here.
+// proof that the function keeps it.
+//
+// ⚖ ROUND 1 — AND THE BOOK CAME WITH IT. The first cut moved the CALL into the
+// function and left its INPUT on the screen: a second `committedBook` memo,
+// which is a second screen-level seam nothing here could reach. A blind
+// mutation lens walked through exactly that gap — pre-gate the book memo on the
+// store's own dial and a guarded store silently gets no mask, with every pin in
+// the family still green. The book is now built INSIDE the function too, so
+// there is ONE seam rather than two and this file can see all of it. §3 is
+// where that shows: the direct call it compares against builds its OWN book,
+// out of the same lanes, so a wrapper that quietly answered for a different
+// world would be caught here rather than nowhere.
 //
 // WHAT IS PROVED, in the order the composition decides things:
-//   §1 THE ROUND GATE — a null book is `undefined`, the fall-through every
-//      seam below already treats as the code that shipped.
+//   §1 THE ROUND GATE — gate off is `undefined`, the fall-through every seam
+//      below already treats as the code that shipped.
 //   §2 A GUARD-OFF STORE — mode 'off' is the FROZEN EMPTY mask, not
 //      `undefined`. This is the composition F0 moved the product to and the one
 //      finding 2 would have broken.
 //   §3 THE WRAPPER ADDS NOTHING — in every live mode the answer is a direct
-//      `reservedMaskFor` call's, compared as a whole object AND byte for byte.
+//      `reservedMaskFor` call's over a directly-built book, compared as a whole
+//      object AND byte for byte.
 //   §4 EVERY DIAL IS FORWARDED — mode and `released` change the answer through
 //      the wrapper exactly as they change it through the function.
 //
@@ -42,7 +53,7 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-import { type BedTruth } from '@/app/[locale]/(business)/business/today/capacity-ledger'
+import { type BedTruth, type DayFrame } from '@/app/[locale]/(business)/business/today/capacity-ledger'
 import {
   heldCommittedFor,
   type HeldCommittedInput,
@@ -77,6 +88,7 @@ function screenProps(node: any): TodayProps | null {
 }
 
 let REAL: TodayProps
+let FRAME: DayFrame
 let BOOK: BedTruth
 
 beforeAll(async () => {
@@ -102,15 +114,14 @@ beforeAll(async () => {
       searchParams: Promise.resolve({ store: STORE_A }),
     }),
   )!
-  // The committed world's book, built the one way in (`bedViewsFor`) with the
-  // same `null` hand TodayScreen's `committedBook` memo passes: prices read the
-  // settled board, so nothing is lifted out of this snapshot.
-  BOOK = bedViewsFor(
-    REAL.lanes,
-    REAL.rooms,
-    { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
-    null,
-  ).world
+  // The `ledgerFrame` memo's own spelling — the ONE clock the book is built on.
+  FRAME = { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open }
+  // ⚖ ROUND 1 — THIS BOOK IS THE CONTROL, NOT AN INPUT. The wrapper builds its
+  // own now; this one is built here, independently, the one way in
+  // (`bedViewsFor`) with the same `null` hand the committed world has always
+  // passed, and it is what §3 and §4 compare the wrapper's answer against. If
+  // the wrapper ever answered out of a different world, the two would part.
+  BOOK = bedViewsFor(REAL.lanes, REAL.rooms, FRAME, null).world
 })
 
 afterAll(() => jest.useRealTimers())
@@ -121,11 +132,13 @@ afterAll(() => jest.useRealTimers())
  *  stops compiling rather than quietly answering for a different world. */
 const inputFor = (
   gapGuardMode: GapGuardMode,
-  book: BedTruth | null = BOOK,
+  gateOn = true,
   released?: readonly ReleasedWindow[],
 ): HeldCommittedInput => ({
-  book,
+  gateOn,
   lanes: REAL.lanes,
+  rooms: REAL.rooms,
+  frame: FRAME,
   closeMin: REAL.hours.close,
   nowMin: REAL.sell.nowMinute,
   guard: REAL.guard.config,
@@ -133,10 +146,20 @@ const inputFor = (
   released,
 })
 
-/** The same question asked WITHOUT the wrapper — the thing the wrapper must be
- *  equal to, called with the book already narrowed. */
+/** The same question asked WITHOUT the wrapper: `reservedMaskFor` called with
+ *  the dials spelled out and the CONTROL book, which was built up in
+ *  `beforeAll` out of the very same lanes, rooms and frame. Nothing about this
+ *  call goes through the code under test. */
 const direct = (gapGuardMode: GapGuardMode, released?: readonly ReleasedWindow[]) =>
-  reservedMaskFor({ ...inputFor(gapGuardMode, BOOK, released), book: BOOK })
+  reservedMaskFor({
+    lanes: REAL.lanes,
+    closeMin: REAL.hours.close,
+    nowMin: REAL.sell.nowMinute,
+    guard: REAL.guard.config,
+    gapGuardMode,
+    released,
+    book: BOOK,
+  })
 
 const windowsIn = (held: readonly ReservedLaneMask[] | undefined) =>
   (held ?? []).flatMap((m) => m.spans.map((s) => `${m.laneKey}@${s.windowStart}`))
@@ -148,13 +171,13 @@ const LIVE_MODES: readonly GapGuardMode[] = ['standard', 'strict']
 // ── 1 · THE ROUND GATE ──────────────────────────────────────────────────────
 
 describe('1 — the round gate off is `undefined`, and that is the only decision this function makes', () => {
-  it('a null book is `undefined` — E3a’s fall-through, not an empty mask', () => {
+  it('the gate off is `undefined` — E3a’s fall-through, not an empty mask', () => {
     for (const mode of [...LIVE_MODES, 'off' as const]) {
-      expect({ mode, held: heldCommittedFor(inputFor(mode, null)) }).toEqual({ mode, held: undefined })
+      expect({ mode, held: heldCommittedFor(inputFor(mode, false)) }).toEqual({ mode, held: undefined })
     }
   })
 
-  it('a real book is never `undefined`, in any mode — the gate is the ONLY route to it', () => {
+  it('the gate on is never `undefined`, in any mode — the gate is the ONLY route to it', () => {
     for (const mode of [...LIVE_MODES, 'off' as const]) {
       expect({ mode, undef: heldCommittedFor(inputFor(mode)) === undefined }).toEqual({ mode, undef: false })
     }
@@ -183,22 +206,38 @@ describe('2 — a guard-OFF store gets the mask function’s own empty answer', 
 // ── 3 · THE WRAPPER ADDS NOTHING ────────────────────────────────────────────
 
 describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for byte', () => {
-  it('the fixture actually holds something, or the equality below proves nothing', () => {
-    const held = heldCommittedFor(inputFor('standard'))
-    expect(held).toBeDefined()
-    expect(windowsIn(held).length).toBeGreaterThan(0)
-  })
-
-  it('object-equal and JSON-equal to a direct call, in both live modes', () => {
+  it('object-equal and JSON-equal to a direct call over a directly-built book, in both live modes', () => {
     for (const mode of LIVE_MODES) {
       const through = heldCommittedFor(inputFor(mode))
       const straight = direct(mode)
+      // ⚖ LENS A F4 — THE NON-VACUITY GUARD, INSIDE THIS TEST. Two empty masks
+      // are equal, so the equality below proves nothing unless this fixture
+      // actually holds something. It is asserted here rather than in a
+      // neighbouring `it` so a mutant cannot leave the equality standing on a
+      // guard that a separate test happened to run first.
+      expect({ mode, windows: windowsIn(through).length > 0 }).toEqual({ mode, windows: true })
       expect({ mode, through }).toEqual({ mode, through: straight })
       // The byte-level half: `toEqual` would forgive a re-ordered lane list or
       // a span the wrapper re-boxed. Nothing may be re-boxed — the wrapper
       // returns the array the mask built.
       expect({ mode, json: JSON.stringify(through) }).toEqual({ mode, json: JSON.stringify(straight) })
     }
+  })
+
+  it('and the book it answers out of is the COMMITTED world’s, built from the lanes it was handed', () => {
+    // ⚖ ROUND 1 — the seam this round closed. The wrapper builds the book now,
+    // so a wrapper that built it from a different lane set (the board world's,
+    // a filtered list, a stale snapshot) would answer for a world nobody asked
+    // about — and until the book moved in there was nothing anywhere that
+    // could tell. The control book above is built from `REAL.lanes`, the same
+    // list handed in, so any other choice parts the two answers.
+    const through = heldCommittedFor(inputFor('standard'))
+    expect(windowsIn(through).length).toBeGreaterThan(0)
+    expect(windowsIn(through)).toEqual(windowsIn(direct('standard')))
+    // …and a DIFFERENT world really is a different answer, so the equality
+    // above is a measurement rather than a coincidence of this fixture.
+    const fewer = REAL.lanes.filter((l) => l.group !== 'staff')
+    expect(windowsIn(heldCommittedFor({ ...inputFor('standard'), lanes: fewer }))).not.toEqual(windowsIn(through))
   })
 })
 
@@ -231,7 +270,7 @@ describe('4 — the dials reach the mask through the wrapper unchanged', () => {
     const released: readonly ReleasedWindow[] = [
       { laneKey: lane.laneKey, windowStart: lane.spans[0].windowStart, dayOffset: 0, store: null },
     ]
-    const after = heldCommittedFor(inputFor('standard', BOOK, released))!
+    const after = heldCommittedFor(inputFor('standard', true, released))!
     const key = `${lane.laneKey}@${lane.spans[0].windowStart}`
     expect(windowsIn(before)).toContain(key)
     expect(windowsIn(after)).not.toContain(key)
@@ -241,8 +280,23 @@ describe('4 — the dials reach the mask through the wrapper unchanged', () => {
   })
 
   it('an absent `released` is today’s answer, byte for byte', () => {
-    expect(JSON.stringify(heldCommittedFor(inputFor('standard', BOOK, undefined)))).toBe(
-      JSON.stringify(heldCommittedFor(inputFor('standard'))),
-    )
+    // ⚖ LENS A F2 — THIS TEST USED TO PROVE NOTHING. It compared the wrapper
+    // with an explicit `released: undefined` against the wrapper with the same
+    // field defaulted — two spellings of one call, so it stayed green under any
+    // mutation at all. It now compares against a direct `reservedMaskFor` call
+    // that never mentions `released` in the first place, which is the claim the
+    // field's own doc makes (reserved-mask.ts:130-131 — absent is today's code,
+    // byte for byte).
+    const through = heldCommittedFor(inputFor('standard'))
+    const straight = reservedMaskFor({
+      lanes: REAL.lanes,
+      closeMin: REAL.hours.close,
+      nowMin: REAL.sell.nowMinute,
+      guard: REAL.guard.config,
+      gapGuardMode: 'standard',
+      book: BOOK,
+    })
+    expect(windowsIn(through).length).toBeGreaterThan(0)
+    expect(JSON.stringify(through)).toBe(JSON.stringify(straight))
   })
 })
