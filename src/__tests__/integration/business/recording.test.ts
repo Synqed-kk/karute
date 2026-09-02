@@ -2336,3 +2336,126 @@ describe('v5 — the spring is the mock’s, and it is PURE', () => {
     expect([...SCREEN_CODE.matchAll(/\breduced\b/g)].length).toBeGreaterThanOrEqual(constructions)
   })
 })
+
+
+// ═══ V5 · THE SIX TRUTHS THE BATTERY FOUND UNPINNED ═════════════════════════
+// Each one survived a mutation because the only thing that could see it was the
+// browser probe — a geometry or a source shape no assertion named. A truth the
+// suites cannot see is a truth the next round can delete by accident.
+
+const V5_ROOM_CSS = readFileSync(join(process.cwd(), `${ROOM_DIR}/recording.css`), 'utf8')
+
+describe('v5 — the composition’s own truths, named', () => {
+  it('M64 · THE DEFAULT IS THE CLOCK’S ANSWER, not “the first option”', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(props.contexts.length).toBeGreaterThan(0)
+    // the rule, re-stated from the SERIALIZED chips rather than by calling the
+    // same function the props called (a pin that asks the code what the code
+    // said is not a pin)
+    const inRoom = props.contexts.find((c) => c.heroChipTone === 'now')
+    const upcoming = props.contexts.filter((c) => c.heroChipTone === 'upcoming')
+    const want = inRoom
+      ? inRoom.appointmentId
+      : upcoming.length > 0
+        ? upcoming[0].appointmentId
+        : props.contexts[props.contexts.length - 1].appointmentId
+    expect(props.defaultAppointmentId).toBe(want)
+
+    // ⚠ AND THE WIRING IS PINNED BY NAME, because the ASSERTION ABOVE CANNOT SEE
+    // IT ON ITS OWN. For most of the day the rule's answer and 「the first
+    // option」 are the same booking — before the first appointment they both say
+    // 「the next one」 — so a props line that had quietly gone back to
+    // `options[0]` would pass every behavioural check made at that hour and fail
+    // only in the evening, on a real desk. The rule's own three branches are
+    // unit-pinned above (`defaultPick`); what this line pins is that the room
+    // still ASKS it. The battery's M64 is the red-run.
+    expect(PROPS_SRC).toContain('defaultAppointmentId: defaultPick(options, nowMinute),')
+    expect(PROPS_SRC).not.toMatch(/defaultAppointmentId:\s*(contexts|options)\[0\]/)
+    // …and the screen READS it rather than choosing for itself
+    expect(SCREEN_CODE).toContain('useState<string | null>(props.defaultAppointmentId)')
+    expect(SCREEN_CODE).not.toMatch(/setPickedId\(props\.contexts\[0\]/)
+  })
+
+  it('M70 · A CLEAN DESK SEES NO 要対応 STRIP AT ALL', async () => {
+    // a world whose takes are all settled: nothing needs a hand, so there is
+    // nothing to head a strip with
+    const settled = takePlane.filter((t) => t.discarded !== null)
+    expect(settled.length).toBeGreaterThan(0)
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A, world: { takes: settled } })
+    expect(props.takes.length).toBeGreaterThan(0)
+    const needsHand = props.takes.filter((t) =>
+      ['復元可能', '失敗', '確認待ち'].includes(t.stateLabel))
+    expect(needsHand).toEqual([])
+    expect(props.attention).toBeNull()
+    // …and the demo world, which DOES have work in it, still gets one
+    const live = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(live.props.attention).not.toBeNull()
+  })
+
+  it('M74 · THE WAVEFORM STAYS — 「keep everything the phone app has」 (R6-22)', () => {
+    // it renders while the take is LIVE or PAUSED, frozen once stopped, and it
+    // moves on `transform: scaleY` alone — a composite-only property
+    expect(SCREEN_CODE).toMatch(/\{\(live \|\| phase === 'paused'\) && \(\s*<div className="rc-wave"/)
+    expect(SCREEN_CODE).toMatch(/\{ended && frozen\.length > 0 && \(\s*<div className="rc-wave is-frozen"/)
+    expect(SCREEN_CODE).toContain('style={{ transform: `scaleY(${v})` }}')
+    expect(V5_ROOM_CSS).toMatch(/\.rc-wave \{[^}]*height: 28px/)
+    // …and never `height`, which would lay out on every frame
+    expect(V5_ROOM_CSS).not.toMatch(/\.rc-bar \{[^}]*transition/)
+  })
+
+  it('M75 · FIVE COLUMNS, AND 状態・操作 IS ONE CELL — no labelled cell is ever empty', () => {
+    const grid = V5_ROOM_CSS.slice(V5_ROOM_CSS.indexOf('.biz .pg-recording .rc-rowhead,\n.biz .pg-recording .rc-row {'))
+    const block = grid.slice(0, grid.indexOf('}') + 1)
+    const tracks = block.slice(block.indexOf('grid-template-columns:') + 'grid-template-columns:'.length,
+      block.indexOf(';', block.indexOf('grid-template-columns:')))
+    // ⚠ COUNT TRACKS, NOT TOKEN READS. お客様 is a `minmax()` holding two of the
+    // six `--rc-c-*` variables, and a naive strip stops at the first `)` — so
+    // this walks paren DEPTH and splits only at depth zero, which is what a
+    // track list actually is.
+    const flat: string[] = []
+    let depth = 0
+    let cur = ''
+    for (const ch of tracks) {
+      if (ch === '(') depth += 1
+      if (ch === ')') depth -= 1
+      if (depth === 0 && /\s/.test(ch)) { if (cur.trim()) flat.push(cur.trim()); cur = '' } else cur += ch
+    }
+    if (cur.trim()) flat.push(cur.trim())
+    expect(flat.length).toBe(5)
+    // …and only お客様 is elastic; every other track is a fixed width
+    expect(flat.filter((t) => t.startsWith('minmax(')).length).toBe(1)
+    // …and the head names exactly those five, in that order
+    const head = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="rc-rowhead"'))
+    const labels = [...head.slice(0, head.indexOf('</div>')).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
+    expect(labels).toEqual(['日付', 'お客様', '録音者', '長さ', '状態・操作'])
+    // …and the row renders exactly five cells
+    const row = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className={`rc-row${'))
+    expect([...row.slice(0, row.indexOf('</div>\n                  ))')).matchAll(/className="rc-c-/g)].length).toBe(5)
+  })
+
+  it('M76 · THE SUB-MESSAGE LIVES INSIDE THE お客様 TRACK — never absolute, never spanning', () => {
+    // by construction in the markup…
+    expect(SCREEN_CODE).toMatch(/<span className="rc-custtxt">[\s\S]{0,900}?<span className="rc-sub">/)
+    // …and by construction in the sheet: a cell child that took itself out of
+    // flow could overlap a neighbouring column however the tracks are sized
+    const sub = V5_ROOM_CSS.slice(V5_ROOM_CSS.indexOf('.biz .pg-recording .rc-sub {'))
+    const block = sub.slice(0, sub.indexOf('}') + 1)
+    expect(block).toContain('display: flex')
+    expect(block).not.toMatch(/position\s*:\s*(absolute|fixed)/)
+    expect(block).not.toMatch(/\bwidth\s*:/)
+  })
+
+  it('M79 · ⚖ THE ULTRA-WIDE LAW — the ONE width token is repeated on EVERY card', () => {
+    expect(V5_ROOM_CSS).toContain('--rc-maxw: 1400px')
+    // the view is the reading column…
+    expect(V5_ROOM_CSS).toMatch(/\.rc-record-view,\n\.biz \.pg-recording \.rc-review-view \{ width: 100%; max-width: var\(--rc-maxw\)/)
+    // …and every card repeats it as the v5-2 backstop, so a single engine quirk
+    // on the wrapper cannot let one card stretch across a 2560px window
+    const cap = V5_ROOM_CSS.slice(V5_ROOM_CSS.indexOf('.biz .pg-recording .rc-head,\n'))
+    const block = cap.slice(0, cap.indexOf('}') + 1)
+    for (const cls of ['.rc-head', '.rc-recovery', '.rc-grid', '.rc-attn', '.rc-history', '.rc-footnote']) {
+      expect(block).toContain(`.biz .pg-recording ${cls}`)
+    }
+    expect(block).toContain('max-width: var(--rc-maxw)')
+  })
+})
