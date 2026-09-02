@@ -321,4 +321,18 @@ describe('BottomNav tab cells — constant stroke, instant colour', () => {
       expect(indicator.getAttribute('class')).toContain('transition-[transform,opacity]')
     })
   })
+
+  // TAB-CALM-3 (2026-09-02). Build 22 still jiggled: one frame at exactly
+  // +200ms — the indicator transition's last frame — redraws every icon inside
+  // the indicator's sweep 1-2 device px sideways (evidence/tabcalm3-20260902).
+  // Pinning each glyph to its own compositing layer takes displacement to zero
+  // while keeping the slide; see the comment at the row for the measurements.
+  // Row-level, not per-icon, so the mic FAB's recording states are covered too.
+  it('every icon in the row is pinned to its own compositing layer', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    const row = container.querySelector('nav > div')!
+    expect(row.getAttribute('class')).toContain('[&_svg]:will-change-transform')
+  })
 })

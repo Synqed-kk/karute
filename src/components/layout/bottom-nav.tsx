@@ -292,9 +292,35 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         className="z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
+        {/* `[&_svg]:will-change-transform` — every icon in this row keeps its own
+         *  compositing layer, permanently. This is the third and final round on
+         *  Liam's jiggle, and the first one aimed at the actual mover.
+         *
+         *  #809 blamed the icon's stroke-width transition; #816 removed the
+         *  bolder-active-icon effect outright. Liam's build-22 device video
+         *  (evidence/tabcalm3-20260902) shows the jiggle SURVIVING both, and
+         *  frame analysis finally names it: one frame, exactly 200ms after every
+         *  tap — the moment the sliding indicator's `transition-[transform,opacity]`
+         *  ENDS — in which カルテ's glyph is redrawn 2 device px left, 顧客's
+         *  2 px right and the mic's 1 px right. Same glyph, same colour, same
+         *  weight, just re-rasterized onto different device pixels. 予約 and
+         *  メニュー never move: the icons that jump are exactly the ones inside
+         *  the horizontal range the indicator's transform sweeps, so WebKit is
+         *  re-snapping that region's un-composited content when the animation's
+         *  layer goes away. The DOM never moves — getBoundingClientRect is
+         *  identical throughout (.build-evidence/tabcalm3/sim/reflow-probe.json).
+         *
+         *  Giving each glyph its own layer makes its raster its own: a
+         *  neighbour's animation can no longer re-snap it. Measured on the
+         *  iPhone 17 Pro Max simulator (WebKit — the device's engine, ⚖ THE
+         *  ENGINE LAW), 8 taps per run: displacement drops from 8,964 / 10,920
+         *  changed px to ZERO, in four runs, with the slide intact. Promoting
+         *  the indicator instead only halved it (3,989) and promoting the row
+         *  did nothing (10,016) — the fix has to sit on the things that move.
+         *  Cost is five 20x20 layers that never repaint. */}
         <div
           ref={navBarRef}
-          className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2"
+          className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2 [&_svg]:will-change-transform"
         >
           {/* Sliding active-tab indicator — one shared bar, positioned via
            *  transform against the measured PRIMARY Link, instead of each
