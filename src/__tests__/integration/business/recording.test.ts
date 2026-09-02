@@ -71,6 +71,18 @@ import {
   transcriptAbsenceOf,
   waveformBars,
   windowTakes,
+  // ── v5's own derivations ──────────────────────────────────────────────────
+  attentionCounts,
+  bookingPhaseOf,
+  briefFactsOf,
+  consentActionLabel,
+  consentShortLine,
+  daysLeftLine,
+  defaultPick,
+  grantedWhen,
+  slotHint,
+  BRIEF_RECORDS_SHOWN,
+  LOCAL_AUDIO_DAYS,
   CONSENT_LABEL,
   durationText,
   takeDurationLabel,
@@ -89,6 +101,8 @@ import {
   type TakeModel,
 } from '@/business/lib/recording'
 import { jstMinuteOfDay } from '@/business/lib/clock'
+import { CATEGORY_LABEL, CATEGORY_ORDER } from '@/business/lib/karute'
+import { makeSpring } from '@/business/lib/spring'
 import { recordingProps } from '@/app/[locale]/(business)/business/recording/recording-props'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/recording'
@@ -2041,5 +2055,284 @@ describe('the route entry', () => {
     for (const src of [SCREEN_CODE, stripComments(PROPS_SRC), stripComments(PAGE_SRC), LIB_CODE, PLANE_CODE]) {
       expect(src).not.toMatch(/from '@\/lib\/(recording|recordings|karute)/)
     }
+  })
+})
+
+
+// ═══ V5 · THE DERIVATIONS THE ACCEPTED MOCK'S COMPOSITION NEEDED ════════════
+// Every one is a PURE function in `recording.ts` (⚖ A8: one predicate per
+// verdict), and every one is pinned here rather than at the screen — a screen
+// test would prove that the room CALLS them, not that they are right.
+
+describe('v5 — the hero chip, the default selection and the slot hint', () => {
+  it('⚖ THE PHASE IS HALF-OPEN: at the end minute the session is OVER', () => {
+    // Two back-to-back bookings must never both read 施術中, which is what a
+    // closed interval would do at the shared minute.
+    expect(bookingPhaseOf(600, 660, 599)).toBe('upcoming')
+    expect(bookingPhaseOf(600, 660, 600)).toBe('now')
+    expect(bookingPhaseOf(600, 660, 659)).toBe('now')
+    expect(bookingPhaseOf(600, 660, 660)).toBe('past')
+    expect(bookingPhaseOf(600, 660, 661)).toBe('past')
+  })
+
+  it('⚖ THE SCREEN NEVER PICKS — in the room now, else next up, else last of day', () => {
+    const opts = [
+      { appointmentId: 'a', startedMinute: 600, endMinute: 660 },
+      { appointmentId: 'b', startedMinute: 800, endMinute: 860 },
+      { appointmentId: 'c', startedMinute: 1000, endMinute: 1060 },
+    ]
+    expect(defaultPick(opts, 500)).toBe('a')   // nothing running → the NEXT one
+    expect(defaultPick(opts, 630)).toBe('a')   // in the room now
+    expect(defaultPick(opts, 700)).toBe('b')   // between two → the next
+    expect(defaultPick(opts, 1200)).toBe('c')  // evening → the last of the day
+    expect(defaultPick([], 600)).toBeNull()
+    // ⚠ THE ONE IN THE ROOM WINS EVEN WHEN IT IS NOT THE FIRST IN THE LIST —
+    // the rule is about the CLOCK, not about position.
+    expect(defaultPick([opts[0], { appointmentId: 'z', startedMinute: 690, endMinute: 750 }], 700)).toBe('z')
+  })
+
+  it('the slot hint SAYS WHAT IT COUNTS, and today is the N+1th visit', () => {
+    expect(slotHint('now', 3)).toBe('いま施術中')
+    expect(slotHint('upcoming', 0)).toBe('初めてのご来店')
+    expect(slotHint('upcoming', 3)).toBe('ご来店 4回目')
+    expect(slotHint('past', 7)).toBe('ご来店 8回目')
+  })
+
+  it('the hero chip and the picker hint come off ONE clock read, not two', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    for (const c of props.contexts) {
+      // the chip's tone and its words agree, by construction
+      if (c.heroChipTone === 'now') expect(c.heroChipLabel).toBe('いま施術中')
+      if (c.heroChipTone === 'upcoming') expect(c.heroChipLabel).toMatch(/^このあと \d\d:\d\d 開始$/)
+      if (c.heroChipTone === 'past') expect(c.heroChipLabel).toMatch(/^終了 \d\d:\d\d$/)
+      // …and the slot hint is 施術中 EXACTLY when the chip is
+      expect(c.slotHint === 'いま施術中').toBe(c.heroChipTone === 'now')
+    }
+    // the default IS one of the options, always
+    if (props.contexts.length > 0) {
+      expect(props.contexts.map((c) => c.appointmentId)).toContain(props.defaultAppointmentId)
+    }
+  })
+})
+
+describe('v5 — 前回までの流れ is a JOIN, and it states nothing', () => {
+  const factsFor = (customerId: string) => {
+    const now = new Date()
+    return briefFactsOf({
+      customerId,
+      todayKey: jstDayKey(now),
+      appointments: appointments(now).filter((a) => a.store_id === STORE_A),
+      menus, staff, records: recordPlane,
+      categoryOrder: CATEGORY_ORDER, categoryLabel: CATEGORY_LABEL,
+    })
+  }
+
+  it('every row it returns hangs off a booking THIS LENS holds, newest first', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(props.contexts.length).toBeGreaterThan(0)
+    let sawARecord = false
+    for (const c of props.contexts) {
+      const f = factsFor(c.customerId)
+      // newest first, strictly
+      const keys = f.records.map((r) => r.dayKey)
+      expect([...keys].sort((a, b) => b - a)).toEqual(keys)
+      // …and every カルテ id it names really is in the plane
+      for (const r of f.records) {
+        expect(recordPlane.some((x) => x.id === r.recordId)).toBe(true)
+        sawARecord = true
+      }
+      // the door counts what is BEHIND it, and only appears when there is depth
+      const shown = f.records.slice(0, BRIEF_RECORDS_SHOWN)
+      expect(c.brief.records.map((r) => r.id)).toEqual(shown.map((r) => r.recordId))
+      expect(c.brief.doorLabel).toBe(
+        f.records.length > shown.length ? `すべてのカルテを見る（${f.records.length}件）` : null,
+      )
+    }
+    expect(sawARecord).toBe(true)
+  })
+
+  it('the summary is the EFFECTIVE one — a human rewrite outranks the AI text', () => {
+    const withEdit = recordPlane.find((r) => r.summary_edited !== null && r.summary_edited !== undefined)
+    if (withEdit) {
+      const booking = appointments(new Date()).find((a) => a.id === withEdit.appointment_id)
+      if (booking) {
+        const f = factsFor(booking.customer_id)
+        if (f.last?.recordId === withEdit.id) expect(f.summary).toBe(withEdit.summary_edited)
+      }
+    }
+    // …and where there is no record at all, there is no summary and no memo —
+    // never an empty string standing in for a sentence.
+    const firstTimer = customers.find((c) => factsFor(c.id).last === null)
+    expect(firstTimer).toBeTruthy()
+    const none = factsFor(firstTimer!.id)
+    expect({ last: none.last, summary: none.summary, memo: none.memo, records: none.records })
+      .toEqual({ last: null, summary: null, memo: [], records: [] })
+  })
+
+  it('⚠ THE ROW TITLE IS THE MENU NAME — the room never invents a topic (R6-24)', () => {
+    const titles = new Set<string>()
+    for (const c of customers) for (const r of factsFor(c.id).records) titles.add(r.title)
+    expect(titles.size).toBeGreaterThan(0)
+    const menuNames = new Set(menus.map((m) => m.name))
+    for (const t of titles) expect(menuNames.has(t) || t === 'メニュー未記録').toBe(true)
+  })
+
+  it('⚠ THE MEMO LABEL IS THE カルテ ROOM’S OWN — never a lead this room wrote', () => {
+    const labels = new Set<string>()
+    for (const c of customers) for (const m of factsFor(c.id).memo) labels.add(m.label)
+    expect(labels.size).toBeGreaterThan(0)
+    for (const l of labels) expect(Object.values(CATEGORY_LABEL)).toContain(l)
+  })
+
+  it('⚖ REGISTRY ⑪ — the AI pre-brief is NAMED, never invented', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    // the card says the absence out loud…
+    expect(SCREEN_CODE).toContain('会話のきっかけ・今日のおすすめ（AIの事前ブリーフ）は、実データ接続後に表示されます。')
+    // …and the props carry no field for any of the five the phone generates.
+    const serialized = JSON.stringify(props)
+    for (const field of ['hooks', 'opener', 'recommendedFocus', 'memoAnalysis', 'reservationMemo']) {
+      expect(serialized).not.toContain(`"${field}"`)
+    }
+    // ⚠ THE SOURCE-SCAN HALF: every string the briefing renders is READ from a
+    // prop, so there is no literal in the screen for a staffer to take for the
+    // AI's own words. The card's own two labels and its empty states are the
+    // only literals inside it, and they are about the ABSENCE.
+    const brief = SCREEN_CODE.slice(SCREEN_CODE.indexOf('rc-brief-body'), SCREEN_CODE.indexOf('rc-bnote'))
+    expect(brief).toContain('{current.brief.summary}')
+    expect(brief).toContain('{m.text}')
+    expect(brief).not.toMatch(/会話のきっかけ["'][^)]*[:=]/)
+  })
+})
+
+describe('v5 — the 要対応 strip cannot lie, and it is absent at zero', () => {
+  it('⚖ THE PILL/COUNT LAW — every pill’s number is what its filter reveals', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(props.attention).not.toBeNull()
+    const byLabel = new Map<string, number>()
+    for (const t of props.takes) byLabel.set(t.stateLabel, (byLabel.get(t.stateLabel) ?? 0) + 1)
+    for (const pill of props.attention!.pills) {
+      // the pill's own count IS the number of rows carrying that state label
+      expect(pill.countLabel).toBe(`${byLabel.get(pill.stateLabel) ?? 0}件`)
+      // …and the chip it wears is that state's own chip, not a second spelling
+      expect(pill.chip).toContain('rc-chip')
+    }
+    // the header count is the sum of the three, and nothing else
+    const sum = props.attention!.pills.reduce((n, p) => n + Number(p.countLabel.replace('件', '')), 0)
+    expect(props.attention!.countLine).toBe(`${sum}件`)
+  })
+
+  it('⚠ A CLEAN DESK SEES NO STRIP AT ALL — 「要対応 0件」 is a page inventing a warning', () => {
+    expect(attentionCounts([])).toEqual({ recoverable: 0, failed: 0, awaiting: 0, total: 0 })
+    expect(attentionCounts([{ state: 'saved' }, { state: 'discarded' }, { state: 'processing' }]))
+      .toEqual({ recoverable: 0, failed: 0, awaiting: 0, total: 0 })
+    expect(attentionCounts([{ state: 'failed' }, { state: 'failed' }, { state: 'recoverable' }, { state: 'awaiting-check' }]))
+      .toEqual({ recoverable: 1, failed: 2, awaiting: 1, total: 4 })
+    // …and the screen renders NOTHING rather than a zero header
+    expect(SCREEN_CODE).toContain('{props.attention && (')
+  })
+
+  it('the 7-day window promises nothing it cannot keep', () => {
+    expect(LOCAL_AUDIO_DAYS).toBe(7)
+    expect(daysLeftLine(100, 100)).toBe('あと7日で端末から消えます')
+    expect(daysLeftLine(94, 100)).toBe('あと1日で端末から消えます')
+    // ⚠ 「あと0日」 IS NOT A PROMISE, and a negative one is arithmetic on the page
+    expect(daysLeftLine(93, 100)).toBeNull()
+    expect(daysLeftLine(80, 100)).toBeNull()
+  })
+})
+
+describe('v5 — the consent line’s three states, and F6-9', () => {
+  it('⚠ A SAME-DAY GRANT READS 「本日」, NEVER 「0日前」 (F6-9)', () => {
+    expect(grantedWhen(0)).toBe('本日')
+    expect(grantedWhen(1)).toBe('1日前')
+    expect(grantedWhen(12)).toBe('12日前')
+    // …and it is ONE home: the thin line, its pop-down and the gate all read it
+    expect(consentShortLine({ state: 'current', grantedDaysAgo: 0, grantedVersion: CONSENT_POLICY_VERSION }))
+      .toBe('同意取得の記録があります（本日・口頭）')
+    expect(consentProofLine({ state: 'current', grantedDaysAgo: 0, grantedVersion: CONSENT_POLICY_VERSION }))
+      .toContain('本日')
+    expect(consentProofLine({ state: 'current', grantedDaysAgo: 0, grantedVersion: CONSENT_POLICY_VERSION }))
+      .not.toContain('0日前')
+  })
+
+  it('the line OFFERS something only when the gate is shut', () => {
+    expect(consentActionLabel('current')).toBeNull()
+    expect(consentActionLabel('stale')).toBe('同意を取り直す')
+    expect(consentActionLabel('absent')).toBe('同意を取得')
+  })
+
+  it('every context carries its own short line AND its own full proof', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    for (const c of props.contexts) {
+      expect(c.consentShort.length).toBeGreaterThan(0)
+      expect(c.consentProof.length).toBeGreaterThan(c.consentShort.length)
+      expect(c.consentAction).toBe(consentActionLabel(c.consentState))
+      // ⚖ THE GATE IS STILL ONE ANSWER: an action offered means the gate is shut
+      expect(c.consentAction === null).toBe(c.canStart)
+    }
+  })
+})
+
+describe('v5 — the spring is the mock’s, and it is PURE', () => {
+  const drive = (frames: number, opts: Parameters<typeof makeSpring>[1] = {}) => {
+    const seen: number[] = []
+    let t = 0
+    const queue: Array<(t: number) => void> = []
+    const sp = makeSpring((v) => seen.push(v), {
+      ...opts,
+      raf: (cb) => { queue.push(cb); return queue.length },
+      cancel: () => {},
+    })
+    return {
+      sp,
+      run: () => { for (let i = 0; i < frames && queue.length > 0; i += 1) { t += 16; queue.shift()!(t) } },
+      seen,
+    }
+  }
+
+  it('it ARRIVES, without overshooting, and it rests exactly on target', () => {
+    const { sp, run, seen } = drive(400)
+    sp.set(100)
+    run()
+    expect(seen.length).toBeGreaterThan(3)
+    expect(seen[seen.length - 1]).toBe(100)
+    // critically damped: nothing ever goes past the target
+    for (const v of seen) expect(v).toBeLessThanOrEqual(100.0001)
+  })
+
+  it('`jump` re-seats the integrator and is NOT an arrival — onRest must not fire', () => {
+    const rests: number[] = []
+    const { sp, run } = drive(400, { onRest: (v) => rests.push(v) })
+    sp.jump(50)
+    run()
+    expect(rests).toEqual([])
+    sp.set(60)
+    run()
+    expect(rests).toEqual([60])
+  })
+
+  it('⚠ REDUCED MOTION IS A CONSTRUCTOR ARGUMENT — it lands instantly, it does not vanish', () => {
+    const seen: number[] = []
+    const rests: number[] = []
+    const sp = makeSpring((v) => seen.push(v), {
+      reduced: true,
+      onRest: (v) => rests.push(v),
+      raf: () => { throw new Error('a reduced spring must never schedule a frame') },
+      cancel: () => {},
+    })
+    sp.set(42)
+    // the STATE still changed; it simply stopped moving
+    expect(seen).toEqual([42])
+    expect(rests).toEqual([42])
+  })
+
+  it('it touches NO React and NO DOM — that is what lets one integrator serve three uses', () => {
+    const src = readFileSync(join(process.cwd(), 'src/business/lib/spring.ts'), 'utf8')
+    expect(src).not.toMatch(/\bfrom 'react'|useState|useEffect|useRef/)
+    expect(src).not.toMatch(/document\.|getElementById|querySelector|getBoundingClientRect|window\./)
+    // …and the screen constructs EVERY spring with the reader's own answer
+    const constructions = [...SCREEN_CODE.matchAll(/makeSpring\(/g)].length
+    expect(constructions).toBeGreaterThanOrEqual(3)
+    expect([...SCREEN_CODE.matchAll(/\breduced\b/g)].length).toBeGreaterThanOrEqual(constructions)
   })
 })
