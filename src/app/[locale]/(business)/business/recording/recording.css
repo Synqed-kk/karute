@@ -84,10 +84,10 @@
    and the suite tells them apart by what is in the box:
      · TEXT TRUNCATION — `text-overflow: ellipsis` and `-webkit-line-clamp` both
        REQUIRE it, and the spans they sit on hold words, never a focusable thing;
-     · THE FOUR COLLAPSE PANELS, which use `overflow: clip` with an
-       `overflow-clip-margin` instead. `clip` cannot become a scroll container at
-       all — a stronger answer to the page-scroll law than `hidden`, which can —
-       and the margin lets the 5px of focus paint escape the box. */
+     · THE FOUR COLLAPSE PANELS, which use `overflow: clip` instead. `clip`
+       cannot become a scroll container at all — a stronger answer to the
+       page-scroll law than `hidden`, which can — and nothing focusable sits at
+       the clip edge (see the rule's own note). */
 
 /* ── the fence: the three shared names this room still uses ────────────────── */
 /* Four levels (`.biz .page.pg-recording …`) rather than three, because a
@@ -509,7 +509,22 @@
    inner fade. `height: 0` is the closed floor, and the open panel is handed
    `height: auto` AT REST by the screen so it keeps growing with its own content
    (which is exactly what もっと見る does inside it). */
-.biz .pg-recording .rc-collapse { height: 0; overflow: clip; overflow-clip-margin: 6px; }
+/* ⚠ `clip`, AND NO CLIP MARGIN. `clip` is the right verb for a height collapse
+   because it CANNOT become a scroll container — a stronger answer to the ⚖
+   page-scroll law than `hidden`, which can. The margin was tried and removed on
+   sight: a CLOSED panel is 0px tall, so a 6px clip margin let 6px of its first
+   card paint under the control that closes it — a green sliver under the consent
+   line and a blue one under the briefing header. The F2 focus-ring concern is
+   answered by geometry instead: every control inside these four panels sits at
+   least 8px in from the clip edge on its own card's padding.
+   ⚠ AND THE OPEN-AT-REST STATE IS STATED IN CSS, not left to the first effect.
+   `briefOpen` starts true, so the server sends `is-open` — without this rule the
+   first paint showed a briefing that was CLOSED and then popped open on
+   hydration, which is a page that looks like it is still loading. The screen's
+   inline height takes over the moment it moves. */
+.biz .pg-recording .rc-collapse { height: 0; overflow: clip; }
+.biz .pg-recording .rc-brief.is-open > .rc-collapse { height: auto; }
+.biz .pg-recording .rc-brief.is-open > .rc-collapse > .rc-collapse-in { opacity: 1; transform: none; }
 .biz .pg-recording .rc-collapse-in { opacity: 0; transform: translateY(-3px); transition: opacity 170ms var(--rc-ease), transform 200ms var(--rc-ease); }
 .biz .pg-recording .rc-collapse-in.is-in { opacity: 1; transform: none; }
 
@@ -1087,7 +1102,7 @@
   position: absolute; bottom: 100%; left: 0; right: 0; z-index: 3; margin-bottom: 8px;
   border: 1px solid var(--line); border-radius: var(--rc-r-lg); background: #fff;
   box-shadow: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
-  height: 0; overflow: clip; overflow-clip-margin: 6px;
+  height: 0; overflow: clip;
 }
 .biz .pg-recording .rc-fn-scroll { padding: 14px 16px; }
 .biz .pg-recording .rc-fn-scroll .rc-sec-title { font-size: 13.5px; }

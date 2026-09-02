@@ -1399,8 +1399,12 @@ describe('⚖ 8/25 ruling A — the reason and the evidence, side by side', () =
     expect(durationText(11)).toBe('11秒')
     expect(durationText(940)).toBe('15分40秒')
     expect(durationText(2760)).toBe('46分') // a whole minute drops the empty 秒
-    expect(takeDurationLabel(8, true)).toBe('長さ 8秒（10秒未満）')
-    expect(takeDurationLabel(null, false)).toBe('長さ 記録なし')
+    // ⚠ AND IT NAMES ITSELF EXACTLY ONCE. The word 長さ lives on the column
+    // header at a desk and on the row's own `::before` at card widths, so a
+    // 長さ inside the string as well printed it twice (v5's 1280 shot).
+    expect(takeDurationLabel(8, true)).toBe('8秒（10秒未満）')
+    expect(takeDurationLabel(null, false)).toBe('記録なし')
+    expect(takeDurationLabel(2760, false)).not.toContain('長さ')
     // ONE home: both surfaces compose from the same two functions.
     expect(PROPS_SRC).not.toMatch(/Math\.round\([^)]*\/ 60\)/)
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
@@ -1445,7 +1449,11 @@ describe('⚖ the accidental-tap floor has ONE home in this room', () => {
   it('10秒未満 is a PLAIN FACT on the row, never a warning', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
     const below = props.takes.find((t) => t.id === 'rs-0004')!
-    expect(below.durationLabel).toBe('長さ 8秒（10秒未満）')
+    // ⚠ NO 「長さ」 IN THE STRING: the column header names it at a desk and the
+    // row's own `::before` names it at card widths, so carrying it here as well
+    // printed the word twice (this round's 1280 shot).
+    expect(below.durationLabel).toBe('8秒（10秒未満）')
+    expect(below.durationLabel).not.toContain('長さ')
   })
 })
 
@@ -1993,13 +2001,15 @@ describe('⚖ the sibling-sheet fence', () => {
       clippers.filter((b) => /text-overflow\s*:\s*ellipsis|-webkit-line-clamp|-webkit-box-orient/.test(b.body)).map((b) => b.sel),
     )
     expect(clippers.length).toBeGreaterThan(0)
-    // …and the four COLLAPSE panels, which genuinely must clip a height, use
-    // `overflow: clip` with a margin: `clip` cannot become a scroll container at
-    // all, and the margin lets the focus ring paint outside the box.
+    // …and the two rules that genuinely must clip a HEIGHT — the four collapse
+    // panels and the footnote's — use `overflow: clip`, which cannot become a
+    // scroll container at all. ⚠ NO CLIP MARGIN: a closed panel is 0px tall, so
+    // a margin let its first card paint under the control that closes it.
     const TRUNCATES = /text-overflow\s*:\s*ellipsis|-webkit-line-clamp|-webkit-box-orient/
     const clipped = blocks.filter((b) => /overflow\s*:\s*clip/.test(b.body) && !TRUNCATES.test(b.body))
     expect(clipped.length).toBe(2) // .rc-collapse (four users) and .rc-fn-panel
-    for (const b of clipped) expect(b.body).toMatch(/overflow-clip-margin:\s*6px/)
+    for (const b of clipped) expect(b.body).not.toMatch(/overflow-clip-margin/)
+    expect(decls).not.toMatch(/overflow-clip-margin/)
   })
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own opt-in list, not from here', () => {

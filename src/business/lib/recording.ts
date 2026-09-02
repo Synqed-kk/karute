@@ -1086,12 +1086,20 @@ export function durationText(seconds: number | null): string | null {
   return s === 0 ? `${m}分` : `${m}分${s}秒`
 }
 
-/** The 録音履歴 row's own label — the length, named, with 10秒未満 beside it as a
- *  PLAIN FACT (⚖ W7-2), never a warning and never a pre-selected excuse. */
+/**
+ * The 録音履歴 row's own length, with 10秒未満 beside it as a PLAIN FACT (⚖ W7-2),
+ * never a warning and never a pre-selected excuse.
+ *
+ * ⚠ NO 「長さ」 PREFIX, AND THAT IS ⚖ SELF-EXPLAINING NUMBERS RATHER THAN AN
+ * EXCEPTION TO IT. The number is named exactly ONCE on every surface it appears
+ * on: at a desk the 長さ column header names it, and at card widths the row's
+ * own `::before` does. Carrying the word in the string as well printed
+ * 「長さ｜長さ 25分」 in the table — caught in this round's own 1280 shot.
+ */
 export function takeDurationLabel(seconds: number | null, belowFloor: boolean): string {
   const text = durationText(seconds)
-  if (text === null) return '長さ 記録なし'
-  return belowFloor ? `長さ ${text}（${BELOW_FLOOR_SEC}秒未満）` : `長さ ${text}`
+  if (text === null) return '記録なし'
+  return belowFloor ? `${text}（${BELOW_FLOOR_SEC}秒未満）` : text
 }
 
 // ── the tour card's room-local placement correction ─────────────────────────
