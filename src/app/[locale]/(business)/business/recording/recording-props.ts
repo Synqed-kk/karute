@@ -313,7 +313,12 @@ export async function recordingProps({
       // The hero's own meta is the TIME RANGE, the menu and the staffer — the
       // mock's `.hero-meta`. The full date stays on the picker's own label; a
       // hero that repeats 「本日」 to a reader looking at today's list is noise.
-      heroMetaLabel: `${timeLabel} ー ${hhmm(o.endMinute)} ・ ${o.menuName} ・ 担当 ${o.staffName}`,
+      // ⚠ 〜, NOT 「ー」 (L5-1). The mock's own text joined the range with the
+      // katakana prolonged-sound mark; the family writes `HH:MM〜HH:MM`
+      // (`today-interactions.ts:682`, ruled 「〜, NOT AN EN DASH」 on 8/26) and to
+      // a native eye U+30FC in a time range reads as a typo, not a range mark.
+      // Mock copy is a spec for layout, never a licence to ship a wrong glyph.
+      heroMetaLabel: `${timeLabel}〜${hhmm(o.endMinute)} ・ ${o.menuName} ・ 担当 ${o.staffName}`,
       // ⚖ DERIVED FROM THE ONE CLOCK READ, and it is the same read the default
       // selection and every take date came from.
       heroChipLabel:
@@ -376,7 +381,12 @@ export async function recordingProps({
               ? { success: '成約', no_deal: '不成約', pending: '仮カルテ', revisit: '通常ご来店' }[record.outcome.status]
               : '未記録'
           }）`
-        : `${o.customerName}様のカルテ記録はまだありません。新しいカルテ記録を作成します。`,
+        // ⚠ THE SENTENCE IS ABOUT THE BOOKING, SO IT SAYS SO (F-V5-1). It used
+        // to read 「{顧客}様のカルテ記録はまだありません」 — a CUSTOMER-scoped
+        // claim about a BOOKING-scoped fact, and the briefing one card over
+        // shows that very customer's カルテ. What has no record is today's
+        // session, not the person.
+        : 'この予約のカルテ記録はまだありません。新しいカルテ記録を作成します。',
     }
   })
 

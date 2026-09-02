@@ -2205,6 +2205,53 @@ describe('v5 — the hero chip, the default selection and the slot hint', () => 
   })
 })
 
+describe('fix1 — copy truth: the sentence says what it is about', () => {
+  it('⚖ L5-1 — the hero’s time range is the family’s 〜, never the prolonged-sound mark', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    expect(props.contexts.length).toBeGreaterThan(0)
+    for (const c of props.contexts) {
+      // `HH:MM〜HH:MM ・ menu ・ 担当 name` — the house pattern
+      expect(c.heroMetaLabel).toMatch(/^\d{2}:\d{2}〜\d{2}:\d{2} ・ /)
+      // ⚠ U+30FC IS NOT A RANGE MARK. To a native eye it reads as a typo, and
+      // the family ruled 〜 on 8/26 (`today-interactions.ts`). The mock's own
+      // text carried it; mock copy is a spec for layout, not for glyphs.
+      expect(c.heroMetaLabel.split(' ・ ')[0]).not.toContain('ー')
+    }
+    // the family's own convention, at its source: `${hhmm(a)}〜${hhmm(b)}`
+    const FAMILY = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(FAMILY).toContain('`${hhmm(br.start)}〜${hhmm(br.end)}`')
+    expect(FAMILY).not.toMatch(/hhmm\([^)]*\)\}ー/)
+  })
+
+  it('⚖ F-V5-1 — the use-flow’s empty note is about the BOOKING, not the customer', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    const none = props.contexts.filter((c) => c.targetRecordId === null)
+    expect(none.length).toBeGreaterThan(0)
+    for (const c of none) {
+      // ⚠ IT USED TO READ 「{顧客}様のカルテ記録はまだありません」 — a
+      // CUSTOMER-scoped claim about a BOOKING-scoped fact, contradicted by the
+      // briefing one card over, which shows that same customer's カルテ.
+      expect(c.useProof).toBe('この予約のカルテ記録はまだありません。新しいカルテ記録を作成します。')
+      expect(c.useProof).not.toContain(c.customerName)
+    }
+    // …and a booking that DOES have a record still names it
+    const some = props.contexts.filter((c) => c.targetRecordId !== null)
+    for (const c of some) expect(c.useProof).toContain(c.targetRecordId!)
+  })
+
+  it('R6-35 — the summary empty state drops 「（初めてのご来店です）」, and that is CORRECT', () => {
+    // The mock's `.bempty` says 「前回のまとめはまだありません（初めてのご来店です）。」 —
+    // true only because its four fixtures never hit the case this build can: a
+    // RETURNING customer whose last カルテ simply has no AI summary. The trim is
+    // a deliberate divergence from a 「verbatim」 instruction, argued as R6-35.
+    expect(SCREEN_CODE).toContain('前回のまとめはまだありません。')
+    expect(SCREEN_CODE).not.toContain('前回のまとめはまだありません（初めてのご来店です）')
+    // …and the two neighbouring empty states ARE the mock's own, verbatim
+    expect(SCREEN_CODE).toContain('まだカルテはありません。')
+    expect(SCREEN_CODE).toContain('前回の施術メモはまだありません。')
+  })
+})
+
 describe('v5 — 前回までの流れ is a JOIN, and it states nothing', () => {
   const factsFor = (customerId: string) => {
     const now = new Date()
