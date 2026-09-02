@@ -2193,10 +2193,13 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // …and the memo never DECIDES "off" itself. It forwards `props.guard.mode`
     // as a bare value into `reservedMaskFor` (that pass-through IS the F0
     // fix) — it never COMPARES mode against a value, which is what deciding
-    // "off" would look like.
-    expect(memo).not.toContain('.mode ===')
-    expect(memo).not.toContain("'off'")
-    expect(memo).not.toContain('gapGuardMode ===')
+    // "off" would look like. Spelled as regexes, not quote literals: a
+    // fresh-eyes review (FIXLIST: BREAKER-817 lens, 2026-09-02) showed a
+    // double-quoted `"off"` or a `!==` comparison slipped the literal
+    // spellings (no quote lint in this repo).
+    expect(memo).not.toMatch(/\.mode\s*[!=]==?/)
+    expect(memo).not.toMatch(/["']off["']/)
+    expect(memo).not.toMatch(/gapGuardMode\s*[!=]==?/)
 
     // The other half of the claim (mutation A's gate) — kept beside F0 so
     // both halves of "the screen forwards, never invents" live in one place.
