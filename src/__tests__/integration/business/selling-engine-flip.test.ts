@@ -2007,15 +2007,42 @@ const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.s
  *  in canon's frozen `bedLedger`, and the two mask mechanisms are the ⚖ ONE-LAW
  *  trading advertised yen for protected capacity). A row LEAVING the set is a
  *  win and should be deleted with the fix that earned it. A row ARRIVING is red:
- *  it means a change made the board's answer non-monotone somewhere it was not. */
+ *  it means a change made the board's answer non-monotone somewhere it was not.
+ *
+ *  ⚖ R5 S0 — TWELVE GUARD-OFF ROWS LEFT BY MEASUREMENT CORRECTION, NOT BY A
+ *  PRODUCT FIX. The set as R6 froze it was measured with `door(world, c,
+ *  undefined)` for guard=off, which is the ROUND GATE off — not a guard-off
+ *  store. A guard-off store is an EMPTY mask (reserved-mask.ts:200) and the
+ *  fallback runs for it (F0, and the comment on `doorOf` below). Re-measured on
+ *  the screen's own composition, the fallback's EXISTING two triggers — the
+ *  reconcile's drops and the sub-60 grid holes — already recover these twelve:
+ *    grid=30 S=45 minSell=0/30 guard=off apt-28, apt-29
+ *    grid=60 S=45 minSell=0/30 guard=off apt-28, apt-29
+ *    grid=60 S=60 minSell=0/30 guard=off apt-09, apt-26
+ *  Nothing shipped changed to make that true; the previous number was measured
+ *  on a board no screen draws. The 34 guard=on rows are byte-identical before
+ *  and after S0 (they used `maskOf` already).
+ *
+ *  These twelve are absent because the fallback RUNS for a guard-off store,
+ *  which is today's shipped behaviour (doors :839 measured it) — the doors
+ *  suite names it unruled as guard-conditional (doors :829-838). If Liam ever
+ *  rules it guard-conditional, these twelve return BY RULING, not by
+ *  regression, and the pin is re-frozen with that ruling.
+ *
+ *  ⚖ FOLD (BREAKER-817-561ca62a.md, 2026-09-02) — SCOPE OF THE MEASUREMENT.
+ *  This set is measured on `fixtureWorld` ONLY: one board, no locked lanes,
+ *  `now` fixed at the fixture's 804. The same greedy bed-cascade class still
+ *  produces guard=off non-monotonicity on the suite's `syntheticWorld` at
+ *  these pinned dials (10/180), on this board with one lane locked (2/120),
+ *  off these pinned dial points entirely (35/2520), and at `now = null`
+ *  (tomorrow's board) at the shipped dials — all measured by the breaker.
+ *  Those rows are the frozen `bedLedger`'s class and ride
+ *  ANTHONY-ASK-BEDLEDGER-2026-09-02.md as evidence, not this pin's. A row
+ *  ARRIVING on THIS board at THESE dials is still red. */
 const MONO_PINNED: string[] = [
-  'grid=30 S=45 minSell=0 guard=off apt-28',
-  'grid=30 S=45 minSell=0 guard=off apt-29',
   'grid=30 S=45 minSell=0 guard=on apt-14',
   'grid=30 S=45 minSell=0 guard=on apt-29',
   'grid=30 S=45 minSell=0 guard=on apt-33',
-  'grid=30 S=45 minSell=30 guard=off apt-28',
-  'grid=30 S=45 minSell=30 guard=off apt-29',
   'grid=30 S=45 minSell=30 guard=on apt-14',
   'grid=30 S=45 minSell=30 guard=on apt-29',
   'grid=30 S=45 minSell=30 guard=on apt-33',
@@ -2029,23 +2056,15 @@ const MONO_PINNED: string[] = [
   'grid=30 S=90 minSell=30 guard=on apt-14',
   'grid=30 S=90 minSell=30 guard=on apt-29',
   'grid=30 S=90 minSell=30 guard=on apt-33',
-  'grid=60 S=45 minSell=0 guard=off apt-28',
-  'grid=60 S=45 minSell=0 guard=off apt-29',
   'grid=60 S=45 minSell=0 guard=on apt-14',
   'grid=60 S=45 minSell=0 guard=on apt-29',
   'grid=60 S=45 minSell=0 guard=on apt-33',
-  'grid=60 S=45 minSell=30 guard=off apt-28',
-  'grid=60 S=45 minSell=30 guard=off apt-29',
   'grid=60 S=45 minSell=30 guard=on apt-14',
   'grid=60 S=45 minSell=30 guard=on apt-29',
   'grid=60 S=45 minSell=30 guard=on apt-33',
-  'grid=60 S=60 minSell=0 guard=off apt-09',
-  'grid=60 S=60 minSell=0 guard=off apt-26',
   'grid=60 S=60 minSell=0 guard=on apt-14',
   'grid=60 S=60 minSell=0 guard=on apt-29',
   'grid=60 S=60 minSell=0 guard=on apt-33',
-  'grid=60 S=60 minSell=30 guard=off apt-09',
-  'grid=60 S=60 minSell=30 guard=off apt-26',
   'grid=60 S=60 minSell=30 guard=on apt-14',
   'grid=60 S=60 minSell=30 guard=on apt-29',
   'grid=60 S=60 minSell=30 guard=on apt-33',
@@ -2075,7 +2094,22 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
         // menu against a BEFORE measured on the real one would compare boards.
         const c: Combo = { ...shipped(), gridMin: d.gridMin, sessionMin: d.sessionMin, axis: 'law', mode: guard === 'on' ? 'standard' : 'off' }
         const base = { ...w, minSellableMin: d.minSellableMin }
-        const doorOf = (world: World) => door(world, c, guard === 'on' ? maskOf(world, c) : undefined)
+        // ⚖ R5 F0 — THE SCREEN'S OWN COMPOSITION, IN BOTH GUARD MODES. `door`'s
+        // `held === undefined` is the GATE off — and the gate is ON
+        // (`SELLING_ENGINE_LAW`, selling-engine-gate.ts:30). A guard-OFF STORE is a
+        // different thing entirely: `reservedMaskFor` answers an EMPTY mask for
+        // `gapGuardMode === 'off'` (reserved-mask.ts:200), TodayScreen's `salesDoor`
+        // gates on `!heldCommitted`, and `[]` is truthy — so the §5 fallback RUNS for a
+        // guard-off store, with `held: []`. The doors suite already measured what that
+        // store gains from it (selling-engine-doors.test.ts :839). Handing `undefined`
+        // here measured a composition no live screen runs: the fallback's existing
+        // triggers switched off. `maskOf` is one spelling for both modes because
+        // `reservedMaskFor` itself is where 'off' becomes the empty mask.
+        // Door/screen parity holds for THIS fixture only: no locked lanes, prices
+        // always shown. The composer's `locked: []` / `showPrice: true` (above, in
+        // `door`) are pre-existing door simplifications this file already carried —
+        // not something this round changed.
+        const doorOf = (world: World) => door(world, c, maskOf(world, c))
         const before = advertisedTotal(doorOf(base))
         for (const r of removable) {
           const after = advertisedTotal(doorOf(without(base, r.caseId)))
@@ -2100,6 +2134,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
           '#',
           '# BEFORE = PROBE-R5R6-rawlog-4d10d4d5.txt §PROBE A, measured at 4d10d4d5 with the',
           '# same axes and the same definition of the advertised total.',
+          '#',
+          '# ⚖ R5 S0 — the guard=off rows below are measured on the screen’s own',
+          '# composition (empty mask, fallback running); the probe’s guard=off rows were',
+          '# gate-off and are NOT comparable to these — the guard=on rows are.',
           `# axes: {gridMin 30/60} × {S 45/60/90} × {minSellableMin 0/30} × guard {on,off}`,
           `#       × ${removable.length} removable committed bookings = ${rows.length} measurements.`,
           '#',
@@ -2115,5 +2153,57 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     }
 
     expect([...found].sort()).toEqual([...MONO_PINNED].sort())
+  })
+
+  /** ⚖ R5 F0 ARMOR — BREAKER-817-561ca62a.md finding 4: the sweep above proves
+   *  the MASK FUNCTION is monotone; it says nothing about whether the SCREEN
+   *  hands that function's answer to the store or invents its own. Two
+   *  mutations slip past every render-free suite in this family:
+   *    A) `salesDoor`'s gate on `heldCommitted` changed from `!heldCommitted`
+   *       to a length check (`heldCommitted.length > 0`) — `[]` is truthy, so
+   *       a guard-off store would stop reaching the fallback F0 fixed.
+   *    B) the `heldCommitted` memo decides "off" itself (e.g.
+   *       `props.guard.mode !== 'off' ? reservedMaskFor(...) : undefined`)
+   *       instead of forwarding the mode and letting `reservedMaskFor` own
+   *       the decision (reserved-mask.ts:200) — handing a guard-off store
+   *       `undefined` again, the exact composition F0 moved away from.
+   *  No test renders TodayScreen (§4's header explains why), so nothing else
+   *  in this suite goes red for either mutation. This is a text pin on the
+   *  memo's own source. Mutation A's half already exists at
+   *  fallback-cells.test.ts:892; it is repeated here so both halves of "the
+   *  screen forwards, never invents" sit together. */
+  it("⚖ R5 F0 — the SCREEN hands a guard-off store the mask function's own answer, never undefined", () => {
+    const screen = SRC('TodayScreen.tsx')
+
+    // Bounded slice so a failed/empty match cannot silently pass.
+    const START = 'const heldCommitted = useMemo('
+    const startIdx = screen.indexOf(START)
+    expect(startIdx).toBeGreaterThanOrEqual(0)
+    const endIdx = screen.indexOf('\n  )', startIdx + START.length)
+    expect(endIdx).toBeGreaterThan(startIdx)
+    const memo = screen.slice(startIdx, endIdx + '\n  )'.length)
+    expect(memo.length).toBeGreaterThan(0)
+    expect(memo.length).toBeLessThan(2500)
+
+    // The mask comes from the one function that owns "off"…
+    expect(memo).toContain('reservedMaskFor(')
+    // …with exactly one fall-through (E3a's round-gate-off branch — not a
+    // guard-off branch the memo invented)…
+    expect((memo.match(/: undefined/g) ?? []).length).toBe(1)
+    // …and the memo never DECIDES "off" itself. It forwards `props.guard.mode`
+    // as a bare value into `reservedMaskFor` (that pass-through IS the F0
+    // fix) — it never COMPARES mode against a value, which is what deciding
+    // "off" would look like. Spelled as regexes, not quote literals: a
+    // fresh-eyes review (FIXLIST: BREAKER-817 lens, 2026-09-02) showed a
+    // double-quoted `"off"` or a `!==` comparison slipped the literal
+    // spellings (no quote lint in this repo).
+    expect(memo).not.toMatch(/\.mode\s*[!=]==?/)
+    expect(memo).not.toMatch(/["']off["']/)
+    expect(memo).not.toMatch(/gapGuardMode\s*[!=]==?/)
+
+    // The other half of the claim (mutation A's gate) — kept beside F0 so
+    // both halves of "the screen forwards, never invents" live in one place.
+    // The original pin stays at fallback-cells.test.ts:892.
+    expect(screen).toContain('if (!heldCommitted) return null')
   })
 })

@@ -832,10 +832,11 @@ describe('3 — the sales door with the mask live', () => {
    *  guard OFF and the round gate ON gets the fragments back — 「nothing new
    *  appears」 becomes false for that store, by exactly this many boxes.
    *
-   *  Nothing is decided here: the round gate is OFF, so no store sees either
-   *  behaviour yet. The number is measured, pinned, and goes to Liam with E3b's
-   *  flip. Making the fallback guard-conditional is one `&&` if he rules that
-   *  way; it is a product call and not a builder's. */
+   *  Nothing is decided here: the round gate is ON (it shipped at E3b) — this
+   *  fallback's guard-off gain is live product today, unruled as
+   *  guard-conditional. The number is measured, pinned, and goes to Liam with
+   *  E3b's flip. Making the fallback guard-conditional is one `&&` if he rules
+   *  that way; it is a product call and not a builder's. */
   it('MEASURED, NOT RULED: what a guard-OFF store gains from the §5 fallback alone', () => {
     const w = fixtureWorld()
     const c: Combo = { ...shipped(), mode: 'off' }
