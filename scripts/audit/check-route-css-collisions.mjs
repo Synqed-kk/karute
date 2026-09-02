@@ -44,21 +44,38 @@ export function routeSheets(biz, dir = biz, out = []) {
 
 /** Selector heads of every rule, at any nesting depth. At-rules (@media,
  *  @supports) are transparent containers; at-rules that take no block of rules
- *  (@import, @charset) end at their semicolon and never reach here. */
+ *  (@import, @charset) end at their semicolon and never reach here.
+ *
+ *  ⚠ @keyframes IS NOT A TRANSPARENT CONTAINER, and treating it as one made this
+ *  guard cry wolf. Its children are keyframe SELECTORS (`0%`, `50%`, `from`,
+ *  `to`) — namespaced by the animation's own name, so two sheets cannot collide
+ *  through them however many of each they write. Walking into the block anyway
+ *  turned every `0%` stop into a "selector", and the moment a second room shipped
+ *  a breathe-style animation the gate failed on two sheets that share nothing but
+ *  arithmetic (今日の運営's `wc-settle` meeting 録音's `rcBreathe`). A gate that
+ *  fails for a reason that is not a defect gets muted, so the fix is here rather
+ *  than a room renaming its stops. */
 export function selectorsOf(css) {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
   const found = new Set()
   let head = ''
+  /** >0 while inside a @keyframes block: the depth of nesting still to close. */
+  let framesDepth = 0
   for (const ch of clean) {
     if (ch === '{') {
       const text = head.trim()
       head = ''
+      if (framesDepth > 0) { framesDepth += 1; continue }
+      if (/^@(?:-[a-z]+-)?keyframes\b/i.test(text)) { framesDepth = 1; continue }
       if (!text || text.startsWith('@')) continue
       for (const sel of text.split(',')) {
         const one = sel.replace(/\s+/g, ' ').trim()
         if (one) found.add(one)
       }
-    } else if (ch === '}' || ch === ';') {
+    } else if (ch === '}') {
+      head = ''
+      if (framesDepth > 0) framesDepth -= 1
+    } else if (ch === ';') {
       head = ''
     } else {
       head += ch
