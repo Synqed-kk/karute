@@ -1444,6 +1444,11 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
     const opts = pickerOptions({
       appointments: todays, customers, menus, staff, grants: consentGrants,
       todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay,
+      // `null` = NO SELF TO SCOPE TO, which returns the unscoped list — this
+      // case is about canon's OWN four filters (day, staffed, cancelled,
+      // no-show) and would be answering a different question with a scope on.
+      // The staff scope has its own case below.
+      ownStaffId: null,
     })
     expect(opts.length).toBeGreaterThan(0)
     // no no-show, no cancelled, no staffless

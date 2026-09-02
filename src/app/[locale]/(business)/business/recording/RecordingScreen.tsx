@@ -1928,7 +1928,11 @@ export function RecordingScreen(props: RecordingProps) {
           )}
           {props.counts?.listTruncatedLine && <p className="rc-summary-note">{props.counts.listTruncatedLine}</p>}
 
-          <p className="rc-footnote">
+          {/* ⚠ RENAMED FROM `rc-footnote` THIS ROUND. The recorder screen's own
+              FOOTNOTE DISCLOSURE now owns that name, and one class meaning two
+              different things inside one room is a collision waiting for the
+              next reader — even when the two never render together. */}
+          <p className="rc-review-foot">
             {props.refusals.transcript}
           </p>
         </div>

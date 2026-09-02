@@ -86,8 +86,11 @@
    sibling's own three-level rule (`.biz .page .btn`, customers.css:23) ties at
    three and a tie is decided by whichever sheet App Router happened to insert
    last. Derived FRESH from today's eight sibling route sheets. */
-.biz .page.pg-recording { padding: 24px 28px 40px; }
-.biz .page.pg-recording h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+/* ⚠ THE TOP PADDING IS 16, NOT 24, AND THE TITLE IS 20px RATHER THAN 26 — Liam
+   F-1, 「kill the dead space」, and the accepted mock's own `.titlerow`. The head
+   used to cost the fold ~34px before a reader saw anything they came for. */
+.biz .page.pg-recording { padding: 16px 28px 40px; }
+.biz .page.pg-recording h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
 .biz .page.pg-recording .btn { font-weight: 500; }
 .biz .page.pg-recording .btn.primary { font-weight: 600; }
 
@@ -146,6 +149,62 @@
   --rc-consent-line: #bbf7d0;
   --rc-consent-bg: #f0fdf4;
   --rc-consent-ink: #15803d;
+
+  /* ── THE ACCEPTED MOCK'S OWN SURFACE VOCABULARY (v5) ──────────────────────
+     Everything below is the mock's, name for name and value for value, so a
+     reader can hold the approved file beside this sheet. It sits UNDER the
+     phone-derived block above rather than replacing it: the recognition floor
+     owns the record button, the chips and the consent green; the mock owns the
+     page's cards, tints, radii and shadows. */
+  --rc-line-soft: #f0f1f4;
+  --rc-wash: #f7f8fa;
+  --rc-ink-4: #9ca3af;
+  --rc-indigo: #4f46e5;
+  --rc-indigo-wash: #f2f2fe;
+  --rc-indigo-line: #e0dffb;
+  /* the blue the mock washes its hero and its selected slot with — a step
+     softer than the R13 accent it sits beside, never a second blue for INK */
+  --rc-blue-wash-2: #e3ecff;
+  --rc-hero-wash: #eef3ff;
+  --rc-hero-line: #d3e0fd;
+
+  --rc-r-lg: 14px;
+  --rc-r-md: 10px;
+  --rc-r-sm: 8px;
+  --rc-shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .03);
+  --rc-shadow-2: 0 4px 14px rgba(16, 24, 40, .07), 0 1px 3px rgba(16, 24, 40, .04);
+
+  /* ⚖ THE ULTRA-WIDE LAW (Liam, and the mock's `--maxw`). ONE width token for
+     the whole page, repeated on every card as the v5-2 backstop: past it the
+     extra width becomes SYMMETRIC PAGE PADDING rather than stretching a card,
+     so title, cockpit, briefing, 要対応, filter, table and footnote share one
+     pair of edges at 1400px and at 2560px alike. */
+  --rc-maxw: 1400px;
+}
+
+/* ⚖ THE WIDTH LAW, STATED TWICE ON PURPOSE. Once on the view — which is the
+   page's own content column — and once on every card inside it. The view is
+   also the CONTAINER every column decision below is asked against, so capping
+   it means the ladder is asked about the READING COLUMN rather than about a
+   2560px window: a card can never be wider than the column, and the column can
+   never be wider than a page a person can read across. */
+.biz .pg-recording .rc-record-view,
+.biz .pg-recording .rc-review-view { width: 100%; max-width: var(--rc-maxw); margin-inline: auto; }
+.biz .pg-recording .rc-head,
+.biz .pg-recording .rc-recovery,
+.biz .pg-recording .rc-grid,
+.biz .pg-recording .rc-attn,
+.biz .pg-recording .rc-history,
+.biz .pg-recording .rc-footnote { width: 100%; max-width: var(--rc-maxw); margin-inline: auto; }
+
+/* ── THE MOCK'S CARD, AND IT IS ONE THING ─────────────────────────────────── */
+/* ⚠ NO `overflow: hidden` HERE — the room-3 F2 lesson. The rounded corners the
+   mock gets from clipping are stated on the CORNER CHILDREN instead (the
+   history head's own top radii, the table's last row), so a focus ring painted
+   5px outside a control inside a card is never cut off. */
+.biz .pg-recording .rc-card {
+  border: 1px solid var(--line); border-radius: var(--rc-r-lg); background: #fff;
+  box-shadow: var(--rc-shadow-1);
 }
 
 /* ── ONE SCREEN AT A TIME (⚖ F5-1) ────────────────────────────────────────── */
@@ -194,11 +253,20 @@
 .biz .pg-recording .rc-record-view,
 .biz .pg-recording .rc-review-view { container-type: inline-size; container-name: rcpage; }
 
-/* ── page head ────────────────────────────────────────────────────────────── */
-.biz .pg-recording .rc-head { margin-bottom: 12px; }
-.biz .pg-recording .rc-eyebrow { margin-bottom: 4px; color: var(--ink-3); font-size: 13px; font-weight: 700; }
-.biz .pg-recording .rc-titleline { display: flex; align-items: center; gap: 9px; }
-.biz .pg-recording .rc-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; max-width: 64ch; }
+/* ── page head — ONE COMPACT TITLE ROW (Liam F-1) ─────────────────────────── */
+/* Eyebrow · 録音 · the ? · the sentence, all on ONE line at a desk. The four
+   used to be a stacked block three lines tall above the fold; the mock's own
+   `.titlerow` is the fix Liam accepted. It WRAPS rather than clipping when the
+   page cannot hold it, and the eyebrow — the least load-bearing of the four,
+   because the dateline is also in the topbar crumb — is the first to go. */
+.biz .pg-recording .rc-head { margin-bottom: 9px; }
+.biz .pg-recording .rc-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.biz .pg-recording .rc-eyebrow { color: var(--rc-ink-4); font-size: 11.5px; font-weight: 400; }
+.biz .pg-recording .rc-subtitle { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+@container rcpage (max-width: 899px) {
+  .biz .pg-recording .rc-eyebrow { display: none; }
+  .biz .pg-recording .rc-subtitle { flex-basis: 100%; }
+}
 /* A hairline circle, never a filled one (⚖ R13). `[aria-expanded="true"]` means
    the GUIDED TOUR is running, which is why the mark stays lit for the walk. */
 .biz .pg-recording .rc-help {
@@ -209,13 +277,9 @@
 .biz .pg-recording .rc-help:hover,
 .biz .pg-recording .rc-help[aria-expanded="true"] { border-color: var(--rc-accent); color: var(--rc-accent); background: var(--rc-accent-wash); }
 
-/* The permission note. It states what this screen does and does not show, which
-   is INFORMATION rather than a warning — the one-way accent law wants a
-   non-pressable statement neutral. */
-.biz .pg-recording .rc-notice {
-  margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 10px;
-  background: #fafafa; color: var(--quiet); font-size: 12.5px; line-height: 1.65;
-}
+/* the この画面の見え方 lines' own paragraphs. The card they used to stand in has
+   FOLDED into the footnote disclosure (§2.6) — the words are verbatim, only
+   their home moved; the card itself is styled down there beside the trace. */
 .biz .pg-recording .rc-notice p { margin: 0; }
 .biz .pg-recording .rc-notice p + p { margin-top: 4px; }
 
@@ -232,7 +296,6 @@
 }
 .biz .pg-recording .rc-sec-icon.is-history { background: var(--rc-blue-bg); color: var(--rc-blue-ink); }
 .biz .pg-recording .rc-sec-icon.is-consent { background: var(--rc-consent-bg); color: var(--rc-consent-ink); }
-.biz .pg-recording .rc-kicker { color: var(--ink-3); font-size: 11.5px; font-weight: 800; letter-spacing: .1em; }
 .biz .pg-recording .rc-note { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
 /* ⚠ EVERY SURFACE THAT PRINTS TEXT A PERSON TYPED CARRIES THE WRAP GUARD. An
    unbroken latin run — a reason written in romaji, a spoken product code coming
@@ -277,69 +340,170 @@
 }
 .biz .pg-recording .rc-recovery-discard:hover { color: var(--rc-danger-hover); }
 
-/* ── 対象の予約 ────────────────────────────────────────────────────────────── */
-.biz .pg-recording .rc-ctx {
-  margin-bottom: 16px; padding: 15px 18px 16px;
-  border: 1px solid var(--line); border-radius: 13px; background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
-}
-.biz .pg-recording .rc-ctx-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.biz .pg-recording .rc-ctx-who { flex: 1 1 320px; min-width: 0; }
-.biz .pg-recording .rc-ctx-who h2 { margin: 3px 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -.015em; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-ctx-meta { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-picker { display: grid; gap: 6px; flex: 0 1 320px; min-width: 0; color: var(--ink-3); font-size: 11.5px; font-weight: 800; }
-.biz .pg-recording .rc-picker select {
-  min-height: 42px; width: 100%; padding: 6px 10px;
-  border: 1px solid var(--control); border-radius: 9px; background: #fff;
-  color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 400;
-}
-.biz .pg-recording .rc-picker select:disabled { opacity: .55; cursor: not-allowed; }
-.biz .pg-recording .rc-picker-lock { color: var(--quiet); font-size: 11px; font-weight: 500; }
+/* ══ ROW 1 — THE COCKPIT (LEFT) AND THE BRIEFING (RIGHT) ═════════════════════
+   ⚖ THE LADDER IS DERIVED, NOT CHOSEN, and it is asked of the PAGE (the
+   `rcpage` container) rather than of the viewport — the shell's rail is 264px
+   at ≥1024 and 76px below it, so page width FALLS by 187px as a window grows
+   across 1024 and a viewport band would flip a column count the wrong way.
 
-/* ── the two-column desk, DECIDED BY THE PAGE'S OWN WIDTH ──────────────────── */
-/* Stacked is the floor; the pair appears the moment the page can genuinely hold
-   both panels. 680 is measured, not guessed: the waveform is 40 bars at 3px with
-   3px gaps (237px) plus the panel body's 16px sides, so a panel stops being able
-   to draw its own trace under ~330px — two of those plus the 16px gap is 676. */
-.biz .pg-recording .rc-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; margin-bottom: 16px; }
-@container rcpage (min-width: 680px) {
-  .biz .pg-recording .rc-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-}
-@container rcpage (min-width: 900px) {
-  .biz .pg-recording .rc-two { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 18px; }
-}
-@container rcpage (min-width: 1120px) {
-  .biz .pg-recording .rc-two { gap: 22px; }
-}
-.biz .pg-recording .rc-panel {
-  border: 1px solid var(--line); border-radius: 13px; background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .05);
-}
-.biz .pg-recording .rc-panel-head {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
-  min-height: 56px; padding: 10px 16px; border-bottom: 1px solid var(--line);
-  background: #fafafb; border-radius: 12px 12px 0 0;
-}
-.biz .pg-recording .rc-panel-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 400; }
-.biz .pg-recording .rc-panel-body { display: grid; justify-items: center; gap: 12px; padding: 22px 16px 20px; }
-.biz .pg-recording .rc-consent .rc-panel-body { justify-items: stretch; gap: 11px; padding: 16px; }
+     TWO COLUMNS need cockpit 400 + gap 12 + a briefing that can hold its own
+     two packed stacks: 2 × 233 + 14 between them + 28 of card padding = 508.
+     400 + 12 + 508 = 920 → the two-column bar is a 920px PAGE.
 
-/* the state badge — canon's own (fable-record-session.html:103-108) */
+     BELOW IT the cockpit itself goes two-up — the record group BESIDE the
+     picker, the consent line spanning under both (the mock's 640–1279 band) —
+     with the briefing stacked full-width beneath. That needs a picker that can
+     still read a slot (280) + 18 + the record column (250) = 548.
+
+     BELOW 548 everything is one column: the phone's own stack.
+
+   Monotonic by construction: one page width, one answer, and a page that grows
+   can never lose a column. */
+.biz .pg-recording .rc-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 9px; align-items: start; margin-bottom: 9px; }
+@container rcpage (min-width: 920px) {
+  /* ⚠ `align-items: start`, NEVER `stretch` (v5-4). Stretching the briefing to
+     the cockpit's height put ~200px of empty CARD under a shallow history. A
+     content-height card means the space below it is honest page background. */
+  .biz .pg-recording .rc-grid { grid-template-columns: clamp(400px, 32cqw, 440px) minmax(0, 1fr); gap: 12px; }
+}
+
+/* ── the session cockpit — the #1 object is WHO you are recording ─────────── */
+.biz .pg-recording .rc-cockpit { display: flex; flex-direction: column; gap: 8px; padding: 11px 13px; }
+.biz .pg-recording .rc-cap { display: flex; align-items: center; gap: 8px; }
+.biz .pg-recording .rc-cap-ic { display: flex; flex: none; color: var(--rc-accent); }
+.biz .pg-recording .rc-cap .rc-sec-title { font-size: 13px; }
+.biz .pg-recording .rc-cap-sp { flex: 1; }
+
+/* the state badge — canon's own (fable-record-session.html:103-108), at the
+   mock's own smaller pill size so the cap row costs the fold one line */
 .biz .pg-recording .rc-state {
-  display: inline-flex; align-items: center; min-height: 27px; padding: 0 11px; border-radius: 999px;
-  background: var(--section); color: var(--ink-3); font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  display: inline-flex; align-items: center; flex: none; min-height: 22px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--rc-wash); color: var(--ink-3);
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  transition: background-color 200ms var(--rc-ease), color 200ms var(--rc-ease), border-color 200ms var(--rc-ease);
 }
-.biz .pg-recording .rc-state.is-recording { background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
-.biz .pg-recording .rc-state.is-paused { background: var(--orange-soft); color: var(--orange); }
-.biz .pg-recording .rc-state.is-stopped { background: var(--section); color: var(--ink-3); }
+.biz .pg-recording .rc-state.is-recording { border-color: var(--rc-fail-line); background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
+.biz .pg-recording .rc-state.is-paused { border-color: var(--rc-amber-line); background: var(--rc-amber-bg); color: var(--rc-amber-ink); }
+.biz .pg-recording .rc-state.is-stopped { background: var(--rc-wash); color: var(--ink-3); }
 /* ⚠ NO `.is-committed` RULE, and that is R6-18 rather than an omission: ⚖ R6-D3's
    commit refuses, so 反映済み is a state nothing in this room can reach. It comes
    back with registry ⑦. */
 
-/* canon's デモ flag (:100) — a dashed hairline, never a filled pill */
+/* ⚖ THE HERO — WHO is in the room, WHEN, for what, with whom. A blue WASH card
+   (never a fill: it is not pressable), and both text lines ellipsize with the
+   whole string on `title`, so a doubled name shortens rather than breaking the
+   card open. */
+.biz .pg-recording .rc-hero {
+  padding: 10px 12px 11px; border: 1px solid var(--rc-hero-line); border-radius: var(--rc-r-md);
+  background: linear-gradient(180deg, var(--rc-hero-wash) 0%, #f4f8ff 100%);
+}
+.biz .pg-recording .rc-nowchip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--rc-hero-line); background: #fff; color: var(--rc-accent-hover);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
+}
+.biz .pg-recording .rc-nowdot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--rc-accent); }
+/* ⚠ 「いま施術中」 IS THE ONE THAT CARRIES COLOUR. A booking still ahead and a
+   booking already finished are both quiet: a page that painted every chip the
+   same accent would say three different facts in one voice. */
+.biz .pg-recording .rc-nowchip.is-upcoming,
+.biz .pg-recording .rc-nowchip.is-past { border-color: #dfe3ea; color: var(--ink-3); }
+.biz .pg-recording .rc-nowchip.is-upcoming .rc-nowdot,
+.biz .pg-recording .rc-nowchip.is-past .rc-nowdot { background: var(--rc-ink-4); }
+.biz .pg-recording .rc-hero-name {
+  margin-top: 5px; font-size: 19px; font-weight: 700; line-height: 1.32; letter-spacing: -.012em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.biz .pg-recording .rc-hero-meta {
+  margin-top: 1px; color: var(--ink-3); font-size: 11.5px; line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ⚖ LIAM F-1 R1-3 — THE PICKER IS STAFF-SCOPED, and its label says so. */
+.biz .pg-recording .rc-pick-lb { margin-bottom: -2px; color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+.biz .pg-recording .rc-picker { display: flex; flex-direction: column; gap: 4px; }
+/* ONE LINE PER BOOKING: time · name · menu ・ status hint · tick. Everything
+   elastic is `min-width: 0` so a long name ellipsizes instead of pushing the
+   tick off the card. */
+.biz .pg-recording .rc-slot {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 9px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--rc-r-md); background: #fff; font: inherit; color: inherit;
+  transition: background-color 160ms var(--rc-ease), border-color 160ms var(--rc-ease),
+              transform 100ms var(--rc-ease), box-shadow 160ms var(--rc-ease);
+}
+.biz .pg-recording .rc-slot:hover:enabled { background: var(--rc-wash); transform: translateY(-1px); box-shadow: var(--rc-shadow-1); }
+/* ⚖ SELECTED = A LIGHT ACCENT WASH, never a fill (⚖ R13 / the one-way accent
+   law): being chosen is a STATE, and only a commit is solid. */
+.biz .pg-recording .rc-slot.is-sel { border-color: var(--rc-hero-line); background: var(--rc-hero-wash); }
+.biz .pg-recording .rc-slot:disabled { cursor: not-allowed; opacity: .62; }
+.biz .pg-recording .rc-slot.is-sel:disabled { opacity: .85; }
+.biz .pg-recording .rc-tm { flex: 0 0 42px; width: 42px; font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; }
+.biz .pg-recording .rc-b1 { flex: 0 1 auto; min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-b2 { flex: 1; min-width: 0; color: var(--ink-3); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-tick { flex: 0 0 14px; align-self: center; width: 14px; color: var(--rc-accent); opacity: 0; transition: opacity 160ms var(--rc-ease); }
+.biz .pg-recording .rc-slot.is-sel .rc-tick { opacity: 1; }
+.biz .pg-recording .rc-picker-lock { margin: 0; color: var(--quiet); font-size: 11px; }
+
+/* ── the record group — ONE balanced, horizontally-centred stack (Liam F-1) ── */
+.biz .pg-recording .rc-recwrap {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  margin-top: auto; padding: 9px 4px 4px; border-top: 1px solid var(--rc-line-soft);
+}
+.biz .pg-recording .rc-recmeta { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; }
+.biz .pg-recording .rc-rec-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 9px; }
+.biz .pg-recording .rc-rec-label { font-size: 14.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-recording .rc-rec-sub { color: var(--ink-3); font-size: 11.5px; line-height: 1.5; text-align: center; overflow-wrap: anywhere; }
+
+/* ── ⚖ CONSENT — ONE THIN LINE UNDER THE RECORD GROUP, ALWAYS VISIBLE ─────── */
+/* It GATES recording, so it is never behind a disclosure; it is one line, so it
+   never costs the fold a card. The full proof text and the policy floor live one
+   press away in the pop-down — folded, never cut. */
+.biz .pg-recording .rc-consentline { padding: 0 2px 1px; }
+.biz .pg-recording .rc-cl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.biz .pg-recording .rc-cl-badge {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--rc-consent-line); background: var(--rc-consent-bg); color: var(--rc-consent-ink);
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+/* ⚠ STALE IS AMBER, NOT RED. She DID consent — under a policy this product
+   replaced — so 「同意なし」 would be a false sentence about a real person. Amber
+   is the family's 「somebody still has to do something」 wash. */
+.biz .pg-recording .rc-cl-badge.is-stale { border-color: var(--rc-amber-line); background: var(--rc-amber-bg); color: var(--rc-amber-ink); }
+.biz .pg-recording .rc-cl-badge.is-false { border-color: var(--rc-fail-line); background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
+.biz .pg-recording .rc-cl-ev { flex: 1 1 250px; min-width: 0; color: var(--ink-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the gate's own lever — a COMMIT, so it wears the solid accent (⚖ R13) */
+.biz .pg-recording .rc-cl-take { flex: none; min-height: 28px; padding: 0 12px; border: 0; border-radius: var(--rc-r-sm); background: var(--rc-accent); color: #fff; font-size: 12px; font-weight: 600; }
+.biz .pg-recording .rc-cl-take:hover { background: var(--rc-accent-hover); }
+.biz .pg-recording .rc-cl-more {
+  display: inline-flex; align-items: center; gap: 3px; flex: none; padding: 0; border: 0; background: none;
+  color: var(--rc-accent); font: inherit; font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.biz .pg-recording .rc-cl-more:hover { color: var(--rc-accent-hover); }
+.biz .pg-recording .rc-cl-more .rc-cv { display: flex; transition: transform 220ms var(--rc-ease); }
+.biz .pg-recording .rc-consentline.is-open .rc-cl-more .rc-cv { transform: rotate(180deg); }
+.biz .pg-recording .rc-cl-detail {
+  margin-top: 6px; padding: 8px 10px; border-radius: var(--rc-r-sm);
+  border: 1px solid var(--rc-consent-line); background: var(--rc-consent-bg); color: #2f6a4a;
+  font-size: 11.5px; line-height: 1.65; overflow-wrap: anywhere;
+}
+.biz .pg-recording .rc-consentline.is-stale .rc-cl-detail { border-color: var(--rc-amber-line); background: var(--rc-amber-bg); color: var(--rc-amber-ink); }
+.biz .pg-recording .rc-consentline.is-absent .rc-cl-detail { border-color: var(--rc-fail-line); background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
+
+/* ── THE COLLAPSE PANEL — one shape, four users (the mock's `makeCollapse`) ── */
+/* The screen springs `height` from a ref; this sheet owns only the clip and the
+   inner fade. `height: 0` is the closed floor, and the open panel is handed
+   `height: auto` AT REST by the screen so it keeps growing with its own content
+   (which is exactly what もっと見る does inside it). */
+.biz .pg-recording .rc-collapse { height: 0; overflow: hidden; }
+.biz .pg-recording .rc-collapse-in { opacity: 0; transform: translateY(-3px); transition: opacity 170ms var(--rc-ease), transform 200ms var(--rc-ease); }
+.biz .pg-recording .rc-collapse-in.is-in { opacity: 1; transform: none; }
+
+/* canon's デモ flag (:100) — a dashed hairline, never a filled pill, at the
+   mock's own size: it is a caveat about the demo, not a headline. */
 .biz .pg-recording .rc-demo {
-  display: inline-flex; align-items: center; min-height: 25px; padding: 0 10px;
-  border: 1px dashed #9d9da8; border-radius: 999px; color: var(--ink-3); font-size: 11.5px; font-weight: 700;
+  display: inline-flex; align-items: center; padding: 1px 9px; line-height: 1.5;
+  border: 1px dashed #d7dbe2; border-radius: 999px; background: #fff;
+  color: var(--ink-3); font-size: 10.5px; font-weight: 400; white-space: nowrap;
 }
 
 /* ═══ ⚖ THE RECORD BUTTON — THE PHONE'S OWN, MORPHING ═══════════════════════
@@ -357,7 +521,7 @@
 .biz .pg-recording .rc-btn-wrap { position: relative; display: inline-grid; place-items: center; }
 .biz .pg-recording .rc-rec {
   position: relative; display: flex; align-items: center; justify-content: center;
-  width: 72px; height: 72px; padding: 0; border: 0; border-radius: 50%;
+  width: 68px; height: 68px; padding: 0; border: 0; border-radius: 50%;
   background: var(--rc-rec); color: #fff;
   box-shadow: 0 10px 15px -3px var(--rc-rec-shadow), 0 4px 6px -4px var(--rc-rec-shadow);
   transition:
@@ -411,32 +575,35 @@
 @keyframes rcPing { 75%, 100% { transform: scale(1.55); opacity: 0; } }
 .biz .pg-recording .rc-ring { animation: rcPing 1s cubic-bezier(0, 0, .2, 1) infinite; }
 
-/* the elapsed timer — text-2xl semibold tabular-nums tracking-tight */
-.biz .pg-recording .rc-timer { font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink); }
+/* ⚠ THE TIMER RIDES THE LABEL'S OWN LINE (the mock's `.rec-line`) rather than
+   standing alone at 24px. Two stacked display numbers cost the fold ~30px and
+   said one thing twice; 「録音中 12:04」 on one line says it once. It keeps the
+   phone's red, its weight and its tabular figures. */
+.biz .pg-recording .rc-timer { font-size: 14.5px; font-weight: 700; line-height: 1.5; letter-spacing: .02em; font-variant-numeric: tabular-nums; color: var(--rc-danger); }
 
 /* ⚖ THE WAVEFORM — `transform: scaleY()` ONLY, and never `height`
    (RecordButtonCard.tsx:120-131). A composite-only property never lays out, so
    a live trace costs the browser nothing on the main thread. No transition: the
    samples are already smoothed, and one here would smear the trace. */
-.biz .pg-recording .rc-wave { display: flex; align-items: flex-end; gap: 3px; height: 40px; }
+/* ⚠ COMPACT INSIDE THE GROUP (R6-22). The trace is 28px here rather than the
+   40px it had when the panel was half a page wide — it still reads as a live
+   signal, and the group it lives in now has a fold to answer to. */
+.biz .pg-recording .rc-wave { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 28px; max-width: 100%; overflow: hidden; }
 .biz .pg-recording .rc-bar { display: block; width: 3px; height: 100%; border-radius: 999px; background: var(--rc-rec-bar); transform-origin: bottom; }
 /* the ended state dims and freezes the bars (RecordButtonCard.tsx:150) */
 .biz .pg-recording .rc-wave.is-frozen { opacity: .5; }
 .biz .pg-recording .rc-wave.is-frozen .rc-bar { background: rgba(113, 113, 122, .5); }
 
-.biz .pg-recording .rc-idle-copy { display: grid; gap: 3px; justify-items: center; text-align: center; }
-.biz .pg-recording .rc-idle-title { font-size: 16px; font-weight: 600; color: var(--ink); }
-.biz .pg-recording .rc-idle-sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-/* ⚠ 停止 CARRIES THE WEIGHT, 再開 DOES NOT — and neither is a solid accent.
-   The row used to put the solid commit fill on 再開, the action that changes the
-   least, while 停止 — which ends the take and hands it to the resolve flow — was
-   a plain outline; the phone's hierarchy is the other way round. A stronger
-   neutral is the honest answer here rather than the accent: the accent fill is
-   reserved for a COMMIT (⚖ R13), and the big red circle is already the canonical
-   stop, so a second solid control beside it would be two primaries. */
-.biz .pg-recording .rc-stop { border-color: #b4b4bf; color: var(--ink); font-weight: 600; }
-.biz .pg-recording .rc-stop:hover { border-color: #9d9da8; background: #f4f4f5; }
+.biz .pg-recording .rc-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+/* ⚖ B4-4 — THE ROW NEVER REPEATS THE BIG BUTTON'S CURRENT VERB, so there is
+   only ever ONE mini here and it never competes with the red circle. A quiet
+   outlined pill, deliberately: the accent fill is reserved for a COMMIT (⚖ R13)
+   and the canonical stop is already the loudest thing on the panel. */
+.biz .pg-recording .rc-mini {
+  min-height: 26px; padding: 3px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--ink-3); font: inherit; font-size: 11.5px;
+}
+.biz .pg-recording .rc-mini:hover { background: var(--rc-wash); }
 
 /* ⚖ W7-1 — the closed gate. A hairline red-family note, and it is the ONE place
    in this room red says 「stop」 rather than 「record」. */
@@ -482,150 +649,335 @@
 .biz .pg-recording .rc-receipt dd { margin: 0; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-receipt .btn { justify-self: start; }
 
-/* ── 同意状況 ─────────────────────────────────────────────────────────────── */
-/* ConsentPill.tsx:16's own green wash, and canon's three-state pill. */
-.biz .pg-recording .rc-consent-pill {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 27px; padding: 0 11px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--section); color: var(--ink-3);
-  font-size: 12px; font-weight: 600; white-space: nowrap;
+/* ══ 前回までの流れ — THE BEFORE-SESSION BRIEFING (the phone's, fuller) ═══════
+   Open by default at a desk: it is what a staffer came to this page to read
+   BEFORE walking into a room. The header is a real toggle, because a manager
+   who already knows the customer wants the space back. */
+.biz .pg-recording .rc-brief { display: flex; flex-direction: column; }
+.biz .pg-recording .rc-brief-hd {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 11px 14px 10px;
+  border: 0; background: none; font: inherit; color: inherit; text-align: left;
 }
-.biz .pg-recording .rc-consent-pill.is-true { border-color: var(--rc-consent-line); background: var(--rc-consent-bg); color: var(--rc-consent-ink); }
-/* ⚠ STALE IS AMBER, NOT RED. She DID consent — under a policy this product
-   replaced — so 「同意なし」 would be a false sentence about a real person. Amber
-   is the family's 「somebody still has to do something」 wash. */
-.biz .pg-recording .rc-consent-pill.is-stale { border-color: var(--rc-amber-line); background: var(--rc-amber-bg); color: var(--rc-amber-ink); }
-.biz .pg-recording .rc-consent-pill.is-false { border-color: #fecaca; background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
-.biz .pg-recording .rc-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.biz .pg-recording .rc-brief-ttl { flex: none; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .pg-recording .rc-brief-who { min-width: 0; color: var(--ink-3); font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-brief-hint { flex: none; color: var(--rc-ink-4); font-size: 11px; white-space: nowrap; }
+.biz .pg-recording .rc-brief-sp { flex: 1; min-width: 6px; }
+.biz .pg-recording .rc-brief-hd .rc-cv { display: flex; flex: none; color: var(--rc-ink-4); transition: transform 240ms var(--rc-ease); }
+.biz .pg-recording .rc-brief.is-open .rc-brief-hd .rc-cv { transform: rotate(180deg); }
+.biz .pg-recording .rc-brief-body { padding: 0 14px 12px; }
+
+/* ⚠ TWO PACKED VERTICAL STACKS, NOT A GRID (v4-1). A row-aligned grid aligns
+   every row to its tallest card, which tore visible holes between the tinted
+   boxes at wide windows. Both stacks are top-aligned, every card keeps its own
+   content height, and the gaps are uniform — so a hole cannot form. */
+.biz .pg-recording .rc-bcols { display: flex; align-items: flex-start; gap: 14px; }
+.biz .pg-recording .rc-bcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+@container rcpage (max-width: 599px) {
+  .biz .pg-recording .rc-bcols { flex-direction: column; align-items: stretch; }
+}
+
+/* four soft washes, coloured heading icons, nothing black, no rainbow */
+.biz .pg-recording .rc-bsec {
+  min-width: 0; padding: 8px 11px 9px 12px; border: 1px solid var(--rc-line-soft);
+  border-radius: var(--rc-r-md); background: #fff;
+}
+.biz .pg-recording .rc-bk {
+  display: flex; align-items: center; gap: 5px; margin-bottom: 3px;
+  color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+}
+.biz .pg-recording .rc-bk svg { flex: none; }
+.biz .pg-recording .rc-bv { color: var(--ink-3); font-size: 12.5px; line-height: 1.65; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-bsec.is-blue { border-color: var(--rc-hero-line); background: var(--rc-hero-wash); box-shadow: inset 3px 0 0 var(--rc-accent); }
+.biz .pg-recording .rc-bsec.is-blue .rc-bk { color: var(--rc-accent-hover); }
+.biz .pg-recording .rc-bsec.is-indigo { border-color: var(--rc-indigo-line); background: var(--rc-indigo-wash); box-shadow: inset 3px 0 0 var(--rc-indigo); }
+.biz .pg-recording .rc-bsec.is-indigo .rc-bk { color: var(--rc-indigo); }
+.biz .pg-recording .rc-bsec.is-indigo .rc-bv { font-size: 12px; line-height: 1.75; }
+.biz .pg-recording .rc-bsec.is-amber { border-color: var(--rc-amber-line); background: var(--rc-amber-bg); box-shadow: inset 3px 0 0 var(--rc-amber-ink); }
+.biz .pg-recording .rc-bsec.is-amber .rc-bk { color: var(--rc-amber-ink); }
+
+/* ⚠ CLAMPS + EXPANDERS, so the layout ABSORBS long content rather than being
+   sized by it. The 6-line clamp's expander is offered only when the text
+   actually overflows it — measured by the screen, never guessed (a もっと見る on
+   a two-line summary is a lever that does nothing). */
+.biz .pg-recording .rc-clamp-2,
+.biz .pg-recording .rc-clamp-6 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.biz .pg-recording .rc-clamp-2 { -webkit-line-clamp: 2; }
+.biz .pg-recording .rc-clamp-6 { -webkit-line-clamp: 6; }
+.biz .pg-recording .rc-memo { margin: 1px 0 0; padding-left: 16px; }
+.biz .pg-recording .rc-memo li { color: var(--ink-3); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-memo li::marker { color: var(--rc-amber-ink); }
+.biz .pg-recording .rc-memo.is-clamped > li:nth-child(n+4) { display: none; }
+/* the category label the カルテ room owns — never a lead this room made up */
+.biz .pg-recording .rc-memo-k { margin-right: 6px; color: var(--rc-amber-ink); font-weight: 700; }
+.biz .pg-recording .rc-moretog {
+  display: inline-flex; align-items: center; gap: 3px; margin-top: 5px; padding: 0; border: 0; background: none;
+  color: var(--rc-accent-hover); font: inherit; font-size: 11px; font-weight: 700;
+}
+.biz .pg-recording .rc-moretog .rc-cv { display: flex; transition: transform 220ms var(--rc-ease); }
+.biz .pg-recording .rc-moretog.is-on .rc-cv { transform: rotate(180deg); }
+.biz .pg-recording .rc-bsec.is-indigo .rc-moretog { color: var(--rc-indigo); }
+.biz .pg-recording .rc-bsec.is-amber .rc-moretog { color: var(--rc-amber-ink); }
+
+/* 過去のカルテ — v5-3 recent-first-with-doors: the newest few are ROWS, and the
+   depth goes behind ONE door that counts what is behind it. */
+.biz .pg-recording .rc-klist { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.biz .pg-recording .rc-krow {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px 5px 7px; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--rc-r-sm); background: #fff; color: inherit; text-decoration: none;
+  transition: background-color 160ms var(--rc-ease), border-color 160ms var(--rc-ease),
+              transform 100ms var(--rc-ease), box-shadow 160ms var(--rc-ease);
+}
+.biz .pg-recording .rc-krow:hover { background: var(--rc-wash); transform: translateY(-1px); box-shadow: var(--rc-shadow-1); }
+.biz .pg-recording .rc-kd {
+  flex: none; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
+  font-size: 11px; font-weight: 700; letter-spacing: -.01em;
+}
+.biz .pg-recording .rc-kt { flex: 1; min-width: 0; color: var(--ink-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-krow .rc-cv { display: flex; flex: none; align-self: center; color: var(--rc-ink-4); }
+.biz .pg-recording .rc-krow.is-door { border-color: var(--rc-hero-line); background: var(--rc-hero-wash); }
+.biz .pg-recording .rc-krow.is-door .rc-kt { color: var(--rc-accent-hover); font-weight: 700; }
+.biz .pg-recording .rc-krow.is-door .rc-cv { color: var(--rc-accent); }
+
+.biz .pg-recording .rc-bempty {
+  margin-top: 3px; padding: 8px 10px; border: 1px dashed #dfe3ea; border-radius: var(--rc-r-sm);
+  background: var(--rc-wash); color: var(--ink-3); font-size: 11.5px; line-height: 1.7;
+}
+.biz .pg-recording .rc-brow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 5px; }
+/* the contact tags — a WASH, because they are a fact about the customer and
+   nothing about them is pressable (the one-way accent law) */
 .biz .pg-recording .rc-tag {
-  display: inline-flex; align-items: center; min-height: 26px; padding: 0 10px; border-radius: 999px;
-  background: var(--rc-accent-wash); color: var(--rc-accent); font-size: 12px; font-weight: 600;
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
+  font-size: 11px; font-weight: 600;
 }
-.biz .pg-recording .rc-tag.is-muted { background: var(--section); color: var(--muted); font-weight: 500; }
-.biz .pg-recording .rc-consent-open { align-self: start; }
-.biz .pg-recording .rc-policy { padding-top: 10px; border-top: 1px solid var(--row); }
+.biz .pg-recording .rc-tag.is-grey { border-color: var(--line); background: var(--rc-wash); color: var(--ink-3); }
+.biz .pg-recording .rc-klink { display: inline-flex; align-items: center; gap: 4px; color: var(--rc-accent); font-size: 12px; font-weight: 600; text-decoration: none; }
+.biz .pg-recording .rc-klink:hover { color: var(--rc-accent-hover); text-decoration: underline; text-underline-offset: 2px; }
+.biz .pg-recording .rc-note-toggle {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
+  color: var(--rc-ink-4); font: inherit; font-size: 11px;
+}
+.biz .pg-recording .rc-note-toggle .rc-cv { display: flex; }
+.biz .pg-recording .rc-note-body { padding-top: 5px; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
+/* ⚠ REGISTRY ⑪, SAID ONCE AND QUIETLY. The phone's AI pre-brief has no plane
+   here, so the card renders NOTHING for it and names the absence — never
+   invented text a staffer would take for the AI's. */
+.biz .pg-recording .rc-bai { margin: 10px 0 0; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
+.biz .pg-recording .rc-bnote {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rc-line-soft);
+  color: var(--rc-ink-4); font-size: 11px; line-height: 1.6;
+}
+
+/* ══ ROW 2 — ⚖ 要対応: ONE SLIM STRIP ════════════════════════════════════════
+   Liam F-1 R2-4: the old row read stretched — label hard left, a wide blank,
+   the pills far right. The pills now flow IMMEDIATELY beside the label and the
+   strip hugs its own content. Every pill's count is exactly what its filter
+   reveals, and the strip renders only when something actually needs a hand. */
+.biz .pg-recording .rc-attn { margin-bottom: 9px; padding: 6px 12px; }
+.biz .pg-recording .rc-attnstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.biz .pg-recording .rc-attn-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .pg-recording .rc-attn-cnt { margin-left: -5px; color: var(--rc-amber-ink); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.biz .pg-recording .rc-attn-hint { margin-right: 2px; color: var(--rc-ink-4); font-size: 11px; white-space: nowrap; }
+.biz .pg-recording .rc-aspill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 3px 4px 3px 6px; white-space: nowrap;
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; color: inherit; text-align: left;
+  transition: box-shadow 200ms var(--rc-ease), transform 160ms var(--rc-ease), border-color 200ms var(--rc-ease);
+}
+button.rc-aspill:hover { box-shadow: var(--rc-shadow-2); transform: translateY(-1px); }
+.biz .pg-recording .rc-aspill-n { color: var(--ink-3); font-size: 11.5px; font-weight: 700; }
+.biz .pg-recording .rc-aspill-m { color: var(--ink-3); font-size: 11.5px; }
+/* the pill's own lever. `.go` is a SOFT accent rather than a fill: the strip is
+   a signpost, and the commit it points at lives on the row (⚖ R13). */
+.biz .pg-recording .rc-aspill-go {
+  display: inline-flex; align-items: center; padding: 2px 11px; border-radius: 999px;
+  border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
+  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
+.biz .pg-recording .rc-aspill.is-amber { border-color: var(--rc-amber-line); background: #fffdf8; }
+.biz .pg-recording .rc-aspill.is-amber .rc-aspill-m { color: var(--rc-amber-ink); font-weight: 700; }
+.biz .pg-recording .rc-aspill.is-red { border-color: var(--rc-fail-line); background: #fffbfb; }
+.biz .pg-recording .rc-aspill.is-blue { border-color: var(--rc-hero-line); background: #fbfcff; }
+@container rcpage (max-width: 559px) {
+  .biz .pg-recording .rc-aspill { flex-wrap: wrap; white-space: normal; gap: 5px 7px; }
+}
 
 /* ── 録音履歴 ─────────────────────────────────────────────────────────────── */
-.biz .pg-recording .rc-history { margin-bottom: 16px; }
-.biz .pg-recording .rc-history-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 6px; }
-.biz .pg-recording .rc-history-cap { color: var(--muted); font-size: 12px; }
-/* ⚖ COUNTERS AS FILTERS. Every chip is the SAME quiet neutral — a state chip
-   here would make 破棄済み loud, and ⚖ 8/25 ruling B forbids exactly that — so
-   the only colour in the row is the R13 SELECTED wash on the one that is on. */
-.biz .pg-recording .rc-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
-.biz .pg-recording .rc-filter {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 11px;
-  border: 1px solid var(--line); border-radius: 999px; background: #fff;
-  color: var(--ink-3); font: inherit; font-size: 12.5px; font-weight: 600;
-}
-.biz .pg-recording .rc-filter:hover { border-color: #cfcfd8; background: #fafafb; }
-.biz .pg-recording .rc-filter.is-on { border-color: var(--rc-accent); background: var(--rc-accent-wash); color: var(--rc-accent); }
-.biz .pg-recording .rc-filter-n { color: var(--muted); font-size: 12px; font-weight: 700; }
-.biz .pg-recording .rc-filter.is-on .rc-filter-n { color: var(--rc-accent); }
-.biz .pg-recording .rc-review-open { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
-/* ⚖ 8/25 ruling B, staff half — a LABELLED PLAIN FACT in muted type. Never a
-   badge, never a threshold, never a colour. */
-.biz .pg-recording .rc-own-count { margin: 0 0 8px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* ⚖ v5-2 WIDTH GOVERNANCE FOR THE LOWER HALF. Once every column has reached its
+   cap the row is DONE: the leftover must not be handed to a column (that is the
+   dead middle Liam kept seeing) and must not be left hanging off the right (a
+   stranded 状態 group). It becomes SYMMETRIC INSET on the card instead, so 要対応
+   and 録音履歴 read as one column of content whatever the window does.
+   1194px = the row at full caps (116 + 560 + 132 + 124 + 190, four 12px gaps,
+   two 12px paddings). */
+.biz .pg-recording .rc-attn,
+.biz .pg-recording .rc-history { --rc-inset: clamp(0px, calc((100% - 1194px) / 2), 220px); }
+.biz .pg-recording .rc-history { margin-bottom: 9px; padding-inline: var(--rc-inset); }
+.biz .pg-recording .rc-attn { padding-inline: calc(12px + var(--rc-inset)); }
 
-.biz .pg-recording .rc-rows { border: 1px solid var(--line); border-radius: 12px; background: #fff; }
-/* ⚠ EVERY TRACK IS `minmax(0, …)`, AND THAT IS A MEASURED FIX RATHER THAN A
-   STYLE. A bare `140px` track cannot shrink and a bare `minmax(160px, 1.4fr)`
-   cannot go under its floor, so at the two bands where the page is narrowest for
-   its viewport — 1024 with the rail OPEN (a 760px page inside a 1024px media
-   query) and 744 — the six tracks plus their gaps came to MORE than the card,
-   and the last cell pushed the PAGE sideways by 1px and 92px respectively. With
-   a zero floor the tracks give way instead, which is what the カルテ room's own
-   ≤1279 note says in the same words. The cells carry `min-width: 0` for the
-   other half of it: a track that can shrink still overflows if its CONTENT
-   cannot. */
+.biz .pg-recording .rc-history-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; padding: 7px 12px 6px;
+  border-bottom: 1px solid var(--rc-line-soft); border-radius: var(--rc-r-lg) var(--rc-r-lg) 0 0;
+}
+.biz .pg-recording .rc-history-head .rc-sec-title { flex: none; gap: 7px; font-size: 13px; white-space: nowrap; }
+.biz .pg-recording .rc-history-cap { min-width: 0; color: var(--rc-ink-4); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-history-sp { flex: 1; min-width: 6px; }
+/* the 破棄の記録 DOOR — quiet by ruling (⚖ 8/25 B): a discard is a plain fact,
+   so the way into its record is a neutral outline and never an accent. */
+.biz .pg-recording .rc-review-open {
+  display: flex; align-items: center; gap: 5px; flex: none; padding: 5px 11px; white-space: nowrap;
+  border: 1px solid var(--line); border-radius: var(--rc-r-md); background: #fff; color: var(--ink-3); font-size: 12px;
+}
+.biz .pg-recording .rc-review-open:hover { background: var(--rc-wash); }
+@container rcpage (max-width: 1279px) {
+  /* the caption drops to its own line rather than being clipped; at ≥1280 it
+     rides the title line, and that second line cost the fold 30px */
+  .biz .pg-recording .rc-history-cap { flex-basis: 100%; order: 3; white-space: normal; }
+}
+
+/* ⚖ COUNTERS AS FILTERS, with the mock's sliding thumb. ONE state at a time;
+   every chip is the same quiet neutral, so the 破棄済み chip can never be the
+   loud one; and the number on a chip IS the number of rows its press leaves. */
+.biz .pg-recording .rc-segwrap { padding: 6px 12px; }
+.biz .pg-recording .rc-seg {
+  position: relative; display: inline-flex; gap: 2px; padding: 3px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--rc-wash);
+}
+/* ⚠ THE THUMB IS `transform` ONLY — translate + scaleX off a 100px base — so
+   the slide never lays out. The screen springs both on their own integrators. */
+.biz .pg-recording .rc-seg-thumb {
+  position: absolute; top: 3px; left: 0; width: 100px; height: calc(100% - 6px);
+  border: 1px solid var(--rc-hero-line); border-radius: 999px; background: #fff;
+  box-shadow: var(--rc-shadow-1); transform-origin: left center; pointer-events: none;
+}
+.biz .pg-recording .rc-seg-btn {
+  position: relative; z-index: 1; padding: 4px 11px; border: 0; border-radius: 999px; background: none;
+  color: var(--ink-3); font: inherit; font-size: 12px; white-space: nowrap;
+  transition: color 180ms var(--rc-ease);
+}
+.biz .pg-recording .rc-seg-btn.is-on { color: var(--rc-accent-hover); font-weight: 700; }
+.biz .pg-recording .rc-seg-n { margin-left: 3px; font-weight: 700; }
+@container rcpage (max-width: 1279px) {
+  /* ⚠ THE ONE HORIZONTAL PAN IN THE ROOM, AND IT IS A ROW OF CHIPS, not a list
+     wrapper — the ⚖ page-scroll law governs board and list wrappers (a reader
+     hunting a row inside a box). A filter rail that wrapped to three lines at a
+     narrow desk costs the fold more than a mask-faded swipe does. */
+  .biz .pg-recording .rc-segwrap {
+    overflow-x: auto; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  }
+  .biz .pg-recording .rc-segwrap::-webkit-scrollbar { height: 0; }
+}
+
+/* ══ THE TABLE — FIVE COLUMNS, AND 状態・操作 IS ONE CELL (v5-1) ══════════════
+   A separate 操作 column was blank in four rows of seven — a labelled cell with
+   nothing in it reads as broken — and its 220px cap pushed the button to the
+   card's far right with ~96px of white after the 状態 chip. Chip and action now
+   sit together.
+
+   ⚠ ONLY お客様 IS ELASTIC, AND IT CARRIES THE SUB-MESSAGE (v5-2 / v5 D2), so
+   surplus width becomes readable text rather than a dead middle — and the
+   sub-message cannot overlap a neighbouring column BY CONSTRUCTION. */
+.biz .pg-recording .rc-tablewrap {
+  --rc-c-date: 116px;
+  --rc-c-cust: 240px;  --rc-c-cust-x: 560px;
+  --rc-c-by: 132px;
+  --rc-c-len: 124px;
+  --rc-c-state: 190px;
+  --rc-c-gap: 12px;
+}
 .biz .pg-recording .rc-rowhead,
-.biz .pg-recording .rc-row { display: grid; grid-template-columns: minmax(0, 140px) minmax(0, 1.4fr) minmax(0, 116px) minmax(0, 132px) minmax(0, 150px) minmax(0, 158px); gap: 14px; align-items: start; }
 .biz .pg-recording .rc-row {
-  /* ⚠ THE SUB-LINE STARTS UNDER THE CUSTOMER, not under the date: it is a
-     sentence ABOUT this take, and hanging it off the far-left date column left
-     it reading as a stray line between two rows. */
-  grid-template-areas: "date cust by dur state act" ". reason reason reason reason reason";
-  row-gap: 5px;
+  display: grid;
+  grid-template-columns:
+    var(--rc-c-date)
+    minmax(var(--rc-c-cust), var(--rc-c-cust-x))
+    var(--rc-c-by)
+    var(--rc-c-len)
+    var(--rc-c-state);
+  gap: var(--rc-c-gap); align-items: center; padding: 0 12px;
 }
-.biz .pg-recording .rc-c-date { grid-area: date; }
-.biz .pg-recording .rc-c-cust { grid-area: cust; }
-.biz .pg-recording .rc-c-by { grid-area: by; }
-.biz .pg-recording .rc-c-dur { grid-area: dur; }
-.biz .pg-recording .rc-c-state { grid-area: state; }
-.biz .pg-recording .rc-c-act { grid-area: act; }
-/* ⚠ THE REASON SPANS THE ROW — the phone's own shape, and the fix for a real
-   defect: inside the state cell its sentence SIZED that cell's track, and at 390
-   the two rows carrying a long reason squeezed 顧客未設定 to one character per
-   line. A spanning sub-line cannot size a column. */
-.biz .pg-recording .rc-c-reason { grid-area: reason; }
 .biz .pg-recording .rc-rowhead {
-  padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fafafa;
-  color: var(--quiet); font-size: 11.5px; font-weight: 700; letter-spacing: .05em; border-radius: 11px 11px 0 0;
+  height: 26px; border-bottom: 1px solid var(--rc-line-soft); background: var(--rc-wash);
+  color: var(--ink-3); font-size: 11px; font-weight: 600;
 }
-.biz .pg-recording .rc-row { padding: 12px 16px; border-bottom: 1px solid var(--line-2); font-size: 13px; }
-.biz .pg-recording .rc-rows > *:last-child { border-bottom: 0; border-radius: 0 0 11px 11px; }
+.biz .pg-recording .rc-rows { display: flex; flex-direction: column; }
+/* the filter swap — the screen remounts this list on a state change, so the
+   animation replays without a class to toggle */
+@keyframes rcRowsIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.biz .pg-recording .rc-rows { animation: rcRowsIn 200ms var(--rc-ease); }
+.biz .pg-recording .rc-row {
+  min-height: 46px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--rc-line-soft); font-size: 13px;
+  transition: background-color 150ms var(--rc-ease), transform 150ms var(--rc-ease), box-shadow 150ms var(--rc-ease);
+}
+.biz .pg-recording .rc-row:hover { background: var(--rc-wash); transform: translateY(-1px); box-shadow: var(--rc-shadow-1); }
+.biz .pg-recording .rc-rows > *:last-child { border-bottom: 0; }
 /* ⚖ 破棄済み IS GRAY, AND GRAY IS ALL IT IS (⚖ 8/25 ruling B's rendering law):
    a plain fact, never a warning — no red, no threshold, no grade. A staffer must
    never hesitate to throw away a genuinely bad take to protect a row's colour. */
 .biz .pg-recording .rc-row.is-discarded { background: #fbfbfc; color: var(--quiet); }
-.biz .pg-recording .rc-c-date { min-width: 0; color: var(--ink-3); font-size: 12.5px; font-weight: 700; }
-.biz .pg-recording .rc-c-cust { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
-/* the row's identity anchor — the カルテ room's own list grammar. Decorative and
-   therefore a WASH, never a solid accent. */
-.biz .pg-recording .rc-avatar {
-  flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-right: 7px;
-  border-radius: 50%; background: var(--rc-blue-bg); color: var(--rc-blue-ink);
-  font-size: 11.5px; font-weight: 700; vertical-align: -6px;
+.biz .pg-recording .rc-c-date { min-width: 0; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+/* ⚠ `flex-start`, NOT `center`: the avatar belongs beside the NAME line, and
+   centring it on a two-line block floats it down beside the sub-message. */
+.biz .pg-recording .rc-c-cust { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.biz .pg-recording .rc-custtxt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.biz .pg-recording .rc-nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-recording .rc-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--ink-3); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-kchip {
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
+  font-size: 10.5px; font-weight: 600;
 }
-.biz .pg-recording .rc-avatar.is-none { background: var(--rc-quiet-bg); color: var(--quiet); }
-.biz .pg-recording .rc-avatar.is-lg { width: 34px; height: 34px; margin-right: 0; font-size: 14px; vertical-align: baseline; }
-.biz .pg-recording .rc-c-rec { display: block; margin-top: 2px; color: var(--quiet); font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .biz .pg-recording .rc-c-by,
 .biz .pg-recording .rc-c-dur { min-width: 0; color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-c-state { display: flex; min-width: 0; }
-.biz .pg-recording .rc-c-reason { min-width: 0; color: var(--muted); font-size: 11.5px; line-height: 1.55; overflow-wrap: anywhere; }
-.biz .pg-recording .rc-c-act { display: flex; min-width: 0; justify-content: flex-end; }
-/* …and the action itself gives way rather than pushing the page: a CJK label
-   breaks at any character, so a narrow cell wraps it instead of overflowing. */
-.biz .pg-recording .rc-c-act > * { max-width: 100%; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-c-state { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; row-gap: 4px; min-width: 0; }
+/* the row's identity anchor — decorative, and therefore a WASH */
+.biz .pg-recording .rc-avatar {
+  flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--rc-blue-bg); color: var(--rc-blue-ink);
+  font-size: 10px; font-weight: 700;
+}
+.biz .pg-recording .rc-avatar.is-none { background: var(--rc-quiet-bg); color: var(--rc-ink-4); }
+.biz .pg-recording .rc-avatar.is-lg { width: 34px; height: 34px; font-size: 14px; }
+.biz .pg-recording .rc-linkbtn { color: var(--rc-accent); font-size: 12px; font-weight: 600; white-space: nowrap; text-decoration: none; }
+.biz .pg-recording .rc-linkbtn:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* ══ THE ROW'S OWN LADDER, ON THE PAGE'S WIDTH ═══════════════════════════════
-   ⚠ MEASURED, NOT GUESSED, AND MEASURED ON THE RIGHT NUMBER. Six columns need
-   about 790px of page to stay readable; under that the row becomes ONE CARD per
-   take — the customer and the state on top, then the day and the length, then
-   the recorder and the one action. Every field survives, in the same order and
-   the same words: the recognition floor is about WHAT is said, not about how
-   many columns say it.
+   DERIVED, and derived on the right number. The five tracks at their MINIMA plus
+   the gaps and the card's padding come to 240+116+132+124+190 + 4×12 + 24 = 874;
+   the ≤1279 tighter set comes to 200+100+110+106+176 + 4×9 + 24 = 752. Under
+   that the row stops being a row and becomes the mock's three-line card, and
+   録音者 / 長さ fold under the customer with their own `::before` labels.
 
-   This used to key off the VIEWPORT at ≤900, which meant a 1024-wide window with
-   the rail OPEN — a 760px page, narrower than the 824px page a 900px window
-   gets — kept all six columns and squeezed 録音者 to two characters. */
-@container rcpage (max-width: 789px) {
+   ⚠ IT IS ASKED OF THE PAGE, NOT THE VIEWPORT. A 1024-wide window with the rail
+   OPEN gives a 720px page — narrower than the 907px page a 1023px window gets —
+   so a viewport band would have kept five columns on the narrower of the two. */
+@container rcpage (max-width: 843px) {
   .biz .pg-recording .rc-rowhead { display: none; }
   .biz .pg-recording .rc-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-    grid-template-areas: "cust state" "date dur" "by act" "reason reason";
-    gap: 6px 10px; padding: 13px 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    row-gap: 4px; padding: 9px 12px; min-height: 0; align-items: start;
   }
-  .biz .pg-recording .rc-c-cust { font-size: 14px; }
-  .biz .pg-recording .rc-c-state { justify-content: flex-end; }
-  .biz .pg-recording .rc-c-dur { text-align: right; }
-  .biz .pg-recording .rc-c-act { justify-content: flex-end; }
+  .biz .pg-recording .rc-c-date { grid-area: 1 / 1; color: var(--ink-3); font-size: 11.5px; }
+  .biz .pg-recording .rc-c-state { grid-area: 1 / 2; justify-self: end; justify-content: flex-end; }
+  .biz .pg-recording .rc-c-cust { grid-area: 2 / 1 / auto / span 2; }
+  .biz .pg-recording .rc-c-by { grid-area: 3 / 1; font-size: 11.5px; }
+  .biz .pg-recording .rc-c-dur { grid-area: 3 / 2; justify-self: end; font-size: 11.5px; }
+  .biz .pg-recording .rc-c-by::before { content: "録音者 "; color: var(--rc-ink-4); }
+  .biz .pg-recording .rc-c-dur::before { content: "長さ "; color: var(--rc-ink-4); }
 }
-@container rcpage (min-width: 790px) {
-  .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 100px) minmax(0, 1.3fr) minmax(0, 76px) minmax(0, 92px) minmax(0, 104px) minmax(0, 116px); gap: 9px; }
-}
-@container rcpage (min-width: 870px) {
-  .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 112px) minmax(0, 1.3fr) minmax(0, 86px) minmax(0, 104px) minmax(0, 112px) minmax(0, 132px); gap: 10px; }
-}
-@container rcpage (min-width: 940px) {
-  .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 140px) minmax(0, 1.4fr) minmax(0, 116px) minmax(0, 132px) minmax(0, 150px) minmax(0, 158px); gap: 14px; }
-}
-@container rcpage (min-width: 1080px) {
-  .biz .pg-recording .rc-rowhead,
-  .biz .pg-recording .rc-row { grid-template-columns: minmax(0, 156px) minmax(0, 1.4fr) minmax(0, 132px) minmax(0, 148px) minmax(0, 160px) minmax(0, 176px); gap: 16px; }
+@container rcpage (min-width: 844px) and (max-width: 1279px) {
+  .biz .pg-recording .rc-tablewrap {
+    --rc-c-date: 100px;
+    --rc-c-cust: 200px;  --rc-c-cust-x: 560px;
+    --rc-c-by: 110px;
+    --rc-c-len: 106px;
+    --rc-c-state: 176px;
+    --rc-c-gap: 9px;
+  }
 }
 
 /* the six chips — washes on non-pressables, never solid fills (⚖ R13) */
@@ -641,12 +993,6 @@
 .biz .pg-recording .rc-chip.is-failed { border-color: #fecaca; background: var(--rc-fail-bg); color: var(--rc-fail-ink); }
 /* 破棄済み keeps the base — the quietest chip on the card, deliberately. */
 
-/* ⚠ TIGHTER SIDE PADDING THAN THE FAMILY `.btn`, and it is a measured fix:
-   at 1280 the shell's 15px sides pushed 「カルテ一覧を開く」 past its track and
-   the label wrapped after the seventh character. A quiet text action does not
-   need the padding a bordered button does. */
-.biz .pg-recording .rc-quiet { padding: 0 8px; border-color: transparent; background: none; color: var(--rc-accent); font-weight: 600; white-space: nowrap; }
-.biz .pg-recording .rc-quiet:hover { background: var(--rc-accent-wash); border-color: transparent; }
 /* ⚖ 保存する WEARS THE COMMIT LOOK, REFUSED — the ＋新規カルテ pattern. It is the
    phone's own solid tier (RecordingsInboxCard's SOLID_BTN) and it used to
    inherit the family's neutral outline here, which read a 復元可能 row's unsaved
@@ -654,10 +1000,10 @@
    `.btn[aria-disabled]` dims it and its reason rides the accessible name —
    hiding what the room WOULD do is what makes a refusal unreadable (⚖ 47). */
 .biz .pg-recording .rc-row-save {
-  display: inline-flex; align-items: center; gap: 5px; padding: 0 12px; white-space: nowrap;
-  border: 0; background: var(--rc-accent); color: #fff; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 0 10px; white-space: nowrap;
+  border: 0; border-radius: var(--rc-r-sm); background: var(--rc-accent); color: #fff; font-size: 12px; font-weight: 600;
 }
-.biz .pg-recording .rc-more { display: flex; justify-content: center; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafa; }
+.biz .pg-recording .rc-more { display: flex; justify-content: center; padding: 9px 0 11px; }
 
 .biz .pg-recording .rc-empty {
   padding: 34px 20px; text-align: center; color: var(--muted);
@@ -665,33 +1011,72 @@
 }
 .biz .pg-recording .rc-empty strong { display: block; margin-bottom: 5px; font-size: 15px; color: var(--ink); }
 .biz .pg-recording .rc-empty span { display: block; font-size: 13px; }
-.biz .pg-recording .rc-zero { margin-bottom: 16px; }
+/* ⚠ THE OWN-SCOPE EMPTY STATE LIVES INSIDE THE COCKPIT, so it sizes to that
+   card rather than to the page: a manager with no bookings of her own today is
+   the ordinary evening case, and a full-page empty screen would read as a
+   broken room instead of a quiet one. */
 .biz .pg-recording .rc-zero-card {
-  margin: 32px auto 24px; max-width: 520px; padding: 40px 26px 42px; text-align: center;
-  border: 1px solid var(--line); border-radius: 14px; background: #fafafb;
+  padding: 26px 18px 28px; text-align: center;
+  border: 1px dashed #dfe3ea; border-radius: var(--rc-r-md); background: var(--rc-wash);
 }
-.biz .pg-recording .rc-zero-card strong { display: block; margin-bottom: 8px; font-size: 17px; }
-.biz .pg-recording .rc-zero-card p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.7; }
+.biz .pg-recording .rc-zero-card strong { display: block; margin-bottom: 6px; font-size: 14px; }
+.biz .pg-recording .rc-zero-card p { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.7; }
 
-/* ── この画面の値の設定元 ──────────────────────────────────────────────────── */
-.biz .pg-recording .rc-trace {
-  margin-bottom: 14px; padding: 15px 18px 16px;
-  border: 1px solid var(--line); border-radius: 13px; background: #fafafb;
+/* ══ THE FOOTNOTE DISCLOSURE — THE TRACE CARD FOLDS, NOTHING IS CUT (§2.6) ══
+   Everything the standing trace card said is still here: the この画面の見え方
+   lines verbatim, the provenance rows, the two refused actions and the sample
+   notice. It sits behind one bar because none of it is what a receptionist came
+   to this page to read — and all of it is what a manager asking 「where does
+   this number come from?」 came for.
+
+   ⚠ THE PANEL OPENS UPWARD. It is the LAST thing on the page, so a panel that
+   opened downward would push its own bar off the bottom of the window and the
+   reader would be chasing it. `position: absolute` above the bar keeps the bar
+   still — and this is the one place in the room where a panel is taken out of
+   flow, so it is stated once, here. */
+.biz .pg-recording .rc-footnote { position: relative; margin: 2px 0 0; }
+.biz .pg-recording .rc-fn-bar {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 12px;
+  border: 1px solid var(--line); border-radius: var(--rc-r-md); background: #fff;
+  box-shadow: var(--rc-shadow-1); color: var(--ink-3); font: inherit; font-size: 12px; text-align: left;
 }
-.biz .pg-recording .rc-trace .rc-note { margin: 6px 0 0; }
-.biz .pg-recording .rc-trace-rows { display: grid; gap: 7px; margin: 12px 0 0; }
-.biz .pg-recording .rc-trace-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; font-size: 12.5px; }
-.biz .pg-recording .rc-trace-row dt { margin: 0; color: var(--muted); font-weight: 600; }
-.biz .pg-recording .rc-trace-row dd { margin: 0; color: var(--ink-3); line-height: 1.6; overflow-wrap: anywhere; }
+.biz .pg-recording .rc-fn-bar:hover { background: var(--rc-wash); }
+.biz .pg-recording .rc-fn-sp { flex: 1; }
+.biz .pg-recording .rc-fn-bar .rc-cv { display: flex; flex: none; transition: transform 240ms var(--rc-ease); }
+.biz .pg-recording .rc-footnote.is-open .rc-fn-bar .rc-cv { transform: rotate(180deg); }
+.biz .pg-recording .rc-fn-panel {
+  position: absolute; bottom: 100%; left: 0; right: 0; z-index: 3; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: var(--rc-r-lg); background: #fff;
+  box-shadow: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
+  height: 0; overflow: hidden;
+}
+.biz .pg-recording .rc-fn-scroll { padding: 14px 16px; }
+.biz .pg-recording .rc-fn-scroll .rc-sec-title { font-size: 13.5px; }
+.biz .pg-recording .rc-fn-scroll .rc-note { margin: 3px 0 10px; }
+
+/* the この画面の見え方 lines, VERBATIM — folded, never cut (§2.1) */
+.biz .pg-recording .rc-fn-scroll .rc-notice {
+  margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--rc-line-soft); border-radius: var(--rc-r-md);
+  background: var(--rc-wash); color: var(--ink-3); font-size: 12px; line-height: 1.65;
+}
+
+.biz .pg-recording .rc-trace-rows { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 7px 16px; margin: 0; font-size: 12.5px; }
+/* ⚠ `display: contents` — the rows are `<div>`s inside a `<dl>` (which is what
+   a dt/dd PAIR needs to be legal markup), and the grid has to see the dt and
+   the dd themselves or every pair would be one cell. */
+.biz .pg-recording .rc-trace-row { display: contents; }
+.biz .pg-recording .rc-trace-row dt { margin: 0; color: var(--ink-3); font-weight: 600; }
+.biz .pg-recording .rc-trace-row dd { margin: 0; color: var(--rc-ink-4); line-height: 1.6; overflow-wrap: anywhere; }
 .biz .pg-recording .rc-trace-row a { color: var(--rc-accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .biz .pg-recording .rc-trace-row a:hover { color: var(--rc-accent-hover); }
 .biz .pg-recording .rc-trace-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-/* the label column narrows with the PAGE, for the same reason the row's does */
-@container rcpage (max-width: 1029px) {
-  .biz .pg-recording .rc-trace-row { grid-template-columns: 136px minmax(0, 1fr); gap: 10px; }
+.biz .pg-recording .rc-samplenote {
+  margin: 12px 0 0; padding: 9px 12px; border: 1px dashed #dfe3ea; border-radius: var(--rc-r-md);
+  background: var(--rc-wash); color: var(--ink-3); font-size: 12px; line-height: 1.6;
 }
-@container rcpage (max-width: 869px) {
-  .biz .pg-recording .rc-trace-row { grid-template-columns: 118px minmax(0, 1fr); }
+@container rcpage (max-width: 899px) {
+  .biz .pg-recording .rc-trace-rows { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
+  .biz .pg-recording .rc-trace-row dt { margin-top: 7px; }
 }
 
 /* canon's boundary mount — present and inert. `hidden` already paints nothing;
@@ -699,14 +1084,12 @@
    the suite has a selector to pin. */
 .biz .pg-recording .rc-boundary[hidden] { display: none; }
 
-.biz .pg-recording .rc-footnote {
+.biz .pg-recording .rc-review-foot {
   margin: 2px 0 14px; padding: 11px 16px; border: 1px dashed #d8d8de; border-radius: 10px; background: #fafafa;
   color: var(--muted); font-size: 12px; line-height: 1.6;
 }
 
 /* ── the manager's 破棄の記録 review ──────────────────────────────────────── */
-.biz .pg-recording .rc-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted); font-size: 13px; }
-.biz .pg-recording .rc-crumb-cur { color: var(--ink); font-weight: 600; }
 .biz .pg-recording .rc-back {
   margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 34px;
   padding: 0 12px 0 9px; border: 1px solid var(--control); border-radius: 8px; background: #fff;
@@ -1043,21 +1426,28 @@
   .biz .pg-recording .rc-picker { flex: 1 1 260px; }
 }
 
-/* ══ DENSIFYING THE STACKED RECORDER ═════════════════════════════════════════
-   Stacked, the idle panel is a 72px circle alone in a full-width box, and the
-   ink measured 8% at the worst band on the old ladder. The composition tightens
-   instead of the panel growing taller: the button, the title and the sub sit on
-   ONE line, left-aligned, and the body's height is clamped to what they need.
-   Only the IDLE state — a live take's timer and waveform are the panel's whole
-   point and keep the centred stack they have on the phone. */
-@container rcpage (max-width: 679px) {
-  .biz .pg-recording .rc-session .rc-panel-body.is-idle {
-    grid-template-columns: auto minmax(0, 1fr);
-    justify-items: start; align-items: center; gap: 10px 18px; padding: 16px;
+/* ══ THE STACKED COCKPIT GOES TWO-UP — the mock's own 640–1279 band ══════════
+   Once the briefing has dropped below the cockpit, the cockpit is a full-width
+   card with a 68px circle alone under a two-row picker, and the row reads as a
+   void. The record group moves BESIDE the picker and the consent line spans
+   under both — same parts, same order left-to-right and top-to-bottom, no
+   scroll gained and ~150px of fold given back.
+
+   The floor is derived: a picker slot still has to read (280) + 18 + the record
+   column (250) = 548. Under that everything is one column, the phone's stack. */
+@container rcpage (min-width: 548px) and (max-width: 919px) {
+  .biz .pg-recording .rc-cockpit { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 8px 18px; align-items: start; }
+  .biz .pg-recording .rc-cap { grid-column: 1 / -1; }
+  .biz .pg-recording .rc-hero,
+  .biz .pg-recording .rc-pick-lb,
+  .biz .pg-recording .rc-picker,
+  .biz .pg-recording .rc-picker-lock,
+  .biz .pg-recording .rc-zero-card { grid-column: 1; }
+  .biz .pg-recording .rc-recwrap {
+    grid-column: 2; grid-row: 2 / span 4; align-self: stretch; justify-content: center;
+    margin: 0; padding: 2px 0 6px; border-top: 0; border-left: 1px solid var(--rc-line-soft);
   }
-  .biz .pg-recording .rc-session .rc-panel-body.is-idle > * { grid-column: 1 / -1; }
-  .biz .pg-recording .rc-session .rc-panel-body.is-idle > .rc-btn-wrap { grid-column: 1; }
-  .biz .pg-recording .rc-session .rc-panel-body.is-idle > .rc-idle-copy { grid-column: 2; justify-items: start; text-align: left; }
+  .biz .pg-recording .rc-consentline { grid-column: 1 / -1; padding-top: 9px; border-top: 1px solid var(--rc-line-soft); }
 }
 
 /* ═══ ≤743 — smartphones / folded cover screens: THE LIST IS THE PAGE ═══
@@ -1079,13 +1469,31 @@
      list is what rots). These rules cover every interactive element the room can
      render at this width, so a control added later is ≥44px the day it lands. */
   .biz .page.pg-recording .btn { min-height: 44px; }
-  .biz .pg-recording .rc-picker select { min-height: 44px; }
   .biz .pg-recording .rc-back { min-height: 44px; }
   .biz .pg-recording .rc-spot-foot button { min-height: 44px; }
   .biz .pg-recording .rc-recovery-save { min-height: 46px; }
   .biz .pg-recording .rc-recovery-discard { display: inline-flex; align-items: center; min-height: 44px; }
   .biz .pg-recording .rc-review-toggle { display: inline-flex; align-items: center; min-height: 44px; }
-  .biz .pg-recording .rc-filter { min-height: 44px; }
+  /* ⚠ THE V5 COMPOSITION'S OWN NEW CONTROLS, SWEPT FLAT with the rest (the
+     room-5 F-K3 lesson: a per-control list is what rots). Every pressable this
+     round added is named here, so the ≥44px floor is not something a later one
+     has to remember. */
+  .biz .pg-recording .rc-slot { min-height: 44px; align-items: center; }
+  .biz .pg-recording .rc-seg-btn { min-height: 44px; }
+  .biz .pg-recording .rc-krow { min-height: 44px; }
+  .biz .pg-recording .rc-brief-hd { min-height: 44px; }
+  .biz .pg-recording .rc-fn-bar { min-height: 44px; }
+  .biz .pg-recording .rc-mini { min-height: 44px; }
+  .biz .pg-recording .rc-cl-take { min-height: 44px; }
+  .biz .pg-recording .rc-cl-more,
+  .biz .pg-recording .rc-note-toggle,
+  .biz .pg-recording .rc-moretog,
+  .biz .pg-recording .rc-klink,
+  .biz .pg-recording .rc-linkbtn { display: inline-flex; align-items: center; min-height: 44px; }
+  .biz .pg-recording .rc-row-save { min-height: 44px; }
+  button.rc-aspill { min-height: 44px; }
+  .biz .pg-recording .rc-aspill-go { min-height: 30px; }
+  .biz .pg-recording .rc-review-open { min-height: 44px; }
   /* ⚠ CAUGHT BY THE PROBE'S MEASURED SWEEP, not by the rules above: the trace
      card's one real link is a bare `<a>` inside a `<dd>`, so none of the
      control-shaped floors reached it — it measured 100×13 at 743, 480 AND 390.
@@ -1105,15 +1513,14 @@
   /* the record button keeps a thumb-sized paint of its own — it IS the control
      this page exists for, so it grows rather than shrinking */
   .biz .pg-recording .rc-rec { width: 76px; height: 76px; }
+  .biz .pg-recording .rc-hero-name { font-size: 18px; }
+  .biz .pg-recording .rc-cl-ev { flex-basis: 100%; white-space: normal; }
 
-  .biz .pg-recording .rc-ctx-head { gap: 12px; }
-  .biz .pg-recording .rc-picker { flex: 1 1 100%; }
   .biz .pg-recording .rc-use-row .btn,
   .biz .pg-recording .rc-dlg-foot .btn { flex: 1 1 auto; width: 100%; }
   .biz .pg-recording .rc-dlg-foot { flex-direction: column-reverse; }
   .biz .pg-recording .rc-wave { height: 34px; }
 
-  .biz .pg-recording .rc-trace-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .biz .pg-recording .rc-receipt dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .biz .pg-recording .rc-target > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .biz .pg-recording .rc-recovery-facts > div { flex-wrap: wrap; }
@@ -1134,4 +1541,19 @@
   .biz .pg-recording .rc-flag .rc-dot,
   .biz .pg-recording .rc-ring { animation: none; }
   .biz .pg-recording .rc-ring { opacity: .6; }
+  /* ⚠ THE V5 MOVERS. The springs are already told (the screen constructs every
+     one with `reduced`, so a `set` lands instantly); what is left here is the
+     CSS half — the hover LIFTS become flat, the chevrons stop turning, the
+     filter swap stops replaying, and the collapse inner fades in 120ms of
+     opacity with no travel. Every state still CHANGES; it simply stops moving. */
+  .biz .pg-recording .rc-row:hover,
+  .biz .pg-recording .rc-slot:hover:enabled,
+  .biz .pg-recording .rc-krow:hover,
+  button.rc-aspill:hover { transform: none; }
+  .biz .pg-recording .rc-cl-more .rc-cv,
+  .biz .pg-recording .rc-moretog .rc-cv,
+  .biz .pg-recording .rc-brief-hd .rc-cv,
+  .biz .pg-recording .rc-fn-bar .rc-cv { transition: none; }
+  .biz .pg-recording .rc-rows { animation: none; }
+  .biz .pg-recording .rc-collapse-in { transition: opacity 120ms linear; transform: none; }
 }
