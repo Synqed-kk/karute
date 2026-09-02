@@ -302,10 +302,15 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // and well clear of the 8/8 razor-fail's 193 B margin.
 //
 // Report-only per ⚖ 8/25 describes the RAISE. The SCRIPT still gates: it runs
-// in CI and exits non-zero against whatever ceiling stands below. NOT taken
-// this round, and named so the next reader can: giving the CI step env values
-// of release LENGTH would make its printed number the real one. Until then,
-// read CI's figure as ~255 B light.
+// in CI and exits non-zero against whatever ceiling stands below.
+//
+// And CI now measures the RIGHT number. The same round gave the workflow's
+// bundle-gate step placeholder env of release LENGTH (24 / 40 / 208, plus the
+// two build stamps at 8 / 2) — obvious 'x'-padded fakes, never a real value —
+// so its build reproduces the release-way measurement byte-for-byte. Verified
+// 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,793 B, equal
+// to the release-way figure above. CI's printed figure is no longer light;
+// treat it as the real one.
 const BUDGET_BYTES = 2_024_000
 
 let dir
