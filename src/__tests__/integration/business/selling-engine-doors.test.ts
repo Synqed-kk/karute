@@ -530,11 +530,20 @@ describe('1 — the round gate', () => {
     // over. Round 1 gave the wrapper the committed world's book by importing
     // `bedViewsFor` from TodayScreen, so the two files imported each other; it
     // ran, but a cycle on this seam is a trap for the next edit. The door is
-    // handed in as `bookOf` now, and these two lines are what holds that: the
-    // wrapper may not name the screen, and it may not go around the door to
-    // `bedTruthViews` (the capacity book's own producer) either. R3's ONE DOOR
-    // in its stronger form — the wrapper cannot reach the book at all except
-    // through the function its caller gives it.
+    // handed in as `bookOf` now: the wrapper may not name the screen, and it
+    // may not go around the door to `bedTruthViews` (the capacity book's own
+    // producer) either. R3's ONE DOOR in its stronger form — the wrapper cannot
+    // reach the book at all except through the function its caller gives it.
+    //
+    // ⚖ ROUND 3 — AND WHAT GUARANTEES THAT IS NOT THESE TWO LINES. The comment
+    // here used to say it was, and a NAME pin is dodgeable: lens B's G3 reached
+    // the screen through a SPLIT-STRING DYNAMIC REQUIRE, which spells neither
+    // `./TodayScreen` nor `bedTruthViews` and left both lines green. It went
+    // red at held-committed.test.ts §3 — the test that HANDS OVER a different
+    // door and reads the answer that comes back. That behavioural test is the
+    // guarantee. These two lines are belt-and-braces: they make the honest
+    // spelling of the mistake unspellable, which is worth keeping and is cheap.
+    // They are not the proof.
     expect(SRC('held-committed.ts')).not.toContain('./TodayScreen')
     expect(SRC('held-committed.ts')).not.toContain('bedTruthViews')
     // …and on the screen it appears exactly five times: the import, one prose

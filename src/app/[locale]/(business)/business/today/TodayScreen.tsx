@@ -1404,6 +1404,19 @@ export function TodayScreen(props: TodayProps) {
    *  never called here. R3's ONE DOOR is stronger for it: the wrapper has no
    *  way to the capacity book except the one it is handed.
    *
+   *  ⚖ R1 (ROUND 3) — WHAT THE MOVE COSTS, ACCEPTED AND NAMED. Building the
+   *  book inside the wrapper means it is REBUILT whenever this memo recomputes,
+   *  and this memo depends on the guard dial and the released list — where the
+   *  shape before the round reused a warm book across those two. The UNION of
+   *  recompute triggers is unchanged; what grew is the cost of ONE recompute,
+   *  and only on events that are clicks and settings, never pointer frames.
+   *  Measured against the perf instrument at selling-engine-doors.test.ts §7
+   *  (THE COST): about +0.2 ms at 25 staff, about +6 ms on an HQ 100-lane
+   *  board. A warm-book cache inside the wrapper would buy that back and cost a
+   *  SECOND memo home — the exact seam this round removed, and the one a
+   *  mutation lens walked straight through — so the trade is taken knowingly.
+   *  R7 and R9 re-measure it in their own perf tables (QUEUE-RIDERS).
+   *
    *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that it is
    *  exactly ten forwarded `key: value` lines and that it contains no
    *  conditional and no literal of any kind, so a new decision cannot be spelled

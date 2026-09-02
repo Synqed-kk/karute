@@ -250,8 +250,18 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     const through = heldCommittedFor(inputFor('standard'))
     expect(windowsIn(through).length).toBeGreaterThan(0)
     expect(windowsIn(through)).toEqual(windowsIn(direct('standard')))
-    // …and a DIFFERENT world really is a different answer, so the equality
-    // above is a measurement rather than a coincidence of this fixture.
+    // ⚖ ROUND 3 — WHICH ASSERTION HOLDS WHAT, CORRECTED. This test's claim —
+    // the book is the COMMITTED world's, built from the lanes handed in — is
+    // held by the WHOLE-ANSWER EQUALITY above, against a control book built in
+    // `beforeAll` out of `REAL.lanes`: any other lane set gives a different
+    // book and parts the two answers, and the non-vacuity guard above it makes
+    // that a measurement. The `fewer` line below is NOT what holds it, and the
+    // comment here used to say it was. Dropping EVERY staff lane empties the
+    // mask whatever book is used (a lane list with no staff lanes has nothing
+    // to hold), so what it measures is the LANES input reaching the mask, not
+    // the book. Kept, because that is worth a line of its own — relabelled,
+    // because a comment crediting the wrong assertion is how a real pin gets
+    // deleted as redundant.
     const fewer = REAL.lanes.filter((l) => l.group !== 'staff')
     expect(windowsIn(heldCommittedFor({ ...inputFor('standard'), lanes: fewer }))).not.toEqual(windowsIn(through))
   })
@@ -263,7 +273,30 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     // An EMPTY world is the cleanest different one available — the real door,
     // asked about zero lanes — and it is a real book rather than a stub shape.
     const emptyWorld = bedViewsFor([], REAL.rooms, FRAME, null)
-    const through = heldCommittedFor({ ...inputFor('standard'), bookOf: () => emptyWorld })
+    // ⚖ ROUND 3 — AND WHAT THE DOOR IS HANDED IS RECORDED, not only what it
+    // gives back. The stub took no arguments, so this test proved the door's
+    // RETURN was load-bearing and said nothing about the world the wrapper
+    // asks it about: a wrapper that walked the door with `[]`, or with a frame
+    // it built itself, would answer out of this same empty book and pass. The
+    // arguments are asserted below, by IDENTITY on the objects handed in.
+    const asked: Parameters<HeldCommittedInput['bookOf']>[] = []
+    const through = heldCommittedFor({
+      ...inputFor('standard'),
+      bookOf: (...args) => {
+        asked.push(args)
+        return emptyWorld
+      },
+    })
+    expect(asked).toHaveLength(1)
+    const seen = asked[0]
+    expect(seen).toEqual([REAL.lanes, REAL.rooms, FRAME, null])
+    // …and the SAME objects, not equal copies of them: `toEqual` above would
+    // forgive a re-boxed lane list, which is exactly what a wrapper quietly
+    // narrowing the world would hand over.
+    expect(seen[0]).toBe(REAL.lanes)
+    expect(seen[1]).toBe(REAL.rooms)
+    expect(seen[2]).toBe(FRAME)
+    expect(seen[3]).toBeNull()
     // What comes back is exactly what the mask function gives for THAT book,
     // with every other dial untouched — so the door is forwarded, not read.
     const straight = reservedMaskFor({

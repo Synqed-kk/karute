@@ -54,10 +54,13 @@
 // rather than a property anyone wants to depend on. So the SCREEN HANDS THE
 // DOOR IN, as `bookOf`. R3's ONE DOOR survives in its stronger form: this file
 // cannot reach the capacity book at all except through the function it is
-// given, and the suite pins that — as a TEXT pin on this source, so this file
-// may not so much as name the screen or the book's own producer down in
-// capacity-ledger (selling-engine-doors.test.ts §1, beside the round-gate
-// reader list). That is why neither appears above.
+// given. What PROVES that is BEHAVIOURAL — held-committed.test.ts §3 hands a
+// different door in and reads the answer that comes back, and a dynamic
+// require cannot talk its way past that. Beside it the suite also keeps a TEXT
+// pin on this source, so this file may not so much as name the screen or the
+// book's own producer down in capacity-ledger (selling-engine-doors.test.ts
+// §1, beside the round-gate reader list) — belt-and-braces rather than the
+// guarantee, and why neither name appears above.
 
 import type { BoardLane } from '@/business/lib/today-board'
 import type { BedTruth, DayFrame } from './capacity-ledger'
@@ -71,7 +74,9 @@ import type { RoomPolicy } from './today-interactions'
  *  `lanes` is a mutable `BoardLane[]` rather than `readonly` because that is
  *  what the real door takes; a `readonly` parameter here would make the real
  *  door UNASSIGNABLE to this type (contravariance) and the screen would stop
- *  compiling. The return is spelled structurally — `{ world: BedTruth }` — so
+ *  compiling. ⚖ R2 — so the DOOR'S OWN SIGNATURE is the thing to fix, on
+ *  whichever round next touches it; this type follows the real one and cannot
+ *  lead it. The return is spelled structurally — `{ world: BedTruth }` — so
  *  the door's own richer return type (`BedViews`, which also carries
  *  `worldMinusHand` and `handId`) satisfies it without this file naming a type
  *  that lives on the screen. */
