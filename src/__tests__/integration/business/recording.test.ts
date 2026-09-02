@@ -1676,7 +1676,12 @@ describe('every write door refuses, with its OWN reason', () => {
     expect(SCREEN_CODE).toContain("'aria-label': `${label} — ${reason}`")
     // …and the className merge happens LAST so a call site cannot overwrite it
     const helper = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const refused = ('))
-    expect(helper.indexOf('...rest')).toBeLessThan(helper.indexOf("className: ['btn', className]"))
+    expect(helper.indexOf('...rest')).toBeLessThan(helper.indexOf('className: [base, className]'))
+    // ⚠ AND `base` DEFAULTS TO THE ROOM'S LEVER SKIN. It exists so a refusal can
+    // land on a lever that already has a skin Liam accepted (the briefing's
+    // カルテ rows and door, the 要対応 pill) without repainting it — never so a
+    // call site can drop the grammar, which is the three lines above.
+    expect(helper).toContain("base = 'btn'")
   })
 
   it('THE `refused()` HELPER ITSELF cannot emit a handler — the contract, not the call sites (⚖ 47)', () => {
@@ -1698,7 +1703,7 @@ describe('every write door refuses, with its OWN reason', () => {
     expect(helper).toContain("'aria-label': `${label} — ${reason}`")
     // the escape hatch is typed shut
     const sig = SCREEN_CODE.slice(at, SCREEN_CODE.indexOf('=> {', at))
-    expect(sig).toContain("extra?: { className?: string; 'aria-describedby'?: string }")
+    expect(sig).toContain("extra?: { className?: string; base?: string | null; 'aria-describedby'?: string }")
     // …and the ONE spread is the typed `rest`, never an untyped props bag
     expect(helper).toContain('...rest')
   })
@@ -1707,6 +1712,45 @@ describe('every write door refuses, with its OWN reason', () => {
     const sites = [...SCREEN_CODE.matchAll(/\{\.\.\.refused\([^)]*\)\}\s*(onClick)?/g)]
     expect(sites.length).toBeGreaterThanOrEqual(5) // …or the scan proves nothing
     for (const m of sites) expect(m[1]).toBeUndefined()
+  })
+
+  it('⚖ B1-2 — the briefing’s three カルテ levers REFUSE rather than land on the whole list', async () => {
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    // ⚠ THE PREMISE, CHECKED AT ITS SOURCE rather than assumed: the カルテ route
+    // takes `?store=` and NOTHING else, so a record-level or customer-filtered
+    // href genuinely does not exist. The moment it does, this pin is what tells
+    // the next round these three can become links again.
+    const KARUTE_PAGE = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/karute/page.tsx'), 'utf8')
+    expect(KARUTE_PAGE).toMatch(/searchParams:\s*Promise<\{\s*store\?:\s*string\s*\}>/)
+    // ONE reason for all three, and it names the door that DOES work
+    expect(props.refusals.karuteOpen).toBe(
+      '見本データのため、カルテを個別に開く入口はまだありません。カルテ一覧は「カルテ」から開けます。')
+    // the three levers, by their own classes, all refused with that one reason
+    const brief = SCREEN_CODE.slice(SCREEN_CODE.indexOf('rc-brief-body'), SCREEN_CODE.indexOf('rc-bnote'))
+    for (const cls of ['rc-klink', 'rc-krow', 'rc-krow is-door']) {
+      expect(brief).toContain(`props.refusals.karuteOpen, { base: null, className: '${cls}' }`)
+    }
+    // …and NONE of them is a link any more — a label that names a record may not
+    // navigate to every customer's records (⚖ 8/25, numbers explain themselves)
+    expect(brief).not.toContain('<Link')
+    expect(brief).not.toContain('props.karuteHref')
+    // ⚠ THE HISTORY ROW'S OWN LEVER IS UNTOUCHED: 「カルテ一覧を開く」 is honest
+    // about where it lands, so it stays a real link.
+    expect(SCREEN_CODE).toContain('カルテ一覧を開く')
+    expect(props.takes.some((t) => t.action?.label === 'カルテ一覧を開く' && t.action.href !== null)).toBe(true)
+  })
+
+  it('⚖ B1-6 — the 復元可能 pill is ONE button, like its two neighbours', () => {
+    const strip = SCREEN_CODE.slice(SCREEN_CODE.indexOf('rc-attnstrip'), SCREEN_CODE.indexOf('録音履歴'))
+    // the save pill's REFUSAL sits on the whole pill, not on a child button that
+    // left the body inert while its neighbours pressed
+    expect(strip).toContain("base: null,\n                      className: `rc-aspill is-${p.tone}`,")
+    // …so all three pills are `<button className="rc-aspill …">` and the go
+    // label is a span in every one of them
+    expect([...strip.matchAll(/<span className="rc-aspill-go">/g)].length).toBe(2)
+    expect(strip).not.toMatch(/<span className={`rc-aspill/)
+    expect([...strip.matchAll(/className: `rc-aspill|className=\{`rc-aspill/g)].length).toBe(2)
   })
 
   it('the standing footnote is on screen before anyone reaches for a control', async () => {

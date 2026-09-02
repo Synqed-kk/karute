@@ -119,6 +119,15 @@ const REFUSAL = {
   transcript: '保存された録音の文字起こしは、この画面では開けません。閲覧できる範囲は店舗の設定で決まる仕組みで、まだつないでいません。',
   policy: '見本データのため録音の設定は変更できません。録音の設定は「設定」画面にまとまる予定で、まだつないでいません。',
   enroll: '見本データのため音声の登録はできません。自分の声の登録は「設定」画面の録音設定にまとまる予定で、まだつないでいません。',
+  // ⚖ B1-2 = B2-2 — ONE REASON FOR THE BRIEFING'S THREE カルテ LEVERS. The
+  // カルテ room's route takes `?store=` and nothing else (`karute/page.tsx`
+  // searchParams), so a link labelled with a record id, a past visit or a count
+  // cannot land on what its own label promises. The room's rule for that branch
+  // is to refuse rather than to navigate somewhere honest-adjacent: a door that
+  // says 「21件」 and opens every customer's records is a number explaining the
+  // wrong thing (⚖ 8/25). The history row's 「カルテ一覧を開く」 stays a real
+  // link — its label is honest about where it lands.
+  karuteOpen: '見本データのため、カルテを個別に開く入口はまだありません。カルテ一覧は「カルテ」から開けます。',
 } as const
 
 // ⚠ TWO SENTENCES, NOT AN EM-DASH (the 9/1 native pass). Japanese UI copy
@@ -695,6 +704,7 @@ export async function recordingProps({
       transcript: REFUSAL.transcript,
       policy: REFUSAL.policy,
       enroll: REFUSAL.enroll,
+      karuteOpen: REFUSAL.karuteOpen,
     },
     karuteHref,
   }

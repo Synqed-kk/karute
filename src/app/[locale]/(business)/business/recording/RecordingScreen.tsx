@@ -334,6 +334,10 @@ export interface RecordingProps {
     transcript: string
     policy: string
     enroll: string
+    /** ⚖ B1-2 — the briefing's three カルテ levers, which have no destination
+     *  that honours their labels until the カルテ room gains a record-level
+     *  door. ONE reason for all three. */
+    karuteOpen: string
   }
   karuteHref: string
 }
@@ -760,20 +764,25 @@ export function RecordingScreen(props: RecordingProps) {
    *  because a screen reader drops `title` once `aria-describedby` is present.
    *  ⚠ THE CLASSES ARE MERGED HERE and a call site must never write `className`
    *  after this spread (the room-5 F-K1 defect, fixed at the helper so it cannot
-   *  recur). */
+   *  recur).
+   *  ⚠ `base` IS THE ROOM'S DEFAULT LEVER SKIN, AND IT IS NOT ALWAYS THE RIGHT
+   *  ONE. The refusal grammar is `aria-disabled` + the reason on the accessible
+   *  name — it is not a repaint. A lever that already carries a skin Liam
+   *  accepted (the briefing's カルテ rows and its door) passes `base: null` so
+   *  becoming honest does not also make it a 42px bordered button. */
   const refused = (
     label: string,
     reason: string,
-    extra?: { className?: string; 'aria-describedby'?: string },
+    extra?: { className?: string; base?: string | null; 'aria-describedby'?: string },
   ) => {
-    const { className, ...rest } = extra ?? {}
+    const { className, base = 'btn', ...rest } = extra ?? {}
     return {
       type: 'button' as const,
       'aria-disabled': 'true' as const,
       title: reason,
       'aria-label': `${label} — ${reason}`,
       ...rest,
-      className: ['btn', className].filter(Boolean).join(' '),
+      className: [base, className].filter(Boolean).join(' '),
     }
   }
 
@@ -1363,10 +1372,16 @@ export function RecordingScreen(props: RecordingProps) {
                           )}
                           <div className="rc-brow">
                             <span className="rc-tag is-grey">{current.brief.visitsTag}</span>
+                            {/* ⚖ B1-2 — A LEVER LABELLED WITH A RECORD CANNOT
+                                LAND ON THE WHOLE LIST. The カルテ route takes
+                                `?store=` alone, so this one, every past-record
+                                row and the door below REFUSE in the room's own
+                                grammar rather than navigating somewhere their
+                                labels do not promise. */}
                             {current.brief.lastKaruteLabel && (
-                              <Link className="rc-klink" href={props.karuteHref}>
+                              <button {...refused(`カルテ ${current.brief.lastKaruteLabel} を開く`, props.refusals.karuteOpen, { base: null, className: 'rc-klink' })} data-press>
                                 カルテ {current.brief.lastKaruteLabel} を開く<Icon name="chevron" size={12} weight={2.4} />
-                              </Link>
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1378,19 +1393,19 @@ export function RecordingScreen(props: RecordingProps) {
                           ) : (
                             <div className="rc-klist">
                               {current.brief.records.map((r) => (
-                                <Link className="rc-krow" key={r.id} href={props.karuteHref}>
+                                <button {...refused(`${r.dateLabel} ${r.title}`, props.refusals.karuteOpen, { base: null, className: 'rc-krow' })} key={r.id} data-press>
                                   <span className="rc-kd rc-num">{r.dateLabel}</span>
                                   <span className="rc-kt">{r.title}</span>
                                   <span className="rc-cv" aria-hidden="true"><Icon name="chevron" size={12} weight={2.4} /></span>
-                                </Link>
+                                </button>
                               ))}
                               {/* v5-3 — the depth goes behind ONE door, and the
                                   door counts what is behind it. */}
                               {current.brief.doorLabel && (
-                                <Link className="rc-krow is-door" href={props.karuteHref}>
+                                <button {...refused(current.brief.doorLabel, props.refusals.karuteOpen, { base: null, className: 'rc-krow is-door' })} data-press>
                                   <span className="rc-kt">{current.brief.doorLabel}</span>
                                   <span className="rc-cv" aria-hidden="true"><Icon name="chevron" size={12} weight={2.4} /></span>
-                                </Link>
+                                </button>
                               )}
                             </div>
                           )}

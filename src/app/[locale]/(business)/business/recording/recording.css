@@ -760,13 +760,23 @@
 /* 過去のカルテ — v5-3 recent-first-with-doors: the newest few are ROWS, and the
    depth goes behind ONE door that counts what is behind it. */
 .biz .pg-recording .rc-klist { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+/* ⚠ `font: inherit` — these rows are `<button>`s now (⚖ B1-2: a lever labelled
+   with a record refuses rather than navigating to the whole list), and a bare
+   button takes the UA's 13.3px Arial. The skin is otherwise the one Liam
+   accepted: the refusal is `aria-disabled` + the reason, never a repaint. */
 .biz .pg-recording .rc-krow {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px 5px 7px; text-align: left;
   border: 1px solid var(--line); border-radius: var(--rc-r-sm); background: #fff; color: inherit; text-decoration: none;
+  font: inherit;
   transition: background-color 160ms var(--rc-ease), border-color 160ms var(--rc-ease),
               transform 100ms var(--rc-ease), box-shadow 160ms var(--rc-ease);
 }
-.biz .pg-recording .rc-krow:hover { background: var(--rc-wash); transform: translateY(-1px); box-shadow: var(--rc-shadow-1); }
+/* ⚠ AND A REFUSED ROW DOES NOT LIFT. A hover that rises under the cursor is the
+   page saying 「press me」 about a lever that has already said it cannot. */
+.biz .pg-recording .rc-krow:hover:not([aria-disabled="true"]) { background: var(--rc-wash); transform: translateY(-1px); box-shadow: var(--rc-shadow-1); }
+.biz .pg-recording .rc-krow[aria-disabled="true"],
+.biz .pg-recording .rc-klink[aria-disabled="true"],
+.biz .pg-recording .rc-aspill[aria-disabled="true"] { cursor: not-allowed; }
 .biz .pg-recording .rc-kd {
   flex: none; padding: 1px 8px; border-radius: 999px;
   border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
@@ -791,8 +801,11 @@
   font-size: 11px; font-weight: 600;
 }
 .biz .pg-recording .rc-tag.is-grey { border-color: var(--line); background: var(--rc-wash); color: var(--ink-3); }
-.biz .pg-recording .rc-klink { display: inline-flex; align-items: center; gap: 4px; color: var(--rc-accent); font-size: 12px; font-weight: 600; text-decoration: none; }
-.biz .pg-recording .rc-klink:hover { color: var(--rc-accent-hover); text-decoration: underline; text-underline-offset: 2px; }
+.biz .pg-recording .rc-klink {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--rc-accent); text-decoration: none;
+}
+.biz .pg-recording .rc-klink:hover:not([aria-disabled="true"]) { color: var(--rc-accent-hover); text-decoration: underline; text-underline-offset: 2px; }
 .biz .pg-recording .rc-note-toggle {
   display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
   color: var(--rc-ink-4); font: inherit; font-size: 11px;
@@ -1606,8 +1619,8 @@
      opacity with no travel. Every state still CHANGES; it simply stops moving. */
   .biz .pg-recording .rc-row:hover,
   .biz .pg-recording .rc-slot:hover:enabled,
-  .biz .pg-recording .rc-krow:hover,
-  .biz .pg-recording button.rc-aspill:hover { transform: none; }
+  .biz .pg-recording .rc-krow:hover:not([aria-disabled="true"]),
+  .biz .pg-recording button.rc-aspill:hover:not([aria-disabled="true"]) { transform: none; }
   .biz .pg-recording .rc-cl-more .rc-cv,
   .biz .pg-recording .rc-moretog .rc-cv,
   .biz .pg-recording .rc-brief-hd .rc-cv,
