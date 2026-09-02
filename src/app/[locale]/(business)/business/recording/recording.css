@@ -561,10 +561,13 @@
     box-shadow 200ms var(--rc-ease),
     opacity 200ms var(--rc-ease);
 }
-.biz .pg-recording .rc-rec:hover:enabled { background: var(--rc-rec-hover); }
-.biz .pg-recording .rc-rec:disabled { cursor: default; }
+/* ⚠ `[aria-disabled]`, NOT `:disabled` (⚖ B1-3): the closed gate keeps the
+   button focusable so its reason is reachable, so the LOOK has to key off the
+   same attribute the grammar does. The pixels are unchanged. */
+.biz .pg-recording .rc-rec:hover:not([aria-disabled="true"]) { background: var(--rc-rec-hover); }
+.biz .pg-recording .rc-rec[aria-disabled="true"] { cursor: default; }
 /* the consent gate's own visible state — the phone's `disabled:opacity-50` */
-.biz .pg-recording .rc-rec:disabled:not(.is-ended) { opacity: .5; }
+.biz .pg-recording .rc-rec[aria-disabled="true"]:not(.is-ended) { opacity: .5; }
 /* the ended state dims and freezes (RecordButtonCard.tsx:96) */
 .biz .pg-recording .rc-rec.is-ended { background: var(--rc-rec-ended-bg); color: var(--rc-rec-ended-ink); box-shadow: none; }
 .biz .pg-recording .rc-glyph {
@@ -645,6 +648,13 @@
   width: 100%; margin: 0; padding: 10px 12px;
   border-left: 3px solid var(--red); border-radius: 0 9px 9px 0;
   background: var(--red-soft); color: var(--red-dark); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere;
+}
+/* ⚠ STALE IS AMBER HERE TOO (F-V5-4). The badge one row down already says so in
+   the room's own words — 「she DID consent, under a policy this product
+   replaced」 — and a red card under an amber badge is the same surface saying
+   two different things about one person. Absent keeps the red above. */
+.biz .pg-recording .rc-gate.is-stale {
+  border-left-color: var(--rc-rec-amber-glyph); background: var(--rc-amber-bg); color: var(--rc-amber-ink);
 }
 
 .biz .pg-recording .rc-proof {

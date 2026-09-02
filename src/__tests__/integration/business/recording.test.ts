@@ -1886,7 +1886,13 @@ describe('the recorder’s own machine', () => {
       return [...block.matchAll(/>([^<>]+)<\/button>/g)].map((m) => m[1].trim())
     }
     // the big button's own verb, per phase, read off ITS aria-label
-    expect(SCREEN_CODE).toContain("aria-label={ended ? '録音終了' : live ? '録音停止' : '録音開始'}")
+    // ⚠ THE THIRD BRANCH IS THE CLOSED GATE'S REASON (B1-3), not a fourth verb:
+    // 録音終了 / 録音停止 / 録音開始, and 録音開始 carries the gate note behind an
+    // em-dash when the gate is shut — the room's own refusal grammar.
+    expect(SCREEN_CODE).toContain("? '録音終了'")
+    expect(SCREEN_CODE).toContain(": live\n                            ? '録音停止'")
+    expect(SCREEN_CODE).toContain("`録音開始 — ${current.gateNote}`")
+    expect(SCREEN_CODE).toContain(": '録音開始'")
     // recording — the big button STOPS, so the row carries 一時停止 and nothing else
     expect(verbsIn('recording')).toEqual(['一時停止'])
     // paused — the big button RESUMES, so the row carries the verb it does not: 停止
@@ -1897,6 +1903,45 @@ describe('the recorder’s own machine', () => {
     expect([...row.matchAll(/>停止<\/button>/g)].length).toBe(1)
     // and the ONE way to end a take is still the loudest thing on the panel
     expect(SCREEN_CODE).toContain('if (live) { stop(); return }')
+  })
+
+  it('⚖ B1-3 — the closed gate stays REACHABLE, and the machine still does not start', async () => {
+    // ⚠ `aria-disabled`, NOT `disabled`. A native `disabled` dropped the ONE
+    // control the consent floor closes out of the keyboard path, and the gate
+    // note beside it was a sibling with nothing tying the two together — so a
+    // keyboard or screen-reader user met a dead button and never heard why.
+    const btn = SCREEN_CODE.slice(SCREEN_CODE.indexOf('ref={recBtnRef}'), SCREEN_CODE.indexOf('rc-glyph'))
+    expect(btn).toContain("aria-disabled={ended || (phase === 'idle' && !consentOk) ? 'true' : undefined}")
+    expect(btn).not.toMatch(/\sdisabled=\{/)
+    // the reason rides the accessible NAME and the title, like every other
+    // refused lever in this room
+    expect(btn).toContain('`録音開始 — ${current.gateNote}`')
+    expect(btn).toContain('title={')
+    // ⚠ AND THE GATE ITSELF IS UNCHANGED — `disabled` was never what stopped the
+    // machine; the handler's own fail-closed return is, and it is still there.
+    expect(btn).toContain('onClick')
+    expect(SCREEN_CODE).toContain('if (!consentOk) return')
+    expect(SCREEN_CODE).toContain('if (ended) return')
+    // …and the sheet paints the closed state off the SAME attribute the grammar
+    // uses, so the look cannot drift from the behaviour
+    expect(V5_ROOM_CSS).toContain('.rc-rec[aria-disabled="true"]:not(.is-ended) { opacity: .5; }')
+    expect(V5_ROOM_CSS).not.toMatch(/\.rc-rec:disabled/)
+    // the gate note is rendered ONCE (B1-4): the standing wash card, never also
+    // inside the consent pop-down
+    // ONE rendered gate note on the page: the standing wash card. (The second
+    // `current.gateNote` in the source is the accessible NAME above, which is
+    // the same sentence spoken rather than a second one printed.)
+    expect([...SCREEN_CODE.matchAll(/>\{current\.gateNote\}</g)].length).toBe(1)
+    const detail = SCREEN_CODE.slice(SCREEN_CODE.indexOf('rc-cl-detail'))
+    expect(detail.slice(0, detail.indexOf('</div>'))).not.toContain('gateNote')
+    // …and it wears the consent STATE's own tone (F-V5-4): stale is amber, like
+    // the badge one row down, because she DID consent under an older policy
+    expect(SCREEN_CODE).toContain('className={`rc-gate is-${current.consentState}`}')
+    expect(V5_ROOM_CSS).toContain('.rc-gate.is-stale')
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    const stale = props.contexts.find((c) => c.consentState === 'stale')!
+    expect(stale.canStart).toBe(false)
+    expect(stale.gateNote).not.toBeNull()
   })
 
   it('a stop NEVER auto-saves — the staffer resolves the take', () => {

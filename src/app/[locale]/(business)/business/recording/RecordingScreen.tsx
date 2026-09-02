@@ -1234,8 +1234,13 @@ export function RecordingScreen(props: RecordingProps) {
 
                   {/* ⚖ W7-1 — the closed gate says WHICH of the two reasons it
                       is, in the customer's own case. */}
+                  {/* ⚠ THE NOTE WEARS THE CONSENT'S OWN TONE (F-V5-4). Stale is
+                      AMBER for the same reason the badge above it is: she DID
+                      consent, under a policy this product replaced. A red card
+                      under an amber badge says two different things about one
+                      person on one surface. */}
                   {phase === 'idle' && !consentOk && current.gateNote && (
-                    <p className="rc-gate">{current.gateNote}</p>
+                    <p className={`rc-gate is-${current.consentState}`}>{current.gateNote}</p>
                   )}
 
                   {phase === 'stopped' && (
@@ -2227,6 +2232,12 @@ function Receipt({
  * rather than escaping to the page underneath, and Escape is the parent's ONE
  * listener so it cannot close two layers at once.
  */
+/** The panel's own focusable set, spelled ONCE: the walk that traps Tab and the
+ *  read that moves focus in on open must agree, or the trap starts on an element
+ *  it does not contain. `aria-disabled` levers are IN — that is the whole point
+ *  of the room's refusal grammar (their reason has to be reachable). */
+const FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]'
+
 function Overlay({
   label,
   onClose,
@@ -2251,15 +2262,22 @@ function Overlay({
    *  and the effect below stamps the moment it was: no window exists in which
    *  an unstamped scrim would dismiss. */
   const openedAt = useRef(Number.POSITIVE_INFINITY)
-  useLayoutEffect(() => { openedAt.current = Date.now() }, [])
+  /** ⚖ B2-8 — AND FOCUS MOVES *INTO* THE PANEL, which is what makes the Tab trap
+   *  below a trap at all. Only the discard dialog used to do this (its own
+   *  effect focuses the reason field); the consent and use dialogs left focus on
+   *  the opener — OUTSIDE an `aria-modal` panel — so the trap's own `onKeyDown`
+   *  never received a keystroke and Tab walked the page underneath. The first
+   *  focusable is the conservative one in all three (キャンセル / 戻る), and the
+   *  discard dialog's own effect still wins because a parent's effect runs after
+   *  a child's. Focus RETURN is unchanged — the openers already own it. */
+  useLayoutEffect(() => {
+    openedAt.current = Date.now()
+    ;(panelRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? panelRef.current)?.focus()
+  }, [])
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Tab') return
-    const focusable = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]',
-      ) ?? [],
-    )
+    const focusable = Array.from(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
     if (focusable.length === 0) { e.preventDefault(); return }
     const first = focusable[0]
     const last = focusable[focusable.length - 1]

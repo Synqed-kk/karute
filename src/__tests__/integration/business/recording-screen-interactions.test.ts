@@ -577,7 +577,18 @@ describe('F6 — the gestures that used to undo themselves', () => {
     // …and it starts FAIL-CLOSED: the backdrop refuses every press until a
     // layout effect has stamped the moment the panel was laid out.
     expect(SRC_CODE).toContain('const openedAt = useRef(Number.POSITIVE_INFINITY)')
-    expect(SRC_CODE).toContain('useLayoutEffect(() => { openedAt.current = Date.now() }, [])')
+    expect(SRC_CODE).toMatch(/useLayoutEffect\(\(\) => \{\s*openedAt\.current = Date\.now\(\)/)
+    // ⚖ B2-8 — AND THE SAME EFFECT MOVES FOCUS INTO THE PANEL, which is what
+    // makes the Tab trap below a trap: two of the three dialogs used to leave
+    // focus on the opener, OUTSIDE the `aria-modal` panel, so the panel's own
+    // `onKeyDown` never received a keystroke and Tab walked the page underneath.
+    expect(SRC_CODE).toContain('(panelRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? panelRef.current)?.focus()')
+    // …and the focusable set the trap walks and the set the focus-in reads are
+    // ONE constant, or the trap starts on an element it does not contain
+    expect([...SRC_CODE.matchAll(/FOCUSABLE/g)].length).toBe(3)
+    expect(SRC_CODE).toMatch(/const FOCUSABLE = 'button:not\(:disabled\)/)
+    // ⚠ FOCUS RETURN IS UNCHANGED — the openers still own it, all three of them
+    expect(SRC_CODE).toMatch(/closeDialog[\s\S]{0,400}consentOpenRef\.current\?\.focus\(\)/)
     // …and the gate is the LIBRARY's named constant, never a literal here
     expect(SRC_CODE).not.toMatch(/rc-scrim[\s\S]{0,160}\d{3}\)/)
     // Escape and cancel are UNTOUCHED — this delays the one exit that can be
