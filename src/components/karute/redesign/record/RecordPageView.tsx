@@ -1208,7 +1208,8 @@ export function RecordPageView({
         // BELOW the floor nothing is kept and nothing is transcribed (⚖ spend
         // gate): an accidental tap has no words worth a Deepgram call, and the
         // take goes with the discard exactly as it always did. Same on the
-        // phone, which has no route to persist through this round.
+        // phone, which since PHONEWIRE-2C persists through the facade twin of
+        // these actions — the floor, not the world, is what decides here now.
         //
         // The stamp's span, honestly: it is written AFTER core accepted the
         // discard, so a crash in that window leaves the discard filed and the

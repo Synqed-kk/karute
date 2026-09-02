@@ -115,8 +115,14 @@ jest.mock('@/lib/auth/require-permission', () => {
     }),
   }
 })
+// MOCK SURFACE ONLY (PHONEWIRE-2C): the shared body now calls the
+// tenant-explicit twin, because the facade door has no cookie to read a
+// business id from. Same stand-in, same identity mapping — every assertion,
+// fixture and expectation in this file is byte-identical to the pre-refactor
+// suite, which is what makes it the equivalence proof.
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
+  resolveSynqedStaffIdForBusiness: jest.fn(async (id: string) => id),
 }))
 
 /** THE spend counter. Every consent case below asserts on this, not just on the
@@ -508,7 +514,10 @@ describe('getDiscardTranscript — the manager-only read', () => {
     recordingRow = { duration_seconds: 62, customer_id: 'cust-1' }
     await expect(getDiscardTranscript(SESSION)).resolves.toEqual({
       ok: true,
-      segments: [{ text: 'こんにちは、本日はありがとうございます' }],
+      // `startTime` rides out with the words (⚖ 8/31): it is what places the
+      // panel's 5-minute markers, and this staged take is ONE whole-recording
+      // segment, so core's own 0 is the honest answer here.
+      segments: [{ text: 'こんにちは、本日はありがとうございます', startTime: 0 }],
       durationSeconds: 62,
     })
   })

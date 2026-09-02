@@ -70,6 +70,17 @@ const CRUMB: Record<string, string> = {
   shifts: 'スタッフ・シフト',
   karute: 'カルテ',
   recording: '録音',
+  settings: '予約と確保',
+}
+
+/** …and its GROUP, for the crumb's first word. The rail already groups every
+ *  item (`NAV`, BusinessSidebar); every room built so far happens to live under
+ *  店舗フロア, which is why that word was a literal. ⚖ Liam 9/1 — the settings
+ *  room is the first that does NOT, so the crumb reads the group instead of
+ *  claiming one. A segment with no entry keeps the default, so no existing
+ *  room's crumb moves a byte. */
+const GROUP: Record<string, string> = {
+  settings: '設定',
 }
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {
@@ -86,7 +97,7 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
   return (
     <header className="topbar">
       <div className="crumb">
-        店舗フロア / {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
+        {GROUP[segment] ?? '店舗フロア'} / {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
       </div>
       <div className="top-actions">
         <span className="honesty" role="note" aria-label="サンプルデータ — 実データではありません">

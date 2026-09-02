@@ -35,11 +35,13 @@ import { scheduleCustomerDeletion, cancelCustomerDeletion } from '@/actions/cust
 import { requireCapability as requireCapabilityImport } from '@/lib/auth/require-permission'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
 import { audit as auditImport } from '@/lib/audit'
+import { getCurrentUserStaffId as getCurrentUserStaffIdImport } from '@/lib/staff'
 import { revalidatePath as revalidatePathImport } from 'next/cache'
 
 const requireCapability = requireCapabilityImport as jest.Mock
 const getSynqedClient = getSynqedClientImport as jest.Mock
 const audit = auditImport as jest.Mock
+const getCurrentUserStaffId = getCurrentUserStaffIdImport as jest.Mock
 const revalidatePath = revalidatePathImport as jest.Mock
 
 const customers = { get: jest.fn(), update: jest.fn() }
@@ -47,9 +49,49 @@ const customers = { get: jest.fn(), update: jest.fn() }
 beforeEach(() => {
   jest.clearAllMocks()
   requireCapability.mockImplementation(async () => undefined)
+  getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
   getSynqedClient.mockImplementation(async () => ({ customers }))
   customers.get.mockResolvedValue({ id: 'cus-1', deleted_at: null })
   customers.update.mockResolvedValue({})
+})
+
+// PHONEWIRE-2B blind round, finding 1 — a deliberate WEB behavior change,
+// ruled by the lane lead. Before it, a stale-session records.delete holder
+// could schedule or cancel an erasure and emitDeletionAudit filed the row with
+// actorId:null: an unattributable record of the one act a customer can legally
+// demand, while the new facade door 403s the very same caller. Both wrappers
+// now carry grantCustomerConsent's #452 posture. The refusal is the union's own
+// 'failed', so the existing deleteFailed/undoFailed toasts keep working.
+describe.each([
+  ['scheduleCustomerDeletion', scheduleCustomerDeletion],
+  ['cancelCustomerDeletion', cancelCustomerDeletion],
+])('%s — no staff identity fails closed', (_name, action) => {
+  it('refuses before any write, and files NO audit row', async () => {
+    // A cancel would otherwise reach its write: give it a live window.
+    customers.get.mockResolvedValue({
+      id: 'cus-1',
+      deleted_at: new Date(Date.now() - 86_400_000).toISOString(),
+    })
+    getCurrentUserStaffId.mockResolvedValue(null)
+
+    const res = await action('cus-1')
+
+    expect(res).toEqual({ success: false, error: 'failed' })
+    expect(customers.update).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('the capability gate still runs FIRST — both doors refuse in the same order', async () => {
+    requireCapability.mockImplementation(async () => {
+      throw new Error('forbidden')
+    })
+    getCurrentUserStaffId.mockResolvedValue(null)
+
+    await action('cus-1')
+
+    expect(getCurrentUserStaffId).not.toHaveBeenCalled()
+  })
 })
 
 describe('scheduleCustomerDeletion', () => {

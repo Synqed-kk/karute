@@ -60,6 +60,7 @@ export const AUDIT_ACTIONS = [
   'karute.entries_regenerate',
   'karute.entry_edit',
   'karute.entry_edits_view',
+  'karute.manual_create',
   'karute.outcome_set',
   'karute.save',
   'karute.summary_edit',
@@ -343,11 +344,23 @@ export const SDK_WRITE_ALLOWLIST: {
   },
   {
     file: 'src/actions/customers.ts',
-    call: 'customers.update',
-    symbols: ['updateCustomerWithClient', 'scheduleCustomerDeletion', 'cancelCustomerDeletion'],
+    call: 'customers.create',
+    symbols: ['createCustomerWithClient', 'createQuickCustomerWithClient'],
     justification:
-      "customer.update is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — this call site sits inside updateCustomerWithClient/scheduleCustomerDeletion/cancelCustomerDeletion, none of which are AUDITED_CORES symbols. Web-path coverage: updateCustomerWithClient's caller (updateCustomer) conditionally auditWebs customer.edit (see AUDITED_CORES unproven note); scheduleCustomerDeletion/cancelCustomerDeletion each call emitDeletionAudit (AUDITED_CORES) unconditionally on the success path — verified at source, not lexically provable by symbol-span containment.",
-    dated: '2026-07-27',
+      "PHONEWIRE-1: the create bodies moved into WithClient twins so the web action and the new facade POSTs run ONE body — the same Core/WithClient split as updateCustomerWithClient below, where the shared core stays audit-free. Both doors ARE covered: customer.create / customer.quickCreate are LIVE FACADE_AUDIT_MAP mutation rows (facade auto-emit, target id from ctx.auditTargetId), and the web wrappers createCustomer/createQuickCustomer — both AUDITED_CORES symbols — emit customer.create unconditionally on their success path.",
+    dated: '2026-09-01',
+  },
+  {
+    file: 'src/actions/customers.ts',
+    call: 'customers.update',
+    symbols: [
+      'updateCustomerWithClient',
+      'scheduleCustomerDeletionWithClient',
+      'cancelCustomerDeletionWithClient',
+    ],
+    justification:
+      "customer.update is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — this call site sits inside updateCustomerWithClient/scheduleCustomerDeletionWithClient/cancelCustomerDeletionWithClient, none of which are AUDITED_CORES symbols. Web-path coverage: updateCustomerWithClient's caller (updateCustomer) conditionally auditWebs customer.edit (see AUDITED_CORES unproven note). PHONEWIRE-2B: the deletion pair's bodies moved into WithClient twins so the web actions and the new facade POSTs run ONE body — the same Core/WithClient split as updateCustomerWithClient above, where the shared core stays audit-free. BOTH doors are covered: customer.deletion.schedule / .cancel are LIVE FACADE_AUDIT_MAP mutation rows emitting privacy.customer_delete_scheduled / _canceled (a guarded no-op files nothing — the routes set ctx.auditSuppress), and the web wrappers scheduleCustomerDeletion/cancelCustomerDeletion each call emitDeletionAudit (AUDITED_CORES) unconditionally on their success path — verified at source, not lexically provable by symbol-span containment.",
+    dated: '2026-09-02',
   },
   {
     file: 'src/actions/customers.ts',
@@ -433,10 +446,10 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/karute.ts',
     call: 'karuteRecords.create',
-    symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecord'],
+    symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecordWithClient'],
     justification:
-      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecord (the "+ 新規カルテ" manual-entry dialog — a separate creation path with no audit() call today, genuinely untracked, not pendingWave).',
-    dated: '2026-07-27',
+      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecordWithClient (PHONEWIRE-2A: the "+ 新規カルテ" manual-entry create body, moved into a WithClient twin so the web action and the new facade POST run ONE body — the same Core/WithClient split as createCustomerWithClient. The shared body stays audit-free; the FACADE door IS now covered — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting karute.manual_create with the target from ctx.auditTargetId. The WEB wrapper createManualKaruteRecord remains genuinely untracked, exactly as it was before this refactor — a pre-existing gap this build narrows rather than widens, not pendingWave).',
+    dated: '2026-09-01',
   },
   {
     file: 'src/actions/org-settings.ts',
@@ -459,15 +472,15 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordings.upsertSegments',
     symbols: ['writeTranscript'],
     justification:
-      "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log.",
+      "A2-2 (packet P5-A2): the WORDS of an ALREADY-AUDITED action. The staff discard that authorises this write emitted its own recording.discard receipt moments earlier (src/lib/recording/discard.ts, AUDITED_CORES — carrying discard_row_id, duration_sec and below_floor), and both callers refuse to write at all unless that STAFF discard row already exists. A second row here would double-count one act. ⚖ 8/17 doc law also forbids the CONTENT reaching an audit detail, which is exactly what this call persists — the segments are read back through getDiscardTranscript's staff.manage gate, never through the audit log. EXTENDED 2026-09-01 (PHONEWIRE-2C): the call now has a THIRD caller, the phone. persistDiscardTranscriptWithClient / transcribeAndPersistDiscardWithClient are the shared bodies the cookie wrappers and the facade route (src/app/api/app/v1/recordings/discards/transcript/route.ts POST, FACADE_AUDIT_MAP['recordings.discards.transcript.write'] — a 'skip' citing this same ruling) both run. Nothing about the justification moves: the facade door writes only after the SAME hasStaffDiscard fence proves the audited recording.discard receipt already landed, so a phone discard is still one act with one row.",
     dated: '2026-08-31',
   },
   {
-    file: 'src/actions/recording-discard-transcript.ts',
+    file: 'src/lib/recording/staged-audio.ts',
     call: 'storage.recordings.remove',
-    symbols: ['transcribeAndPersistDiscard'],
+    symbols: ['sweepStagedDiscardAudio'],
     justification:
-      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to.',
+      'Best-effort cleanup of the staged audio object right after the discard transcription resolves — the same timing and the same reasoning as recording-upload.ts#removeRecordingObject and the facade transcribe route below (read-then-delete; the worker posture). Not itself a business action: the audited action is the recording.discard receipt this transcription belongs to. MOVED 2026-09-01 (PHONEWIRE-2C fix round 3, Greptile #813): the janitor was extracted out of src/actions/recording-discard-transcript.ts into its own non-server module because it grew a SECOND caller — the facade route must sweep its own pre-body refusals, since the phone stages its audio before it posts and every retry stages a fresh object. Same one delete call, now with the isOwnRecordingKey tenant fence inside it rather than at the call sites, so no caller can reach a key that is not its own business’s. Nothing about the justification moves: still best-effort, still not a business action.',
     dated: '2026-08-31',
   },
   {

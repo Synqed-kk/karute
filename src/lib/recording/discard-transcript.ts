@@ -29,10 +29,9 @@ import {
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 
 /** Whether this world can persist discard transcripts at all. Web: yes. Thin:
- *  no — the phone reaches server actions only through facade routes, and this
- *  family has none yet (queue item 2). Read BEFORE stamping so the phone never
- *  keeps audio for a collection that cannot happen; its discards behave exactly
- *  as they did before this build. */
+ *  yes since PHONEWIRE-2C — the phone's facade door landed, and the port's
+ *  action twins POST it. Read BEFORE stamping, so a world that ever answers
+ *  false again never keeps audio for a collection that cannot happen. */
 export function discardTranscriptSupported(): boolean {
   return getRecordingPipelinePort().supportsDiscardTranscript
 }

@@ -53,6 +53,7 @@ import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[local
 import {
   canReleaseHeld,
   explainRails,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
@@ -412,6 +413,13 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
+        // ⚖ R6 B1 — the screen hands the pass the store's own display floor, so
+        // this composer does too (TodayScreen `salesDoor`). A door that differs
+        // from the screen's proves the wrong board.
+        minSellableMin: w.minSellableMin,
         dials: gapPackingDials(w.lanes, dialOpts),
       })
     : null
@@ -985,11 +993,61 @@ describe('4 — what paints, and what stops', () => {
     const frags = [...(on.fallback?.packed ?? []), ...(on.fallback?.scraps ?? [])]
     expect(frags.length).toBeGreaterThan(0)
     // They are IN `gapDrawn`, which is the only list `renderLane` draws gap
-    // boxes from, and `gapDrawn.packed.includes(c)` is the only thing that
-    // decides 詰め込み from スキマ枠 — so a fallback cell wears whichever word
-    // its shape earns, exactly like every other box on that layer.
+    // boxes from, and ONE field decides 詰め込み from スキマ枠 — so a fallback
+    // cell wears whichever word its shape earns, exactly like every other box
+    // on that layer.
+    //
+    // ⚖ PIN MIGRATED at R6, WITH the decision (B3). The decider used to be
+    // `gapDrawn.packed.includes(c)` — object identity, which is precisely what
+    // made this pin necessary AND fragile: it held only while no pass between
+    // the producers and the renderer ever copied a cell. Both producers now tag
+    // `gapKind` at creation and the renderer reads it through `gapKindOf`, so
+    // the same claim is pinned on the FACT rather than on the array membership.
     for (const f of frags) expect([...on.gapDrawn.packed, ...on.gapDrawn.scraps]).toContain(f)
-    expect(SRC('TodayScreen.tsx')).toContain('const packedHere = gapDrawn.packed.includes(c)')
+    for (const f of on.fallback?.packed ?? []) expect(gapKindOf(f)).toBe('packed')
+    // ⚠ this board's fallback has no scraps — the kind of a FALLBACK scrap is
+    // proven where such a scrap exists (fallback-cells.test.ts §9, ⚖ A3).
+    expect(on.fallback?.packed?.length ?? 0).toBeGreaterThan(0)
+    for (const f of on.fallback?.scraps ?? []) expect(gapKindOf(f)).toBe('scrap')
+    expect(SRC('TodayScreen.tsx')).toContain("const packedHere = gapKindOf(c) === 'packed'")
+    // ⚖ R6 fix round A7 (L4-7) — BROADENED. The old negative named one exact
+    // line, so the identity scan could come back in any other punctuation and
+    // stay green; and the scraps side never had a negative at all. (Text pins
+    // are the declared armor for TodayScreen's un-rendered half — the standing
+    // import-fence rider — so their spelling has to be the part that is wrong,
+    // not one sentence of it. The prose below is a COMMENT in the source, which
+    // is why the negatives are anchored on the assignment.)
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.packed.includes')
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.scraps.includes')
+    expect(SRC('TodayScreen.tsx')).not.toContain('const packedHere = gapDrawn.packed.includes(c)')
+  })
+
+  /** ⚖ R6 fix round A3 (L4-3) — THE KIND, ASSERTED AS A FACT ABOUT THE BOXES.
+   *
+   *  The pin above reads the FALLBACK's boxes. Nothing read the NATIVE
+   *  producer's: flip `kinded('packed')` and `kinded('scrap')` at
+   *  today-interactions' `gapLayerFor` return and every 詰め込み box on the board
+   *  becomes a スキマ枠 — wrong wash, wrong word, wrong price format — with the
+   *  whole suite green. And nothing read `gapKindOf` itself, so the reader could
+   *  have been a constant. */
+  it('every native 詰め込み box reads `packed` and every スキマ枠 reads `scrap` — and the reader is not a constant', () => {
+    const w = fixtureWorld()
+    const c: Combo = { ...shipped(), mode: 'off' }
+    const on = door(w, c, maskOf(w, c))
+    // THE PREMISE: both lists have something in them, or the two loops below
+    // prove nothing at all (which is exactly how the fallback half slipped).
+    expect(on.gapDrawn.packed.length).toBeGreaterThan(0)
+    expect(on.gapDrawn.scraps.length).toBeGreaterThan(0)
+    for (const p of on.gapDrawn.packed) expect(gapKindOf(p)).toBe('packed')
+    for (const s of on.gapDrawn.scraps) expect(gapKindOf(s)).toBe('scrap')
+
+    // THE READER ITSELF, on hand-made cells — one tagged each way and one that
+    // was never taught to tag, which must degrade to the answer `.includes`
+    // used to give for anything outside `packed`.
+    const cell = (over: object) => ({ laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff' as const, staff: '', s: 900, e: 960, price: 0, ...over })
+    expect(gapKindOf(cell({ gapKind: 'packed' }))).toBe('packed')
+    expect(gapKindOf(cell({ gapKind: 'scrap' }))).toBe('scrap')
+    expect(gapKindOf(cell({}))).toBe('scrap')
   })
 })
 
@@ -1867,5 +1925,195 @@ describe('the artifacts', () => {
       '# DEFINITION, which ⚖ Q3 already ruled. Two dials, two questions; the',
       '# artifact says both so neither rides under the other.',
     ])
+  })
+})
+
+// ── 9 · MONOTONICITY, THE REGRESSION PIN (⚖ R6) ─────────────────────────────
+//
+// THE MEASUREMENT (PROBE-R5R6 §2, tip 4d10d4d5): removing a committed booking —
+// strictly MORE free staff time — sometimes makes the advertised total strictly
+// WORSE. 46 violations over 240 sweeps at that tip, 3 of them at the shipped
+// dial point. Three mechanisms were dumped offer-by-offer: held-mask expansion,
+// held-window re-phasing, and the greedy bed cascade in canon's own `bedLedger`.
+//
+// ⚠ THIS IS NOT A CLEAN PROPERTY AND MUST NOT BE WRITTEN AS ONE. The cascade
+// class is R5's territory (`bedLedger`, canon, frozen) and is STILL LIVE. So the
+// pin is a REGRESSION pin: the surviving set is enumerated and frozen, and any
+// NEW violation — or any new dial point / caseId entering the set — is red.
+// R6's own job is only that the grid-30 closure does not ADD to it.
+//
+// ⚠ AND GUARD-ON TRADES ARE NOT DEFECTS. Under the store's own guard, freeing
+// time can turn paid stock into a price-free 新規用に確保 window (probe M1) or
+// re-phase a mask edge on an unrelated lane (M2). That is the ⚖ ONE-LAW
+// working as ruled — capacity protection outranks the advertised total — so
+// those rows are inside the frozen set with their reason, not treated as bugs
+// to fix here.
+
+const R6_EVIDENCE = process.env.R6_EVIDENCE ?? ''
+const R6_SHA = process.env.R6_SHA ?? 'unstamped'
+
+/** The advertised total, per the probe's own definition: the staff rows of the
+ *  PUBLISHED sell layer plus both gap kinds as the board draws them. Bed rows
+ *  are the same offer drawn a second time (`onlineOffers`' own comment) and
+ *  reserved rows are price-free by construction, so neither is counted. */
+function advertisedTotal(d: Door): number {
+  const staff = <T extends { group: string; price: number | null }>(xs: readonly T[]) =>
+    xs.filter((c) => c.group === 'staff').reduce((n, c) => n + (c.price ?? 0), 0)
+  return staff(d.sellDrawn.cells) + staff(d.gapDrawn.packed) + staff(d.gapDrawn.scraps)
+}
+
+/** THE REMOVABLE BOOKINGS — the probe's own set, spelled the probe's own way:
+ *  a `booking` on a staff lane with a case behind it. Breaks, blocks and the
+ *  absence washes are skipped because removing one is not "more free time a
+ *  customer could buy"; every state of a real booking IS, including the ones
+ *  carrying an open 担当変更 or a 来店なし (apt-26 and apt-23 — narrowing this to
+ *  `state === 'confirmed'` silently dropped both and took the sweep from 10
+ *  removals to 8, which is two of the probe's own measured rows).
+ *
+ *  Filtering by `caseId` takes the staff row AND its paired bed-row copy in one
+ *  pass, which is what makes the edited board a board a store could run. */
+function removableIn(w: World): Array<{ caseId: string; laneKey: string; s: number; e: number }> {
+  const out: Array<{ caseId: string; laneKey: string; s: number; e: number }> = []
+  for (const l of w.lanes) {
+    if (l.group !== 'staff') continue
+    for (const i of l.items) {
+      if (i.kind !== 'booking' || !i.caseId) continue
+      out.push({ caseId: i.caseId, laneKey: l.key, s: i.startMin, e: i.endMin })
+    }
+  }
+  return out.sort((a, b) => (a.laneKey === b.laneKey ? a.s - b.s : a.laneKey < b.laneKey ? -1 : 1))
+}
+
+const without = (w: World, caseId: string): World => ({
+  ...w,
+  lanes: w.lanes.map((l) => ({ ...l, items: l.items.filter((i) => i.caseId !== caseId) })),
+})
+
+/** The probe's own sweep axes — the dial space the monotonicity question was
+ *  measured over, including the `minSellableMin` axis the FLIP matrix does not
+ *  carry. */
+const MONO_DIALS: Array<{ gridMin: number; sessionMin: number; minSellableMin: number }> = [30, 60].flatMap(
+  (gridMin) =>
+    [45, 60, 90].flatMap((sessionMin) =>
+      [0, 30].map((minSellableMin) => ({ gridMin, sessionMin, minSellableMin })),
+    ),
+)
+const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.sessionMin} minSell=${d.minSellableMin}`
+
+/** ⚖ R6 — THE SURVIVING SET, MEASURED AT THE ROUND'S OWN TIP AND FROZEN.
+ *
+ *  Provenance: R5's documented ceiling. Every row here is one of the three
+ *  mechanisms the probe dumped; none of them is R6's to fix (the cascade lives
+ *  in canon's frozen `bedLedger`, and the two mask mechanisms are the ⚖ ONE-LAW
+ *  trading advertised yen for protected capacity). A row LEAVING the set is a
+ *  win and should be deleted with the fix that earned it. A row ARRIVING is red:
+ *  it means a change made the board's answer non-monotone somewhere it was not. */
+const MONO_PINNED: string[] = [
+  'grid=30 S=45 minSell=0 guard=off apt-28',
+  'grid=30 S=45 minSell=0 guard=off apt-29',
+  'grid=30 S=45 minSell=0 guard=on apt-14',
+  'grid=30 S=45 minSell=0 guard=on apt-29',
+  'grid=30 S=45 minSell=0 guard=on apt-33',
+  'grid=30 S=45 minSell=30 guard=off apt-28',
+  'grid=30 S=45 minSell=30 guard=off apt-29',
+  'grid=30 S=45 minSell=30 guard=on apt-14',
+  'grid=30 S=45 minSell=30 guard=on apt-29',
+  'grid=30 S=45 minSell=30 guard=on apt-33',
+  'grid=30 S=60 minSell=0 guard=on apt-29',
+  'grid=30 S=60 minSell=0 guard=on apt-33',
+  'grid=30 S=60 minSell=30 guard=on apt-29',
+  'grid=30 S=60 minSell=30 guard=on apt-33',
+  'grid=30 S=90 minSell=0 guard=on apt-14',
+  'grid=30 S=90 minSell=0 guard=on apt-29',
+  'grid=30 S=90 minSell=0 guard=on apt-33',
+  'grid=30 S=90 minSell=30 guard=on apt-14',
+  'grid=30 S=90 minSell=30 guard=on apt-29',
+  'grid=30 S=90 minSell=30 guard=on apt-33',
+  'grid=60 S=45 minSell=0 guard=off apt-28',
+  'grid=60 S=45 minSell=0 guard=off apt-29',
+  'grid=60 S=45 minSell=0 guard=on apt-14',
+  'grid=60 S=45 minSell=0 guard=on apt-29',
+  'grid=60 S=45 minSell=0 guard=on apt-33',
+  'grid=60 S=45 minSell=30 guard=off apt-28',
+  'grid=60 S=45 minSell=30 guard=off apt-29',
+  'grid=60 S=45 minSell=30 guard=on apt-14',
+  'grid=60 S=45 minSell=30 guard=on apt-29',
+  'grid=60 S=45 minSell=30 guard=on apt-33',
+  'grid=60 S=60 minSell=0 guard=off apt-09',
+  'grid=60 S=60 minSell=0 guard=off apt-26',
+  'grid=60 S=60 minSell=0 guard=on apt-14',
+  'grid=60 S=60 minSell=0 guard=on apt-29',
+  'grid=60 S=60 minSell=0 guard=on apt-33',
+  'grid=60 S=60 minSell=30 guard=off apt-09',
+  'grid=60 S=60 minSell=30 guard=off apt-26',
+  'grid=60 S=60 minSell=30 guard=on apt-14',
+  'grid=60 S=60 minSell=30 guard=on apt-29',
+  'grid=60 S=60 minSell=30 guard=on apt-33',
+  'grid=60 S=90 minSell=0 guard=on apt-14',
+  'grid=60 S=90 minSell=0 guard=on apt-29',
+  'grid=60 S=90 minSell=0 guard=on apt-33',
+  'grid=60 S=90 minSell=30 guard=on apt-14',
+  'grid=60 S=90 minSell=30 guard=on apt-29',
+  'grid=60 S=90 minSell=30 guard=on apt-33',
+]
+
+describe('9 — monotonicity: the surviving violations are exactly the set R5 owns', () => {
+  it('removing a committed booking never loses advertised ¥ anywhere NEW', () => {
+    const w = fixtureWorld()
+    const removable = removableIn(w)
+    // The sweep is only worth anything if it swept something.
+    expect(removable.length).toBeGreaterThanOrEqual(8)
+
+    const rows: string[] = []
+    const found: string[] = []
+    for (const d of MONO_DIALS) {
+      for (const guard of ['on', 'off'] as const) {
+        // `axis: 'law'` on purpose — it is what keeps `configOf` on the STORE'S
+        // REAL MENU. The probe's one deliberate divergence from the flip
+        // matrix's grid axis was exactly this ("the brief says other dials at
+        // fixture defaults"), and comparing an AFTER measured on a synthetic
+        // menu against a BEFORE measured on the real one would compare boards.
+        const c: Combo = { ...shipped(), gridMin: d.gridMin, sessionMin: d.sessionMin, axis: 'law', mode: guard === 'on' ? 'standard' : 'off' }
+        const base = { ...w, minSellableMin: d.minSellableMin }
+        const doorOf = (world: World) => door(world, c, guard === 'on' ? maskOf(world, c) : undefined)
+        const before = advertisedTotal(doorOf(base))
+        for (const r of removable) {
+          const after = advertisedTotal(doorOf(without(base, r.caseId)))
+          const key = `${monoLabel(d)} guard=${guard} ${r.caseId}`
+          if (after < before) found.push(key)
+          rows.push(
+            `${monoLabel(d).padEnd(28)} guard=${guard.padEnd(3)} | ${r.caseId.padEnd(7)} ${r.laneKey} ${span(r.s, r.e)}` +
+              ` | before ¥${String(before).padStart(6)} after ¥${String(after).padStart(6)}` +
+              ` | ${after < before ? `LOSS ${after - before}` : after > before ? `+${after - before}` : '0'}`,
+          )
+        }
+      }
+    }
+
+    if (R6_EVIDENCE) {
+      mkdirSync(R6_EVIDENCE, { recursive: true })
+      writeFileSync(
+        join(R6_EVIDENCE, `DIAL-SWEEP-AFTER-${R6_SHA}.txt`),
+        [
+          '# DIAL-SWEEP (AFTER) — the probe’s Scene-B removal sweep, re-run post-R6',
+          `# tip: ${R6_SHA}`,
+          '#',
+          '# BEFORE = PROBE-R5R6-rawlog-4d10d4d5.txt §PROBE A, measured at 4d10d4d5 with the',
+          '# same axes and the same definition of the advertised total.',
+          `# axes: {gridMin 30/60} × {S 45/60/90} × {minSellableMin 0/30} × guard {on,off}`,
+          `#       × ${removable.length} removable committed bookings = ${rows.length} measurements.`,
+          '#',
+          '# columns: dials | guard | removed booking | advertised ¥ before/after | delta',
+          '#',
+          ...rows,
+          '#',
+          `# VIOLATIONS (after < before): ${found.length} / ${rows.length}`,
+          ...found.map((f) => `#   ${f}`),
+          '',
+        ].join('\n'),
+      )
+    }
+
+    expect([...found].sort()).toEqual([...MONO_PINNED].sort())
   })
 })

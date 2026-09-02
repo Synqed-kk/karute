@@ -75,8 +75,11 @@ describe('破棄の記録 — count tiles past the read cap', () => {
   it('says the counts exclude the older records, on the tiles themselves', async () => {
     await renderWith(true)
 
-    // Both count surfaces carry it: the 今月/全件 tiles and the per-staff block.
-    expect(screen.getAllByText(QUALIFIER)).toHaveLength(2)
+    // ONE count surface since the 8/31 redesign: the 今月/累計 line and the
+    // per-staff line share a single summary band, so the qualifier belongs to
+    // that band once. What is pinned is unchanged — a capped number never
+    // stands on this screen without saying it is capped.
+    expect(screen.getAllByText(QUALIFIER)).toHaveLength(1)
     // …and it is NOT the list-level line standing in for it.
     expect(QUALIFIER).not.toBe(tFor('settings.discardReasons')('truncated'))
   })

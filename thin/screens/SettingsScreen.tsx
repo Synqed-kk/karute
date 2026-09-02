@@ -16,6 +16,7 @@
 // message — both mean the request landed), calls emitRefresh() so the
 // screen re-fetches and the card picks up the new lastRunAt/status.
 
+import { SETTINGS_CONTENT_MAX_W } from '@/components/settings/settings-frame'
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 import { getDataPort } from '@/lib/ports/data-port'
@@ -68,15 +69,25 @@ async function runSyncNow(): Promise<{ ok: boolean; message?: string; code?: str
 // DTO shape.
 export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
   // SettingsShell carries NO horizontal padding of its own — on web the
-  // parent SettingsPageChrome provides the page frame (mx-auto max-w-5xl
-  // space-y-6 p-4 md:p-6, src/components/settings/SettingsPageChrome.tsx).
+  // parent SettingsPageChrome provides the page frame (mx-auto +
+  // SETTINGS_CONTENT_MAX_W + space-y-6 p-4 md:p-6,
+  // src/components/settings/SettingsPageChrome.tsx). The ceiling is shared
+  // from settings-frame.ts so the two doors cannot drift.
+  //
+  // This is NOT web-only headroom: the binary ships to iPad too
+  // (TARGETED_DEVICE_FAMILY = "1,2"), and this door has no 244px sidebar, so
+  // the frame widens from a 1025pt viewport up — every iPad in landscape.
+  // iPad Pro 12.9" landscape (1366pt) goes 926 → 1182px of section surface,
+  // capped by Chrome.tsx's own shared 1280px wrapper rather than by 1440. That
+  // widening is intended (⚖ Liam 8/31, adapt to the screen); phones in
+  // portrait are far below the ceiling and do not move at all.
   // Mounting the shell bare shipped the binary's settings edge-to-edge
   // (Liam field report 7/24: "zoomed in, touching the corners"). Same
   // container geometry, minus PageHeader: the app's top bar already titles
   // the page 設定 — a second h1 would double it (profile precedent:
   // PageView owns its container, no duplicated page title).
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+    <div className={`mx-auto ${SETTINGS_CONTENT_MAX_W} space-y-6 p-4 md:p-6`}>
       <SettingsShell
         orgSettings={dto.orgSettings}
         staffList={dto.staffList}

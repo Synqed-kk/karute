@@ -117,11 +117,27 @@ jest.mock('@/lib/auth/require-permission', () => {
 
 import { listDiscardReasons, myDiscardCountThisMonth } from '@/actions/recording-discards'
 
-const iso = (d: Date) => d.toISOString()
-const now = new Date()
-const thisMonth = (day: number) => iso(new Date(now.getFullYear(), now.getMonth(), day, 10, 0, 0))
-/** Comfortably inside the PREVIOUS month, whatever today is. */
-const lastMonth = iso(new Date(now.getFullYear(), now.getMonth(), 0, 10, 0, 0))
+/** Fixture instants are anchored on the JST calendar, because the action's
+ *  month floor is (⚖ M12) and the runtime's is not — on Vercel it is UTC. Built
+ *  from Intl parts rather than the app's own jst helper, so a fixture cannot
+ *  agree with a broken implementation by construction. Without this, a suite
+ *  run in the last nine hours of a UTC month would seed rows the JST floor has
+ *  already left behind and go red for no reason on screen. */
+const jstNow = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date())
+const [JST_YEAR, JST_MONTH] = jstNow.split('-').map(Number)
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const jstAt = (year: number, month: number, day: number) =>
+  new Date(`${year}-${pad2(month)}-${pad2(day)}T10:00:00+09:00`).toISOString()
+
+const thisMonth = (day: number) => jstAt(JST_YEAR, JST_MONTH, day)
+/** Comfortably inside the PREVIOUS JST month, whatever today is. */
+const lastMonth =
+  JST_MONTH === 1 ? jstAt(JST_YEAR - 1, 12, 15) : jstAt(JST_YEAR, JST_MONTH - 1, 15)
 
 function row(over: Partial<LedgerRow> & { id: string }): LedgerRow {
   return {
@@ -347,6 +363,64 @@ describe('the counts', () => {
       { staffId: 'staff-A', staffName: '原 奏恵', thisMonth: 2 },
       { staffId: 'staff-B', staffName: '佐藤 美咲', thisMonth: 1 },
     ])
+  })
+
+  it('the per-staff list is in NAME order, never highest-first', async () => {
+    // ⚖ 8/25 ruling B. No sorting control is needed to make a leaderboard —
+    // a list fixed highest-first IS one, and the redesign promotes this band
+    // into the desktop header where it is now the first thing read. The
+    // discriminating fixture is a staffer with MORE discards sorting SECOND:
+    // 佐藤 has two, 原 has one, and 原 still leads because of the name.
+    ledger.push(row({ id: 'a', discarded_by: 'staff-B', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'b', discarded_by: 'staff-B', created_at: thisMonth(3) }))
+    ledger.push(row({ id: 'c', discarded_by: 'staff-A', created_at: thisMonth(4) }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.counts.byStaff).toEqual([
+      { staffId: 'staff-A', staffName: '原 奏恵', thisMonth: 1 },
+      { staffId: 'staff-B', staffName: '佐藤 美咲', thisMonth: 2 },
+    ])
+  })
+
+  it('staff we cannot name sort LAST — their position carries no information', async () => {
+    ledger.push(row({ id: 'a', discarded_by: 'card-nobody', created_at: thisMonth(2) }))
+    ledger.push(row({ id: 'b', discarded_by: 'card-nobody', created_at: thisMonth(3) }))
+    ledger.push(row({ id: 'c', discarded_by: 'staff-A', created_at: thisMonth(4) }))
+
+    const res = await listDiscardReasons()
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.counts.byStaff.map((s) => s.staffName)).toEqual(['原 奏恵', null])
+  })
+
+  it('the month floor is JST, so a new Tokyo month starts at Tokyo midnight', async () => {
+    // 2026-08-31 18:00 UTC IS 2026-09-01 03:00 in Tokyo. A floor built in the
+    // RUNTIME's zone — Vercel runs UTC — computes 2026-08-01 and keeps counting
+    // August while the salon is already trading in September, so for the first
+    // nine hours of every month 今月の破棄 and every per-staff count describe
+    // the month that ended, and a discard made at 03:00 on the 1st lands in it.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+    try {
+      jest.setSystemTime(new Date('2026-08-31T18:00:00.000Z'))
+      // 8/20 JST — squarely in the month that ended.
+      ledger.push(row({ id: 'august', created_at: '2026-08-20T05:00:00.000Z' }))
+      // 8/31 16:00 UTC is 9/1 01:00 JST — the only row inside the Tokyo month.
+      ledger.push(row({ id: 'september', created_at: '2026-08-31T16:00:00.000Z' }))
+
+      const res = await listDiscardReasons()
+      if (!res.ok) throw new Error('expected ok')
+
+      expect(res.counts.thisMonth).toBe(1)
+      expect(res.counts.byStaff).toEqual([
+        { staffId: 'staff-A', staffName: '原 奏恵', thisMonth: 1 },
+      ])
+      // The staffer's own half of ruling B reads the same floor, and it is a
+      // SECOND month-floor site — a fix applied to one of them only would leave
+      // a staffer's own header disagreeing with the manager's screen.
+      expect(await myDiscardCountThisMonth()).toBe(1)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 

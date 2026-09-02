@@ -10,6 +10,11 @@
 export async function paginateDedupe<T extends { id: string }>(
   fetchPage: (page: number) => Promise<{ items: T[]; total: number }>,
   maxPages = 50,
+  // The truncation warning below is the ONE operational signal that a cap was
+  // reached, and it used to name the customers cache whatever the caller was —
+  // so a capped recordings read pointed triage at the wrong subsystem. Callers
+  // name themselves; the default keeps every existing one's log line identical.
+  label = 'customers cache',
 ): Promise<T[]> {
   const byId = new Map<string, T>()
   let total = 0
@@ -20,7 +25,7 @@ export async function paginateDedupe<T extends { id: string }>(
     if (items.length === 0 || byId.size >= total) break
   }
   if (byId.size < total) {
-    console.warn(`[customers cache] truncated at ${byId.size}/${total} after ${maxPages} pages`)
+    console.warn(`[${label}] truncated at ${byId.size}/${total} after ${maxPages} pages`)
   }
   return [...byId.values()]
 }

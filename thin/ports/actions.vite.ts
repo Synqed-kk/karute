@@ -38,6 +38,11 @@ import type {
   GetDiscardTranscriptResult,
   ListDiscardReasonsResult,
 } from '@/actions/recording-discards'
+// Same type-only idiom for the two customer-create results — the port must
+// answer the EXACT unions CustomerForm and QuickCreateCustomer branch on
+// (incl. createCustomer's optional duplicateWarning), not a re-typed literal
+// that can drift from the web contract.
+import type { ActionResult as CustomerActionResult, QuickCustomerResult } from '@/actions/customers'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -64,6 +69,70 @@ async function facadeUpdateCustomer(id: string, input: unknown): Promise<ActionR
   if (res.ok) return { success: true, id }
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
   return { success: false, error: body?.error?.message ?? `Update failed (${res.status})` }
+}
+
+// 新規顧客 create, both doors (PHONEWIRE-1). Until now these were notWired
+// stubs: the customers facade tree had `[id]/*` subroutes but no create door,
+// so every phone 新規顧客 save threw. Both POST the collection-level routes
+// that run the SAME shared bodies the web actions run
+// (createCustomerWithClient / createQuickCustomerWithClient).
+//
+// idemPost, like every other create in this file: a retried POST on a flaky
+// phone connection must not mint a second 顧客 (the routes require the header).
+//
+// A 2xx is NOT enough — the discard-port lesson (thin-recording-discard-port
+// .test.ts): handler.ts stringifies its ERRORS, so a facade 502 arrives with a
+// perfectly parseable JSON body. The id is what proves a customer was created.
+//
+// Both wrap fetch+parse in try/catch, the statusCall / facadeUpsertOrgSettings
+// posture (#566) that #814's facadeCustomerDeletion follows: a port that
+// SUBSTITUTES for a server action must RESOLVE its union's failure member on a
+// transport rejection (offline, DNS, a dropped connection mid-body), never
+// reject — a caller without an exception handler would otherwise get an
+// unhandled rejection where the web door hands it a result. Both of today's
+// callers (CustomerForm, QuickCreateCustomer) do catch, so this honors the
+// CONTRACT rather than fixing a live symptom.
+//
+// `error` is EMPTY ON PURPOSE. This port has no i18n access, and both callers
+// DISPLAY this field — CustomerForm toasts it, QuickCreateCustomer renders it
+// — so any literal here reaches a Japanese staffer in English. Empty is the
+// signal "no specific message": both consumers fall through to their own
+// localized generic (`result.error || t('toast.error')`). The web action's
+// translated messages still pass through untouched on every non-transport
+// failure; only a dead network takes this branch.
+async function facadeCreateCustomer(input: unknown): Promise<CustomerActionResult> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/customers', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; duplicateWarning?: string; error?: { message?: string } }
+      | null
+    if (res.ok && body?.id) {
+      // duplicateWarning is FORWARDED, not dropped: CustomerForm toasts it, and
+      // a phone that silently lost it would be a quieter surface than web.
+      return {
+        success: true,
+        id: body.id,
+        ...(body.duplicateWarning ? { duplicateWarning: body.duplicateWarning } : {}),
+      }
+    }
+    return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+  } catch {
+    return { success: false, error: '' }
+  }
+}
+
+async function facadeCreateQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/customers/quick', idemPost({ name }))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; name?: string; error?: { message?: string } }
+      | null
+    // The picker selects the row by the name core STORED, same as web.
+    if (res.ok && body?.id) return { success: true, id: body.id, name: body.name ?? name }
+    return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+  } catch {
+    return { success: false, error: '' }
+  }
 }
 
 const enc = encodeURIComponent
@@ -502,9 +571,11 @@ async function facadeListReassignCustomerOptions(
 
 // -- カルテ list: search-reveal (PR-1b 検索リビール). READ, degrades to no
 // candidate on any failure — same graceful convention as
-// facadeListReassignCustomerOptions above. KaruteRecordListView renders the
-// row itself (no create button on thin — createManualKaruteRecord stays a
-// deliberate notWired stub; the row navigates to /customers/{id} instead).
+// facadeListReassignCustomerOptions above. NoKaruteRevealRow renders the same
+// カルテを作成 button on both doors now (⚖ Liam 2026-09-02): the phone-side
+// suppression stood on "createManualKaruteRecord is a notWired stub here",
+// which PHONEWIRE-2A ended by wiring it (facadeCreateManualKaruteRecord,
+// below). KaruteListRow.tsx owns that rendering decision.
 async function facadeRevealNoKaruteCustomer(
   query: string,
 ): Promise<{ candidate: import('@/actions/karute').KaruteRevealCandidate | null } | { error: string }> {
@@ -616,6 +687,48 @@ async function facadeSaveKarute(input: SaveKaruteInput): Promise<{ error: string
   throw new Error('NEXT_REDIRECT')
 }
 
+// ＋新規カルテ manual create (PHONEWIRE-2A) — the web action's twin, shape for
+// shape: it redirects OUTSIDE its try/catch because redirect() throws a
+// control-flow exception a catch would swallow, and this port keeps that exact
+// structure — a NEXT_REDIRECT thrown INSIDE the try would come back out as an
+// { error }, turning a durable success into a visible failure.
+//
+// A 2xx alone is NOT a create: handler.ts stringifies its ERRORS, so a facade
+// 502 arrives with a parseable JSON body (the thin-recording-discard-port
+// lesson). The id is what proves a カルテ exists.
+//
+// FAILURE RETURNS { error }, never throws: NewKaruteDialog renders only
+// RETURNED errors — a throw inside its transition bypasses the inline
+// role="alert" and leaves the dialog hanging (Greptile P1 on #484). That is
+// also why the request is try/caught: a dropped-wifi rejection must land as
+// that same { error }.
+async function facadeCreateManualKaruteRecord(input: {
+  customerId: string
+  staffId: string
+  sessionDate: string
+  durationMinutes: number
+  service: string
+}): Promise<{ error: string } | void> {
+  let id: string
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/karute/manual', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; error?: { message?: string } }
+      | null
+    if (!res.ok || !body?.id) {
+      return { error: body?.error?.message ?? `Create failed (${res.status})` }
+    }
+    id = body.id
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+  // web redirects by throwing NEXT_REDIRECT; thin navigates then throws the
+  // same marker, so the action's never-returns-on-success contract holds
+  // identically on both doors (facadeSaveKarute above, same pattern).
+  thinRedirect(`/karute/${id}`)
+  throw new Error('NEXT_REDIRECT')
+}
+
 async function facadeSaveKaruteInline(
   input: SaveKaruteInput,
 ): Promise<{ id: string } | { error: string }> {
@@ -673,6 +786,54 @@ async function facadeGrantCustomerConsent(
     | null
   if (res.ok) return { ok: true, consent: body?.consent }
   return { ok: false, error: body?.error?.message ?? `Grant failed (${res.status})` }
+}
+
+// 30-day customer deletion, both doors (PHONEWIRE-2B). Until now these were
+// notWired stubs: the privacy tab's 削除 CTA and the banner's 元に戻す each
+// threw into their own catch and toasted a bare 失敗 — live-looking phone
+// controls for an act only the web could perform. No Idempotency-Key, matching
+// the routes' design ruling (idempotent set-ops with their own guards).
+//
+// The GUARD CODES are the contract: PrivacyTabContent branches on
+// 'already_scheduled', CustomerDeletionBanner on 'window_expired' and on
+// 'not_scheduled' — which it reads as SUCCESS (someone else already undid it).
+// So the 2xx body's `error` rides through VERBATIM; a re-worded message here
+// collapses all three into the generic failure toast.
+//
+// A non-2xx is the web union's own catch-all 'failed', read off `!res.ok`
+// alone and never from the body: handler.ts's error body carries `error` as an
+// OBJECT under the same key the 2xx body uses for a string code.
+async function facadeCustomerDeletion(
+  customerId: string,
+  op: 'schedule' | 'cancel',
+): Promise<ActionResult> {
+  // try/catch, the statusCall / facadeUpsertOrgSettings posture (#566): this
+  // port SUBSTITUTES for a web server action whose own try/catch resolves
+  // { success: false, error: 'failed' } on ANY throw, so it must resolve too —
+  // a caller without an exception handler of its own would otherwise get an
+  // unhandled rejection where the web door hands it a result. (Both of today's
+  // callers do catch, so this honors the CONTRACT rather than fixing a live
+  // symptom.) The rejection folds into 'failed' and never into `error`: that
+  // field is a guard CODE the UI branches on, and a transport message
+  // ('Failed to fetch') must never arrive dressed as one.
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/customers/${enc(customerId)}/deletion/${op}`,
+      { method: 'POST' },
+    )
+    if (!res.ok) return { success: false, error: 'failed' }
+    const body = (await res.json().catch(() => null)) as ActionResult | null
+    if (body?.success === true && typeof body.id === 'string') return { success: true, id: body.id }
+    // A 2xx whose body proves nothing (empty, truncated, a shape drift the DTO
+    // would have caught server-side) is not an outcome — same posture as the
+    // create ports two screens up.
+    if (body?.success === false && typeof body.error === 'string') {
+      return { success: false, error: body.error }
+    }
+    return { success: false, error: 'failed' }
+  } catch {
+    return { success: false, error: 'failed' }
+  }
 }
 
 async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean }> {
@@ -857,8 +1018,14 @@ export default proxy
 // name the aliased modules (customers / packs / memory / regenerate-karute) export
 // must exist. This list IS the mutation-RPC surface one screen depends on.
 // -- customers
-export const createCustomer = notWired('createCustomer')
-export const createQuickCustomer = notWired('createQuickCustomer')
+// Same type-only `satisfies` pins as the discard pair below: they bind the
+// RETURN unions and the declared parameter types, NOT arity — the real pin on
+// the argument reaching the wire is the port test's URL/body assertion
+// (thin-customer-create-port.test.ts).
+export const createCustomer =
+  facadeCreateCustomer satisfies typeof import('@/actions/customers').createCustomer
+export const createQuickCustomer =
+  facadeCreateQuickCustomer satisfies typeof import('@/actions/customers').createQuickCustomer
 export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
 export const listCustomerPhotos = facadeListCustomerPhotos
@@ -1140,18 +1307,48 @@ export const discardRecordingWithReason = async (
   }
 }
 
-// A2-2 — the WORDS behind a reasoned discard. NOT AVAILABLE ON THE PHONE THIS
-// ROUND: both persist actions read core through a 'use server' client and the
-// thin shell would need its own facade route before it could ask the same
-// thing. Unreachable rather than merely stubbed — the record page checks
-// `supportsDiscardTranscript` (false on this port) BEFORE it keeps any take
-// back, so a phone discard behaves exactly as it did before A2-2. These entries
-// exist because the boundary plugin substitutes this module for every
-// src/actions/ import: without the names the thin BUILD fails, which is the
-// gate working, not a workaround.
-const discardTranscriptUnsupported = async () => ({ skipped: 'unsupported' }) as const
-export const persistDiscardTranscript = discardTranscriptUnsupported
-export const transcribeAndPersistDiscard = discardTranscriptUnsupported
+// A2-2 — the WORDS behind a reasoned discard. LIVE ON THE PHONE since
+// PHONEWIRE-2C: both calls POST the ONE facade door
+// (…/recordings/discards/transcript), which runs the SAME shared bodies the web
+// actions run. This port used to answer `unsupported`, and the record page's
+// `supportsDiscardTranscript` check then deleted the take at the gate — the
+// field bug being fixed here. No Idempotency-Key: the dedupe is server-derived.
+//
+// THE STATUS MAP IS THE CONTRACT. The relay retries ONLY `error: 'failed'` and
+// settles everything else, so a wrong mapping either deletes a take whose words
+// never landed or re-stages the whole audio on every record-page mount for the
+// take-store's seven days:
+//   2xx  → the shared body's own answer, verbatim (ok / skipped / not_discarded)
+//   403  → 'forbidden', the terminal refusal the web action returns for a
+//          resolved identity without records.write, or for another tenant's key
+//   else → 'failed', the retryable one (401 blips, 5xx, an unparseable body, a
+//          dead network)
+type DiscardTranscriptWrite = Awaited<
+  ReturnType<typeof import('@/actions/recording-discard-transcript').persistDiscardTranscript>
+>
+async function facadeDiscardTranscript(input: unknown): Promise<DiscardTranscriptWrite> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/discards/transcript', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    if (res.status === 403) return { error: 'forbidden' }
+    const body = (await res.json().catch(() => null)) as DiscardTranscriptWrite | null
+    if (!res.ok || !body) return { error: 'failed' }
+    return body
+  } catch {
+    return { error: 'failed' }
+  }
+}
+export const persistDiscardTranscript = ((input) =>
+  facadeDiscardTranscript(
+    input,
+  )) satisfies typeof import('@/actions/recording-discard-transcript').persistDiscardTranscript
+export const transcribeAndPersistDiscard = ((input) =>
+  facadeDiscardTranscript(
+    input,
+  )) satisfies typeof import('@/actions/recording-discard-transcript').transcribeAndPersistDiscard
 
 // 破棄の記録 — the staffer's OWN monthly discard count (⚖ 8/25 ruling B, staff
 // half). STILL NOT AVAILABLE ON THE PHONE, and no longer for the same reason as
@@ -1188,9 +1385,33 @@ async function facadeListDiscardReasons(): Promise<ListDiscardReasonsResult> {
     // `counts.byStaff.length` unguarded, so a truthy non-array would pass a
     // presence check and throw at render — a blank tab instead of the honest
     // 読み込めませんでした this branch exists to produce.
-    if (!body || !Array.isArray(body.rows) || !body.counts || !Array.isArray(body.counts.byStaff))
+    // The same rule reaches the ELEMENTS, and the redesign is what raised the
+    // stakes: the section used to read four fields per row and now reads nine,
+    // at three call sites each across two compositions. A null or non-object
+    // element passes an array check and throws at `rows.find(…)` — in the
+    // component BODY, before a row is drawn and outside every catch, which is
+    // the blank tab this branch exists to prevent. O(n) over a list already
+    // capped at MAX_PAGES × PAGE_SIZE, so it costs nothing measurable.
+    const shaped = (v: unknown) => !!v && typeof v === 'object'
+    if (
+      !body ||
+      !Array.isArray(body.rows) ||
+      !body.rows.every(shaped) ||
+      !body.counts ||
+      !Array.isArray(body.counts.byStaff) ||
+      !body.counts.byStaff.every(shaped)
+    )
       return { ok: false, error: 'failed' }
-    return { ok: true, rows: body.rows, counts: body.counts, truncated: body.truncated === true }
+    return {
+      ok: true,
+      rows: body.rows,
+      counts: body.counts,
+      truncated: body.truncated === true,
+      // `=== true` for the old-wire reason the sibling flag has: a server older
+      // than this build sends no key at all, and the honest answer then is that
+      // we have no report of partial detail — never that there IS one.
+      detailTruncated: body.detailTruncated === true,
+    }
   } catch {
     return { ok: false, error: 'failed' }
   }
@@ -1212,7 +1433,27 @@ async function facadeGetDiscardTranscript(
     // answer that means anything is the route's own (core's 404 — a swept
     // session). An unreadable body is not an answer about the words.
     if (!body || !Array.isArray(body.segments)) return { ok: false, error: 'failed' }
-    return { ok: true, segments: body.segments, durationSeconds: body.durationSeconds ?? null }
+    // `startTime` normalised AT THE BOUNDARY: a deployment older than the
+    // 破棄の記録 redesign answers without the key, and a malformed one with
+    // something that is not a number. Either way the panel must simply place no
+    // 5-minute markers — never compute them from a missing value. Same
+    // never-reject posture as the shape guard above: a segment whose time we
+    // cannot read still has WORDS, and the words are what this screen is for.
+    return {
+      ok: true,
+      // `text` carries the SAME guard as the clock beside it. Guarding one and
+      // trusting the other read as an oversight rather than a decision, and a
+      // non-string here renders raw into the panel. Not a rejection — the
+      // never-reject posture holds for display-only values — just the honest
+      // empty string for something that is not words. The twin's own
+      // `.filter(!!s.text?.trim())` is what keeps blanks off the screen on
+      // every honest payload.
+      segments: body.segments.map((s) => ({
+        text: typeof s.text === 'string' ? s.text : '',
+        startTime: typeof s.startTime === 'number' ? s.startTime : null,
+      })),
+      durationSeconds: body.durationSeconds ?? null,
+    }
   } catch {
     return { ok: false, error: 'failed' }
   }
@@ -1630,17 +1871,11 @@ export const removeStaffPin = facadeRemoveStaffPin
 export const setStaffPin = facadeSetStaffPin
 export const enrollVoiceAction = facadeEnrollVoice
 export const revokeVoiceAction = facadeRevokeVoice
-// -- karute (sessions list — packet 05; New カルテ create is unwired in the
-//    read-only batch, but speaks the action's own { error } | void contract:
-//    NewKaruteDialog only renders RETURNED errors — a throw inside its
-//    transition bypasses the error UI and leaves the dialog hanging (Greptile
-//    P1 on #484). Honest failure through the dialog's own path, never a
-//    silent success.
-export const createManualKaruteRecord = async (): Promise<{ error: string }> => ({
-  error:
-    '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
-    '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
-})
+// -- karute (sessions list — packet 05). ＋新規カルテ manual create, wired in
+//    PHONEWIRE-2A; it was a deliberate SOFT stub until now. See the port body
+//    above for the failure-returns-{error} ruling (Greptile P1 on #484).
+export const createManualKaruteRecord = facadeCreateManualKaruteRecord satisfies
+  typeof import('@/actions/karute').createManualKaruteRecord
 // -- appointments (design-parity P-B 2/2). The mutation routes are RPC-style:
 //    the web action's result shape rides the 2xx body VERBATIM, so these
 //    ports pass it through — CancelBookingSheet branches on `code`/`burnError`
@@ -1780,8 +2015,14 @@ export const regenerateKarute = facadeRegenerateKarute
 // that probe the gate on mount.
 export const canUseDevRegen = async (): Promise<boolean> => false
 // Drift 7/16-18: deletion lane added these to the customer profile privacy tab.
-export const scheduleCustomerDeletion = notWired('scheduleCustomerDeletion')
-export const cancelCustomerDeletion = notWired('cancelCustomerDeletion')
+// Wired to their facade doors in PHONEWIRE-2B (see facadeCustomerDeletion).
+// The `satisfies` pins are type-only (erased by vite — same idiom as
+// updateKaruteOutcome below): a signature drift between the web actions and
+// these ports would otherwise be invisible at both build gates.
+export const scheduleCustomerDeletion = ((id: string) =>
+  facadeCustomerDeletion(id, 'schedule')) satisfies typeof import('@/actions/customers').scheduleCustomerDeletion
+export const cancelCustomerDeletion = ((id: string) =>
+  facadeCustomerDeletion(id, 'cancel')) satisfies typeof import('@/actions/customers').cancelCustomerDeletion
 export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
 // -- entry edit (edit-layer W2 PR-B — edit-save only, no delete yet)

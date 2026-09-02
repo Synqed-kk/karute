@@ -1814,7 +1814,7 @@ describe('⚖ the sibling-sheet fence', () => {
 
   /** Every unscoped sibling rule that COULD match something in this room — every
    *  class it names is a class this room's elements carry. Derived fresh from
-   *  today's eight sibling sheets. */
+   *  today's nine sibling sheets. */
   const rivals = (() => {
     const out: Array<{ sheet: string; sel: string; n: number; names: string[] }> = []
     for (const d of dirs) {

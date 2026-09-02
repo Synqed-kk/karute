@@ -46,6 +46,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // (app-api-revocation-coverage.test.ts) fails if any facade write method ships
   // a key that is not in this set.
   'customer.consent.revoke',
+  // 新規顧客 create (both doors) — a durable customer-PII write, the same
+  // class as customer.update above.
+  'customer.create',
+  'customer.quickCreate',
   'customer.photo.upload',
   'customer.photo.delete',
   'customer.memory.add',
@@ -56,6 +60,12 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.pack.create',
   'customer.pack.redeem',
   'customer.lifecycle.set',
+  // the 30-day deletion pair (PHONEWIRE-2B) — the most consequential customer
+  // write there is: one POST drops the record from every list and starts the
+  // erasure clock, the other takes it back. A just-terminated staffer must not
+  // reach either on the local fast-path.
+  'customer.deletion.schedule',
+  'customer.deletion.cancel',
   // session-detail mutations (packet 07 batch 4 — recording-privacy + AI-on-PII).
   // regenerate reads the raw transcript + runs the LLM; outcome upserts the
   // coaching label. Both re-check revocation (no local fast-path).
@@ -87,6 +97,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // durable, staff-attributed audit row, so a just-terminated staffer must not
   // be able to file one on the local fast-path.
   'recordings.discard',
+  // …and the WORDS behind that receipt (PHONEWIRE-2C) — a POST that persists
+  // customer speech onto the discarded session AND, on the staged shape, spends
+  // a transcription run on it. Both halves are exactly what a just-terminated
+  // staffer must not reach on the local fast-path.
+  'recordings.discards.transcript.write',
   // recording-flow AI compute (packet 08 Decision 1/2 — LLM/transcription on
   // customer voice). All are POSTs (no durable write, hence no Idempotency-Key —
   // the recorded compute-POST exemption), so the coverage assertion requires
@@ -103,6 +118,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // the karute SAVE (customer voice → durable record; consent-gated) and the
   // pack-redemption UNDO — both effectful writes → server round-trip.
   'karute.save',
+  // ＋新規カルテ manual create (PHONEWIRE-2A) — a durable karute write, the
+  // same class as karute.save above; a just-terminated staffer must not keep
+  // filing session records.
+  'karute.manualCreate',
   'customer.pack.undoRedemption',
   // booking mutations (design-parity P-B 2/2): status writes + the guarded
   // ticket burn (cancel/no-show can consume a 回数券 session — money). A
