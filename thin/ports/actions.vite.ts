@@ -93,12 +93,13 @@ async function facadeUpdateCustomer(id: string, input: unknown): Promise<ActionR
 // callers (CustomerForm, QuickCreateCustomer) do catch, so this honors the
 // CONTRACT rather than fixing a live symptom.
 //
-// The message is the constant 'Network error', matching facadeUpsertOrgSettings'
-// own catch fallback and never the raw engine text ('Load failed' /
-// 'Failed to fetch'), which both callers' comments say must never reach a user.
-// Not an empty string either: QuickCreateCustomer renders result.error
-// directly, so an empty one would show a silent failure — the exact class of
-// bug #810 was opened to end.
+// `error` is EMPTY ON PURPOSE. This port has no i18n access, and both callers
+// DISPLAY this field — CustomerForm toasts it, QuickCreateCustomer renders it
+// — so any literal here reaches a Japanese staffer in English. Empty is the
+// signal "no specific message": both consumers fall through to their own
+// localized generic (`result.error || t('toast.error')`). The web action's
+// translated messages still pass through untouched on every non-transport
+// failure; only a dead network takes this branch.
 async function facadeCreateCustomer(input: unknown): Promise<CustomerActionResult> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/customers', idemPost(input))
@@ -116,7 +117,7 @@ async function facadeCreateCustomer(input: unknown): Promise<CustomerActionResul
     }
     return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
   } catch {
-    return { success: false, error: 'Network error' }
+    return { success: false, error: '' }
   }
 }
 
@@ -130,7 +131,7 @@ async function facadeCreateQuickCustomer(name: string): Promise<QuickCustomerRes
     if (res.ok && body?.id) return { success: true, id: body.id, name: body.name ?? name }
     return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
   } catch {
-    return { success: false, error: 'Network error' }
+    return { success: false, error: '' }
   }
 }
 

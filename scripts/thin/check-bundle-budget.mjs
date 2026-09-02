@@ -292,7 +292,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // the proof is that all three chunks came out at exactly bake 21's sizes
 // (en 129,609 · index 952,492 · vendor 937,082 = 2,019,183).
 //
-// This round's tip measures 2,018,793 B the release way — 390 B SMALLER than
+// This round's tip measures 2,018,785 B the release way — 398 B SMALLER than
 // its base, because tab-calm-2 deletes more class text than the offline-catch
 // and the un-suppressed create button add. So there is no feature overage to
 // absorb; the ceiling moves because the number it was compared against was the
@@ -308,7 +308,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // bundle-gate step placeholder env of release LENGTH (24 / 40 / 208, plus the
 // two build stamps at 8 / 2) — obvious 'x'-padded fakes, never a real value —
 // so its build reproduces the release-way measurement byte-for-byte. Verified
-// 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,793 B, equal
+// 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,785 B, equal
 // to the release-way figure above. CI's printed figure is no longer light;
 // treat it as the real one.
 const BUDGET_BYTES = 2_024_000

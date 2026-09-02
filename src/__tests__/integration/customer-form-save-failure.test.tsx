@@ -29,12 +29,15 @@ jest.mock('sonner', () => ({
 
 const createCustomer = jest.fn()
 const updateCustomer = jest.fn()
+const createQuickCustomer = jest.fn()
 jest.mock('@/actions/customers', () => ({
   createCustomer: (...args: unknown[]) => createCustomer(...args),
   updateCustomer: (...args: unknown[]) => updateCustomer(...args),
+  createQuickCustomer: (...args: unknown[]) => createQuickCustomer(...args),
 }))
 
 import { CustomerForm } from '@/components/customers/CustomerForm'
+import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 
 function fillAndSubmit() {
   fireEvent.change(screen.getByPlaceholderText('form.familyNamePlaceholder'), {
@@ -102,5 +105,50 @@ describe('CustomerForm — a rejecting save action', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     expect(toastWarning).toHaveBeenCalledWith('同名の顧客がいます')
     expect(toastError).not.toHaveBeenCalled()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────
+// The offline message is LOCALIZED, on BOTH doors (PHONEWIRE-3)
+// ─────────────────────────────────────────────────────────────
+// The thin port substitutes for these server actions, and on a transport
+// rejection it resolves { success: false, error: '' } — empty because the port
+// has no i18n and both consumers DISPLAY this field, so any literal there
+// reaches a Japanese staffer in English (Greptile #816). The contract only
+// holds if BOTH consumers treat an empty message as "use my own localized
+// generic", so both halves are pinned here. next-intl is key-echo mocked, so
+// 'toast.error' standing in for エラーが発生しました / Something went wrong is
+// the proof the LOCALIZED string is what renders.
+describe('an offline failure with no message of its own', () => {
+  it('CustomerForm toasts the localized generic, never an empty toast', async () => {
+    createCustomer.mockResolvedValue({ success: false, error: '' })
+
+    render(<CustomerForm />)
+    fillAndSubmit()
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('toast.error'))
+    expect(toastError).not.toHaveBeenCalledWith('')
+  })
+
+  it('QuickCreateCustomer shows the localized generic, never a silent failure', async () => {
+    createQuickCustomer.mockResolvedValue({ success: false, error: '' })
+
+    render(<QuickCreateCustomer onCreated={jest.fn()} onCancel={jest.fn()} initialName="山田" />)
+    fireEvent.click(screen.getByRole('button', { name: 'form.create' }))
+
+    // role=alert is the whole point: an empty string is falsy, so before the
+    // fallback this element did not render AT ALL and the save died in silence.
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('toast.error')
+  })
+
+  it('QuickCreateCustomer still shows a REAL server message verbatim', async () => {
+    createQuickCustomer.mockResolvedValue({ success: false, error: '名前を入力してください' })
+
+    render(<QuickCreateCustomer onCreated={jest.fn()} onCancel={jest.fn()} initialName="山田" />)
+    fireEvent.click(screen.getByRole('button', { name: 'form.create' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('名前を入力してください')
   })
 })
