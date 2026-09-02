@@ -639,12 +639,23 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-karute',
         '@/business/lib/fixtures-recording',
+        // ⚠ THE カルテ ROOM'S OWN CATEGORY VOCABULARY, BORROWED RATHER THAN
+        // FORKED (v5, the 前回の施術メモ block). The briefing prints last
+        // session's entries under the labels that room already ships; a copy of
+        // those strings in the recording room would be a second home for one
+        // vocabulary, and the two would drift the first time one is edited.
+        '@/business/lib/karute',
         '@/business/lib/recording',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/recording/RecordingScreen.tsx': [
         '@/business/lib/guide',
         '@/business/lib/recording',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY (v5). It is the accepted
+        // mock's own `makeSpring`, ported rather than re-invented, and it is
+        // PURE — no React, no DOM — so a second easing written by hand beside it
+        // would be a second motion language on one page.
+        '@/business/lib/spring',
         'next/link',
         'react',
       ],

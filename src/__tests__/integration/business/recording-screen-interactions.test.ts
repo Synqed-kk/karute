@@ -285,9 +285,13 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
     expect(reduced.length).toBeGreaterThan(0)
     // every @keyframes this room defines is switched off for a reader who asked
     const names = [...CSS_CODE.matchAll(/@keyframes (\w+)/g)].map((m) => m[1])
-    expect(names.sort()).toEqual(['rcBreathe', 'rcPing'])
+    expect(names.sort()).toEqual(['rcBreathe', 'rcPing', 'rcRowsIn'])
     expect(reduced).toContain('animation: none')
     expect(reduced).toContain('transition: none')
+    // …and each of the three is switched off BY ITS USER, named here so a
+    // fourth keyframe cannot arrive ungated behind a passing count.
+    expect(reduced).toMatch(/\.rc-flag \.rc-dot,\s*\n\s*\.biz \.pg-recording \.rc-ring \{ animation: none; \}/)
+    expect(reduced).toContain('.rc-rows { animation: none; }')
     // the dot is still THERE — it simply stops moving (never hidden)
     expect(reduced).not.toMatch(/\.rc-dot[^}]*display: none/)
   })
@@ -305,15 +309,21 @@ describe('⚖ §2f — the phone is the DESIGN source, quoted rather than approx
   })
 
   it('⚖ R13 — no interactive element is black-filled, and solid accent = commit only', () => {
-    // the THREE solid accent fills in the room are the three COMMIT-SHAPED
+    // the FOUR solid accent fills in the room are the four COMMIT-SHAPED
     // controls: the recovery banner's 保存する, the use confirm's この録音を使う,
-    // and the 復元可能 row's 保存する — the phone's own solid tier
+    // the 復元可能 row's 保存する — the phone's own solid tier
     // (RecordingsInboxCard's SOLID_BTN), shown at its real weight and REFUSED
-    // (the ＋新規カルテ pattern). Hiding what the room WOULD do is what makes a
-    // refusal unreadable (⚖ 47).
+    // (the ＋新規カルテ pattern) — and the consent line's 同意を取り直す /
+    // 同意を取得, which is the one control on that line that CHANGES something:
+    // it opens the read-aloud flow whose confirm records the grant, exactly the
+    // shape 「この録音を使う」 already has. Hiding what the room WOULD do is what
+    // makes a refusal unreadable (⚖ 47).
+    // ⚠ AND NOTHING NON-PRESSABLE IS IN THE LIST. The hero chip's status dot
+    // wanted a solid accent and took `currentColor` instead — the one-way accent
+    // law reserves a saturated FILL for things a person can press.
     const solids = [...CSS_CODE.matchAll(/background: var\(--rc-accent\)/g)].length
-    expect(solids).toBe(3) // rc-recovery-save, rc-commit, rc-row-save
-    for (const cls of ['.rc-recovery-save', '.rc-commit', '.rc-row-save']) {
+    expect(solids).toBe(4) // rc-recovery-save, rc-commit, rc-row-save, rc-cl-take
+    for (const cls of ['.rc-recovery-save', '.rc-commit', '.rc-row-save', '.rc-cl-take']) {
       expect(CSS_CODE).toMatch(new RegExp(`\\${cls} \\{[^}]*background: var\\(--rc-accent\\)`, 's'))
     }
     // …and all three ARE commits: two of them refuse, and the third opens the
@@ -398,19 +408,27 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     expect(phone).toMatch(/width: 46px; height: 46px/)
   })
 
-  it('the list becomes cards under a 790px PAGE — no sideways drag to read a row', () => {
-    // ⚠ 790 OF PAGE, NOT 900 OF VIEWPORT. Six columns need about 790px of page
-    // to stay readable; keying that off the viewport meant a 1024-wide window
-    // with the rail OPEN — a 760px page, NARROWER than the 824px page a 900px
-    // window gets — kept all six columns and squeezed 録音者 to two characters.
-    const at = CSS_CODE.indexOf('@container rcpage (max-width: 789px)')
+  it('the list becomes cards under an 844px PAGE — no sideways drag to read a row', () => {
+    // ⚠ 844 OF PAGE, NOT A VIEWPORT BAND, and it is DERIVED: the five v5 tracks
+    // at their minima are 240 + 116 + 132 + 124 + 190, plus four 12px gaps and
+    // the card's two 12px paddings = 874 at full caps and 844 at the tight set's
+    // お客様 floor. Keying that off the viewport meant a 1024-wide window with
+    // the rail OPEN — a 720px page, NARROWER than the 907px page a 1023px window
+    // gets — kept every column on the narrower of the two.
+    const at = CSS_CODE.indexOf('@container rcpage (max-width: 843px)')
     expect(at).toBeGreaterThan(0)
     const cards = CSS_CODE.slice(at, CSS_CODE.indexOf('@container', at + 10))
     expect(cards).toContain('.rc-rowhead { display: none; }')
-    expect(cards).toContain('grid-template-areas: "cust state" "date dur" "by act" "reason reason"')
-    // …and the reason is its OWN spanning line at EVERY band, never a child of
-    // the state cell whose sentence would size that cell's track.
-    expect(CSS_CODE).toContain('". reason reason reason reason reason"')
+    // the mock's own three-line card: date · chip / customer (+ sub) / 録音者 · 長さ
+    expect(cards).toContain('grid-area: 1 / 1')
+    expect(cards).toContain('grid-area: 2 / 1 / auto / span 2')
+    expect(cards).toContain('content: "録音者 "')
+    expect(cards).toContain('content: "長さ "')
+    // ⚠ AND THE SUB-MESSAGE IS INSIDE THE お客様 TRACK AT EVERY BAND (v5 D2) —
+    // never absolute, never spanning, so it cannot overlap a neighbour by
+    // construction and surplus width becomes readable text instead of a gap.
+    expect(CSS_CODE).toMatch(/\.rc-custtxt \{[^}]*flex-direction: column/)
+    expect(SRC_CODE).toMatch(/<span className="rc-custtxt">[\s\S]{0,900}?<span className="rc-sub">/)
   })
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own list, and NOT from this sheet', () => {

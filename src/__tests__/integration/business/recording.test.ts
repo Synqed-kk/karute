@@ -1159,7 +1159,7 @@ describe('⚖ 8/25 ruling B — the counts', () => {
     // an HONEST zero, computed from rows she can see. A null would render
     // nothing at all, which is the case the screen must also handle.
     expect(props.ownDiscardLine === null || /^自分が今月破棄した録音 \d+件$/.test(props.ownDiscardLine)).toBe(true)
-    expect(SCREEN_CODE).toContain('{props.ownDiscardLine && <p className="rc-own-count">')
+    expect(SCREEN_CODE).toContain('{props.ownDiscardLine && <> ・ {props.ownDiscardLine}</>}')
   })
 })
 
@@ -1470,14 +1470,52 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
     expect(SCREEN_CODE).toContain("disabled={phase !== 'idle'}")
   })
 
-  it('a store with no bookings today gets a DESIGNED empty state, not a blank', async () => {
+  it('an operator with no OWN bookings today gets a DESIGNED empty state, not a blank', async () => {
     const now = new Date()
     const { props } = await recordingProps({
       locale: 'ja', store: STORE_A,
       world: { appointments: appointments(now).filter((a) => jstDayKey(a.starts_at) !== jstDayKey(now)) },
     })
     expect(props.contexts).toEqual([])
-    expect(SCREEN_CODE).toContain('本日の予約がありません')
+    // ⚠ AND IT SAYS WHOSE LIST IS EMPTY. The picker is staff-scoped (⚖ Liam F-1
+    // R1-3), so 「本日の予約がありません」 would be a claim about the STORE — a
+    // different sentence, and a false one on an evening when colleagues are
+    // still working. The copy names the operator's own list instead.
+    expect(props.emptyOwnScope).toEqual({
+      title: '本日、あなたの担当の予約はありません',
+      body: '予約が入ると、ここに時間順で並びます。録音は予約を選んでから始めます。',
+    })
+    expect(SCREEN_CODE).toContain('あなたの担当の予約はありません')
+  })
+
+  it('⚖ LIAM F-1 R1-3 — the picker is STAFF-SCOPED: bookings under your OWN name', async () => {
+    const now = new Date()
+    const todays = appointments(now).filter((a) => a.store_id === STORE_A && jstDayKey(a.starts_at) === jstDayKey(now))
+    const mine = 'p-06'
+    const scoped = pickerOptions({
+      appointments: todays, customers, menus, staff, grants: consentGrants,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffId: mine,
+    })
+    const all = pickerOptions({
+      appointments: todays, customers, menus, staff, grants: consentGrants,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffId: null,
+    })
+    // there IS something to exclude — a colleague's booking on the same day
+    expect(all.length).toBeGreaterThan(scoped.length)
+    // …and every option that survives is hers
+    for (const o of scoped) {
+      expect(todays.find((a) => a.id === o.appointmentId)!.staff_id).toBe(mine)
+    }
+    // ⚠ IT IS A READ, NOT A FILTER OVER A RENDERED LIST: a colleague's booking
+    // never becomes an option, so nothing about it — a customer's name, a menu,
+    // a consent state — is in the props at all.
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    const ids = props.contexts.map((c) => c.appointmentId)
+    const notHers = todays.filter((a) => a.staff_id !== mine).map((a) => a.id)
+    expect(notHers.length).toBeGreaterThan(0)
+    for (const id of notHers) expect(ids).not.toContain(id)
+    // …and the label SAYS whose list it is and how long it is
+    expect(props.pickerLabel).toBe(`あなたの担当の予約 ${props.contexts.length}件（${props.operatorName}・本日）`)
   })
 })
 
@@ -1930,8 +1968,24 @@ describe('⚖ the sibling-sheet fence', () => {
     }
     // …and NOTHING pans sideways, anywhere, ever.
     expect(decls).not.toMatch(/overflow-x\s*:\s*(auto|scroll)/)
-    // …and no `overflow: hidden` either, or a focus ring would be clipped (F2)
-    expect(decls).not.toMatch(/overflow\s*:\s*hidden/)
+    // …and NOTHING THAT HOLDS A CONTROL CLIPS, or a focus ring would be cut off
+    // (the room-3 F2 lesson). The ban used to be blanket, which no room with an
+    // ellipsis or a line clamp can actually obey — so it names what it protects
+    // instead, and is stricter for it: `overflow: hidden` is legal ONLY in the
+    // same block as a text truncation, which is a span of words and never a
+    // focusable thing.
+    const clippers = blocks.filter((b) => /overflow\s*:\s*hidden/.test(b.body))
+    expect(clippers.map((b) => b.sel)).toEqual(
+      clippers.filter((b) => /text-overflow\s*:\s*ellipsis|-webkit-line-clamp|-webkit-box-orient/.test(b.body)).map((b) => b.sel),
+    )
+    expect(clippers.length).toBeGreaterThan(0)
+    // …and the four COLLAPSE panels, which genuinely must clip a height, use
+    // `overflow: clip` with a margin: `clip` cannot become a scroll container at
+    // all, and the margin lets the focus ring paint outside the box.
+    const TRUNCATES = /text-overflow\s*:\s*ellipsis|-webkit-line-clamp|-webkit-box-orient/
+    const clipped = blocks.filter((b) => /overflow\s*:\s*clip/.test(b.body) && !TRUNCATES.test(b.body))
+    expect(clipped.length).toBe(2) // .rc-collapse (four users) and .rc-fn-panel
+    for (const b of clipped) expect(b.body).toMatch(/overflow-clip-margin:\s*6px/)
   })
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own opt-in list, not from here', () => {

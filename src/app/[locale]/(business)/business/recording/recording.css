@@ -77,9 +77,17 @@
    wrappers — a reader hunting a row inside a box. `max-height`, `overflow-y`,
    `overscroll-behavior` and `position: sticky` therefore appear on exactly that
    panel and its own header and nowhere else in this sheet; the room's suite and
-   its probe both pin the census by name. No `overflow-x` anywhere, and no
-   `overflow: hidden` anywhere (a clipped focus ring is not a ring — the room-3
-   F2 lesson). */
+   its probe both pin the census by name. No `overflow-x` anywhere.
+
+   ⚠ AND NO `overflow: hidden` ON ANYTHING THAT HOLDS A CONTROL (a clipped focus
+   ring is not a ring — the room-3 F2 lesson). Two kinds of clipping are legal
+   and the suite tells them apart by what is in the box:
+     · TEXT TRUNCATION — `text-overflow: ellipsis` and `-webkit-line-clamp` both
+       REQUIRE it, and the spans they sit on hold words, never a focusable thing;
+     · THE FOUR COLLAPSE PANELS, which use `overflow: clip` with an
+       `overflow-clip-margin` instead. `clip` cannot become a scroll container at
+       all — a stronger answer to the page-scroll law than `hidden`, which can —
+       and the margin lets the 5px of focus paint escape the box. */
 
 /* ── the fence: the three shared names this room still uses ────────────────── */
 /* Four levels (`.biz .page.pg-recording …`) rather than three, because a
@@ -402,14 +410,16 @@
   border: 1px solid var(--rc-hero-line); background: #fff; color: var(--rc-accent-hover);
   font-size: 10.5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
 }
-.biz .pg-recording .rc-nowdot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--rc-accent); }
+/* ⚠ `currentColor`, NEVER A SOLID ACCENT FILL (the one-way accent law): the dot
+   is a non-pressable status indicator, so it wears the chip's own ink — the
+   same answer the 録音中 flag's dot already gives. It also means the three tones
+   need no dot rules of their own. */
+.biz .pg-recording .rc-nowdot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 /* ⚠ 「いま施術中」 IS THE ONE THAT CARRIES COLOUR. A booking still ahead and a
    booking already finished are both quiet: a page that painted every chip the
    same accent would say three different facts in one voice. */
 .biz .pg-recording .rc-nowchip.is-upcoming,
 .biz .pg-recording .rc-nowchip.is-past { border-color: #dfe3ea; color: var(--ink-3); }
-.biz .pg-recording .rc-nowchip.is-upcoming .rc-nowdot,
-.biz .pg-recording .rc-nowchip.is-past .rc-nowdot { background: var(--rc-ink-4); }
 .biz .pg-recording .rc-hero-name {
   margin-top: 5px; font-size: 19px; font-weight: 700; line-height: 1.32; letter-spacing: -.012em;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -494,7 +504,7 @@
    inner fade. `height: 0` is the closed floor, and the open panel is handed
    `height: auto` AT REST by the screen so it keeps growing with its own content
    (which is exactly what もっと見る does inside it). */
-.biz .pg-recording .rc-collapse { height: 0; overflow: hidden; }
+.biz .pg-recording .rc-collapse { height: 0; overflow: clip; overflow-clip-margin: 6px; }
 .biz .pg-recording .rc-collapse-in { opacity: 0; transform: translateY(-3px); transition: opacity 170ms var(--rc-ease), transform 200ms var(--rc-ease); }
 .biz .pg-recording .rc-collapse-in.is-in { opacity: 1; transform: none; }
 
@@ -588,8 +598,12 @@
 /* ⚠ COMPACT INSIDE THE GROUP (R6-22). The trace is 28px here rather than the
    40px it had when the panel was half a page wide — it still reads as a live
    signal, and the group it lives in now has a fold to answer to. */
-.biz .pg-recording .rc-wave { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 28px; max-width: 100%; overflow: hidden; }
-.biz .pg-recording .rc-bar { display: block; width: 3px; height: 100%; border-radius: 999px; background: var(--rc-rec-bar); transform-origin: bottom; }
+.biz .pg-recording .rc-wave { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 28px; width: 100%; }
+/* ⚠ THE BARS NARROW; THE TRACE IS NEVER CLIPPED. 40 bars at 3px with 3px gaps
+   is 237px and the cockpit holds that at every band — but a clip would hide the
+   trace's tail silently if it ever did not, and a bar that gives way says the
+   truth about the width it was given. */
+.biz .pg-recording .rc-bar { display: block; flex: 0 1 3px; min-width: 1px; height: 100%; border-radius: 999px; background: var(--rc-rec-bar); transform-origin: bottom; }
 /* the ended state dims and freezes the bars (RecordButtonCard.tsx:150) */
 .biz .pg-recording .rc-wave.is-frozen { opacity: .5; }
 .biz .pg-recording .rc-wave.is-frozen .rc-bar { background: rgba(113, 113, 122, .5); }
@@ -784,7 +798,7 @@
   border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; color: inherit; text-align: left;
   transition: box-shadow 200ms var(--rc-ease), transform 160ms var(--rc-ease), border-color 200ms var(--rc-ease);
 }
-button.rc-aspill:hover { box-shadow: var(--rc-shadow-2); transform: translateY(-1px); }
+.biz .pg-recording button.rc-aspill:hover { box-shadow: var(--rc-shadow-2); transform: translateY(-1px); }
 .biz .pg-recording .rc-aspill-n { color: var(--ink-3); font-size: 11.5px; font-weight: 700; }
 .biz .pg-recording .rc-aspill-m { color: var(--ink-3); font-size: 11.5px; }
 /* the pill's own lever. `.go` is a SOFT accent rather than a fill: the strip is
@@ -794,7 +808,7 @@ button.rc-aspill:hover { box-shadow: var(--rc-shadow-2); transform: translateY(-
   border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
   font-size: 11.5px; font-weight: 700; white-space: nowrap;
 }
-button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
+.biz .pg-recording button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
 .biz .pg-recording .rc-aspill.is-amber { border-color: var(--rc-amber-line); background: #fffdf8; }
 .biz .pg-recording .rc-aspill.is-amber .rc-aspill-m { color: var(--rc-amber-ink); font-weight: 700; }
 .biz .pg-recording .rc-aspill.is-red { border-color: var(--rc-fail-line); background: #fffbfb; }
@@ -858,17 +872,18 @@ button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
 }
 .biz .pg-recording .rc-seg-btn.is-on { color: var(--rc-accent-hover); font-weight: 700; }
 .biz .pg-recording .rc-seg-n { margin-left: 3px; font-weight: 700; }
-@container rcpage (max-width: 1279px) {
-  /* ⚠ THE ONE HORIZONTAL PAN IN THE ROOM, AND IT IS A ROW OF CHIPS, not a list
-     wrapper — the ⚖ page-scroll law governs board and list wrappers (a reader
-     hunting a row inside a box). A filter rail that wrapped to three lines at a
-     narrow desk costs the fold more than a mask-faded swipe does. */
-  .biz .pg-recording .rc-segwrap {
-    overflow-x: auto; scrollbar-width: none;
-    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
-    mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
-  }
-  .biz .pg-recording .rc-segwrap::-webkit-scrollbar { height: 0; }
+/* ⚠ THE RAIL WRAPS; IT NEVER PANS. The mock swipes its filter rail sideways at
+   a narrow desk, and this room may not: ⚖ PAGE-SCROLL has exactly ONE named
+   exception (the transcript reading panel) and a second axis owner in the same
+   room is how that law rots. The chips wrap onto a second line instead, and the
+   sliding thumb — which can only travel along ONE line — steps aside for the
+   R13 selected wash on the chip itself. Same verdict, said the family's way.
+   699 is derived: seven chips at ~72px plus their gaps is ~520px, and a page
+   under ~700 cannot hold that beside the card's own 24px of padding. */
+@container rcpage (max-width: 699px) {
+  .biz .pg-recording .rc-seg { flex-wrap: wrap; }
+  .biz .pg-recording .rc-seg-thumb { display: none; }
+  .biz .pg-recording .rc-seg-btn.is-on { border: 1px solid var(--rc-accent); background: var(--rc-accent-wash); color: var(--rc-accent); }
 }
 
 /* ══ THE TABLE — FIVE COLUMNS, AND 状態・操作 IS ONE CELL (v5-1) ══════════════
@@ -1048,7 +1063,7 @@ button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
   position: absolute; bottom: 100%; left: 0; right: 0; z-index: 3; margin-bottom: 8px;
   border: 1px solid var(--line); border-radius: var(--rc-r-lg); background: #fff;
   box-shadow: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
-  height: 0; overflow: hidden;
+  height: 0; overflow: clip; overflow-clip-margin: 6px;
 }
 .biz .pg-recording .rc-fn-scroll { padding: 14px 16px; }
 .biz .pg-recording .rc-fn-scroll .rc-sec-title { font-size: 13.5px; }
@@ -1491,7 +1506,7 @@ button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
   .biz .pg-recording .rc-klink,
   .biz .pg-recording .rc-linkbtn { display: inline-flex; align-items: center; min-height: 44px; }
   .biz .pg-recording .rc-row-save { min-height: 44px; }
-  button.rc-aspill { min-height: 44px; }
+  .biz .pg-recording button.rc-aspill { min-height: 44px; }
   .biz .pg-recording .rc-aspill-go { min-height: 30px; }
   .biz .pg-recording .rc-review-open { min-height: 44px; }
   /* ⚠ CAUGHT BY THE PROBE'S MEASURED SWEEP, not by the rules above: the trace
@@ -1549,7 +1564,7 @@ button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
   .biz .pg-recording .rc-row:hover,
   .biz .pg-recording .rc-slot:hover:enabled,
   .biz .pg-recording .rc-krow:hover,
-  button.rc-aspill:hover { transform: none; }
+  .biz .pg-recording button.rc-aspill:hover { transform: none; }
   .biz .pg-recording .rc-cl-more .rc-cv,
   .biz .pg-recording .rc-moretog .rc-cv,
   .biz .pg-recording .rc-brief-hd .rc-cv,

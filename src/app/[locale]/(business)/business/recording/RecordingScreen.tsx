@@ -839,7 +839,14 @@ export function RecordingScreen(props: RecordingProps) {
 
   /** THE RECORD BUTTON'S PRESS SCALE — the mock's own .93 at response .26, on
    *  pointer-DOWN. A spring rather than a transition because it has to be
-   *  interruptible: a press released mid-travel returns from where it IS. */
+   *  interruptible: a press released mid-travel returns from where it IS.
+   *
+   *  ⚠ THE DEPENDENCY IS A NAMED BOOLEAN, not `current === null` written into
+   *  the array. The lint rule is right about why: an expression there cannot be
+   *  statically checked, so the day someone changes what `current` is, nothing
+   *  tells them this effect was reading it. The effect re-runs when the BUTTON
+   *  mounts or unmounts — which is what「is there a booking at all」decides. */
+  const hasBooking = current !== null
   useEffect(() => {
     const el = recBtnRef.current
     if (!el) return
@@ -854,7 +861,7 @@ export function RecordingScreen(props: RecordingProps) {
       el.removeEventListener('pointerdown', down)
       for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.removeEventListener(ev, up)
     }
-  }, [reduced, current === null])
+  }, [reduced, hasBooking])
 
   /** THE SEGMENTED THUMB — X and W on their own springs (.30), driven by the
    *  SELECTED button's own offset box, so the thumb cannot drift from the chip
@@ -1635,20 +1642,25 @@ export function RecordingScreen(props: RecordingProps) {
             sample notice. It sits behind one bar because none of it is what a
             receptionist came to this page to read — and all of it is what a
             manager asking 「where does this number come from?」 came for. */}
-        <div
+        <section
           className={`rc-footnote${footOpen ? ' is-open' : ''}`}
+          aria-label="この画面の値の設定元 ・ 見本データについて"
           data-guide-title="この画面の値の設定元"
           data-guide="この画面で見えるもの・見えないものと、それぞれの値がどこで決まっているかの一覧です。まだつないでいないものは「未接続」と書いてあります。担当者の名簿だけは、いまも開けるスタッフ・シフトの画面につながっています。"
         >
           <div className="rc-fn-panel" id="rcFootnotePanel" ref={footPanelRef}>
             <div className={`rc-collapse-in${footOpen ? ' is-in' : ''}`}>
               <div className="rc-fn-scroll">
+                {/* ⚠ PROSE INSIDE THE DISCLOSURE, so a plain `<div>`: the panel
+                    it sits in is the declared region, and a second `<section>`
+                    here would be a tour step for two paragraphs that already
+                    have one. The words are the same words. */}
                 {props.noticeLines.length > 0 && (
-                  <section className="rc-notice" aria-label="この画面の見え方">
+                  <div className="rc-notice">
                     {props.noticeLines.map((line) => (
                       <p key={line}>{line}</p>
                     ))}
-                  </section>
+                  </div>
                 )}
                 <h2 className="rc-sec-title">{props.footnoteTitle}</h2>
                 <p className="rc-note">{props.traceNote}</p>
@@ -1676,7 +1688,7 @@ export function RecordingScreen(props: RecordingProps) {
             <span className="rc-fn-sp" />
             <span className="rc-cv" aria-hidden="true"><Icon name="chevup" size={13} weight={2.2} /></span>
           </button>
-        </div>
+        </section>
       </div>
 
       {/* ═══ CANON'S BOUNDARY MARKUP — PRESENT, AND INERT ═══════════════════
