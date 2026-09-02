@@ -66,6 +66,27 @@ describe('the tripwire detects what it claims to detect', () => {
     ).toEqual([['.biz .board', ['today.css', 'reservations.css']]])
   })
 
+  it('does not call two sheets\u2019 KEYFRAME STOPS a collision \u2014 and still sees the rules after them', () => {
+    // \u26a0 A keyframe stop is namespaced by its animation\u2019s own name: two rooms
+    // both writing `0%` collide over nothing. The parser used to walk into the
+    // block and count every stop as a selector, so the day 今日の運営 shipped
+    // `wc-settle` the gate failed against 録音\u2019s `rcBreathe`. The rule AFTER the
+    // block must still be seen \u2014 a skip that swallows its closing brace would
+    // blind the guard to the rest of the sheet, which is the worse failure.
+    expect(
+      findCollisions([
+        sheet('today.css', '@keyframes wc-settle { 0% { opacity: 1; } 100% { opacity: 1; } }\n.biz .page-today .hold { color: red; }'),
+        sheet('recording.css', '@keyframes rcBreathe { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }\n.biz .page-recording .hold { color: blue; }'),
+      ]),
+    ).toEqual([])
+    expect(
+      findCollisions([
+        sheet('today.css', '@keyframes a { 0% { opacity: 1; } }\n.biz .workspace { display: grid; }'),
+        sheet('recording.css', '@keyframes b { 0% { opacity: 1; } }\n.biz .workspace { display: flex; }'),
+      ]),
+    ).toEqual([['.biz .workspace', ['today.css', 'recording.css']]])
+  })
+
   it('does not report an @media HEAD shared by two sheets as a collision', () => {
     // Every room has a 768px breakpoint. If the at-rule head were recorded as a
     // selector, that shared head would be a false collision in almost every PR
