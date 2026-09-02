@@ -262,8 +262,14 @@ function roomsInClassOrder(
  *  `gapFillPieces(s, e, gridMin)` IS the packer's answer to "what of this pocket
  *  do I offer" on that branch; the pocket minus that answer is what the branch
  *  handed to the sell layer. The sell layer's unit is `SELL_SLOT_MIN`, so a
- *  leftover SHORTER than one slot reaches nobody — that is the hole, and it is
- *  the only thing this returns.
+ *  leftover SHORTER than one slot is minutes the GRID branch handed to
+ *  nobody OR that a sell slot may already cover — the arithmetic alone only
+ *  proves the first at gridMin ≤ 30; at gridMin=45 a hole can sit entirely
+ *  inside an already-offered slot (measured: pocket 600–690 → hole 630–675,
+ *  inside sell slot 630–690; 126 such cases in a bounded scan). Harmless
+ *  either way — the walk's survivor subtraction (`advertisedOnLane`), not
+ *  this function's arithmetic, is what guarantees no double-offer — but that
+ *  is "the hole" below 60, and it is the only thing this returns.
  *
  *  ⚠ TWO SHAPES, ONE LINE. Written as the packet's core arithmetic
  *  (`[ceil(s/g)*g, floor(e/g)*g)`) this would catch only the first:
@@ -291,8 +297,9 @@ function roomsInClassOrder(
  *  20-minute leftover (canon offers 45–135) and this function still answers
  *  `[]`. Recovering it would be a GENERALIZATION nobody has measured: above one
  *  slot the grid stops aligning with the sell layer, so the class stops being
- *  「minutes the GRID branch handed to nobody」 and starts including minutes the
- *  sell layer could reach if it were asked differently. The declared ceiling is
+ *  「minutes the GRID branch handed to nobody OR that a sell slot may already
+ *  cover」 and starts including minutes the sell layer could reach if it were
+ *  asked differently. The declared ceiling is
  *  `gridMin < SELL_SLOT_MIN`; the settings round that builds the 予約開始グリッド
  *  dial must either constrain that dial's domain or extend this trigger WITH a
  *  measurement (rider filed). The g=90 case is PINNED as a refusal, so the day

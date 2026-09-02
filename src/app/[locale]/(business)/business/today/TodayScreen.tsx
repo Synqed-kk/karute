@@ -4848,8 +4848,12 @@ export function TodayScreen(props: TodayProps) {
       // span-true home the multi-hour packing pass already prices through
       // (today-interactions.ts:1419/1485) — it prices the whole span across the
       // hour curve end to end, so an off-hour start and a 90-minute standard
-      // session both come out honest, and the staged card and the 販売可能枠
-      // box it lands on still cannot disagree.
+      // session both come out honest. Same levers, same curve as the 販売可能枠
+      // box it lands on — the two agree exactly at the shipped 60-minute grid,
+      // where a slot spans one curve hour outright. On a finer grid the box
+      // still prices by its START HOUR alone (`priceFor(s, hourOfSlot)`,
+      // availability.ts:128) while the card keeps prorating its own span; the
+      // card is the span-honest side of that gap, not the box.
       //
       // ⚖ R6 fix round D2 — AND A LANE WITH NO 定価 SAYS NOTHING, rather than
       // ¥0. `staffListPrice[id] ?? 0` is a real store state (a staff member
