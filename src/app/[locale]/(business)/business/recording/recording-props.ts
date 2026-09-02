@@ -37,6 +37,7 @@ import {
   type StoreLens,
 } from '@/business/lib/data'
 import { operator, staffCards, type FixtureAppointment } from '@/business/lib/fixtures'
+import { CATEGORY_LABEL, CATEGORY_ORDER } from '@/business/lib/karute'
 import { records as recordPlane } from '@/business/lib/fixtures-karute'
 import {
   consentGrants as grantPlane,
@@ -47,13 +48,22 @@ import {
 } from '@/business/lib/fixtures-recording'
 import {
   accessFor,
+  attentionCounts,
+  bookingPhaseOf,
+  briefFactsOf,
   buildTakes,
   cardIdOfStaff,
   canStartRecording,
+  consentActionLabel,
   consentGateNote,
   consentOf,
   consentProofLine,
   consentScript,
+  consentShortLine,
+  daysLeftLine,
+  defaultPick,
+  slotHint,
+  BRIEF_RECORDS_SHOWN,
   CONSENT_INSTRUCTIONS,
   CONSENT_LABEL,
   CONSENT_TONE,
@@ -227,6 +237,11 @@ export async function recordingProps({
   // about to record without a round trip — so every option's whole context is
   // resolved HERE and the screen only chooses between them. That is what keeps
   // the screen free of a clock, a formatter and the consent rule all at once.
+  // ⚖ LIAM F-1 R1-3 — THE PICKER IS STAFF-SCOPED. `operator.staff_id` is a
+  // PROFILE id and a booking's `staff_id` is the same space, so the scope needs
+  // no bridge (the take side does — that is `selfCardId` above).
+  const ownStaffId = operator.staff_id
+  const nowMinute = jstMinuteOfDay(now)
   const options = pickerOptions({
     appointments,
     customers,
@@ -235,6 +250,7 @@ export async function recordingProps({
     grants,
     todayKey,
     minuteOf: jstMinuteOfDay,
+    ownStaffId,
   })
 
   const contexts: RecordingContextProps[] = options.map((o) => {
@@ -243,12 +259,26 @@ export async function recordingProps({
     const record = recordByAppointment.get(o.appointmentId) ?? null
     const timeLabel = hhmm(o.startedMinute)
     const dateLabel = fmtDayLong.format(new Date(o.startsAt))
+    const phase = bookingPhaseOf(o.startedMinute, o.endMinute, nowMinute)
     // ⚖ CANON's contact tags (:640) — the customer profile's own 連絡許可, which
     // is NOT recording consent and says so on the line beneath.
     const tags: string[] = []
     if (customer.consent?.line) tags.push('LINE')
     if (customer.consent?.sms) tags.push('SMS')
     if (customer.consent?.email) tags.push('メール')
+    // ⚖ 前回までの流れ — the phone's before-session brief, fuller. A JOIN over
+    // the lens's own bookings and the カルテ plane; this room states none of it.
+    const facts = briefFactsOf({
+      customerId: o.customerId,
+      todayKey,
+      appointments,
+      menus,
+      staff,
+      records: recordPlane,
+      categoryOrder: CATEGORY_ORDER,
+      categoryLabel: CATEGORY_LABEL,
+    })
+    const shown = facts.records.slice(0, BRIEF_RECORDS_SHOWN)
     return {
       appointmentId: o.appointmentId,
       customerId: o.customerId,
@@ -259,10 +289,45 @@ export async function recordingProps({
       timeLabel,
       dateLabel,
       metaLabel: `${dateLabel} ${timeLabel} ・ ${o.menuName} ・ 担当 ${o.staffName}`,
+      // The hero's own meta is the TIME RANGE, the menu and the staffer — the
+      // mock's `.hero-meta`. The full date stays on the picker's own label; a
+      // hero that repeats 「本日」 to a reader looking at today's list is noise.
+      heroMetaLabel: `${timeLabel} ー ${hhmm(o.endMinute)} ・ ${o.menuName} ・ 担当 ${o.staffName}`,
+      // ⚖ DERIVED FROM THE ONE CLOCK READ, and it is the same read the default
+      // selection and every take date came from.
+      heroChipLabel:
+        phase === 'now' ? 'いま施術中' : phase === 'upcoming' ? `このあと ${timeLabel} 開始` : `終了 ${hhmm(o.endMinute)}`,
+      heroChipTone: phase,
+      slotHint: slotHint(phase, o.visitsBefore),
       consentState: consent.state,
       consentLabel: CONSENT_LABEL[consent.state],
       consentTone: CONSENT_TONE[consent.state],
       consentProof: consentProofLine(consent),
+      consentShort: consentShortLine(consent),
+      consentAction: consentActionLabel(consent.state),
+      brief: {
+        // ⚠ 前回のご来店 IS A SENTENCE ABOUT A SESSION THAT HAPPENED, so a
+        // customer with none gets the mock's own empty copy rather than a line
+        // with holes in it.
+        lastLine:
+          facts.last === null
+            ? null
+            : `${fmtDayLong.format(dayOf(facts.last.dayKey))} ・ ${facts.last.menuName} ・ 担当 ${facts.last.staffName}`,
+        visitsTag: facts.visitsBefore === 0 ? '初めてのご来店' : `ご来店 ${facts.visitsBefore + 1}回目`,
+        lastKaruteLabel: facts.last?.recordId ?? null,
+        records: shown.map((r) => ({
+          id: r.recordId,
+          dateLabel: fmtDayShort.format(dayOf(r.dayKey)),
+          // ⚠ THE MENU NAME IS THE TITLE, because the plane has no topic titles
+          // and this room may not write one (R6-24).
+          title: r.title,
+        })),
+        // v5-3 recent-first-with-doors: the depth goes behind ONE link, and the
+        // number on it is the number of records there actually are.
+        doorLabel: facts.records.length > shown.length ? `すべてのカルテを見る（${facts.records.length}件）` : null,
+        summary: facts.summary,
+        memo: facts.memo,
+      },
       // ⚖ W7-1 — THE GATE IS ONE CALL, and its answer is serialized ONCE. The
       // screen renders `canStart`; it never re-decides it, so there is no second
       // home for a mode or a flag to be read in.
@@ -438,6 +503,60 @@ export async function recordingProps({
 
   const failLine = discardFailLine(discardFail)
 
+  // ── ⚖ 要対応 — ONE SLIM STRIP, AND ONLY WHEN THERE IS SOMETHING TO DO ──────
+  // ⚠ THE COUNTS COME OFF THE SAME MODEL LIST THE FILTER ROW NARROWS, so a
+  // pill's number is exactly what its press reveals (the ⚖ pill/count law). A
+  // count taken from a different predicate is one of the battery's own reds.
+  // ⚠ AND THE STRIP IS ABSENT AT ZERO. 「要対応 0件」 over three empty pills is a
+  // page inventing a warning; a clean desk sees no strip at all.
+  const attn = attentionCounts(models)
+  const attention =
+    attn.total === 0
+      ? null
+      : {
+          title: '要対応',
+          countLine: `${attn.total}件`,
+          hint: 'いま手を動かす必要がある録音',
+          pills: [
+            attn.recoverable > 0
+              ? {
+                  key: 'recoverable' as const,
+                  chip: TAKE_STATE_CHIP.recoverable,
+                  stateLabel: TAKE_STATE_LABEL.recoverable,
+                  countLabel: `${attn.recoverable}件`,
+                  // The plane's own 7-day local-take window, and `null` once a
+                  // residue is past it rather than a promise of 「あと0日」.
+                  note: recoverable === null ? null : daysLeftLine(recoverable.dayKey, todayKey),
+                  // The SAME refused save lever the row carries, same reason.
+                  action: { kind: 'save' as const, label: '保存する' },
+                  tone: 'amber' as const,
+                }
+              : null,
+            attn.failed > 0
+              ? {
+                  key: 'failed' as const,
+                  chip: TAKE_STATE_CHIP.failed,
+                  stateLabel: TAKE_STATE_LABEL.failed,
+                  countLabel: `${attn.failed}件`,
+                  note: null,
+                  action: { kind: 'filter' as const, label: '見る' },
+                  tone: 'red' as const,
+                }
+              : null,
+            attn.awaiting > 0
+              ? {
+                  key: 'awaiting' as const,
+                  chip: TAKE_STATE_CHIP['awaiting-check'],
+                  stateLabel: TAKE_STATE_LABEL['awaiting-check'],
+                  countLabel: `${attn.awaiting}件`,
+                  note: null,
+                  action: { kind: 'filter' as const, label: '確認する' },
+                  tone: 'blue' as const,
+                }
+              : null,
+          ].filter((p) => p !== null),
+        }
+
   const props: RecordingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
     lensLabel,
@@ -459,7 +578,24 @@ export async function recordingProps({
         ? '録音の履歴、そして破棄された録音の記録をまとめて見られます。'
         : '自分の録音の履歴を見られます。'),
     contexts,
-    defaultAppointmentId: contexts[0]?.appointmentId ?? null,
+    // ⚖ LIAM F-1 R1-3 — the label SAYS whose list this is and how long it is, so
+    // a manager who also treats can see at a glance that the recorder is her own
+    // bookings and the history below is the store's.
+    pickerLabel: `あなたの担当の予約 ${contexts.length}件（${operator.name}・本日）`,
+    // ⚠ THE OWN-SCOPE EMPTY STATE. A manager with no bookings of her own today
+    // is the ORDINARY evening case, not a broken page — and the sentence has to
+    // say WHOSE list is empty, or she reads it as「the store has no bookings」.
+    emptyOwnScope:
+      contexts.length > 0
+        ? null
+        : {
+            title: '本日、あなたの担当の予約はありません',
+            body: '予約が入ると、ここに時間順で並びます。録音は予約を選んでから始めます。',
+          },
+    attention,
+    // ⚖ THE SCREEN NEVER PICKS (§2.3). In-progress → next up → last of the day,
+    // decided from the SAME clock read the hero chips and every take date used.
+    defaultAppointmentId: defaultPick(options, nowMinute),
     takes: takeRows,
     // ⚖ 8/25 ruling B, staff half — `null` renders NOTHING, never 0.
     ownDiscardLine: ownDiscards === null ? null : `自分が今月破棄した録音 ${ownDiscards}件`,
@@ -535,6 +671,11 @@ export async function recordingProps({
     // the param does not name (which is every ordinary one).
     discardFail: failLine === null ? null : { submitLabel: DISCARD_SUBMITTING_LABEL, errorLine: failLine },
     actionFootnote: FOOTNOTE,
+    // ⚖ THE FOOTNOTE DISCLOSURE (§2.6) — the trace card FOLDS, nothing is cut.
+    // The bar's own words name both halves it hides, so a reader knows what is
+    // behind it before pressing.
+    footnoteBar: 'この画面の値の設定元 ・ 見本データについて',
+    footnoteTitle: 'この画面の値の設定元',
     refusals: {
       use: REFUSAL.use,
       save: REFUSAL.save,

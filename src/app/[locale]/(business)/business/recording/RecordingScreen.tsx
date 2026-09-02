@@ -49,6 +49,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { makeSpring } from '@/business/lib/spring'
 import {
   fmtElapsed,
   keepCardOffHeading,
@@ -105,6 +106,15 @@ const ICONS = {
   check: <><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>,
   chevron: <path d="m9 18 6-6-6-6" />,
   ticket: <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />,
+  tick: <path d="M4.5 12.5 9.5 17.5 19.5 7" />,
+  chevdown: <path d="m6 9 6 6 6-6" />,
+  chevup: <path d="m18 15-6-6-6 6" />,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18" /></>,
+  file: <><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 12h6M9 16h4" /></>,
+  chat: <path d="M4 6h16v12H8l-4 3z" />,
+  spark: <><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M18.5 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" /></>,
+  pencil: <><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z" /><path d="M14.5 6.5l3 3" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.6v.6" /></>,
 } as const
 
 function Icon({ name, size = 13, weight = 2 }: { name: keyof typeof ICONS; size?: number; weight?: number }) {
@@ -136,10 +146,40 @@ export interface RecordingContextProps {
   timeLabel: string
   dateLabel: string
   metaLabel: string
+  /** The HERO's own meta — the time RANGE, the menu and the staffer. The full
+   *  date stays on the picker's label: a hero repeating 「本日」 to a reader who
+   *  is looking at today's list is noise. */
+  heroMetaLabel: string
+  /** ⚖ DERIVED FROM THE RENDER'S ONE CLOCK READ — the same read the default
+   *  selection and every take date came from. いま施術中 / このあと HH:MM 開始 /
+   *  終了 HH:MM, and the screen never re-decides it. */
+  heroChipLabel: string
+  heroChipTone: 'now' | 'upcoming' | 'past'
+  /** The picker row's own status hint: いま施術中 / 初めてのご来店 / ご来店 N回目. */
+  slotHint: string
   consentState: 'current' | 'stale' | 'absent'
   consentLabel: string
   consentTone: string
   consentProof: string
+  /** The thin consent line's SHORT evidence; `consentProof` is the pop-down's. */
+  consentShort: string
+  /** What the closed gate offers — 同意を取り直す / 同意を取得. `null` while the
+   *  gate is open: offering to re-take a consent nobody needs is noise. */
+  consentAction: string | null
+  /** ⚖ 前回までの流れ — the phone's before-session brief, fuller. Every field is
+   *  a JOIN over the lens's own bookings and the カルテ plane; the room states
+   *  none of it, and the fields the phone generates with a MODEL (hooks, opener,
+   *  recommended focus, the reservation memo) are absent here on purpose —
+   *  registry ⑪, named on the card rather than invented. */
+  brief: {
+    lastLine: string | null
+    visitsTag: string
+    lastKaruteLabel: string | null
+    records: Array<{ id: string; dateLabel: string; title: string }>
+    doorLabel: string | null
+    summary: string | null
+    memo: Array<{ label: string; text: string }>
+  }
   /** ⚖ W7-1 — the gate's ONE answer, decided in `recording.ts` and serialized.
    *  The screen renders it; it never re-decides it, so there is no second home
    *  for a mode or a flag to be read in. */
@@ -215,6 +255,11 @@ export interface RecordingProps {
    *  does not exist. */
   headGuide: string
   contexts: RecordingContextProps[]
+  /** ⚖ LIAM F-1 R1-3 — 「あなたの担当の予約 N件（{operator}・本日）」. The label
+   *  says whose list this is, because the history below it is the STORE's. */
+  pickerLabel: string
+  /** The own-scope empty state's own words. `null` whenever there is a booking. */
+  emptyOwnScope: { title: string; body: string } | null
   defaultAppointmentId: string | null
   takes: RecordingTakeProps[]
   ownDiscardLine: string | null
@@ -232,6 +277,23 @@ export interface RecordingProps {
     byStaff: Array<{ rowKey: string; name: string; line: string }>
     truncatedLine: string | null
     listTruncatedLine: string | null
+  } | null
+  /** ⚖ 要対応 — ONE slim strip, and `null` when nothing needs a hand. Every
+   *  pill's count is EXACTLY what its filter reveals (the pill/count law), and
+   *  a strip that rendered at zero would be the page inventing a warning. */
+  attention: {
+    title: string
+    countLine: string
+    hint: string
+    pills: Array<{
+      key: string
+      chip: string
+      stateLabel: string
+      countLabel: string
+      note: string | null
+      action: { kind: 'save' | 'filter'; label: string }
+      tone: 'amber' | 'red' | 'blue'
+    }>
   } | null
   discardRows: DiscardRowProps[]
   canReviewDiscards: boolean
@@ -261,6 +323,10 @@ export interface RecordingProps {
    *  the dialog still open and nothing discarded. */
   discardFail: { submitLabel: string; errorLine: string } | null
   actionFootnote: string
+  /** The footnote disclosure's own two strings. Nothing from the old standing
+   *  trace card is deleted — it FOLDS behind this bar (§2.6). */
+  footnoteBar: string
+  footnoteTitle: string
   refusals: {
     use: string
     save: string
@@ -349,6 +415,20 @@ export function RecordingScreen(props: RecordingProps) {
    *  exactly what its press reveals. `null` = すべて. */
   const [stateFilter, setStateFilter] = useState<string | null>(null)
 
+  // ── the four disclosures (all height-sprung, all open-by-default-or-not) ──
+  /** ⚠ OPEN AT A DESK, and it stays open: the briefing is what a staffer came to
+   *  this page to read before walking into a room. The header is a real toggle
+   *  because a manager who already knows the customer wants the space back. */
+  const [briefOpen, setBriefOpen] = useState(true)
+  const [consentOpen, setConsentOpen] = useState(false)
+  const [tagNoteOpen, setTagNoteOpen] = useState(false)
+  const [footOpen, setFootOpen] = useState(false)
+  /** The two briefing expanders. `sumOverflows` is MEASURED, never guessed: an
+   *  expander offered on text that already fits is a lever that does nothing. */
+  const [sumOpen, setSumOpen] = useState(false)
+  const [memoOpen, setMemoOpen] = useState(false)
+  const [sumOverflows, setSumOverflows] = useState(false)
+
   // ── 画面の説明 ────────────────────────────────────────────────────────────
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
@@ -369,6 +449,15 @@ export function RecordingScreen(props: RecordingProps) {
   const consentOpenRef = useRef<HTMLButtonElement>(null)
   const useOpenRef = useRef<HTMLButtonElement>(null)
   const receiptCloseRef = useRef<HTMLButtonElement>(null)
+  const recBtnRef = useRef<HTMLButtonElement>(null)
+  const historyRef = useRef<HTMLElement>(null)
+  const briefPanelRef = useRef<HTMLDivElement>(null)
+  const consentPanelRef = useRef<HTMLDivElement>(null)
+  const tagNotePanelRef = useRef<HTMLDivElement>(null)
+  const footPanelRef = useRef<HTMLDivElement>(null)
+  const sumRef = useRef<HTMLDivElement>(null)
+  const segRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLSpanElement>(null)
 
   const current = props.contexts.find((c) => c.appointmentId === pickedId) ?? props.contexts[0] ?? null
 
@@ -680,6 +769,129 @@ export function RecordingScreen(props: RecordingProps) {
     }
   }
 
+  // ── ⚖ MOTION (the Studio standard: transform/opacity, springs for state) ──
+  /** Whether the reader asked for less motion. Read ONCE into state so every
+   *  spring is constructed with the same answer and the SSR render (which has no
+   *  `matchMedia` at all) never disagrees with the first client frame. */
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const read = () => setReduced(mq.matches)
+    read()
+    mq.addEventListener('change', read)
+    return () => mq.removeEventListener('change', read)
+  }, [])
+
+  /**
+   * ⚖ THE COLLAPSE, AND IT IS THE MOCK'S OWN (`makeCollapse`). A height spring
+   * to the panel's measured `scrollHeight`, then `height: auto` AT REST so the
+   * open panel keeps growing with its own content — a panel frozen at the height
+   * it was measured at clips the moment anything inside it expands (which is
+   * exactly what the briefing's own もっと見る does).
+   *
+   * ⚠ ONE EFFECT PER PANEL, KEYED ON ITS OWN OPEN FLAG, and the FIRST run jumps
+   * rather than animating: a page that plays four collapse animations on load is
+   * a page that looks broken while it settles.
+   */
+  const useCollapse = (ref: React.RefObject<HTMLDivElement | null>, open: boolean) => {
+    const first = useRef(true)
+    useEffect(() => {
+      const el = ref.current
+      if (!el) return
+      if (first.current) {
+        first.current = false
+        el.style.height = open ? 'auto' : '0px'
+        return
+      }
+      const sp = makeSpring((v) => { el.style.height = `${v}px` }, {
+        response: 0.34,
+        reduced,
+        onRest: () => { if (open) el.style.height = 'auto' },
+      })
+      sp.jump(el.getBoundingClientRect().height)
+      sp.set(open ? el.scrollHeight : 0)
+      return () => sp.stop()
+    }, [ref, open])
+  }
+  useCollapse(briefPanelRef, briefOpen)
+  useCollapse(consentPanelRef, consentOpen)
+  useCollapse(tagNotePanelRef, tagNoteOpen)
+  useCollapse(footPanelRef, footOpen)
+
+  /** PRESS STATES ON POINTER-DOWN, one document listener for the whole room
+   *  (the mock's `[data-press]`). Pointer-DOWN, not click: the feedback has to
+   *  arrive while the finger is still down or it is not feedback. */
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      const t = (e.target as Element | null)?.closest?.('[data-press]')
+      if (t) t.classList.add('is-pressed')
+    }
+    const clear = () => {
+      for (const el of document.querySelectorAll('[data-press].is-pressed')) el.classList.remove('is-pressed')
+    }
+    document.addEventListener('pointerdown', down, true)
+    for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.addEventListener(ev, clear, true)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.removeEventListener(ev, clear, true)
+    }
+  }, [])
+
+  /** THE RECORD BUTTON'S PRESS SCALE — the mock's own .93 at response .26, on
+   *  pointer-DOWN. A spring rather than a transition because it has to be
+   *  interruptible: a press released mid-travel returns from where it IS. */
+  useEffect(() => {
+    const el = recBtnRef.current
+    if (!el) return
+    const sp = makeSpring((v) => { el.style.transform = `scale(${v})` }, { response: 0.26, eps: 0.002, reduced })
+    sp.jump(1)
+    const down = () => sp.set(0.93)
+    const up = () => sp.set(1)
+    el.addEventListener('pointerdown', down)
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, up)
+    return () => {
+      sp.stop()
+      el.removeEventListener('pointerdown', down)
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.removeEventListener(ev, up)
+    }
+  }, [reduced, current === null])
+
+  /** THE SEGMENTED THUMB — X and W on their own springs (.30), driven by the
+   *  SELECTED button's own offset box, so the thumb cannot drift from the chip
+   *  it is under when the counts change width. */
+  useEffect(() => {
+    const seg = segRef.current
+    const thumb = thumbRef.current
+    if (!seg || !thumb) return
+    const state = { x: 0, w: 100 }
+    const paint = () => { thumb.style.transform = `translateX(${state.x}px) scaleX(${state.w / 100})` }
+    const sx = makeSpring((v) => { state.x = v; paint() }, { response: 0.3, reduced })
+    const sw = makeSpring((v) => { state.w = v; paint() }, { response: 0.3, reduced })
+    let placed = false
+    const move = () => {
+      const on = seg.querySelector<HTMLElement>('.rc-seg-btn.is-on')
+      if (!on) { thumb.style.opacity = '0'; return }
+      thumb.style.opacity = ''
+      const x = on.offsetLeft - 3
+      const w = on.offsetWidth
+      if (placed) { sx.set(x); sw.set(w) } else { sx.jump(x); sw.jump(w); placed = true }
+    }
+    move()
+    window.addEventListener('resize', move)
+    return () => { sx.stop(); sw.stop(); window.removeEventListener('resize', move) }
+  }, [reduced, stateFilter, walk.visible.length, filters.length])
+
+  /** ⚠ THE EXPANDER APPEARS ONLY WHEN THE TEXT ACTUALLY OVERFLOWS ITS CLAMP,
+   *  measured on the element itself. Offering もっと見る on a two-line summary is
+   *  a dead lever (lessons §A-2), and the clamp height depends on the column
+   *  width, so it is re-measured when the customer or the layout changes. */
+  useLayoutEffect(() => {
+    const el = sumRef.current
+    if (!el) { setSumOverflows(false); return }
+    if (sumOpen) return
+    setSumOverflows(el.scrollHeight > el.clientHeight + 1)
+  }, [current?.appointmentId, sumOpen, briefOpen, current?.brief.summary])
+
   const live = phase === 'recording'
   /** ⚠ FOUR STATES, AND 停止 IS THE LAST ONE (R6-18). ⚖ R6-D3's commit refuses,
    *  so nothing can put this machine into canon's 反映済み — the branch used to
@@ -689,24 +901,23 @@ export function RecordingScreen(props: RecordingProps) {
 
   return (
     <div className={`${ROOT}${onDiscardScreen ? ' is-review' : ''}`} ref={rootRef}>
-      {/* STEP 0. The head declares itself like every other section, so the walk
+      {/* ⚖ ONE COMPACT TITLE ROW (Liam F-1: 「kill the dead space」). Eyebrow,
+          name, the ?, and the sentence — one line at a desk, wrapping at phone
+          widths. The head declares itself like every other section, so the walk
           opens on what this page is FOR before it starts pointing at parts of
-          it. ⚠ ITS SENTENCE IS TRUE ON BOTH SCREENS (F5-1): what stays here is
-          what never stops being true — what the page is, where the recordings
-          come from, and how the two screens swap. Everything that belongs to ONE
-          screen is declared on that screen's own element and drops with it. */}
+          it. ⚠ ITS SENTENCE IS TRUE ON BOTH SCREENS (F5-1). */}
       <header
         className="rc-head"
         data-guide-title="録音"
         data-guide={props.headGuide}
       >
-        <div className="rc-eyebrow">{props.dateline}</div>
-        <div className="rc-titleline">
+        <div className="rc-titlerow">
+          <span className="rc-eyebrow">{props.dateline}</span>
           <h1>録音</h1>
-          {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR: a spotlight walk of
-              everything on this screen, and during the walk you can tap any part
-              of the page to jump straight to what it is. A hairline circle,
-              never a filled one (⚖ R13). */}
+          {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR (never the mock's
+              popover: the mock's own head text IS this page's head guide, and
+              it is already access-derived). A hairline circle, never a filled
+              one (⚖ R13). */}
           <button
             className="rc-help"
             type="button"
@@ -720,31 +931,19 @@ export function RecordingScreen(props: RecordingProps) {
           >
             ?
           </button>
+          {!onDiscardScreen && <span className="rc-subtitle">{props.subtitle}</span>}
         </div>
-        {!onDiscardScreen && <p className="rc-subtitle">{props.subtitle}</p>}
       </header>
-
-      {props.noticeLines.length > 0 && (
-        <section
-          className="rc-notice"
-          aria-label="この画面の見え方"
-          data-guide-title="この画面の見え方"
-          data-guide="この画面で見えるもの・見えないものの説明です。文字起こしを誰が見られるかは店舗の設定で決まる仕組みで、この画面にはまだつないでいません。"
-        >
-          {props.noticeLines.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </section>
-      )}
 
       {/* ═══ THE RECORDER SCREEN ═══ */}
       <div className="rc-record-view">
-        {/* ⚖ W7-3 — THE RECOVERY RESIDUE. ONE slot: the props carry a single
-            object or none, so a draft-shaped offer and a take-shaped offer
-            cannot both render. ONE action (保存する) and no ✕ — a recording that
-            reached this banner is a SYSTEM failure and the staffer's only job is
-            to land it (⚖ 8/20 ⑦). The discard exit below it exists ONLY for a
-            take under the accidental-tap floor (⚖ 8/26 (b)). */}
+        {/* ⚖ W7-3 — THE RECOVERY RESIDUE, FULL WIDTH ABOVE THE GRID (R6-25).
+            ONE slot: the props carry a single object or none, so a draft-shaped
+            offer and a take-shaped offer cannot both render. ONE action
+            (保存する) and no ✕ — a recording that reached this banner is a SYSTEM
+            failure and the staffer's only job is to land it (⚖ 8/20 ⑦). The
+            discard exit below it exists ONLY for a take under the accidental-tap
+            floor (⚖ 8/26 (b)). */}
         {recovery && (
           <section
             className="rc-recovery"
@@ -766,7 +965,7 @@ export function RecordingScreen(props: RecordingProps) {
                 the customer, and telling a staffer 保存する for a take with
                 nowhere to save it is the wrong instruction rather than a
                 shorter one (B1-11, the phone's own branch). */}
-            <button {...refused(recovery.saveLabel, props.refusals.save, { className: 'rc-recovery-save' })}>
+            <button {...refused(recovery.saveLabel, props.refusals.save, { className: 'rc-recovery-save' })} data-press>
               <Icon name="save" size={16} />{recovery.saveLabel}
             </button>
             <p className="rc-recovery-caption">{recovery.caption}</p>
@@ -775,6 +974,7 @@ export function RecordingScreen(props: RecordingProps) {
               <button
                 className="rc-recovery-discard"
                 type="button"
+                data-press
                 ref={recoveryDiscardRef}
                 onClick={() => { setDiscardOf('recovery'); setDialog('discard') }}
               >
@@ -786,88 +986,102 @@ export function RecordingScreen(props: RecordingProps) {
 
         {/* ⚖ 8/26 (b) — THE RESIDUE RESOLVES INTO ITS OWN RECEIPT. The banner
             slot is where the take was, so it is where the record of throwing it
-            away belongs; and because it lives OUTSIDE the recorder panel it is
+            away belongs; and because it lives OUTSIDE the cockpit it is
             reachable on a lens with no bookings at all, which is the world the
             old settle returned silently from. */}
         {receipt?.of === 'recovery' && (
           <Receipt receipt={receipt} closeRef={receiptCloseRef} onClose={() => setReceipt(null)} />
         )}
 
-        {current === null ? (
+        {/* ═══ ROW 1 — cockpit (left) + briefing (right) ═══
+            `align-items:start` in the sheet: the briefing is CONTENT-HEIGHT, so
+            the space under a shallow one is honest page background rather than
+            empty card (v5-4). */}
+        <div className="rc-grid">
+
+          {/* ═══ THE SESSION COCKPIT — the #1 object is WHO you are recording ═══ */}
           <section
-            className="rc-zero"
-            aria-label="本日の予約がありません"
-            data-guide-title="本日の予約がありません"
-            data-guide="この店舗には本日の予約がないため、録音の対象を選べません。予約が入ると、ここに本日の予約が時間順で並びます。"
+            className="rc-card rc-cockpit"
+            aria-labelledby="rcSessionTitle"
+            data-guide-title="録音セッション"
+            data-guide="録音の本体です。いちばん上に、いま録音しようとしている予約が出ます。まん中の赤いボタンで録音を始め、もう一度押すと止まります。録音中は経過時間と音の波が出ます。止めたあとは、その録音をカルテに使うか、理由を書いて破棄するかを選びます。止めただけでは保存されません。"
           >
-            <div className="rc-zero-card">
-              <strong>本日の予約がありません</strong>
-              <p>録音は予約を選んでから始めます。本日の予約が入ると、時間の早い順にここへ並びます。</p>
+            <div className="rc-cap">
+              <span className="rc-cap-ic" aria-hidden="true"><Icon name="mic" size={16} /></span>
+              <h2 className="rc-sec-title" id="rcSessionTitle">録音セッション</h2>
+              <span className="rc-cap-sp" />
+              <span className={`rc-state ${RECORDER_TONE[phase]}`}>{RECORDER_LABEL[phase]}</span>
             </div>
-          </section>
-        ) : (
-          <>
-            <section
-              className="rc-ctx"
-              aria-labelledby="rcCtxTitle"
-              data-guide-title="対象の予約"
-              data-guide="どの予約の録音をするかを選ぶところです。本日の予約のうち、担当が決まっていて来店なしではないものが時間順に並びます。録音中は取り違えを防ぐため選び直せません。"
-            >
-              <div className="rc-ctx-head">
-                <div className="rc-ctx-who">
-                  <div className="rc-kicker">対象の予約</div>
-                  <h2 id="rcCtxTitle">{current.customerName}様</h2>
-                  <p className="rc-ctx-meta">{current.metaLabel}</p>
-                </div>
-                <label className="rc-picker">
-                  本日の予約から選ぶ
-                  <select
-                    value={current.appointmentId}
-                    aria-label="対象の予約を選ぶ"
-                    disabled={phase !== 'idle'}
-                    onChange={(e) => setPickedId(e.target.value)}
-                  >
-                    {props.contexts.map((c) => (
-                      <option key={c.appointmentId} value={c.appointmentId}>
-                        {c.optionLabel}
-                      </option>
-                    ))}
-                  </select>
-                  {phase !== 'idle' && <span className="rc-picker-lock">録音中は選び直せません</span>}
-                </label>
+
+            {current === null ? (
+              /* ⚠ THE OWN-SCOPE EMPTY STATE. A manager with no bookings of her
+                 OWN today is the ordinary evening case, not a broken page — and
+                 the copy has to say whose list is empty, or she reads it as
+                 「the store has no bookings」, which is a different claim. */
+              <div className="rc-zero-card">
+                <strong>{props.emptyOwnScope?.title ?? '本日、あなたの担当の予約はありません'}</strong>
+                <p>{props.emptyOwnScope?.body ?? '予約が入ると、ここに時間順で並びます。録音は予約を選んでから始めます。'}</p>
               </div>
-            </section>
-
-            <div className="rc-two">
-              {/* ═══ 録音セッション ═══ */}
-              <section
-                className="rc-panel rc-session"
-                aria-labelledby="rcSessionTitle"
-                data-guide-title="録音セッション"
-                data-guide="録音の本体です。まん中の赤いボタンで録音を始め、もう一度押すと止まります。録音中は経過時間と音の波が出ます。止めたあとは、その録音をカルテに使うか、理由を書いて破棄するかを選びます。止めただけでは保存されません。"
-              >
-                <div className="rc-panel-head">
-                  {/* ⚖ the family's tinted section head (the カルテ room's own
-                      generation): a washed icon chip beside the name, never a
-                      solid fill and never on a pressable. */}
-                  <h2 className="rc-sec-title" id="rcSessionTitle">
-                    <span className="rc-sec-icon" aria-hidden="true"><Icon name="mic" size={14} /></span>
-                    録音セッション
-                  </h2>
-                  <span className={`rc-state ${RECORDER_TONE[phase]}`}>{RECORDER_LABEL[phase]}</span>
+            ) : (
+              <>
+                {/* ⚖ THE HERO — the #1 object. WHO is in the room, WHEN, for
+                    what, with whom. The chip is derived from the render's ONE
+                    clock read; the name and meta ellipsize with the whole
+                    string on `title`, so a long name shortens rather than
+                    breaking the card. */}
+                <div className="rc-hero">
+                  <span className={`rc-nowchip is-${current.heroChipTone}`}>
+                    <span className="rc-nowdot" aria-hidden="true" />
+                    {current.heroChipLabel}
+                  </span>
+                  <div className="rc-hero-name" title={`${current.customerName}様`}>{current.customerName}様</div>
+                  <div className="rc-hero-meta" title={current.heroMetaLabel}>{current.heroMetaLabel}</div>
                 </div>
-                <div className={`rc-panel-body${phase === 'idle' ? ' is-idle' : ''}`}>
-                  <span className="rc-demo">デモ: 実際の録音は行いません</span>
 
-                  {/* ⚖ THE PHONE'S RECORD BUTTON — ONE PERSISTENT ELEMENT THAT
-                      MORPHS. The mic and the stop square cross-fade inside the
-                      same button, so the control a staffer presses to stop is
-                      literally the control they pressed to start. The 0.34,1.56
-                      overshoot is spent on the press and on that glyph swap and
-                      nowhere else in this room. */}
+                {/* ⚖ LIAM F-1 R1-3 — BOOKINGS UNDER YOUR OWN NAME. The label
+                    says whose list this is and how long it is; the store-wide
+                    view a manager is entitled to is the HISTORY below. */}
+                <div className="rc-pick-lb" id="rcPickLb">{props.pickerLabel}</div>
+                <div
+                  className="rc-picker"
+                  role="radiogroup"
+                  aria-labelledby="rcPickLb"
+                  data-guide-title="あなたの担当の予約"
+                  data-guide="どの予約の録音をするかを選ぶところです。自分が担当する本日の予約が、時間の早い順に並びます。ほかのスタッフの予約はここには出ません。録音中は取り違えを防ぐため選び直せません。"
+                >
+                  {props.contexts.map((c) => (
+                    <button
+                      key={c.appointmentId}
+                      type="button"
+                      role="radio"
+                      data-press
+                      aria-checked={c.appointmentId === current.appointmentId}
+                      className={`rc-slot${c.appointmentId === current.appointmentId ? ' is-sel' : ''}`}
+                      disabled={phase !== 'idle'}
+                      onClick={() => setPickedId(c.appointmentId)}
+                    >
+                      <span className="rc-tm rc-num">{c.timeLabel}</span>
+                      <span className="rc-b1">{c.customerName}様</span>
+                      <span className="rc-b2">{c.menuName} ・ {c.slotHint}</span>
+                      <span className="rc-tick" aria-hidden="true">
+                        <Icon name="tick" size={14} weight={2.6} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {phase !== 'idle' && <p className="rc-picker-lock">録音中は選び直せません</p>}
+
+                {/* ⚖ THE RECORD GROUP — ONE balanced, horizontally-centred
+                    stack (Liam F-1 R1-1: the left-hugging row felt lopsided).
+                    The INTERNALS stay the phone's: one persistent element that
+                    MORPHS mic ⇄ stop, the live ring, the 録音中 flag with its
+                    dot, a tabular timer and waveform bars on `transform:scaleY`
+                    alone. */}
+                <div className={`rc-recwrap${live ? ' is-recording' : ''}`}>
                   <div className="rc-btn-wrap">
                     <button
                       type="button"
+                      ref={recBtnRef}
                       className={`rc-rec${ended ? ' is-ended' : ''}`}
                       disabled={ended || (phase === 'idle' && !consentOk)}
                       aria-label={ended ? '録音終了' : live ? '録音停止' : '録音開始'}
@@ -878,16 +1092,11 @@ export function RecordingScreen(props: RecordingProps) {
                         if (!consentOk) return
                         setElapsed(0)
                         setTick(0)
-                        // ⚠ AND THE RECEIPT DOES NOT SURVIVE INTO A LIVE TAKE.
-                        // It legitimately shows after a discard settles, and
-                        // was cleared on a picker change and on 閉じる — but
-                        // starting a NEW take was a third exit nobody cleared,
-                        // so the panel ran a live timer and a live waveform
-                        // over a receipt whose own body says 「この確認は、いま
-                        // 行った破棄の流れの中だけに表示されます。」, which at
-                        // that moment is false (F6-3). The recovery residue's
-                        // receipt belongs to no take at all and survives,
-                        // exactly as it does on a picker change.
+                        // ⚠ AND THE RECEIPT DOES NOT SURVIVE INTO A LIVE TAKE
+                        // (F6-3): its own body says 「この確認は、いま行った破棄の
+                        // 流れの中だけに表示されます。」, which a live take makes
+                        // false. The recovery residue's receipt belongs to no
+                        // take at all and survives, as on a picker change.
                         setReceipt((r) => (r?.of === 'recovery' ? r : null))
                         setPhase('recording')
                       }}
@@ -902,98 +1111,79 @@ export function RecordingScreen(props: RecordingProps) {
                     {live && <span className="rc-ring" aria-hidden="true" />}
                   </div>
 
-                  {live && (
-                    <>
-                      {/* ⚖ THE BREATHE KEYFRAME — the house style for
-                          「quietly live」. Reduced motion gets a static solid
-                          dot: the dot still SAYS live, it simply stops moving. */}
+                  <div className="rc-recmeta">
+                    <span className="rc-demo">デモ: 実際の録音は行いません</span>
+
+                    <div className="rc-rec-line">
+                      <span className="rc-rec-label">
+                        {live ? '録音中' : phase === 'paused' ? '一時停止中' : ended ? '録音終了' : '録音開始'}
+                      </span>
+                      {phase !== 'idle' && (
+                        <span className="rc-timer rc-num" aria-live={live ? 'polite' : 'off'}>{fmtElapsed(elapsed)}</span>
+                      )}
+                    </div>
+
+                    {live && (
+                      /* ⚖ THE BREATHE KEYFRAME — the house style for
+                         「quietly live」. Reduced motion gets a static solid dot:
+                         it still SAYS live, it simply stops moving. */
                       <div className="rc-flag">
                         <span className="rc-dot" aria-hidden="true" />
                         録音中
                       </div>
-                      <div className="rc-timer" aria-live="polite">{fmtElapsed(elapsed)}</div>
-                      {/* scaleY, NOT height: a composite-only property, so the
-                          bars never lay out. No transition — the samples are
-                          already smoothed. */}
+                    )}
+                    {phase === 'paused' && (
+                      <div className="rc-flag is-paused">
+                        <span className="rc-dot is-static" aria-hidden="true" />
+                        一時停止中
+                      </div>
+                    )}
+
+                    {phase === 'idle' && (
+                      <div className="rc-rec-sub">{current.customerName}様のセッションを録音します。</div>
+                    )}
+
+                    {/* ⚠ THE WAVEFORM IS NOT IN THE MOCK AND IT STAYS (R6-22 —
+                        Liam: 「keep everything the phone app has」). Compact
+                        inside the group while live or paused, frozen and dimmed
+                        once stopped. `scaleY`, never height: a composite-only
+                        property never lays out. */}
+                    {(live || phase === 'paused') && (
                       <div className="rc-wave" aria-hidden="true">
                         {bars.map((v, i) => (
                           <span key={i} className="rc-bar" style={{ transform: `scaleY(${v})` }} />
                         ))}
                       </div>
-                    </>
-                  )}
-
-                  {phase === 'paused' && (
-                    <>
-                      <div className="rc-flag is-paused">
-                        <span className="rc-dot is-static" aria-hidden="true" />
-                        一時停止中
-                      </div>
-                      <div className="rc-timer">{fmtElapsed(elapsed)}</div>
-                    </>
-                  )}
-
-                  {ended && (
-                    <>
-                      <div className="rc-flag is-ended">録音終了</div>
-                      <div className="rc-timer">{fmtElapsed(elapsed)}</div>
+                    )}
+                    {ended && frozen.length > 0 && (
                       <div className="rc-wave is-frozen" aria-hidden="true">
                         {frozen.map((v, i) => (
                           <span key={i} className="rc-bar" style={{ transform: `scaleY(${v})` }} />
                         ))}
                       </div>
-                    </>
-                  )}
+                    )}
 
-                  {/* ⚠ THE IDLE COPY IS ONE BLOCK so the stacked band can set it
-                      BESIDE the button instead of under it — a 72px circle
-                      alone in a 900px panel was the emptiest state on the
-                      ladder. */}
-                  {phase === 'idle' && (
-                    <div className="rc-idle-copy">
-                      <div className="rc-idle-title">録音開始</div>
-                      <div className="rc-idle-sub">{current.customerName}様のセッションを録音します。</div>
+                    {/* ⚠ NO SIDE CONTROL EVER REPEATS THE BIG BUTTON'S CURRENT
+                        VERB (⚖ B4-4). Recording ⇒ the big button stops, so the
+                        row offers 一時停止 alone; paused ⇒ the big button
+                        resumes, so the row offers 停止 alone. There is still
+                        exactly ONE way to end a take, and it is the loudest
+                        thing on the panel. */}
+                    <div className="rc-controls">
+                      {phase === 'recording' && (
+                        <button className="rc-mini" type="button" data-press onClick={() => setPhase('paused')}>一時停止</button>
+                      )}
+                      {phase === 'paused' && (
+                        <button className="rc-mini" type="button" data-press onClick={stop}>停止</button>
+                      )}
+                      {/* ⚖ B4-3 — THERE IS NO 「やり直す」 OVER AN UNRESOLVED
+                          TAKE. From 停止 the two resolutions are 使う and 破棄,
+                          and nothing else. */}
                     </div>
-                  )}
-
-                  {/* ⚠ NO SIDE CONTROL EVER REPEATS THE BIG BUTTON'S CURRENT
-                      VERB (B4-4). §2f's whole argument is that the control a
-                      staffer presses to stop IS the control they pressed to
-                      start — and a labelled 停止 forty pixels under a morphing
-                      record button that is ALSO a stop dilutes exactly that: two
-                      stops, and no way to tell which one is canonical.
-                      ONE VERDICT, ONE HOME, so the row carries whatever the big
-                      button does NOT:
-                        · recording — the big button stops, so the row offers
-                          一時停止 alone (canon's genuine extra state, which the
-                          phone has no room for and a desk does);
-                        · paused    — the big button resumes, so the row offers
-                          停止 alone, the take's real ending.
-                      The phone's hierarchy survives it: there is still exactly
-                      ONE way to end a take, and it is the loudest thing on the
-                      panel. Neither side control is solid accent — this room's
-                      commit-shaped fill is reserved for a commit. */}
-                  <div className="rc-controls">
-                    {phase === 'recording' && (
-                      <button className="btn" type="button" onClick={() => setPhase('paused')}>一時停止</button>
-                    )}
-                    {phase === 'paused' && (
-                      <button className="btn rc-stop" type="button" onClick={stop}>停止</button>
-                    )}
-                    {/* ⚖ B4-3 — THERE IS NO 「やり直す」 OVER AN UNRESOLVED TAKE.
-                        The phone refuses exactly this path in words
-                        (RecordButtonCard.tsx:83-85: wiring a restart here would
-                        「invent a supersede path over an unsaved take」), and the
-                        ⚖ 8/20 integrity doctrine has no reason-free route out of
-                        a take. From 停止 the two resolutions are 使う and 破棄,
-                        and nothing else. After a discard settles the machine is
-                        already back at 待機中 — the reset is the RESOLUTION's,
-                        never a lever beside it. */}
                   </div>
 
                   {/* ⚖ W7-1 — the closed gate says WHICH of the two reasons it
-                      is, in the customer's own case, and it is the same note
-                      whether the grant is missing or merely old. */}
+                      is, in the customer's own case. */}
                   {phase === 'idle' && !consentOk && current.gateNote && (
                     <p className="rc-gate">{current.gateNote}</p>
                   )}
@@ -1005,20 +1195,20 @@ export function RecordingScreen(props: RecordingProps) {
                         <button
                           className="btn rc-discard"
                           type="button"
+                          data-press
                           ref={discardBtnRef}
                           onClick={() => { setDiscardOf('recorder'); setDialog('discard') }}
                         >
                           <Icon name="trash" size={14} />破棄
                         </button>
-                        {/* ⚖ R6-D3 / §2a — THE CONFIRM RENDERS, THE COMMIT
-                            REFUSES. This button is a REAL lever: it opens the
-                            designed confirm and shows the カルテ record a commit
-                            would touch. What refuses is the commit inside it,
-                            with the reason that says why THIS one refuses while
-                            the 破棄 beside it runs to the end. */}
+                        {/* ⚖ R6-D3 — THE CONFIRM RENDERS, THE COMMIT REFUSES.
+                            This button is a REAL lever: it opens the designed
+                            confirm and shows the カルテ record a commit would
+                            touch. What refuses is the commit inside it. */}
                         <button
                           className="btn rc-commit"
                           type="button"
+                          data-press
                           ref={useOpenRef}
                           onClick={() => setDialog('use')}
                         >
@@ -1028,68 +1218,267 @@ export function RecordingScreen(props: RecordingProps) {
                     </div>
                   )}
 
-                  {/* THE RECEIPT — ephemeral, self-contained, and only ever
-                      inside the discard flow that just ran (canon :842). */}
                   {receipt?.of === 'recorder' && (
                     <Receipt receipt={receipt} closeRef={receiptCloseRef} onClose={() => setReceipt(null)} />
                   )}
                 </div>
-              </section>
 
-              {/* ═══ 同意状況 ═══ */}
-              <section
-                className="rc-panel rc-consent"
-                aria-labelledby="rcConsentTitle"
-                data-guide-title="同意状況"
-                data-guide="録音を始めてよいかどうかの確認です。いまの説明文で同意をいただけている予約だけ録音を始められます。同意が古いときも新しく取り直しが必要です。下のタグは連絡してよい手段の記録で、録音の同意とは別のものです。"
-              >
-                <div className="rc-panel-head">
-                  <div>
-                    <h2 className="rc-sec-title" id="rcConsentTitle">
-                      <span className="rc-sec-icon is-consent" aria-hidden="true"><Icon name="shield" size={14} /></span>
-                      同意状況
-                    </h2>
-                    <span className="rc-panel-sub">録音に必要な同意の確認</span>
-                  </div>
-                  <span className={`rc-consent-pill ${consentOk ? 'is-true' : current.consentTone}`}>
-                    <Icon name="shield" size={12} />
-                    {consentOk && !current.canStart ? '同意あり（デモ）' : current.consentLabel}
-                  </span>
-                </div>
-                <div className="rc-panel-body">
-                  <div className="rc-tags">
-                    {current.contactTags.length > 0 ? (
-                      current.contactTags.map((t) => (
-                        <span className="rc-tag" key={t}>{t}</span>
-                      ))
-                    ) : (
-                      <span className="rc-tag is-muted">許可された連絡手段なし</span>
+                {/* ⚖ CONSENT — ONE THIN LINE UNDER THE RECORD GROUP (Liam F-1
+                    R2-1), ALWAYS VISIBLE because it GATES recording (the consent
+                    floor). Three states are designed: current wears a green
+                    badge and the evidence, stale and absent wear their tone, the
+                    gate note and the button that opens the read-aloud flow. The
+                    full proof text and the policy floor live one press away in
+                    the pop-down, so nothing is cut. */}
+                <div className={`rc-consentline is-${consentOk ? 'current' : current.consentState}${consentOpen ? ' is-open' : ''}`}>
+                  <div className="rc-cl-row">
+                    <span className={`rc-cl-badge ${consentOk ? 'is-true' : current.consentTone}`}>
+                      <Icon name="shield" size={11} />
+                      {consentOk && !current.canStart ? '同意あり（デモ）' : current.consentLabel}
+                    </span>
+                    <span className="rc-cl-ev" title={current.consentProof}>
+                      {demoConsent[current.appointmentId]
+                        ? '読み上げによる確認で取得しました（デモ・この端末のみ）'
+                        : current.consentShort}
+                    </span>
+                    {!consentOk && current.consentAction && (
+                      <button
+                        className="btn primary rc-cl-take"
+                        type="button"
+                        data-press
+                        ref={consentOpenRef}
+                        onClick={() => setDialog('consent')}
+                      >
+                        {current.consentAction}
+                      </button>
                     )}
-                  </div>
-                  <p className="rc-note">{props.contactDisclaimer}</p>
-                  <p className="rc-proof">
-                    {demoConsent[current.appointmentId]
-                      ? 'この録音セッションの同意は、読み上げによる確認で取得しました（デモ・この端末のみ）。'
-                      : current.consentProof}
-                  </p>
-                  {!consentOk && (
-                    <button className="btn primary rc-consent-open" type="button" ref={consentOpenRef} onClick={() => setDialog('consent')}>
-                      同意取得フローを開始
+                    <button
+                      className="rc-cl-more"
+                      type="button"
+                      data-press
+                      aria-expanded={consentOpen}
+                      aria-controls="rcConsentDetail"
+                      onClick={() => setConsentOpen((v) => !v)}
+                    >
+                      同意の記録をくわしく見る
+                      <span className="rc-cv" aria-hidden="true"><Icon name="chevdown" size={11} weight={2.4} /></span>
                     </button>
-                  )}
-                  <p className="rc-note rc-policy">
-                    録音の同意は、この製品の決まりとして必ず取得します。店舗ごとの切り替えはありません。
-                  </p>
+                  </div>
+                  <div className="rc-collapse" id="rcConsentDetail" ref={consentPanelRef}>
+                    <div className={`rc-collapse-in${consentOpen ? ' is-in' : ''}`}>
+                      <div className="rc-cl-detail">
+                        <b>同意状況</b><br />
+                        {demoConsent[current.appointmentId]
+                          ? 'この録音セッションの同意は、読み上げによる確認で取得しました（デモ・この端末のみ）。'
+                          : current.consentProof}<br />
+                        {'録音に必要な同意の確認です。録音の同意は、この製品の決まりとして必ず取得します。店舗ごとの切り替えはありません。'}
+                        {!consentOk && current.gateNote ? <><br />{current.gateNote}</> : null}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </section>
+              </>
+            )}
+          </section>
+
+          {/* ═══ 前回までの流れ — the phone's before-session brief, fuller ═══ */}
+          {current !== null && (
+            <section
+              className={`rc-card rc-brief${briefOpen ? ' is-open' : ''}`}
+              data-guide-title="前回までの流れ"
+              data-guide="施術に入る前に目を通す情報です。前回いつ来られて何をしたか、過去のカルテ、前回のAI要約と施術メモが並びます。見出しを押すと閉じたり開いたりできます。"
+            >
+              <button className="rc-brief-hd" type="button" data-press aria-expanded={briefOpen} aria-controls="rcBriefPanel" onClick={() => setBriefOpen((v) => !v)}>
+                <span className="rc-brief-ttl">前回までの流れ</span>
+                <span className="rc-brief-who" title={`${current.customerName}様`}>{current.customerName}様</span>
+                <span className="rc-brief-hint">施術に入る前に目を通す情報です</span>
+                <span className="rc-brief-sp" />
+                <span className="rc-cv" aria-hidden="true"><Icon name="chevdown" size={14} weight={2.2} /></span>
+              </button>
+              <div className="rc-collapse" id="rcBriefPanel" ref={briefPanelRef}>
+                <div className={`rc-collapse-in${briefOpen ? ' is-in' : ''}`}>
+                  <div className="rc-brief-body">
+                    {/* v4-1: two PACKED vertical stacks, never a row-aligned
+                        grid — grid rows align to the tallest card and tore
+                        holes between the tinted boxes at wide windows. */}
+                    <div className="rc-bcols">
+                      <div className="rc-bcol">
+                        <div className="rc-bsec is-blue">
+                          <span className="rc-bk"><Icon name="calendar" size={12} />前回のご来店</span>
+                          {current.brief.lastLine === null ? (
+                            <div className="rc-bempty">まだご来店の記録がありません。<br />この店舗では初めてのご来店です。</div>
+                          ) : (
+                            <div className="rc-bv rc-clamp-2" title={current.brief.lastLine}>{current.brief.lastLine}</div>
+                          )}
+                          <div className="rc-brow">
+                            <span className="rc-tag is-grey">{current.brief.visitsTag}</span>
+                            {current.brief.lastKaruteLabel && (
+                              <Link className="rc-klink" href={props.karuteHref}>
+                                カルテ {current.brief.lastKaruteLabel} を開く<Icon name="chevron" size={12} weight={2.4} />
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rc-bsec">
+                          <span className="rc-bk"><Icon name="file" size={12} />過去のカルテ</span>
+                          {current.brief.records.length === 0 ? (
+                            <div className="rc-bempty">まだカルテはありません。<br />初めてのご来店です。今回の録音からつくるカルテが、はじめの1件になります。</div>
+                          ) : (
+                            <div className="rc-klist">
+                              {current.brief.records.map((r) => (
+                                <Link className="rc-krow" key={r.id} href={props.karuteHref}>
+                                  <span className="rc-kd rc-num">{r.dateLabel}</span>
+                                  <span className="rc-kt">{r.title}</span>
+                                  <span className="rc-cv" aria-hidden="true"><Icon name="chevron" size={12} weight={2.4} /></span>
+                                </Link>
+                              ))}
+                              {/* v5-3 — the depth goes behind ONE door, and the
+                                  door counts what is behind it. */}
+                              {current.brief.doorLabel && (
+                                <Link className="rc-krow is-door" href={props.karuteHref}>
+                                  <span className="rc-kt">{current.brief.doorLabel}</span>
+                                  <span className="rc-cv" aria-hidden="true"><Icon name="chevron" size={12} weight={2.4} /></span>
+                                </Link>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rc-bsec">
+                          <span className="rc-bk"><Icon name="chat" size={12} />同意・連絡</span>
+                          <div className="rc-brow">
+                            {current.contactTags.length > 0 ? (
+                              current.contactTags.map((t) => <span className="rc-tag" key={t}>{t}</span>)
+                            ) : (
+                              <span className="rc-tag is-grey">許可された連絡手段なし</span>
+                            )}
+                            <button className="rc-note-toggle" type="button" data-press aria-expanded={tagNoteOpen} aria-controls="rcTagNote" onClick={() => setTagNoteOpen((v) => !v)}>
+                              これは何？
+                              <span className="rc-cv" aria-hidden="true"><Icon name="chevdown" size={11} weight={2.4} /></span>
+                            </button>
+                          </div>
+                          <div className="rc-collapse" id="rcTagNote" ref={tagNotePanelRef}>
+                            <div className={`rc-collapse-in${tagNoteOpen ? ' is-in' : ''}`}>
+                              <div className="rc-note-body">{props.contactDisclaimer}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rc-bcol">
+                        <div className="rc-bsec is-indigo">
+                          {/* ⚖ THE LABEL SAYS WHAT IT IS. 「AIのまとめ」 alone
+                              would read as a summary of TODAY; this is the last
+                              カルテ's, and a staffer about to walk into a room
+                              has to know which. */}
+                          <span className="rc-bk"><Icon name="spark" size={12} />前回のカルテのAI要約</span>
+                          {current.brief.summary === null ? (
+                            <div className="rc-bempty">前回のまとめはまだありません。</div>
+                          ) : (
+                            <>
+                              <div className={`rc-bv${sumOpen ? '' : ' rc-clamp-6'}`} ref={sumRef}>{current.brief.summary}</div>
+                              {sumOverflows && (
+                                <button className={`rc-moretog${sumOpen ? ' is-on' : ''}`} type="button" data-press onClick={() => setSumOpen((v) => !v)}>
+                                  {sumOpen ? '閉じる' : 'もっと見る'}
+                                  <span className="rc-cv" aria-hidden="true"><Icon name="chevdown" size={11} weight={2.4} /></span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <div className="rc-bsec is-amber">
+                          <span className="rc-bk"><Icon name="pencil" size={12} />前回の施術メモ</span>
+                          {current.brief.memo.length === 0 ? (
+                            <div className="rc-bempty">前回の施術メモはまだありません。今回の施術内容が、はじめの記録になります。</div>
+                          ) : (
+                            <>
+                              <ul className={`rc-memo${memoOpen ? '' : ' is-clamped'}`}>
+                                {current.brief.memo.map((m, i) => (
+                                  <li key={`${m.label}-${i}`}><span className="rc-memo-k">{m.label}</span>{m.text}</li>
+                                ))}
+                              </ul>
+                              {current.brief.memo.length > 3 && (
+                                <button className={`rc-moretog${memoOpen ? ' is-on' : ''}`} type="button" data-press onClick={() => setMemoOpen((v) => !v)}>
+                                  {memoOpen ? '閉じる' : 'もっと見る'}
+                                  <span className="rc-cv" aria-hidden="true"><Icon name="chevdown" size={11} weight={2.4} /></span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ⚠ PHONE PARITY, HONESTLY (registry ⑪). The phone's
+                        `PreSessionBrief` also carries AI-GENERATED hooks, an
+                        opener, a recommended focus, a memo reading and the
+                        customer's reservation memo. This plane holds none of
+                        them — no model call, no memo field — so the room renders
+                        NOTHING for them and says so in one quiet line. Inventing
+                        the text would be this page writing content a staffer
+                        would take for the AI's. */}
+                    <p className="rc-bai">会話のきっかけ・今日のおすすめ（AIの事前ブリーフ）は、実データ接続後に表示されます。</p>
+                    <div className="rc-bnote">この内容は、前回までのカルテと施術メモからまとめています（見本データ）。</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* ═══ ROW 2 — 要対応 strip + 録音履歴, full content width ═══ */}
+
+        {/* ⚖ ONE SLIM STRIP (Liam F-1 R2-4: the old row read stretched — label
+            left, a huge blank, pills far right). The pills flow immediately
+            beside the label, each one's count is EXACTLY what its filter
+            reveals, and the strip renders ONLY when something actually needs a
+            hand — a 「要対応 0件」 header is a page inventing a warning. */}
+        {props.attention && (
+          <section
+            className="rc-card rc-attn"
+            aria-label="要対応"
+            data-guide-title="要対応"
+            data-guide="いま手を動かす必要がある録音だけをまとめた行です。件数はそれぞれ、押したときに一覧へ残る件数そのものです。手を動かすものが何もないときは、この行そのものが出ません。"
+          >
+            <div className="rc-attnstrip">
+              <span className="rc-attn-ttl">{props.attention.title}</span>
+              <span className="rc-attn-cnt rc-num">{props.attention.countLine}</span>
+              <span className="rc-attn-hint">{props.attention.hint}</span>
+              {props.attention.pills.map((p) =>
+                p.action.kind === 'save' ? (
+                  <span className={`rc-aspill is-${p.tone}`} key={p.key}>
+                    <span className={p.chip}>{p.stateLabel}</span>
+                    <span className="rc-aspill-n rc-num">{p.countLabel}</span>
+                    {p.note && <span className="rc-aspill-m">{p.note}</span>}
+                    <button {...refused(p.action.label, props.refusals.save, { className: 'rc-aspill-go' })} data-press>
+                      {p.action.label}
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    className={`rc-aspill is-${p.tone}`}
+                    type="button"
+                    data-press
+                    key={p.key}
+                    onClick={() => { setStateFilter(p.stateLabel); historyRef.current?.scrollIntoView({ block: 'start' }) }}
+                  >
+                    <span className={p.chip}>{p.stateLabel}</span>
+                    <span className="rc-aspill-n rc-num">{p.countLabel}</span>
+                    {p.note && <span className="rc-aspill-m">{p.note}</span>}
+                    <span className="rc-aspill-go">{p.action.label}</span>
+                  </button>
+                ),
+              )}
             </div>
-          </>
+          </section>
         )}
 
         {/* ═══ 録音履歴 ═══ */}
         <section
-          className="rc-history"
+          className="rc-card rc-history"
           aria-labelledby="rcHistoryTitle"
+          ref={historyRef}
           data-guide-title="録音履歴"
           data-guide="この画面から見える録音の一覧です。新しい順に並び、それぞれの録音がいまどうなっているか（保存済み・確認待ち・処理中・失敗・復元可能・破棄済み）が右側に出ます。破棄済みの録音には操作ボタンが出ません — 決着がついた録音だからです。"
         >
@@ -1098,11 +1487,20 @@ export function RecordingScreen(props: RecordingProps) {
               <span className="rc-sec-icon is-history" aria-hidden="true"><Icon name="history" size={14} /></span>
               録音履歴
             </h2>
-            <span className="rc-history-cap">{props.historyCaption}</span>
+            {/* ⚖ 8/25 ruling B, staff half — the caption and the own-count are
+                ONE line: both are plain labelled facts about this list, and two
+                stacked lines cost the fold 20px for no meaning. `null` renders
+                NOTHING, never 0. */}
+            <span className="rc-history-cap">
+              {props.historyCaption}
+              {props.ownDiscardLine && <> ・ {props.ownDiscardLine}</>}
+            </span>
+            <span className="rc-history-sp" />
             {props.canReviewDiscards && (
               <button
                 className="btn rc-review-open"
                 type="button"
+                data-press
                 ref={reviewRef}
                 onClick={() => setScreen('discards')}
               >
@@ -1110,10 +1508,6 @@ export function RecordingScreen(props: RecordingProps) {
               </button>
             )}
           </div>
-          {/* ⚖ 8/25 ruling B, staff half — 自分が今月破棄した録音 {n}件, a
-              LABELLED PLAIN FACT in muted type. `null` renders NOTHING, never 0:
-              a zero we cannot stand behind is a claim. */}
-          {props.ownDiscardLine && <p className="rc-own-count">{props.ownDiscardLine}</p>}
 
           {props.takes.length === 0 ? (
             <div className="rc-empty">
@@ -1122,130 +1516,167 @@ export function RecordingScreen(props: RecordingProps) {
             </div>
           ) : (
             <>
-              {/* ⚖ COUNTERS AS FILTERS (the カルテ room's own segment row).
-                  ONE state at a time; every chip is the same quiet neutral, so
-                  the 破棄済み chip cannot be the loud one; and the number on a
-                  chip IS the number of rows its press leaves standing. */}
-              <div
-                className="rc-filters"
-                role="group"
-                aria-label="状態でしぼりこむ"
-                data-guide-title="状態でしぼりこむ"
-                data-guide="録音の状態で一覧をしぼりこめます。それぞれの数字は、押したときに残る件数そのものです。破棄済みもここに出ます — 破棄した録音を隠すことはありません。"
-              >
-                <button
-                  className={`rc-filter${stateFilter === null ? ' is-on' : ''}`}
-                  type="button"
-                  aria-pressed={stateFilter === null}
-                  onClick={() => setStateFilter(null)}
+              {/* ⚖ COUNTERS AS FILTERS, with the mock's sliding thumb. ONE state
+                  at a time; every chip is the same quiet neutral, so the 破棄済み
+                  chip cannot be the loud one; and the number on a chip IS the
+                  number of rows its press leaves standing. */}
+              <div className="rc-segwrap">
+                <div
+                  className="rc-seg"
+                  role="group"
+                  aria-label="状態でしぼりこむ"
+                  ref={segRef}
+                  data-guide-title="状態でしぼりこむ"
+                  data-guide="録音の状態で一覧をしぼりこめます。それぞれの数字は、押したときに残る件数そのものです。破棄済みもここに出ます — 破棄した録音を隠すことはありません。"
                 >
-                  すべて<span className="rc-filter-n rc-num">{walk.visible.length}</span>
-                </button>
-                {filters.map((f) => (
+                  <span className="rc-seg-thumb" aria-hidden="true" ref={thumbRef} />
                   <button
-                    key={f.label}
-                    className={`rc-filter${stateFilter === f.label ? ' is-on' : ''}`}
+                    className={`rc-seg-btn${stateFilter === null ? ' is-on' : ''}`}
                     type="button"
-                    aria-pressed={stateFilter === f.label}
-                    onClick={() => setStateFilter((was) => (was === f.label ? null : f.label))}
+                    data-press
+                    aria-pressed={stateFilter === null}
+                    onClick={() => setStateFilter(null)}
                   >
-                    {f.label}<span className="rc-filter-n rc-num">{f.n}</span>
+                    すべて<span className="rc-seg-n rc-num">{walk.visible.length}</span>
                   </button>
-                ))}
+                  {filters.map((f) => (
+                    <button
+                      key={f.label}
+                      className={`rc-seg-btn${stateFilter === f.label ? ' is-on' : ''}`}
+                      type="button"
+                      data-press
+                      aria-pressed={stateFilter === f.label}
+                      onClick={() => setStateFilter((was) => (was === f.label ? null : f.label))}
+                    >
+                      {f.label}<span className="rc-seg-n rc-num">{f.n}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-            <div className="rc-rows">
-              <div className="rc-rowhead" aria-hidden="true">
-                <span>日付</span>
-                <span>お客様</span>
-                <span>録音者</span>
-                <span>長さ</span>
-                <span>状態</span>
-                <span />
+              <div className="rc-tablewrap">
+                {/* ⚠ FIVE COLUMNS, AND 状態・操作 IS ONE CELL (v5-1). A separate
+                    操作 column was blank in four rows of seven — a labelled cell
+                    with nothing in it reads as broken — and its cap pushed the
+                    button to the card's far right with ~96px of white after the
+                    chip. Chip and action now sit together, and only お客様 is
+                    elastic, CARRYING the sub-message, so surplus width becomes
+                    readable text instead of a dead middle. */}
+                <div className="rc-rowhead" aria-hidden="true">
+                  <span>日付</span>
+                  <span>お客様</span>
+                  <span>録音者</span>
+                  <span>長さ</span>
+                  <span>状態・操作</span>
+                </div>
+                <div className="rc-rows" key={stateFilter ?? 'all'}>
+                  {rows.map((t) => (
+                    <div className={`rc-row${t.isDiscarded ? ' is-discarded' : ''}`} key={t.id} data-state={t.stateLabel}>
+                      <span className="rc-c-date rc-num">{t.dateLabel} {t.timeLabel}</span>
+                      <span className="rc-c-cust">
+                        <span className={`rc-avatar${t.hasCustomer ? '' : ' is-none'}`} aria-hidden="true">{t.customerInitial}</span>
+                        <span className="rc-custtxt">
+                          <span className="rc-nm">{t.customerLabel}</span>
+                          {/* ⚠ THE SUB-MESSAGE LIVES INSIDE THE お客様 TRACK (v5
+                              D2): it cannot overlap a neighbouring column by
+                              construction, and it is what earns that column its
+                              width on a wide desk. */}
+                          {(t.karuteRecordLabel || t.reasonLine) && (
+                            <span className="rc-sub">
+                              {t.karuteRecordLabel && <span className="rc-kchip">カルテ {t.karuteRecordLabel}</span>}
+                              {t.reasonLine}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      <span className="rc-c-by">{t.byName}</span>
+                      <span className="rc-c-dur rc-num">{t.durationLabel}</span>
+                      <span className="rc-c-state">
+                        <span className={t.stateChip}>{t.stateLabel}</span>
+                        {/* ⚖ R2 + A2-3 — a 破棄済み row offers NOTHING: no 開く,
+                            no 保存, no 再試行. The evidence is kept internally;
+                            the affordance is suppressed, decided from the state
+                            alone. */}
+                        {t.action === null ? null : t.action.kind === 'karute' && t.action.href ? (
+                          <Link className="rc-linkbtn" href={t.action.href}>{t.action.label}</Link>
+                        ) : (
+                          <button {...refused(t.action.label, props.refusals.save, { className: 'rc-row-save' })} data-press>
+                            <Icon name="save" size={13} />{t.action.label}
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {walk.hidden > 0 && (
+                  <div
+                    className="rc-more"
+                    data-guide-title="さらに表示"
+                    data-guide="この一覧は新しい日付から順に、1週間ぶんずつさかのぼって読み込みます。押すと、さらに前の期間の録音が下に追加されます。"
+                  >
+                    {/* ⚠ THE COUNTER STORES THE STEP THE WALK LANDED ON, not the
+                        one this screen asked for. Counting `s + 1` from local
+                        state re-derived a step the walk had already passed, so
+                        on a quiet fortnight the button did nothing for four
+                        presses in a row (F6-1). */}
+                    <button className="btn" type="button" data-press onClick={() => setSteps(walk.step + 1)}>
+                      さらに表示（あと{walk.hidden}件）
+                    </button>
+                  </div>
+                )}
               </div>
-              {rows.map((t) => (
-                <div className={`rc-row${t.isDiscarded ? ' is-discarded' : ''}`} key={t.id} data-state={t.stateLabel}>
-                  <span className="rc-c-date rc-num">{t.dateLabel} {t.timeLabel}</span>
-                  <span className="rc-c-cust">
-                    <span className={`rc-avatar${t.hasCustomer ? '' : ' is-none'}`} aria-hidden="true">{t.customerInitial}</span>
-                    {t.customerLabel}
-                    {t.karuteRecordLabel && <span className="rc-c-rec">カルテ {t.karuteRecordLabel}</span>}
-                  </span>
-                  <span className="rc-c-by">{t.byName}</span>
-                  <span className="rc-c-dur rc-num">{t.durationLabel}</span>
-                  <span className="rc-c-state">
-                    <span className={t.stateChip}>{t.stateLabel}</span>
-                  </span>
-                  <span className="rc-c-act">
-                    {/* ⚖ R2 + A2-3 — a 破棄済み row offers NOTHING: no 開く, no
-                        保存, no 再試行. The evidence is kept internally; the
-                        affordance is suppressed, decided from the state alone. */}
-                    {t.action === null ? null : t.action.kind === 'karute' && t.action.href ? (
-                      <Link className="btn rc-quiet" href={t.action.href}>{t.action.label}</Link>
-                    ) : (
-                      <button {...refused(t.action.label, props.refusals.save, { className: 'rc-row-save' })}>
-                        <Icon name="save" size={13} />{t.action.label}
-                      </button>
-                    )}
-                  </span>
-                  {/* ⚠ THE REASON IS THE ROW'S OWN SUB-LINE, spanning it, which
-                      is also the phone's own shape (RecordingsInboxCard renders
-                      it as a `<p>` under the row). It used to live INSIDE the
-                      state cell, where its sentence sized that cell's track: at
-                      390 the two rows carrying a long reason squeezed 顧客未設定
-                      to one character per line. Caught in my own read of the
-                      390 shot. */}
-                  {t.reasonLine && <span className="rc-c-reason">{t.reasonLine}</span>}
-                </div>
-              ))}
-              {walk.hidden > 0 && (
-                <div
-                  className="rc-more"
-                  data-guide-title="さらに表示"
-                  data-guide="この一覧は新しい日付から順に、1週間ぶんずつさかのぼって読み込みます。押すと、さらに前の期間の録音が下に追加されます。"
-                >
-                  {/* ⚠ THE COUNTER STORES THE STEP THE WALK LANDED ON, not the
-                      one this screen asked for. `windowTakes` extends its own
-                      span until it gains a row; counting `s + 1` from local
-                      state re-derived a step the walk had already passed, so on
-                      a quiet fortnight the button did nothing for four presses
-                      in a row (F6-1). */}
-                  <button className="btn" type="button" onClick={() => setSteps(walk.step + 1)}>
-                    さらに表示（あと{walk.hidden}件）
-                  </button>
-                </div>
-              )}
-            </div>
             </>
           )}
         </section>
 
-        {/* ═══ この画面の値の設定元 ═══ */}
-        <section
-          className="rc-trace"
-          aria-labelledby="rcTraceTitle"
+        {/* ═══ THE FOOTNOTE DISCLOSURE — the trace card FOLDS, nothing is cut ═══
+            Everything the standing trace card said is here: the この画面の見え方
+            lines VERBATIM, the provenance rows, the two refused actions and the
+            sample notice. It sits behind one bar because none of it is what a
+            receptionist came to this page to read — and all of it is what a
+            manager asking 「where does this number come from?」 came for. */}
+        <div
+          className={`rc-footnote${footOpen ? ' is-open' : ''}`}
           data-guide-title="この画面の値の設定元"
-          data-guide="この画面が出している値が、どこで決まっているかの一覧です。まだつないでいないものは「未接続」と書いてあります。担当者の名簿だけは、いまも開けるスタッフ・シフトの画面につながっています。"
+          data-guide="この画面で見えるもの・見えないものと、それぞれの値がどこで決まっているかの一覧です。まだつないでいないものは「未接続」と書いてあります。担当者の名簿だけは、いまも開けるスタッフ・シフトの画面につながっています。"
         >
-          <h2 className="rc-sec-title" id="rcTraceTitle">この画面の値の設定元</h2>
-          <p className="rc-note">{props.traceNote}</p>
-          <dl className="rc-trace-rows">
-            {props.trace.map((row) => (
-              <div className="rc-trace-row" key={row.label}>
-                <dt>{row.label}</dt>
-                <dd>
-                  {row.href ? <Link href={row.href}>{row.value}</Link> : row.value}
-                </dd>
+          <div className="rc-fn-panel" id="rcFootnotePanel" ref={footPanelRef}>
+            <div className={`rc-collapse-in${footOpen ? ' is-in' : ''}`}>
+              <div className="rc-fn-scroll">
+                {props.noticeLines.length > 0 && (
+                  <section className="rc-notice" aria-label="この画面の見え方">
+                    {props.noticeLines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </section>
+                )}
+                <h2 className="rc-sec-title">{props.footnoteTitle}</h2>
+                <p className="rc-note">{props.traceNote}</p>
+                <dl className="rc-trace-rows">
+                  {props.trace.map((row) => (
+                    <div className="rc-trace-row" key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>
+                        {row.href ? <Link href={row.href}>{row.value}</Link> : row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="rc-trace-acts">
+                  <button {...refused('録音の設定を開く', props.refusals.policy)} data-press>録音の設定を開く</button>
+                  <button {...refused('自分の音声を登録', props.refusals.enroll)} data-press>自分の音声を登録</button>
+                </div>
+                <p className="rc-samplenote" id="rcFootnote">{props.actionFootnote}</p>
               </div>
-            ))}
-          </dl>
-          <div className="rc-trace-acts">
-            <button {...refused('録音の設定を開く', props.refusals.policy)}>録音の設定を開く</button>
-            <button {...refused('自分の音声を登録', props.refusals.enroll)}>自分の音声を登録</button>
+            </div>
           </div>
-        </section>
-
-        <p className="rc-footnote" id="rcFootnote">{props.actionFootnote}</p>
+          <button className="rc-fn-bar" type="button" data-press aria-expanded={footOpen} aria-controls="rcFootnotePanel" onClick={() => setFootOpen((v) => !v)}>
+            <Icon name="info" size={13} weight={1.9} />
+            {props.footnoteBar}
+            <span className="rc-fn-sp" />
+            <span className="rc-cv" aria-hidden="true"><Icon name="chevup" size={13} weight={2.2} /></span>
+          </button>
+        </div>
       </div>
 
       {/* ═══ CANON'S BOUNDARY MARKUP — PRESENT, AND INERT ═══════════════════

@@ -163,14 +163,37 @@ export const CONSENT_TONE: Record<ConsentState, string> = {
 }
 
 /** The 同意状況 panel's evidence line — what the record actually says. */
+/** ⚠ 「本日」, NOT 「0日前」 (F6-9). A grant taken this morning is zero days old,
+ *  and 「0日前」 is arithmetic showing through the copy — nobody says it. ONE
+ *  home, because the thin consent line, its pop-down and the review all read it. */
+export function grantedWhen(daysAgo: number | null): string {
+  return daysAgo === 0 ? '本日' : `${daysAgo}日前`
+}
+
 export function consentProofLine(consent: ConsentFacts): string {
   if (consent.state === 'current') {
-    return `この録音セッションには同意取得の記録があります（${consent.grantedDaysAgo}日前・口頭での確認）。`
+    return `この録音セッションには同意取得の記録があります（${grantedWhen(consent.grantedDaysAgo)}・口頭での確認）。`
   }
   if (consent.state === 'stale') {
-    return `同意の記録はありますが、いまの説明文（${CONSENT_POLICY_VERSION}）より前のものです（${consent.grantedVersion}・${consent.grantedDaysAgo}日前）。`
+    return `同意の記録はありますが、いまの説明文（${CONSENT_POLICY_VERSION}）より前のものです（${consent.grantedVersion}・${grantedWhen(consent.grantedDaysAgo)}）。`
   }
   return 'この録音セッションの同意はまだ取得されていません。'
+}
+
+/** The thin line's SHORT evidence — the mock's `.cl-ev` (the full text lives in
+ *  the pop-down, which is `consentProofLine`). */
+export function consentShortLine(consent: ConsentFacts): string {
+  if (consent.state === 'current') return `同意取得の記録があります（${grantedWhen(consent.grantedDaysAgo)}・口頭）`
+  if (consent.state === 'stale') return `同意の記録が古い方針のものです（${grantedWhen(consent.grantedDaysAgo)}）`
+  return '同意の記録がありません'
+}
+
+/** What the thin line's own button offers, per state. `null` while the gate is
+ *  open — a page that offers to re-take a consent nobody needs is noise. */
+export function consentActionLabel(state: ConsentState): string | null {
+  if (state === 'stale') return '同意を取り直す'
+  if (state === 'absent') return '同意を取得'
+  return null
 }
 
 /** ⚖ CANON'S OWN DISCLAIMER, kept verbatim-in-meaning (fable-record-session
@@ -1128,7 +1151,14 @@ export interface PickerOption {
   menuName: string
   startsAt: string
   startedMinute: number
+  /** The booking's own end, so the hero chip can say 施術中 vs 終了 from ONE
+   *  clock read rather than guessing a length. */
+  endMinute: number
   consent: ConsentState
+  /** How many times this customer has FINISHED a session at this store before
+   *  today — the number 「ご来店 N回目」 counts, and today's own visit is the
+   *  N+1'th, which is why it is +1 at the label (⚖ self-explaining numbers). */
+  visitsBefore: number
 }
 
 /**
@@ -1139,6 +1169,15 @@ export interface PickerOption {
  * attended cannot be recorded, so offering it would put an impossible state on
  * the picker (⚖ 8/9). `board_state === 'noshow'` is the world's own way of
  * saying it — the same field the day board reads.
+ *
+ * ⚖ LIAM F-1 R1-3 — AND THE LIST IS STAFF-SCOPED: BOOKINGS UNDER YOUR OWN NAME.
+ * `ownStaffId` is the phone's record-own-customer law mirrored onto the desk. A
+ * 店舗管理者 who also treats records HER OWN customers here; the store-wide view
+ * she is entitled to is the HISTORY below, not the recorder. It is a READ, not a
+ * filter over a rendered list: a colleague's booking never becomes an option, so
+ * nothing about it (a customer's name, a menu, a consent state) is in the props
+ * at all. `null` means「no self to scope to」 and returns the unscoped list —
+ * which is the harness's world, never the page's.
  */
 export function pickerOptions(input: {
   appointments: FixtureAppointment[]
@@ -1148,17 +1187,21 @@ export function pickerOptions(input: {
   grants: FixtureConsentGrant[]
   todayKey: number
   minuteOf: (iso: string) => number
+  ownStaffId: string | null
 }): PickerOption[] {
   const customerById = new Map(input.customers.map((c) => [c.id, c]))
   const menuById = new Map(input.menus.map((m) => [m.id, m]))
   const staffById = new Map(input.staff.map((s) => [s.id, s]))
+  const visitsBefore = visitCounts(input.appointments, input.todayKey)
   return input.appointments
     .filter((a) => jstDayKey(a.starts_at) === input.todayKey)
     .filter((a) => a.staff_id !== null)
+    .filter((a) => input.ownStaffId === null || a.staff_id === input.ownStaffId)
     .filter((a) => a.status !== 'cancelled' && a.board_state !== 'noshow')
     .filter((a) => customerById.has(a.customer_id))
     .map((a) => {
       const customer = customerById.get(a.customer_id)!
+      const startedMinute = input.minuteOf(a.starts_at)
       return {
         appointmentId: a.id,
         customerId: customer.id,
@@ -1166,9 +1209,221 @@ export function pickerOptions(input: {
         staffName: staffById.get(a.staff_id ?? '')?.full_name ?? '担当なし',
         menuName: menuById.get(a.menu_id ?? '')?.name ?? 'メニュー未記録',
         startsAt: a.starts_at,
-        startedMinute: input.minuteOf(a.starts_at),
+        startedMinute,
+        // ⚠ `max`, not the raw read: `jstMinuteOfDay` is a MINUTE OF ITS DAY, so
+        // a session running past midnight would end at a smaller number than it
+        // started at and read as 「終了」 from the moment it began.
+        endMinute: Math.max(startedMinute, input.minuteOf(a.ends_at)),
         consent: consentOf(customer.id, input.grants).state,
+        visitsBefore: visitsBefore.get(customer.id) ?? 0,
       }
     })
     .sort((a, b) => a.startedMinute - b.startedMinute || a.appointmentId.localeCompare(b.appointmentId))
+}
+
+/**
+ * How many FINISHED sessions each customer has at this lens, strictly before
+ * today. `done` and only `done`: a cancelled booking is not a visit, a no-show
+ * is not a visit, and a booking still ahead of the clock has not happened yet.
+ *
+ * Computed ONCE for the whole picker rather than per option — the alternative is
+ * an O(bookings) scan inside an O(bookings) map, which on a 200-booking harness
+ * world is 40,000 comparisons for a number that is the same every time.
+ */
+function visitCounts(appointments: FixtureAppointment[], todayKey: number): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const a of appointments) {
+    if (a.status !== 'done') continue
+    if (jstDayKey(a.starts_at) >= todayKey) continue
+    out.set(a.customer_id, (out.get(a.customer_id) ?? 0) + 1)
+  }
+  return out
+}
+
+// ── ⚖ THE ONE CLOCK READ, SPENT ON THE HERO AND THE DEFAULT ─────────────────
+
+/** Where a booking stands against the render's single `now`. */
+export type BookingPhase = 'now' | 'upcoming' | 'past'
+
+/** `start ≤ now < end` is 施術中; anything later is ahead; anything else is done.
+ *  Half-open on purpose — at exactly the end minute the session is over, and two
+ *  back-to-back bookings must never both read 施術中. */
+export function bookingPhaseOf(startMinute: number, endMinute: number, nowMinute: number): BookingPhase {
+  if (nowMinute < startMinute) return 'upcoming'
+  return nowMinute < endMinute ? 'now' : 'past'
+}
+
+/**
+ * ⚖ THE SCREEN NEVER PICKS. Which booking the cockpit opens on is decided here,
+ * from the same clock read everything else on the page used:
+ *   1. the one in the room now — it is what a receptionist is standing over;
+ *   2. else the NEXT one — the thing about to happen;
+ *   3. else the LAST of the day — an evening desk looking back at what it did.
+ * `null` only when the operator has no own bookings today at all.
+ */
+export function defaultPick(
+  options: Array<{ appointmentId: string; startedMinute: number; endMinute: number }>,
+  nowMinute: number,
+): string | null {
+  if (options.length === 0) return null
+  const inRoom = options.find((o) => bookingPhaseOf(o.startedMinute, o.endMinute, nowMinute) === 'now')
+  if (inRoom) return inRoom.appointmentId
+  const next = options.find((o) => o.startedMinute > nowMinute)
+  if (next) return next.appointmentId
+  return options[options.length - 1].appointmentId
+}
+
+/** The picker row's own status hint — 「いま施術中」 while it is happening, else
+ *  what this customer's history says. ⚖ SELF-EXPLAINING NUMBERS: 「ご来店 4回目」
+ *  names what it counts, and today's visit is included in the ordinal. */
+export function slotHint(phase: BookingPhase, visitsBefore: number): string {
+  if (phase === 'now') return 'いま施術中'
+  return visitsBefore === 0 ? '初めてのご来店' : `ご来店 ${visitsBefore + 1}回目`
+}
+
+// ── ⚖ 前回までの流れ — THE BEFORE-SESSION BRIEFING (the phone's, fuller) ─────
+
+/**
+ * ONE customer's history at this lens, newest first, as the briefing needs it.
+ *
+ * ⚠ IT IS A JOIN, AND IT STATES NOTHING. Every field comes from a booking the
+ * store-clamped door returned or from the カルテ record hanging off that booking
+ * (packet §2e-4's one-home rule): the plane holds no 「last visit」 field for this
+ * to disagree with, and another store's session cannot appear because its
+ * booking is not in the list to join through.
+ *
+ * ⚠ AND THE ROW TITLE IS THE MENU NAME, because the plane has no topic titles
+ * and inventing one would be this room writing content (deviation R6-24). The
+ * mock's 「肩・首まわり中心」 is mock copy, not a field.
+ */
+export interface BriefRecordRow {
+  recordId: string
+  dayKey: number
+  /** The menu the session was booked as — the only title the plane actually has. */
+  title: string
+}
+
+export interface BriefFacts {
+  /** `null` = this customer has no finished session at this store yet. */
+  last: { dayKey: number; menuName: string; staffName: string; recordId: string | null } | null
+  visitsBefore: number
+  /** Newest first, ALL of them — the screen shows the recent few and puts the
+   *  depth behind one door (v5-3 recent-first-with-doors). */
+  records: BriefRecordRow[]
+  /** The last record's EFFECTIVE summary (`summary_edited ?? summary_ai`) —
+   *  what a staffer would actually read, never the superseded AI text under a
+   *  human rewrite. `null` = no summary exists yet, which is what 初めて means
+   *  and also what AI補完待ち means; the two are told apart by `last`. */
+  summary: string | null
+  /** The last record's own entries, in the カルテ room's category order, each
+   *  carrying that room's own label — never a lead this room made up. */
+  memo: Array<{ label: string; text: string }>
+}
+
+export function briefFactsOf(input: {
+  customerId: string
+  todayKey: number
+  /** The lens's bookings — the clamp, exactly as `buildTakes` uses it. */
+  appointments: FixtureAppointment[]
+  menus: FixtureMenu[]
+  staff: FixtureStaff[]
+  records: FixtureKaruteRecord[]
+  /** The カルテ room's own category order and labels, passed in rather than
+   *  imported: this room does not own that vocabulary and must not fork it. */
+  categoryOrder: readonly string[]
+  categoryLabel: Readonly<Record<string, string>>
+}): BriefFacts {
+  const menuById = new Map(input.menus.map((m) => [m.id, m]))
+  const staffById = new Map(input.staff.map((s) => [s.id, s]))
+  const recordByAppointment = new Map(input.records.map((r) => [r.appointment_id, r]))
+
+  const past = input.appointments
+    .filter((a) => a.customer_id === input.customerId)
+    .filter((a) => a.status === 'done')
+    .filter((a) => jstDayKey(a.starts_at) < input.todayKey)
+    .sort((a, b) => jstDayKey(b.starts_at) - jstDayKey(a.starts_at) || b.id.localeCompare(a.id))
+
+  const rows: BriefRecordRow[] = []
+  for (const a of past) {
+    const record = recordByAppointment.get(a.id)
+    if (!record) continue
+    rows.push({
+      recordId: record.id,
+      dayKey: jstDayKey(a.starts_at),
+      title: menuById.get(a.menu_id ?? '')?.name ?? 'メニュー未記録',
+    })
+  }
+
+  const lastBooking = past[0] ?? null
+  const lastRecord = lastBooking ? (recordByAppointment.get(lastBooking.id) ?? null) : null
+  const summaryText = lastRecord ? (lastRecord.summary_edited ?? lastRecord.summary_ai) : null
+
+  const memo: Array<{ label: string; text: string }> = []
+  if (lastRecord) {
+    for (const category of input.categoryOrder) {
+      for (const e of lastRecord.entries) {
+        if (e.category !== category) continue
+        memo.push({ label: input.categoryLabel[category] ?? category, text: e.text })
+      }
+    }
+  }
+
+  return {
+    last: lastBooking
+      ? {
+          dayKey: jstDayKey(lastBooking.starts_at),
+          menuName: menuById.get(lastBooking.menu_id ?? '')?.name ?? 'メニュー未記録',
+          staffName: staffById.get(lastBooking.staff_id ?? '')?.full_name ?? '担当なし',
+          recordId: lastRecord?.id ?? null,
+        }
+      : null,
+    visitsBefore: past.length,
+    records: rows,
+    summary: summaryText,
+    memo,
+  }
+}
+
+/** How many カルテ rows the briefing panel shows before the door — the mock's
+ *  own `KARUTE_SHOWN`. */
+export const BRIEF_RECORDS_SHOWN = 3
+
+// ── ⚖ THE 要対応 STRIP (mock `.attn`) ───────────────────────────────────────
+
+/**
+ * ⚖ THE PILL/COUNT LAW, ON THE STRIP TOO: every pill's number is EXACTLY what
+ * its filter reveals, so both are taken over the SAME set — the window the walk
+ * has opened, which is the set the filter row narrows.
+ *
+ * ⚠ AND THE STRIP IS ABSENT WHEN THERE IS NOTHING TO DO. A 「要対応 0件」 header
+ * over three empty pills is a page inventing a warning; a shop with a clean desk
+ * sees no strip at all.
+ */
+export interface AttentionCounts {
+  recoverable: number
+  failed: number
+  awaiting: number
+  total: number
+}
+
+export function attentionCounts(rows: Array<{ state: TakeState }>): AttentionCounts {
+  let recoverable = 0
+  let failed = 0
+  let awaiting = 0
+  for (const r of rows) {
+    if (r.state === 'recoverable') recoverable += 1
+    else if (r.state === 'failed') failed += 1
+    else if (r.state === 'awaiting-check') awaiting += 1
+  }
+  return { recoverable, failed, awaiting, total: recoverable + failed + awaiting }
+}
+
+/** ⚠ THE LOCAL TAKE'S OWN WINDOW, from the plane's 7-day fact and nothing else.
+ *  `null` when the residue is already past it — a promise of 「あと0日」 is not a
+ *  promise, and a negative one is arithmetic leaking onto the page. */
+export const LOCAL_AUDIO_DAYS = 7
+
+export function daysLeftLine(dayKey: number, todayKey: number): string | null {
+  const left = LOCAL_AUDIO_DAYS - (todayKey - dayKey)
+  return left > 0 ? `あと${left}日で端末から消えます` : null
 }
