@@ -116,6 +116,7 @@ const PLANE_SRC = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-re
 
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 const SCREEN_CODE = stripComments(SCREEN)
+const PROPS_CODE = stripComments(PROPS_SRC)
 const PLANE_CODE = stripComments(PLANE_SRC)
 const LIB_CODE = stripComments(LIB_SRC)
 

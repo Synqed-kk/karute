@@ -62,6 +62,7 @@ import {
   SCRIM_SETTLE_MS,
   TAKE_STATE_LABEL,
   type RecorderState,
+  type TakeState,
   type TranscriptEntry,
 } from '@/business/lib/recording'
 
@@ -1342,8 +1343,13 @@ export function RecordingScreen(props: RecordingProps) {
                         {demoConsent[current.appointmentId]
                           ? 'この録音セッションの同意は、読み上げによる確認で取得しました（デモ・この端末のみ）。'
                           : current.consentProof}<br />
+                        {/* ⚖ B1-4 — ONE NAME, ONE PLACE. The gate note is the
+                            standing wash card above this line; repeating it here
+                            printed the same sentence twice on one screen the
+                            moment a stale booking's pop-down was opened. What
+                            this panel carries is the mock's own `.cl-detail`:
+                            the proof and the policy floor, and nothing else. */}
                         {'録音に必要な同意の確認です。録音の同意は、この製品の決まりとして必ず取得します。店舗ごとの切り替えはありません。'}
-                        {!consentOk && current.gateNote ? <><br />{current.gateNote}</> : null}
                       </div>
                     </div>
                   </div>
@@ -1511,7 +1517,7 @@ export function RecordingScreen(props: RecordingProps) {
             beside the label, each one's count is EXACTLY what its filter
             reveals, and the strip renders ONLY when something actually needs a
             hand — a 「要対応 0件」 header is a page inventing a warning. */}
-        {props.attention && (
+        {attention && (
           <section
             className="rc-card rc-attn"
             aria-label="要対応"
