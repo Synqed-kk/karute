@@ -99,8 +99,8 @@ import {
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
-import { DENSITY_CEILING, money, packedPrice, priceAt } from '@/business/lib/canon-logic/pricing'
-import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
+import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
@@ -1993,7 +1993,21 @@ describe('the crumbs of one leftover combine into one offer', () => {
     expect(isCrumbOffer({ s: 950, e: 1010 }, 60)).toBe(false)
     expect(SRC).toContain("const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)")
     expect(SRC).toContain("${crumbHere ? ' crumb' : ''}")
-    expect(SRC).toContain('minSellableMin: props.guard.minSellableMin')
+    // ⚖ R6 fix round A2 (L4-2) — THE FLOOR IS WIRED AT TWO SITES, AND THIS PIN
+    // KNOWS WHICH. `minSellableMin: props.guard.minSellableMin` appears once for
+    // the native gap layer and once for the fallback pass; a single
+    // occurrence-blind `toContain` let EITHER of them be deleted and stay green,
+    // which is exactly the wiring R6 added. Each site is pinned with a token
+    // only that site has, and the count is pinned so a third home cannot appear
+    // unnoticed either. (RTL rendering stays outside this file's import fence
+    // per the standing QUEUE-RIDERS rider — a source contract IS the declared
+    // armor for TodayScreen's un-rendered half; the BEHAVIOUR of the floor is
+    // proven on the layers themselves in fallback-cells.test.ts §8/§9.)
+    expect(SRC).toContain('        ...gapDials,\n        minSellableMin: props.guard.minSellableMin,\n        locked,')
+    expect(SRC).toContain(
+      '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
+    )
+    expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
     // drag's own signal and dies with it, which is the whole point: batch-4
     // proved the resting ring and the emphasis were the same picture.
@@ -9087,5 +9101,135 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).done).toBe(false)
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).progress).toBeGreaterThan(1)
     expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 601)).toEqual({ progress: 0, done: true })
+  })
+})
+
+// ── ⚖ R6 B2 · 次回予約の仮押さえカードの金額 ────────────────────────────────
+//
+// THE LIE, measured at tip 4d10d4d5. `placeNextVisit` wrote
+// `ticketCore: yen(dialogs.pricing.base)` — the store's FLAT 基準価格. It is
+// neither this person's 定価 (staff prices differ: the fixture runs 7,000 /
+// 7,700 / 8,800) nor this hour's (the curve dips 15% at 15:00 and sits at the
+// peak at 17:00), so a ¥7,700 staff member's staged card read ¥6,600 at every
+// hour of every day — and the 仮押さえ bar's own sentence quotes the same field.
+//
+// ⚖ F1 (line audit) — THE FIRST FIX WAS STILL WRONG. `priceAt` prices ONE
+// clock hour; a staged card is not an hourly sell slot — its start sits on
+// the 5-minute lattice (often off the hour) and its length is the store's
+// `standardSessionMin` (90 for some stores), not always 60. Pricing the
+// start's hour alone was wrong for an off-hour start and for a ≠60-minute
+// session. `packedPrice` is the span-true home the multi-hour packing pass
+// already prices through (today-interactions :1419/:1485): it prices the
+// whole span across the hour curve end to end, so an off-hour start and a
+// 90-minute standard session both come out honest.
+describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not by the flat base', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  /** The store's own levers, exactly as TodayScreen composes them from the HQ
+   *  frame (`clampPriceInputs(hqMax, base, pricingRule)` on fixtures-today's
+   *  6,600 / 6,600 / 7,260) — the same three numbers ⚖ 92's warn-card pins use. */
+  const HI = 7260
+  const HQ_MIN = 6600
+  const DEPTH = 9
+  const BASE = 6600
+  const FRAME = { hi: HI, lo: BASE, hqMin: HQ_MIN, hqMax: HI }
+
+  it('the spelling is `packedPrice`, and both the flat base and the hourly-only `priceAt` spelling are gone', () => {
+    // ⚖ R6 fix round D2 — …and a lane with no 定価 says NOTHING rather than ¥0.
+    expect(SRC).toContain(
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+    )
+    // ⚖ A7 (L4-7) — BROADENED, because the old pins named two exact full lines
+    // and nothing else: either mistake could come back in any other punctuation,
+    // or at a THIRD `ticketCore` site, and stay green. Every ticket line the
+    // screen mints is enumerated instead. (`yen(dialogs.pricing.base)` on its
+    // own is legal elsewhere — the 基準 label in the pricing dialog is exactly
+    // that number — so the negative has to be anchored on `ticketCore`.)
+    expect(SRC.match(/ticketCore: .*/g)).toEqual([
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+      "ticketCore: tab === 'book' ? (menu?.price ?? '価格未記録') : null,",
+    ])
+    expect(SRC).not.toContain('yen(priceAt(')
+    expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
+    expect(SRC).not.toContain(
+      'ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),',
+    )
+  })
+
+  it('D2 — an unpriced staff lane stages a card with no ¥ line at all, and the bar quotes nothing either', () => {
+    // `staffListPrice[id] ?? 0` is a real store state — a staff member whose
+    // 定価 has not been set. Every price the board mints for that lane is 0, so
+    // the old spelling put 「¥0」 on the staged card's face AND inside the
+    // 仮押さえ bar's sentence, which reads as FREE to the customer at the
+    // counter rather than as 「not priced yet」.
+    expect(packedPrice(0, 900, 960, FRAME, DEPTH)).toBe(0)
+    expect(yen(0)).toBe('¥0')
+    // The board's own type says a card may carry no ticket line (today-board.ts
+    // `ticketCore: string | null`), and it draws such cards every day — so the
+    // unpriced lane joins them instead of inventing a word for the state.
+    const BOARD = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(BOARD).toContain('ticketCore: string | null')
+    // The 仮押さえ bar composes its sentence by dropping the empty parts, so a
+    // null core takes the ¥ out of the sentence rather than printing 「¥0」.
+    expect([null, '¥0'].filter(Boolean)).toEqual(['¥0'])
+    expect(['単発', null].filter(Boolean).join(' ')).toBe('単発')
+    expect(SRC).toContain(
+      "label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')}",
+    )
+  })
+
+  it('and it is a real difference — the ¥7,700 staff member’s card was wrong at every hour', () => {
+    // The lane the probe named: a 定価 that is not the store's base at all.
+    const LIST = 7700
+    expect(LIST).not.toBe(BASE)
+    // Every hour the curve knows: the board's answer, and never the flat base.
+    const hours = Object.keys(SELL_CURVE).map(Number).sort((a, b) => a - b)
+    expect(hours.length).toBeGreaterThan(0)
+    for (const h of hours) {
+      const board = priceAt(LIST, h, HI, HQ_MIN, DEPTH)
+      expect({ h, board, base: BASE, same: board === BASE }).toEqual({ h, board, base: BASE, same: false })
+    }
+    // …and the hour actually moves it, so "use priceAt" is not a rename of a
+    // constant: 15:00 sits in the curve's dip and 17:00 at its peak.
+    expect(priceAt(LIST, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 17, HI, HQ_MIN, DEPTH))
+    // …and the staff member's own 定価 moves it too — the other half of the lie.
+    expect(priceAt(7000, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 15, HI, HQ_MIN, DEPTH))
+  })
+
+  it('F1 — an off-hour start with a 90-minute session prices differently than `priceAt` alone would', () => {
+    // A staged card never starts on the hour (the 5-minute lattice) and its
+    // length is the store's own `standardSessionMin`, not always 60 — exactly
+    // the shape `priceAt`'s one-hour assumption gets wrong. 16:30–18:00 is a
+    // 90-minute span straddling hour 16 (curve dip, 0.92) and hour 17 (peak, 1).
+    const LIST = 7700
+    const START = 16 * 60 + 30 // 16:30 — off the hour
+    const SESSION_MIN = 90
+    const END = START + SESSION_MIN // 18:00
+
+    // The OLD (F1) spelling: `priceAt` on the start's hour alone, blind to the
+    // end and to the session length.
+    const oldSpelling = priceAt(LIST, Math.floor(START / 60), HI, HQ_MIN, DEPTH)
+    expect(oldSpelling).toBe(8060)
+
+    // The fixed spelling: `packedPrice`, priced hour by hour across the whole
+    // span — computed here independently, from the same two `priceAt` calls
+    // the span decomposes into (30 of the 90 minutes in hour 16, 60 in hour
+    // 17), not by calling `packedPrice` and comparing it to itself.
+    const inHour16 = priceAt(LIST, 16, HI, HQ_MIN, DEPTH)
+    const inHour17 = priceAt(LIST, 17, HI, HQ_MIN, DEPTH)
+    const expected = Math.round((inHour16 * 0.5 + inHour17 * 1) / 10) * 10
+    expect(expected).toBe(12500)
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).toBe(expected)
+
+    // The two spellings disagree — proof this pin actually distinguishes them.
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).not.toBe(oldSpelling)
+  })
+
+  it('the staged card asks the SAME span-true function the packing layer already uses, not the hourly sell box’s', () => {
+    // `packedPrice` is the one home for a SPAN (today-interactions :1419/:1485);
+    // `priceAt` stays the hourly 販売可能枠 box's own job (:1114) — a different
+    // question, proven at both call sites rather than asserted in prose.
+    const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    expect(INTERACTIONS).toContain('packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),')
+    expect(INTERACTIONS).toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
   })
 })

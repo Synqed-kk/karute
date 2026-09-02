@@ -49,6 +49,7 @@ import {
   framingSample,
   discountNote,
   hqNote,
+  packedPrice,
   priceButtonCaption,
   money,
 } from '@/business/lib/canon-logic/pricing'
@@ -83,6 +84,7 @@ import {
   liveTimeLabel,
   proxyTransform,
   stretchOrCarry,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardCheckRow,
@@ -1554,9 +1556,19 @@ export function TodayScreen(props: TodayProps) {
       cleanupMinutesByBed: props.bedCleanupMinutes,
       rooms: props.rooms,
       held: heldCommitted,
+      // ⚖ Greptile #815 — the same locked-lane list `gap` above already took, so
+      // this pass can shield the walk with `sellStaffLanes` exactly as
+      // `heldDrawnFor` does, instead of advertising a lane シフトロック has
+      // already promised is excluded from online inventory.
+      locked,
+      // ⚖ R6 B1 — ONE FLOOR RULE, ONE ANSWER. `gap` above is already floored
+      // inside `gapLayerFor`; until this line the additions merged into
+      // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
+      // deletes was drawn when it came out of the fallback instead.
+      minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, locked, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -4824,7 +4836,36 @@ export function TodayScreen(props: TodayProps) {
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
       ticketCat: '単発',
-      ticketCore: yen(dialogs.pricing.base),
+      // ⚖ R6 B2 — THE ¥ IS THE BOARD'S OWN PRICE, BY CONSTRUCTION. This used to
+      // read `yen(dialogs.pricing.base)` — the store's FLAT 基準価格, which is
+      // neither this person's 定価 nor this hour's. A ¥7,700 staff member's
+      // staged card said ¥6,600 at every hour of the day, and the 仮押さえ bar
+      // beside it quoted the same wrong number. `priceAt` was the first fix
+      // (F1 line audit, this pin) but a staged card is not an hourly sell slot:
+      // its start sits on the 5-minute lattice and its length is the store's
+      // `standardSessionMin`, so pricing the START'S HOUR ONLY was wrong for an
+      // off-hour start and for a ≠60-minute session. `packedPrice` is the same
+      // span-true home the multi-hour packing pass already prices through
+      // (today-interactions.ts:1419/1485) — it prices the whole span across the
+      // hour curve end to end, so an off-hour start and a 90-minute standard
+      // session both come out honest. Same levers, same curve as the 販売可能枠
+      // box it lands on — the two agree exactly at the shipped 60-minute grid,
+      // where a slot spans one curve hour outright. On a finer grid the box
+      // still prices by its START HOUR alone (`priceFor(s, hourOfSlot)`,
+      // availability.ts:128) while the card keeps prorating its own span; the
+      // card is the span-honest side of that gap, not the box.
+      //
+      // ⚖ R6 fix round D2 — AND A LANE WITH NO 定価 SAYS NOTHING, rather than
+      // ¥0. `staffListPrice[id] ?? 0` is a real store state (a staff member
+      // whose price has not been set yet), and every price this board mints for
+      // that lane is 0 — so the staged card's face and the 仮押さえ bar beside it
+      // both read 「¥0」, which to the customer in front of the counter is not
+      // 「unpriced」 but 「free」. `ticketCore` is `string | null` (today-board.ts
+      // :255) and the board already draws priceless cards every day (a 予定
+      // ブロック, a 休憩, any booking with no ticket) — they carry null and the
+      // 「¥」 line simply is not there. This lane joins them: no new word is
+      // invented for a state the board already knows how to say nothing about.
+      ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,
       held: false,
       micro: false,
       caseId: id,
@@ -5249,7 +5290,12 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
-              const packedHere = gapDrawn.packed.includes(c)
+              // ⚖ R6 B3 — READ OFF THE BOX. This was `gapDrawn.packed.includes(c)`
+              // — an O(n) identity scan per cell per frame that would have
+              // answered 'スキマ枠' for every 詰め込み box the moment any pass
+              // copied a cell. Both producers tag at creation; this is the one
+              // reader (today-interactions.ts `gapKindOf`).
+              const packedHere = gapKindOf(c) === 'packed'
               // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
               // CARRY DRAG STATE. A full-length session is the product: blue.
               // Anything shorter is a leftover the residue broke off — the same

@@ -756,7 +756,7 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
-export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
+export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
     .map((l) => ({
@@ -1359,9 +1359,22 @@ export const isCrumbOffer = (c: { s: number; e: number }, sessionMin: number): b
  *
  *  R2, and the reason this cannot be done by adding the pieces up: the price is
  *  ONE `packedPrice` call over the union. Each piece is rounded to ¥10 on its
- *  own, and summing rounded pieces charges the rounding remainder twice. */
-function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKey: string, s: number, e: number) => number): GapCell[] {
-  const out: GapCell[] = []
+ *  own, and summing rounded pieces charges the rounding remainder twice.
+ *
+ *  ⚖ R6 fix round D1 — EXPORTED, because there are TWO producers now and only
+ *  one of them was merging. The fragment fallback emits through the same canon
+ *  function and then applies the same display floor, so an un-merged pair there
+ *  meets a floor written for merged runs: canon hands a menu-exact 50-minute
+ *  residue back as [30, 20], and the floor deletes the 20 the native layer
+ *  would have kept inside a 50-minute box. Generic over the cell so the
+ *  fallback's provenance fields ride through the merge rather than being cast
+ *  back on afterwards. */
+export function combineCrumbs<T extends GapCell>(
+  cells: readonly T[],
+  sessionMin: number,
+  priceUnion: (laneKey: string, s: number, e: number) => number,
+): T[] {
+  const out: T[] = []
   // The engine emits a staff row and a bed row per piece, so the previous cell
   // in the array is never the previous cell of the same run — each run is
   // tracked by its own (group, staff lane, bed) identity. A piece that found no
@@ -1372,7 +1385,7 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
     const at = lastOfRun.get(runKey)
     const prev = at == null ? null : out[at]
     if (at != null && prev && prev.e === c.s && isCrumbOffer(prev, sessionMin) && isCrumbOffer(c, sessionMin)) {
-      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) }
+      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) } as T
       continue
     }
     lastOfRun.set(runKey, out.length)
@@ -1420,6 +1433,36 @@ export function gapPackingDials(
     gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   }
 }
+
+/** ⚖ R6 B3 (plan R6, perf F11) — WHICH KIND OF BOX THIS IS, SAID ON THE CELL
+ *  rather than re-derived by whoever draws it.
+ *
+ *  The renderer used to ask `gapDrawn.packed.includes(c)` (TodayScreen :5252,
+ *  and again for the React key and the 名前タグ): an O(n) scan per cell per
+ *  frame whose answer is OBJECT IDENTITY. The day any pass copies a cell on its
+ *  way to the screen — a spread for a tag, a sort into a new array, a memo that
+ *  re-freezes — every 詰め込み box silently becomes a スキマ枠: wrong wash, wrong
+ *  word, wrong price format, and nothing anywhere to fail. The kind is a fact
+ *  about the box, so it is written ON the box, at BOTH producers, at creation,
+ *  which also keeps one object identity for every downstream consumer.
+ *
+ *  Canon's `GapCell` cannot grow a field, so this is `HeldBoundSellCell`'s exact
+ *  pattern (:1137-1144): an app-side interface the tag rides in, and ONE narrow
+ *  reader. Never test the property by hand. */
+export interface KindedGapCell extends GapCell {
+  readonly gapKind: 'packed' | 'scrap'
+}
+
+/** The one reader. An untagged cell reads as 'scrap' — the same answer
+ *  `.includes` gave for anything not in `packed` — so a cell from some future
+ *  producer that has not been taught to tag degrades exactly as it did before
+ *  rather than into a shape nobody has drawn. */
+export const gapKindOf = (c: GapCell): 'packed' | 'scrap' =>
+  (c as { gapKind?: unknown }).gapKind === 'packed' ? 'packed' : 'scrap'
+
+const kinded =
+  (gapKind: 'packed' | 'scrap') =>
+  (c: GapCell): KindedGapCell => ({ ...c, gapKind })
 
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
@@ -1481,9 +1524,14 @@ export function gapLayerFor(
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
+  // ⚖ R6 B3 — TAGGED AT THE RETURN, which IS creation for everything downstream:
+  // `combineCrumbs` mints new objects and the floor throws some away, so tagging
+  // any earlier would tag boxes the board never draws and leave the survivors of
+  // a merge untagged. These objects are the ones `gapClaims`, the reconcile, the
+  // fallback's survivor set and the renderer all hold.
   return {
-    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable),
-    scraps: raw.scraps.filter(sellable),
+    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable).map(kinded('packed')),
+    scraps: raw.scraps.filter(sellable).map(kinded('scrap')),
   }
 }
 
