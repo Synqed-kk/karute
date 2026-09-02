@@ -43,12 +43,12 @@ import {
   consentGrants as grantPlane,
   takes as takePlane,
   CONSENT_POLICY_VERSION,
+  LOCAL_AUDIO_DAYS,
   type FixtureConsentGrant,
   type FixtureTake,
 } from '@/business/lib/fixtures-recording'
 import {
   accessFor,
-  attentionCounts,
   bookingPhaseOf,
   briefFactsOf,
   buildTakes,
@@ -648,7 +648,11 @@ export async function recordingProps({
       },
       {
         label: '端末に残る録音',
-        value: '保存されなかった録音は、録音した端末に7日間だけ残ります。店舗ごとの保持期間の設定はありません。',
+        // ⚠ THE NUMBER IS THE PLANE'S, NOT A LITERAL (B2-5 / ⚖ W7-4). The 要対応
+        // pill's 「あと{n}日で端末から消えます」 and this sentence are two
+        // renderings of ONE retention fact; a literal here is the second home
+        // that lets them drift.
+        value: `保存されなかった録音は、録音した端末に${LOCAL_AUDIO_DAYS}日間だけ残ります。店舗ごとの保持期間の設定はありません。`,
         href: null,
       },
       { label: '自分の音声登録', value: '「設定」の録音設定にまとまる予定です（未接続）。', href: null },

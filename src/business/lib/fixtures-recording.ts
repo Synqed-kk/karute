@@ -54,6 +54,16 @@ export const CONSENT_POLICY_VERSION = 'v2-2026-08'
  *  ONE home in this room: `recording.ts` reads it and nothing else states it. */
 export const BELOW_FLOOR_SEC = 10
 
+/** ⚖ THE LOCAL-AUDIO RETENTION FACT — `src/lib/karute/take-store.ts:41`
+ *  `const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000`, mirrored by VALUE for the same
+ *  territory reason as the two above (Business may not reach into phone
+ *  runtime). It is a POLICY FACT the page prints in two places — the 要対応
+ *  pill's 「あと{n}日で端末から消えます」 and the trace row's 「端末に{n}日間だけ
+ *  残ります」 — so ⚖ W7-4's one-home rule puts it HERE, on the plane, and both
+ *  strings derive from it. Two app-side literals is how 7 and 7 quietly become
+ *  7 and 14. */
+export const LOCAL_AUDIO_DAYS = 7
+
 /** One customer's recording consent, as the CORE row shapes it
  *  (`customers.getConsent` → `{ policy_version, granted_at, method }`).
  *  `method` is 'VERBAL' for every grant the product can capture today — the

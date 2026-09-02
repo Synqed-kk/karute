@@ -23,6 +23,7 @@ import { type FixtureKaruteRecord } from './fixtures-karute'
 import {
   BELOW_FLOOR_SEC,
   CONSENT_POLICY_VERSION,
+  LOCAL_AUDIO_DAYS,
   type FixtureConsentGrant,
   type FixtureTake,
   type FixtureTranscriptSegment,
