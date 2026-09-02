@@ -144,6 +144,7 @@ import {
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
+import { heldCommittedFor } from './held-committed'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { SELLING_ENGINE_LAW } from './selling-engine-gate'
 
@@ -1385,23 +1386,35 @@ export function TodayScreen(props: TodayProps) {
     () => (SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null),
     [committedLanes, props.rooms, ledgerFrame],
   )
+  /** ⚖ R5 POST-MERGE — A PASS-THROUGH, AND NOTHING ELSE. Every decision this
+   *  memo used to spell inline now lives in `heldCommittedFor`
+   *  (held-committed.ts), where the suite can CALL it: the round-gate-off
+   *  fall-through, and the forwarding of the store's スキマガード dial to the
+   *  one function that owns what 'off' means. The reason is measured, not
+   *  stylistic — POSTMERGE-CHECK-88b7726c.md findings 1-2 showed the #817 text
+   *  pin on this body letting two severe mutants through, including a hardcoded
+   *  `gapGuardMode` that would hand a guard-off store a non-empty mask. A text
+   *  pin cannot close a semantic property, so the property moved somewhere a
+   *  unit test can reach it (held-committed.test.ts).
+   *
+   *  Keep this body literal-free and branch-free: flip §9 pins that it contains
+   *  no conditional and no literal at all, so any new decision has to be made
+   *  in the tested function rather than here. */
   const heldCommitted = useMemo(
     () =>
-      committedBook
-        ? reservedMaskFor({
-            lanes: committedLanes,
-            closeMin: hours.close,
-            nowMin: props.sell.nowMinute,
-            guard: props.guard.config,
-            gapGuardMode: props.guard.mode,
-            book: committedBook,
-            // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
-            // board world's instance below, so a window a manager put back on
-            // sale is released at both doors or at neither.
-            // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
-            released: releasedHere,
-          })
-        : undefined,
+      heldCommittedFor({
+        book: committedBook,
+        lanes: committedLanes,
+        closeMin: hours.close,
+        nowMin: props.sell.nowMinute,
+        guard: props.guard.config,
+        gapGuardMode: props.guard.mode,
+        // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
+        // board world instance below, so a window a manager put back on sale is
+        // released at both doors or at neither.
+        // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
+        released: releasedHere,
+      }),
     [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 

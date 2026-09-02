@@ -520,7 +520,11 @@ describe('1 — the round gate', () => {
   })
 
   it('is read at the screen boundary ONLY — never in a layer, a predicate or a handler', () => {
-    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts']
+    // ⚖ R5 POST-MERGE — `held-committed.ts` joins the list on the same terms as
+    // its four siblings: it is a caller-side wrapper over the mask, so if it
+    // ever read the round gate the constant would have a second home and the
+    // five-read count below would not see it.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts']
     for (const f of readers) expect({ f, has: SRC(f).includes('SELLING_ENGINE_LAW') }).toEqual({ f, has: false })
     // …and on the screen it appears exactly five times: the import, one prose
     // mention in the memo that explains it, and THREE reads — the committed
@@ -547,12 +551,30 @@ describe('1 — the round gate', () => {
     expect(int).not.toMatch(/import \{[^}]*reservedMaskFor/)
   })
 
+  // ⚖ PIN MIGRATED at R5 POST-MERGE, WITH the decision. What the pin is for has
+  // not changed — TWO worlds, TWO construction sites, both inside a `useMemo`
+  // and neither inside a predicate, a callback or a handler. What moved is the
+  // COMMITTED world's spelling: its call is now one hop deep, through
+  // `heldCommittedFor` (held-committed.ts), because the memo's inline body could
+  // only ever be held by a text pin and POSTMERGE-CHECK-88b7726c.md findings 1-2
+  // measured two severe mutants slipping one. The wrapper is app-side and it is
+  // NOT a layer, a predicate or a handler: it takes the world as a parameter
+  // like every other seam, it calls `reservedMaskFor` exactly once, and it holds
+  // no derivation of its own — held-committed.test.ts pins its answer against a
+  // direct call. The gate constant is still read only on the screen (the test
+  // above), and the mask is still built once per world per frame.
   it('the mask is built ONCE PER WORLD PER FRAME, in a memo and never in a predicate', () => {
     const screen = SRC('TodayScreen.tsx')
-    // Two construction sites, both world-named, both inside a `useMemo`.
-    expect(screen.split('reservedMaskFor({').length - 1).toBe(2)
-    for (const world of ['lanes: committedLanes,', 'lanes: boardLanes,']) {
-      const at = screen.indexOf(`reservedMaskFor({\n            ${world}`)
+    // One inline construction site left on the screen, one hop away in the
+    // wrapper — and the wrapper is a wrapper, not a second derivation home.
+    expect(screen.split('reservedMaskFor({').length - 1).toBe(1)
+    expect(SRC('held-committed.ts').split('reservedMaskFor({').length - 1).toBe(1)
+    const sites: readonly (readonly [string, string])[] = [
+      ['committed', 'heldCommittedFor({\n        book: committedBook,'],
+      ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],
+    ]
+    for (const [world, spelling] of sites) {
+      const at = screen.indexOf(spelling)
       expect({ world, wired: at }).not.toEqual({ world, wired: -1 })
       // The nearest enclosing hook before it is a useMemo, not a callback or a
       // handler — the ledger-threading discipline the capacity book is under.

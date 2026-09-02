@@ -1350,7 +1350,15 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     // list both doors receive is the BOARD-SCOPED one. Still one fact and two
     // snapshots — what changed is that the fact now names the board it is true
     // of, so a release cannot travel to tomorrow or to the other store.
-    expect(screen.match(/^ {12}released: releasedHere,$/gm)).toHaveLength(2)
+    // ⚖ PIN MIGRATED at R5 POST-MERGE, WITH the decision — which is the COUNT,
+    // not the column. The committed world's call moved out of the memo body
+    // into `heldCommittedFor` (held-committed.ts, POSTMERGE findings 1-2), so
+    // that site now sits two levels shallower; the regex asked for exactly
+    // twelve spaces and went red on the indentation alone. It is indent-
+    // agnostic now and still says the only thing it ever meant: the same
+    // `releasedHere` list is handed to BOTH world instances, on its own line,
+    // exactly twice.
+    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(2)
     expect(screen).toContain('const releasedHere = useMemo(\n    () => released.filter((r) => onShownBoard(r, board)),')
   })
 })
@@ -2024,8 +2032,8 @@ const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.s
  *  and after S0 (they used `maskOf` already).
  *
  *  These twelve are absent because the fallback RUNS for a guard-off store,
- *  which is today's shipped behaviour (doors :839 measured it) — the doors
- *  suite names it unruled as guard-conditional (doors :829-838). If Liam ever
+ *  which is today's shipped behaviour (doors :862 measured it) — the doors
+ *  suite names it unruled as guard-conditional (doors :851-861). If Liam ever
  *  rules it guard-conditional, these twelve return BY RULING, not by
  *  regression, and the pin is re-frozen with that ruling.
  *
@@ -2101,7 +2109,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
         // `gapGuardMode === 'off'` (reserved-mask.ts:200), TodayScreen's `salesDoor`
         // gates on `!heldCommitted`, and `[]` is truthy — so the §5 fallback RUNS for a
         // guard-off store, with `held: []`. The doors suite already measured what that
-        // store gains from it (selling-engine-doors.test.ts :839). Handing `undefined`
+        // store gains from it (selling-engine-doors.test.ts :862). Handing `undefined`
         // here measured a composition no live screen runs: the fallback's existing
         // triggers switched off. `maskOf` is one spelling for both modes because
         // `reservedMaskFor` itself is where 'off' becomes the empty mask.
@@ -2168,14 +2176,44 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *       the decision (reserved-mask.ts:200) — handing a guard-off store
    *       `undefined` again, the exact composition F0 moved away from.
    *  No test renders TodayScreen (§4's header explains why), so nothing else
-   *  in this suite goes red for either mutation. This is a text pin on the
-   *  memo's own source. Mutation A's half already exists at
-   *  fallback-cells.test.ts:892; it is repeated here so both halves of "the
-   *  screen forwards, never invents" sit together. */
-  it("⚖ R5 F0 — the SCREEN hands a guard-off store the mask function's own answer, never undefined", () => {
+   *  in this suite goes red for either mutation.
+   *
+   *  ⚖ PIN REWRITTEN at R5 POST-MERGE, WITH the decision — and the decision is
+   *  that the OLD SHAPE OF THIS PIN COULD NOT HOLD MUTATION B.
+   *  POSTMERGE-CHECK-88b7726c.md measured it against nine mutants on the
+   *  merged tip: the negatives scanned an 816-char slice, so hoisting the
+   *  comparison ONE LINE ABOVE the memo — the file's own `guardOn` const,
+   *  moved up — slipped clean (finding 1, HIGH), and so did `gapGuardMode:
+   *  'standard'` HARDCODED in the call, which carries no comparison and no
+   *  `'off'` to catch and would hand a guard-off store a NON-EMPTY mask
+   *  (finding 2, HIGH). A text pin cannot close a semantic property, so the
+   *  property MOVED: the memo body is now a pure pass-through into
+   *  `heldCommittedFor` (held-committed.ts), and held-committed.test.ts proves
+   *  the behaviour by CALLING it — mode 'off' ⇒ the frozen empty mask, a null
+   *  book ⇒ `undefined`, and every live mode ⇒ `reservedMaskFor`'s own answer
+   *  byte for byte.
+   *
+   *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
+   *  much smaller claim: no decision is spelled in the memo at all. It forwards
+   *  four named inputs and contains no conditional and no literal of any kind —
+   *  no `?`, no `undefined`, no `null`, no quote character — so a mutant cannot
+   *  express a guard-off branch inside the slice, and expressing one outside it
+   *  means changing the tested function, where the unit test is waiting.
+   *
+   *  ⚠ THE HONEST LIMIT (POSTMERGE finding 3, ACCEPTED). The gate assertion at
+   *  the end is a text pin on a SENTENCE, and a mutant that rewrites
+   *  `salesDoor`'s gate while keeping that sentence alive in a comment still
+   *  slips — here and at fallback-cells.test.ts:892, which has the same hole. A
+   *  comment-preserved mutation is a deliberate act rather than drift, so it is
+   *  documented rather than chased. The proof for the guard-off composition is
+   *  held-committed.test.ts, not this line. */
+  it('⚖ R5 F0 — the SCREEN decides nothing: the memo is a pass-through into the tested function', () => {
     const screen = SRC('TodayScreen.tsx')
 
-    // Bounded slice so a failed/empty match cannot silently pass.
+    // Bounded slice so a failed/empty match cannot silently pass. The bound
+    // stays (POSTMERGE finding 7): the pass-through memo is short, and a slice
+    // that ever over-read into the neighbouring `gapDials` memo would be a
+    // false red rather than a silent pass.
     const START = 'const heldCommitted = useMemo('
     const startIdx = screen.indexOf(START)
     expect(startIdx).toBeGreaterThanOrEqual(0)
@@ -2185,25 +2223,26 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect(memo.length).toBeGreaterThan(0)
     expect(memo.length).toBeLessThan(2500)
 
-    // The mask comes from the one function that owns "off"…
-    expect(memo).toContain('reservedMaskFor(')
-    // …with exactly one fall-through (E3a's round-gate-off branch — not a
-    // guard-off branch the memo invented)…
-    expect((memo.match(/: undefined/g) ?? []).length).toBe(1)
-    // …and the memo never DECIDES "off" itself. It forwards `props.guard.mode`
-    // as a bare value into `reservedMaskFor` (that pass-through IS the F0
-    // fix) — it never COMPARES mode against a value, which is what deciding
-    // "off" would look like. Spelled as regexes, not quote literals: a
-    // fresh-eyes review (FIXLIST: BREAKER-817 lens, 2026-09-02) showed a
-    // double-quoted `"off"` or a `!==` comparison slipped the literal
-    // spellings (no quote lint in this repo).
-    expect(memo).not.toMatch(/\.mode\s*[!=]==?/)
-    expect(memo).not.toMatch(/["']off["']/)
-    expect(memo).not.toMatch(/gapGuardMode\s*[!=]==?/)
+    // It calls the tested function, and hands it the four inputs a mutant would
+    // have to touch to change what a store is holding — each one FORWARDED as a
+    // bare expression, not a value this memo chose.
+    expect(memo).toContain('heldCommittedFor(')
+    expect(memo).toContain('book: committedBook')
+    expect(memo).toContain('guard: props.guard.config')
+    expect(memo).toContain('gapGuardMode: props.guard.mode')
+
+    // …and it decides NOTHING. No conditional and no literal of any kind: any
+    // branch a mutant wants has to be written in `heldCommittedFor`, where
+    // held-committed.test.ts calls it. This is the shape the old regex
+    // negatives were reaching for and could not hold.
+    for (const banned of ['?', 'undefined', 'null', "'", '"']) {
+      expect({ banned, at: memo.indexOf(banned) }).toEqual({ banned, at: -1 })
+    }
 
     // The other half of the claim (mutation A's gate) — kept beside F0 so
     // both halves of "the screen forwards, never invents" live in one place.
-    // The original pin stays at fallback-cells.test.ts:892.
+    // The original pin stays at fallback-cells.test.ts:892. Tripwire only: see
+    // the ⚠ paragraph above for what a comment-preserved mutant can still do.
     expect(screen).toContain('if (!heldCommitted) return null')
   })
 })

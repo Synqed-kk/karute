@@ -400,6 +400,13 @@ describe('the fixture data door', () => {
         // the mask as a parameter, so the gate has exactly one home. The screen
         // gains no OTHER dependency: this is a wiring round.
         './fallback-cells',
+        // ⚖ R5 POST-MERGE — the committed world's held-mask call, lifted out of
+        // the memo body into a function the suite can call
+        // (POSTMERGE-CHECK-88b7726c.md findings 1-2: a text pin on the inline
+        // body let two severe mutants through). A caller-side wrapper over
+        // `./reserved-mask`, not a fifth module: it adds no derivation and the
+        // screen gains no dependency it did not already have.
+        './held-committed',
         './reserved-mask',
         './selling-engine-gate',
         './today-interactions',
