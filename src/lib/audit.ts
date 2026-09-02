@@ -340,6 +340,13 @@ export interface FacadeAuditRule {
    *  field and proves the citation is real (contract §8 CP2). Prose comments
    *  stay alongside — this is a machine-checkable index, not a replacement. */
   coveredBy?: string
+  /** Severity for this row's emit, forwarded verbatim by logFacadeAudit.
+   *  OMITTED = AuditEvent's own default 'info' — every row that carries no
+   *  severity emits exactly the line it emitted before this field existed.
+   *  Set it only where the WEB door's emitter sets one, so the same act
+   *  files at the same tier whichever door the staffer used (the erasure
+   *  pair below). Row-by-row adoption elsewhere is a later decision. */
+  severity?: AuditSeverity
 }
 
 // ── Facade endpoint → audit classification ──────────────────────────────
@@ -701,8 +708,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // an APPI erasure decision, and the audit viewer's privacy filter is where
   // a manager looks for it (the web emitDeletionAudit files it there too).
   // A guarded no-op files nothing — both routes set ctx.auditSuppress.
-  'customer.deletion.schedule': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_scheduled', targetType: 'customer' },
-  'customer.deletion.cancel': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_canceled', targetType: 'customer' },
+  // Severity mirrors src/actions/customers.ts#emitDeletionAudit EXACTLY
+  // (scheduled 'warning' / canceled 'notice'): without it the phone filed
+  // the erasure a tier below the web's, so a manager filtering 監査ログ by
+  // severity — or a drain routing on console level — saw the same act
+  // differently depending on which door wrote it.
+  'customer.deletion.schedule': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_scheduled', targetType: 'customer', severity: 'warning' },
+  'customer.deletion.cancel': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_canceled', targetType: 'customer', severity: 'notice' },
   'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
 
   // Photos are the customer (§3.1).
