@@ -526,6 +526,17 @@ describe('1 — the round gate', () => {
     // five-read count below would not see it.
     const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts']
     for (const f of readers) expect({ f, has: SRC(f).includes('SELLING_ENGINE_LAW') }).toEqual({ f, has: false })
+    // ⚖ ROUND 2 — AND IT READS NO SCREEN EITHER, for the same reason one file
+    // over. Round 1 gave the wrapper the committed world's book by importing
+    // `bedViewsFor` from TodayScreen, so the two files imported each other; it
+    // ran, but a cycle on this seam is a trap for the next edit. The door is
+    // handed in as `bookOf` now, and these two lines are what holds that: the
+    // wrapper may not name the screen, and it may not go around the door to
+    // `bedTruthViews` (the capacity book's own producer) either. R3's ONE DOOR
+    // in its stronger form — the wrapper cannot reach the book at all except
+    // through the function its caller gives it.
+    expect(SRC('held-committed.ts')).not.toContain('./TodayScreen')
+    expect(SRC('held-committed.ts')).not.toContain('bedTruthViews')
     // …and on the screen it appears exactly five times: the import, one prose
     // mention in the memo that explains it, and THREE reads — the committed
     // world's mask, the board world's mask, and the rail's protected-window
@@ -580,6 +591,13 @@ describe('1 — the round gate', () => {
   // first line is the round gate now rather than a book the screen already
   // built, and `bedViewsFor` — R3's ONE DOOR — is walked inside the wrapper for
   // that world. Still one construction site per world, still both in a memo.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 2, same decision, one import fewer. The wrapper
+  // no longer IMPORTS the door — the screen hands it in as `bookOf`, because
+  // round 1's import made the two files import each other. So the walk is
+  // pinned by the parameter it now goes through rather than by the identifier
+  // it used to import, and the test above pins that the wrapper cannot name
+  // the screen or the book's producer at all. One walk, one hand, still.
   it('the mask is built ONCE PER WORLD PER FRAME, in a memo and never in a predicate', () => {
     const screen = SRC('TodayScreen.tsx')
     // One inline construction site left on the screen, one hop away in the
@@ -588,8 +606,10 @@ describe('1 — the round gate', () => {
     expect(SRC('held-committed.ts').split('reservedMaskFor({').length - 1).toBe(1)
     // …and the committed world's book has exactly ONE door and one hand: the
     // wrapper walks it once, with `null`, because prices read the settled board.
-    expect(SRC('held-committed.ts').split('bedViewsFor(').length - 1).toBe(1)
-    expect(SRC('held-committed.ts')).toContain('bedViewsFor(mask.lanes, rooms, frame, null).world')
+    expect(SRC('held-committed.ts').split('bookOf(').length - 1).toBe(1)
+    expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    // …and the door it is handed is the screen's one wrapper, not a second one.
+    expect(screen).toContain('bookOf: bedViewsFor,')
     const sites: readonly (readonly [string, string])[] = [
       ['committed', 'heldCommittedFor({\n        gateOn: SELLING_ENGINE_LAW,'],
       ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],

@@ -1396,8 +1396,16 @@ export function TodayScreen(props: TodayProps) {
    *  it, including R3's ONE DOOR into the book, which the wrapper walks with the
    *  `null` hand this world has always passed.
    *
+   *  ⚖ ROUND 2 — AND THE DOOR INTO THE BOOK IS HANDED OVER TOO. Round 1 had
+   *  `held-committed.ts` import `bedViewsFor` from this file, which made the
+   *  two files import each other. Nothing broke (the door is a hoisted
+   *  declaration, called a render later), but a cycle on this seam is a trap
+   *  for the next edit, so the door is now the tenth forwarded key — a value,
+   *  never called here. R3's ONE DOOR is stronger for it: the wrapper has no
+   *  way to the capacity book except the one it is handed.
+   *
    *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that it is
-   *  exactly nine forwarded `key: value` lines and that it contains no
+   *  exactly ten forwarded `key: value` lines and that it contains no
    *  conditional and no literal of any kind, so a new decision cannot be spelled
    *  here at all. The ban list includes the quote characters, which is why the
    *  comments INSIDE the memo carry no apostrophes: a stray one is a false red
@@ -1409,6 +1417,13 @@ export function TodayScreen(props: TodayProps) {
         lanes: committedLanes,
         rooms: props.rooms,
         frame: ledgerFrame,
+        // ⚖ ROUND 2 — THE DOOR IS HANDED IN, NOT IMPORTED. Round 1 had the
+        // wrapper import this function from here, so the two files imported
+        // each other. It ran, but a cycle on a law-bearing seam is a trap for
+        // the next edit. The screen hands the door over instead, so R3s ONE
+        // DOOR holds in a stronger form: the wrapper cannot reach the book
+        // except through what it is given.
+        bookOf: bedViewsFor,
         closeMin: hours.close,
         nowMin: props.sell.nowMinute,
         guard: props.guard.config,

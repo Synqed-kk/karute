@@ -2201,10 +2201,25 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  a `...spread` that overrides a forwarded key further down the literal, and
    *  a sibling identifier carrying the mask to the doors while this memo sat
    *  untouched. So the pin now states the WHOLE literal rather than a subset —
-   *  exactly nine `key: value` lines, each one spelled out, and a key COUNT so
-   *  a tenth cannot be added — the ban list grows the spread and both loose
-   *  comparisons, and a CENSUS below reads every `held:` payload on the screen
-   *  so the answer cannot be re-routed around this memo.
+   *  every `key: value` line spelled out, and a key COUNT so one more cannot be
+   *  added — the ban list grows the spread and both loose comparisons, and a
+   *  CENSUS below reads every `held:` payload on the screen so the answer
+   *  cannot be re-routed around this memo.
+   *
+   *  ⚖ ONE KEY ADDED AT ROUND 2, WITH the decision, and the decision is that
+   *  THE DOOR INTO THE BOOK IS NOW HANDED OVER RATHER THAN IMPORTED. Round 1
+   *  built the committed book inside `heldCommittedFor` by importing
+   *  `bedViewsFor` from this screen, which made the two files import each
+   *  other — it ran, but a cycle on a law-bearing seam is a trap for the next
+   *  edit. The screen passes the door as `bookOf` instead. So the literal is
+   *  TEN lines rather than nine and the count moves with it; the claim this
+   *  test makes is untouched, because the tenth line is a bare forwarded
+   *  identifier like the other nine — a value, not a call, and the ban list
+   *  still forbids any decision being spelled around it. A mutant that hands
+   *  over a DIFFERENT door has to change this line to do it, which is red here;
+   *  a wrapper that ignores the door it was handed and reaches for the screen
+   *  again is red at selling-engine-doors.test.ts §1, which pins that
+   *  held-committed.ts names neither the screen nor `bedTruthViews`.
    *
    *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
    *  much smaller claim: no decision is spelled in the memo at all. It forwards
@@ -2245,16 +2260,20 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect(memo.length).toBeLessThan(2500)
 
     // It calls the tested function, and the literal it hands over is EXACTLY
-    // these nine lines: the round gate, the world the book is built from, and
-    // the dials. Each one is a bare forwarded expression, not a value this memo
-    // chose — and the count below means a tenth key cannot be smuggled in
-    // beside them.
+    // these ten lines: the round gate, the world the book is built from, the
+    // door it is built through, and the dials. Each one is a bare forwarded
+    // expression, not a value this memo chose — and the count below means an
+    // eleventh key cannot be smuggled in beside them.
     expect(memo).toContain('heldCommittedFor(')
     const FORWARDED = [
       'gateOn: SELLING_ENGINE_LAW,',
       'lanes: committedLanes,',
       'rooms: props.rooms,',
       'frame: ledgerFrame,',
+      // ⚖ ROUND 2 — the one door into the capacity book, handed over as a
+      // VALUE. Passed, never called: `bedViewsFor,` with no parenthesis, so
+      // this memo still spells no derivation of its own.
+      'bookOf: bedViewsFor,',
       'closeMin: hours.close,',
       'nowMin: props.sell.nowMinute,',
       'guard: props.guard.config,',

@@ -28,6 +28,17 @@
 // out of the same lanes, so a wrapper that quietly answered for a different
 // world would be caught here rather than nowhere.
 //
+// ⚖ ROUND 2 — AND THE DOOR INTO THE BOOK IS AN INPUT. Round 1 had the wrapper
+// import `bedViewsFor` from TodayScreen to build that book, so the screen and
+// the wrapper imported each other. Nothing broke — the door is a hoisted
+// declaration, called a render later — but a cycle on a law-bearing seam is a
+// trap for the next edit, so the screen HANDS THE DOOR IN as `bookOf` and the
+// wrapper imports nothing from the screen at all. R3's one door survives in a
+// stronger form (it cannot reach the book except through what it is given), and
+// §3's last test is what proves the handed-in door is really the one used: give
+// it a door onto an EMPTY world and the answer is the empty world's, not the
+// real board's.
+//
 // WHAT IS PROVED, in the order the composition decides things:
 //   §1 THE ROUND GATE — gate off is `undefined`, the fall-through every seam
 //      below already treats as the code that shipped.
@@ -139,6 +150,11 @@ const inputFor = (
   lanes: REAL.lanes,
   rooms: REAL.rooms,
   frame: FRAME,
+  // ⚖ ROUND 2 — THE DOOR IS AN INPUT NOW. The wrapper used to import
+  // `bedViewsFor` out of TodayScreen, which made the two files import each
+  // other; the screen hands it over instead, and this is the same value the
+  // screen hands over (selling-engine-flip.test.ts §9 pins that spelling).
+  bookOf: bedViewsFor,
   closeMin: REAL.hours.close,
   nowMin: REAL.sell.nowMinute,
   guard: REAL.guard.config,
@@ -238,6 +254,38 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     // above is a measurement rather than a coincidence of this fixture.
     const fewer = REAL.lanes.filter((l) => l.group !== 'staff')
     expect(windowsIn(heldCommittedFor({ ...inputFor('standard'), lanes: fewer }))).not.toEqual(windowsIn(through))
+  })
+
+  it('the DOOR is load-bearing: hand over one onto an EMPTY world and the answer is the empty world’s', () => {
+    // ⚖ ROUND 2 — the seam this round closed, and the proof that closing it did
+    // not turn the door into decoration. The wrapper no longer imports the
+    // book's door; it uses the one it is handed, so hand it a different one.
+    // An EMPTY world is the cleanest different one available — the real door,
+    // asked about zero lanes — and it is a real book rather than a stub shape.
+    const emptyWorld = bedViewsFor([], REAL.rooms, FRAME, null)
+    const through = heldCommittedFor({ ...inputFor('standard'), bookOf: () => emptyWorld })
+    // What comes back is exactly what the mask function gives for THAT book,
+    // with every other dial untouched — so the door is forwarded, not read.
+    const straight = reservedMaskFor({
+      lanes: REAL.lanes,
+      closeMin: REAL.hours.close,
+      nowMin: REAL.sell.nowMinute,
+      guard: REAL.guard.config,
+      gapGuardMode: 'standard',
+      book: emptyWorld.world,
+    })
+    expect(windowsIn(through)).toEqual(windowsIn(straight))
+    expect(JSON.stringify(through)).toBe(JSON.stringify(straight))
+    // …and it is a DIFFERENT answer from the real door's, which is what makes
+    // the equality above a measurement instead of two empty lists agreeing.
+    // MEASURED on this fixture: the handed-in empty door yields 0 held windows,
+    // the real one yields 4 — over the same 5 lane masks either way, because
+    // the lane list is a separate input and only the BOOK changed. A wrapper
+    // that ignored `bookOf` and reached for a book of its own would fail here
+    // rather than nowhere.
+    const real = heldCommittedFor(inputFor('standard'))
+    expect(windowsIn(real).length).toBeGreaterThan(0)
+    expect(windowsIn(through)).not.toEqual(windowsIn(real))
   })
 })
 

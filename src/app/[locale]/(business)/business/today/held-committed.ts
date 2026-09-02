@@ -20,7 +20,7 @@
 // lens walked straight through it — pre-gate that memo on the store's own dial
 // and a guarded store silently gets no mask at all, with every pin in the
 // family still green. So the book moved in here too. The screen is left with
-// ONE memo that spells nine forwarded key/value lines and nothing else, and
+// ONE memo that spells ten forwarded key/value lines and nothing else, and
 // BOTH decisions — the round gate, and which book the committed world is
 // answered out of — live in this function, where held-committed.test.ts calls
 // them.
@@ -37,28 +37,45 @@
 //
 // WHAT IT IS NOT. It is not a second derivation home and it is not a second
 // door into the book. No held-mask logic lives here and none moved out of
-// reserved-mask.ts; the book is fetched through `bedViewsFor` — R3's ONE DOOR,
-// the same one the board world's ledger walks — with the `null` hand the
-// committed world has always passed, because prices read the SETTLED board and
-// nothing is lifted out of that snapshot. It reads no config, no fixture and
-// not the round gate: whatever world it is handed IS the world it answers for.
-// held-committed.test.ts pins the answer against a direct `reservedMaskFor`
-// call over a directly-built book, on the real fixture, in both live modes.
+// reserved-mask.ts; the book is fetched through the door the CALLER HANDS IN —
+// R3's ONE DOOR, the same one the board world's ledger walks — with the `null`
+// hand the committed world has always passed, because prices read the SETTLED
+// board and nothing is lifted out of that snapshot. It reads no config, no
+// fixture and not the round gate: whatever world it is handed IS the world it
+// answers for. held-committed.test.ts pins the answer against a direct
+// `reservedMaskFor` call over a directly-built book, on the real fixture, in
+// both live modes.
 //
-// ⚠ THE IMPORT DIRECTION, DELIBERATE. `bedViewsFor` is exported by
-// TodayScreen.tsx (:168), so this file and the screen import each other. The
-// cycle is the cheaper of the two options: the alternative is a SECOND way into
-// the capacity book, which is the one thing R3's one-door invariant exists to
-// forbid (today-screen-interactions.test.ts, 「exactly one door to the book」).
-// It is safe because nothing here runs at module-evaluation time — the door is
-// a hoisted function declaration and it is called only from inside the function
-// below, one render later.
+// ⚠ THE DOOR IS INJECTED, AND THAT IS WHY THIS FILE IMPORTS NOTHING FROM THE
+// SCREEN. Round 1 reached for the door by importing `bedViewsFor` from
+// TodayScreen, and the two files then imported each other. It ran — the door is
+// a hoisted function declaration, called a render later, never at module
+// evaluation — but a cycle on a law-bearing seam is a trap for the next edit
+// rather than a property anyone wants to depend on. So the SCREEN HANDS THE
+// DOOR IN, as `bookOf`. R3's ONE DOOR survives in its stronger form: this file
+// cannot reach the capacity book at all except through the function it is
+// given, and the suite pins that — as a TEXT pin on this source, so this file
+// may not so much as name the screen or the book's own producer down in
+// capacity-ledger (selling-engine-doors.test.ts §1, beside the round-gate
+// reader list). That is why neither appears above.
 
 import type { BoardLane } from '@/business/lib/today-board'
-import type { DayFrame } from './capacity-ledger'
+import type { BedTruth, DayFrame } from './capacity-ledger'
 import { reservedMaskFor, type ReservedLaneMask, type ReservedMaskInput } from './reserved-mask'
-import { bedViewsFor } from './TodayScreen'
 import type { RoomPolicy } from './today-interactions'
+
+/** THE ONE DOOR INTO THE CAPACITY BOOK, as a parameter. The exact shape of the
+ *  screen's `bedViewsFor` (TodayScreen.tsx :168) narrowed at the hand: this
+ *  world always asks with `null`, because prices read the SETTLED board.
+ *
+ *  `lanes` is a mutable `BoardLane[]` rather than `readonly` because that is
+ *  what the real door takes; a `readonly` parameter here would make the real
+ *  door UNASSIGNABLE to this type (contravariance) and the screen would stop
+ *  compiling. The return is spelled structurally — `{ world: BedTruth }` — so
+ *  the door's own richer return type (`BedViews`, which also carries
+ *  `worldMinusHand` and `handId`) satisfies it without this file naming a type
+ *  that lives on the screen. */
+export type BookDoor = (lanes: BoardLane[], rooms: RoomPolicy, frame: DayFrame, inHand: null) => { world: BedTruth }
 
 /** The committed world's inputs: `reservedMaskFor`'s own dials, plus the round
  *  gate and the three things the book is built out of. Every difference from
@@ -70,7 +87,9 @@ import type { RoomPolicy } from './today-interactions'
  *  screen reads at its boundary, and the branch is taken down here.
  *
  *  `lanes`, `rooms` and `frame` are what the book is built FROM, so the caller
- *  hands over the world rather than a world it already narrowed.
+ *  hands over the world rather than a world it already narrowed. `bookOf` is
+ *  the door it is built THROUGH — handed in rather than imported, so this file
+ *  has no way to reach the book on its own and no edge back to the screen.
  *
  *  `excludeId` is GONE. Exclusion is gesture-only and only out of the BOARD
  *  world's instance — reserved-mask.ts says so in the field's own doc, and the
@@ -86,14 +105,15 @@ export type HeldCommittedInput = Omit<ReservedMaskInput, 'book' | 'excludeId' | 
   readonly lanes: BoardLane[]
   readonly rooms: RoomPolicy
   readonly frame: DayFrame
+  readonly bookOf: BookDoor
 }
 
 /** The committed world's held set, or `undefined` when the round gate is off. */
 export function heldCommittedFor(input: HeldCommittedInput): readonly ReservedLaneMask[] | undefined {
-  const { gateOn, rooms, frame, ...mask } = input
+  const { gateOn, rooms, frame, bookOf, ...mask } = input
   // ponytail: one spread and one added key. Every dial the caller handed over
   // reaches `reservedMaskFor` unread and unrenamed, so none can be dropped or
   // hardcoded on the way through, and the book is the only thing this function
   // puts on the table.
-  return gateOn ? reservedMaskFor({ ...mask, book: bedViewsFor(mask.lanes, rooms, frame, null).world }) : undefined
+  return gateOn ? reservedMaskFor({ ...mask, book: bookOf(mask.lanes, rooms, frame, null).world }) : undefined
 }

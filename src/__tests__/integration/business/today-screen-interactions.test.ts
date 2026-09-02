@@ -1270,15 +1270,27 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // named. So the count here drops by one and the third walk is pinned where
     // it now lives — including that it is still GATED, still built from the
     // committed lanes, and still holding nobody's hand. (+1 for the definition.)
+    //
+    // ⚖ MIGRATED AGAIN at ROUND 2, and the invariant got STRONGER rather than
+    // moving. The wrapper used to IMPORT this door out of the screen, so the
+    // two files imported each other; now the screen HANDS IT IN (`bookOf`).
+    // The count here is unchanged — measured, not assumed: the new line passes
+    // `bedViewsFor` as a value with no parenthesis, so the three calls are
+    // still the definition and the two on this screen. What changed is the
+    // wrapper's half: it walks the door it was GIVEN, and it is pinned that it
+    // cannot name this screen or `bedTruthViews` to find another one
+    // (selling-engine-doors.test.ts §1). One door, every walk still named.
     expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
+    expect(SRC).toContain('bookOf: bedViewsFor,')
     const WRAPPER = readFileSync(
       join(process.cwd(), 'src/app/[locale]/(business)/business/today/held-committed.ts'),
       'utf8',
     )
-    expect(WRAPPER.split('bedViewsFor(').length - 1).toBe(1)
-    expect(WRAPPER).toContain('bedViewsFor(mask.lanes, rooms, frame, null).world')
+    expect(WRAPPER.split('bookOf(').length - 1).toBe(1)
+    expect(WRAPPER).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    expect(WRAPPER).not.toContain('./TodayScreen')
   })
 })
 
