@@ -83,31 +83,56 @@ async function facadeUpdateCustomer(id: string, input: unknown): Promise<ActionR
 // A 2xx is NOT enough — the discard-port lesson (thin-recording-discard-port
 // .test.ts): handler.ts stringifies its ERRORS, so a facade 502 arrives with a
 // perfectly parseable JSON body. The id is what proves a customer was created.
+//
+// Both wrap fetch+parse in try/catch, the statusCall / facadeUpsertOrgSettings
+// posture (#566) that #814's facadeCustomerDeletion follows: a port that
+// SUBSTITUTES for a server action must RESOLVE its union's failure member on a
+// transport rejection (offline, DNS, a dropped connection mid-body), never
+// reject — a caller without an exception handler would otherwise get an
+// unhandled rejection where the web door hands it a result. Both of today's
+// callers (CustomerForm, QuickCreateCustomer) do catch, so this honors the
+// CONTRACT rather than fixing a live symptom.
+//
+// `error` is EMPTY ON PURPOSE. This port has no i18n access, and both callers
+// DISPLAY this field — CustomerForm toasts it, QuickCreateCustomer renders it
+// — so any literal here reaches a Japanese staffer in English. Empty is the
+// signal "no specific message": both consumers fall through to their own
+// localized generic (`result.error || t('toast.error')`). The web action's
+// translated messages still pass through untouched on every non-transport
+// failure; only a dead network takes this branch.
 async function facadeCreateCustomer(input: unknown): Promise<CustomerActionResult> {
-  const res = await getDataPort().apiFetch('/api/app/v1/customers', idemPost(input))
-  const body = (await res.json().catch(() => null)) as
-    | { id?: string; duplicateWarning?: string; error?: { message?: string } }
-    | null
-  if (res.ok && body?.id) {
-    // duplicateWarning is FORWARDED, not dropped: CustomerForm toasts it, and
-    // a phone that silently lost it would be a quieter surface than web.
-    return {
-      success: true,
-      id: body.id,
-      ...(body.duplicateWarning ? { duplicateWarning: body.duplicateWarning } : {}),
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/customers', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; duplicateWarning?: string; error?: { message?: string } }
+      | null
+    if (res.ok && body?.id) {
+      // duplicateWarning is FORWARDED, not dropped: CustomerForm toasts it, and
+      // a phone that silently lost it would be a quieter surface than web.
+      return {
+        success: true,
+        id: body.id,
+        ...(body.duplicateWarning ? { duplicateWarning: body.duplicateWarning } : {}),
+      }
     }
+    return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+  } catch {
+    return { success: false, error: '' }
   }
-  return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
 }
 
 async function facadeCreateQuickCustomer(name: string): Promise<QuickCustomerResult> {
-  const res = await getDataPort().apiFetch('/api/app/v1/customers/quick', idemPost({ name }))
-  const body = (await res.json().catch(() => null)) as
-    | { id?: string; name?: string; error?: { message?: string } }
-    | null
-  // The picker selects the row by the name core STORED, same as web.
-  if (res.ok && body?.id) return { success: true, id: body.id, name: body.name ?? name }
-  return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/customers/quick', idemPost({ name }))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; name?: string; error?: { message?: string } }
+      | null
+    // The picker selects the row by the name core STORED, same as web.
+    if (res.ok && body?.id) return { success: true, id: body.id, name: body.name ?? name }
+    return { success: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+  } catch {
+    return { success: false, error: '' }
+  }
 }
 
 const enc = encodeURIComponent
@@ -546,13 +571,11 @@ async function facadeListReassignCustomerOptions(
 
 // -- カルテ list: search-reveal (PR-1b 検索リビール). READ, degrades to no
 // candidate on any failure — same graceful convention as
-// facadeListReassignCustomerOptions above. KaruteRecordListView renders the
-// row itself (no create button on thin — the row navigates to /customers/{id}
-// instead). ⚠ That suppression's original reason ("createManualKaruteRecord
-// stays a deliberate notWired stub") is GONE: the action IS wired as of
-// PHONEWIRE-2A, just below. The reveal-row behavior is KEPT pending Liam's
-// ruling on whether phone rows should show the create button — see the same
-// note on KaruteListRow.tsx, which owns the rendering decision.
+// facadeListReassignCustomerOptions above. NoKaruteRevealRow renders the same
+// カルテを作成 button on both doors now (⚖ Liam 2026-09-02): the phone-side
+// suppression stood on "createManualKaruteRecord is a notWired stub here",
+// which PHONEWIRE-2A ended by wiring it (facadeCreateManualKaruteRecord,
+// below). KaruteListRow.tsx owns that rendering decision.
 async function facadeRevealNoKaruteCustomer(
   query: string,
 ): Promise<{ candidate: import('@/actions/karute').KaruteRevealCandidate | null } | { error: string }> {

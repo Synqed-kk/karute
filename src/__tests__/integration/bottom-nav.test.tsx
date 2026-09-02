@@ -4,7 +4,7 @@
  * Render coverage for BottomNav (PR #87, replay/12): the center mic-button
  * label/hint that surfaces the staff member's next customer.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
 
 let mockPathname = '/dashboard'
@@ -19,9 +19,26 @@ jest.mock('@/i18n/navigation', () => ({
   usePathname: () => mockPathname,
   useRouter: () => ({ push, back: jest.fn() }),
   // href passes through so tests can assert what the Link actually targets
-  // (the live-target binding tests below depend on it).
-  Link: ({ children, href }: { children: React.ReactNode; href?: unknown }) => (
-    <a href={typeof href === 'string' ? href : undefined}>{children}</a>
+  // (the live-target binding tests below depend on it). className passes
+  // through for the same reason: the TAB-CALM-2 contract lives on the LINK
+  // (colour easing there is what made the icon's own change a mismatch), so a
+  // mock that swallowed it could not pin the half that matters.
+  // ref forwards too, so BottomNav's indicator measurement finds its anchors
+  // and the slide transition actually arms (React 19: ref is a plain prop).
+  Link: ({
+    children,
+    href,
+    className,
+    ref,
+  }: {
+    children: React.ReactNode
+    href?: unknown
+    className?: string
+    ref?: React.Ref<HTMLAnchorElement>
+  }) => (
+    <a ref={ref} href={typeof href === 'string' ? href : undefined} className={className}>
+      {children}
+    </a>
   ),
 }))
 jest.mock('next-intl', () => ({
@@ -240,38 +257,68 @@ describe('BottomNav center button — live recording name line', () => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// Tab icon — no snap on tap (TABCALM, 2026-09-01)
+// Tab cells — nothing animates on tap (TAB-CALM-2, ⚖ Liam 2026-09-02)
 // ─────────────────────────────────────────────────────────────
-// Liam, 2026-09-01: "the little icon like jiggles when I click on them."
-// Measured at 393px in a real browser (.build-evidence/repro/before/
-// report.json): the icon's box never moves by even 0.01px — what changes is
-// stroke-width, and it used to jump 2px → 2.5px in ONE frame while the colour
-// beside it eased over the default 150ms. Putting stroke-width on the same
-// transition clock makes the tap read as one calm change; both resting states
-// are untouched. The transition class must sit OUTSIDE the active branch, or
-// only the activating direction eases and de-activating snaps back.
-describe('BottomNav tab icons — the active-state stroke transition', () => {
+// #809 (2026-09-01) read Liam's "the little icon like jiggles when I click on
+// them" as a timing mismatch and eased stroke-width on the colour's clock.
+// His release-21 device video refuted that: frame analysis
+// (evidence/tabcalm2-20260902) shows the eased stroke costing ~130ms of glyph
+// RE-RASTERIZATION per tap plus a single-frame snap at +200ms, when a
+// main-thread stall freezes the mid-flight non-compositable transition.
+// ⚖ 2026-09-02: the bolder-active-icon effect is REMOVED — selection is
+// colour + the sliding indicator only. These pin the whole contract, because
+// each half alone is a new mismatch: a constant stroke behind an eased colour
+// still fades the label against an instant icon, and dropping the icon's
+// transition alone would snap the icon while the label fades.
+describe('BottomNav tab cells — constant stroke, instant colour', () => {
+  const tabLink = (container: HTMLElement, label: string) =>
+    [...container.querySelectorAll('a')].find((a) => a.textContent?.includes(label))!
   const tabIcon = (container: HTMLElement, label: string) =>
-    [...container.querySelectorAll('a')]
-      .find((a) => a.textContent?.includes(label))!
-      .querySelector('svg')!
+    tabLink(container, label).querySelector('svg')!
 
-  it('both the active and the inactive tab icon carry the stroke-width transition', () => {
+  it('neither tab icon animates: no stroke-width transition, in either state', () => {
     mockPathname = '/customers'
     const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
 
-    const active = tabIcon(container, 'customers')
-    const inactive = tabIcon(container, 'karute')
-
-    expect(active.getAttribute('class')).toContain('transition-[stroke-width]')
-    expect(inactive.getAttribute('class')).toContain('transition-[stroke-width]')
+    expect(tabIcon(container, 'customers').getAttribute('class')).not.toContain('transition')
+    expect(tabIcon(container, 'karute').getAttribute('class')).not.toContain('transition')
   })
 
-  it('the resting weights are unchanged: active is stroke-[2.5], inactive is not', () => {
+  it('the stroke weight is CONSTANT: neither state carries stroke-[2.5]', () => {
     mockPathname = '/customers'
     const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
 
-    expect(tabIcon(container, 'customers').getAttribute('class')).toContain('stroke-[2.5]')
+    expect(tabIcon(container, 'customers').getAttribute('class')).not.toContain('stroke-[2.5]')
     expect(tabIcon(container, 'karute').getAttribute('class')).not.toContain('stroke-[2.5]')
+  })
+
+  it('the colour flip is instant: no transition on the Link (icon + label together)', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    expect(tabLink(container, 'customers').getAttribute('class')).not.toContain('transition')
+    expect(tabLink(container, 'karute').getAttribute('class')).not.toContain('transition')
+  })
+
+  it('the メニュー trigger flips instantly too — it sits in the same row', () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    const menu = [...container.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-haspopup') === 'menu',
+    )!
+    expect(menu.getAttribute('class')).not.toContain('transition')
+  })
+
+  it('the sliding indicator KEEPS its transition — compositable, and intended', async () => {
+    mockPathname = '/customers'
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+
+    // The class only arms one frame after the first measurement (so the bar
+    // does not slide in from x=0 on mount), hence the wait.
+    await waitFor(() => {
+      const indicator = container.querySelector('span[aria-hidden].bg-primary')!
+      expect(indicator.getAttribute('class')).toContain('transition-[transform,opacity]')
+    })
   })
 })

@@ -266,7 +266,52 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ceiling a real feature has outgrown gets raised and reported, never held for
 // an approval round. The SCRIPT still gates — it runs in CI and exits non-zero
 // against whatever ceiling stands below.
-const BUDGET_BYTES = 2_019_000
+// RE-BASED 2026-09-02 at PHONEWIRE-3, and this one is a MEASUREMENT-METHOD
+// correction, not a feature raise. Bake 21 (evidence/bake21-20260902) found the
+// gate FAILING on the very bundle it shipped: 2,019,183 B raw against the
+// 2,019,000 ceiling, over by 183 B — while CI on the identical commit was
+// green.
+//
+// Why both were true. CI (.github/workflows/ci.yml) builds this bundle with
+// SHORT DUMMY env — VITE_FACADE_URL https://ci-dummy.invalid,
+// VITE_SUPABASE_URL https://test-dummy.supabase.co, VITE_SUPABASE_ANON_KEY
+// dummy-not-a-key — and passes no VITE_BUILD_COMMIT / VITE_BUILD_NUMBER. Vite
+// INLINES those values as string literals, so a release build (a real facade
+// URL, a real anon JWT, a real commit + build number) is strictly bigger. The
+// CI step's own comment, "the baked values don't affect either", is wrong about
+// bytes. Measured on base f7c1b064, same script, same emptied thin/dist:
+//
+//     release-way   2,019,183 B   (reproduces bake 21 byte-for-byte, per chunk)
+//     CI-way        2,018,928 B
+//     CI under-reads by               255 B
+//
+// The release-way figure was reproduced here WITHOUT copying any real
+// credential: only the byte LENGTHS of the release env values were matched
+// (24 / 40 / 208) with obvious placeholders. Vite inlines them as plain JSON
+// string literals with nothing to escape, so equal length ⇒ equal bytes — and
+// the proof is that all three chunks came out at exactly bake 21's sizes
+// (en 129,609 · index 952,492 · vendor 937,082 = 2,019,183).
+//
+// This round's tip measures 2,018,785 B the release way — 398 B SMALLER than
+// its base, because tab-calm-2 deletes more class text than the offline-catch
+// and the un-suppressed create button add. So there is no feature overage to
+// absorb; the ceiling moves because the number it was compared against was the
+// wrong number. Set above the LARGER of the two honest release-way readings
+// (the base's 2,019,183 — that is what is on phones today), with ~4.8 KB of
+// headroom, the same low-headroom convention as the 2026-08-19/21/24/25 raises
+// and well clear of the 8/8 razor-fail's 193 B margin.
+//
+// Report-only per ⚖ 8/25 describes the RAISE. The SCRIPT still gates: it runs
+// in CI and exits non-zero against whatever ceiling stands below.
+//
+// And CI now measures the RIGHT number. The same round gave the workflow's
+// bundle-gate step placeholder env of release LENGTH (24 / 40 / 208, plus the
+// two build stamps at 8 / 2) — obvious 'x'-padded fakes, never a real value —
+// so its build reproduces the release-way measurement byte-for-byte. Verified
+// 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,785 B, equal
+// to the release-way figure above. CI's printed figure is no longer light;
+// treat it as the real one.
+const BUDGET_BYTES = 2_024_000
 
 let dir
 try {

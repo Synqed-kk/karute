@@ -52,7 +52,13 @@ export function QuickCreateCustomer({ onCreated, onCancel, initialName }: QuickC
       if (result.success) {
         onCreated({ id: result.id, name: result.name })
       } else {
-        setError(result.error)
+        // `|| t('toast.error')` matches CustomerForm: a failure with no
+        // message of its own (the thin port's transport catch answers with an
+        // empty one — it has no i18n) must still SAY something, and in the
+        // staff's own language. Without the fallback an empty string is falsy,
+        // so the <p role="alert"> below never renders and the save fails
+        // silently — the class #810 exists to end.
+        setError(result.error || t('toast.error'))
       }
     } catch {
       // Unexpected/infra failures (incl. the thin shell's not-wired action

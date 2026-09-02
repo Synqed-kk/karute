@@ -62,6 +62,10 @@ const PENDING_SECTIONS_PORT = port('pending-sections-excluded.tsx')
 // Payments-canon denylist (§1.5): purchase-surface FILES that must never enter
 // the bundle. Judged by resolved path, so relative imports are caught too.
 // Names must also exist in thin/ports/purchase-excluded.tsx.
+// ⚖ Liam 2026-09-02: the resulting silent absence of the purchase/subscription
+// dialogs on phones (StoresSection renders without them) is HIDDEN BY DESIGN
+// and locked — a ruled state, not the accident the half-native sweep took it
+// for. iOS-store-safe. Do not "restore" these on the phone door.
 const PURCHASE_FILES = new Set(
   [
     'src/components/settings/redesign/sections/subscription/PlanComparisonGrid.tsx',

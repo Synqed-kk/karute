@@ -141,3 +141,48 @@ describe('thin actions port — createQuickCustomer (booking + karute pickers)',
     })
   })
 })
+
+// ─────────────────────────────────────────────────────────────
+// Offline-catch (PHONEWIRE-3) — the #814 transport-rejection gap
+// ─────────────────────────────────────────────────────────────
+// These ports SUBSTITUTE for server actions, so a transport rejection
+// (offline, DNS, a connection dropped mid-body) must RESOLVE the union's
+// failure member, exactly as statusCall / facadeUpsertOrgSettings /
+// facadeCustomerDeletion do — never reject.
+//
+// `error` is EMPTY on that branch, and that is the contract, not an oversight:
+// this port has no i18n, both callers DISPLAY the field, so any literal here
+// would reach a Japanese staffer in English. Empty means "no specific
+// message", and each consumer falls through to its own localized generic —
+// pinned at the UI level in customer-form-save-failure.test.tsx. Messages that
+// DO come from the server keep riding through verbatim (the non-2xx cases
+// above), so this must not become a blanket blank.
+describe('thin actions port — the create pair never REJECTS on a dead network', () => {
+  const dead = () => port(async () => Promise.reject(new TypeError('Load failed')))
+
+  it('createCustomer resolves the failure member with an EMPTY message', async () => {
+    dead()
+    await expect(createCustomer(FORM_INPUT)).resolves.toEqual({
+      success: false,
+      error: '',
+    })
+  })
+
+  it('createQuickCustomer resolves the failure member with an EMPTY message', async () => {
+    dead()
+    await expect(createQuickCustomer('田中 一郎')).resolves.toEqual({
+      success: false,
+      error: '',
+    })
+  })
+
+  it('never leaks the engine text — the raw rejection message reaches no caller', async () => {
+    dead()
+    const a = await createCustomer(FORM_INPUT)
+    const b = await createQuickCustomer('田中 一郎')
+    for (const r of [a, b]) {
+      expect(r.success).toBe(false)
+      if (!r.success) expect(r.error).not.toMatch(/Load failed|Failed to fetch|Network/i)
+    }
+  })
+})
