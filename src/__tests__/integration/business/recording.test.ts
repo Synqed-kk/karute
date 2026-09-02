@@ -1470,7 +1470,7 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
       // case is about canon's OWN four filters (day, staffed, cancelled,
       // no-show) and would be answering a different question with a scope on.
       // The staff scope has its own case below.
-      ownStaffId: null,
+      ownStaffIds: null,
     })
     expect(opts.length).toBeGreaterThan(0)
     // no no-show, no cancelled, no staffless
@@ -1516,11 +1516,11 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
     const mine = 'p-06'
     const scoped = pickerOptions({
       appointments: todays, customers, menus, staff, grants: consentGrants,
-      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffId: mine,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffIds: new Set([mine]),
     })
     const all = pickerOptions({
       appointments: todays, customers, menus, staff, grants: consentGrants,
-      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffId: null,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffIds: null,
     })
     // there IS something to exclude — a colleague's booking on the same day
     expect(all.length).toBeGreaterThan(scoped.length)
@@ -1538,6 +1538,40 @@ describe('canon’s picker rule, and the 来店なし exclusion', () => {
     for (const id of notHers) expect(ids).not.toContain(id)
     // …and the label SAYS whose list it is and how long it is
     expect(props.pickerLabel).toBe(`あなたの担当の予約 ${props.contexts.length}件（${props.operatorName}・本日）`)
+  })
+
+  it('⚖ B2-3 / #799 — the own scope holds BOTH of the operator’s keys', () => {
+    // ⚠ THE PLANE IS DUAL-SPACE, and that is the whole finding: a booking's
+    // `staff_id` is a PROFILE id for most of this world and a CARD id for the
+    // rest. A single-key filter over that column is a SILENT false negative —
+    // 「あなたの担当の予約 0件」, which reads as a quiet evening desk rather than
+    // as a lookup that missed.
+    const now = new Date()
+    const todays = appointments(now).filter((a) => a.store_id === STORE_A && jstDayKey(a.starts_at) === jstDayKey(now))
+    const spaces = new Set(todays.map((a) => a.staff_id))
+    expect(spaces.has('p-06')).toBe(true)
+    expect([...spaces].some((id) => id !== null && id.startsWith('c-'))).toBe(true)
+    // a CARD-TAGGED operator sees her bookings…
+    const card = [...spaces].find((id) => id !== null && id.startsWith('c-'))!
+    const both = pickerOptions({
+      appointments: todays, customers, menus, staff, grants: consentGrants,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffIds: new Set(['p-99', card]),
+    })
+    expect(both.length).toBeGreaterThan(0)
+    for (const o of both) {
+      expect(todays.find((a) => a.id === o.appointmentId)!.staff_id).toBe(card)
+    }
+    // ⚠ MUTANT: the single-key filter this replaced. Hold only the profile key
+    // that this operator's bookings are NOT tagged with and the picker empties.
+    const oneKey = pickerOptions({
+      appointments: todays, customers, menus, staff, grants: consentGrants,
+      todayKey: jstDayKey(now), minuteOf: jstMinuteOfDay, ownStaffIds: new Set(['p-99']),
+    })
+    expect(oneKey).toEqual([])
+    // …and the props really build the set from BOTH of the operator's ids, the
+    // card coming through the room's own bridge rather than being restated
+    expect(PROPS_CODE).toContain('new Set(\n    [operator.staff_id, selfCardId].filter((v): v is string => v !== null),\n  )')
+    expect(PROPS_CODE).not.toMatch(/const ownStaffId = operator\.staff_id/)
   })
 })
 

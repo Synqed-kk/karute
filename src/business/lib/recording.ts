@@ -1179,13 +1179,22 @@ export interface PickerOption {
  * saying it — the same field the day board reads.
  *
  * ⚖ LIAM F-1 R1-3 — AND THE LIST IS STAFF-SCOPED: BOOKINGS UNDER YOUR OWN NAME.
- * `ownStaffId` is the phone's record-own-customer law mirrored onto the desk. A
+ * `ownStaffIds` is the phone's record-own-customer law mirrored onto the desk. A
  * 店舗管理者 who also treats records HER OWN customers here; the store-wide view
  * she is entitled to is the HISTORY below, not the recorder. It is a READ, not a
  * filter over a rendered list: a colleague's booking never becomes an option, so
  * nothing about it (a customer's name, a menu, a consent state) is in the props
  * at all. `null` means「no self to scope to」 and returns the unscoped list —
  * which is the harness's world, never the page's.
+ *
+ * ⚠ IT IS A SET, AND IT HAS TO BE (B2-3). A booking's `staff_id` column holds
+ * BOTH id spaces in this plane — `fixtures.ts` tags apt-29/apt-33/apt-35 with the
+ * PROFILE id `p-06` and apt-05/apt-14 with the CARD id `c-03` — so a single-key
+ * filter over a dual-space column is a silent false negative: a card-tagged
+ * operator reads 「あなたの担当の予約 0件」, which looks like a quiet evening desk
+ * rather than a lookup that missed. This is the room's own #799 bridge-on-read
+ * law, applied to the picker exactly as it already is to the discard rows: hold
+ * both of the operator's keys and accept a booking tagged with either.
  */
 export function pickerOptions(input: {
   appointments: FixtureAppointment[]
@@ -1195,7 +1204,7 @@ export function pickerOptions(input: {
   grants: FixtureConsentGrant[]
   todayKey: number
   minuteOf: (iso: string) => number
-  ownStaffId: string | null
+  ownStaffIds: ReadonlySet<string> | null
 }): PickerOption[] {
   const customerById = new Map(input.customers.map((c) => [c.id, c]))
   const menuById = new Map(input.menus.map((m) => [m.id, m]))
@@ -1204,7 +1213,7 @@ export function pickerOptions(input: {
   return input.appointments
     .filter((a) => jstDayKey(a.starts_at) === input.todayKey)
     .filter((a) => a.staff_id !== null)
-    .filter((a) => input.ownStaffId === null || a.staff_id === input.ownStaffId)
+    .filter((a) => input.ownStaffIds === null || (a.staff_id !== null && input.ownStaffIds.has(a.staff_id)))
     .filter((a) => a.status !== 'cancelled' && a.board_state !== 'noshow')
     .filter((a) => customerById.has(a.customer_id))
     .map((a) => {

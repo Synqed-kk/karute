@@ -252,10 +252,16 @@ export async function recordingProps({
   // about to record without a round trip — so every option's whole context is
   // resolved HERE and the screen only chooses between them. That is what keeps
   // the screen free of a clock, a formatter and the consent rule all at once.
-  // ⚖ LIAM F-1 R1-3 — THE PICKER IS STAFF-SCOPED. `operator.staff_id` is a
-  // PROFILE id and a booking's `staff_id` is the same space, so the scope needs
-  // no bridge (the take side does — that is `selfCardId` above).
-  const ownStaffId = operator.staff_id
+  // ⚖ LIAM F-1 R1-3 — THE PICKER IS STAFF-SCOPED, AND IT HOLDS BOTH OF THE
+  // OPERATOR'S KEYS (B2-3). A booking's `staff_id` is a PROFILE id for most of
+  // this plane and a CARD id for the rest (`fixtures.ts` tags apt-05/apt-14 with
+  // `c-03`), so the room's own #799 bridge-on-read law applies here exactly as it
+  // does on the take side: `selfCardId` is already computed one line above, and a
+  // scope that ignored it would hand a card-tagged operator an empty picker and
+  // call it an evening with no bookings.
+  const ownStaffIds: ReadonlySet<string> = new Set(
+    [operator.staff_id, selfCardId].filter((v): v is string => v !== null),
+  )
   const nowMinute = jstMinuteOfDay(now)
   const options = pickerOptions({
     appointments,
@@ -265,7 +271,7 @@ export async function recordingProps({
     grants,
     todayKey,
     minuteOf: jstMinuteOfDay,
-    ownStaffId,
+    ownStaffIds,
   })
 
   const contexts: RecordingContextProps[] = options.map((o) => {
