@@ -818,15 +818,12 @@
 .biz .pg-recording .rc-attn-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
 .biz .pg-recording .rc-attn-cnt { margin-left: -5px; color: var(--rc-amber-ink); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
 .biz .pg-recording .rc-attn-hint { margin-right: 2px; color: var(--rc-ink-4); font-size: 11px; white-space: nowrap; }
-/* ⚠ THE HINT STEPS OUT BEFORE THE ROW WRAPS. Label + count + hint + three pills
-   need ~906px and an 889px page is 17 short, so the strip broke onto a second
-   line at the main desk width — which is the shape Liam rejected in F-1 R2-4
-   (「label left, a gap, pills far right」) wearing different clothes. The hint is
-   the only part of the row that is not a COUNT or an ACTION, and the same
-   sentence is the 要対応 tour step's own first line, so nothing is lost. */
-@container rcpage (max-width: 999px) {
-  .biz .pg-recording .rc-attn-hint { display: none; }
-}
+/* ⚠ AND THE HINT STAYS, AT EVERY WIDTH. It was hidden under a 1000px page for
+   one round, because the strip was breaking onto a second line at the main desk
+   width — but that was the `rc-card` padding collision (14px 16px 15px where the
+   card states 6px 12px) stealing 8px a side, not the hint. With the collision
+   fixed the row holds label · count · hint · three pills on ONE line at an 889px
+   page, which is what Liam accepted, so the room says the whole sentence. */
 .biz .pg-recording .rc-aspill {
   display: inline-flex; align-items: center; gap: 7px; padding: 3px 4px 3px 6px; white-space: nowrap;
   border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; color: inherit; text-align: left;
