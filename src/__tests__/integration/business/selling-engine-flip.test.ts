@@ -2032,8 +2032,8 @@ const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.s
  *  and after S0 (they used `maskOf` already).
  *
  *  These twelve are absent because the fallback RUNS for a guard-off store,
- *  which is today's shipped behaviour (doors :883 measured it) — the doors
- *  suite names it unruled as guard-conditional (doors :872-882). If Liam ever
+ *  which is today's shipped behaviour (doors :903 measured it) — the doors
+ *  suite names it unruled as guard-conditional (doors :892-902). If Liam ever
  *  rules it guard-conditional, these twelve return BY RULING, not by
  *  regression, and the pin is re-frozen with that ruling.
  *
@@ -2109,7 +2109,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
         // `gapGuardMode === 'off'` (reserved-mask.ts:200), TodayScreen's `salesDoor`
         // gates on `!heldCommitted`, and `[]` is truthy — so the §5 fallback RUNS for a
         // guard-off store, with `held: []`. The doors suite already measured what that
-        // store gains from it (selling-engine-doors.test.ts :883). Handing `undefined`
+        // store gains from it (selling-engine-doors.test.ts :903). Handing `undefined`
         // here measured a composition no live screen runs: the fallback's existing
         // triggers switched off. `maskOf` is one spelling for both modes because
         // `reservedMaskFor` itself is where 'off' becomes the empty mask.
