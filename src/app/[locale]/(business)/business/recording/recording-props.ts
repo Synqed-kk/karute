@@ -399,6 +399,12 @@ export async function recordingProps({
     // 破棄の記録 screen so the two surfaces cannot disagree about one take.
     // ⚠ AND 10秒未満 IS A PLAIN FACT beside it (W7-2), never a warning.
     durationLabel: takeDurationLabel(t.durationSeconds, t.belowFloor),
+    // ⚠ THE STATE ITSELF TRAVELS, not only its two renderings (B2-4). The chips
+    // and the 要対応 pills are counted on the SCREEN, over the walk's own window,
+    // and a count taken by matching a printed LABEL would be a second home for
+    // the verdict `takeStateOf` already reached — the same argument that put
+    // `isDiscarded` on this row rather than sniffing it out of a class name.
+    state: t.state,
     stateLabel: TAKE_STATE_LABEL[t.state],
     stateChip: TAKE_STATE_CHIP[t.state],
     reasonLine: t.reason === null ? null : TAKE_REASON_LINE[t.reason],
@@ -524,59 +530,17 @@ export async function recordingProps({
 
   const failLine = discardFailLine(discardFail)
 
-  // ── ⚖ 要対応 — ONE SLIM STRIP, AND ONLY WHEN THERE IS SOMETHING TO DO ──────
-  // ⚠ THE COUNTS COME OFF THE SAME MODEL LIST THE FILTER ROW NARROWS, so a
-  // pill's number is exactly what its press reveals (the ⚖ pill/count law). A
-  // count taken from a different predicate is one of the battery's own reds.
-  // ⚠ AND THE STRIP IS ABSENT AT ZERO. 「要対応 0件」 over three empty pills is a
-  // page inventing a warning; a clean desk sees no strip at all.
-  const attn = attentionCounts(models)
-  const attention =
-    attn.total === 0
-      ? null
-      : {
-          title: '要対応',
-          countLine: `${attn.total}件`,
-          hint: 'いま手を動かす必要がある録音',
-          pills: [
-            attn.recoverable > 0
-              ? {
-                  key: 'recoverable' as const,
-                  chip: TAKE_STATE_CHIP.recoverable,
-                  stateLabel: TAKE_STATE_LABEL.recoverable,
-                  countLabel: `${attn.recoverable}件`,
-                  // The plane's own 7-day local-take window, and `null` once a
-                  // residue is past it rather than a promise of 「あと0日」.
-                  note: recoverable === null ? null : daysLeftLine(recoverable.dayKey, todayKey),
-                  // The SAME refused save lever the row carries, same reason.
-                  action: { kind: 'save' as const, label: '保存する' },
-                  tone: 'amber' as const,
-                }
-              : null,
-            attn.failed > 0
-              ? {
-                  key: 'failed' as const,
-                  chip: TAKE_STATE_CHIP.failed,
-                  stateLabel: TAKE_STATE_LABEL.failed,
-                  countLabel: `${attn.failed}件`,
-                  note: null,
-                  action: { kind: 'filter' as const, label: '見る' },
-                  tone: 'red' as const,
-                }
-              : null,
-            attn.awaiting > 0
-              ? {
-                  key: 'awaiting' as const,
-                  chip: TAKE_STATE_CHIP['awaiting-check'],
-                  stateLabel: TAKE_STATE_LABEL['awaiting-check'],
-                  countLabel: `${attn.awaiting}件`,
-                  note: null,
-                  action: { kind: 'filter' as const, label: '確認する' },
-                  tone: 'blue' as const,
-                }
-              : null,
-          ].filter((p) => p !== null),
-        }
+  // ── ⚖ 要対応 — THE STRIP IS BUILT FROM THE WALK, NOT FROM HERE (B2-4) ─────
+  // ⚠ ONLY ITS ONE PLANE-DERIVED FACT IS SERIALIZED. The strip's counts have to
+  // be the counts of the set a press REVEALS, and that set is the window the
+  // screen's own walk has opened — a number decided here would be a second
+  // predicate over a second set, which is exactly the ⚖ pill/count law's
+  // failure mode (it held on this plane only because every row the window hides
+  // happens to be 破棄済み). `attentionStrip` is the one home; the screen calls
+  // it with the walk's own counts. What the screen cannot know is the residue's
+  // remaining local-audio days, because that is a PLANE fact against today —
+  // so that one string is derived here and handed over.
+  const attentionNote = recoverable === null ? null : daysLeftLine(recoverable.dayKey, todayKey)
 
   const props: RecordingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
@@ -619,7 +583,7 @@ export async function recordingProps({
             title: '本日、あなたの担当の予約はありません',
             body: '予約が入ると、ここに時間順で並びます。録音は予約を選んでから始めます。',
           },
-    attention,
+    attentionNote,
     // ⚖ THE SCREEN NEVER PICKS (§2.3). In-progress → next up → last of the day,
     // decided from the SAME clock read the hero chips and every take date used.
     defaultAppointmentId: defaultPick(options, nowMinute),

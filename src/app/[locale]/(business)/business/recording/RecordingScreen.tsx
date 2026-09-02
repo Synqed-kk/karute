@@ -51,8 +51,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import {
+  attentionStrip,
   fmtElapsed,
   keepCardOffHeading,
+  takeStateCounts,
   waveformBars,
   windowTakes,
   RECORDER_LABEL,
@@ -198,6 +200,10 @@ export interface RecordingTakeProps {
   dayKey: number
   dateLabel: string
   timeLabel: string
+  /** ⚖ B2-4 — the row's own state verdict, carried rather than re-read off its
+   *  printed label: the filter chips and the 要対応 pills are both counted from
+   *  it, over the ONE set the walk has opened. */
+  state: TakeState
   customerLabel: string
   /** The row's identity anchor — the customer's own first character, or 「？」 for
    *  an unbound take. Decorative: the name is printed beside it. */
@@ -278,23 +284,11 @@ export interface RecordingProps {
     truncatedLine: string | null
     listTruncatedLine: string | null
   } | null
-  /** ⚖ 要対応 — ONE slim strip, and `null` when nothing needs a hand. Every
-   *  pill's count is EXACTLY what its filter reveals (the pill/count law), and
-   *  a strip that rendered at zero would be the page inventing a warning. */
-  attention: {
-    title: string
-    countLine: string
-    hint: string
-    pills: Array<{
-      key: string
-      chip: string
-      stateLabel: string
-      countLabel: string
-      note: string | null
-      action: { kind: 'save' | 'filter'; label: string }
-      tone: 'amber' | 'red' | 'blue'
-    }>
-  } | null
+  /** ⚖ 要対応 — the strip's ONE plane-derived string: how many days the local
+   *  residue has left. The strip itself is built on the screen from the walk's
+   *  own counts (B2-4), because a pill's number must be exactly what its press
+   *  reveals and only the walk knows that set. */
+  attentionNote: string | null
   discardRows: DiscardRowProps[]
   canReviewDiscards: boolean
   recovery: {
@@ -626,13 +620,19 @@ export function RecordingScreen(props: RecordingProps) {
    *  nothing is a claim, not a count. 破棄済み is always among them when there
    *  is one — existence is never hidden (⚖ 8/20 ①) — and no chip carries a
    *  colour, so the discard chip cannot be the loud one. */
-  const filters = useMemo(() => {
-    const n = new Map<string, number>()
-    for (const t of walk.visible) n.set(t.stateLabel, (n.get(t.stateLabel) ?? 0) + 1)
-    return Object.values(TAKE_STATE_LABEL)
-      .filter((label) => n.has(label))
-      .map((label) => ({ label, n: n.get(label)! }))
-  }, [walk])
+  const stateCounts = useMemo(() => takeStateCounts(walk.visible), [walk])
+  const filters = useMemo(
+    () =>
+      (Object.entries(TAKE_STATE_LABEL) as Array<[TakeState, string]>)
+        .filter(([state]) => (stateCounts.get(state) ?? 0) > 0)
+        .map(([state, label]) => ({ label, n: stateCounts.get(state)! })),
+    [stateCounts],
+  )
+  /** ⚖ B2-4 — AND THE 要対応 STRIP IS THE SAME MAP. It used to be serialized from
+   *  the whole model list while the chips it jumps to counted the window; the two
+   *  agreed on this plane only because every row the window hides is 破棄済み.
+   *  One press of さらに表示 now moves both together, by construction. */
+  const attention = useMemo(() => attentionStrip(stateCounts, props.attentionNote), [stateCounts, props.attentionNote])
   const rows = stateFilter === null ? walk.visible : walk.visible.filter((t) => t.stateLabel === stateFilter)
 
   /** The recovery residue, as the SCREEN sees it: the server's slot until its
@@ -1508,19 +1508,30 @@ export function RecordingScreen(props: RecordingProps) {
             data-guide="いま手を動かす必要がある録音だけをまとめた行です。件数はそれぞれ、押したときに一覧へ残る件数そのものです。手を動かすものが何もないときは、この行そのものが出ません。"
           >
             <div className="rc-attnstrip">
-              <span className="rc-attn-ttl">{props.attention.title}</span>
-              <span className="rc-attn-cnt rc-num">{props.attention.countLine}</span>
-              <span className="rc-attn-hint">{props.attention.hint}</span>
-              {props.attention.pills.map((p) =>
+              <span className="rc-attn-ttl">{attention.title}</span>
+              <span className="rc-attn-cnt rc-num">{attention.countLine}</span>
+              <span className="rc-attn-hint">{attention.hint}</span>
+              {attention.pills.map((p) =>
                 p.action.kind === 'save' ? (
-                  <span className={`rc-aspill is-${p.tone}`} key={p.key}>
+                  /* ⚖ B1-6 — ONE PILL, ONE BUTTON, like its two neighbours (the
+                     mock's own shape). The refusal sits on the WHOLE pill, so
+                     the body presses the same refused save the label does
+                     instead of being the one pill in the row that ignores a
+                     press. `base: null` keeps the pill's own skin — a refusal is
+                     `aria-disabled` + the reason, not a repaint. */
+                  <button
+                    {...refused(`${p.stateLabel} ${p.countLabel} ${p.action.label}`, props.refusals.save, {
+                      base: null,
+                      className: `rc-aspill is-${p.tone}`,
+                    })}
+                    key={p.key}
+                    data-press
+                  >
                     <span className={p.chip}>{p.stateLabel}</span>
                     <span className="rc-aspill-n rc-num">{p.countLabel}</span>
                     {p.note && <span className="rc-aspill-m">{p.note}</span>}
-                    <button {...refused(p.action.label, props.refusals.save, { className: 'rc-aspill-go' })} data-press>
-                      {p.action.label}
-                    </button>
-                  </span>
+                    <span className="rc-aspill-go">{p.action.label}</span>
+                  </button>
                 ) : (
                   <button
                     className={`rc-aspill is-${p.tone}`}

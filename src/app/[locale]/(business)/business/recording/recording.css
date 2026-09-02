@@ -842,7 +842,7 @@
   border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; color: inherit; text-align: left;
   transition: box-shadow 200ms var(--rc-ease), transform 160ms var(--rc-ease), border-color 200ms var(--rc-ease);
 }
-.biz .pg-recording button.rc-aspill:hover { box-shadow: var(--rc-shadow-2); transform: translateY(-1px); }
+.biz .pg-recording button.rc-aspill:hover:not([aria-disabled="true"]) { box-shadow: var(--rc-shadow-2); transform: translateY(-1px); }
 .biz .pg-recording .rc-aspill-n { color: var(--ink-3); font-size: 11.5px; font-weight: 700; }
 .biz .pg-recording .rc-aspill-m { color: var(--ink-3); font-size: 11.5px; }
 /* the pill's own lever. `.go` is a SOFT accent rather than a fill: the strip is
@@ -852,7 +852,7 @@
   border: 1px solid var(--rc-hero-line); background: var(--rc-hero-wash); color: var(--rc-accent-hover);
   font-size: 11.5px; font-weight: 700; white-space: nowrap;
 }
-.biz .pg-recording button.rc-aspill:hover .rc-aspill-go { background: var(--rc-blue-wash-2); }
+.biz .pg-recording button.rc-aspill:hover:not([aria-disabled="true"]) .rc-aspill-go { background: var(--rc-blue-wash-2); }
 .biz .pg-recording .rc-aspill.is-amber { border-color: var(--rc-amber-line); background: #fffdf8; }
 .biz .pg-recording .rc-aspill.is-amber .rc-aspill-m { color: var(--rc-amber-ink); font-weight: 700; }
 .biz .pg-recording .rc-aspill.is-red { border-color: var(--rc-fail-line); background: #fffbfb; }

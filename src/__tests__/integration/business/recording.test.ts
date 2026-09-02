@@ -73,6 +73,7 @@ import {
   windowTakes,
   // ── v5's own derivations ──────────────────────────────────────────────────
   attentionCounts,
+  attentionStrip,
   bookingPhaseOf,
   briefFactsOf,
   consentActionLabel,
@@ -81,6 +82,7 @@ import {
   defaultPick,
   grantedWhen,
   slotHint,
+  takeStateCounts,
   BRIEF_RECORDS_SHOWN,
   LOCAL_AUDIO_DAYS,
   CONSENT_LABEL,
@@ -2295,18 +2297,53 @@ describe('v5 — 前回までの流れ is a JOIN, and it states nothing', () => 
 describe('v5 — the 要対応 strip cannot lie, and it is absent at zero', () => {
   it('⚖ THE PILL/COUNT LAW — every pill’s number is what its filter reveals', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
-    expect(props.attention).not.toBeNull()
-    const byLabel = new Map<string, number>()
-    for (const t of props.takes) byLabel.set(t.stateLabel, (byLabel.get(t.stateLabel) ?? 0) + 1)
-    for (const pill of props.attention!.pills) {
-      // the pill's own count IS the number of rows carrying that state label
-      expect(pill.countLabel).toBe(`${byLabel.get(pill.stateLabel) ?? 0}件`)
+    // THE SET A PRESS REVEALS, which is the one the screen hands the strip.
+    const walk = windowTakes(props.takes, 1)
+    const strip = attentionStrip(takeStateCounts(walk.visible), props.attentionNote)
+    expect(strip).not.toBeNull()
+    for (const pill of strip!.pills) {
+      // the pill's own count IS the number of rows its press leaves standing
+      expect(pill.countLabel).toBe(`${walk.visible.filter((t) => t.stateLabel === pill.stateLabel).length}件`)
       // …and the chip it wears is that state's own chip, not a second spelling
       expect(pill.chip).toContain('rc-chip')
     }
     // the header count is the sum of the three, and nothing else
-    const sum = props.attention!.pills.reduce((n, p) => n + Number(p.countLabel.replace('件', '')), 0)
-    expect(props.attention!.countLine).toBe(`${sum}件`)
+    const sum = strip!.pills.reduce((n, p) => n + Number(p.countLabel.replace('件', '')), 0)
+    expect(strip!.countLine).toBe(`${sum}件`)
+  })
+
+  it('⚖ B2-4 — a take OUTSIDE the window moves the pill and the chip TOGETHER', () => {
+    // ⚠ THE MUTANT THIS PINS: the strip counted over the WHOLE model list while
+    // the chips its press jumps to counted the 7-day window. The demo plane
+    // agreed by accident — every row its window hides is 破棄済み — so the world
+    // here hides a 失敗 instead. Over ALL rows the pill would claim 2 where its
+    // own press reveals 1.
+    const rows = [
+      { state: 'failed' as const, stateLabel: '失敗', dayKey: 20_700 },
+      { state: 'failed' as const, stateLabel: '失敗', dayKey: 20_660 },
+    ]
+    const walk = windowTakes(rows, 1)
+    expect(walk.visible).toHaveLength(1)
+    expect(walk.hidden).toBe(1)
+    expect(takeStateCounts(rows).get('failed')).toBe(2)
+    expect(takeStateCounts(walk.visible).get('failed')).toBe(1)
+    // the strip the screen builds reads the WINDOW's map, so it says 1件…
+    const strip = attentionStrip(takeStateCounts(walk.visible), null)
+    expect(strip!.pills.map((p) => p.countLabel)).toEqual(['1件'])
+    expect(strip!.countLine).toBe('1件')
+    // …and that IS what the press leaves standing.
+    expect(walk.visible.filter((t) => t.stateLabel === '失敗')).toHaveLength(1)
+  })
+
+  it('⚖ A8 ONE HOME — the chips and the pills read the SAME map over the SAME set', () => {
+    // A screen that re-derived either number from a second predicate is the
+    // defect; these three lines are what makes that impossible to reintroduce
+    // without deleting a pin.
+    expect(SCREEN_CODE).toContain('takeStateCounts(walk.visible)')
+    expect(SCREEN_CODE).toContain('attentionStrip(stateCounts, props.attentionNote)')
+    expect(SCREEN_CODE).toContain('stateCounts.get(state)')
+    // the strip is no longer serialized — only its one plane fact is
+    expect(SCREEN_CODE).not.toMatch(/props\.attention\./)
   })
 
   it('⚠ A CLEAN DESK SEES NO STRIP AT ALL — 「要対応 0件」 is a page inventing a warning', () => {
@@ -2315,8 +2352,32 @@ describe('v5 — the 要対応 strip cannot lie, and it is absent at zero', () =
       .toEqual({ recoverable: 0, failed: 0, awaiting: 0, total: 0 })
     expect(attentionCounts([{ state: 'failed' }, { state: 'failed' }, { state: 'recoverable' }, { state: 'awaiting-check' }]))
       .toEqual({ recoverable: 1, failed: 2, awaiting: 1, total: 4 })
+    // the builder itself returns NOTHING at zero, in every shape of empty
+    expect(attentionStrip(new Map(), null)).toBeNull()
+    expect(attentionStrip(takeStateCounts([{ state: 'saved' }, { state: 'discarded' }]), null)).toBeNull()
     // …and the screen renders NOTHING rather than a zero header
-    expect(SCREEN_CODE).toContain('{props.attention && (')
+    expect(SCREEN_CODE).toContain('{attention && (')
+  })
+
+  it('⚖ W7-4 / B2-5 — the retention fact has ONE home, and BOTH strings derive from it', async () => {
+    // ⚠ IT LIVES ON THE PLANE, beside the consent version and the accidental-tap
+    // floor, with the phone's own TTL cited by file:line — not as an app-side
+    // literal that a second app-side literal can drift away from.
+    expect(PLANE_CODE).toMatch(/export const LOCAL_AUDIO_DAYS = 7/)
+    expect(PLANE_SRC).toContain('src/lib/karute/take-store.ts:41')
+    // the library re-exports it and states it NOWHERE else
+    expect(LIB_CODE).toContain('export { LOCAL_AUDIO_DAYS }')
+    expect(LIB_CODE).not.toMatch(/const LOCAL_AUDIO_DAYS\s*=/)
+    // ⚠ AND THE TWO SENTENCES BOTH CARRY THE CONSTANT'S OWN NUMBER. The trace
+    // row used to spell 「7日間」 as a literal while the pill computed from the
+    // constant — two homes for one policy fact, which is how 7 and 7 become 7
+    // and 14.
+    expect(PROPS_CODE).toContain('${LOCAL_AUDIO_DAYS}日間だけ残ります')
+    expect(PROPS_CODE).not.toContain('端末に7日間だけ残ります')
+    const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
+    const retention = props.trace.find((r) => r.label === '端末に残る録音')!
+    expect(retention.value).toContain(`${LOCAL_AUDIO_DAYS}日間`)
+    expect(daysLeftLine(100, 100)).toBe(`あと${LOCAL_AUDIO_DAYS}日で端末から消えます`)
   })
 
   it('the 7-day window promises nothing it cannot keep', () => {
@@ -2474,10 +2535,12 @@ describe('v5 — the composition’s own truths, named', () => {
     const needsHand = props.takes.filter((t) =>
       ['復元可能', '失敗', '確認待ち'].includes(t.stateLabel))
     expect(needsHand).toEqual([])
-    expect(props.attention).toBeNull()
+    expect(attentionStrip(takeStateCounts(windowTakes(props.takes, 1).visible), props.attentionNote)).toBeNull()
     // …and the demo world, which DOES have work in it, still gets one
     const live = await recordingProps({ locale: 'ja', store: STORE_A })
-    expect(live.props.attention).not.toBeNull()
+    expect(
+      attentionStrip(takeStateCounts(windowTakes(live.props.takes, 1).visible), live.props.attentionNote),
+    ).not.toBeNull()
   })
 
   it('M74 · THE WAVEFORM STAYS — 「keep everything the phone app has」 (R6-22)', () => {

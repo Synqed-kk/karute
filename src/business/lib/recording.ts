@@ -1423,22 +1423,102 @@ export interface AttentionCounts {
   total: number
 }
 
+/**
+ * ⚖ ONE PREDICATE, ONE SET, ONE HOME (B2-4). Every count this room prints — the
+ * filter chips AND the 要対応 pills — is one entry of THIS map.
+ *
+ * ⚠ THE LAW HELD BY LUCK BEFORE, AND LUCK IS NOT A CONSTRUCTION. The strip used
+ * to count over the WHOLE model list while the chips its press jumps to counted
+ * the 7-day window the walk has opened. On the demo plane the two agreed only
+ * because all three rows the window hides happen to be 破棄済み; one old 失敗
+ * take past day −7 and the pill would claim three where its own press reveals
+ * two. Both now read the SAME map, over the SAME set — the one a press reveals.
+ */
+export function takeStateCounts(rows: Array<{ state: TakeState }>): Map<TakeState, number> {
+  const out = new Map<TakeState, number>()
+  for (const r of rows) out.set(r.state, (out.get(r.state) ?? 0) + 1)
+  return out
+}
+
 export function attentionCounts(rows: Array<{ state: TakeState }>): AttentionCounts {
-  let recoverable = 0
-  let failed = 0
-  let awaiting = 0
-  for (const r of rows) {
-    if (r.state === 'recoverable') recoverable += 1
-    else if (r.state === 'failed') failed += 1
-    else if (r.state === 'awaiting-check') awaiting += 1
-  }
+  const n = takeStateCounts(rows)
+  const recoverable = n.get('recoverable') ?? 0
+  const failed = n.get('failed') ?? 0
+  const awaiting = n.get('awaiting-check') ?? 0
   return { recoverable, failed, awaiting, total: recoverable + failed + awaiting }
 }
 
-/** ⚠ THE LOCAL TAKE'S OWN WINDOW, from the plane's 7-day fact and nothing else.
+/** The three states that need a hand, in the order the strip prints them, with
+ *  the lever each one offers. `save` REFUSES (the room's one save refusal);
+ *  `filter` really narrows the list below. */
+const ATTENTION_PILLS: ReadonlyArray<{
+  state: TakeState
+  action: { kind: 'save' | 'filter'; label: string }
+  tone: 'amber' | 'red' | 'blue'
+}> = [
+  { state: 'recoverable', action: { kind: 'save', label: '保存する' }, tone: 'amber' },
+  { state: 'failed', action: { kind: 'filter', label: '見る' }, tone: 'red' },
+  { state: 'awaiting-check', action: { kind: 'filter', label: '確認する' }, tone: 'blue' },
+]
+
+export interface AttentionPill {
+  key: TakeState
+  state: TakeState
+  chip: string
+  stateLabel: string
+  countLabel: string
+  note: string | null
+  action: { kind: 'save' | 'filter'; label: string }
+  tone: 'amber' | 'red' | 'blue'
+}
+
+export interface AttentionStrip {
+  title: string
+  countLine: string
+  hint: string
+  pills: AttentionPill[]
+}
+
+/**
+ * ⚖ 要対応 — ONE SLIM STRIP, BUILT FROM THE WALK'S OWN COUNTS.
+ *
+ * ⚠ AND IT IS ABSENT AT ZERO. 「要対応 0件」 over three empty pills is a page
+ * inventing a warning; a shop with a clean desk sees no strip at all. Because
+ * the counts are the walk's, さらに表示 moves the strip and the chips together —
+ * they cannot drift apart, which is the whole of B2-4.
+ */
+export function attentionStrip(
+  counts: ReadonlyMap<TakeState, number>,
+  recoverableNote: string | null,
+): AttentionStrip | null {
+  const pills: AttentionPill[] = []
+  let total = 0
+  for (const p of ATTENTION_PILLS) {
+    const n = counts.get(p.state) ?? 0
+    if (n === 0) continue
+    total += n
+    pills.push({
+      key: p.state,
+      state: p.state,
+      chip: TAKE_STATE_CHIP[p.state],
+      stateLabel: TAKE_STATE_LABEL[p.state],
+      countLabel: `${n}件`,
+      note: p.state === 'recoverable' ? recoverableNote : null,
+      action: p.action,
+      tone: p.tone,
+    })
+  }
+  if (total === 0) return null
+  return { title: '要対応', countLine: `${total}件`, hint: 'いま手を動かす必要がある録音', pills }
+}
+
+/** ⚠ THE LOCAL TAKE'S OWN WINDOW, from the plane's own fact and nothing else
+ *  (W7-4, B2-5): `LOCAL_AUDIO_DAYS` lives in `fixtures-recording.ts` beside the
+ *  consent version and the accidental-tap floor, and is re-exported here so this
+ *  room's one library stays the single import for its consumers.
  *  `null` when the residue is already past it — a promise of 「あと0日」 is not a
  *  promise, and a negative one is arithmetic leaking onto the page. */
-export const LOCAL_AUDIO_DAYS = 7
+export { LOCAL_AUDIO_DAYS }
 
 export function daysLeftLine(dayKey: number, todayKey: number): string | null {
   const left = LOCAL_AUDIO_DAYS - (todayKey - dayKey)
