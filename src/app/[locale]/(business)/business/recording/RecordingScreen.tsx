@@ -1084,9 +1084,15 @@ export function RecordingScreen(props: RecordingProps) {
                       disabled={phase !== 'idle'}
                       onClick={() => setPickedId(c.appointmentId)}
                     >
+                      {/* ⚠ BOTH LINES CARRY THEIR OWN `title` (B4-2). At phone
+                          widths the slot stacks and nothing is cut, but a
+                          doubled name still ellipsises on its own line, and a
+                          slot whose only recovery was 「press it and read the
+                          hero」 had no recovery at all while the hero was
+                          clipping too. */}
                       <span className="rc-tm rc-num">{c.timeLabel}</span>
-                      <span className="rc-b1">{c.customerName}様</span>
-                      <span className="rc-b2">{c.menuName} ・ {c.slotHint}</span>
+                      <span className="rc-b1" title={`${c.customerName}様`}>{c.customerName}様</span>
+                      <span className="rc-b2" title={`${c.menuName} ・ ${c.slotHint}`}>{c.menuName} ・ {c.slotHint}</span>
                       <span className="rc-tick" aria-hidden="true">
                         <Icon name="tick" size={14} weight={2.6} />
                       </span>

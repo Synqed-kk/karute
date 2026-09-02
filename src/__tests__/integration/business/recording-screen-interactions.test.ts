@@ -427,10 +427,39 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
     // The wrappers are now containers and every column rule queries THEM, so a
     // layout can no longer be chosen from a width the layout does not have.
     expect(CSS_CODE).toContain('container-type: inline-size; container-name: rcpage;')
-    // …declared on the two page wrappers, and on nothing else.
-    const containers = [...CSS_CODE.matchAll(/([^{}]+)\{[^{}]*container-type/g)].map((m) => m[1].trim())
-    expect(containers.length).toBe(1)
-    expect(containers[0]).toBe('.biz .pg-recording .rc-record-view,\n.biz .pg-recording .rc-review-view')
+    /** ⚠ EVERY CONTAINER IS NAMED HERE, AND EACH ONE HAS A REASON — the census
+     *  is a whitelist rather than a count, because a container declared without
+     *  an argument is how a rule quietly starts asking the wrong box.
+     *   · `rcpage` — the two view wrappers: every COLUMN COUNT (F-V5-3's own
+     *     lesson is that this is the page's width, not the viewport's).
+     *   · `rchead` — the page head is the wrappers' SIBLING, so no `rcpage` rule
+     *     could ever reach it and the eyebrow stayed visible at 390/440 with a
+     *     rule right there hiding it. It queries itself.
+     *   · `rchero` / `rcpick` — the hero line and the picker run out of room in
+     *     TWO unrelated layouts (the phone's single column AND the 548–919 two-up
+     *     cockpit, where the 250px record column eats the width), so the long-
+     *     content rules are asked of the box that is actually short (B4-1/B4-2).
+     *  ⚠ AND NONE OF THE FOUR CONTAINS A `position: fixed` LAYER: the scrim, the
+     *  three dialogs and the four tour layers are siblings at the room root, so
+     *  no containment can capture them. */
+    const containers = [...CSS_CODE.matchAll(/([^{}]+)\{[^{}]*container-name: (\w+)/g)]
+      .map((m) => [m[1].trim(), m[2]] as const)
+    expect(containers).toEqual([
+      ['.biz .pg-recording .rc-record-view,\n.biz .pg-recording .rc-review-view', 'rcpage'],
+      ['.biz .pg-recording .rc-head', 'rchead'],
+      ['.biz .pg-recording .rc-hero', 'rchero'],
+      ['.biz .pg-recording .rc-picker', 'rcpick'],
+    ])
+    // every `container-type` carries a name — an anonymous one is a rule nobody
+    // can trace back to a box
+    expect([...CSS_CODE.matchAll(/container-type/g)].length).toBe(containers.length)
+    // ⚠ THE HEAD'S OWN BAND ASKS `rchead`, AND ASKING `rcpage` IS THE DEFECT
+    // (F-V5-3): the head is not inside either view, so an `rcpage` head rule is
+    // dead CSS that looks alive.
+    expect(CSS_CODE).toContain('@container rchead (max-width: 699px)')
+    for (const m of CSS_CODE.matchAll(/@container rcpage[^{]*\{([\s\S]*?)\n\}/g)) {
+      expect(m[1]).not.toMatch(/rc-eyebrow|rc-subtitle|rc-titlerow|\.rc-head\b/)
+    }
     // ⚠ NO COLUMN COUNT IS DECIDED BY A MEDIA QUERY ANY MORE. Every
     // `grid-template-columns` / `grid-template-areas` in the sheet sits either at
     // base level or inside a `@container` — never inside an `@media`.
@@ -563,6 +592,51 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
 })
 
 // ═══ F6 · THE TWO INTERACTION DEFECTS A RUSHED RECEPTIONIST MEETS ══════════
+
+describe('fix1 — ⚖ LONG CONTENT IS NEVER CRUNCHED, on the narrowest door too', () => {
+  it('⚖ B4-1 — the hero meta WRAPS below its own fitting width, capped at two lines', () => {
+    // it is single-line by design where the line fits (the mock's hero)…
+    expect(CSS_CODE).toMatch(/\.rc-hero-meta \{[^}]*white-space: nowrap[^}]*text-overflow: ellipsis/)
+    // …and below the width that holds it, it wraps rather than cutting the 担当
+    // name off the end — the fact the hero exists to state, and a `title` is a
+    // hover a thumb cannot open.
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@container rchero (max-width:'))
+    const body = band.slice(0, band.indexOf('\n}\n'))
+    expect(body).toContain('white-space: normal')
+    expect(body).toContain('-webkit-line-clamp: 2')
+    expect(body).toContain('overflow-wrap: anywhere')
+  })
+
+  it('⚖ B4-2 — the slot stacks into two lines when its own column is short, and the DESK keeps one', () => {
+    const band = CSS_CODE.slice(CSS_CODE.indexOf('@container rcpick (max-width:'))
+    const body = band.slice(0, band.indexOf('\n}\n'))
+    // time + name + tick on line 1, menu ・ hint on line 2 — with the menu name
+    // and the hint each getting the WHOLE slot rather than ~40% of it
+    expect(body).toContain('grid-template-areas: "tm b1 tick" "b2 b2 b2"')
+    // the desk's single line is the BASE rule, so nothing here touches it
+    expect(CSS_CODE).toMatch(/\.rc-slot \{[^}]*display: flex/)
+    // …and both lines carry a `title` backstop, because a doubled name still
+    // ellipsises on its own line and pressing the slot is no longer a recovery
+    expect(SRC_CODE).toContain('className="rc-b1" title={`${c.customerName}様`}')
+    expect(SRC_CODE).toContain('className="rc-b2" title={`${c.menuName} ・ ${c.slotHint}`}')
+  })
+
+  it('the two long-content bands are ASCENDING and asked of the right box', () => {
+    // ⚠ NOT A PAGE BAND. The hero and the picker are narrow in two unrelated
+    // layouts — the phone's one column AND the 548–919 two-up cockpit, where the
+    // 250px record column eats width a page rule would call roomy — so a page
+    // threshold would fix one and miss the other.
+    const hero = Number(CSS_CODE.match(/@container rchero \(max-width: (\d+)px\)/)![1])
+    const pick = Number(CSS_CODE.match(/@container rcpick \(max-width: (\d+)px\)/)![1])
+    // ⚠ THE NUMBERS ARE MEASURED, and pinned here so a drift is a RED rather
+    // than a silent re-truncation. The browser probe (`G-3`) is what DERIVES
+    // them — it reads what a line actually needs off the rendered DOM (282px of
+    // meta, 324px of slot) and fails if either band falls below its own need.
+    expect(hero).toBe(284)
+    expect(pick).toBe(326)
+    expect(pick).toBeGreaterThan(hero) // a whole slot holds more than one meta line
+  })
+})
 
 describe('F6 — the gestures that used to undo themselves', () => {
   // ⚠ FOUR TRUTHS, FOUR TESTS (the B3-6 lesson): a shared killer proves no site.

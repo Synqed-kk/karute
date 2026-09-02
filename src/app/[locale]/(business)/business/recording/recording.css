@@ -267,7 +267,26 @@
    `.titlerow` is the fix Liam accepted. It WRAPS rather than clipping when the
    page cannot hold it, and the eyebrow — the least load-bearing of the four,
    because the dateline is also in the topbar crumb — is the first to go. */
-.biz .pg-recording .rc-head { margin-bottom: 9px; }
+/* ⚠ THE HEAD IS ITS OWN CONTAINER, AND IT HAS TO BE (F-V5-3 — ROOT CAUSE).
+   `rcpage` is declared on the two VIEW wrappers, and this header is their
+   SIBLING, not their descendant — so every `@container rcpage` rule written for
+   the head below could never fire, and the band silently reverted to 「whatever
+   flex does」. The eyebrow was still painted at 390 and 440 with a rule sitting
+   right there saying it should not be.
+
+   The head is NOT moved inside a view: it renders once above BOTH screens
+   (§F5-1, its sentence is true on either), so putting it inside `rc-record-view`
+   would either hide it on the review screen or give the room two page heads.
+   Instead it queries ITSELF — `.rc-eyebrow` and `.rc-subtitle` are its
+   descendants, and its inline size is the SAME number `rcpage` reports (both
+   wrappers and this header are `width: 100%; max-width: var(--rc-maxw)` children
+   of the one page box), so the 699 line carries over unchanged and is measured
+   again in the probe at 699 ± 1px.
+
+   ⚠ CONTAINMENT IS SAFE HERE for the same reason it is on the views: nothing
+   inside this header is `position: fixed`, and `container-type: inline-size`
+   implies no PAINT containment, so no focus ring is clipped. */
+.biz .pg-recording .rc-head { margin-bottom: 9px; container-type: inline-size; container-name: rchead; }
 .biz .pg-recording .rc-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .biz .pg-recording .rc-eyebrow { color: var(--rc-ink-4); font-size: 11.5px; font-weight: 400; }
 .biz .pg-recording .rc-subtitle { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
@@ -276,7 +295,7 @@
    width and pushed the subtitle onto a second line — 23px of fold for nothing.
    699 is where the four parts (eyebrow ~190 + 録音 40 + ? 22 + sentence ~312 +
    gaps 30 ≈ 594, plus the page's own 56 of padding) genuinely stop fitting. */
-@container rcpage (max-width: 699px) {
+@container rchead (max-width: 699px) {
   .biz .pg-recording .rc-eyebrow { display: none; }
   .biz .pg-recording .rc-subtitle { flex-basis: 100%; }
 }
@@ -433,10 +452,37 @@
   margin-top: 1px; color: var(--ink-3); font-size: 11.5px; line-height: 1.5;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* ⚖ B4-1 — LONG CONTENT IS NEVER CRUNCHED, and on the narrowest door this line
+   was crunched worst: at 390 it lost 19% of the SHIPPING string, which is
+   exactly the 担当 name — the fact the hero exists to state — and the `title`
+   backstop is a hover a thumb cannot open. Below the width where the whole line
+   fits it WRAPS instead, capped at two lines so a hero can never push the record
+   button off the fold.
+
+   ⚠ THE QUERY IS THE HERO'S OWN BOX, not a page band. The hero column is narrow
+   in TWO different layouts — the phone's single column AND the 548-919 two-up
+   cockpit, where the 250px record column eats the width a page-band rule would
+   have called roomy — so keying the rule to the element that actually runs out
+   of room is the only version that is monotonic.
+
+   ⚠ 284 IS MEASURED, NOT GUESSED, and the probe DERIVES it and goes red if the
+   need ever outgrows it (`G-3`): the shipping meta line is 282px of text, so the
+   wrap begins exactly where the hero's own box stops holding it — 270px in the
+   two-up cockpit at a 592px page, 228px on a 390 phone. */
+.biz .pg-recording .rc-hero { container-type: inline-size; container-name: rchero; }
+@container rchero (max-width: 284px) {
+  .biz .pg-recording .rc-hero-meta {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    white-space: normal; overflow-wrap: anywhere;
+  }
+}
 
 /* ⚖ LIAM F-1 R1-3 — THE PICKER IS STAFF-SCOPED, and its label says so. */
 .biz .pg-recording .rc-pick-lb { margin-bottom: -2px; color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
-.biz .pg-recording .rc-picker { display: flex; flex-direction: column; gap: 4px; }
+/* ⚠ THE PICKER IS ITS OWN CONTAINER (⚖ B4-2), for the hero's reason: the slot
+   runs out of room in two unrelated layouts, and the rule has to be asked of the
+   box that is actually short. */
+.biz .pg-recording .rc-picker { display: flex; flex-direction: column; gap: 4px; container-type: inline-size; container-name: rcpick; }
 /* ONE LINE PER BOOKING: time · name · menu ・ status hint · tick. Everything
    elastic is `min-width: 0` so a long name ellipsizes instead of pushing the
    tick off the card. */
@@ -457,6 +503,29 @@
 .biz .pg-recording .rc-b2 { flex: 1; min-width: 0; color: var(--ink-3); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .biz .pg-recording .rc-tick { flex: 0 0 14px; align-self: center; width: 14px; color: var(--rc-accent); opacity: 0; transition: opacity 160ms var(--rc-ease); }
 .biz .pg-recording .rc-slot.is-sel .rc-tick { opacity: 1; }
+/* ⚖ B4-2 — BELOW THE WIDTH THAT HOLDS ONE LINE, THE SLOT BECOMES TWO. At 390 the
+   single line ellipsised ~48% of `.rc-b2`: the MENU NAME itself was cut and
+   「ご来店 N回目」 never rendered at all, with no `title` to fall back on and no
+   second surface carrying the fact (the hero was clipping its own line at the
+   same width). Two stacked lines — time + name + tick, then menu ・ hint — give
+   the second line the whole slot, which is 236px at 390 for a 150px string.
+   THE DESK KEEPS THE MOCK'S SINGLE LINE: above the threshold nothing here
+   applies — 1280 and every width above it render the accepted slot untouched.
+
+   ⚠ 326 IS MEASURED, NOT GUESSED (probe `G-3` derives it and goes red if the
+   need outgrows it): one line needs 18 of slot padding + 2 of border + 42 (time)
+   + 8 + 74 (name) + 8 + 150 (menu ・ hint) + 8 + 14 (tick) = 324. */
+@container rcpick (max-width: 326px) {
+  .biz .pg-recording .rc-slot {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "tm b1 tick" "b2 b2 b2";
+    align-items: center; row-gap: 1px; column-gap: 8px;
+  }
+  .biz .pg-recording .rc-tm { grid-area: tm; }
+  .biz .pg-recording .rc-b1 { grid-area: b1; }
+  .biz .pg-recording .rc-b2 { grid-area: b2; }
+  .biz .pg-recording .rc-tick { grid-area: tick; align-self: center; }
+}
 .biz .pg-recording .rc-picker-lock { margin: 0; color: var(--quiet); font-size: 11px; }
 
 /* ── the record group — ONE balanced, horizontally-centred stack (Liam F-1) ── */
