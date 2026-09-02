@@ -2389,6 +2389,33 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       'heldCommitted',
     ])
 
+    // ⚖ ROUND 4 — THE OTHER HALF OF THE CENSUS: NOT WHAT REACHES THE DOOR, BUT
+    // HOW MANY PLACES DECIDE "IS THE GUARD OFF" AT ALL. The held: census above
+    // proves the mask reaching each door is one of three honest spellings; it
+    // says nothing about how many independent comparisons produce 'off' in the
+    // first place. A whole-screen COUNT of `[!=]== 'off'` comparisons closes
+    // that gap: every drift-shaped mutant that re-decides 'off' downstream of
+    // the memo — a second gate returning a constant instead of null in
+    // `salesDoor`; a gate moved into `gapDrawn`/`drawnClaims`; a gate in
+    // `shelf`; a destructured `{ mode: dial }` read — has to write one more
+    // comparison to do it, and that extra comparison reds this line.
+    //
+    // ITS CEILING, NAMED HONESTLY: a lookup-based decision
+    // (`POLICY_WORD[props.guard.mode] === POLICY_WORD.off`) or a comparison
+    // written via a helper defined off-screen dodges it — closing that class
+    // is the bounded-slice-plus-census treatment already given above to
+    // `salesDoor`/`gapDrawn`/`drawnClaims`/`shelf`, or a renderer fence (the
+    // standing 8/31 rider). Measured by the 9/3 mutation lens (lens B, third
+    // campaign), which found five such respellings all landing 1681/1681
+    // green.
+    //
+    // ⚠ WHAT TO DO WHEN AN HONEST EDIT REDS THIS. A new legitimate `'off'`
+    // comparison on the screen: update the count below with a one-line
+    // reason. A new comparison that gates a DOOR on the dial: that is a
+    // REVIEW QUESTION, not a count edit — the dial is decided in
+    // reserved-mask.ts only.
+    expect((screen.match(/[!=]==\s*'off'/g) ?? []).length).toBe(3)
+
     // The other half of the claim (mutation A's gate) — kept beside F0 so
     // both halves of "the screen forwards, never invents" live in one place.
     // The original pin stays at fallback-cells.test.ts:892.
