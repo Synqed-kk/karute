@@ -1019,7 +1019,7 @@ export function RecordingScreen(props: RecordingProps) {
             className="rc-card rc-cockpit"
             aria-labelledby="rcSessionTitle"
             data-guide-title="録音セッション"
-            data-guide="録音の本体です。いちばん上に、いま録音しようとしている予約が出ます。まん中の赤いボタンで録音を始め、もう一度押すと止まります。録音中は経過時間と音の波が出ます。止めたあとは、その録音をカルテに使うか、理由を書いて破棄するかを選びます。止めただけでは保存されません。"
+            data-guide="録音の本体です。いちばん上に、いま録音しようとしている予約が出ます。その下で予約を選び、まん中のボタンで録音し、いちばん下の行で同意を確かめます。"
           >
             <div className="rc-cap">
               <span className="rc-cap-ic" aria-hidden="true"><Icon name="mic" size={16} /></span>
@@ -1092,14 +1092,40 @@ export function RecordingScreen(props: RecordingProps) {
                     MORPHS mic ⇄ stop, the live ring, the 録音中 flag with its
                     dot, a tabular timer and waveform bars on `transform:scaleY`
                     alone. */}
-                <div className={`rc-recwrap${live ? ' is-recording' : ''}`}>
+                <div
+                  className={`rc-recwrap${live ? ' is-recording' : ''}`}
+                  data-guide-title="録音ボタン"
+                  data-guide="録音を始めるところです。まん中の赤いボタンを押すと録音が始まり、もう一度押すと止まります。録音中は経過時間と音の波が出ます。止めただけでは保存されません。止めたあとに、その録音をカルテに使うか、理由を書いて破棄するかを選びます。"
+                >
                   <div className="rc-btn-wrap">
+                    {/* ⚖ B1-3 = B2-6 — THE CLOSED GATE STAYS REACHABLE. A native
+                        `disabled` drops the one control the consent floor
+                        actually closes out of the keyboard path, and the gate
+                        note beside it is a sibling with nothing tying the two
+                        together — so a reader on a keyboard or a screen reader
+                        met a button that could not be focused and never heard
+                        why. The room's own refusal grammar is `aria-disabled` +
+                        the reason (`refused()` argues it at :757); this button
+                        cannot use that helper because it is a REAL lever in
+                        every other state, so it spells the same grammar itself.
+                        ⚠ THE MACHINE STILL DOES NOT START: the handler's own
+                        `if (!consentOk) return` is the gate, and it always was —
+                        `disabled` was never what stopped it. */}
                     <button
                       type="button"
                       ref={recBtnRef}
                       className={`rc-rec${ended ? ' is-ended' : ''}`}
-                      disabled={ended || (phase === 'idle' && !consentOk)}
-                      aria-label={ended ? '録音終了' : live ? '録音停止' : '録音開始'}
+                      aria-disabled={ended || (phase === 'idle' && !consentOk) ? 'true' : undefined}
+                      title={phase === 'idle' && !consentOk ? (current.gateNote ?? undefined) : undefined}
+                      aria-label={
+                        ended
+                          ? '録音終了'
+                          : live
+                            ? '録音停止'
+                            : phase === 'idle' && !consentOk && current.gateNote
+                              ? `録音開始 — ${current.gateNote}`
+                              : '録音開始'
+                      }
                       onClick={() => {
                         if (ended) return
                         if (live) { stop(); return }
@@ -1245,7 +1271,11 @@ export function RecordingScreen(props: RecordingProps) {
                     gate note and the button that opens the read-aloud flow. The
                     full proof text and the policy floor live one press away in
                     the pop-down, so nothing is cut. */}
-                <div className={`rc-consentline is-${consentOk ? 'current' : current.consentState}${consentOpen ? ' is-open' : ''}`}>
+                <div
+                  className={`rc-consentline is-${consentOk ? 'current' : current.consentState}${consentOpen ? ' is-open' : ''}`}
+                  data-guide-title="録音の同意"
+                  data-guide="録音を始めてよいかどうかの確認です。いまの説明文で同意をいただけている予約だけ録音を始められます。同意が古いときも、新しく取り直しが必要です。"
+                >
                   <div className="rc-cl-row">
                     <span className={`rc-cl-badge ${consentOk ? 'is-true' : current.consentTone}`}>
                       <Icon name="shield" size={11} />
@@ -1501,7 +1531,7 @@ export function RecordingScreen(props: RecordingProps) {
           aria-labelledby="rcHistoryTitle"
           ref={historyRef}
           data-guide-title="録音履歴"
-          data-guide="この画面から見える録音の一覧です。新しい順に並び、それぞれの録音がいまどうなっているか（保存済み・確認待ち・処理中・失敗・復元可能・破棄済み）が右側に出ます。破棄済みの録音は決着がついた録音のため、操作ボタンは出ません。"
+          data-guide="この画面から見える録音の一覧です。新しい順に並びます。どの録音がいまどうなっているかを、ここでまとめて確かめられます。"
         >
           <div className="rc-history-head">
             <h2 className="rc-sec-title" id="rcHistoryTitle">
@@ -1575,7 +1605,11 @@ export function RecordingScreen(props: RecordingProps) {
                 </div>
               </div>
 
-              <div className="rc-tablewrap">
+              <div
+                className="rc-tablewrap"
+                data-guide-title="録音の一覧"
+                data-guide="録音が1件ずつ並びます。1行に、日付と時刻、お客様、録音した人、長さ、いまの状態が出ます。カルテになった録音は、お客様の下にそのカルテの番号が出ます。破棄済みの録音は決着がついた録音のため、操作のボタンは出ません。"
+              >
                 {/* ⚠ FIVE COLUMNS, AND 状態・操作 IS ONE CELL (v5-1). A separate
                     操作 column was blank in four rows of seven — a labelled cell
                     with nothing in it reads as broken — and its cap pushed the

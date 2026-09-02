@@ -91,6 +91,66 @@ describe('⚖ 8/23 — 画面の説明, the census from the source side', () => 
     expect([...SRC_CODE.matchAll(/<section\b/g)].length).toBeGreaterThanOrEqual(10)
   })
 
+  /** ⚠ THE PINNED LIST, BECAUSE A CENSUS THAT ONLY COUNTS WHAT DECLARED ITSELF
+   *  IS A TAUTOLOGY (B1-1 = B2-1 = F-V5-2). Three regions — the record button,
+   *  the consent gate and the take list — carried no declaration at all, and
+   *  every census the round ran stayed green through it: BOTH sides only ever
+   *  compared declarations to declarations, so a section that never declared
+   *  itself was absent from both sides of the comparison. The `<section>` /
+   *  `<header>` scan above could not see them either, because all three are
+   *  `<div>`s. This list is the view from OUTSIDE: it names every region the two
+   *  screens must explain, in the page's own order, so a declaration that goes
+   *  missing is a RED rather than a smaller number. Adding a section to this
+   *  room means adding a line here — which is the point. */
+  it('the screen declares EXACTLY these regions, in the page’s own order', () => {
+    expect(DECLARATIONS.map((d) => d.title)).toEqual([
+      // ── the recorder screen ──
+      '録音',
+      '保存されなかった録音',
+      '録音セッション',
+      'あなたの担当の予約',
+      '録音ボタン',
+      '録音の同意',
+      '前回までの流れ',
+      '要対応',
+      '録音履歴',
+      '状態でしぼりこむ',
+      '録音の一覧',
+      'さらに表示',
+      'この画面の値の設定元',
+      // ── the 破棄の記録 review screen ──
+      '破棄の記録',
+      '破棄の件数',
+      '破棄された録音',
+      // ── and the discard receipt, which is a section wherever it lands ──
+      '破棄の確認',
+    ])
+    // the three the fix round added really are on the ELEMENTS named, not on a
+    // convenient wrapper one level out
+    for (const [cls, title] of [
+      ['rc-recwrap', '録音ボタン'],
+      ['rc-consentline', '録音の同意'],
+      ['rc-tablewrap', '録音の一覧'],
+    ]) {
+      const at = SRC_CODE.indexOf(cls)
+      expect(SRC_CODE.slice(at, at + 400)).toContain(`data-guide-title="${title}"`)
+    }
+  })
+
+  it('no two declarations explain the same thing twice', () => {
+    // ⚖ ONE NAME, ONE PLACE — the round that added the three regions also had to
+    // TAKE the button's and the row's sentences OUT of their parents, or the
+    // walk would say the same thing twice in consecutive steps.
+    const bySection = new Map(DECLARATIONS.map((d) => [d.title, d.text]))
+    expect(bySection.get('録音セッション')).not.toContain('赤いボタン')
+    expect(bySection.get('録音ボタン')).toContain('赤いボタン')
+    expect(bySection.get('録音履歴')).not.toContain('破棄済み')
+    expect(bySection.get('録音の一覧')).toContain('破棄済み')
+    // …and the consent step really carries the consent FLOOR, which is the one
+    // rule on this page with legal weight behind it
+    expect(bySection.get('録音の同意')).toContain('同意をいただけている予約だけ')
+  })
+
   it('every declaration is PAIRED, non-empty and UNIQUE', () => {
     expect(DECLARATIONS.length).toBe([...SRC_CODE.matchAll(/data-guide-title="/g)].length)
     expect(DECLARATIONS.length).toBe([...SRC_CODE.matchAll(/data-guide[=]/g)].length)
