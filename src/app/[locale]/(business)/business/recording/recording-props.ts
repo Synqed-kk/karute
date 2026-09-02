@@ -112,13 +112,19 @@ const fmtDayShort = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'nume
 const REFUSAL = {
   use: '見本データのためカルテに反映できません。反映はお客様のカルテ本体を書き換える操作で、この見本ではカルテ画面に何も現れないため、実データの接続後に有効になります。（録音の破棄はこの画面で最後まで試せます。）',
   save: '見本データのため保存できません。保存は録音をカルテとして残す操作のため、実データの接続後に有効になります。録音はこの案内が消えるまで失われません。',
-  checked: '見本データのため確認済みにできません。確認済みの印は、まだ保存できる場所がありません（破棄の記録は作成と一覧のみ）。必要かどうかを含めて検討中です。',
+  // ⚠ 「保存する機能」, NOT 「保存できる場所」 (the 9/1 native pass). 場所 maps a
+  // storage model straight onto product prose; a Japanese writer describing a
+  // missing feature says the FUNCTION does not exist yet.
+  checked: '見本データのため確認済みにできません。確認済みの印を保存する機能はまだありません（破棄の記録は作成と一覧のみに対応しています）。必要かどうかを含めて検討中です。',
   transcript: '保存された録音の文字起こしは、この画面では開けません。閲覧できる範囲は店舗の設定で決まる仕組みで、まだつないでいません。',
   policy: '見本データのため録音の設定は変更できません。録音の設定は「設定」画面にまとまる予定で、まだつないでいません。',
   enroll: '見本データのため音声の登録はできません。自分の声の登録は「設定」画面の録音設定にまとまる予定で、まだつないでいません。',
 } as const
 
-const FOOTNOTE = '見本データのため、カルテへの反映・保存・設定の変更はできません — 実データ接続後に有効になります。'
+// ⚠ TWO SENTENCES, NOT AN EM-DASH (the 9/1 native pass). Japanese UI copy
+// essentially never joins two clauses with ` — `; it is the one English habit
+// this room's otherwise natural copy kept borrowing.
+const FOOTNOTE = '見本データのため、カルテへの反映・保存・設定の変更はできません。実データ接続後に有効になります。'
 
 export interface RecordingPropsInput {
   locale: string

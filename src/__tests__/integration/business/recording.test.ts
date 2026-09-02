@@ -1401,7 +1401,7 @@ describe('⚖ 8/25 ruling A — the reason and the evidence, side by side', () =
 
   it('✓確認済み DOES NOT EXIST — the lever is REFUSED with the honest note (registry ⑩)', async () => {
     const { props } = await recordingProps({ locale: 'ja', store: STORE_A })
-    expect(props.refusals.checked).toContain('まだ保存できる場所がありません')
+    expect(props.refusals.checked).toContain('確認済みの印を保存する機能はまだありません')
     expect(props.refusals.checked).toContain('作成と一覧のみ')
     expect(SCREEN_CODE).toContain("refused('確認済みにする', props.refusals.checked)")
   })

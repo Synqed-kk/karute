@@ -1487,7 +1487,7 @@ export function RecordingScreen(props: RecordingProps) {
           aria-labelledby="rcHistoryTitle"
           ref={historyRef}
           data-guide-title="録音履歴"
-          data-guide="この画面から見える録音の一覧です。新しい順に並び、それぞれの録音がいまどうなっているか（保存済み・確認待ち・処理中・失敗・復元可能・破棄済み）が右側に出ます。破棄済みの録音には操作ボタンが出ません — 決着がついた録音だからです。"
+          data-guide="この画面から見える録音の一覧です。新しい順に並び、それぞれの録音がいまどうなっているか（保存済み・確認待ち・処理中・失敗・復元可能・破棄済み）が右側に出ます。破棄済みの録音は決着がついた録音のため、操作ボタンは出ません。"
         >
           <div className="rc-history-head">
             <h2 className="rc-sec-title" id="rcHistoryTitle">
@@ -1534,7 +1534,7 @@ export function RecordingScreen(props: RecordingProps) {
                   aria-label="状態でしぼりこむ"
                   ref={segRef}
                   data-guide-title="状態でしぼりこむ"
-                  data-guide="録音の状態で一覧をしぼりこめます。それぞれの数字は、押したときに残る件数そのものです。破棄済みもここに出ます — 破棄した録音を隠すことはありません。"
+                  data-guide="録音の状態で一覧をしぼりこめます。それぞれの数字は、押したときに残る件数そのものです。破棄済みもここに出ます。破棄した録音を隠すことはありません。"
                 >
                   <span className="rc-seg-thumb" aria-hidden="true" ref={thumbRef} />
                   <button
@@ -1732,7 +1732,7 @@ export function RecordingScreen(props: RecordingProps) {
             className="rc-review-head"
             aria-labelledby="rcReviewTitle"
             data-guide-title="破棄の記録"
-            data-guide="破棄された録音の記録です。スタッフが書いた理由と、その録音の文字起こしを並べて確認できます。文字起こしがない場合は、なぜないのかを書いています。承認や確認の操作はありません — 読むための画面です。右上の「録音」から録音の画面に戻れます。"
+            data-guide="破棄された録音の記録です。スタッフが書いた理由と、その録音の文字起こしを並べて確認できます。文字起こしがない場合は、なぜないのかを書いています。承認や確認の操作はありません。読むための画面です。右上の「録音」から録音の画面に戻れます。"
           >
             <div className="rc-review-title">
               <h2 className="rc-sec-title" id="rcReviewTitle">
@@ -1979,7 +1979,7 @@ export function RecordingScreen(props: RecordingProps) {
       {dialog === 'discard' && (
         <Overlay label="録音を破棄する理由" onClose={closeDiscard}>
           <h2>録音を破棄する理由</h2>
-          <p className="rc-dlg-sub">破棄は通常とは異なる操作です</p>
+          <p className="rc-dlg-sub">破棄は取り消せない操作のため、理由の記入が必要です。</p>
           <label className="rc-reason" htmlFor="rcReason">理由（必須）</label>
           {/* ⚠ THE FIELD STAYS LIVE THROUGH A REFUSED WRITE — the phone disables
               it while a real request is in flight; nothing is in flight here,
