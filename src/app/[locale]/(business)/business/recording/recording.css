@@ -271,7 +271,12 @@
 .biz .pg-recording .rc-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .biz .pg-recording .rc-eyebrow { color: var(--rc-ink-4); font-size: 11.5px; font-weight: 400; }
 .biz .pg-recording .rc-subtitle { margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
-@container rcpage (max-width: 899px) {
+/* ⚠ 699 OF PAGE, NOT THE MOCK'S 899 OF VIEWPORT. A 1280 window gives this room
+   an 889px page, so a band copied across as a number fired at the main desk
+   width and pushed the subtitle onto a second line — 23px of fold for nothing.
+   699 is where the four parts (eyebrow ~190 + 録音 40 + ? 22 + sentence ~312 +
+   gaps 30 ≈ 594, plus the page's own 56 of padding) genuinely stop fitting. */
+@container rcpage (max-width: 699px) {
   .biz .pg-recording .rc-eyebrow { display: none; }
   .biz .pg-recording .rc-subtitle { flex-basis: 100%; }
 }
@@ -688,6 +693,11 @@
 .biz .pg-recording .rc-bcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 @container rcpage (max-width: 599px) {
   .biz .pg-recording .rc-bcols { flex-direction: column; align-items: stretch; }
+  /* ⚠ MEASURED, NOT COPIED: the header's four parts need ~312px and a 282px
+     page (a 390 phone behind the 76px rail) is 30px short, so the hint — the
+     only one of the four that is not a NAME — steps out. Without this the row
+     pushed the whole PAGE sideways by 32px at 390, in both rail states. */
+  .biz .pg-recording .rc-brief-hint { display: none; }
 }
 
 /* four soft washes, coloured heading icons, nothing black, no rainbow */
@@ -793,6 +803,15 @@
 .biz .pg-recording .rc-attn-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
 .biz .pg-recording .rc-attn-cnt { margin-left: -5px; color: var(--rc-amber-ink); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
 .biz .pg-recording .rc-attn-hint { margin-right: 2px; color: var(--rc-ink-4); font-size: 11px; white-space: nowrap; }
+/* ⚠ THE HINT STEPS OUT BEFORE THE ROW WRAPS. Label + count + hint + three pills
+   need ~906px and an 889px page is 17 short, so the strip broke onto a second
+   line at the main desk width — which is the shape Liam rejected in F-1 R2-4
+   (「label left, a gap, pills far right」) wearing different clothes. The hint is
+   the only part of the row that is not a COUNT or an ACTION, and the same
+   sentence is the 要対応 tour step's own first line, so nothing is lost. */
+@container rcpage (max-width: 999px) {
+  .biz .pg-recording .rc-attn-hint { display: none; }
+}
 .biz .pg-recording .rc-aspill {
   display: inline-flex; align-items: center; gap: 7px; padding: 3px 4px 3px 6px; white-space: nowrap;
   border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; color: inherit; text-align: left;
@@ -844,9 +863,11 @@
   border: 1px solid var(--line); border-radius: var(--rc-r-md); background: #fff; color: var(--ink-3); font-size: 12px;
 }
 .biz .pg-recording .rc-review-open:hover { background: var(--rc-wash); }
-@container rcpage (max-width: 1279px) {
-  /* the caption drops to its own line rather than being clipped; at ≥1280 it
-     rides the title line, and that second line cost the fold 30px */
+/* ⚠ 719 OF PAGE, for the same reason. The head's three parts are 録音履歴 (~90),
+   the caption (~440) and the 破棄の記録 door (~100) with gaps — about 650, which
+   an 889px page holds on one line. Copying the mock's 1279 fired the drop at
+   every desk width and cost the fold another 19px. */
+@container rcpage (max-width: 719px) {
   .biz .pg-recording .rc-history-cap { flex-basis: 100%; order: 3; white-space: normal; }
 }
 
@@ -919,10 +940,13 @@
   color: var(--ink-3); font-size: 11px; font-weight: 600;
 }
 .biz .pg-recording .rc-rows { display: flex; flex-direction: column; }
-/* the filter swap — the screen remounts this list on a state change, so the
-   animation replays without a class to toggle */
+/* ⚠ THE SWAP, AND ONLY THE SWAP. The screen remounts this list on a filter
+   change, so the animation replays on its own — but an UNGATED rule also played
+   it on first paint, which reads as a page still loading. `is-swap` is the
+   mock's own `.swap` class: the screen sets it on the first filter press and
+   never on arrival. */
 @keyframes rcRowsIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-.biz .pg-recording .rc-rows { animation: rcRowsIn 200ms var(--rc-ease); }
+.biz .pg-recording .rc-rows.is-swap { animation: rcRowsIn 200ms var(--rc-ease); }
 .biz .pg-recording .rc-row {
   min-height: 46px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--rc-line-soft); font-size: 13px;
   transition: background-color 150ms var(--rc-ease), transform 150ms var(--rc-ease), box-shadow 150ms var(--rc-ease);
@@ -1275,7 +1299,14 @@
    at least 260px, one column under that. A rule that cannot be told the wrong
    width cannot be wrong about it. */
 .biz .pg-recording .rc-detail-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 16px; align-items: start; margin-top: 16px; }
-.biz .pg-recording .rc-card { padding: 14px 16px 15px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; }
+/* ⚠ `rc-detail-card`, RENAMED OFF `rc-card` THIS ROUND. v5 gives the PAGE its
+   own card (`.rc-card`, above), and the two rules tied on specificity — so the
+   later one, this one, was silently painting `14px 16px 15px` onto the cockpit
+   and the briefing and stealing their own padding. One class, one meaning: the
+   review detail's two equal white cards are a different object from the page's,
+   and they now say so. Found by the mock's own `__holeCheck` port, which read a
+   28px in-card void where the card's padding is 12. */
+.biz .pg-recording .rc-detail-card { padding: 14px 16px 15px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; }
 
 /* ══ ⚖ THE LONG-RECORDING LAW (Liam 8/31) — THE ONE BOUNDED READING PANEL ═════
    A 47-minute transcript must cost the page no height at all, so the words read

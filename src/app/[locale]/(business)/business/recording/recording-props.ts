@@ -570,8 +570,13 @@ export async function recordingProps({
     // Canon's own subtitle (fable-record-session.html:404), amended for the two
     // things §2b-5 makes true that canon predates: consent is CURRENT-consent
     // under a pinned version, and the room's picker is booking-bound.
-    subtitle:
-      '施術中の会話を録音し、一時停止・停止をはさんで、その録音をカルテに使います。録音を始められるのは、いまの説明文で録音の同意をいただけている予約だけです。',
+    // ⚠ THE SHORT SENTENCE, WHICH IS THE ACCEPTED MOCK'S OWN. The head is ONE
+    // compact row (Liam F-1), and the long version measured 869px beside a
+    // 193px dateline on a 960px column — it wrapped to a second line at the main
+    // desk width and cost the fold 23px. The half it used to carry alone (which
+    // bookings can be recorded) is not lost: it moves into `headGuide`, which is
+    // what the ? opens — exactly where the mock keeps it.
+    subtitle: '施術中の会話を録音し、その録音をカルテに使います。',
     // ⚠ THE HEAD'S TOUR SENTENCE IS ACCESS-DERIVED, like the three beside it
     // (B1-9). It used to promise 「破棄された録音の記録」 to every reader, and the
     // 破棄の記録 screen exists only for `discardReview` — so the room's own
@@ -582,7 +587,8 @@ export async function recordingProps({
       '施術中の会話を録音して、その録音からカルテを作る画面です。録音そのものはスマホのアプリでも行えます。この画面では、録音を始める前の同意の確認と、' +
       (access.discardReview
         ? '録音の履歴、そして破棄された録音の記録をまとめて見られます。'
-        : '自分の録音の履歴を見られます。'),
+        : '自分の録音の履歴を見られます。') +
+      '録音を始められるのは、いまの説明文で録音の同意をいただけている予約だけです。',
     contexts,
     // ⚖ LIAM F-1 R1-3 — the label SAYS whose list this is and how long it is, so
     // a manager who also treats can see at a glance that the recorder is her own

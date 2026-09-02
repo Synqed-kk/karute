@@ -414,6 +414,14 @@ export function RecordingScreen(props: RecordingProps) {
   /** ⚖ the pill/count law — one state at a time, and the chip's number is
    *  exactly what its press reveals. `null` = すべて. */
   const [stateFilter, setStateFilter] = useState<string | null>(null)
+  /** ⚠ THE ROWS ANIMATE ON A SWAP, NEVER ON ARRIVAL — the mock's own `.swap`
+   *  class, which it adds on a filter press and not on load. The list is keyed
+   *  by the filter so React remounts it, and a CSS animation on a remounted
+   *  element replays; without this flag it also played on FIRST paint, which is
+   *  a page that looks like it is still loading (and a measurement a harness
+   *  catches mid-flight, which is how it was found). */
+  const [filterSwapped, setFilterSwapped] = useState(false)
+  const pickFilter = (next: string | null) => { setFilterSwapped(true); setStateFilter(next) }
 
   // ── the four disclosures (all height-sprung, all open-by-default-or-not) ──
   /** ⚠ OPEN AT A DESK, and it stays open: the briefing is what a staffer came to
@@ -1250,7 +1258,13 @@ export function RecordingScreen(props: RecordingProps) {
                     </span>
                     {!consentOk && current.consentAction && (
                       <button
-                        className="btn primary rc-cl-take"
+                        /* ⚠ `btn`, NOT `btn primary`. This room PAINTS its own
+                           commits (⚖ R13's recipe, and `rc-commit` beside it
+                           does the same), and `.biz .btn.primary` ties with
+                           `.biz .pg-recording .rc-cl-take` on specificity — a
+                           tie App Router decides by whichever sheet it inserted
+                           last, which is not a thing to leave a colour to. */
+                        className="btn rc-cl-take"
                         type="button"
                         data-press
                         ref={consentOpenRef}
@@ -1468,7 +1482,7 @@ export function RecordingScreen(props: RecordingProps) {
                     type="button"
                     data-press
                     key={p.key}
-                    onClick={() => { setStateFilter(p.stateLabel); historyRef.current?.scrollIntoView({ block: 'start' }) }}
+                    onClick={() => { pickFilter(p.stateLabel); historyRef.current?.scrollIntoView({ block: 'start' }) }}
                   >
                     <span className={p.chip}>{p.stateLabel}</span>
                     <span className="rc-aspill-n rc-num">{p.countLabel}</span>
@@ -1542,7 +1556,7 @@ export function RecordingScreen(props: RecordingProps) {
                     type="button"
                     data-press
                     aria-pressed={stateFilter === null}
-                    onClick={() => setStateFilter(null)}
+                    onClick={() => pickFilter(null)}
                   >
                     すべて<span className="rc-seg-n rc-num">{walk.visible.length}</span>
                   </button>
@@ -1553,7 +1567,7 @@ export function RecordingScreen(props: RecordingProps) {
                       type="button"
                       data-press
                       aria-pressed={stateFilter === f.label}
-                      onClick={() => setStateFilter((was) => (was === f.label ? null : f.label))}
+                      onClick={() => pickFilter(stateFilter === f.label ? null : f.label)}
                     >
                       {f.label}<span className="rc-seg-n rc-num">{f.n}</span>
                     </button>
@@ -1576,7 +1590,7 @@ export function RecordingScreen(props: RecordingProps) {
                   <span>長さ</span>
                   <span>状態・操作</span>
                 </div>
-                <div className="rc-rows" key={stateFilter ?? 'all'}>
+                <div className={`rc-rows${filterSwapped ? ' is-swap' : ''}`} key={stateFilter ?? 'all'}>
                   {rows.map((t) => (
                     <div className={`rc-row${t.isDiscarded ? ' is-discarded' : ''}`} key={t.id} data-state={t.stateLabel}>
                       <span className="rc-c-date rc-num">{t.dateLabel} {t.timeLabel}</span>
@@ -1868,7 +1882,7 @@ export function RecordingScreen(props: RecordingProps) {
                           <div><dt>破棄</dt><dd><span className="rc-num">{r.discardedAtLabel}</span>（{r.byName}）</dd></div>
                         </dl>
                         <div className="rc-detail-cols">
-                          <div className="rc-card">
+                          <div className="rc-detail-card">
                             <p className="rc-review-label">スタッフの記入した理由</p>
                             <p className="rc-review-reason-full">{r.reason}</p>
                           </div>
@@ -1915,7 +1929,7 @@ export function RecordingScreen(props: RecordingProps) {
                                the words were LOST. Under the floor nothing was
                                ever transcribed (the spend gate); everything else
                                is a plain 「ありません」. */
-                            <div className="rc-card">
+                            <div className="rc-detail-card">
                               <p className="rc-review-label">文字起こし（全文）</p>
                               <p className="rc-review-absent">{r.absenceLine}</p>
                             </div>
