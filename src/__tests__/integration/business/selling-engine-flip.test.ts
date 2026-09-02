@@ -2027,7 +2027,18 @@ const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.s
  *  which is today's shipped behaviour (doors :839 measured it) — the doors
  *  suite names it unruled as guard-conditional (doors :829-838). If Liam ever
  *  rules it guard-conditional, these twelve return BY RULING, not by
- *  regression, and the pin is re-frozen with that ruling. */
+ *  regression, and the pin is re-frozen with that ruling.
+ *
+ *  ⚖ FOLD (BREAKER-817-561ca62a.md, 2026-09-02) — SCOPE OF THE MEASUREMENT.
+ *  This set is measured on `fixtureWorld` ONLY: one board, no locked lanes,
+ *  `now` fixed at the fixture's 804. The same greedy bed-cascade class still
+ *  produces guard=off non-monotonicity on the suite's `syntheticWorld` at
+ *  these pinned dials (10/180), on this board with one lane locked (2/120),
+ *  off these pinned dial points entirely (35/2520), and at `now = null`
+ *  (tomorrow's board) at the shipped dials — all measured by the breaker.
+ *  Those rows are the frozen `bedLedger`'s class and ride
+ *  ANTHONY-ASK-BEDLEDGER-2026-09-02.md as evidence, not this pin's. A row
+ *  ARRIVING on THIS board at THESE dials is still red. */
 const MONO_PINNED: string[] = [
   'grid=30 S=45 minSell=0 guard=on apt-14',
   'grid=30 S=45 minSell=0 guard=on apt-29',
@@ -2142,5 +2153,54 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     }
 
     expect([...found].sort()).toEqual([...MONO_PINNED].sort())
+  })
+
+  /** ⚖ R5 F0 ARMOR — BREAKER-817-561ca62a.md finding 4: the sweep above proves
+   *  the MASK FUNCTION is monotone; it says nothing about whether the SCREEN
+   *  hands that function's answer to the store or invents its own. Two
+   *  mutations slip past every render-free suite in this family:
+   *    A) `salesDoor`'s gate on `heldCommitted` changed from `!heldCommitted`
+   *       to a length check (`heldCommitted.length > 0`) — `[]` is truthy, so
+   *       a guard-off store would stop reaching the fallback F0 fixed.
+   *    B) the `heldCommitted` memo decides "off" itself (e.g.
+   *       `props.guard.mode !== 'off' ? reservedMaskFor(...) : undefined`)
+   *       instead of forwarding the mode and letting `reservedMaskFor` own
+   *       the decision (reserved-mask.ts:200) — handing a guard-off store
+   *       `undefined` again, the exact composition F0 moved away from.
+   *  No test renders TodayScreen (§4's header explains why), so nothing else
+   *  in this suite goes red for either mutation. This is a text pin on the
+   *  memo's own source. Mutation A's half already exists at
+   *  fallback-cells.test.ts:892; it is repeated here so both halves of "the
+   *  screen forwards, never invents" sit together. */
+  it("⚖ R5 F0 — the SCREEN hands a guard-off store the mask function's own answer, never undefined", () => {
+    const screen = SRC('TodayScreen.tsx')
+
+    // Bounded slice so a failed/empty match cannot silently pass.
+    const START = 'const heldCommitted = useMemo('
+    const startIdx = screen.indexOf(START)
+    expect(startIdx).toBeGreaterThanOrEqual(0)
+    const endIdx = screen.indexOf('\n  )', startIdx + START.length)
+    expect(endIdx).toBeGreaterThan(startIdx)
+    const memo = screen.slice(startIdx, endIdx + '\n  )'.length)
+    expect(memo.length).toBeGreaterThan(0)
+    expect(memo.length).toBeLessThan(2500)
+
+    // The mask comes from the one function that owns "off"…
+    expect(memo).toContain('reservedMaskFor(')
+    // …with exactly one fall-through (E3a's round-gate-off branch — not a
+    // guard-off branch the memo invented)…
+    expect((memo.match(/: undefined/g) ?? []).length).toBe(1)
+    // …and the memo never DECIDES "off" itself. It forwards `props.guard.mode`
+    // as a bare value into `reservedMaskFor` (that pass-through IS the F0
+    // fix) — it never COMPARES mode against a value, which is what deciding
+    // "off" would look like.
+    expect(memo).not.toContain('.mode ===')
+    expect(memo).not.toContain("'off'")
+    expect(memo).not.toContain('gapGuardMode ===')
+
+    // The other half of the claim (mutation A's gate) — kept beside F0 so
+    // both halves of "the screen forwards, never invents" live in one place.
+    // The original pin stays at fallback-cells.test.ts:892.
+    expect(screen).toContain('if (!heldCommitted) return null')
   })
 })
