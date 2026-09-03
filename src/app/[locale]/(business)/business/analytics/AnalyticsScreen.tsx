@@ -868,9 +868,17 @@ export function AnalyticsScreen(props: AnalyticsProps) {
             </div>
             <div className="an-chart-body">
               <div className="an-chart-plot" ref={plotRef}>
+                {/* ⚖-ADJ C — THE MONTH BEING VIEWED IS MARKED HERE TOO. The
+                    table's row wears the selected wash and the tiles follow the
+                    URL, but the chart — the surface a reader looks at FIRST —
+                    showed no sign of which of the twelve columns the rest of the
+                    page is about. `is-viewed` derives from the server's own
+                    `selected` row and from nothing else, so this is the ONE
+                    selection concept, not a second one; the dim is the mock's
+                    own HOVER grammar and clears with the pointer. */}
                 <svg
                   ref={svgRef}
-                  className="an-chart"
+                  className={`an-chart${tip !== null ? ' is-dim' : ''}`}
                   viewBox={`0 0 ${CHART.w} ${CHART.h}`}
                   role="img"
                   aria-label={`月次の${trend.seriesLabels.total}と${trend.seriesLabels.nw}の推移（棒グラフ、${trend.chartMonths.length}か月ぶん）`}
@@ -979,12 +987,14 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                 <div className="an-chart-hits">
                   {chart.groups.map((g) => {
                     const m = trend.chartMonths[g.monthIndex]
+                    const viewed = trend.rows[g.monthIndex]?.selected === true
                     return (
                       <Link
                         key={`hit-${g.monthIndex}`}
                         href={m.href}
                         scroll={false}
-                        className={`an-hit${tip?.index === g.monthIndex ? ' is-on' : ''}`}
+                        className={`an-hit${viewed ? ' is-viewed' : ''}${tip?.index === g.monthIndex ? ' is-on' : ''}`}
+                        aria-current={viewed ? 'true' : undefined}
                         style={{ left: pct(g.x), width: pct(g.w), height: `${(chart.baselineY / CHART.h) * 100}%` }}
                         aria-label={`${m.label} 総合売上 ${m.total}・新規売上 ${m.nw} を表示`}
                         onMouseEnter={(e) => showTip(g.monthIndex, e.currentTarget)}

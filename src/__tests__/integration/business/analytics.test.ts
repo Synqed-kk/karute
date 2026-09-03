@@ -1283,6 +1283,33 @@ describe('analytics.css', () => {
     )
   })
 
+  /**
+   * §R — ONE SELECTION CONCEPT, AND THE CHART IS IN ON IT (⚖-ADJ C). The table's
+   * row wore the selected wash and the tiles followed the URL, but the chart —
+   * the surface read first — gave no sign of which of the twelve columns the
+   * rest of the page was about. The mark DERIVES from the server's own
+   * `selected` row, so it cannot become a second, client-side focused month.
+   */
+  it('the viewed month is marked on the chart, from the selection the server already made', () => {
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    // …derived, never a second state: the only source is the row's own flag
+    expect(screen).toMatch(/const viewed = trend\.rows\[g\.monthIndex\]\?\.selected === true/)
+    expect(screen).toMatch(/an-hit\$\{viewed \? ' is-viewed' : ''\}/)
+    expect(screen).toMatch(/aria-current=\{viewed \? 'true' : undefined\}/)
+    // no useState anywhere near it — the room has no client-side month
+    expect(screen).not.toMatch(/useState[^\n]*viewed/i)
+    // the wash at rest is the SAME one a hover paints, and the dim is hover-only
+    const rule = (sel: string) => CSS.match(new RegExp(`([^{}]*${sel}[^{}]*)\\{([^}]*)\\}`))
+    const wash = rule('an-hit\\.is-viewed')
+    expect(wash).not.toBeNull()
+    expect(wash![1]).toContain('.an-hit:hover')
+    expect(wash![2]).toMatch(/rgba\(37, 99, 235, \.045\)/)
+    expect(CSS).toMatch(/\.an-chart\.is-dim \.an-bar:not\(\.is-sel\)\s*\{[^}]*opacity:\s*\.28/)
+  })
+
   it('every chip tone the tiles can carry has its own look — and the flat one is grey, not green', () => {
     // ⚖ L2 B2-7: `.an-cmp`'s DEFAULT is the red 「down」 look, so a tone with no
     // rule of its own silently inherits it — which is how `flat` was painted

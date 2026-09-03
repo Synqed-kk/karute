@@ -332,7 +332,13 @@
    box, so its percentages are the SVG's own coordinates at every width. */
 .biz .pg-analytics .an-chart-hits { position: absolute; inset: 0; }
 .biz .pg-analytics .an-hit { position: absolute; top: 0; display: block; background: transparent; transition: background 160ms ease-out; }
-.biz .pg-analytics .an-hit:hover, .biz .pg-analytics .an-hit.is-on { background: rgba(37, 99, 235, .045); }
+/* the month being VIEWED wears the same quiet wash at rest as a hovered one —
+   one grammar for「this column is the one being talked about」(⚖-ADJ C). */
+.biz .pg-analytics .an-hit:hover, .biz .pg-analytics .an-hit.is-on, .biz .pg-analytics .an-hit.is-viewed { background: rgba(37, 99, 235, .045); }
+/* the mock's own dim: while a column is under the pointer (or the keyboard),
+   the other eleven step back. It is HOVER state, so it clears on leave and is
+   never a second selection. */
+.biz .pg-analytics .an-chart.is-dim .an-bar:not(.is-sel) { opacity: .28; }
 
 .biz .pg-analytics .an-tip {
   position: absolute; z-index: 20;
