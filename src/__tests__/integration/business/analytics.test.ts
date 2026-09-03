@@ -1680,6 +1680,114 @@ describe('the provenance panel', () => {
   })
 })
 
+// ── 15d. the words on the page (fix round 1) ────────────────────────────────
+
+/**
+ * ⚖ 8/25, NUMBERS EXPLAIN THEMSELVES — INCLUDING THEIR TIME SCOPE. Every pin
+ * here is a sentence that was making a claim the figure beside it did not
+ * support: a balance stamped with a month it was never read in, a hover card
+ * promising a gesture that only exists above a rung, a label with two は in one
+ * clause, a count called a remainder, and an internal system name in front of
+ * an owner.
+ */
+describe('the words the page states are true of the figures beside them', () => {
+  const ROOM_SRC = ['analytics-props.ts', 'AnalyticsScreen.tsx'].map((f) => ({
+    name: f,
+    code: readFileSync(
+      join(process.cwd(), `src/app/[locale]/(business)/business/analytics/${f}`),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
+  }))
+
+  it('§D — the 回数券 balance is stamped with TODAY, whatever month is being viewed', async () => {
+    const restore = pin('2026-09-03T04:00:00.000Z')
+    try {
+      // The figure has no month input at all: it is the 残数 the customers hold
+      // right now. Welding the SELECTED month's name to today's day-of-month
+      // printed 「10月3日時点」 for a reading taken on 9月3日 (L1 B1-3).
+      for (const month of ['0', '-1', '-11']) {
+        const p = await room({ store: STORE_A, month })
+        const chip = p.trend!.tickets.find((t) => t.key.startsWith(numberEntry('ticketOutstanding').label))!
+        expect(chip.key).toContain('9月3日時点')
+      }
+      // …while the second chip is a MONTH's takings, so it keeps the month span
+      const back = await room({ store: STORE_A, month: '-1' })
+      expect(back.trend!.tickets[1].key).toContain('8月1日〜31日')
+    } finally {
+      restore()
+    }
+  })
+
+  it('§G — the two ticket chips sit under a 回数券 group heading, and keep their own words', async () => {
+    const p = await room({ store: STORE_A })
+    expect(p.trend!.tickets.map((t) => t.key.split('（')[0])).toEqual([
+      numberEntry('ticketOutstanding').label,
+      numberEntry('consumed').label,
+    ])
+    // …and the group has a heading, so 消化売上 is tied to 回数券 even at ≤799
+    // where the chips stack full width with nothing else beside them (L1 B1-6).
+    const screen = ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code
+    expect(screen).toMatch(/className="an-tickets"[\s\S]{0,400}<span className="an-mix-k">回数券<\/span>/)
+  })
+
+  it('§H/§I — the hover card and the card-band line promise only what actually happens', async () => {
+    const p = await room({ store: STORE_A })
+    const finished = p.trend!.chartMonths.filter((m) => !m.partial)
+    expect(finished.length).toBeGreaterThan(0)
+    // navigation is what a month click always does; the row-open is the desk
+    // rung's extra, and the rule that does it lives inside a container query
+    for (const m of finished) {
+      expect(m.note).toBe('押すと下の表のその月へ移動します')
+      expect(m.note).not.toContain('行を開きます')
+    }
+    // the partial month keeps its own honest note
+    expect(p.trend!.chartMonths.find((m) => m.partial)!.note).toContain('月の途中です')
+    // …and the ≤799 line names the CARD, because that is what a row is there
+    const screen = ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code
+    expect(screen).toContain('・カードをタップすると全項目が開きます')
+    expect(screen).not.toContain('・行を押すと全項目が開きます')
+  })
+
+  it('§M — the 統計 label reads with ONE は, and no sentence carries a second copy of 12', async () => {
+    const restore = pin('2026-09-03T04:00:00.000Z')
+    try {
+      const p = await room({ store: STORE_A })
+      expect(p.trend!.statLabel).toBe(`統計（${LEDGER_MONTHS}か月・9月は1日〜3日の暫定値を含む）`)
+      expect(p.trend!.statLabel.match(/は/g)).toHaveLength(1)
+    } finally {
+      restore()
+    }
+    // ⚠ the month window is ONE number. `analytics-props.ts:869` opened with the
+    // templated `${LEDGER_MONTHS}か月` and closed with a literal 12か月 in the
+    // SAME sentence, so a change to the window would make it disagree with
+    // itself (L5-5).
+    for (const { name, code } of ROOM_SRC) {
+      expect([name, code.match(/12か月/g)]).toEqual([name, null])
+      // 「ぶん」 in hiragana everywhere, including the aria-label 分 also reads ふん
+      expect([name, code.match(/か月分/g)]).toEqual([name, null])
+      // the file's own naka-guro convention: no space between ・ and the clause
+      expect([name, code.match(/・ \$\{/g)]).toEqual([name, null])
+    }
+    // the loanword the same element's tour title never used (L5-6)
+    expect(ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code).not.toContain('ビュー')
+  })
+
+  it('§Q — no 未接続 line names an internal system, and a count is not a remainder', () => {
+    // 「core の回数券購入記録」 rendered verbatim in front of an owner, twice
+    // (L5-1), and 「Google API」 was the one line naming an interface rather
+    // than a business connection (L5-2).
+    for (const e of UNCONNECTED_NUMBERS) {
+      expect([e.id, /\bcore\b|API|SDK|endpoint/i.test(e.needs!)]).toEqual([e.id, false])
+      expect(e.needs!.length).toBeGreaterThan(3)
+    }
+    expect(numberEntry('ticketPurchaseRate').needs).toBe('回数券の購入記録との接続')
+    expect(numberEntry('googleReviews').needs).toBe('Googleの口コミ情報との接続')
+    // 未消化残 is a COUNT of sessions priced up — its own label already carries
+    // 残, so the scope word saying 残り again named the quantity twice.
+    expect(SCOPE_WORD['as-of']).toBe('その時点の値')
+  })
+})
+
 describe('the 画面の説明 tour', () => {
   const SCREEN = readFileSync(
     join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),

@@ -504,6 +504,9 @@
 /* R13: pressed is a light accent wash, never a filled chip. */
 .biz .pg-analytics .an-chip-l.is-on { background: var(--an-blue-wash); border-color: var(--an-blue-line); color: var(--an-blue-ink); font-weight: 600; }
 .biz .pg-analytics .an-tickets { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px 12px; }
+/* the 回数券 group's heading takes its own line above the two chips, in the
+   same grammar the two mix blocks already use for their names. */
+.biz .pg-analytics .an-tickets .an-mix-k { width: 100%; margin-bottom: 0; }
 .biz .pg-analytics .an-stat-chip { border: 1px solid var(--an-line); background: var(--an-wash); border-radius: var(--an-r-md); padding: 5px 12px; min-width: 0; }
 .biz .pg-analytics .an-stat-chip .an-k { display: block; font-size: 10.5px; color: var(--an-ink-4); font-weight: 700; line-height: 1.4; margin: 0; }
 .biz .pg-analytics .an-stat-chip .an-v { display: inline; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--an-ink); }

@@ -88,7 +88,8 @@ export interface NumberEntry {
 export const SCOPE_WORD: Record<NumberScope, string> = {
   month: '対象月ぶん',
   'month-to-date': '月のはじめから今日まで',
-  'as-of': 'その時点の残り',
+  // a COUNT is not a remainder, and 未消化残's own label already carries 残
+  'as-of': 'その時点の値',
   day: '1日ぶん',
 }
 
@@ -349,7 +350,7 @@ export const NUMBERS: readonly NumberEntry[] = [
     owner: '顧客',
     unit: 'rate',
     source: 'unconnected',
-    needs: 'core の回数券購入記録',
+    needs: '回数券の購入記録との接続',
   },
   {
     id: 'retentionRate',
@@ -360,7 +361,7 @@ export const NUMBERS: readonly NumberEntry[] = [
     owner: '顧客',
     unit: 'rate',
     source: 'unconnected',
-    needs: 'core の回数券購入記録',
+    needs: '回数券の購入記録との接続',
   },
   {
     id: 'subscriptionIncome',
@@ -382,7 +383,7 @@ export const NUMBERS: readonly NumberEntry[] = [
     owner: '外部',
     unit: 'count',
     source: 'unconnected',
-    needs: 'Google API',
+    needs: 'Googleの口コミ情報との接続',
   },
 ]
 

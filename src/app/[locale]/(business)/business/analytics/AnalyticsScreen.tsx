@@ -26,6 +26,7 @@ import {
   CHART,
   clampTooltipLeft,
   clampTooltipTop,
+  LEDGER_MONTHS,
   type ChartModel,
   type CompSegment,
   type RankMetric,
@@ -818,7 +819,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
           className="an-tabs"
           ref={tabsRef}
           role="tablist"
-          aria-label="売上分析のビュー"
+          aria-label="表示の切り替え"
           data-guide-title="表示の切り替え"
           data-guide={guides.tabs}
         >
@@ -857,7 +858,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
             <div className="an-chart-hd">
               <span className="an-ttl">月次推移</span>
               <span className="an-sub">{trend.chartSub}</span>
-              <span className="an-scrollhint">← 横にスクロールで12か月ぶん →</span>
+              <span className="an-scrollhint">← 横にスクロールで{LEDGER_MONTHS}か月ぶん →</span>
               <span className="an-sp" />
               <span className="an-lg"><span className="an-sw is-b" />総合売上</span>
               <span className="an-lg"><span className="an-sw is-p" />新規売上</span>
@@ -871,7 +872,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                   className="an-chart"
                   viewBox={`0 0 ${CHART.w} ${CHART.h}`}
                   role="img"
-                  aria-label={`月次の総合売上と新規売上の推移（棒グラフ、${trend.chartMonths.length}か月分）`}
+                  aria-label={`月次の総合売上と新規売上の推移（棒グラフ、${trend.chartMonths.length}か月ぶん）`}
                 >
                   <defs>
                     {/* the month in progress is HATCHED, never solid — one look
@@ -1031,7 +1032,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                 aria-controls="anProse"
                 onClick={() => setProseOpen((was) => !was)}
               >
-                12か月の説明を読む
+                {LEDGER_MONTHS}か月の説明を読む
                 <span className="an-cv" aria-hidden="true">▾</span>
               </button>
             </div>
@@ -1050,7 +1051,9 @@ export function AnalyticsScreen(props: AnalyticsProps) {
               <span className="an-sp" />
               <span className="an-leg">
                 {trend.tableLegend}
-                <span className="an-tapmore">・行を押すと全項目が開きます</span>
+                {/* ⚠ shown ONLY at ≤799, where every row IS a card — the mock's
+                    own word for it, and the accurate one for this band. */}
+                <span className="an-tapmore">・カードをタップすると全項目が開きます</span>
               </span>
             </div>
             <div className="an-tbl">
@@ -1140,6 +1143,10 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                 nothing here, never a 「回数券なし」 chip (registry ⑦). */}
             {trend.tickets.length > 0 && (
               <div className="an-tickets" data-guide-title="回数券" data-guide={guides.tickets}>
+                {/* THE GROUP'S NAME, not a metric's — so the second chip's own
+                    dictionary word (消化売上) still says what the money is.
+                    A group heading is the one literal allowed here. */}
+                <span className="an-mix-k">回数券</span>
                 {trend.tickets.map((t) => (
                   <div className="an-stat-chip" key={t.key}>
                     <span className="an-k">{t.key}</span>

@@ -658,7 +658,7 @@ export async function analyticsProps({
         target <= 0
           ? null
           : selected.partial
-            ? `残り${remainingOpenDays}営業日（営業日ベース）・ ${remaining >= 0 ? `${numberEntry('targetRemaining').label} ${yen(remaining)}` : `目標を ${yen(-remaining)} 上回っています`}`
+            ? `残り${remainingOpenDays}営業日（営業日ベース）・${remaining >= 0 ? `${numberEntry('targetRemaining').label} ${yen(remaining)}` : `目標を ${yen(-remaining)} 上回っています`}`
             : `営業${selectedCoords.openDays.length}日で終了・${remaining >= 0 ? `${numberEntry('targetRemaining').label} ${yen(remaining)}` : `目標を ${yen(-remaining)} 上回っています`}`,
       // ONE TRUTH FOR 目標 (§4): the room READS `planes.target` and points at
       // the room that owns it. Never a second field, never a hardcoded yen.
@@ -816,7 +816,11 @@ export async function analyticsProps({
         href: monthHref(m.monthsAgo),
         note: m.partial
           ? `月の途中です（${m.short}${today.d}日時点）。前月と並べていません。`
-          : 'クリックで下の表の行を開きます',
+          // ⚠ WHAT ALWAYS HAPPENS IS THE NAVIGATION (L1 B1-8). The row-open is
+          // the desk rung's extra — the rule that opens the viewed row lives
+          // inside `@container anpage (min-width: 800px)` — so promising it at
+          // a phone width promised something that does not happen there.
+          : '押すと下の表のその月へ移動します',
       })),
       gridLabels: chart.gridLines.map((g) => manYen(g.value)),
       targetLabel: target > 0 ? `${numberEntry('target').label} ${yen(target)}` : null,
@@ -833,7 +837,8 @@ export async function analyticsProps({
       emptyBefore: `${months[0].label}より前のデータはありません`,
       metrics: TABLE_METRICS.map((c) => ({ ...c, head: numberEntry(c.id).label })),
       rows: tableRows,
-      statLabel: `統計（${LEDGER_MONTHS}か月・うち${currentMonth.short}は${provisional}値を含む）`,
+      // one は, not two (L2 B2-11): 「…うち9月は9月1日〜3日は暫定値を含む」
+      statLabel: `統計（${LEDGER_MONTHS}か月・${currentMonth.short}は1日〜${today.d}日の暫定値を含む）`,
       statCells: stats.map((s) => `${s.kicker} ${s.value}`),
       stats,
       compositionSub: `${selected.label}（${spanWord}）・メニュー別と予約経路別`,
@@ -845,7 +850,12 @@ export async function analyticsProps({
       tickets: hasTicketSignal
         ? [
             {
-              key: `${numberEntry('ticketOutstanding').label}（${selected.short}${today.d}日時点）`,
+              // ⚠ THE BALANCE IS AS OF NOW, SO THE DATE IS TODAY'S (L1 B1-3).
+              // `ticketLiability` takes no month at all — it counts the 残数 the
+              // customers hold at this moment — so welding the SELECTED month's
+              // name to today's day-of-month printed 「10月3日時点」 for a figure
+              // measured on 9月3日: a date the figure was never read on.
+              key: `${numberEntry('ticketOutstanding').label}（${today.m}月${today.d}日時点）`,
               value: yen(liability.amount),
               unit: `${liability.sessions}回分`,
             },
@@ -893,12 +903,12 @@ export async function analyticsProps({
     },
     guides: {
       head: `${SUBTITLE}。${stateHeadline}。${comparison}`,
-      kpis: `いちばん上の5つが、この月の判断に使う数字です。左から 総合売上・新規売上・新規数・目標進捗・着地見込み。${selected.partial ? '月の途中のあいだは、経過した日ぶんだけを合計しています。' : 'この月はもう終わっているので、どれも確定した数字です。'}`,
+      kpis: `いちばん上の5つが、この月の判断に使う数字です。左から 総合売上・新規売上・新規数・目標進捗・着地見込み。${selected.partial ? '月の途中は、経過した日ぶんだけを合計しています。' : 'この月はもう終わっているので、どれも確定した数字です。'}`,
       landing: landingGuide,
       tabs: '推移・ランキング・日報 の3つを切り替えます。右の「内訳を見る」を押すと、推移の中の 売上の内訳 まで一気に移動します。',
       chart: `直近${LEDGER_MONTHS}か月の 総合売上（青）と 新規売上（ピンク）です。${target > 0 ? '点線が月間売上目標。' : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
       decide: 'グラフから読み取れることを1文にしています。数字を自分で見比べなくても、いまの立ち位置がわかります。',
-      table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押すと、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は12か月の合計と平均です。`,
+      table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押すと、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は${LEDGER_MONTHS}か月の合計と平均です。`,
       mix: 'この月の売上を メニュー別 と 予約経路別 に分けたものです。色の帯か、下のボタンを押すと、その1つだけを強調します。',
       tickets: '回数券の、まだ使われていない残りと、この月に消化されたぶんです。回数券を扱っていない店舗では表示されません。',
       footnote: 'この画面のどの数字が、どこから来ているかの一覧です。まだつないでいないものも「未接続」として並べています。',
