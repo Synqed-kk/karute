@@ -2368,7 +2368,10 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
+      // 顧客 RETIRED its bare `.biz .page .btn` in its V2 redesign (its buttons
+      // are `cu-btn-*` now and its dialog states its weights at four levels), so
+      // this DERIVED list loses that entry — re-derived here in the same pass,
+      // which is what this pin's own comment asks the changing room to do.
       'reservations::.biz .btn',
       'reservations::.biz .btn.primary',
     ])

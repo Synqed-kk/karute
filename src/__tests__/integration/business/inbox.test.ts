@@ -1052,7 +1052,11 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
         if (names.length && names.every((n) => styled.has(n))) reachable.add(sel)
       }
     }
-    expect([...reachable].sort()).toEqual(['.biz .btn', '.biz .btn.primary', '.biz .page .btn'])
+    // 顧客 RETIRED its bare `.biz .page .btn` in its V2 redesign (its buttons are
+    // `cu-btn-*` now, and its dialog states its weights at four levels), so this
+    // DERIVED list loses that entry — re-derived here in the same pass by the
+    // room whose sheet changed, which is what this pin asks for.
+    expect([...reachable].sort()).toEqual(['.biz .btn', '.biz .btn.primary'])
     // …and every one of them is answered at FOUR levels, which beats a
     // sibling's three and removes the insertion-order coin flip.
     //
@@ -1117,7 +1121,9 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // fence. `.page.pg-inbox`/`.page.pg-inbox h1` stay in inbox.css as this
     // room's own styling; they just answer no sibling collision any more.
     const pairs: Array<[string, string]> = [
-      ['.page .btn', '.biz .page.pg-inbox .btn {'],
+      // `.page .btn` left the list with 顧客's V2 redesign; this room's own
+      // `.biz .page.pg-inbox .btn` fence is unchanged and still answers the two
+      // `reservations` rules below.
       ['.btn', '.biz .page.pg-inbox .btn {'],
       ['.btn.primary', '.biz .page.pg-inbox .btn.primary {'],
     ]

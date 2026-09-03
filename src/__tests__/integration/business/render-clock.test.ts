@@ -105,9 +105,16 @@ describe('one clock anchor per render (#724)', () => {
         .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .join('\n')
 
+    // ⚖ THE ROOM-3 F1 LAW MOVED THE ASSEMBLY, SO THE PIN MOVES WITH THE CODE:
+    // 顧客's reads, joins and formats live in `customers-props.ts` now, which is
+    // where the one anchor is read. The page keeps the no-second-clock
+    // assertion, because a `new Date()` re-introduced there would be exactly the
+    // second read this test exists to forbid.
     const page = code('src/app/[locale]/(business)/business/customers/page.tsx')
-    expect(page).toContain('renderNow().toISOString()')
     expect(page.match(/new Date\(\s*\)/g)).toBeNull()
+    const customersProps = code('src/app/[locale]/(business)/business/customers/customers-props.ts')
+    expect(customersProps).toContain('const now = renderNow()')
+    expect(customersProps.match(/new Date\(\s*\)/g)).toBeNull()
 
     // 今日の運営 has the same exposure and more of it: todayKey, the read
     // window, 表示日, the month calendar and the ルール stamp all hang off one

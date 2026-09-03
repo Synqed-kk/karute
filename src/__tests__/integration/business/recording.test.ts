@@ -2144,7 +2144,7 @@ describe('⚖ the sibling-sheet fence', () => {
     // carry a copy of the rule in its own sheet, which is exactly that reach
     // however carefully it was scoped.
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.page-customers) { min-width: 0; }')
     expect(ROOM_CSS).not.toMatch(/\.biz \.app:has/)
     // …and the room's sheet reaches OUTSIDE its own subtree nowhere at all:
     // every selector it states is scoped by `pg-recording`.

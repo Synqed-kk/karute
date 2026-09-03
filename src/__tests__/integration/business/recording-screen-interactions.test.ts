@@ -522,7 +522,7 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own list, and NOT from this sheet', () => {
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    expect(shell).toContain('.page.pg-recording, .page.page-customers) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app:has')
   })
 
