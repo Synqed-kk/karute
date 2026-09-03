@@ -18,7 +18,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
-import { computeChecks, confirmCaption } from '@/business/lib/canon-logic/drag-rules'
+import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
   applyMoves,
@@ -88,6 +88,9 @@ import {
   HOLD_CANCEL_V,
   type WarnCardInput,
   pinInViewport,
+  proxyTimeLabel,
+  withPriceFact,
+  PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
   type Moves,
@@ -1716,6 +1719,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "pairLanesOf,",
       "parkChipText,",
       "pinInViewport,",
+      "proxyTimeLabel,",
       "restCueStarts,",
       "warnFaceFor,",
       "holdClock,",
@@ -1732,6 +1736,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "seedSpanIn,",
       "slotStartAt,",
       "unparkOutcome,",
+      "withPriceFact,",
       "foreignStoreRefusal,",
       "type GuardRail,",
       "type LandingFloor,",
@@ -2144,7 +2149,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     const ask = (stagedId: string | null) =>
       landingVerdict(board, {
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
-        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null,
+        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null, hasPrice: true,
         locked: [], rooms: POLICY, minutesOf: (x) => minuteOf(x, HOURS), stagedId,
       }, null)
 
@@ -4733,7 +4738,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
       ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
       ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
-      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },"],
+      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },"],
       ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
       ['7 minted card', face, 'category: p.category,'],
     ] as const) {
@@ -5472,6 +5477,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     end: 1020,
     span: place(960, 1020, HOURS),
     foreignRefusal: null,
+    hasPrice: true,
     locked: [] as string[],
     rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
@@ -6226,7 +6232,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
     start, end: start + dur, span: place(start, start + dur, HOURS),
-    foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+    foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
   })
 
@@ -6529,7 +6535,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // …which `landingVerdict` answers with exactly that sentence.
     const v = landingVerdict([lane({ key: 'p-01', group: 'staff' })], {
       staffLane: null, bedLane: null, solveRoom: true, id: null, vip: false,
-      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null,
+      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     }, null)
     expect(v.kind).toBe('blocked')
@@ -7027,7 +7033,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   ]
   const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
     staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
-    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null,
+    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
     locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
@@ -8746,7 +8752,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
       staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
       start: s, end: s + 90, span: place(s, s + 90, HOURS),
-      foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+      foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
       minutesOf: (x: number) => minuteOf(x, HOURS),
     }, at(s)).kind
     // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
@@ -8865,7 +8871,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
         start: s, end: s + dur, span: place(s, s + dur, HOURS),
-        foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+        foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
         minutesOf: (x: number) => minuteOf(x, HOURS),
       }, at(s)).kind
       // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
@@ -9993,5 +9999,192 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
     const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     expect(INTERACTIONS).toContain('packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),')
     expect(INTERACTIONS).toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM, SO IT NEEDS A PRICE TO BE ABOUT
+//
+// canon `computeChecks` (drag-rules.ts:227) pushes the row unconditionally and
+// canon is frozen, so the two app callers that consume its raw rows filter it:
+// `landingVerdict` here and `checksFor` on the screen. apt-09 carries
+// `booked_price: null` by documented fixture intent — it is the scene.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const CANON = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'), 'utf8')
+
+  const rows = (): Check[] => [
+    { ok: true, label: '時間帯の重複なし' },
+    { ok: false, label: '見本 あずさは18:00以降勤務不可' },
+    { ok: true, label: '整体資格 一致' },
+    { ok: true, label: PRICE_HOLD_ROW },
+  ]
+
+  // (b) — THE CONSTANT IS CANON'S, and canon cannot be edited to agree with it.
+  it('PRICE_HOLD_ROW is the literal canon pushes, read out of canon’s own source', () => {
+    const compute = CANON.slice(CANON.indexOf('export function computeChecks('), CANON.indexOf('export function confirmCaption('))
+    expect(compute.length).toBeGreaterThan(0)
+    expect(pinnedLine(compute, `checks.push({ ok: true, label: '${PRICE_HOLD_ROW}' })`)).toBe(true)
+    // …and it is pushed with no condition in front of it — which is WHY the app
+    // side filters rather than asking canon to stop.
+    expect((codeOnly(compute).match(/checks\.push\(\{ ok: true, label: '予約時価格を保持/g) ?? []).length).toBe(1)
+  })
+
+  // (a) — THE FILTER ITSELF.
+  it('withPriceFact drops exactly canon’s row, exactly when there is no price', () => {
+    const before = rows()
+    // A priced booking keeps every row, in canon's order, byte for byte.
+    expect(withPriceFact(before, true)).toEqual(rows())
+    expect(withPriceFact(before, true).map((c) => c.label)).toEqual(rows().map((c) => c.label))
+    // A price-less one loses THAT row and nothing else — same order, same
+    // objects, one fewer.
+    const after = withPriceFact(before, false)
+    expect(after.map((c) => c.label)).toEqual(['時間帯の重複なし', '見本 あずさは18:00以降勤務不可', '整体資格 一致'])
+    expect(after).toEqual(rows().slice(0, 3))
+    expect(after).toHaveLength(before.length - 1)
+    // It reads the LABEL, not the position: the same row anywhere in the list
+    // is the same row.
+    const shuffled = [{ ok: true, label: PRICE_HOLD_ROW }, ...rows().slice(0, 3)]
+    expect(withPriceFact(shuffled, false).map((c) => c.label)).toEqual(rows().slice(0, 3).map((c) => c.label))
+    // …and it never invents one: a list canon did not put the row in comes back
+    // unchanged under both answers.
+    const without = rows().slice(0, 3)
+    expect(withPriceFact(without, false)).toEqual(without)
+    expect(withPriceFact(without, true)).toEqual(without)
+    // The input is not mutated — the caller's list is still canon's.
+    expect(before).toHaveLength(4)
+  })
+
+  // …proven THROUGH the verdict, so the wiring is walked and not only the unit.
+  it('the one verdict carries the filter: the same landing, two prices, two lists', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }), lane({ key: 'bed-01', group: 'beds' })]
+    const q = (hasPrice: boolean) => ({
+      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
+      start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice,
+      locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+    })
+    const priced = landingVerdict(lanes, q(true), null).checks.map((c) => c.label)
+    const priceless = landingVerdict(lanes, q(false), null).checks.map((c) => c.label)
+    expect(priced).toContain(PRICE_HOLD_ROW)
+    expect(priceless).not.toContain(PRICE_HOLD_ROW)
+    // Everything else about the landing is identical — the filter took one row
+    // and changed no judgement.
+    expect(priceless).toEqual(priced.filter((l) => l !== PRICE_HOLD_ROW))
+    expect(landingVerdict(lanes, q(false), null).kind).toBe(landingVerdict(lanes, q(true), null).kind)
+  })
+
+  // (d) — BOTH RAW-CANON ENTRY POINTS GO THROUGH IT. Anchored whole lines over
+  // comment-blanked source, each bounded to the call it belongs to, each
+  // counted, with the dodges the breaker reaches for banned outright.
+  it('every consumer of canon’s raw rows filters them — the two call sites, counted', () => {
+    for (const [where, src, open_, close_, call] of [
+      ['checksFor (screen)', SRC, 'const checks = withPriceFact(', 'hasPriceFor(id),', 'computeChecks(at, {'],
+      ['landingVerdict (interactions)', INT, 'checks = withPriceFact(', 'q.hasPrice,', 'computeChecks(q.span, {'],
+    ] as const) {
+      const slice = callSlice(src, open_, close_)
+      expect({ where, ok: slice.ok, opens: slice.opens, closes: slice.closes }).toEqual({ where, ok: true, opens: 1, closes: 1 })
+      // canon's call is INSIDE the wrapper, which is the whole claim.
+      expect({ where, wrapped: pinnedLine(slice.text, call) }).toEqual({ where, wrapped: true })
+      // …and there is exactly one of each in the file, so a second copy has
+      // nowhere to stand and a moved line leaves the slice.
+      expect({ where, calls: pinnedLines(src, call) }).toEqual({ where, calls: 1 })
+      expect({ where, wraps: pinnedLines(src, open_) }).toEqual({ where, wraps: 1 })
+      // …and canon's raw rows have exactly ONE reader in each file, counted
+      // WITHOUT the line anchor. A second call spelled `const other =
+      // computeChecks(at, {` is real code that an anchored count cannot see —
+      // it is the one decoy the two counts above walked past.
+      expect({ where, readers: (codeOnly(src).match(/computeChecks\(/g) ?? []).length }).toEqual({ where, readers: 1 })
+      // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
+      // no-op, are gone in every shape the breaker has used on this lane.
+      for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
+        expect({ where, dodge, at: codeOnly(src).indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
+  })
+
+  // (e) — AND EVERY LANDING THE SCREEN ASKS CARRIES THE FACT. `hasPrice` is a
+  // REQUIRED field, so tsc already refuses a site that forgets it; this is the
+  // count that refuses a site that answers it TWICE (a spread override beside a
+  // real one) or drops one along with its `solveRoom:`.
+  it('every ask constructor in the screen carries hasPrice — one per solveRoom', () => {
+    const code = codeOnly(SRC)
+    const solveRooms = (code.match(/solveRoom:/g) ?? []).length
+    const hasPrices = (code.match(/hasPrice:/g) ?? []).length
+    expect(solveRooms).toBeGreaterThan(0)
+    expect({ solveRooms, hasPrices }).toEqual({ solveRooms, hasPrices: solveRooms })
+    // The screen's answer is always DERIVED — never the literal `true` that
+    // would put canon's row back on a price-less booking (banned above), and
+    // never a bare `false` anywhere but the create-form ask, which opens the
+    // dialog where the price is still to be chosen.
+    expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('proxyTimeLabel speaks today-board’s grammar, and falls back to the resting label', () => {
+    // The landing's start, in the board's own 「HH:MM〜」 (start only, ⚖
+    // today-board :423) — never the origin's.
+    expect(proxyTimeLabel('10:00〜', 870)).toBe('14:30〜')
+    expect(proxyTimeLabel('10:00〜', 600)).toBe('10:00〜')
+    expect(proxyTimeLabel('10:00〜', 845)).toBe('14:05〜')
+    // Midnight-adjacent and zero are real minutes, not falsy nothings — the one
+    // arm a `liveStartMin ||` spelling would get wrong.
+    expect(proxyTimeLabel('10:00〜', 0)).toBe('00:00〜')
+    // No landing = the card keeps the face it rests with, whatever that is.
+    expect(proxyTimeLabel('10:00〜', null)).toBe('10:00〜')
+    expect(proxyTimeLabel('13:00〜14:00', null)).toBe('13:00〜14:00')
+    expect(proxyTimeLabel('', null)).toBe('')
+  })
+
+  it('the card proxy prints that label, and the board card still prints its own', () => {
+    const code = codeOnly(SRC)
+    // ONE `.e-time` author on this board, and it prints what it is handed.
+    expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
+    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // The proxy is the ONE caller that hands it anything else, and what it
+    // hands is the live landing.
+    expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
+    expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(1)
+    // …read off the GHOST's own landing, so the dashed preview and the card in
+    // hand can never name two different starts.
+    expect(pinnedLines(SRC, 'const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null')).toBe(1)
+    // The pre-fix spelling, and the two ways a decoy could make the label stand
+    // still, are gone.
+    expect(code).not.toContain('cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))')
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null)', 'const liveStart = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T4 — ONE LABEL PER NUMBER
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T4 — the incident stat and the header chip name one count once', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('both surfaces print sellDrawn.staffBands.length under the SAME words', () => {
+    const code = codeOnly(SRC)
+    // The chip and the stat, each pinned as the whole line it is.
+    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
+    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
+    // Two LABELS for one derivation, and they are the same words. (The number
+    // itself appears a third time, inside the 公開価格 button's toast — a
+    // sentence about what was just updated, not a name for the count.)
+    expect((code.match(/公開中の販売可能枠/g) ?? []).length).toBe(2)
+    expect((code.match(/sellDrawn\.staffBands\.length}枠/g) ?? []).length).toBe(3)
+    // 安全な空き was the second NAME for that one count, and it is retired —
+    // gone from the rendered board and from every comment that taught it.
+    expect(code).not.toContain('安全な空き')
   })
 })

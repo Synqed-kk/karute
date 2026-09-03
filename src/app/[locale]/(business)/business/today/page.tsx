@@ -67,6 +67,10 @@ const DAY_MS = 86_400_000
 /** 予約種別 as canon writes it on a card and in the 精算 dialog's sub-line. */
 const CATEGORY_WORD = { new: '新規', repeat: '単発', ticket: '回数券', vip: 'VIP' } as const
 const WEEKDAY_WORD = ['日曜', '月曜', '火曜', '水曜', '木曜', '金曜', '土曜'] as const
+/** ⚖ R8 T1 — the 根拠 line that asserts the booking's own price survives a move.
+ *  Named once because both proof lists append it under the same condition, and a
+ *  second literal is a second place for the condition to be forgotten. */
+const PRICE_HOLD_PROOF = '予約時価格を保持'
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
@@ -334,9 +338,13 @@ export default async function TodayPage({
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
       b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
+      // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
+      // price has nothing to hold, and the facts above already say 記録なし
+      // about it. Spread rather than a second array so the two lists cannot
+      // grow different rules for the same fact.
       b.resourceId
-        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), '予約時価格を保持']
-        : ['担当の勤務時間内', '設備の割当てが未確定', '予約時価格を保持'],
+        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), ...(b.price == null ? [] : [PRICE_HOLD_PROOF])]
+        : ['担当の勤務時間内', '設備の割当てが未確定', ...(b.price == null ? [] : [PRICE_HOLD_PROOF])],
     )
   })
   planes.decisions.forEach((d, i) => {
@@ -412,6 +420,12 @@ export default async function TodayPage({
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
+    // ⚖ R8 T1 — WHICH OF TODAY'S BOOKINGS CARRY A RECORDED PRICE. `BoardItem`
+    // has no price field (today-board.ts) and the board is what every gesture
+    // holds, so the fact travels beside the lanes: the screen filters canon's
+    // unconditional 価格保持 check row with it, exactly as the 根拠 lists above
+    // are filtered with `b.price`. One reading of one server field, both places.
+    pricedIds: bookings.filter((b) => b.price != null).map((b) => b.id),
     // The 販売可能枠 layer is DERIVED IN THE BROWSER, not here: it has to answer
     // to a drag in progress, and a server-frozen cell list would keep painting
     // a window the card being dragged is already standing in. The dials come

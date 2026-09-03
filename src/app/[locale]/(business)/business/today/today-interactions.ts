@@ -38,7 +38,7 @@ import {
   type DragMode,
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
-import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
 // imports `laneSpans` from this file as a VALUE, and the capacity book imports
 // `allocateBed`, so a value import back to either would be a real module cycle.
@@ -2711,6 +2711,24 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
   }
 }
 
+/** ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR.
+ *
+ *  A card being CARRIED shares its face with the one standing on the board
+ *  (`cardFace`), and that face prints the booking's committed start — so for the
+ *  whole gesture the thing in the operator's hand advertised where it came FROM
+ *  while the dashed landing under it said where it was going. Two answers to one
+ *  question, which is ⚖ 54's disease on the one surface the eye is actually on.
+ *
+ *  `liveStartMin` is the landing the ghost is already drawn from, in minutes;
+ *  `null` means there is no landing to speak of (nothing in flight, over the
+ *  shelf, off the board) and the card keeps the label it rests with. The
+ *  grammar is `today-board`'s own — `${hhmm(startMinute)}〜`, start only
+ *  (:423) — reused rather than re-spelled, so a card in hand and the same card
+ *  at rest can never format one minute two ways. */
+export function proxyTimeLabel(restTime: string, liveStartMin: number | null): string {
+  return liveStartMin == null ? restTime : `${hhmm(liveStartMin)}〜`
+}
+
 /** Every drawing of one booking. The board puts the same card on a staff lane
  *  and on a bed lane (canon's `pairOf`), and a gesture owns all of them. */
 export function cardNodes(board: Element | null, caseId: string): HTMLElement[] {
@@ -3149,6 +3167,31 @@ export interface LandingVerdict {
   checks: Check[]
 }
 
+/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,
+ *  and canon is frozen. The constant is the app side's copy of that literal, and
+ *  it is pinned against the canon source so the two cannot drift apart in
+ *  silence (today-screen-interactions.test.ts). */
+export const PRICE_HOLD_ROW = '予約時価格を保持（動的価格は適用しません）'
+
+/** ⚖ R8 T1 — A CHECK ROW THAT NEVER RAN A CHECK.
+ *
+ *  canon asserts 予約時価格を保持 over every landing, including a booking that
+ *  has NO recorded price (apt-09 carries `booked_price: null` by documented
+ *  fixture intent). The row then promises to hold a number that does not exist,
+ *  on a card whose own 予約時価格 fact three lines away reads 記録なし.
+ *
+ *  The row is DROPPED rather than reworded (Fable default, overturnable): the
+ *  fact line already says 記録なし in the operator's own words, so a second
+ *  sentence about the same nothing is noise, and rewording it would be a new
+ *  operator string for a state the surface can already say.
+ *
+ *  Pure, and applied at the two app callers that consume canon's raw rows —
+ *  `landingVerdict` below and the screen's `checksFor`. Order is canon's: a
+ *  filter, never a rebuild. */
+export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
+  return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
+}
+
 /** One landing, as a question. Every field is something the caller already has;
  *  nothing here reads the DOM, so the same question is asked by the mid-drag
  *  cursor, by the 60分配置 strip's × marks and by the release itself. */
@@ -3170,6 +3213,12 @@ export interface LandingQuestion {
   span: { x: number; w: number }
   /** ⚖ 46 — a chip or a 配置モード intent carried onto a foreign store's board. */
   foreignRefusal: string | null
+  /** ⚖ R8 T1 — does this placement have a price the 保持 row can be ABOUT?
+   *  REQUIRED, because absent would have to default to one of the two answers
+   *  and both defaults lie on the other half of the board: `true` re-asserts the
+   *  row over a price-less booking (the defect), `false` deletes it from every
+   *  caller that simply forgot to say. The screen answers it per gesture. */
+  hasPrice: boolean
   locked: string[]
   rooms: RoomPolicy
   minutesOf: (x: number) => number
@@ -3263,14 +3312,20 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
     }
   }
-  checks = computeChecks(q.span, {
-    spans,
-    bookingId: q.id ?? '',
-    staffName: staff.label,
-    staffUntil: staff.untilLabel,
-    laneLocked: q.locked.includes(staff.key),
-    minutesOf: q.minutesOf,
-  })
+  // ⚖ R8 T1 — canon's rows, minus the 価格保持 assertion when there is no price
+  // to hold. Applied HERE, at the raw-canon entry point, so the cursor word, the
+  // × strip and the red box's fact list all read one filtered list.
+  checks = withPriceFact(
+    computeChecks(q.span, {
+      spans,
+      bookingId: q.id ?? '',
+      staffName: staff.label,
+      staffUntil: staff.untilLabel,
+      laneLocked: q.locked.includes(staff.key),
+      minutesOf: q.minutesOf,
+    }),
+    q.hasPrice,
+  )
 
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.

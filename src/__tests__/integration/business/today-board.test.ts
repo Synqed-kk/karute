@@ -634,12 +634,15 @@ describe('今日の運営 screen', () => {
     expect(live.length).toBeGreaterThan(earning.length)
   })
 
-  // 公開中, 安全な空き and the shelf's own header used to be three server
+  // 公開中, the 運営影響 stat and the shelf's own header used to be three server
   // numbers that had to be kept equal by hand. They are now ONE derivation the
   // browser runs (canon-logic/availability), so the equality is structural and
   // the thing worth asserting is that the derivation answers to the board it
   // reads — including a lane the operator has locked.
-  it('RECONCILES: 公開中 = 安全な空き = the shelf, because all three read one derivation', async () => {
+  // ⚖ R8 T4 — the stat used to carry a SECOND name for that count (安全な空き);
+  // it now prints the chip's own words, so this title names the surface rather
+  // than a label that no longer exists.
+  it('RECONCILES: 公開中 = the 運営影響 stat = the shelf, because all three read one derivation', async () => {
     const p = await board(STORE_A)
     const layer = (locked: string[]) =>
       sellLayerFor(p.lanes, p.hours, {
@@ -1043,5 +1046,125 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
       // 分 is the dead lever this round removed.
       expect({ file, hits: src.match(/清掃\s*\d+\s*分/g) ?? [] }).toEqual({ file, hits: [] })
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM ABOUT A PRICE THAT EXISTS
+//
+// apt-09 carries `booked_price: null` by documented fixture intent — a real,
+// partially-filled booking the board has to be honest about. Its 予約時価格 fact
+// already reads 記録なし; the 根拠 list underneath used to assert that the same
+// missing number was being held.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own price', () => {
+  const PROOF = '予約時価格を保持'
+
+  it('the scene is real: this store’s day holds a priced booking AND a price-less one', () => {
+    const mine = today().filter((a) => a.store_id === STORE_A && a.status !== 'cancelled')
+    expect(mine.some((a) => a.booked_price == null)).toBe(true)
+    expect(mine.some((a) => a.booked_price != null)).toBe(true)
+  })
+
+  it('pricedIds is the server’s own record — every booking with a price, and no other', async () => {
+    const p = await board(STORE_A)
+    const priced = today().filter((a) => a.store_id === STORE_A && a.booked_price != null).map((a) => a.id)
+    // Read off the fixture, not written down here: a fixture edit moves both
+    // sides of this together or it goes red.
+    expect([...p.pricedIds].sort()).toEqual([...new Set(priced)].sort())
+    const priceless = today().find((a) => a.store_id === STORE_A && a.booked_price == null)!
+    expect(p.pricedIds).not.toContain(priceless.id)
+  })
+
+  it('a case claims 価格保持 exactly when its booking has a price — walked over the whole day', async () => {
+    const p = await board(STORE_A)
+    const bookings = today().filter((a) => a.store_id === STORE_A && a.board_state !== null)
+    expect(bookings.length).toBeGreaterThan(1)
+    for (const a of bookings) {
+      const c = p.cases[a.id]
+      expect({ id: a.id, has: c != null }).toEqual({ id: a.id, has: true })
+      expect({ id: a.id, claims: c.proofs.includes(PROOF) }).toEqual({ id: a.id, claims: a.booked_price != null })
+      // …and the FACT line and the 根拠 line agree, which is the whole point:
+      // no case says 記録なし above and 保持 below.
+      const fact = c.facts.find(([k]) => k === '予約時価格' || k === '請求額')!
+      expect({ id: a.id, silent: fact[1] === '記録なし' }).toEqual({ id: a.id, silent: !c.proofs.includes(PROOF) })
+    }
+  })
+
+  it('the two named cases, by name: apt-09 drops the row, apt-26 keeps it', async () => {
+    const p = await board(STORE_A)
+    expect(today().find((a) => a.id === 'apt-09')!.booked_price).toBeNull()
+    expect(today().find((a) => a.id === 'apt-26')!.booked_price).not.toBeNull()
+    expect(p.cases['apt-09'].proofs).not.toContain(PROOF)
+    expect(p.cases['apt-26'].proofs).toContain(PROOF)
+    // Only THAT row moved — the rest of the price-less case's 根拠 is canon's.
+    expect(p.cases['apt-09'].proofs).toContain('担当の勤務時間内')
+    // …and the 判断 card that points at apt-26 keeps the 根拠 the fixture wrote
+    // for it, because apt-26 is priced.
+    const dec = decisions.find((d) => d.appointment_id === 'apt-26')
+    if (dec) expect(p.cases[dec.id].proofs).toContain(PROOF)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T2 — ONE STORE'S BOARD NEVER SHOWS ANOTHER STORE'S TERMINAL HOLD
+//
+// `register.terminal_held` rows carry no `store_id`, so the door's `inLens`
+// could not see them and the day clamp alone let 銀座's ¥6,600 stand on 代官山's
+// board. Each row names a BOOKING, and the booking says whose terminal it is —
+// the same reading `register.ts`'s `heldForLens` makes for the レジ room, whose
+// JSDoc named this board as the unclamped second seam.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T2 — the terminal hold is clamped at the door', () => {
+  const todayKey = () => jstDayKey(new Date())
+
+  it('the scene is real: the one held row names a booking that belongs to ONE store', () => {
+    expect(register.terminal_held.length).toBe(1)
+    const named = today().find((a) => a.id === register.terminal_held[0].appointment_id)!
+    expect(named.store_id).toBe(STORE_A)
+    // A second store exists and does NOT own it — otherwise the pins below
+    // would pass on an empty world.
+    expect(today().some((a) => a.store_id === STORE_B)).toBe(true)
+  })
+
+  it('the door answers per lens: the owning store sees it, the other store does not', async () => {
+    const held = async (lens: data.StoreLens, day = todayKey()) =>
+      (await data.readDayPlanes(lens, day)).register.terminal_held
+    expect((await held(STORE_A)).map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(await held(STORE_B)).toEqual([])
+    // viewAll is every store, so it holds everything the fixture holds.
+    expect((await held({ viewAll: true })).map((h) => h.appointment_id)).toEqual(
+      register.terminal_held.map((h) => h.appointment_id),
+    )
+    // The DAY clamp is unchanged and still outranks the store one: a day being
+    // viewed holds nothing, under every lens.
+    for (const lens of [STORE_A, STORE_B, { viewAll: true } as const]) {
+      expect(await held(lens, todayKey() + 1)).toEqual([])
+    }
+    // …and the two money aggregates beside it are NOT store-clamped (no store
+    // dimension exists on them) — this pins that the change stopped where it
+    // was meant to.
+    for (const lens of [STORE_A, STORE_B] as const) {
+      const r = (await data.readDayPlanes(lens, todayKey())).register
+      expect([r.refunds, r.cash_difference]).toEqual([register.refunds, register.cash_difference])
+    }
+  })
+
+  it('the board says it: 端末保持 1件 in the owning store, 0件 and no blocker in the other', async () => {
+    const a = await board(STORE_A)
+    const b = await board(STORE_B)
+    const terminalCheck = (p: TodayProps) => p.dialogs.closing.checks.find(([k]) => k === '決済端末')!
+    expect(terminalCheck(a)[1]).toContain('端末保持 1件')
+    expect(terminalCheck(a)[2]).toBe(true)
+    expect(a.dialogs.blockers.map(([k]) => k)).toContain('決済端末')
+
+    expect(terminalCheck(b)).toEqual(['決済端末', '端末保持 0件', false])
+    expect(b.dialogs.blockers.map(([k]) => k)).not.toContain('決済端末')
+    // The 照合 dialog those rows open has nothing to show either — no row
+    // naming a booking this lens cannot even read.
+    expect(b.dialogs.terminal.rows).toEqual([])
+    expect(a.dialogs.terminal.rows).toHaveLength(5)
   })
 })
