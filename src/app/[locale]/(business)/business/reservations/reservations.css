@@ -671,7 +671,12 @@
   .biz .pg-reservations .rv-st .pill { grid-row: 1; grid-column: 2; align-self: center; justify-self: end; }
   .biz .pg-reservations .rv-st .rv-note { grid-row: 3; grid-column: 1 / span 2; text-align: left; max-width: none; }
   .biz .pg-reservations .rv-m-sp { display: inline; }
-  .biz .pg-reservations .rv-l2, .biz .pg-reservations .rv-mline { white-space: normal; }
+  /* ⚠ AND A RUN WITH NO BREAK POINT BREAKS ANYWAY. Once these two wrap, a
+     54-character latin token (a menu code, a name typed in romaji) has nowhere
+     to break and simply leaves its box — clipped, so the reader sees the line
+     end mid-word with nothing to say it did. `anywhere` makes it fold instead.
+     Found by the hostile-string world at 440. */
+  .biz .pg-reservations .rv-l2, .biz .pg-reservations .rv-mline { white-space: normal; overflow-wrap: anywhere; }
   .biz .pg-reservations .rv-rowsbox .rv-grouping:last-child .rv-row:last-child { border-bottom: 1px solid var(--rv-line-soft); border-radius: var(--rv-r-md); }
   .biz .pg-reservations .rv-demonote { margin: 8px 9px 0; }
 }
