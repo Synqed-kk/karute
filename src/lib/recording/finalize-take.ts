@@ -194,14 +194,16 @@ export async function finalizeTakeWithClient(
       // A job already claimed OTHER audio for this row. Cannot happen while
       // every key is reserved at its mint — but if it ever does, the object we
       // were handed is now unreferenced, and that must be TRACEABLE rather than
-      // a silent {ok, already} nobody would ever look at again.
-      return emitFinalized(
+      // a silent {ok, already} nobody would ever look at again. Its OWN action
+      // (fix round 6, I2): nothing was saved here, so this must never file
+      // under capture_finalized ("audio saved") — that name is reserved for a
+      // call that actually wrote a pointer or a duration.
+      return emitCaptureUnlinked(
         actor,
         row.id,
         input,
         composed.ext,
-        { unlinked: true, row_take_id: parseRecordingKey(pointer, actor.businessId)?.takeId ?? null },
-        { error: 'superseded' },
+        parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
       )
     }
 
@@ -246,19 +248,20 @@ export async function finalizeTakeWithClient(
 }
 
 /**
- * The take's ONE audit row. ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No
- * key, no path, no customer: the storage key embeds the take id, which the ids
- * below already carry honestly.
+ * The take's ONE audit row for a finalize that actually landed a pointer or a
+ * duration write. ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no
+ * path, no customer: the storage key embeds the take id, which the ids below
+ * already carry honestly.
  *
- * `extra` is what differs between the two facts this row can state: a finalize
- * that landed carries `size_verified` (was the byte match actually proved?), a
- * superseded one carries `unlinked` and the take the row points at instead —
- * the only thread back to an object with no row.
+ * `extra` carries `size_verified` — was the byte match actually proved, or
+ * did the listing just not carry a size? (Fix round 6, I2: the superseded
+ * branch below no longer calls this — nothing was saved there, so it files
+ * its own action, emitCaptureUnlinked, instead.)
  *
  * It EMITS AND RETURNS the caller's own result (the emitSave idiom,
- * src/actions/karute.ts#createOrUpdateKaruteRecord) so both facts leave the
- * choke point through an emit BY CONSTRUCTION — neither can grow a return that
- * skips the row.
+ * src/actions/karute.ts#createOrUpdateKaruteRecord) so this fact leaves the
+ * choke point through an emit BY CONSTRUCTION — the return can never grow a
+ * path that skips the row.
  */
 function emitFinalized(
   actor: FinalizeTakeActor,
@@ -289,4 +292,47 @@ function emitFinalized(
     source: actor.source,
   })
   return result
+}
+
+/**
+ * The superseded branch's OWN row (fix round 6, I2). `capture_finalized`
+ * means "audio saved" — this branch saves nothing (the row it was handed had
+ * already moved on to other audio before this take's finalize landed), so it
+ * must never file under that name. This traces the only thing that DID
+ * happen: the object this call was handed is now unreferenced, and
+ * `row_take_id` is the one thread back to the take the row points at instead.
+ *
+ * ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No `duration_seconds`: this
+ * call wrote no duration, so stating one here would claim a measurement that
+ * never landed.
+ *
+ * EMITS AND RETURNS, same emitSave idiom as emitFinalized above.
+ */
+function emitCaptureUnlinked(
+  actor: FinalizeTakeActor,
+  recordingSessionId: string,
+  input: { takeId: string; byteLength: number },
+  ext: string,
+  rowTakeId: string | null,
+): FinalizeTakeResult {
+  audit({
+    category: 'recording',
+    action: 'recording.capture_unlinked',
+    actorId: actor.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    severity: 'notice',
+    detail: {
+      recording_session_id: recordingSessionId,
+      take_id: input.takeId,
+      row_take_id: rowTakeId,
+      bytes: input.byteLength,
+      ext,
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
+  return { error: 'superseded' }
 }

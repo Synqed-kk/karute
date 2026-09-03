@@ -190,13 +190,21 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
       expect(update).not.toHaveBeenCalled()
       expect(create).not.toHaveBeenCalled()
       // …and the object we were handed is now unreferenced, so the row that
-      // says so is the ONLY thread back to it.
+      // says so is the ONLY thread back to it. Fix round 6 (I2): its OWN
+      // action — nothing was saved here, so it must never file under
+      // capture_finalized ("audio saved").
       expect(auditFn).toHaveBeenCalledTimes(1)
-      const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
-      expect(event.detail).toMatchObject({
+      const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+      expect(event).toMatchObject({
+        action: 'recording.capture_unlinked',
+        severity: 'notice',
+      })
+      expect(event.detail).toEqual({
+        recording_session_id: SESSION,
         take_id: TAKE,
-        unlinked: true,
         row_take_id: OLD_TAKE,
+        bytes: 1024,
+        ext: 'webm',
       })
     },
   )

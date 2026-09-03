@@ -369,26 +369,31 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
     expect(auditFn).not.toHaveBeenCalled()
   })
 
-  // Fix round 4 flips this deliberately. The RESERVATION is a core write, and a
-  // core write must never be silent — so the claim is filed when the binding
-  // lands, not when the URL is signed. (The reservation is self-healing: the
-  // client's retry finds its own pointer and mints again.)
-  it('still files the claim when the signing then fails — a core write is never silent', async () => {
+  // FIX ROUND 6 flips fix round 4 back. "Always file the claim, even on a
+  // failed sign" made a transient SIGNING failure durable: the row was
+  // already written, but the caller got back no session id — its retry could
+  // only start a SECOND reservation, which core's own key rightly refuses
+  // (409 → reserved_elsewhere, terminal), stranding the take and orphaning
+  // the first row. Signing first means a failed sign writes and audits
+  // NOTHING, so the caller's retry is a clean first attempt.
+  it('a failed sign writes and audits NOTHING — the caller can retry clean', async () => {
     createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
     await expect(mintRecordingUploadUrl({ takeId: UUID })).resolves.toEqual({ error: 'upstream' })
-    expect(create).toHaveBeenCalledTimes(1)
-    expect(auditFn).toHaveBeenCalledTimes(1)
+    expect(create).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
   })
 
   // The emitter is a PRIVATE helper, so CP7's registry-reality cross-check
   // (exported symbols only) can never require the registration — this pin is
-  // what goes red if either entry is dropped. reserveTakeForRecorder is the
-  // symbol the SDK writes live in (CP3's containment rule).
+  // what goes red if either entry is dropped. commitReservation (fix round 6
+  // — the write half of the old reserveTakeForRecorder, split from the
+  // read-only planReservation) is the symbol the SDK writes live in (CP3's
+  // containment rule).
   it('is registered in AUDITED_CORES as the file’s writer', () => {
     expect(AUDITED_CORES).toContainEqual(
       expect.objectContaining({
         file: 'src/lib/recording/mint-take-url.ts',
-        symbols: ['auditTakeNamed', 'reserveTakeForRecorder'],
+        symbols: ['auditTakeNamed', 'commitReservation'],
       }),
     )
   })
@@ -397,10 +402,13 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
 // FIX ROUND 4 — THE RESERVATION. One audio object ↔ one recording row, bound to
 // its recorder BEFORE any bytes exist. Everything here is the fence that makes
 // a client-named key safe to hand a signed upload URL for.
-describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () => {
+// FIX ROUND 6 (I1) reorders the internal writes — sign first, reserve second —
+// but the CALLER-VISIBLE invariant this describe block is named for is
+// unchanged: the function never returns a URL before the row is reserved.
+describe('mintRecordingUploadUrl — the take is bound before the caller ever gets the URL', () => {
   const named = { takeId: UUID, mimeType: 'audio/webm' }
 
-  it('reserves the key on the caller’s own session row, then signs', async () => {
+  it('signs, then reserves — the URL is withheld until the reservation lands', async () => {
     const res = await mintOk({ ...named, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalledWith(SESSION, {
       audio_storage_path: OWN,
@@ -408,13 +416,16 @@ describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () 
     })
     expect(res.recordingSessionId).toBe(SESSION)
     expect(res.path).toBe(OWN)
-    // The binding comes first: the URL is the only way bytes can exist.
-    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
-      createSignedUploadUrl.mock.invocationCallOrder[0],
+    // Fix round 6 (I1): a transient SIGNING failure must not leave a written
+    // row behind for the caller's retry to collide with, so signing now runs
+    // BEFORE the write — the caller just never sees this URL until the write
+    // (checked above) has actually landed.
+    expect(createSignedUploadUrl.mock.invocationCallOrder[0]).toBeLessThan(
+      update.mock.invocationCallOrder[0],
     )
   })
 
-  it('a RETRY of the same take writes nothing and still reports the claim', async () => {
+  it('a RETRY of the same take writes nothing and audits nothing — still reports the claim', async () => {
     get.mockResolvedValue(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
     // The PUT landed last time; storage says the object is there.
     info.mockResolvedValue({ data: { size: 2048 }, error: null })
@@ -422,8 +433,9 @@ describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () 
     expect(update).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
     expect(res.recordingSessionId).toBe(SESSION)
-    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
-    expect(event.detail).toMatchObject({ recording_session_id: SESSION, reserved: false })
+    // Fix round 6 (I3): nothing was written, so nothing is audited — the
+    // 'reserved: false' row for a call that changed nothing is gone.
+    expect(auditFn).not.toHaveBeenCalled()
   })
 
   it('with NO session the mint creates the row, with the caller’s staff and store', async () => {
@@ -470,19 +482,21 @@ describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () 
 
   // H3: the core UNIQUE index is the belt (Anthony addendum) — two rows racing
   // to reserve the same key collapse to one winner, and the loser's 409 is a
-  // real, terminal answer, never the catch-all 'upstream'.
-  it('a core 409 racing to CREATE the row — reserved_elsewhere, never upstream', async () => {
+  // real, terminal answer, never the catch-all 'upstream'. Fix round 6: this
+  // race can only be discovered AT the write, which now runs after signing —
+  // the sign already happened, and its URL is simply never returned.
+  it('a core 409 racing to CREATE the row — reserved_elsewhere, the already-signed URL discarded', async () => {
     create.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }))
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
-    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).toHaveBeenCalled()
   })
 
-  it('a core 409 racing to UPDATE the row — reserved_elsewhere, never upstream', async () => {
+  it('a core 409 racing to UPDATE the row — reserved_elsewhere, the already-signed URL discarded', async () => {
     update.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }))
     await expect(
       mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
     ).resolves.toEqual({ error: 'reserved_elsewhere' })
-    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).toHaveBeenCalled()
   })
 
   it('refuses another staffer’s session — forbidden, nothing bound', async () => {

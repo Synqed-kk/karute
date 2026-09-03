@@ -32,6 +32,14 @@ import {
  * caller and another tenant's audio — the same invariant enqueueRecordingJob
  * and processJob enforce on `audio_path`. Throws on a foreign or
  * non-tenant-scoped key.
+ *
+ * TENANT-ONLY, not row-scoped (fix round 6, I4): this proves the key is one
+ * of THIS BUSINESS's takes, never that it is the CALLING STAFFER's own — any
+ * staffer at the tenant can read or remove any colleague's take through the
+ * two legs below today. Known and temporary: the remove leg goes away
+ * entirely in PR4, and the read leg narrows to the reserving row's own
+ * recorder in the player round.
+ *
  * Minted keys have exactly one shape (see mintRecordingUploadUrl), so the
  * grammar is matched POSITIVELY — kind 'take': own prefix, a lowercase uuid,
  * and one of the closed set of extensions — and anything that is not exactly
@@ -94,9 +102,10 @@ export async function mintRecordingUploadUrl(
 }
 
 /**
- * Mint a signed READ url for a take the caller already uploaded — what the web
- * transcribe route's `audioUrl` carries (its SSRF guard requires exactly this
- * host). Refuses any path outside the caller's own tenant prefix.
+ * Mint a signed READ url for a take in the caller's own business — what the
+ * web transcribe route's `audioUrl` carries (its SSRF guard requires exactly
+ * this host). Refuses any path outside the caller's own tenant prefix
+ * (requireOwnPath is tenant-scoped only — see its docstring).
  */
 export async function mintRecordingReadUrl(path: string): Promise<{ url: string }> {
   await requireCapability('records.write')

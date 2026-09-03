@@ -72,6 +72,7 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.capture_finalized',
+  'recording.capture_unlinked',
   'recording.discard',
   'recording.session_cleanup',
   'recording.take_named',
@@ -164,16 +165,19 @@ export const AUDITED_CORES: {
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
-  // 4). auditTakeNamed is a private helper emitting unconditionally on its one
-  // path; mintTakeUploadUrl conditions the CALL (a server-named take reserves
-  // nothing and files no row) and carries no audit() of its own, so CP7's
-  // registry-reality cross-check (exported symbols only) can never require this
-  // entry — recording-upload-actions.test.ts pins it directly instead.
-  // reserveTakeForRecorder joins it because the mint now WRITES: it binds the
-  // take's key to the recorder's row (recordings.create/.update) before the
-  // upload URL is signed, and every one of its success paths leaves through
-  // auditTakeNamed, so the write can never go unrecorded.
-  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'reserveTakeForRecorder'] },
+  // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
+  // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
+  // server-named take reserves nothing and files no row) and carries no
+  // audit() of its own, so CP7's registry-reality cross-check (exported
+  // symbols only) can never require this entry — recording-upload-actions
+  // .test.ts pins it directly instead.
+  // commitReservation joins it because IT is the write: fix round 6 split the
+  // old reserveTakeForRecorder into a read-only planReservation (the fences +
+  // exists check, never a write) and commitReservation (recordings
+  // .create/.update, run only after a successful sign), and every one of
+  // commitReservation's success paths that actually writes leaves through
+  // auditTakeNamed — the retry path writes and audits nothing, by design (I3).
+  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'commitReservation'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.

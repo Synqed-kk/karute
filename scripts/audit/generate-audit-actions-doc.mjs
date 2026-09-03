@@ -63,6 +63,11 @@ const LITERAL_ONLY_CATEGORY = {
   // Choke emit: src/lib/recording/finalize-take.ts#finalizeTakeWithClient
   // (facade key recordings.finalize is a skip row — same doctrine).
   'recording.capture_finalized': 'recording',
+  // Choke emit: src/lib/recording/finalize-take.ts#finalizeTakeWithClient, the
+  // superseded branch's own action (fix round 6, I2) — a row that moved on to
+  // other audio before this take's finalize landed. capture_finalized above
+  // stays reserved for a call that actually wrote a pointer or a duration.
+  'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
   // (facade key recordings.session.delete is a skip row — same doctrine).

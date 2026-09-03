@@ -17,10 +17,25 @@
 // WHAT CHANGED AGAIN (fix round 4) — BINDING BEFORE BYTES. Naming a take was
 // not enough: a same-tenant staffer who learned a take uuid could finalize a
 // colleague's audio onto a row of their own, and two rows could point at one
-// object. So a CLIENT-NAMED mint now RESERVES the key on the recorder's own
-// session row before it signs anything — it writes audio_storage_path first,
-// and the signed URL (the only way bytes can exist) is handed out second.
-// Finalize then accepts nothing but a key its row already reserved.
+// object. So a CLIENT-NAMED mint RESERVES the key on the recorder's own
+// session row, and the signed URL (the only way bytes can exist) is never
+// handed to the caller until that reservation exists. Finalize then accepts
+// nothing but a key its row already reserved.
+//
+// WHAT CHANGED AGAIN (fix round 6) — SIGN FIRST, RESERVE SECOND. "Reserve
+// before sign" used to mean WRITE the row before calling storage. That made a
+// transient signing failure durable: the row was already created/updated,
+// but the caller got back an error with no session id, so its retry could
+// only start a SECOND reservation — which core's own key correctly refuses
+// (409 → reserved_elsewhere, terminal), stranding the take and orphaning the
+// first row. A signed URL that is never handed out mints no durable state, so
+// signing FIRST costs nothing: the fences and the exists check still run
+// before it (nothing is signed for a key already known to be unreservable),
+// and the actual row write happens only once signing has proven to work —
+// return url + token + contentType + recordingSessionId together, or none of
+// it. The BINDING-BEFORE-BYTES invariant is unchanged: the caller still never
+// sees a URL before its row is reserved, because the function does not return
+// until both have succeeded.
 
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
@@ -97,25 +112,22 @@ const DEFAULT_MIME = 'audio/webm'
 
 /**
  * The ONE row a CLIENT-NAMED mint files (⚖ 8/17 doc law — ids, numbers and
- * flags only; the key is the tenant prefix plus these two fields).
+ * flags only; the key is the tenant prefix plus these two fields). Called
+ * ONLY when this call actually wrote the binding (fix round 6, I3) — a retry
+ * that finds its own reservation already in place writes nothing and files
+ * nothing, so `reserved` is always true when this runs and is no longer a
+ * parameter.
  *
  * It EMITS AND RETURNS (the emitSave idiom, src/actions/karute.ts
  * #createOrUpdateKaruteRecord) so the reservation's every success path is
  * dominated by the emit BY CONSTRUCTION: the reservation is a CORE WRITE now,
- * and a core write must never be silent. That is also why the row is filed at
- * the RESERVATION rather than after the signing — the durable fact is the
- * binding, not the URL, and a sign that fails afterwards leaves a reservation
- * this row already explains.
- *
- * `reserved` says whether THIS call wrote the binding (a first mint) or found
- * it already there (a legitimate retry of the same take).
+ * and a core write must never be silent.
  */
 function auditTakeNamed(
   actor: MintTakeActor,
   takeId: string,
   ext: string,
   recordingSessionId: string,
-  reserved: boolean,
 ): { recordingSessionId: string } {
   audit({
     category: 'recording',
@@ -124,7 +136,7 @@ function auditTakeNamed(
     actorType: 'staff',
     businessId: actor.businessId,
     severity: 'info',
-    detail: { take_id: takeId, ext, recording_session_id: recordingSessionId, reserved },
+    detail: { take_id: takeId, ext, recording_session_id: recordingSessionId, reserved: true },
     requestId: actor.requestId,
     source: actor.source,
   })
@@ -146,10 +158,16 @@ async function objectExists(key: string): Promise<boolean | 'unknown'> {
   return Boolean(data)
 }
 
+type ReservationPlan =
+  | { kind: 'create'; staffId: string }
+  | { kind: 'update'; row: Recording }
+  | { kind: 'retry'; row: Recording }
+
 /**
- * RESERVE this key on the recorder's own session row, before a single byte can
- * exist. Writes `audio_storage_path` (and UPLOADING, unless a job owns the
- * row's status) and returns the row the take is now bound to.
+ * The FENCES and the exists check — everything that can refuse a client-named
+ * take WITHOUT writing anything, so none of it needs a signed URL to run
+ * first. Says what commitReservation must do once signing has actually
+ * worked (fix round 6): reads only, never a write.
  *
  * Refusals, in the order they are asked:
  *  - `forbidden`          nothing to attribute the take to, or another
@@ -162,14 +180,12 @@ async function objectExists(key: string): Promise<boolean | 'unknown'> {
  *  - `reserved_elsewhere` this row is already bound to a DIFFERENT take. One
  *                         row, one object: the client starts a new session.
  */
-async function reserveTakeForRecorder(
+async function planReservation(
   synqed: Core,
   actor: MintTakeActor,
   input: MintTakeUrlInput,
   key: string,
-  ext: string,
-  takeId: string,
-): Promise<{ recordingSessionId: string } | { error: MintErrorCode }> {
+): Promise<ReservationPlan | { error: MintErrorCode }> {
   // A row is attributed to a staffer. No identity, nothing to bind to.
   if (!actor.staffId) return { error: 'forbidden' }
 
@@ -197,10 +213,45 @@ async function reserveTakeForRecorder(
     // No session row — a walk-in, or a record-start mint that never landed.
     // ONE place mints rows now (finalize's own mint branch is gone), so a take
     // carries its recorder and its store from its very first byte.
+    return { kind: 'create', staffId: actor.staffId }
+  }
+  const pointer = row.audio_storage_path
+  if (pointer === null) return { kind: 'update', row }
+  // Bound to another take already. Never repointed here: the displaced object
+  // would keep its bytes and lose its only row.
+  if (pointer !== key) return { error: 'reserved_elsewhere' }
+  // The retry. The binding is already exactly what this call would write.
+  return { kind: 'retry', row }
+}
+
+/**
+ * WRITE the binding — called ONLY after a successful sign (fix round 6): a
+ * signed URL alone commits no durable state, so signing first and reserving
+ * second means a transient signing failure leaves no row behind for the
+ * caller's retry to collide with. A reservation failure AFTER a successful
+ * sign (a race lost here) returns the error and the now-unused signed URL
+ * just expires — nobody was ever handed it.
+ */
+async function commitReservation(
+  synqed: Core,
+  actor: MintTakeActor,
+  plan: ReservationPlan,
+  key: string,
+  takeId: string,
+  ext: string,
+): Promise<{ recordingSessionId: string } | { error: MintErrorCode }> {
+  if (plan.kind === 'retry') {
+    // Nothing to write — and (fix round 6, I3) nothing to audit either: the
+    // binding this call would have made already exists, so there is no write
+    // for a row to attest to.
+    return { recordingSessionId: plan.row.id }
+  }
+
+  if (plan.kind === 'create') {
     let minted: Recording
     try {
       minted = await synqed.recordings.create({
-        staff_id: actor.staffId,
+        staff_id: plan.staffId,
         store_id: actor.storeId,
         customer_id: null,
         audio_storage_path: key,
@@ -214,41 +265,35 @@ async function reserveTakeForRecorder(
       if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
       throw err
     }
-    return auditTakeNamed(actor, takeId, ext, minted.id, true)
+    return auditTakeNamed(actor, takeId, ext, minted.id)
   }
 
-  const pointer = row.audio_storage_path
-  if (pointer === null) {
-    // The reservation itself. Status stays the job's when a job owns the row —
-    // UPLOADING over PROCESSING/COMPLETED would put a live or finished take
-    // back into 要対応 for a key nobody has uploaded yet.
-    const write = isJobOwnedStatus(row.status)
-      ? { audio_storage_path: key }
-      : { audio_storage_path: key, status: 'UPLOADING' as const }
-    try {
-      await synqed.recordings.update(row.id, write)
-    } catch (err) {
-      // Same race, the other row already held: a second reservation cannot win.
-      if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
-      throw err
-    }
-    return auditTakeNamed(actor, takeId, ext, row.id, true)
+  // plan.kind === 'update' — the reservation itself. Status stays the job's
+  // when a job owns the row: UPLOADING over PROCESSING/COMPLETED would put a
+  // live or finished take back into 要対応 for a key nobody has uploaded yet.
+  const { row } = plan
+  const write = isJobOwnedStatus(row.status)
+    ? { audio_storage_path: key }
+    : { audio_storage_path: key, status: 'UPLOADING' as const }
+  try {
+    await synqed.recordings.update(row.id, write)
+  } catch (err) {
+    // Same race, the other row already held: a second reservation cannot win.
+    if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
+    throw err
   }
-  // Bound to another take already. Never repointed here: the displaced object
-  // would keep its bytes and lose its only row.
-  if (pointer !== key) return { error: 'reserved_elsewhere' }
-  // The retry. The binding is already exactly what this call would have
-  // written, so it writes nothing and still reports the claim.
-  return auditTakeNamed(actor, takeId, ext, row.id, false)
+  return auditTakeNamed(actor, takeId, ext, row.id)
 }
+
+type SignedUpload = { path: string; url: string; token: string; contentType: string }
 
 /** The signing leg, shared by both paths. Hands back the FENCED key, never the
  *  upstream echo — `data.path` is Supabase's own report of what it signed, not
- *  a second source of truth to trust. */
+ *  a second source of truth to trust. Carries no `recordingSessionId` — the
+ *  caller attaches it once the reservation (if any) has actually landed. */
 async function signUpload(
   composed: { key: string; ext: string; contentType: string },
-  recordingSessionId: string | null,
-): Promise<MintTakeUrlResult> {
+): Promise<SignedUpload | { error: 'upstream' }> {
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage
     .from('recordings')
@@ -260,7 +305,6 @@ async function signUpload(
     url: data.signedUrl,
     token: data.token,
     contentType: composed.contentType,
-    recordingSessionId,
   }
 }
 
@@ -313,19 +357,38 @@ export async function mintTakeUploadUrl(
     // ignore — never a no-op the caller cannot see: it must resend both or
     // neither.
     if (input.recordingSessionId) return { error: 'bad_input' }
-    return signUpload(composed, null)
+    const signed = await signUpload(composed)
+    if ('error' in signed) return signed
+    return { ...signed, recordingSessionId: null }
   }
 
-  // A CLIENT-NAMED take is bound FIRST — the signed URL below is the only way
-  // bytes can reach this key, so the row must own the key before it exists.
-  let reservation: { recordingSessionId: string } | { error: MintErrorCode }
+  // A CLIENT-NAMED take: the fences and the exists check run first (nothing
+  // is signed for a key already known to be unreservable), THEN it is signed,
+  // THEN — only once signing has actually worked — the binding is written
+  // (fix round 6, I1). See the file header for why this order, not
+  // reserve-then-sign.
+  let plan: ReservationPlan | { error: MintErrorCode }
   try {
-    reservation = await reserveTakeForRecorder(synqed, actor, input, composed.key, composed.ext, takeId)
+    plan = await planReservation(synqed, actor, input, composed.key)
   } catch (err) {
     // Core did not answer. Retryable, and no URL is handed out meanwhile.
-    console.warn('[mint-take-url] reservation failed:', err)
+    console.warn('[mint-take-url] reservation planning failed:', err)
+    return { error: 'upstream' }
+  }
+  if ('error' in plan) return plan
+
+  const signed = await signUpload(composed)
+  if ('error' in signed) return signed
+
+  let reservation: { recordingSessionId: string } | { error: MintErrorCode }
+  try {
+    reservation = await commitReservation(synqed, actor, plan, composed.key, takeId, composed.ext)
+  } catch (err) {
+    // Core did not answer, AFTER a successful sign. Retryable exactly as
+    // before anything was signed; the signed URL below just expires unused.
+    console.warn('[mint-take-url] reservation commit failed:', err)
     return { error: 'upstream' }
   }
   if ('error' in reservation) return reservation
-  return signUpload(composed, reservation.recordingSessionId)
+  return { ...signed, recordingSessionId: reservation.recordingSessionId }
 }

@@ -2459,6 +2459,7 @@
         },
         "recording": {
           "capture_finalized": "録音の音声を保存",
+          "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
           "session_cleanup": "録音を破棄",
           "take_named": "録音のアップロード先を発行",
