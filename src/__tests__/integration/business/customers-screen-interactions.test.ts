@@ -259,6 +259,37 @@ describe('顧客 V2 — the tiles ARE the filters (⚖ §2.2)', () => {
   it('統合確認中 counts as a duplicate candidate — the strip and the tile are one number', () => {
     expect(world.filter(TILE_PREDICATE.merge).map((r) => r.id)).toEqual(['e', 'f'])
   })
+
+  it('the LIST reads the same table the COUNTS do — one predicate, asked twice', () => {
+    // The count and the rows can only agree by construction if the filter goes
+    // through the same map. A second predicate written into `visible` is
+    // invisible to any pin that only checks the predicates themselves.
+    expect(SCREEN_CODE).toContain('all.filter((r) => TILE_PREDICATE[filter](r) && matchesCustomerSearch(r, search))')
+    expect(SCREEN_CODE).toContain('all.filter(TILE_PREDICATE[k]).length')
+  })
+
+  it('⚖-ADJ C — the strip is NOT rendered when there is nothing to triage', () => {
+    expect(SCREEN_CODE).toContain('{candidates.length > 0 && (')
+    expect(SCREEN_CODE).toContain("const candidates = useMemo(() => all.filter((r) => r.merge !== 'none'), [all])")
+  })
+
+  it('⚖-ADJ I — the ultra-wide cap is ONE token on the content column', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/customers/customers.css'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(css).toContain('--cu-maxw: 1416px;')
+    expect(css).toMatch(/\.cu-inner \{[^}]*max-width: var\(--cu-maxw\)/)
+    expect(css).toMatch(/\.cu-inner \{[^}]*margin-inline: auto/)
+  })
+
+  it('表示する列 goes through the SHARED toggle, so the last-column guard cannot be forked', () => {
+    // The guard lives in `column-config.ts` and is unit-tested there; what this
+    // pins is that the room still ASKS it. A hand-written toggle beside it is a
+    // second home for the rule and is invisible to the unit test.
+    expect(SCREEN_CODE).toContain('setShown((was) => toggleColumn(was, c.k))')
+    expect(SCREEN_CODE).not.toMatch(/was\.filter\(\(k\) => k !== c\.k\)/)
+  })
 })
 
 describe('顧客 V2 — the compare table (⚖ §2.6 / ⚖-ADJ F)', () => {
@@ -309,6 +340,12 @@ describe('顧客 V2 — the compare table (⚖ §2.6 / ⚖-ADJ F)', () => {
     expect(at('来店履歴').r.nullWord).toBe('来店記録なし')
     // …and never a vocabulary the rest of the room does not speak.
     expect(left.concat(right).map((f) => f.nullWord)).not.toContain('未収録')
+    // ⚠ EVERY NULLABLE FIELD REALLY REPORTS `null` when its datum is absent.
+    // A field that hands back a FORMATTED null («—») instead would let two
+    // unknowns tag each other 一致, which is the whole point of the branch.
+    const blank = row({ id: 'z', no: 'C-0', name: '見本 ぜろ' })
+    const nulls = compareFields(blank).filter((f) => f.raw === null).map((f) => f.label)
+    expect(nulls).toEqual(['携帯番号', 'メール', '本人確認', '最終来店', '次回予約', '回数券', '預かり残高', '累計支払', '連絡同意', '来店履歴'])
   })
 
   it('the pair is looked up by 顧客番号, never by row id', () => {
@@ -450,7 +487,12 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
   })
 
   it('⚖-ADJ R — the root class and the four-level fences are exactly as ruled', () => {
-    expect(SCREEN_SRC).toContain('<div className="page page-customers">')
+    // ⚠ SCREEN_CODE, NOT SCREEN_SRC — comments are stripped first, so a comment
+    // that happens to quote the root string can never answer for the root
+    // itself. (The battery proved it can: this pin, and the today suite's, both
+    // stayed green with the root renamed because a comment carried the literal.)
+    expect(SCREEN_CODE).toContain('<div className="page page-customers">')
+    expect(SCREEN_CODE).not.toContain('pg-customers')
     expect(CSS_CODE).not.toContain('pg-customers')
     // the retired bare rule is really gone
     expect(CSS_CODE).not.toContain('.biz .page .btn')

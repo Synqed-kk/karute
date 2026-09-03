@@ -519,10 +519,15 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       return
     }
     // ⚠ SCOPED BY THE ROOM'S OWN CLASS RATHER THAN BY A REF ON THE ROOT: three
-    // neighbour pins read `<div className="page page-customers">` as an exact
-    // string out of this file, and an attribute after the class would break the
-    // spelling they name. `page-customers` is a class no sibling states, so the
-    // lookup finds this room and only this room.
+    // neighbour pins read the room's root element as an EXACT STRING out of this
+    // file, and an attribute written after the class would break the spelling
+    // they name. `page-customers` is a class no sibling states, so this lookup
+    // finds this room and only this room.
+    // ⚠⚠ AND THIS COMMENT DELIBERATELY DOES NOT QUOTE THAT STRING. It used to,
+    // and the battery caught what that cost: the neighbour's `toContain` found
+    // the literal HERE, in prose, and went on passing while the real root had
+    // been renamed. A comment that quotes the thing a pin greps for IS the
+    // failure mode those pins are written to prevent.
     const targets = spotTargets(document.querySelector('.page-customers'))
     if (targets.length === 0) {
       setTourIdx(-1)

@@ -1053,8 +1053,16 @@ describe('顧客一覧 screen', () => {
     expect(by('cus-11').category).toBe('new') // さくら — booked today, no completed visit behind her
     expect(by('cus-10').category).toBe('new') // かなで — registered, never booked anywhere
     expect(by('cus-04').category).toBe('vip') // えいた — the one VIP
-    expect(by('cus-11').categoryChip).toBe(CATEGORY_LABEL.new)
-    expect(by('cus-04').categoryChip).toBe(CATEGORY_LABEL.vip)
+    // ⚠ THE LITERAL WORDS, NOT A READ-BACK OF THE SAME CONSTANT. Asserting
+    // `chip === CATEGORY_LABEL.new` moves with the constant, so a second home
+    // for the word (or a rename of it) stays green on both sides — the
+    // self-referential-census lesson, in a different costume. The board ships
+    // these two words; a change to either is a deliberate act, and this is where
+    // it has to be noticed.
+    expect(CATEGORY_LABEL.new).toBe('新規')
+    expect(CATEGORY_LABEL.vip).toBe('VIP')
+    expect(by('cus-11').categoryChip).toBe('新規')
+    expect(by('cus-04').categoryChip).toBe('VIP')
     // …and a 再来 or a 回数券 row carries NO chip: a chip that repeats a column
     // is clutter (the big-tech simplicity law).
     expect(by('cus-01').category).toBe('ticket')
