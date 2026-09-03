@@ -138,6 +138,9 @@ const REFUSALS = {
 const SAMPLE_NOTE =
   '見本データのため、書き出し・保存・設定の変更はできません。実データ接続後に有効になります。'
 
+/** The retired trailing `<p class="footnote">`, verbatim (⚖ §2.10 K). */
+const SOURCE_NOTE = 'どの数値も 売上・レジ の精算記録から導出。'
+
 export interface AnalyticsPropsInput {
   locale: string
   /** The raw `?store=` value. Unknown or missing opens on the operator's own
@@ -749,9 +752,7 @@ export async function analyticsProps({
 
   const props: AnalyticsProps = {
     denied: null,
-    lensLabel,
     dateline: `サンプルデータ ${spanWord}${asOf ? `（${selected.short}${today.d}日時点）` : ''}`,
-    subtitle: SUBTITLE,
     period: {
       label: selected.label,
       prevHref: selected.monthsAgo + 1 < LEDGER_MONTHS && ledger[selected.monthsAgo + 1] ? monthHref(selected.monthsAgo + 1) : null,
@@ -777,33 +778,12 @@ export async function analyticsProps({
     exportLabel: '月次パックを書き出す',
     exportRefusal: REFUSALS.export,
     tiles,
-    target: {
-      periodWord,
-      actual: yen(shown.total),
-      goal: yen(target),
-      pacePercent: pace,
-      paceText: selected.partial
-        ? `目標進捗 ${pace}%・残り${remainingOpenDays}営業日`
-        : `目標進捗 ${pace}%・営業${selectedCoords.openDays.length}日で終了`,
-      trace: '目標は設定で店舗・スタッフ別に変更',
-      settingsHref,
-    },
-    // ⚖ §2.10 K — THE ATTENTION STRIP IS RETIRED, ITS SENTENCES ARE NOT. The
-    // headline, the figures line and the comparison now live in the provenance
-    // panel's 「{月}の扱い」 row and in the head's tour text; the 内訳 rows fold
-    // into tile 3. Nothing here is deleted, it moved.
-    attention: {
-      tone: selected.partial ? 'amber' : 'indigo',
-      headline: stateHeadline,
-      line: `総合売上 ${yen(shown.total)}・新規売上 ${yen(shown.nw)}・新規数 ${shown.newCount}件（${spanWord}${asOf}）。`,
-      comparison,
-      whyRows: [
-        `新規数 ${shown.newCount}件（${spanWord}）`,
-        averageNewTicket === null
-          ? `新規売上の平均単価 — 新規のご来店がまだありません（${spanWord}）`
-          : `新規売上の平均単価 ${yen(averageNewTicket)}（${spanWord}）`,
-      ],
-    },
+    // ⚠ NOTHING ELSE SHIPS. The retired target strip and attention strip were
+    // still ASSEMBLED and serialized here while the screen read neither (L1
+    // B1-4 · L2 B2-6) — and their words are not lost: the headline and the
+    // comparison sentence are the provenance panel's 「{月}の扱い」 row and the
+    // head's tour text, the figures line is tiles 1-3, the 平均単価 row is tile
+    // 3's footer, and the 目標 trace is tile 4's real link (§2.10 K).
     trend: {
       chartSub: `${months[0].label}〜${currentMonth.label}（直近${LEDGER_MONTHS}か月）・総合売上と新規売上の比較`,
       chart,
@@ -839,7 +819,6 @@ export async function analyticsProps({
       rows: tableRows,
       // one は, not two (L2 B2-11): 「…うち9月は9月1日〜3日は暫定値を含む」
       statLabel: `統計（${LEDGER_MONTHS}か月・${currentMonth.short}は1日〜${today.d}日の暫定値を含む）`,
-      statCells: stats.map((s) => `${s.kicker} ${s.value}`),
       stats,
       compositionSub: `${selected.label}（${spanWord}）・メニュー別と予約経路別`,
       menuSegments,
@@ -893,7 +872,10 @@ export async function analyticsProps({
     provenance: {
       barLabel: 'この画面の値の設定元 ・ 見本データについて',
       title: 'この画面の値の設定元',
-      lead: 'この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。',
+      // ⚖ §2.10 K — the trailing `<p class="footnote">`'s own sentence, in its
+      // new home: the panel's lead, where it covers the whole grid rather than
+      // being one hand-written row inside it.
+      lead: `この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。${SOURCE_NOTE}`,
       rows: provRows,
       monthRow: { key: `${selected.short}の扱い`, value: `${stateHeadline}。${comparison}` },
       storeRow: { key: '対象の店舗', value: `${lensLabel}・全指標` },
@@ -915,7 +897,6 @@ export async function analyticsProps({
       ranking: 'スタッフごとの実績です。指標を切り替えると、合計も月別も計算し直します。スタッフ本人の画面には順位は出ません。',
       daily: 'この月の1日ごとの内訳です。「本日」の行は 今日の運営 の当日実績をそのまま読み込んでいます。',
     },
-    footnote: 'どの数値も 売上・レジ の精算記録から導出。',
   }
 
   return { props, storeKey }

@@ -323,12 +323,19 @@ describe('one fixture world', () => {
     expect(figures.newCount + figures.existingCount).toBeLessThanOrEqual(rows.filter(isEarningVisit).length)
   })
 
-  it('the month figure is ONE number: target strip, attention line and the 推移 row all print it', async () => {
+  it('the month figure is ONE number: the tile, the 推移 row and the chart card all print it', async () => {
+    // ⚠ THE SURFACES THIS ASSERTS ARE THE ONES THAT RENDER. It used to route
+    // through the retired target strip and attention strip, which the screen
+    // reads nowhere — so the equality it proved was between two invisible
+    // props (L2 B2-6). The chart card's own month figure is added, because the
+    // hover card was missing from the dictionary's render map (L1 B1-5).
     const p = await room({ store: STORE_A })
-    const fromTarget = yenNumber(p.target!.actual)
+    const tile = yenNumber(p.tiles![0].value)
     const current = p.trend!.rows.find((r) => r.monthsAgo === 0)!
-    expect(yenNumber(current.cells[0])).toBe(fromTarget)
-    expect(p.attention!.line).toContain(p.target!.actual)
+    expect(yenNumber(current.cells[0])).toBe(tile)
+    const card = p.trend!.chartMonths[p.trend!.chartMonths.length - 1]
+    expect(card.partial).toBe(true)
+    expect(yenNumber(card.total)).toBe(tile)
   })
 
   it('the 日報 column sums back to the month figure the rest of the page shows', async () => {
@@ -336,7 +343,7 @@ describe('one fixture world', () => {
     const summed = p.daily!.rows
       .filter((r) => !r.closed)
       .reduce((n, r) => n + yenNumber(r.cells[0]), 0)
-    expect(summed).toBe(yenNumber(p.target!.actual))
+    expect(summed).toBe(yenNumber(p.tiles![0].value))
   })
 
   it('every staff column sums back to the store month — a ranking cannot outgrow its own store', async () => {
@@ -432,7 +439,7 @@ describe('a month in progress is never shown as a finished one', () => {
   it('the current month prints its ELAPSED days, tagged with the day it was read on', async () => {
     const p = await room({ store: STORE_A })
     const plan = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
-    const shown = yenNumber(p.target!.actual)
+    const shown = yenNumber(p.tiles![0].value)
     const d = jstYmd(new Date()).d
     const coords = monthCoords(new Date(), 0, closedWeekday)
     // TWO reasons this could read low — fewer days shown, or today's pin
@@ -442,16 +449,16 @@ describe('a month in progress is never shown as a finished one', () => {
     if (d < coords.daysInMonth) expect(shown).toBeLessThan(plan.total)
     const current = p.trend!.rows.find((r) => r.monthsAgo === 0)!
     expect(current.tag).toContain(`${d}日時点`)
-    expect(p.attention!.headline).toContain('月の途中です')
+    expect(p.provenance!.monthRow.value).toContain('月の途中です')
     expect(p.dateline).toContain(`${d}日`)
   })
 
   it('the comparison is over an EQUAL span, and says so', async () => {
     const p = await room({ store: STORE_A })
     const d = jstYmd(new Date()).d
-    expect(p.attention!.comparison).toContain('同じ経過日数')
-    expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-    expect(p.attention!.comparison).toContain(`1日〜${d}日`)
+    expect(p.provenance!.monthRow.value).toContain('同じ経過日数')
+    expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+    expect(p.provenance!.monthRow.value).toContain(`1日〜${d}日`)
   })
 
   it('the previous month is read over the SAME span, not its whole self', () => {
@@ -470,10 +477,10 @@ describe('a month in progress is never shown as a finished one', () => {
 
   it('a FINISHED month says it is finished, and compares whole month to whole span', async () => {
     const p = await room({ store: STORE_A, month: '-1' })
-    expect(p.attention!.headline).toContain('完了した月です')
+    expect(p.provenance!.monthRow.value).toContain('完了した月です')
     expect(p.trend!.rows.find((r) => r.monthsAgo === 1)!.selected).toBe(true)
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 1)!
-    expect(yenNumber(p.target!.actual)).toBe(row.total)
+    expect(yenNumber(p.tiles![0].value)).toBe(row.total)
   })
 
   /**
@@ -497,23 +504,23 @@ describe('a month in progress is never shown as a finished one', () => {
 
     it('a month IN PROGRESS says equal elapsed days, and denies being a whole-month comparison', async () => {
       const p = await room({ store: STORE_A })
-      expect(p.attention!.comparison).toContain('比較は同じ経過日数どうし')
-      expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-      expect(p.attention!.comparison).toContain('7月1日〜22日')
+      expect(p.provenance!.monthRow.value).toContain('比較は同じ経過日数どうし')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+      expect(p.provenance!.monthRow.value).toContain('7月1日〜22日')
     })
 
     it('a finished month read against a WHOLE previous month says so, and drops the disclaimer', async () => {
       // 7月 (31 days) vs 6月 (30) — the span clamps to June's own length, so
       // both months are read whole and canon's disclaimer would be false.
       const p = await room({ store: STORE_A, month: '-1' })
-      expect(p.attention!.comparison).toContain('月全体どうしの比較です')
-      expect(p.attention!.comparison).not.toContain('ではありません')
-      expect(p.attention!.comparison).not.toContain('同じ経過日数')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較です')
+      expect(p.provenance!.monthRow.value).not.toContain('ではありません')
+      expect(p.provenance!.monthRow.value).not.toContain('同じ経過日数')
       // both months named, and the previous month's whole figure quoted
-      expect(p.attention!.comparison).toContain('7月')
-      expect(p.attention!.comparison).toContain('6月')
+      expect(p.provenance!.monthRow.value).toContain('7月')
+      expect(p.provenance!.monthRow.value).toContain('6月')
       const june = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 2)!
-      expect(p.attention!.comparison).toContain(june.total.toLocaleString('ja-JP'))
+      expect(p.provenance!.monthRow.value).toContain(june.total.toLocaleString('ja-JP'))
     })
 
     /**
@@ -557,10 +564,10 @@ describe('a month in progress is never shown as a finished one', () => {
       // 'finished' either way, which is exactly why `partial` alone is not the
       // test the copy may be keyed on.
       const p = await room({ store: STORE_A, month: '-2' })
-      expect(p.attention!.headline).toContain('完了した月です')
-      expect(p.attention!.comparison).toContain('比較は同じ経過日数どうし')
-      expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-      expect(p.attention!.comparison).toContain('5月1日〜30日')
+      expect(p.provenance!.monthRow.value).toContain('完了した月です')
+      expect(p.provenance!.monthRow.value).toContain('比較は同じ経過日数どうし')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+      expect(p.provenance!.monthRow.value).toContain('5月1日〜30日')
     })
   })
 
@@ -569,9 +576,29 @@ describe('a month in progress is never shown as a finished one', () => {
    * the heading amber while the month is still running — its one visual
    * "careful, this is partial" cue — and the info indigo once it is finished.
    */
-  it('the 注意 strip is amber while the month runs and indigo once it is finished', async () => {
-    expect((await room({ store: STORE_A })).attention!.tone).toBe('amber')
-    expect((await room({ store: STORE_A, month: '-1' })).attention!.tone).toBe('indigo')
+  /**
+   * D-E, RE-EXPRESSED ON WHAT RENDERS. The retired amber/indigo strip carried
+   * the month's state as a COLOUR, and the strip is gone — so the pin moves to
+   * the three surfaces that carry the same state today, rather than to a prop
+   * nothing draws (L2 B2-6). Two of the three are visual (the row's own cream
+   * wash and its 途中 pill ride `partial`; the tile's scope names the span) and
+   * the third is the sentence.
+   */
+  it('the month IN PROGRESS is marked as such on every surface that states it', async () => {
+    const now = await room({ store: STORE_A })
+    const nowRow = now.trend!.rows.find((r) => r.monthsAgo === 0)!
+    expect(nowRow.partial).toBe(true)
+    expect(nowRow.tag).toContain('日時点')
+    expect(nowRow.ticks.every((t) => t.kind === 'na')).toBe(true)
+    expect(now.tiles![0].scope).toContain('1日〜')
+    expect(now.provenance!.monthRow.value).toContain('月の途中です')
+
+    const done = await room({ store: STORE_A, month: '-1' })
+    const doneRow = done.trend!.rows.find((r) => r.monthsAgo === 1)!
+    expect(doneRow.partial).toBe(false)
+    expect(doneRow.tag).toBeNull()
+    expect(done.tiles![0].scope).toContain('全体')
+    expect(done.provenance!.monthRow.value).toContain('完了した月です')
   })
 })
 
@@ -652,10 +679,13 @@ describe('every control does something, or refuses out loud', () => {
     expect(p.ranking!.byMetric.ltv.aggregateLabel).toContain('平均')
   })
 
-  it('the 内訳 rows exist for the 内訳 button to reveal', async () => {
+  it('the 内訳 button has a card to reveal, and the retired why-rows have their new home', async () => {
     const p = await room({ store: STORE_A })
-    expect(p.attention!.whyRows).toHaveLength(2)
-    for (const row of p.attention!.whyRows) expect(row.length).toBeGreaterThan(0)
+    // the button scrolls to the 売上の内訳 card, which needs its two mix blocks
+    expect(p.trend!.menuSegments.length + p.trend!.sourceSegments.length).toBeGreaterThan(0)
+    // …and the panel's two why-rows are tile 3's value and its footer (§2.10 K)
+    expect(p.tiles![2].value).toMatch(/^\d+件$/)
+    expect(p.tiles![2].foot).toContain('平均単価')
   })
 
   it('every bar the hover card can be raised on has a label behind it', async () => {
@@ -730,7 +760,7 @@ describe('store isolation', () => {
       expect(names).not.toContain('見本 あずさ')
       expect(JSON.stringify(b)).not.toContain('テスト銀座店')
       const a = await room({ store: STORE_A })
-      expect(yenNumber(a.target!.actual)).not.toBe(yenNumber(b.target!.actual))
+      expect(yenNumber(a.tiles![0].value)).not.toBe(yenNumber(b.tiles![0].value))
     } finally {
       restore()
     }
@@ -989,10 +1019,10 @@ describe('the first day of a month', () => {
       const p = await room({ store: STORE_A })
       expect(p.daily!.rows).toHaveLength(1)
       expect(p.daily!.rows[0].label).toContain('1日')
-      expect(p.attention!.headline).toContain('1日〜1日')
+      expect(p.provenance!.monthRow.value).toContain('1日〜1日')
       expect(p.dateline).toContain('1日〜1日')
-      expect(p.attention!.comparison).toContain('1日〜1日')
-      expect(yenNumber(p.target!.actual)).toBeGreaterThanOrEqual(0)
+      expect(p.provenance!.monthRow.value).toContain('1日〜1日')
+      expect(yenNumber(p.tiles![0].value)).toBeGreaterThanOrEqual(0)
       // The month in progress is a sliver of its own plan, and says so.
       expect(p.trend!.rows.find((r) => r.monthsAgo === 0)!.tag).toContain('1日時点')
     } finally {
@@ -1008,7 +1038,7 @@ describe('the first day of a month', () => {
       const p = await room({ store: STORE_A })
       expect(p.daily!.rows).toHaveLength(1)
       expect(p.daily!.rows[0].closed).toBe(true)
-      expect(yenNumber(p.target!.actual)).toBe(0)
+      expect(yenNumber(p.tiles![0].value)).toBe(0)
       expect(p.trend!.compositionEmpty).toContain('内訳を表示できません')
       expect(p.trend!.menuSegments).toEqual([])
     } finally {
@@ -1447,7 +1477,6 @@ describe('the decision tiles', () => {
   it("tile 1 is the ONE month figure — the table's row and the 内訳 print the same number", async () => {
     const p = await room({ store: STORE_A })
     const tile = yenNumber(p.tiles![0].value)
-    expect(tile).toBe(yenNumber(p.target!.actual))
     expect(yenNumber(p.trend!.rows.find((r) => r.monthsAgo === 0)!.cells[0])).toBe(tile)
     expect(p.trend!.menuSegments.reduce((n, s) => n + s.amount, 0)).toBe(tile)
   })
@@ -1513,7 +1542,7 @@ describe('the decision tiles', () => {
     expect(land.chip!.text).toContain(numberEntry('landingGap').label)
     expect(land.chip!.text).not.toContain('目標との差')
     // the value is the month's own total, not a projection of it
-    expect(yenNumber(land.value)).toBe(yenNumber(p.target!.actual))
+    expect(yenNumber(land.value)).toBe(yenNumber(p.tiles![0].value))
     // …and no VISIBLE string on the row calls a finished month an estimate.
     // (The tour sentence names 推計 only to deny it — 「推計ではなく実際の」 — so
     // the scan is over what the tile prints, not over its explanation.)
@@ -1553,10 +1582,12 @@ describe('the decision tiles', () => {
 
   it('the ONE truth for 目標: the room reads the plane and links to the room that owns it', async () => {
     const p = await room({ store: STORE_A })
-    expect(yenNumber(p.target!.goal)).toBe(salesTargets[STORE_A])
-    expect(p.tiles![3].scope).toContain(p.target!.goal)
-    expect(p.target!.settingsHref).toContain('/business/settings')
-    expect(p.target!.settingsHref).toContain(`store=${STORE_A}`)
+    // the target reaches the page through the tile's scope and the chart's own
+    // dashed-rule label — the two surfaces that print it — and nowhere else.
+    expect(p.tiles![3].scope).toBe(`${numberEntry('target').label} ¥${salesTargets[STORE_A].toLocaleString('ja-JP')}`)
+    expect(p.trend!.targetLabel).toBe(p.tiles![3].scope)
+    expect(p.tiles![3].link!.href).toContain('/business/settings')
+    expect(p.tiles![3].link!.href).toContain(`store=${STORE_A}`)
   })
 })
 
@@ -1606,7 +1637,6 @@ describe('the 月次内訳 table', () => {
   it('the 統計 row is Σ rows / 平均, and it is what the table prints', async () => {
     const p = await room({ store: STORE_A })
     expect(p.trend!.stats).toHaveLength(11)
-    expect(p.trend!.statCells).toEqual(p.trend!.stats.map((s) => `${s.kicker} ${s.value}`))
     const summed = p.trend!.rows.reduce((n, r) => n + yenNumber(r.cells[0]), 0)
     expect(yenNumber(p.trend!.stats[0].value)).toBe(summed)
     expect(p.trend!.stats[0].kicker).toBe('合計')
@@ -1645,6 +1675,65 @@ describe('the provenance panel', () => {
     expect(p.provenance!.rows.find((r) => r.id === 'collected')!.key).toContain('入金')
   })
 
+  /**
+   * §E — NO PROP SHIPS THAT NOTHING RENDERS (L1 B1-4 · L2 B2-6). Four props
+   * (`target`, `attention`, `subtitle`, `lensLabel`) plus `trend.statCells`
+   * were assembled, serialized and shipped while the screen read none of them
+   * — carrying a retired string beside its own replacement, and in the target-0
+   * world carrying 「目標進捗 0%」, the exact statement tile 4 refuses to make.
+   * Pinned BOTH WAYS, so neither an unread prop nor an undeclared read survives.
+   */
+  it('every key of the serialized payload is read by the screen, and every read is a declared key', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    /** One `export interface X {…}` block, brace-balanced. */
+    const blockOf = (name: string) => {
+      const at = src.indexOf(`export interface ${name} {`)
+      expect(at).toBeGreaterThan(0)
+      let depth = 0
+      for (let i = src.indexOf('{', at); i < src.length; i += 1) {
+        if (src[i] === '{') depth += 1
+        else if (src[i] === '}' && (depth -= 1) === 0) return src.slice(at, i + 1)
+      }
+      throw new Error(`unbalanced ${name}`)
+    }
+    const declared = new Set<string>()
+    for (const name of ['AnalyticsProps', 'TileProps', 'ProvRow']) {
+      for (const m of blockOf(name).matchAll(/^\s{2,}(\w+)\??:/gm)) declared.add(m[1])
+    }
+    expect(declared.has('statCells')).toBe(false)
+    expect(declared.has('attention')).toBe(false)
+    // The render body — everything after the last type declaration.
+    const body = src.slice(src.indexOf('const VIEWS = ['))
+    const unread = [...declared].filter((k) => !new RegExp(`[.{,]\\s*${k}\\b`).test(body))
+    expect(unread).toEqual([])
+    // …and nothing is read that was never declared (a typo'd `props.x` is
+    // `undefined` at runtime and silent).
+    const read = new Set([...body.matchAll(/\bprops\.(\w+)/g)].map((m) => m[1]))
+    expect([...read].filter((k) => !declared.has(k))).toEqual([])
+  })
+
+  /**
+   * §K — NO HAND-WRITTEN PROVENANCE ROW (L2 B2-3). The 「すべての金額」 pair was
+   * JSX sitting FIRST in the grid, at exactly the place §3's pin forbids it —
+   * and invisible to both the suite and the mutant, because both read
+   * `props.provenance.rows`. So this one reads the JSX.
+   */
+  it('no provenance row is hand-written — every key node comes from props', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    const keyNodes = [...src.matchAll(/<div className="an-prov-k">([^<]*)</g)].map((m) => m[1].trim())
+    // four: the generated entries, the month and the store this render was
+    // scoped to, and the 未接続 block — every one of them `{…}` from props.
+    expect(keyNodes).toHaveLength(4)
+    for (const node of keyNodes) expect(node.startsWith('{') && node.endsWith('}')).toBe(true)
+    expect(keyNodes.some((n) => /[ぁ-んァ-ヶ一-龯]/.test(n))).toBe(false)
+  })
+
   it('the six 未接続 numbers are named with what each one needs, and nothing else', async () => {
     const p = await room({ store: STORE_A })
     expect(p.provenance!.unconnected).toHaveLength(6)
@@ -1667,14 +1756,14 @@ describe('the provenance panel', () => {
     const p = await room({ store: STORE_A })
     const panel = JSON.stringify(p.provenance) + JSON.stringify(p.guides)
     // the attention strip's headline and its comparison sentence
-    expect(panel).toContain(p.attention!.headline)
-    expect(panel).toContain(p.attention!.comparison)
+    expect(panel).toContain(p.provenance!.monthRow.value)
+    expect(panel).toContain(p.provenance!.monthRow.value)
     // the target strip's trace, now a real link
     expect(p.tiles![3].link!.label).toBe('設定で変更')
     // the 内訳 panel's 平均単価 row, now tile 3's footer
     expect(p.tiles![2].foot).toContain('平均単価')
-    // the trailing footnote paragraph, now the first provenance row's value
-    expect(p.footnote).toBe('どの数値も 売上・レジ の精算記録から導出。')
+    // the trailing footnote paragraph, now the panel's own lead (§K)
+    expect(p.provenance!.lead).toContain('どの数値も 売上・レジ の精算記録から導出。')
     // the chart's own reading paragraph, now behind 12か月の説明を読む
     expect(p.trend!.reading.length).toBeGreaterThan(40)
   })

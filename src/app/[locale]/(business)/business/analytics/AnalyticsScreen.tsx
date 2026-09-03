@@ -108,11 +108,18 @@ export interface ProvRow {
   value: string
 }
 
+/**
+ * THE SERIALIZED PAYLOAD, AND NOTHING BESIDE IT (L1 B1-4 · L2 B2-6). Every key
+ * below is READ by the render — the suite pins that both ways. A prop the
+ * screen does not read still crosses the wire, still carries words (the
+ * retired 「目標は設定で店舗・スタッフ別に変更」 trace shipped beside its own
+ * replacement), and still invites a surface to start rendering a figure the
+ * page refuses to state — the target-0 world's dead payload said 「目標進捗 0%」
+ * while tile 4 correctly said 目標が未設定です.
+ */
 export interface AnalyticsProps {
   denied: { title: string; message: string; backLabel: string; backHref: string } | null
-  lensLabel?: string
   dateline?: string
-  subtitle?: string
   period?: {
     label: string
     prevHref: string | null
@@ -124,16 +131,6 @@ export interface AnalyticsProps {
   exportLabel?: string
   exportRefusal?: string
   tiles?: TileProps[]
-  target?: {
-    periodWord: string
-    actual: string
-    goal: string
-    pacePercent: number
-    paceText: string
-    trace: string
-    settingsHref: string
-  }
-  attention?: { tone: 'amber' | 'indigo'; headline: string; line: string; comparison: string; whyRows: string[] }
   trend?: {
     chartSub: string
     chart: ChartModel
@@ -167,7 +164,6 @@ export interface AnalyticsProps {
       ticks: Array<{ kind: DeltaKind; text: string }>
     }>
     statLabel: string
-    statCells: string[]
     stats: Array<{ kicker: string; value: string }>
     compositionSub: string
     menuSegments: CompSegment[]
@@ -210,7 +206,6 @@ export interface AnalyticsProps {
     sample: string
   }
   guides?: Record<string, string>
-  footnote?: string
 }
 
 const VIEWS = [
@@ -1316,9 +1311,13 @@ export function AnalyticsScreen(props: AnalyticsProps) {
               <div className="an-fn-body">
                 <h4>{provenance.title}</h4>
                 <p className="an-lead">{provenance.lead}</p>
+                {/* ⚖ §3 — EVERY ROW IS GENERATED. The 「すべての金額」 pair was
+                    hand-written JSX sitting first in this grid, which is the one
+                    shape the pin forbids and the one neither the suite nor the
+                    mutant could see (L2 B2-3). Its sentence is the panel's lead
+                    now; the grid is entries, then the month and store the render
+                    was scoped to, both of them props. */}
                 <div className="an-prov">
-                  <div className="an-prov-k">すべての金額</div>
-                  <div className="an-prov-v">{props.footnote}</div>
                   {provenance.rows.map((r) => (
                     <Fragment key={r.id}>
                       <div className="an-prov-k">{r.key}</div>
