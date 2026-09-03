@@ -348,6 +348,18 @@ describe('the feed — canon’s rules, as pure functions', () => {
     expect(evidenceLineOf({ collection: 'karuteRecords', id: 'K-0011' }, ixA)).toBeNull()
   })
 
+  it('⚖ the door’s WORDS come from LIVE_SEGMENTS and nowhere else — one label per room, uniform on every card', () => {
+    // The allowlist is not only WHICH rooms a card may point at; it is what the
+    // button SAYS. A label composed anywhere else would let two cards pointing
+    // at one room offer two different doors — and would let a segment with no
+    // entry render a button reading its own machine name.
+    for (const c of [...buildFeed(suggestionPlane, WORLD_A), ...buildFeed(suggestionPlane, WORLD_B)]) {
+      expect({ id: c.id, label: c.linkLabel }).toEqual({ id: c.id, label: LIVE_SEGMENTS[c.segment] })
+      expect({ id: c.id, machine: c.linkLabel === c.segment }).toEqual({ id: c.id, machine: false })
+      expect({ id: c.id, opens: c.linkLabel.endsWith('を開く') }).toEqual({ id: c.id, opens: true })
+    }
+  })
+
   it('a suggestion pointed at a room that is not live never becomes a card', () => {
     const bad: FixtureSuggestion[] = [
       { ...suggestionPlane[0], id: 'sug-dead', deepLink: 'coaching' },

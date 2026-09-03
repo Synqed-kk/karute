@@ -607,6 +607,26 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     expect(phone).toMatch(/\.ak-rail-hd \{[^}]*min-height: 44px/)
   })
 
+  it('⚖ ULTRA-WIDE — ONE width token, and every section of the page is on it', () => {
+    // ⚖ Liam 9/2's own law, and the accepted mock's own number. The cap is a
+    // TOKEN so the head, the trust row, the work row and the footnote can never
+    // drift onto four different pairs of edges — and it is stated again on each
+    // of them as the backstop, which is the 録音 room's v5-2 shape.
+    expect(CSS_CODE).toMatch(/--ak-maxw: 1416px;/)
+    const capped = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*max-width: var\(--ak-maxw\)[^}]*\}/g)]
+      .flatMap((m) => m[1].trim().split(',').map((x) => x.trim().split('\n').pop()!.trim()))
+    expect(capped.sort()).toEqual([
+      '.biz .pg-ask-ai .ak-footnote',
+      '.biz .pg-ask-ai .ak-head',
+      '.biz .pg-ask-ai .ak-page',
+      '.biz .pg-ask-ai .ak-profile',
+      '.biz .pg-ask-ai .ak-trust',
+      '.biz .pg-ask-ai .ak-workspace',
+    ])
+    // …and the cap CENTRES rather than pinning to an edge.
+    expect(CSS_CODE).toMatch(/\.ak-page \{[\s\S]{0,120}margin-inline: auto/)
+  })
+
   it('⚖ the composer is NOT sticky — it rides the page flow at every width', () => {
     expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
     expect(CSS_CODE).not.toMatch(/position:\s*fixed[^}]*bottom:\s*0/)
