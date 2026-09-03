@@ -46,8 +46,14 @@
    ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): the page scrolls and NOTHING ELSE
    does. There is no `max-height`, no `overflow-y` and no `overscroll-behavior`
    anywhere in this sheet — the mock's own `.scrollarea` is MOCK-ONLY (⚖-ADJ E).
-   Three containers own a HORIZONTAL axis and only that: the tile strip and the
-   chart strip below the phone rung, and the two side tables' `.an-table-scroll`.
+   Four containers own a HORIZONTAL axis and only that: the tile strip, the
+   range strip and the chart strip below the phone rung, and the two side
+   tables' `.an-table-scroll`. Each one SAYS SO with `overflow-y: hidden`,
+   because `overflow-x: auto` on its own computes `overflow-y: auto` — none of
+   them scrolls vertically today (measured, including the tile strip at 440 with
+   the 計算式 expander open), but the shape is one content change away from
+   being a nested vertical scroller, which is what the law forbids. Every
+   `overflow-y` in this sheet is `hidden`, and each exists to REMOVE an axis.
 
    ⚖ THE LADDER IS KEYED TO THE **PAGE**, NOT TO THE VIEWPORT (⚖-ADJ H). The
    shell's rail is 264px at ≥1024 with the sidebar open and 76px everywhere
@@ -59,8 +65,16 @@
    the page's outer padding, the ≥44px touch floor and the shell's topbar
    height. The mock's `≤1279 / ≤1149 / ≤899` VIEWPORT bands are its design
    intent; the container numbers below are that intent measured on this shell
-   (the mock's own content widths at those viewports were 1035 / 905 / 880, and
-   the third is lowered to 799 so an iPad-portrait page keeps a real table).
+   (the mock's own content widths at those viewports were 1035 / 905 / 880).
+
+   ⚠ WHAT THE THIRD RUNG'S 799 ACTUALLY BUYS, MEASURED (L4 B4-2). It was
+   commented as「so an iPad-portrait page keeps a real table」and that was not
+   true at the width it named: at a 768 viewport the page box is 692 but the
+   CONTAINER is 656 — the page's own 18px side padding is inside it — so 768
+   renders month cards at 799 and would have at 880 too. What the lowering buys
+   is a real table at containers 800–905, which is viewports ~912–1017. 768 is
+   cards, exactly as the accepted mock is at 768 (its sidebar becomes a drawer
+   at ≤899). The behaviour was right; the reason written beside it was not.
 
    ⚠ CONTAINMENT IS SAFE ON `.an-view`, AND IT WAS CHECKED. `container-type:
    inline-size` implies `contain: layout`, which makes an element the containing
@@ -527,7 +541,7 @@
 .biz .pg-analytics .an-rank-empty { margin: 14px; color: var(--an-ink-4); font-size: 13px; line-height: 1.6; }
 /* A surface's OWN container may pan horizontally (⚖ PAGE-SCROLL) — these two
    tables are wide by nature and their sticky name columns are the roster law. */
-.biz .pg-analytics .an-table-scroll { overflow-x: auto; }
+.biz .pg-analytics .an-table-scroll { overflow-x: auto; overflow-y: hidden; }
 .biz .pg-analytics .an-rank-table, .biz .pg-analytics .an-daily-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
 .biz .pg-analytics .an-rank-table th, .biz .pg-analytics .an-daily-table th { padding: 9px 10px; border-bottom: 1px solid var(--an-line-soft); color: var(--an-ink-4); font-size: 11.5px; font-weight: 700; text-align: right; white-space: nowrap; background: #fff; }
 .biz .pg-analytics .an-rank-table td, .biz .pg-analytics .an-daily-table td { padding: 10px; border-bottom: 1px solid var(--an-line-soft); color: var(--an-ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -672,11 +686,11 @@
   .biz .pg-analytics .an-titlerow .an-sp { display: none; }
   .biz .pg-analytics .an-mnav { order: 2; }
   .biz .pg-analytics .an-btn-out { order: 3; }
-  .biz .pg-analytics .an-seg { order: 4; flex: 1 1 100%; display: flex; overflow-x: auto; scrollbar-width: none; }
+  .biz .pg-analytics .an-seg { order: 4; flex: 1 1 100%; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .biz .pg-analytics .an-seg-btn { flex: 0 0 auto; }
 
   /* the tile strip — a CONTENT strip that pans, never the page */
-  .biz .pg-analytics .an-kpirow { display: flex; grid-template-columns: none; gap: 8px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; padding-bottom: 2px; }
+  .biz .pg-analytics .an-kpirow { display: flex; grid-template-columns: none; gap: 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity; padding-bottom: 2px; }
   /* 184px keeps a slice of the next tile visible even at 440 — without the peek
      the strip reads as「there are only two numbers」and 着地見込み is never found */
   .biz .pg-analytics .an-tile { flex: 0 0 184px; scroll-snap-align: start; padding: 8px 11px 9px; }
@@ -693,9 +707,10 @@
   /* the chart keeps its legibility by taking its own horizontal strip rather
      than shrinking 12 months into 5px labels */
   /* ⚠ ONE AXIS, AND IT HAS TO BE SAID. `overflow-x: auto` alone computes
-     `overflow-y: auto`, which makes this strip a NESTED VERTICAL SCROLLER — the
-     exact thing the ⚖ page-scroll law forbids, and the probe caught it. This is
-     the ONLY `overflow-y` in the sheet and it exists to REMOVE a scroller. */
+     `overflow-y: auto`, which makes a strip a NESTED VERTICAL SCROLLER — the
+     exact thing the ⚖ page-scroll law forbids, and the probe caught this one
+     doing it. Every `overflow-y` in the sheet is `hidden` and every one of them
+     exists to REMOVE an axis rather than to add one. */
   .biz .pg-analytics .an-chart-body { overflow-x: auto; overflow-y: hidden; padding: 0 10px 4px; }
   .biz .pg-analytics .an-chart-plot { min-width: 860px; }
   .biz .pg-analytics .an-chart-hd { padding: 9px 11px 5px; }

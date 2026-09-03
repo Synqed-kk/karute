@@ -1156,17 +1156,20 @@ describe('analytics.css', () => {
     const body = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(body).not.toMatch(/max-height\s*:/)
     expect(body).not.toMatch(/overscroll-behavior/)
-    // ⚠ THE ONE `overflow-y` IN THE SHEET EXISTS TO REMOVE A SCROLLER, not to
-    // add one: `overflow-x: auto` alone computes `overflow-y: auto`, which made
+    // ⚠ EVERY `overflow-y` IN THE SHEET EXISTS TO REMOVE AN AXIS, never to add
+    // one: `overflow-x: auto` on its own computes `overflow-y: auto`, which made
     // the chart strip a nested vertical scroller (found by the probe, not
-    // theorised). It is `hidden`, and it is the only one.
+    // theorised) and left the same latent shape on three siblings (L4 B4-6).
     const overflowY = [...body.matchAll(/overflow-y\s*:\s*([a-z]+)/g)].map((m) => m[1])
-    expect(overflowY).toEqual(['hidden'])
-    // the horizontal panners are named, and they are the only ones
-    const panners = [...body.matchAll(/([^{}]+)\{[^}]*overflow-x\s*:\s*auto/g)].map((m) => m[1].trim())
-    expect(panners.length).toBeGreaterThan(0)
-    for (const p of panners) {
-      expect(p).toMatch(/an-kpirow|an-chart-body|an-table-scroll|an-seg\b/)
+    expect(overflowY.length).toBeGreaterThan(0)
+    expect(new Set(overflowY)).toEqual(new Set(['hidden']))
+    // …and EVERY horizontal panner states it, so the sheet cannot grow a
+    // vertical scroller by having content overflow one of them.
+    const panners = [...body.matchAll(/([^{}]+)\{([^}]*overflow-x\s*:\s*auto[^}]*)\}/g)]
+    expect(panners.length).toBe(4)
+    for (const [, sel, decls] of panners) {
+      expect(sel.trim()).toMatch(/an-kpirow|an-chart-body|an-table-scroll|an-seg\b/)
+      expect([sel.trim(), /overflow-y\s*:\s*hidden/.test(decls)]).toEqual([sel.trim(), true])
     }
   })
 
