@@ -80,7 +80,10 @@
    room's own probe. */
 
 /* ── the fence: the shared names this room still states, at FOUR levels ────── */
-.biz .page.page-customers { padding: 16px 28px 40px; }
+/* ⚠ THE SIDE PADDING IS NOT HERE. It lives on `.cu-inner`, INSIDE the room's
+   container, so the container's own inline size is the PAGE width the ladder is
+   written against rather than a padded content box ~40px narrower (⚖-ADJ H). */
+.biz .page.page-customers { padding: 16px 0 40px; }
 .biz .page.page-customers h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
 .biz .page.page-customers .btn { font-weight: 500; }
 .biz .page.page-customers .btn.primary { font-weight: 600; }
@@ -134,7 +137,11 @@
      (1680 − 264 rail). Every width up to 1680 is untouched and 1920 / 2560
      simply gain symmetric side margins. */
   --cu-maxw: 1416px;
-  --cu-insp: clamp(348px, 26vw, 480px);
+  /* ⚠ CONTAINER UNITS, NOT `vw` (MEASURED). `26vw` made the inspector a
+     function of the VIEWPORT, so the same PAGE width gave two different widths
+     in the two rail states — the exact thing ⚖-ADJ H forbids. `cqi` is 1% of
+     the room's own container, which IS the page width. */
+  --cu-insp: clamp(348px, 26cqi, 480px);
 
   font-size: 13px;
   line-height: 1.55;
@@ -147,12 +154,14 @@
    toast and the four tour layers are all SIBLINGS of this box at the room root,
    and the inspector's own fixed sheet exists only in the band where the
    containment is lifted (see the phone block at the foot of this sheet). */
-.biz .page-customers .cu-view {
-  container-type: inline-size;
-  container-name: cupage;
+.biz .page-customers .cu-view { container-type: inline-size; container-name: cupage; width: 100%; }
+/* ⚖-ADJ I · the 1416 cap and the page's own side padding, INSIDE the container
+   so neither can shift the number the ladder reads. */
+.biz .page-customers .cu-inner {
   width: 100%;
   max-width: var(--cu-maxw);
   margin-inline: auto;
+  padding-inline: 28px;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -214,8 +223,11 @@
 }
 
 /* ── 2. the stat tiles ARE the filters ───────────────────────────────────── */
+/* `min-width: 0` is what keeps the phone band's chip strip from sizing itself
+   to its own content and taking the page sideways with it (MEASURED: 47px of
+   page h-scroll at 440, 97px at 390). */
 .biz .page-customers .cu-tiles {
-  position: relative; flex: 0 0 auto;
+  position: relative; flex: 0 0 auto; min-width: 0;
   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;
 }
 .biz .page-customers .cu-tile-thumb {
@@ -260,10 +272,14 @@
   border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-lg);
   background: #fffdfd; box-shadow: var(--cu-shadow-1);
 }
-.biz .page-customers .cu-tstrip { display: flex; align-items: center; gap: 9px; }
+/* ⚠ IT WRAPS AT EVERY WIDTH. The mock clips the strip with `overflow: hidden`,
+   which this room may not do: the pills are CONTROLS, and a clipped control is
+   one a reader cannot reach (and a clipped focus ring is not a ring). MEASURED:
+   nowrap pushed the page 119px sideways at 1680 and 18px at 744. */
+.biz .page-customers .cu-tstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 9px; min-width: 0; }
 .biz .page-customers .cu-ttl { color: var(--cu-red); font-size: 13px; font-weight: 700; white-space: nowrap; }
 .biz .page-customers .cu-hint { display: none; color: var(--cu-ink-4); font-size: 11px; white-space: nowrap; }
-.biz .page-customers .cu-dpills { display: flex; gap: 7px; }
+.biz .page-customers .cu-dpills { display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; }
 .biz .page-customers .cu-dpill {
   display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   min-height: 26px; padding: 3px 4px 3px 9px;
@@ -314,7 +330,7 @@
 }
 .biz .page-customers .cu-searchbox:focus-within { border-color: var(--cu-blue-line); box-shadow: 0 0 0 3px rgba(37, 99, 235, .10); }
 .biz .page-customers .cu-searchbox svg { flex: 0 0 14px; color: var(--cu-ink-4); }
-.biz .page-customers .cu-searchbox input { width: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--cu-ink); }
+.biz .page-customers .cu-searchbox input { width: 100%; height: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--cu-ink); }
 .biz .page-customers .cu-searchbox input::placeholder { color: var(--cu-ink-4); }
 
 /* THE HEADER PARKS UNDER THE SHELL'S OWN STICKY BAR, so a reader scrolling a
@@ -615,7 +631,11 @@
 
 /* ── page ≤1015 (mock's ≤1279 viewport): the side surfaces give way first ── */
 @container cupage (max-width: 1015px) {
-  .biz .page-customers { --cu-insp: clamp(292px, 24vw, 348px); }
+  /* ⚠ ON `.cu-inner`, NOT ON THE PAGE ROOT. A `@container` rule can only match a
+     DESCENDANT of its container, and the page root is the container's PARENT —
+     the rule written there never fired at all, and the inspector never narrowed
+     (MEASURED: the probe's ladder read caught it). */
+  .biz .page-customers .cu-inner { --cu-insp: clamp(292px, 24cqi, 348px); }
   .biz .page-customers .cu-drawer { width: 100%; }
 }
 
@@ -641,11 +661,11 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (min-width: 1400px) {
-  .biz .page.page-customers { padding-left: 32px; padding-right: 32px; }
+  .biz .page-customers .cu-inner { padding-inline: 32px; }
 }
 
 @media (max-width: 1320px) {
-  .biz .page.page-customers { padding-left: 20px; padding-right: 20px; }
+  .biz .page-customers .cu-inner { padding-inline: 20px; }
 }
 
 /* The shell's topbar tightens to a 56px floor at ≤743, so the sticky list header
@@ -662,15 +682,15 @@
      one. No container query is left to answer in this band, so nothing is lost. */
   .biz .page-customers .cu-view { container-type: normal; }
 
-  .biz .page.page-customers { padding: 12px 12px 32px; }
-  .biz .page-customers .cu-view { gap: 8px; }
+  .biz .page.page-customers { padding: 12px 0 32px; }
+  .biz .page-customers .cu-inner { padding-inline: 12px; gap: 8px; }
   .biz .page-customers .cu-eyebrow, .biz .page-customers .cu-subtitle { display: none; }
 
   /* the tiles become a chip strip — the band's ONE horizontal panner besides the
      compare table, and the PAGE never pans (⚖ ALL-SCREEN) */
   .biz .page-customers .cu-tiles { display: flex; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; gap: 7px; }
   .biz .page-customers .cu-tiles::-webkit-scrollbar { height: 0; }
-  .biz .page-customers .cu-tile { flex: 0 0 auto; flex-direction: row; align-items: baseline; gap: 6px; min-height: 44px; padding: 6px 14px; border-radius: 999px; }
+  .biz .page-customers .cu-tile { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; }
   .biz .page-customers .cu-tile-thumb { border-radius: 999px; }
   .biz .page-customers .cu-tile-k { font-size: 11.5px; }
   .biz .page-customers .cu-tile-v { font-size: 15px; }
@@ -679,10 +699,10 @@
   .biz .page-customers .cu-triage { padding: 8px 11px; }
   .biz .page-customers .cu-tstrip .cu-sp { display: none; }
   .biz .page-customers .cu-dpills { flex-direction: column; width: 100%; gap: 6px; }
-  .biz .page-customers .cu-dpill { width: 100%; min-height: 44px; padding: 5px 5px 5px 11px; }
+  .biz .page-customers .cu-dpill { width: 100%; padding: 5px 5px 5px 11px; }
   .biz .page-customers .cu-dpill-n { font-size: 12.5px; }
   .biz .page-customers .cu-dpill-m { display: inline; }
-  .biz .page-customers .cu-go { min-height: 30px; display: inline-flex; align-items: center; margin-left: auto; }
+  .biz .page-customers .cu-go { margin-left: auto; }
 
   /* the row becomes a two-row card: the name line stays, 回数券・残高 folds under */
   .biz .page-customers .cu-thead { display: none; }
@@ -702,12 +722,20 @@
   /* the inspector becomes a full-page sheet on its own spring */
   .biz .page-customers .cu-insp {
     position: fixed; inset: 0; z-index: 66; margin: 0;
+    /* ⚠ `align-self` GOES BACK TO `auto`, AND THAT LINE IS LOAD-BEARING. It is a
+       GRID-LAYOUT property the desk column needs, and Chromium applies it to a
+       fixed box's own resolution too: with `align-self: start` still in force,
+       `inset: 0` stopped sizing the sheet and it took its CONTENT height
+       instead — 1022px inside an 844px viewport, MEASURED, bisected property by
+       property. A layout property must not survive into a layout that no longer
+       has that layout in it. */
+    align-self: auto;
     border: 0; border-radius: 0; box-shadow: var(--cu-shadow-4);
     transform: translateY(100%); will-change: transform; pointer-events: none;
   }
   .biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; }
   .biz .page-customers .cu-insp-hd { padding: 12px 52px 10px 13px; }
-  .biz .page-customers .cu-insp-close { display: grid; place-items: center; width: 44px; height: 44px; top: 8px; right: 8px; }
+  .biz .page-customers .cu-insp-close { display: grid; place-items: center; width: 44px; top: 8px; right: 8px; }
 
   /* the compare drawer becomes a full-page sheet, its two columns STACKED, and
      every value names the record it belongs to */
@@ -722,20 +750,30 @@
   .biz .page-customers .cu-cl::before { content: attr(data-who); display: block; color: var(--cu-ink-4); font-size: 9.5px; font-weight: 700; letter-spacing: .02em; margin-bottom: 1px; }
   .biz .page-customers .cu-dw-ft { flex-wrap: wrap; row-gap: 8px; padding: 10px 13px; }
   .biz .page-customers .cu-note { flex: 1 0 100%; }
-  .biz .page-customers .cu-dw-ft .cu-btn { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+  .biz .page-customers .cu-dw-ft .cu-btn { flex: 1 1 auto; justify-content: center; }
 
   .biz .page-customers .cu-toast { left: 12px; right: 12px; max-width: none; transform: translate(0, 10px); border-radius: 14px; }
   .biz .page-customers .cu-toast.is-on { transform: translate(0, 0); }
 
-  /* the ≥44px touch floor, on every pressable this band renders */
+}
+
+/* ── ⚖ ALL-SCREEN · the ≥44px touch floor, and it belongs to the DEVICE ─────
+   ≤743 is the shell's own phone band (its topbar tightens there), and a finger
+   is the same size at 743 as it is at 390 — so the floor starts where the device
+   does, not where this room's phone LAYOUT does. MEASURED at 743/440/390 over
+   every pressable the room renders, in the state it renders it. */
+@media (max-width: 743px) {
   .biz .page-customers .cu-btn, .biz .page-customers .cu-qbtn,
   .biz .page-customers .cu-dw-close, .biz .page-customers .cu-own-toggle,
   .biz .page-customers .cu-fn-bar, .biz .page-customers .cu-dupebox-act,
-  .biz .page-customers .cu-party-row, .biz .page-customers .cu-spot-foot button { min-height: 44px; }
+  .biz .page-customers .cu-party-row, .biz .page-customers .cu-spot-foot button,
+  .biz .page-customers .cu-dpill, .biz .page-customers .cu-tile,
+  .biz .page-customers .cu-insp-close, .biz .page-customers .close,
+  .biz .page-customers .cu-cols-opt { min-height: 44px; }
   .biz .page-customers .cu-help { width: 44px; height: 44px; flex: 0 0 44px; }
   .biz .page-customers .cu-linklike { min-height: 44px; display: inline-flex; align-items: center; }
   .biz .page-customers .cu-searchbox { height: 44px; }
-  .biz .page-customers .cu-cols-opt { min-height: 44px; }
+  .biz .page-customers .cu-go { min-height: 30px; display: inline-flex; align-items: center; }
 }
 
 /* ── page ≤375 (mock's ≤639): the menu name leaves the row, and it survives in

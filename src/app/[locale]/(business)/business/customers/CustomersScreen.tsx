@@ -185,6 +185,41 @@ export function dupeReason(r: CustomerRow): string {
   return r.phone ? `同じ電話番号 ${r.phone} で候補になりました` : '同じ電話番号で候補になりました'
 }
 
+/**
+ * ⚠ THE CARD MUST NEVER COVER THE REGION IT IS EXPLAINING, and `spotCardAt`
+ * alone cannot promise that: a section TALLER than the viewport (this room's
+ * list card at a phone width) leaves no room below it, none above it and none
+ * beside it, so the engine's last resort lands the card on top of its own
+ * target. MEASURED at 440: the card sat over 顧客一覧 and over the inspector.
+ *
+ * The rule is the recording room's own (`keepCardOffHeading`, recording.ts:1133)
+ * and this is a second copy of it, deliberately: the room's fence forbids
+ * reaching into a sibling room's lib, and `guide.ts` is frozen this round. Its
+ * right home is `guide.ts` beside `spotCardAt` — a one-function move, named in
+ * the report so it is a decision rather than a duplicate nobody logged.
+ *
+ * A section's heading lives in its first rows, so 64px is the zone that must
+ * stay clear; when the card would sit over it, the card goes to whichever
+ * viewport edge has more room.
+ */
+const HEADING_ZONE = 64
+function keepCardOffTarget(
+  at: { top: number; left: number },
+  card: { width: number; height: number },
+  target: SpotRect,
+  viewport: { width: number; height: number },
+): { top: number; left: number } {
+  const zoneTop = target.top
+  const zoneBottom = target.top + Math.min(HEADING_ZONE, target.height)
+  const overlapsX = at.left < target.left + target.width && at.left + card.width > target.left
+  const overlapsHeading = at.top < zoneBottom && at.top + card.height > zoneTop
+  if (!overlapsX || !overlapsHeading) return at
+  const zoneMid = (zoneTop + zoneBottom) / 2
+  const room = { top: zoneMid, bottom: viewport.height - zoneMid }
+  const top = room.bottom >= room.top ? viewport.height - card.height - 10 : 10
+  return { top: Math.max(10, top), left: at.left }
+}
+
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect => ({
   left: r.left,
   top: r.top,
@@ -506,7 +541,7 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     const card = tourCardRef.current
     const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 170 }
     const viewport = { width: window.innerWidth, height: window.innerHeight }
-    const at = spotCardAt(boxOf(r), size, viewport)
+    const at = keepCardOffTarget(spotCardAt(boxOf(r), size, viewport), size, boxOf(r), viewport)
     const next = { hole: { left: r.left - 5, top: r.top - 5, width: r.width + 10, height: r.height + 10 }, ...at }
     setTourPos((was) => (was && samePos(was, next) ? was : next))
   }, [tourIdx, tourTick, tourStep])
@@ -675,7 +710,14 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
 
   return (
     <div className="page page-customers">
+      {/* ⚠ TWO WRAPPERS, AND THE SPLIT IS LOAD-BEARING (⚖-ADJ H). `cu-view` is
+          the ROOM'S CONTAINER and carries no padding and no cap, so its inline
+          size IS the page width the ladder is written against — a container that
+          measured its own padded content box would answer every threshold ~40px
+          early, which is exactly the class of defect HARNESS-GEOMETRY exists to
+          catch. `cu-inner` holds the 1416 cap and the page's own side padding. */}
       <div className="cu-view">
+        <div className="cu-inner">
         {/* ⚖ ONE COMPACT TITLE ROW (Liam F-1「kill the dead space」). The head
             declares itself like every other section, so the walk opens on what
             this page is FOR before it starts pointing at parts of it. */}
@@ -1034,6 +1076,7 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
               </div>
             </div>
           </div>
+        </div>
         </div>
       </div>
 
