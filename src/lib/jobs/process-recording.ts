@@ -23,6 +23,7 @@ import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -74,7 +75,10 @@ async function processJob(job: RecordingJob): Promise<string> {
   // `app_${businessId}_*` object the upload-url facade minted for THIS tenant;
   // both the facade route and the web action enforce the same shape up front,
   // and this is the invariant that holds even if a future caller forgets to.
-  if (!payload.audio_path.startsWith(`app_${job.business_id}_`)) {
+  // The re-check runs the SHARED grammar (2026-09-03), not its own prefix twin:
+  // same intent, stronger — a prefix alone accepted a separator, a traversal
+  // body or a segment fragment, and this worker only ever means a whole take.
+  if (!isOwnRecordingKey(payload.audio_path, job.business_id)) {
     throw new Error('audio_path does not belong to this job’s business')
   }
 
@@ -220,7 +224,9 @@ async function processJob(job: RecordingJob): Promise<string> {
   })
 
   // 5. Audio lifecycle: job complete → delete, exactly like the interactive
-  // flow. Best-effort — a leftover object is cleaned by the daily sweep.
+  // flow. Best-effort — a leftover object is only REPORTED by the daily sweep
+  // (audio is never deleted, 2026-09-03); the retention round removes this
+  // delete entirely.
   await supabase.storage.from('recordings').remove([payload.audio_path]).catch(() => {})
 
   return record
