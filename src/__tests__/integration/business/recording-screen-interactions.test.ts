@@ -621,6 +621,23 @@ describe('fix1 — ⚖ LONG CONTENT IS NEVER CRUNCHED, on the narrowest door too
     expect(SRC_CODE).toContain('className="rc-b2" title={`${c.menuName} ・ ${c.slotHint}`}')
   })
 
+  it('F-fix1-1 — the staffer’s name is ONE unbreakable span, and ONLY the name', () => {
+    // the props hand the line over in PARTS, so the guard can ride the name
+    // rather than the sentence
+    expect(SRC_CODE).toContain('last: { dateLabel: string; menuName: string; staffName: string } | null')
+    expect(SRC_CODE).toContain('<span className="rc-name">{current.brief.last.staffName}</span>')
+    expect(CSS_CODE).toContain('.biz .pg-recording .rc-name { white-space: nowrap; }')
+    // ⚠ THE BLAST RADIUS IS THE POINT. `.rc-bv` keeps `overflow-wrap: anywhere`
+    // and gains NO `keep-all`, so every other Japanese sentence in the panel —
+    // the summary and the reservation memo included — breaks where it did.
+    const bv = CSS_CODE.slice(CSS_CODE.indexOf('.biz .pg-recording .rc-bv {'))
+    const body = bv.slice(0, bv.indexOf('}'))
+    expect(body).toContain('overflow-wrap: anywhere')
+    expect(body).not.toContain('keep-all')
+    // …and the clamped line still carries its hover recovery, off the SAME parts
+    expect(SRC_CODE).toContain('title={`${current.brief.last.dateLabel} ・ ${current.brief.last.menuName} ・ 担当 ${current.brief.last.staffName}`}')
+  })
+
   it('the two long-content bands are ASCENDING and asked of the right box', () => {
     // ⚠ NOT A PAGE BAND. The hero and the picker are narrow in two unrelated
     // layouts — the phone's one column AND the 548–919 two-up cockpit, where the

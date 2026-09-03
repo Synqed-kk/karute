@@ -175,7 +175,9 @@ export interface RecordingContextProps {
    *  recommended focus, the reservation memo) are absent here on purpose —
    *  registry ⑪, named on the card rather than invented. */
   brief: {
-    lastLine: string | null
+    /** 前回のご来店, IN PARTS — the screen prints the staffer's name inside its
+     *  own `.rc-name` span so a wrap can never land mid-name (F-fix1-1). */
+    last: { dateLabel: string; menuName: string; staffName: string } | null
     visitsTag: string
     lastKaruteLabel: string | null
     records: Array<{ id: string; dateLabel: string; title: string }>
@@ -1382,10 +1384,20 @@ export function RecordingScreen(props: RecordingProps) {
                       <div className="rc-bcol">
                         <div className="rc-bsec is-blue">
                           <span className="rc-bk"><Icon name="calendar" size={12} />前回のご来店</span>
-                          {current.brief.lastLine === null ? (
+                          {current.brief.last === null ? (
                             <div className="rc-bempty">まだご来店の記録がありません。<br />この店舗では初めてのご来店です。</div>
                           ) : (
-                            <div className="rc-bv rc-clamp-2" title={current.brief.lastLine}>{current.brief.lastLine}</div>
+                            /* ⚠ ONLY THE NAME IS GUARDED. The date and the menu
+                               keep every break opportunity they had; the
+                               staffer's name is the one run that must not be
+                               split (F-fix1-1). */
+                            <div
+                              className="rc-bv rc-clamp-2"
+                              title={`${current.brief.last.dateLabel} ・ ${current.brief.last.menuName} ・ 担当 ${current.brief.last.staffName}`}
+                            >
+                              {current.brief.last.dateLabel} ・ {current.brief.last.menuName} ・ 担当{' '}
+                              <span className="rc-name">{current.brief.last.staffName}</span>
+                            </div>
                           )}
                           <div className="rc-brow">
                             <span className="rc-tag is-grey">{current.brief.visitsTag}</span>

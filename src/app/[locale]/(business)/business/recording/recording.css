@@ -335,6 +335,14 @@
    (CJK breaks anywhere). The カルテ room's F-K4 lesson, applied to every
    free-text surface in this room from day one. */
 .biz .pg-recording .rc-num { font-variant-numeric: tabular-nums; }
+/* ⚠ A PERSON'S NAME IS ONE WORD — AND ONLY THE NAME CARRIES THIS. Japanese
+   breaks between characters, so the briefing's 前回のご来店 line wrapped as
+   「担当 見 / 本 あずさ」 at 440, which reads as a typo rather than as a wrap
+   (F-fix1-1, the hero's own R6-43 defect one card over). The guard rides the
+   NAME's own span: `word-break: keep-all` on `.rc-bv` would have moved the
+   break points of every Japanese sentence in the panel — the summary and the
+   reservation memo included — to fix one line. */
+.biz .pg-recording .rc-name { white-space: nowrap; }
 
 /* ── ⚖ W7-3 · THE RECOVERY RESIDUE ────────────────────────────────────────── */
 /* RecoveryBanner.tsx:112's own card: amber wash, ONE solid commit button, and a

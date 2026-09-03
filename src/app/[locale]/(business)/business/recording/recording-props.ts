@@ -335,10 +335,20 @@ export async function recordingProps({
         // ⚠ 前回のご来店 IS A SENTENCE ABOUT A SESSION THAT HAPPENED, so a
         // customer with none gets the mock's own empty copy rather than a line
         // with holes in it.
-        lastLine:
+        // ⚠ …AND IT ARRIVES IN PARTS, so the screen can keep the staffer's NAME
+        // unbreakable without telling every other Japanese sentence in the panel
+        // where to break (F-fix1-1: at 440 this wrapped 「担当 見 / 本 あずさ」,
+        // which reads as a typo rather than as a wrap — the hero's own R6-43
+        // defect, one card over). `keep-all` on `.rc-bv` would have moved the
+        // break points of the summary and the reservation memo with it.
+        last:
           facts.last === null
             ? null
-            : `${fmtDayLong.format(dayOf(facts.last.dayKey))} ・ ${facts.last.menuName} ・ 担当 ${facts.last.staffName}`,
+            : {
+                dateLabel: fmtDayLong.format(dayOf(facts.last.dayKey)),
+                menuName: facts.last.menuName,
+                staffName: facts.last.staffName,
+              },
         visitsTag: facts.visitsBefore === 0 ? '初めてのご来店' : `ご来店 ${facts.visitsBefore + 1}回目`,
         lastKaruteLabel: facts.last?.recordId ?? null,
         records: shown.map((r) => ({
