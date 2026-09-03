@@ -99,11 +99,23 @@ export interface RecordingPipelinePort {
    * reply is lost. Keyed off the take, the retries collapse onto one row.
    * (Thin only: the web arm is a server action, which carries no key — noted at
    * its implementation.)
+   *
+   * ⚖ EVERY SESSION IS BORN RESERVED (fix round 8, the client half of PR2 fix
+   * round 10). `mimeType` is the container the recorder negotiated, and naming
+   * it TOGETHER WITH the take is what lets the door compose this take's
+   * finalized key server-side and create the row already pointing at it. One
+   * atomic create, so there is no unbound window for two client-named mints to
+   * race in, and the mint that follows only ever answers "already ours".
+   *
+   * BOTH OR NEITHER, by the door's schema: half the pair is a validation 400.
+   * Omitted → today's create, byte for byte (that is what a take with no uuid
+   * to name, or no negotiated container, still gets).
    */
   startSession(input: {
     customerId: string | null
     appointmentId: string | null
     takeId: string
+    mimeType?: string
   }): Promise<{ id: string } | null>
   /**
    * Mint the signed upload URL for THIS take's finalized key (capture pipeline
@@ -222,19 +234,28 @@ export const webRecordingPort: RecordingPipelinePort = {
     // NO cleanup — the worker deletes the object on success.
     return { path }
   },
-  async startSession({ customerId, appointmentId }) {
+  async startSession({ customerId, appointmentId, takeId, mimeType }) {
     // The recorder's own start-mint door, reached exactly as it reaches it
     // (global-recorder.ts imports this action directly). Lazy for the same
     // reason finalizeTake below is: @/actions/recordings reaches
     // @synqed-kk/client, which jest cannot parse.
     //
-    // `takeId` is DROPPED here, not forwarded: a server action has no
-    // Idempotency-Key header to carry it (the action's own signature has no
-    // such field either), so the retry-collapses-onto-one-row property is the
-    // phone's. The web arm keeps the orphan-row degradation core already
-    // accepts for this door (packet-10 fact 3).
+    // `takeId` alone is still DROPPED: as an IDEMPOTENCY anchor it is the
+    // phone's, because a server action has no Idempotency-Key header to carry
+    // it. The web arm keeps the orphan-row degradation core already accepts for
+    // this door (packet-10 fact 3).
+    //
+    // With a container beside it, though, the pair is not an anchor — it is
+    // what the door composes this take's key from (fix round 8), so both go,
+    // and this arm is born reserved exactly like the phone's.
     const { startRecordingSession } = await import('@/actions/recordings')
-    return startRecordingSession({ customerId, appointmentId })
+    // Assembled as a value, not an object literal at the call site: the action
+    // learns the optional pair in PR2 fix round 10, and until that lands a
+    // literal would be an excess-property error against its current signature
+    // (the action ignores what it does not know, which is the transitional
+    // shape this whole round is built around).
+    const args = { customerId, appointmentId, ...(mimeType ? { takeId, mimeType } : {}) }
+    return startRecordingSession(args)
   },
   async mintTakeUrl(takeId, mimeType, recordingSessionId) {
     const { mintRecordingUploadUrl } = await uploadActions()

@@ -22,6 +22,10 @@ import { setDataPort } from '@/lib/ports/data-port'
 import { TERMINAL_SECURE_ERRORS } from '@/lib/karute/take-store'
 
 import { viteRecordingPort } from '../../../thin/ports/recording.vite'
+// The recorder's OWN start-mint reaches the same door by the other route: it
+// calls @/actions/recordings, which the thin build aliases to the actions port.
+// Two doors, one invariant — so both are pinned here (fix round 8).
+import { startRecordingSession } from '../../../thin/ports/actions.vite'
 
 const FINALIZE = {
   takeId: '11111111-2222-4333-8444-555555555555',
@@ -107,6 +111,83 @@ describe('thin recording port — startSession', () => {
     expect(keys[0]).toBe(keys[1])
     expect(keys[0]).toContain(FINALIZE.takeId)
     expect(keys[2]).not.toBe(keys[0])
+  })
+
+  // ── ⚖ BORN RESERVED (fix round 8) ────────────────────────────────────────
+  // With the container beside the take, the door composes this take's finalized
+  // key AT CREATE — the row is never unbound, so two client-named mints have no
+  // window to race in and the mint that follows only answers "already ours".
+  it('names the take and its container, so the row is born pointing at the key', async () => {
+    let seen: RequestInit | undefined
+    const apiFetch = port(async (_path: string, init?: RequestInit) => {
+      seen = init
+      return new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await expect(
+      viteRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(seen?.body as string)).toEqual({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: FINALIZE.takeId,
+      mimeType: FINALIZE.mimeType,
+    })
+  })
+
+  // TRANSITIONAL (fix round 8). The pair is refused wholesale by a server that
+  // predates it — the door's schema is strict — and a capture that lost its row
+  // over a field the server has never heard of would be a regression. So: one
+  // step back, to the body the door has always taken, under the same key.
+  it('a door that does not know the pair is asked ONCE more without it', async () => {
+    const bodies: unknown[] = []
+    const keys: string[] = []
+    const apiFetch = port(async (_path: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(init?.body as string))
+      keys.push((init?.headers as Record<string, string>)['idempotency-key'])
+      return bodies.length === 1
+        ? new Response(errorBody('validation'), { status: 400 })
+        : new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await expect(
+      viteRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(bodies[1]).toEqual({ customerId: 'cust-1', appointmentId: null })
+    // The same key both times: the step back must land on the row the first
+    // call would have made, never a second one.
+    expect(keys[1]).toBe(keys[0])
+  })
+
+  // …and ONLY on the 400. Any other refusal is the door being unable to answer
+  // right now, which is a retryable 'session' — asking again inside one call
+  // would just double the traffic of an outage.
+  it('never steps back on a status that is not the door refusing the fields', async () => {
+    const apiFetch = port(async () => new Response(errorBody('upstream_unavailable'), { status: 500 }))
+
+    await expect(
+      viteRecordingPort.startSession({
+        customerId: null,
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      }),
+    ).resolves.toBeNull()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
   // FAIL-OPEN, exactly like the web action: every one of these is a moment in
@@ -314,5 +395,72 @@ describe('thin recording port — finalizeTake', () => {
     await expect(viteRecordingPort.finalizeTake(FINALIZE)).resolves.toEqual({
       error: 'failed',
     })
+  })
+})
+
+// ── The recorder's own start-mint, on the same door (fix round 8) ────────────
+// global-recorder calls @/actions/recordings#startRecordingSession directly,
+// which on the phone IS this port — so the born-reserved invariant has to hold
+// on both routes or the very first session of every recording is born unbound.
+describe('thin actions port — the recorder start-mint reserves at create too', () => {
+  it('sends the take and its container with the customer', async () => {
+    let seen: RequestInit | undefined
+    const apiFetch = port(async (path: string, init?: RequestInit) => {
+      seen = init
+      expect(path).toBe('/api/app/v1/recordings/session')
+      return new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await expect(
+      startRecordingSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(seen?.body as string)).toEqual({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: FINALIZE.takeId,
+      mimeType: FINALIZE.mimeType,
+    })
+  })
+
+  it('steps back ONCE to the body an older server knows, and still mints', async () => {
+    const bodies: unknown[] = []
+    const apiFetch = port(async (_path: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(init?.body as string))
+      return bodies.length === 1
+        ? new Response(errorBody('validation'), { status: 400 })
+        : new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await expect(
+      startRecordingSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(bodies[1]).toEqual({ customerId: 'cust-1', appointmentId: null })
+  })
+
+  // BOTH OR NEITHER — half a pair is a validation 400 by the door's schema, so
+  // a take with no uuid to name (or no negotiated container) never sends one.
+  it('sends neither when only one of the two is known', async () => {
+    let seen: RequestInit | undefined
+    port(async (_path: string, init?: RequestInit) => {
+      seen = init
+      return new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await startRecordingSession({ customerId: 'cust-1', takeId: FINALIZE.takeId })
+    expect(JSON.parse(seen?.body as string)).toEqual({ customerId: 'cust-1' })
   })
 })

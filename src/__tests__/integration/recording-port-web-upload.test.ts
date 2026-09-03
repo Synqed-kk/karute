@@ -218,6 +218,28 @@ describe('webRecordingPort.startSession', () => {
     })
   })
 
+  // …unless a CONTAINER comes with it (fix round 8), which changes what the
+  // pair is: not an idempotency anchor the action has no header for, but the
+  // two facts the door composes this take's finalized key from. Then both go,
+  // and the web arm's row is born reserved exactly like the phone's.
+  it('forwards the take AND its container when the recorder named both', async () => {
+    await expect(
+      webRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: 'take-uuid-1',
+        mimeType: 'audio/mp4',
+      }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(startRecordingSessionAction).toHaveBeenCalledWith({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: 'take-uuid-1',
+      mimeType: 'audio/mp4',
+    })
+  })
+
   // The action's own FAIL-OPEN contract, passed through untouched: capture must
   // never block on the mint, so an unresolvable staff / SDK failure is null.
   it('a null from the action stays a null — the take is retried, not failed forever', async () => {

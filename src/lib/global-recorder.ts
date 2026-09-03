@@ -287,6 +287,23 @@ class GlobalRecorder {
      *  capture null. Passed explicitly by the review-path retry, whose take is
      *  held by the pipeline rather than by this singleton. */
     stampTakeId?: string | null
+    /** ⚖ THE ROW IS BORN RESERVED (fix round 8, the client half of PR2 fix
+     *  round 10). The take this row is for and the container the recorder
+     *  negotiated, sent TO THE DOOR so it composes this take's finalized key
+     *  and creates the row already pointing at it — one atomic create, no
+     *  unbound window for two client-named mints to race in.
+     *
+     *  Deliberately NOT `stampTakeId`: this pair is what the door is told,
+     *  while that one decides which take a resolution stamps. start() passes
+     *  this one and not that one, because the mint still fires before the take
+     *  exists as far as every other caller is concerned (retryRecordingSession-
+     *  Mint's in-flight sharing reads that field, and start()'s mint is not
+     *  its to share).
+     *
+     *  BOTH OR NEITHER — the door's schema refuses half a pair — so a take with
+     *  no uuid to name (the composed fallback id below) or no negotiated
+     *  container simply gets today's create. */
+    reserve?: { takeId: string; mimeType: string } | null
   }): Promise<string | null> {
     const gen = ++this.recordingSessionGen
     this.recordingSessionMintInFlight = true
@@ -294,10 +311,17 @@ class GlobalRecorder {
     // ponytail: never cleared once start() creates its take — the retry then
     // just mints fresh instead of sharing, which is the safe side of the trade.
     this.recordingSessionMintTakeUnknown = input.stampTakeId == null && this.takeId !== null
-    const promise = startRecordingSession({
+    // Assembled as a value, not an object literal at the call site: the action
+    // learns the optional pair in PR2 fix round 10, and until that lands a
+    // literal would be an excess-property error against its current signature.
+    // The phone's door (thin/ports/actions.vite.ts) already reads them, and
+    // steps back once if the server it is talking to does not.
+    const args = {
       customerId: input.customerId,
       appointmentId: input.appointmentId,
-    }).then((res) => {
+      ...(input.reserve ?? {}),
+    }
+    const promise = startRecordingSession(args).then((res) => {
       // Stale mint (user discarded / started a new recording while this was
       // in flight): drop it — its row belongs to a different take/customer.
       // The flag is NOT cleared here: it belongs to whichever mint owns the
@@ -329,6 +353,21 @@ class GlobalRecorder {
     this.target = opts?.target ?? null
     this.recordingSessionId = null
 
+    // ⚖ BORN RESERVED (fix round 8) — both facts the door composes this take's
+    // finalized key from are knowable BEFORE the mic: the id is ours to name,
+    // and the container is a static capability probe (isTypeSupported needs no
+    // permission and no stream). So they are settled here, ahead of the mint,
+    // and used again below where they always were — the take is created at the
+    // same moment it always was, this only names it earlier.
+    //
+    // A take id is a uuid or it is nothing the server will sign for: the key
+    // grammar (composeTakeKey) refuses anything else, so the composed fallback
+    // id is NEVER sent — it would be a 400 on every start. Same for a browser
+    // that negotiated no container: half a pair is refused, so neither goes.
+    const uuid =
+      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null
+    const mimeType = getSupportedMimeType()
+
     // Mint the recording-session id (synqed-core) IN PARALLEL with getUserMedia
     // below — a network call must NEVER block or delay the mic prompt. Held so
     // handleUseRecording can await it briefly at save time; a slow/failed mint
@@ -336,6 +375,7 @@ class GlobalRecorder {
     void this.mintRecordingSession({
       customerId: this.target?.customerId ?? null,
       appointmentId: this.target?.appointmentId ?? null,
+      reserve: uuid && mimeType ? { takeId: uuid, mimeType } : null,
     })
 
     let micStream: MediaStream
@@ -351,7 +391,6 @@ class GlobalRecorder {
     }
 
     this.stream = micStream
-    const mimeType = getSupportedMimeType()
     // Voice-optimized bitrate. The browser default (~128 kbps) makes a 60-90 min
     // session ~80-90 MB, which blows past Supabase Storage's per-bucket limit
     // (50 MB on Free) — the upload fails with "object exceeded the maximum allowed
@@ -438,9 +477,9 @@ class GlobalRecorder {
     // mount. The fallback still exists because crash RECOVERY (this store's
     // original job) does not care about the shape, so a browser with no
     // randomUUID keeps its durability; the take is simply born terminal for the
-    // secure path (`no_uuid`, in secure-take's TERMINAL set).
-    const uuid =
-      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null
+    // secure path (`no_uuid`, in secure-take's TERMINAL set). `uuid` itself is
+    // minted at the top of start(), because the session mint is told the id it
+    // is reserving for (fix round 8) — this take IS that one.
     const takeId = uuid ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
     this.takeId = takeId
     this.persistDisabled = false
@@ -531,7 +570,8 @@ class GlobalRecorder {
     // this line is. Read before anything is issued; the store's own owner gate
     // answers null for a take that is gone or another staffer's, which falls
     // through to the mint.
-    const stamped = (await readTakeSecureMeta(takeId))?.recordingSessionId
+    const meta = await readTakeSecureMeta(takeId)
+    const stamped = meta?.recordingSessionId
     if (stamped) {
       // …and when the take is the one this singleton is holding, that id IS the
       // recorder's session. Leaving the field null would make the very next
@@ -556,6 +596,15 @@ class GlobalRecorder {
         customerId: opts?.customerId ?? this.target?.customerId ?? null,
         appointmentId: opts?.appointmentId ?? this.target?.appointmentId ?? null,
         stampTakeId: takeId,
+        // …and this row is born reserved too (fix round 8): the take already
+        // knows its container, and a row minted here is the SAME row the take's
+        // audio will land on. `no_uuid` is the store's own verdict that this
+        // take id can never be signed for (stamped at creation, and terminal —
+        // nothing overwrites it), so the pair is not offered for one.
+        reserve:
+          meta?.mimeType && meta.secureError !== 'no_uuid'
+            ? { takeId, mimeType: meta.mimeType }
+            : null,
       })
     const timeout = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), opts?.timeoutMs ?? MINT_AWAIT_MS),

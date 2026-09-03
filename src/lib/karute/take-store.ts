@@ -293,21 +293,20 @@ export async function appendTakeSegment(
 }
 
 /** Stamp the server-minted recording_sessions id once the mint resolves.
- *  Best-effort; no-op if the take is gone. */
+ *  Best-effort; no-op if the take is gone.
+ *
+ *  OWNER-GATED like every other write here (fix round 8 — it was the one stamp
+ *  that never was, though the shared body below already claimed it). This one
+ *  carries a take id from the SAME places the others do — a late mint
+ *  resolution, a drain — and a shared salon device signs one staffer out and
+ *  the next one in, so without the gate a stale resolution could point a
+ *  colleague's take at a row minted for someone else's recording: the audio
+ *  finalizes against one row and the karute is read beside another. */
 export async function stampTakeSession(
   takeId: string,
   recordingSessionId: string,
 ): Promise<void> {
-  try {
-    const db = await openDb()
-    if (!db) return
-    const tx = db.transaction(TAKES, 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta) return
-    await req(tx.objectStore(TAKES).put({ ...meta, recordingSessionId }))
-  } catch (err) {
-    console.error('[take-store] stampTakeSession failed:', err)
-  }
+  await patchTakeMeta(takeId, { recordingSessionId })
 }
 
 /** Merge fields into a take's meta row — the body stampTakeSession above and

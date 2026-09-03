@@ -163,6 +163,12 @@ export async function secureTake(
         // The idempotency anchor (fix round 7) — one row per take, however many
         // times a lost reply sends us back here.
         takeId,
+        // …and, with the container beside it, what the door composes this
+        // take's finalized key from (fix round 8): the row this drain mints is
+        // born pointing at the very key the mint below is about to ask for, so
+        // there is no unbound window between the two calls. Same container the
+        // mint is given, never a second reading of it.
+        mimeType,
       })
       if (!started) {
         // RETRYABLE. The door fails OPEN by contract — an unresolvable staff, a

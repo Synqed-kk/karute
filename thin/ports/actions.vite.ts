@@ -748,13 +748,35 @@ async function facadeSaveKaruteInline(
   return { error: body?.error?.message ?? `Save failed (${res.status})` }
 }
 
-async function facadeStartRecordingSession(input: {
+async function facadeStartRecordingSession({
+  takeId,
+  mimeType,
+  ...input
+}: {
   customerId?: string | null
   appointmentId?: string | null
+  /** ⚖ BORN RESERVED (capture pipeline PR3 fix round 8). The recorder knows
+   *  both at start(), and naming them together is what lets the door compose
+   *  this take's finalized key AT CREATE — so the row is never unbound and the
+   *  mint that follows answers "already ours". Both or neither: half the pair
+   *  is a validation 400. */
+  takeId?: string
+  mimeType?: string
 }): Promise<{ id: string } | null> {
+  const reserve = takeId && mimeType ? { takeId, mimeType } : null
   // Fail-OPEN: capture must NEVER block on the mint (web action contract).
   try {
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', idemPost(input))
+    let res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/session',
+      idemPost(reserve ? { ...input, ...reserve } : input),
+    )
+    // TRANSITIONAL step back, the twin of the one in thin/ports/recording.vite.ts
+    // (see its comment): a server that predates the pair refuses the whole body,
+    // and a capture that lost its row over a field the server has never heard of
+    // would be a regression. ONCE, only on the door's 400, and both go together.
+    if (reserve && res.status === 400) {
+      res = await getDataPort().apiFetch('/api/app/v1/recordings/session', idemPost(input))
+    }
     if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as { id?: string | null } | null
     return body?.id ? { id: body.id } : null

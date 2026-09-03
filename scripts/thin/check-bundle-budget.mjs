@@ -311,7 +311,31 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,785 B, equal
 // to the release-way figure above. CI's printed figure is no longer light;
 // treat it as the real one.
-const BUDGET_BYTES = 2_024_000
+// RAISED 2026-09-04 for the capture pipeline's client half (PR3 — secure-at-
+// stop + session-first + born-reserved), ⚖ decision D: 2,024,000 → 2,032,000.
+// This is a FEATURE raise, not a method correction — the method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist).
+//
+// What is in the phone for the bytes: the audio is now safe the moment 停止 is
+// tapped rather than at 録音を使用 — the take is finalized against a key the
+// server composes, its row is minted through the one session door when the
+// start-mint never landed, every refusal comes back NAMED so a terminal one is
+// never re-uploaded, and this round makes the row born reserved (the start-mint
+// carries the take + container, with one step back for a server that predates
+// the pair).
+//
+// Measured at this round's tip, the release way: en 129,756 · index 958,227 ·
+// vendor 937,082 = 2,025,065 B — 1,065 B over the 2,024,000 ceiling, which is
+// the breach this raise answers. The last release-way figure recorded on main
+// is 2,018,785 B (965500a4, 2026-09-02), so the whole PR3 stack costs the phone
+// +6,280 B. The new ceiling leaves 6,935 B of headroom, which is the room PR5's
+// launch drain (~3.7 KB) needs plus the usual thin margin.
+//
+// Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
+// this line with one revert. The SCRIPT still gates — it runs in CI and exits
+// non-zero against whatever ceiling stands here.
+const BUDGET_BYTES = 2_032_000
 
 let dir
 try {

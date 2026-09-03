@@ -141,9 +141,9 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // Effectful row mint → the route REQUIRES an Idempotency-Key. FAIL-OPEN like
   // the recorder's: every failure is null, and secure-take reads that as a
   // retryable 'session'.
-  async startSession({ takeId, ...input }) {
-    try {
-      const res = await doorFetch('/api/app/v1/recordings/session', {
+  async startSession({ takeId, mimeType, ...input }) {
+    const post = (body: unknown) =>
+      doorFetch('/api/app/v1/recordings/session', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -151,11 +151,27 @@ export const viteRecordingPort: RecordingPipelinePort = {
           // is retried by design — a dead socket on the way BACK is
           // indistinguishable from one on the way out, so a fresh key per
           // attempt leaves core a new orphan row every time a reply is lost.
-          // One take owns one row, so the take id is the key.
+          // One take owns one row, so the take id is the key — and the step
+          // back below re-sends under the SAME key, so it lands on the same row.
           'idempotency-key': `session-${takeId}`,
         },
-        body: JSON.stringify(input),
+        body: JSON.stringify(body),
       })
+    try {
+      // ⚖ BORN RESERVED (fix round 8): the take and its container travel
+      // together so the door composes this take's finalized key AT CREATE —
+      // the row is never unbound, and the mint that follows answers "already
+      // ours". Both or neither: half the pair is a validation 400.
+      let res = mimeType ? await post({ ...input, takeId, mimeType }) : await post(input)
+      // TRANSITIONAL, and the only reason this is not one call: a server that
+      // predates the pair refuses the whole body (the door's schema is strict),
+      // and a capture that lost its row over a field the server has never heard
+      // of would be a regression. Step back to today's body ONCE — never a
+      // loop, and never on any other status: 400 is the door saying it does not
+      // know these fields. Delete with the fallback in the actions port's
+      // facadeStartRecordingSession (the twin the recorder's own start-mint
+      // reaches) once every deployed server takes the pair.
+      if (mimeType && res.status === 400) res = await post(input)
       if (!res.ok) return null
       const body = (await res.json().catch(() => null)) as { id?: string | null } | null
       return body?.id ? { id: body.id } : null

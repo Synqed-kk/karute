@@ -25,10 +25,13 @@ jest.mock('@/lib/supabase/client', () => ({
 }))
 
 const mockStartRecordingSession = jest.fn(
-  async (): Promise<{ id: string } | null> => null,
+  async (_input?: unknown): Promise<{ id: string } | null> => null,
 )
+// The ARGUMENTS reach the mock (fix round 8): what the start-mint names is now
+// what the door composes this take's key from, so a dropped field is a row born
+// unbound — invisible if the door is called with nothing to inspect.
 jest.mock('@/actions/recordings', () => ({
-  startRecordingSession: () => mockStartRecordingSession(),
+  startRecordingSession: (input: unknown) => mockStartRecordingSession(input),
 }))
 
 // ── Minimal IndexedDB shim ──────────────────────────────────────────────────
@@ -475,19 +478,35 @@ describe('take durability — owner gate (store layer)', () => {
     await stampTakeDuration(takeId, 999)
     await markTakeSecureError(takeId, 'forbidden')
     await markTakeFinalized(takeId)
+    // …the session stamp included (fix round 8): it was the one write here that
+    // never carried the gate, and it is the one that decides which core row a
+    // take's audio finalizes against — pointed at a colleague's mint, the audio
+    // lands on one row and the karute is read beside another.
+    await stampTakeSession(takeId, 'sess-someone-else')
     mockUid = null
     await markTakeSecureError(takeId, 'network')
+    await stampTakeSession(takeId, 'sess-nobody')
 
     mockUid = 'staff-A'
     const meta = takes().get(JSON.stringify(takeId)) as {
       durationMs?: number
       secureError?: string
       finalizedAt?: number
+      recordingSessionId?: string | null
     }
     // The owner's own measurement, untouched — and no code, no false 'secured'.
     expect(meta.durationMs).toBe(5_000)
     expect(meta.secureError).toBeUndefined()
     expect(meta.finalizedAt).toBeUndefined()
+    expect(meta.recordingSessionId).toBeNull()
+
+    // …and the gate is what refused, not an unwritable row: the owner's own
+    // stamp still lands.
+    await stampTakeSession(takeId, 'sess-mine')
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { recordingSessionId?: string | null })
+        .recordingSessionId,
+    ).toBe('sess-mine')
   })
 
   it('persists nothing at all when no user is signed in (fail-closed)', async () => {
@@ -713,6 +732,30 @@ describe('take durability — recovered-save dedupe', () => {
 
     const offered = await getRecoverableTake([])
     expect(offered?.recordingSessionId).toBe('sess-1')
+  })
+
+  // ── ⚖ THE ROW IS BORN RESERVED (fix round 8) ─────────────────────────────
+  // The start-mint used to name only the customer, so every session began life
+  // pointing at no audio and the mint at stop had to bind it afterwards — the
+  // window two client-named mints could race in (PR2 fix round 10 closes it at
+  // the door). The recorder knows BOTH facts before the mic is even live, so it
+  // names them here and the door composes the key at create.
+  it('the start-mint names the take it is for AND the container it will record', async () => {
+    const takeId = await startAndSettle()
+
+    expect(mockStartRecordingSession).toHaveBeenCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+      // …the very take this start went on to create — not a fresh id, or the
+      // row would be reserved for audio that will never be uploaded.
+      takeId,
+      // …and the container the take is actually persisted with, so the key the
+      // door composes and the one secureTake asks the mint for cannot differ.
+      mimeType: 'audio/webm;codecs=opus',
+    })
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { mimeType?: string }).mimeType,
+    ).toBe('audio/webm;codecs=opus')
   })
 })
 
@@ -1222,6 +1265,10 @@ describe('secure at stop', () => {
       // round 7): a retried session call must land on the same row, not mint a
       // fresh orphan every time a reply is lost.
       takeId,
+      // …with the container beside it (fix round 8), so the row this drain
+      // mints is born pointing at the key the mint below is about to ask for —
+      // the same container that mint is given, one line down.
+      mimeType: 'audio/webm;codecs=opus',
     })
     expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(mintTakeUrl).toHaveBeenCalledWith(takeId, expect.any(String), MINTED_SESSION)
