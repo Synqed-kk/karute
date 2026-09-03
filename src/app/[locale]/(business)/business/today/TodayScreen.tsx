@@ -1411,16 +1411,24 @@ export function TodayScreen(props: TodayProps) {
    *  recompute triggers is unchanged; what grew is the cost of ONE recompute,
    *  and only on events that are clicks and settings, never pointer frames.
    *  Measured against the perf instrument at selling-engine-doors.test.ts §7
-   *  (THE COST): about +0.2 ms at 25 staff, about +6 ms on an HQ 100-lane
-   *  board. A warm-book cache inside the wrapper would buy that back and cost a
-   *  SECOND memo home — the exact seam this round removed, and the one a
-   *  mutation lens walked straight through — so the trade is taken knowingly.
-   *  R7 and R9 re-measure it in their own perf tables (QUEUE-RIDERS).
+   *  (THE COST): the raw cold-vs-warm spread is noisy and JIT-dominated — 8-25
+   *  ms across runs — so that spread is not the claim; the steady-state A/B
+   *  median is ~0.5 ms at 25 staff and ~0.8 ms at HQ 100 lanes. A warm-book
+   *  cache inside the wrapper would buy that back and cost a SECOND memo home
+   *  — the exact seam this round removed, and the one a mutation lens walked
+   *  straight through — so the trade is taken knowingly, on the DIRECTION and
+   *  the TRIGGER SET (settings and release clicks, never pointer frames), not
+   *  on any single millisecond figure. R7 and R9 re-measure it in their own
+   *  perf tables (QUEUE-RIDERS).
    *
-   *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that it is
-   *  exactly ten forwarded `key: value` lines and that it contains no
-   *  conditional and no literal of any kind, so a new decision cannot be spelled
-   *  here at all. The ban list includes the quote characters, which is why the
+   *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that each of
+   *  the ten forwarded `key: value` lines matches WHOLE and anchored to its
+   *  own line, so no decision can be spelled INSIDE this slice. What that
+   *  does not close: a decision prepared ABOVE the slice (a const, computed
+   *  from something) and referenced here by a changed forwarded value — that
+   *  class is the recorded ceiling of a text pin (QUEUE-RIDERS 9/3), and the
+   *  anchored line pins the value it forwards, not where that value came
+   *  from. The ban list includes the quote characters, which is why the
    *  comments INSIDE the memo carry no apostrophes: a stray one is a false red
    *  rather than a silent pass, and that is the trade this pin is making. */
   const heldCommitted = useMemo(

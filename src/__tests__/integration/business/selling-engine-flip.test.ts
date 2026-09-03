@@ -2239,12 +2239,16 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  door test is what proves it.
    *
    *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
-   *  much smaller claim: no decision is spelled in the memo at all. It forwards
+   *  much smaller claim: no decision is spelled INSIDE the slice. It forwards
    *  ten named inputs and contains no conditional and no literal of any kind —
    *  no `?`, no `undefined`, no `null`, no quote character, no spread — so a
    *  mutant cannot express a guard-off branch inside the slice, and expressing
    *  one outside it means changing the tested function, where the unit test is
-   *  waiting.
+   *  waiting. What this tripwire does not reach: a decision prepared ABOVE the
+   *  slice (a const, computed from something) and referenced here by a
+   *  changed forwarded value — that class is the recorded ceiling of a text
+   *  pin (QUEUE-RIDERS 9/3); the anchored per-line check pins the value each
+   *  line forwards, not where that value came from.
    *
    *  ⚠ THE PRICE OF THE QUOTE BAN, PAID KNOWINGLY. Because `'` and `"` are
    *  banned anywhere in the slice, the COMMENTS inside the memo body may not
@@ -2318,7 +2322,21 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       'gapGuardMode: props.guard.mode,',
       'released: releasedHere,',
     ]
-    for (const line of FORWARDED) expect({ line, has: memo.includes(line) }).toEqual({ line, has: true })
+    // ⚖ ROUND 4 — `includes` WAS WALKED BY A COMMENTED-OUT COPY. Breaker on
+    // 569cfe6e (M1) found that `memo.includes(line)` is satisfied by `//
+    // gapGuardMode: props.guard.mode,` sitting beside a real
+    // `gapGuardMode: forcedMode,` — a `//`-prefixed line contains the pinned
+    // text as a substring, and the key-count regex (`^\s+\w+: `, anchored on
+    // the LINE START) cannot see a commented line either, so both checks stay
+    // green while the memo silently pins a hoisted constant instead of the
+    // forwarded value. Each forwarded line must now match WHOLE and anchored:
+    // it has to START the line (after indentation only, so a `// ` prefix
+    // misses) and END it (so a trailing addition on the same line misses too).
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    for (const line of FORWARDED) {
+      const anchored = new RegExp('^ +' + escapeRegExp(line) + '$', 'm')
+      expect({ line, has: anchored.test(memo) }).toEqual({ line, has: true })
+    }
     expect((memo.match(/^\s+\w+: /gm) ?? []).length).toBe(FORWARDED.length)
 
     // …and it decides NOTHING. No conditional and no literal of any kind, no
