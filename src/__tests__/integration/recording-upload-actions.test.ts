@@ -287,7 +287,6 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     ['a container we do not store', 'audio/aac'],
     ['a video container', 'video/mp4'],
     ['an empty mime', ''],
-    ['a non-string mime', 12345 as unknown as string],
   ])('refuses %s — bad_mime, nothing is signed and nothing is bound', async (_label, mimeType) => {
     await expect(mintRecordingUploadUrl({ takeId: UUID, mimeType })).resolves.toEqual({
       error: 'bad_mime',
@@ -301,11 +300,21 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     ['a separator', `${UUID}/000000`],
     ['an extension smuggled into the id', `${UUID}.webm`],
     ['a non-uuid body', 'stolen'],
-    ['a string-shaped non-string', IMPOSTOR],
   ])('refuses %s as a take id — bad_take_id, nothing is signed or bound', async (_label, takeId) => {
     await expect(
       mintRecordingUploadUrl({ takeId: takeId as string, mimeType: 'audio/webm' }),
     ).resolves.toEqual({ error: 'bad_take_id' })
+    expectNoBinding()
+  })
+
+  // H1 (round 5): these fail the SHAPE zod checks (not a string at all), so
+  // the first-line schema parse refuses them as bad_input before composeTakeKey
+  // ever runs — one fence earlier than the semantic bad_mime/bad_take_id checks.
+  it.each([
+    ['a non-string mime', { takeId: UUID, mimeType: 12345 as unknown as string }],
+    ['a string-shaped non-string take id', { takeId: IMPOSTOR, mimeType: 'audio/webm' }],
+  ])('refuses %s — bad_input, before composeTakeKey runs', async (_label, input) => {
+    await expect(mintRecordingUploadUrl(input)).resolves.toEqual({ error: 'bad_input' })
     expectNoBinding()
   })
 
@@ -427,6 +436,53 @@ describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () 
       status: 'UPLOADING',
     })
     expect(res.recordingSessionId).toBe('sess-new')
+  })
+
+  // H1 (round 5): the web door has no schema of its own — mintTakeUploadUrl is
+  // the ONLY fence, so its first line must refuse what the facade's own parse
+  // already refuses. Unparsed, this id rides into synqed.recordings.get()
+  // unencoded (the SDK's `/recordings/${id}`), a request-forgery surface.
+  it.each([
+    ['a path-traversal recordingSessionId', '../staff'],
+    ['a non-string recordingSessionId', 12345 as unknown as string],
+    ['an oversized recordingSessionId', 'x'.repeat(201)],
+  ])(
+    'refuses %s — bad_input, before a single core or storage call',
+    async (_label, recordingSessionId) => {
+      await expect(
+        mintRecordingUploadUrl({ ...named, recordingSessionId }),
+      ).resolves.toEqual({ error: 'bad_input' })
+      expect(get).not.toHaveBeenCalled()
+      expect(info).not.toHaveBeenCalled()
+      expectNoBinding()
+    },
+  )
+
+  // H2: a session id with no take id is a row this mint would otherwise bind
+  // to nothing and silently drop — never a no-op the caller cannot see.
+  it('refuses a recordingSessionId with no takeId — bad_input, never silently ignored', async () => {
+    await expect(
+      mintRecordingUploadUrl({ recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'bad_input' })
+    expect(get).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  // H3: the core UNIQUE index is the belt (Anthony addendum) — two rows racing
+  // to reserve the same key collapse to one winner, and the loser's 409 is a
+  // real, terminal answer, never the catch-all 'upstream'.
+  it('a core 409 racing to CREATE the row — reserved_elsewhere, never upstream', async () => {
+    create.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }))
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a core 409 racing to UPDATE the row — reserved_elsewhere, never upstream', async () => {
+    update.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
   it('refuses another staffer’s session — forbidden, nothing bound', async () => {

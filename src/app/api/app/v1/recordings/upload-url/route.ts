@@ -111,6 +111,10 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
       throw new AppApiError('forbidden', 'that recording session is not yours to record onto')
     }
     if (minted.error === 'not_found') {
+      // A REAL 404, unlike the finalize twin's soft 2xx body: a mint is about
+      // to WRITE a reservation, so a session id core does not know is refused
+      // like any other client error, not folded into the "retry vs settle"
+      // shape finalize's soft body exists for.
       throw new AppApiError('not_found', 'no such recording session')
     }
     // The take is already SPOKEN FOR — its object exists without this caller's

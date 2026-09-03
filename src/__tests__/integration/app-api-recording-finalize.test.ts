@@ -223,6 +223,16 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // H2 (round 5): the door's own zod has no field-pair rule, so a session id
+  // with no take id passes IT clean and would reach the shared core — which is
+  // the fence that must refuse it, never silently drop the id.
+  it('a recordingSessionId with no takeId — 400, nothing bound', async () => {
+    const res = await mintPOST(jreq(auth, { recordingSessionId: SESSION }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
   // Fix round 2, B7 — the route's own stated invariant: a caller that TRIED to
   // name a take and sent garbage must be told, never silently handed a
   // server-named key it will not recognize when it finalizes.

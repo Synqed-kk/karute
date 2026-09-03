@@ -72,7 +72,10 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
   // Everything else IS the answer the client branches on (retry vs settle):
   // object_missing means the PUT has not landed and the drain tries again,
   // while not_reserved / superseded are TERMINAL — this key was never bound to
-  // this row, and no retry can bind it now.
+  // this row, and no retry can bind it now. not_found stays in this soft body
+  // too (house pattern), unlike the mint twin's real 404: finalize confirms a
+  // take the client already believes is bound, so "which of several terminal
+  // reasons" is the same answer shape as every other refusal here.
   return ok(ctx, result)
 })
 

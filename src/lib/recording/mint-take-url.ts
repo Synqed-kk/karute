@@ -26,6 +26,7 @@ import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
 import { composeTakeKey } from '@/lib/recording/key-grammar'
+import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
   isJobOwnedStatus,
@@ -79,6 +80,7 @@ export type MintTakeUrlResult =
     }
   | {
       error:
+        | 'bad_input'
         | 'bad_mime'
         | 'bad_take_id'
         | 'forbidden'
@@ -195,13 +197,23 @@ async function reserveTakeForRecorder(
     // No session row — a walk-in, or a record-start mint that never landed.
     // ONE place mints rows now (finalize's own mint branch is gone), so a take
     // carries its recorder and its store from its very first byte.
-    const minted = await synqed.recordings.create({
-      staff_id: actor.staffId,
-      store_id: actor.storeId,
-      customer_id: null,
-      audio_storage_path: key,
-      status: 'UPLOADING',
-    })
+    let minted: Recording
+    try {
+      minted = await synqed.recordings.create({
+        staff_id: actor.staffId,
+        store_id: actor.storeId,
+        customer_id: null,
+        audio_storage_path: key,
+        status: 'UPLOADING',
+      })
+    } catch (err) {
+      // The core UNIQUE index is the belt this app-side check is only the
+      // seatbelt for (Anthony addendum): two rows racing to reserve the same
+      // key collapse to one winner, and the loser's 409 is a real answer —
+      // TERMINAL for the client — never the catch-all 'upstream'.
+      if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
+      throw err
+    }
     return auditTakeNamed(actor, takeId, ext, minted.id, true)
   }
 
@@ -213,7 +225,13 @@ async function reserveTakeForRecorder(
     const write = isJobOwnedStatus(row.status)
       ? { audio_storage_path: key }
       : { audio_storage_path: key, status: 'UPLOADING' as const }
-    await synqed.recordings.update(row.id, write)
+    try {
+      await synqed.recordings.update(row.id, write)
+    } catch (err) {
+      // Same race, the other row already held: a second reservation cannot win.
+      if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
+      throw err
+    }
     return auditTakeNamed(actor, takeId, ext, row.id, true)
   }
   // Bound to another take already. Never repointed here: the displaced object
@@ -266,8 +284,19 @@ async function signUpload(
 export async function mintTakeUploadUrl(
   synqed: Core,
   actor: MintTakeActor,
-  input: MintTakeUrlInput = {},
+  rawInput: MintTakeUrlInput = {},
 ): Promise<MintTakeUrlResult> {
+  // THE parse, for BOTH doors. The facade parses at its route too, but the web
+  // action is a 'use server' export — its argument is caller-supplied JSON
+  // however it is typed — so parsing here, as the FIRST line, is what makes the
+  // two doors refuse the same bodies (mirrors finalize-take.ts:156). Nothing
+  // below reads `rawInput` again: recordingSessionId rides into a core URL PATH
+  // unencoded (the SDK's recordings.get), so a free string there is a
+  // request-forgery surface a client-side type annotation proves nothing against.
+  const parsed = UploadUrlMintSchema.safeParse(rawInput)
+  if (!parsed.success) return { error: 'bad_input' }
+  const input = parsed.data
+
   const businessId = actor.businessId
   const takeId = input.takeId ?? crypto.randomUUID()
   const mimeType = input.mimeType ?? DEFAULT_MIME
@@ -279,7 +308,13 @@ export async function mintTakeUploadUrl(
 
   // A SERVER-NAMED take: a fresh uuid nobody could have claimed, bound to no
   // row and claiming nothing. Signed and returned exactly as before this round.
-  if (!input.takeId) return signUpload(composed, null)
+  if (!input.takeId) {
+    // A session id with no take id names a row this mint would then silently
+    // ignore — never a no-op the caller cannot see: it must resend both or
+    // neither.
+    if (input.recordingSessionId) return { error: 'bad_input' }
+    return signUpload(composed, null)
+  }
 
   // A CLIENT-NAMED take is bound FIRST — the signed URL below is the only way
   // bytes can reach this key, so the row must own the key before it exists.
