@@ -104,7 +104,13 @@ export const webRecordingPort: RecordingPipelinePort = {
   async prepareTranscription(blob) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl, removeRecordingObject } =
       await uploadActions()
-    const { path, url } = await mintRecordingUploadUrl()
+    // The mint answers with a result union now (capture pipeline PR2 fix round
+    // 4). This leg still speaks in throws, so the refusals collapse into one
+    // here; PR3 is where the client learns to branch on them (a named take's
+    // `exists` / `reserved_elsewhere` are TERMINAL, never a retry).
+    const minted = await mintRecordingUploadUrl()
+    if ('error' in minted) throw new Error('could not mint an upload URL')
+    const { path, url } = minted
     await putTake(url, blob)
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
@@ -118,7 +124,9 @@ export const webRecordingPort: RecordingPipelinePort = {
   },
   async stageForJob(blob) {
     const { mintRecordingUploadUrl } = await uploadActions()
-    const { path, url } = await mintRecordingUploadUrl()
+    const minted = await mintRecordingUploadUrl()
+    if ('error' in minted) throw new Error('could not mint an upload URL')
+    const { path, url } = minted
     await putTake(url, blob)
     // NO cleanup — the worker deletes the object on success.
     return { path }

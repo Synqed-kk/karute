@@ -60,11 +60,23 @@ const LITERAL_ONLY_CATEGORY = {
   // Choke emit: src/lib/recording/discard.ts#discardRecordingWithClient
   // (facade key recordings.discard is a skip row — same doctrine as
   // karute.save/karute.entry_edit above). Recording-integrity PR A1.
+  // Choke emit: src/lib/recording/finalize-take.ts#finalizeTakeWithClient
+  // (facade key recordings.finalize is a skip row — same doctrine).
+  'recording.capture_finalized': 'recording',
+  // Choke emit: src/lib/recording/finalize-take.ts#finalizeTakeWithClient, the
+  // superseded branch's own action (fix round 6, I2) — a row that moved on to
+  // other audio before this take's finalize landed. capture_finalized above
+  // stays reserved for a call that actually wrote a pointer or a duration.
+  'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient
   // (facade key recordings.session.delete is a skip row — same doctrine).
   // INTERIM: goes away with P5's kept-discard build, and this line with it.
   'recording.session_cleanup': 'recording',
+  // Choke emit: src/lib/recording/mint-take-url.ts#auditTakeNamed (the private
+  // helper mintTakeUploadUrl calls only for a CLIENT-NAMED take; facade key
+  // recordings.uploadUrl stays a skip row citing it).
+  'recording.take_named': 'recording',
   // Choke emit: src/lib/settings/recording-autostart.ts#setRecordingAutostartWithClient
   // (facade key orgSettings.recordingAutostart is a skip row — same doctrine).
   // The ONE audited settings-blob key, spec §8.1 fix C1. Recording-integrity PR A4.
