@@ -506,12 +506,18 @@
   transition: opacity 220ms ease-out;
 }
 .biz .page-customers .cu-scrim.is-on { opacity: 1; pointer-events: auto; }
+/* ⚠ THE RESTING POSITION IS STATED IN CSS, NOT LEFT TO THE SCRIPT. This page is
+   SERVER-RENDERED: the mock could seat its drawer with `jump(100)` on load
+   because a mock has no first paint before its script runs, and this room does.
+   Without this line the drawer paints WIDE OPEN over the right half of the page
+   until hydration — CAUGHT IN THE SHOTS, invisible to every assertion that only
+   ever looked at the drawer after opening it. The spring then drives from here. */
 .biz .page-customers .cu-drawer {
   position: fixed; top: var(--cu-topbar); right: 0; bottom: 0; z-index: 50;
   width: min(780px, calc(100% - 64px));
   display: flex; flex-direction: column;
   border-left: 1px solid var(--cu-line); background: #fff; box-shadow: var(--cu-shadow-4);
-  will-change: transform;
+  transform: translateX(100%); will-change: transform;
 }
 .biz .page-customers .cu-dw-hd { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px 10px; border-bottom: 1px solid var(--cu-line-soft); }
 .biz .page-customers .cu-dw-t { min-width: 0; }
@@ -521,7 +527,15 @@
 .biz .page-customers .cu-dw-close:hover { background: var(--cu-wash); }
 .biz .page-customers .cu-dw-warn { margin: 10px 16px 0; padding: 8px 11px; border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-md); background: var(--cu-red-wash); color: #8a3a35; font-size: 12px; line-height: 1.65; }
 .biz .page-customers .cu-dw-warn b { display: block; color: var(--cu-red); font-size: 12.5px; }
-.biz .page-customers .cu-dw-body { flex: 1; min-height: 0; padding: 10px 16px 14px; }
+/* ⚖ PAGE-SCROLL, AND THE ONE SHAPE IT DOES NOT COVER (⚖-ADJ E, named).
+   The 8/22 ruling retires inner scrollers on surfaces that are IN THE PAGE — a
+   reader hunting a row inside a box. This drawer is `position: fixed`: it is not
+   in the page at all, so it cannot ride the page's scroll, and a fixed panel
+   whose content is taller than it is a panel whose bottom half does not exist.
+   CAUGHT IN THE SHOTS: the compare table and the sheet's lower sections were
+   simply unreachable. Exactly TWO scrollers exist in this room, both inside an
+   overlay, both named here and censused by the room's suite and its probe. */
+.biz .page-customers .cu-dw-body { flex: 1; min-height: 0; padding: 10px 16px 14px; overflow-y: auto; overscroll-behavior: contain; }
 .biz .page-customers .cu-dw-nopartner { margin-top: 10px; }
 .biz .page-customers .cu-cmp-heads { display: grid; grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-bottom: 8px; }
 .biz .page-customers .cu-chead { min-width: 0; padding: 7px 11px 8px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: var(--cu-wash); }
@@ -734,7 +748,10 @@
     transform: translateY(100%); will-change: transform; pointer-events: none;
   }
   .biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; }
-  .biz .page-customers .cu-insp-hd { padding: 12px 52px 10px 13px; }
+  .biz .page-customers .cu-insp-hd { padding: 12px 52px 10px 13px; flex: 0 0 auto; }
+  /* the sheet's own bounded reading area — the second and last of the room's two
+     named scrollers, and it exists for the same reason the drawer's does. */
+  .biz .page-customers .cu-insp-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .biz .page-customers .cu-insp-close { display: grid; place-items: center; width: 44px; top: 8px; right: 8px; }
 
   /* the compare drawer becomes a full-page sheet, its two columns STACKED, and

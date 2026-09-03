@@ -440,8 +440,19 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
   )
   const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
 
-  it('⚖ PAGE-SCROLL — the room owns no vertical scroller at all', () => {
-    expect(CSS_CODE).not.toContain('overflow-y')
+  it('⚖ PAGE-SCROLL — the room owns exactly TWO vertical scrollers, both inside an overlay, both named', () => {
+    // The 8/22 ruling retires inner scrollers on IN-FLOW surfaces. A
+    // `position: fixed` overlay is not in the flow and cannot ride the page's
+    // scroll, so a fixed panel taller than itself has an unreachable bottom
+    // half — which is what the shots found. Two scrollers, named, censused.
+    const scrollers = [...CSS_CODE.matchAll(/([^{}]+)\{[^{}]*overflow-y: auto/g)].map((m) => m[1].trim())
+    expect(scrollers).toHaveLength(2)
+    expect(scrollers[0]).toContain('.cu-dw-body')
+    expect(scrollers[1]).toContain('.cu-insp-body')
+    // …and NOTHING in the page's own flow owns one.
+    expect(CSS_CODE).not.toMatch(/\.cu-list \{[^}]*overflow-y/)
+    expect(CSS_CODE).not.toMatch(/\.cu-rows \{[^}]*overflow-y/)
+    expect(CSS_CODE).not.toMatch(/\.cu-view \{[^}]*overflow-y/)
     // The ONE `max-height` in the sheet is the native <dialog>'s own viewport
     // cap, which is what keeps a modal inside the window — it is not a page
     // scroller, and it is the built surface this round must not regress.
@@ -506,6 +517,19 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     ]) {
       expect(CSS_CODE).toContain(rule)
     }
+  })
+
+  it('every overlay is OFF-STAGE in the CSS, so a server-rendered page never paints one open', () => {
+    // ⚠ THE ROOM IS SERVER-RENDERED. An overlay whose resting position lives
+    // only in a script paints WIDE OPEN until hydration — the compare drawer did
+    // exactly that, and only the shots caught it. Each of the three states its
+    // own resting value here, where the first paint can read it.
+    expect(CSS_CODE).toMatch(/\.cu-drawer \{[^}]*transform: translateX\(100%\)/)
+    expect(CSS_CODE).toMatch(/\.cu-scrim \{[^}]*opacity: 0/)
+    expect(CSS_CODE).toMatch(/\.cu-insp \{[^}]*transform: translateY\(100%\)/)
+    expect(CSS_CODE).toMatch(/\.cu-toast \{[^}]*opacity: 0/)
+    // …and the two collapse panels start closed.
+    expect(CSS_CODE).toMatch(/\.cu-fn-panel \{ height: 0/)
   })
 
   it('⚖-ADJ G — the footnote opens DOWNWARD, in flow, with no absolute panel', () => {

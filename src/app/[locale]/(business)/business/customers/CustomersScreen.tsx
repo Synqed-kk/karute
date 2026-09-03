@@ -417,12 +417,24 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
    *  it arrived on. It is seated at the far end of that path before the first
    *  frame (`jump`, never an animation), so the panel is off-stage on load
    *  rather than sliding away in front of a reader who never opened it. */
+  const drawerFirst = useRef(true)
   useEffect(() => {
     const el = drawerRef.current
     if (!el) return
     const sp = makeSpring((v) => {
       el.style.transform = `translateX(${v}%)`
     }, { response: 0.34, eps: 0.05, reduced })
+    // ⚠ THE FIRST RUN SEATS, IT DOES NOT TRAVEL. Every later run starts the
+    // spring at the END IT IS COMING FROM so the panel leaves by the same path
+    // it arrived on — but on MOUNT there is no path to come from, and seating it
+    // at the far end would make the closed drawer jump fully open and slide out
+    // in front of a reader who never touched it. (It did: the shots caught the
+    // slide, and no assertion that opens the drawer first could have.)
+    if (drawerFirst.current) {
+      drawerFirst.current = false
+      sp.jump(drawerOpen ? 0 : 100)
+      return () => sp.stop()
+    }
     sp.jump(drawerOpen ? 100 : 0)
     sp.set(drawerOpen ? 0 : 100)
     return () => sp.stop()
@@ -433,11 +445,13 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
    *  BEHIND ON THE DESK LAYOUT (the responsive round's own fix, kept at source):
    *  the apply itself clears the inline transform the moment it is not the phone
    *  band any more. */
+  const sheetFirst = useRef(true)
   useEffect(() => {
     const el = inspRef.current
     if (!el) return
     if (!phone) {
       el.style.transform = ''
+      sheetFirst.current = true
       return
     }
     const sp = makeSpring((v) => {
@@ -447,6 +461,13 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       }
       el.style.transform = `translateY(${v}%)`
     }, { response: 0.34, eps: 0.05, reduced })
+    // The same rule as the drawer's, for the same reason: entering the phone
+    // band SEATS the sheet where it belongs; only a later open or close travels.
+    if (sheetFirst.current) {
+      sheetFirst.current = false
+      sp.jump(sheetOpen ? 0 : 100)
+      return () => sp.stop()
+    }
     sp.jump(sheetOpen ? 100 : 0)
     sp.set(sheetOpen ? 0 : 100)
     return () => sp.stop()
