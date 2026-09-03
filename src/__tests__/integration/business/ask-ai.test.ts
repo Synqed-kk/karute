@@ -632,6 +632,13 @@ describe('the consultation — the phone’s contract, mirrored', () => {
       .toEqual({ tag: '受信トレイ', rest: 'テスト えいた様（予約日時の変更希望）' })
     // …and a line with no separator keeps all of itself, so the pill shows no tag
     expect(splitEvidence('出どころ不明')).toEqual({ tag: '', rest: '出どころ不明' })
+    // ⚠ AND THE CUT IS THE **FIRST** SEPARATOR, PROVEN ON A LINE THAT HAS TWO.
+    // The resolver's own lines carry exactly one 「・」 today, so a cut at the
+    // LAST one is a no-op on every row this world holds — and would silently
+    // swallow a customer's story the day a menu name or a subject line contains
+    // the character. A pin that can only be true on today's data is not a pin.
+    expect(splitEvidence('カルテ K-0001・見本 いつき様（担当 見本 しろう・テスト整体 60分）'))
+      .toEqual({ tag: 'カルテ K-0001', rest: '見本 いつき様（担当 見本 しろう・テスト整体 60分）' })
     // ONE GRAMMAR, TWO RENDERINGS: whatever is cut here is the same string the
     // rail's 根拠 line prints whole.
     for (const s of a.sources) {
@@ -662,6 +669,19 @@ describe('the consultation — the phone’s contract, mirrored', () => {
     const orphan = buildConversation([{ id: 'e', role: 'error', text: 'だめでした。', sources: [], contextRef: null }], WORLD_A)
     expect(precedingQuestion(orphan, 'e')).toBeNull()
     expect(precedingQuestion(turns, 'no-such-turn')).toBeNull()
+    // ⚠ AND THE ROLE FILTER IS LOAD-BEARING, PROVEN WHERE IT ACTUALLY BITES.
+    // In the demo thread the turn before the failure happens to BE the question,
+    // so 「nearest preceding」 and 「nearest preceding USER turn」 agree and a
+    // dropped filter changes nothing. Put an ANSWER between them — which is what
+    // a second failed attempt looks like — and only the filtered walk returns
+    // the reader's own words instead of the model's.
+    const between = buildConversation([
+      { id: 'q1', role: 'user', text: '本当に送りたかった質問です。', sources: [], contextRef: null },
+      { id: 'a1', role: 'assistant', text: 'AIが返した文章です。', sources: [], contextRef: null },
+      { id: 'e1', role: 'error', text: '受け取れませんでした。', sources: [], contextRef: null },
+    ], WORLD_A)
+    expect(precedingQuestion(between, 'e1')!.text).toBe('本当に送りたかった質問です。')
+    expect(precedingQuestion(between, 'e1')!.text).not.toBe('AIが返した文章です。')
     // …and an answer between the failure and the question does not become the
     // question: only a `user` turn can.
     expect(precedingQuestion(turns, 'turn-2')!.text).toBe(turns[0].text)
