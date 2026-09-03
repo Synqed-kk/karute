@@ -71,8 +71,10 @@ export const AUDIT_ACTIONS = [
   'privacy.customer_export',
   'privacy.voice_enroll',
   'privacy.voice_revoke',
+  'recording.capture_finalized',
   'recording.discard',
   'recording.session_cleanup',
+  'recording.take_named',
   'recording.transcribe',
   'settings.menu_create',
   'settings.menu_reactivate',
@@ -155,6 +157,17 @@ export const AUDITED_CORES: {
   // (every refusal returns { error } before reaching it). INTERIM: P5's
   // kept-discard build deletes the module, and this entry goes with it.
   { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
+  // The take-finalize choke point (capture pipeline PR2) — its recordings
+  // .create/.update writes sit inside the same symbol as its audit() call, so
+  // no SDK_WRITE_ALLOWLIST row is needed for either.
+  { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The take-URL mint (capture pipeline PR2 fix round 2). auditTakeNamed is a
+  // private auditLockout-pattern helper emitting unconditionally on its one
+  // path; mintTakeUploadUrl conditions the CALL (a server-named take files no
+  // row) and carries no audit() of its own, so CP7's registry-reality
+  // cross-check (exported symbols only) can never require this entry —
+  // recording-upload-actions.test.ts pins it directly instead.
+  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.

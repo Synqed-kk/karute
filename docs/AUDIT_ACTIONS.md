@@ -56,8 +56,10 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `privacy.customer_export` | privacy | live | `settings.auditLog.actions.privacy.customer_export` |
 | `privacy.voice_enroll` | privacy | live | `settings.auditLog.actions.privacy.voice_enroll` |
 | `privacy.voice_revoke` | privacy | live | `settings.auditLog.actions.privacy.voice_revoke` |
+| `recording.capture_finalized` | recording | live | `settings.auditLog.actions.recording.capture_finalized` |
 | `recording.discard` | recording | live | `settings.auditLog.actions.recording.discard` |
 | `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
+| `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
 | `settings.menu_create` | settings | live | `settings.auditLog.actions.settings.menu_create` |
 | `settings.menu_reactivate` | settings | live | `settings.auditLog.actions.settings.menu_reactivate` |

@@ -35,8 +35,20 @@ const SEQ = /^[0-9]{6}$/
 const TAKE_PREFIX = 'app_'
 const SEGMENT_PREFIX = 'seg/'
 const UUID_LENGTH = 36
-/** Closed set, from the negotiated recorder MIME. */
-const EXTENSIONS: readonly string[] = ['webm', 'mp4', 'ogg', 'wav']
+/**
+ * The CLOSED container map — the one place a recorder MIME becomes a key
+ * extension. iOS negotiates audio/mp4 and Chrome audio/webm, and today both
+ * land under a hardcoded `.webm`, which is the live mislabelling bug.
+ */
+const MIME_TO_EXT: Record<string, string> = {
+  'audio/webm': 'webm',
+  'audio/mp4': 'mp4',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+}
+/** Closed set, DERIVED from the map above so a container the mint composes and
+ *  the grammar refuses cannot exist. */
+const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
 
 export type ParsedRecordingKey =
   | { kind: 'take'; takeId: string; ext: string }
@@ -105,6 +117,55 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
  */
 export function isOwnRecordingKey(key: unknown, businessId: string): key is string {
   return parseRecordingKey(key, businessId)?.kind === 'take'
+}
+
+/**
+ * The recorder's negotiated container, normalized: `audio/webm;codecs=opus` is
+ * audio/webm, so the codec parameters are stripped before the lookup. Null for
+ * anything outside the closed map — a door REFUSES an unknown container rather
+ * than guessing an extension for it.
+ */
+export function normalizeAudioMime(mimeType: unknown): string | null {
+  if (typeof mimeType !== 'string') return null
+  const base = mimeType.split(';')[0].trim().toLowerCase()
+  return base in MIME_TO_EXT ? base : null
+}
+
+/** The key extension for a recorder MIME, from that same closed map. */
+export function extFromMime(mimeType: unknown): string | null {
+  const base = normalizeAudioMime(mimeType)
+  return base === null ? null : MIME_TO_EXT[base]
+}
+
+/**
+ * Compose the finalized-take key for a take the CLIENT named, and prove the
+ * composition against the grammar before handing it out.
+ *
+ * WHY THE SELF-CHECK. `takeId` and `mimeType` are caller-supplied, and this
+ * composition is the exact moment a crafted value could walk a service-role
+ * storage key out of the tenant prefix. Parsing our OWN output means the only
+ * key that ever leaves here is one `isOwnRecordingKey` would accept for this
+ * same business — the property every downstream fence already relies on.
+ * The two validations happen first, so reaching the throw means the grammar
+ * and this composer have drifted apart: a bug here, never caller input, and a
+ * 500 rather than a 400.
+ *
+ * `businessId` is the caller's OWN verified tenant — never a request field.
+ */
+export function composeTakeKey(
+  businessId: string,
+  takeId: unknown,
+  mimeType: unknown,
+): { key: string; ext: string; contentType: string } | null {
+  if (typeof takeId !== 'string' || !TAKE_UUID.test(takeId)) return null
+  const contentType = normalizeAudioMime(mimeType)
+  if (contentType === null) return null
+  const ext = MIME_TO_EXT[contentType]
+  const key = `${TAKE_PREFIX}${businessId}_${takeId}.${ext}`
+  if (parseRecordingKey(key, businessId)?.kind !== 'take') {
+    throw new Error('composed recording key failed its own grammar')
+  }
+  return { key, ext, contentType }
 }
 
 /**

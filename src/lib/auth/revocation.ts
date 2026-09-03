@@ -46,6 +46,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // (app-api-revocation-coverage.test.ts) fails if any facade write method ships
   // a key that is not in this set.
   'customer.consent.revoke',
+  // 録音の保存完了 — writes the audio pointer + status onto a core recording
+  // row and files a durable audit row. A just-terminated staffer must not
+  // reach it on the local fast-path.
+  'recordings.finalize',
   // 新規顧客 create (both doors) — a durable customer-PII write, the same
   // class as customer.update above.
   'customer.create',

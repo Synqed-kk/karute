@@ -1,11 +1,17 @@
 'use server'
 
 import type { SynqedClient } from '@synqed-kk/client'
-import { getCurrentUserStaffId } from '@/lib/staff'
-import { requireCapability } from '@/lib/auth/require-permission'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
+import {
+  finalizeTakeWithClient,
+  type FinalizeTakeInput,
+  type FinalizeTakeResult,
+} from '@/lib/recording/finalize-take'
 
 /**
  * Mints a `recording_sessions` row (synqed-core, server-generated uuid) the
@@ -72,6 +78,46 @@ export async function startRecordingSessionWithClient(
     appointment_id: input.appointmentId ?? null,
   })
   return { id: recording.id }
+}
+
+/**
+ * Web door for "this take is complete" — the cookie twin of
+ * POST /api/app/v1/recordings/finalize. Both call the ONE choke point
+ * (lib/recording/finalize-take.ts), which owns the tenant fence, the ownership
+ * check, the idempotency and the single audit row.
+ *
+ * Every identity the core needs is resolved HERE, from the cookie session:
+ * a caller cannot name its own business, staff, store or reach.
+ *
+ * NEVER THROWS. Finalize runs on the stop path, and a thrown finalize would
+ * put an error dialog between the staffer and a take whose audio is already
+ * on the server. Every failure is a settled `{ error }` the caller can retry.
+ */
+export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTakeResult> {
+  try {
+    // Same gate as the mint and the session start — recording = records.write.
+    await requireCapability('records.write')
+    const [businessId, staffId, capabilities, scope] = await Promise.all([
+      getBusinessId(),
+      getCurrentUserStaffId(),
+      getMyCapabilities(),
+      resolveStoreScope(),
+    ])
+    return await finalizeTakeWithClient(
+      newSynqedClient(businessId),
+      {
+        staffId,
+        businessId,
+        storeId: scope.storeId,
+        canViewAll: capabilities.has('recordings.viewAll'),
+        source: 'web',
+      },
+      input,
+    )
+  } catch (err) {
+    console.warn('[finalizeTake] failed:', err)
+    return { error: 'failed' }
+  }
 }
 
 /**

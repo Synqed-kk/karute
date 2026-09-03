@@ -34,6 +34,43 @@ export const SessionMintSchema = z
   })
   .strict()
 
+// ── Upload-url mint (capture pipeline PR2) ──────────────────────────────────
+// BOTH fields optional: an absent body is the server-named take this route has
+// always minted. The caps here only BOUND the strings — the real validation is
+// server-side (composeTakeKey: the uuid grammar and the closed MIME map), so a
+// well-formed-but-wrong value is refused by the fence, not by zod.
+const MAX_MIME_CHARS = 100
+export const UploadUrlMintSchema = z
+  .object({
+    takeId: z.string().max(MAX_ID_CHARS).nullish(),
+    mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
+  })
+  .strict()
+
+// ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
+// takeId + mimeType compose the SAME key the mint composed (never a path from
+// the client). byteLength is checked against the object storage actually holds,
+// so a finalize cannot claim a take the bucket does not have.
+//
+// This schema is the WEB door's only validation too: finalizeTakeWithClient
+// parses with it on its first line, so both doors refuse the same bodies.
+// Both ids are uuids — a uuid IS the ceiling this file's .max() law asks for,
+// and recordingSessionId rides into a core URL PATH unencoded (the SDK's
+// recordings.get), so a free string there is a request-forgery surface.
+// The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
+// onto the core row, and a take of zero bytes is not a take at all.
+const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
+const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
+export const FinalizeTakeSchema = z
+  .object({
+    takeId: z.string().uuid(),
+    mimeType: z.string().max(MAX_MIME_CHARS),
+    durationSeconds: z.number().finite().min(0).max(MAX_TAKE_SECONDS),
+    byteLength: z.number().int().min(1).max(MAX_TAKE_BYTES),
+    recordingSessionId: z.string().uuid().nullish(),
+  })
+  .strict()
+
 // ── Transcribe (Decision 2) — a STORAGE PATH, never a URL. ───────────────────
 export const TranscribeSchema = z
   .object({

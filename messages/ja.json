@@ -2458,8 +2458,10 @@
           "suggested_message_view": "AI提案メッセージを閲覧"
         },
         "recording": {
+          "capture_finalized": "録音の音声を保存",
           "discard": "録音を破棄",
           "session_cleanup": "録音を破棄",
+          "take_named": "録音のアップロード先を発行",
           "transcribe": "録音を文字起こし"
         }
       },

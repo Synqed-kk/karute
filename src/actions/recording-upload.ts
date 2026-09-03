@@ -15,9 +15,10 @@
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
 import { requireCapability } from '@/lib/auth/require-permission'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { mintTakeUploadUrl, type MintTakeUrlInput } from '@/lib/recording/mint-take-url'
 
 /**
  * Tenant fence for a CLIENT-SUPPLIED storage key. The service-role client
@@ -40,31 +41,39 @@ async function requireOwnPath(path: string): Promise<void> {
 }
 
 /**
- * Mint a signed UPLOAD url for a fresh take. Key shape is byte-identical to the
+ * Mint a signed UPLOAD url for a take. Key shape is byte-identical to the
  * upload-url facade's (src/app/api/app/v1/recordings/upload-url/route.ts):
  * FLAT (so /api/cleanup's non-recursive bucket list still sweeps it) and
  * tenant-prefixed (so the worker can prove ownership before it reads or
  * deletes the object). No idempotency key needed — an unused signed URL mints
  * no durable state, it just expires.
+ *
+ * `input` is OPTIONAL and absent input is today's behaviour byte-for-byte
+ * (server-named uuid, `.webm`). Present, it is CALLER-SUPPLIED and therefore
+ * fenced: the shared core validates the take id against the key grammar and
+ * the container against the closed MIME map, composes, and re-parses its own
+ * output before signing anything (see mintTakeUploadUrl).
  */
-export async function mintRecordingUploadUrl(): Promise<{
+export async function mintRecordingUploadUrl(input?: MintTakeUrlInput): Promise<{
   path: string
   url: string
   token: string
+  contentType: string
 }> {
   await requireCapability('records.write')
-  const businessId = await getBusinessId()
-  const path = `app_${businessId}_${crypto.randomUUID()}.webm`
+  // The cookie session is the ONLY source of both: a caller names neither its
+  // tenant nor itself. staffId is what the take_named row is attributed to
+  // when the client names the key.
+  const [businessId, staffId] = await Promise.all([getBusinessId(), getCurrentUserStaffId()])
 
-  const supabase = createServiceClient()
-  const { data, error } = await supabase.storage
-    .from('recordings')
-    .createSignedUploadUrl(path)
-
-  if (error || !data?.signedUrl) {
+  const minted = await mintTakeUploadUrl({ staffId, businessId, source: 'web' }, input)
+  if ('error' in minted) {
+    // The two client-input refusals and the storage failure all reach the web
+    // caller as a throw, which is this action's only failure vocabulary — the
+    // facade twin maps them to 400/502 instead.
     throw new Error('could not mint an upload URL')
   }
-  return { path: data.path ?? path, url: data.signedUrl, token: data.token }
+  return minted
 }
 
 /**

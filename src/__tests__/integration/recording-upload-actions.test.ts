@@ -15,9 +15,16 @@ jest.mock('@/lib/auth/require-permission', () => ({
 // tenant fence, and "the fence never asked who the caller is" is the only
 // evidence of that ordering (storage-not-reached also holds if the gate is last).
 const getBusinessId = jest.fn(async () => 'biz-1')
-jest.mock('@/lib/staff', () => ({ getBusinessId: () => getBusinessId() }))
+const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
+jest.mock('@/lib/staff', () => ({
+  getBusinessId: () => getBusinessId(),
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
+}))
+// The mint files ONE audit row for a client-named take (fix round 2, B4).
+const auditFn = jest.fn()
+jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 
-const createSignedUploadUrl = jest.fn(async (p: string) => ({
+const createSignedUploadUrl = jest.fn(async (p: string, _opts?: { upsert?: boolean }) => ({
   data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
   error: null as { message: string } | null,
 }))
@@ -45,7 +52,10 @@ import {
   parseRecordingKey,
   isOwnRecordingKey,
   looksLikeRecordingKey,
+  composeTakeKey,
+  extFromMime,
 } from '@/lib/recording/key-grammar'
+import { AUDITED_CORES } from '@/lib/audit-policy'
 
 // A real lowercase uuid, so a fixture only ever fails the ONE clause it targets —
 // a placeholder body would be refused by the uuid clause and silently mask the rest.
@@ -99,7 +109,8 @@ beforeEach(() => {
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   requireCapability.mockImplementation(async () => {})
   getBusinessId.mockImplementation(async () => 'biz-1')
-  createSignedUploadUrl.mockImplementation(async (p: string) => ({
+  getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
+  createSignedUploadUrl.mockImplementation(async (p: string, _opts?: { upsert?: boolean }) => ({
     data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
     error: null,
   }))
@@ -121,7 +132,9 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
     )
     // Flat key — /api/cleanup lists the bucket ROOT non-recursively.
     expect(res.path).not.toContain('/')
-    expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path)
+    // upsert rides every mint now (a re-upload of the same take is a retry,
+    // never a second object); for a fresh server-named uuid it changes nothing.
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path, { upsert: true })
     expect(res.url).toBe(`https://proj.supabase.co/upload/${res.path}?token=t`)
     expect(res.token).toBe('tok-1')
   })
@@ -141,6 +154,159 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
   it('a storage failure surfaces instead of returning a half-made URL', async () => {
     createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
     await expect(mintRecordingUploadUrl()).rejects.toThrow('could not mint an upload URL')
+  })
+})
+
+// The mint now accepts a CLIENT-NAMED take (capture pipeline PR2). Everything
+// below is the fence that makes accepting it safe.
+describe('mintRecordingUploadUrl(input) — the client names the take, the server fences it', () => {
+  it('absent input is byte-identical to before: server uuid, .webm, no upsert change in shape', async () => {
+    getBusinessId.mockResolvedValue(BIZ_UUID)
+    const res = await mintRecordingUploadUrl()
+    expect(res.path).toMatch(new RegExp(`^app_${BIZ_UUID}_[0-9a-f-]{36}\\.webm$`))
+    expect(res.contentType).toBe('audio/webm')
+  })
+
+  it('a named take composes the SAME key the grammar accepts, and signs with upsert', async () => {
+    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })
+    expect(res.path).toBe(OWN)
+    // upsert: a re-upload of the SAME take must land on the same key, not 409.
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(OWN, { upsert: true })
+  })
+
+  it('a fake returning a different path must not leak through — the fenced key wins', async () => {
+    createSignedUploadUrl.mockResolvedValue({
+      data: { path: 'app_other-biz_hijacked.webm', signedUrl: 'https://proj.supabase.co/upload/x', token: 'tok-1' },
+      error: null,
+    })
+    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })
+    expect(res.path).toBe(OWN)
+  })
+
+  it.each([
+    ['audio/webm;codecs=opus', 'webm', 'audio/webm'],
+    ['audio/mp4', 'mp4', 'audio/mp4'],
+    ['AUDIO/MP4; codecs="mp4a.40.2"', 'mp4', 'audio/mp4'],
+    ['audio/ogg', 'ogg', 'audio/ogg'],
+    ['audio/wav', 'wav', 'audio/wav'],
+  ])('%s → .%s, contentType %s', async (mimeType, ext, contentType) => {
+    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType })
+    expect(res.path).toBe(`app_biz-1_${UUID}.${ext}`)
+    expect(res.contentType).toBe(contentType)
+  })
+
+  it.each([
+    ['a container we do not store', 'audio/aac'],
+    ['a video container', 'video/mp4'],
+    ['an empty mime', ''],
+    ['a non-string mime', 12345 as unknown as string],
+  ])('refuses %s — nothing is signed', async (_label, mimeType) => {
+    await expect(mintRecordingUploadUrl({ takeId: UUID, mimeType })).rejects.toThrow(
+      'could not mint an upload URL',
+    )
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['a traversal body', '../../x'],
+    ['an uppercase uuid', UUID.toUpperCase()],
+    ['a separator', `${UUID}/000000`],
+    ['an extension smuggled into the id', `${UUID}.webm`],
+    ['a non-uuid body', 'stolen'],
+    ['a string-shaped non-string', IMPOSTOR],
+  ])('refuses %s as a take id — nothing is signed', async (_label, takeId) => {
+    await expect(
+      mintRecordingUploadUrl({ takeId: takeId as string, mimeType: 'audio/webm' }),
+    ).rejects.toThrow('could not mint an upload URL')
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('gates on records.write BEFORE it looks at any client input', async () => {
+    requireCapability.mockRejectedValue(new Error('forbidden'))
+    await expect(mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })).rejects.toThrow(
+      'forbidden',
+    )
+    expect(getBusinessId).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+})
+
+// Fix round 2, B4. `upsert: true` on a key the DEVICE named can displace an
+// object a finalized row already points at, so the naming claim leaves a trail.
+// A server-named uuid claims nothing and files nothing, exactly as before.
+describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row', () => {
+  it('files one ids-only row for a named take', async () => {
+    await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/mp4' })
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+    expect(event).toMatchObject({
+      category: 'recording',
+      action: 'recording.take_named',
+      actorId: 'staff-1',
+      actorType: 'staff',
+      businessId: 'biz-1',
+      severity: 'info',
+      source: 'web',
+    })
+    // ⚖ 8/17 doc law — ids, numbers and flags only; no key, no path, no URL.
+    expect(event.detail).toEqual({ take_id: UUID, ext: 'mp4', upsert: true })
+    expect(JSON.stringify(event.detail)).not.toContain(OWN)
+  })
+
+  it('files NOTHING when the server names the take — old behaviour unchanged', async () => {
+    await mintRecordingUploadUrl()
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('files nothing when the named take is REFUSED — no row for a key never signed', async () => {
+    await expect(mintRecordingUploadUrl({ takeId: 'stolen' })).rejects.toThrow()
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('files nothing when storage refuses to sign', async () => {
+    createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
+    await expect(mintRecordingUploadUrl({ takeId: UUID })).rejects.toThrow()
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // The emitter is a PRIVATE auditLockout-pattern helper, so CP7's
+  // registry-reality cross-check (exported symbols only) can never require the
+  // registration — this pin is what goes red if the entry is dropped.
+  it('is registered in AUDITED_CORES as the file’s writer', () => {
+    expect(AUDITED_CORES).toContainEqual(
+      expect.objectContaining({
+        file: 'src/lib/recording/mint-take-url.ts',
+        symbols: ['auditTakeNamed'],
+      }),
+    )
+  })
+})
+
+// THE FENCE'S OWN PROOF: every key the composer can produce parses back as a
+// TAKE of the same business. If this table ever fails, the mint is handing out
+// keys the downstream fences would refuse — or worse, accept for someone else.
+describe('composeTakeKey — the self-check, as a table', () => {
+  const BUSINESSES = ['biz-1', BIZ_UUID, 'biz-1_with_underscores', 'biz.1-2']
+  const MIMES = ['audio/webm', 'audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg', 'audio/wav']
+  const rows = BUSINESSES.flatMap((b) => MIMES.map((m) => [b, m] as const))
+
+  it.each(rows)('%s + %s composes a key that parses as kind take', (businessId, mimeType) => {
+    const composed = composeTakeKey(businessId, UUID, mimeType)
+    expect(composed).not.toBeNull()
+    expect(parseRecordingKey(composed!.key, businessId)).toEqual({
+      kind: 'take',
+      takeId: UUID,
+      ext: composed!.ext,
+    })
+    expect(isOwnRecordingKey(composed!.key, businessId)).toBe(true)
+    // …and belongs to NOBODY else.
+    expect(isOwnRecordingKey(composed!.key, 'other-biz')).toBe(false)
+  })
+
+  it('extFromMime is the closed map, and nothing else', () => {
+    expect(extFromMime('audio/mp4')).toBe('mp4')
+    expect(extFromMime('audio/mpeg')).toBeNull()
+    expect(extFromMime(null)).toBeNull()
   })
 })
 
