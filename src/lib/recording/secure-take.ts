@@ -55,6 +55,7 @@ import {
   loadTakeBlob,
   markTakeFinalized,
   markTakeSecureError,
+  markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeSession,
   TERMINAL_SECURE_ERRORS,
@@ -154,7 +155,7 @@ export async function secureTake(
     // on the same one through the port, and the mint below always carries an id.
     let recordingSessionId = meta.recordingSessionId
     if (!recordingSessionId) {
-      const started = await port.startSession({
+      const attributed = {
         // Attributed exactly as the recorder's own start-mint would have: the
         // take remembers who the recording is for, and a row minted without
         // that is a row the karute could never be read beside.
@@ -163,13 +164,35 @@ export async function secureTake(
         // The idempotency anchor (fix round 7) — one row per take, however many
         // times a lost reply sends us back here.
         takeId,
-        // …and, with the container beside it, what the door composes this
-        // take's finalized key from (fix round 8): the row this drain mints is
-        // born pointing at the very key the mint below is about to ask for, so
-        // there is no unbound window between the two calls. Same container the
-        // mint is given, never a second reading of it.
-        mimeType,
-      })
+      }
+      // ⚖ ONE BOUND ATTEMPT PER TAKE (fix round 9). With the container beside
+      // the take, the door composes this take's finalized key and the row is
+      // BORN pointing at it (fix round 8) — no unbound window for two
+      // client-named mints to race in. But a create that carries a key is not
+      // blind-retry-safe, which is PR2 fix round 10's own named ceiling: a
+      // second bound create composes the SAME key, and core's unique index
+      // refuses it forever. So the pair is offered only while this take has
+      // never sent one, and the flag is stamped BEFORE the request leaves —
+      // the failure it guards is the reply that never comes back.
+      const bound = !meta.startBoundAttempted
+      if (bound) await markTakeStartBoundAttempted(takeId)
+      // Same container the mint is given one line down, never a second reading.
+      let started = bound ? await port.startSession({ ...attributed, mimeType }) : null
+      // ANY failure steps back to the argument-less start, ONCE — a 400 from a
+      // server that predates the pair, a 409 on the key, a 5xx, a timeout, a
+      // lost reply. The row it makes is UNBOUND, which the mint below still
+      // reserves through its legacy update path, so the take is recoverable
+      // where a second bound try could only be refused again.
+      //
+      // THE RESIDUAL, and it is bounded: when the lost reply followed a
+      // SUCCESSFUL bound create, core keeps one born-reserved orphan row
+      // (UPLOADING, a pointer, no duration) that nothing can hand back — core
+      // exposes no lookup by audio_storage_path. The unbound row this makes is
+      // then a second row for the take, and the mint's reservation on it
+      // answers `reserved_elsewhere` against the orphan's key: TERMINAL, so
+      // nothing re-uploads, and the take surfaces as 要対応 (R10) for a human
+      // — instead of two rows quietly sharing one object.
+      if (!started) started = await port.startSession(attributed)
       if (!started) {
         // RETRYABLE. The door fails OPEN by contract — an unresolvable staff, a
         // dead socket, a core 5xx all answer null — and every one of those is a

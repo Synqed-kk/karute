@@ -326,6 +326,10 @@ beforeEach(async () => {
   jest.clearAllMocks()
   order.length = 0
   putBodies.length = 0
+  // clearAllMocks keeps IMPLEMENTATIONS, so every mock a test rewrites is put
+  // back here — the start-mint door included since fix round 9, whose step-back
+  // case needs an implementation of its own.
+  mockStartRecordingSession.mockImplementation(async () => null)
   startSession.mockImplementation(async () => {
     order.push('session')
     return { id: MINTED_SESSION }
@@ -757,6 +761,56 @@ describe('take durability — recovered-save dedupe', () => {
       (takes().get(JSON.stringify(takeId)) as { mimeType?: string }).mimeType,
     ).toBe('audio/webm;codecs=opus')
   })
+
+  // ── ⚖ ONE BOUND ATTEMPT PER TAKE (fix round 9) ───────────────────────────
+  // A create that carries a key is not blind-retry-safe — PR2 fix round 10's
+  // own named ceiling: a reply lost after a SUCCESSFUL create leaves us with no
+  // id, and the same take composes the same key, which core's unique index
+  // refuses from then on. So a reserved create that fails for ANY reason steps
+  // back to the argument-less one instead of trying the same key again.
+  const rowOf = (takeId: string) =>
+    takes().get(JSON.stringify(takeId)) as {
+      recordingSessionId?: string | null
+      startBoundAttempted?: boolean
+    }
+
+  it('a start-mint whose bound create fails steps back to the argument-less one, once', async () => {
+    mockStartRecordingSession.mockImplementation(async (input) =>
+      (input as { mimeType?: string }).mimeType ? null : { id: 'sess-unbound' },
+    )
+
+    const takeId = await startAndSettle()
+    await drain()
+
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(2)
+    expect(mockStartRecordingSession).toHaveBeenLastCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+    })
+    // …and THAT row is the take's: the karute saves against it, and the mint
+    // reserves this take's key on it through the legacy update path.
+    expect(globalRecorder.recordingSessionId).toBe('sess-unbound')
+    expect(rowOf(takeId).recordingSessionId).toBe('sess-unbound')
+    // The take is BORN remembering the attempt — the only thing that survives a
+    // reload, and what stops every later route re-sending the same bound create.
+    expect(rowOf(takeId).startBoundAttempted).toBe(true)
+  })
+
+  it('the review-path retry never offers the pair for a take that already sent one', async () => {
+    const takeId = await startAndSettle() // its own start-mint sent the pair, and failed
+    await drain()
+    mockStartRecordingSession.mockClear()
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'sess-retry' })
+
+    await expect(globalRecorder.retryRecordingSessionMint({ takeId })).resolves.toBe(
+      'sess-retry',
+    )
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(1)
+    expect(mockStartRecordingSession).toHaveBeenCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+    })
+  })
 })
 
 // ── PR-B1 D6 (R-B3): the 結果 answer survives the crash ────────────────────
@@ -955,6 +1009,7 @@ describe('secure at stop', () => {
       mimeType?: string
       recordingSessionId?: string | null
       durationMs?: number
+      startBoundAttempted?: boolean
       startedAt: number
       updatedAt: number
     }
@@ -1265,10 +1320,11 @@ describe('secure at stop', () => {
       // round 7): a retried session call must land on the same row, not mint a
       // fresh orphan every time a reply is lost.
       takeId,
-      // …with the container beside it (fix round 8), so the row this drain
-      // mints is born pointing at the key the mint below is about to ask for —
-      // the same container that mint is given, one line down.
-      mimeType: 'audio/webm;codecs=opus',
+      // …and NO container (fix round 9): start() already spent this take's one
+      // bound attempt, and a second born-reserved create would compose the very
+      // key core's unique index may already be holding. So the drain's create
+      // is the argument-less one, and the mint below reserves that unbound row
+      // through its legacy update path.
     })
     expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(mintTakeUrl).toHaveBeenCalledWith(takeId, expect.any(String), MINTED_SESSION)
@@ -1282,6 +1338,98 @@ describe('secure at stop', () => {
       globalRecorder.retryRecordingSessionMint({ takeId }),
     ).resolves.toBe(MINTED_SESSION)
     expect(mockStartRecordingSession).not.toHaveBeenCalled()
+  })
+
+  // ── ⚖ ONE BOUND ATTEMPT PER TAKE, the drain's half (fix round 9) ─────────
+
+  /** A take whose start never offered the pair — the only shape the drain still
+   *  binds: a row written before this field existed, or a browser that
+   *  negotiated no container at start(). */
+  async function unattemptedTake(): Promise<string> {
+    const takeId = await stoppedOwedTake()
+    delete (metaOf(takeId) as Record<string, unknown>).startBoundAttempted
+    return takeId
+  }
+
+  it('a take that never sent a bound start still gets one from the drain — and remembers it', async () => {
+    const takeId = await unattemptedTake()
+
+    await secureTake(port(), takeId)
+    expect(startSession).toHaveBeenCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+      takeId,
+      // Born reserved (fix round 8) — the row points at this take's finalized
+      // key from the moment it exists.
+      mimeType: 'audio/webm;codecs=opus',
+    })
+    // Stamped BEFORE the request left, which is the only ordering a LOST reply
+    // survives.
+    expect(metaOf(takeId).startBoundAttempted).toBe(true)
+  })
+
+  it('a bound start that fails steps back to the argument-less one, and THAT row is the take\'s', async () => {
+    const takeId = await unattemptedTake()
+    // Any refusal at all reaches the caller as the door's fail-open null: a
+    // validation 400 from a server that predates the pair, a 409 on a key core
+    // already holds, a 5xx, a reply lost on the way back.
+    startSession.mockImplementation(async (input: {
+      customerId: string | null
+      appointmentId: string | null
+      mimeType?: string
+    }) => {
+      order.push(input.mimeType ? 'session-bound' : 'session')
+      return input.mimeType ? null : { id: MINTED_SESSION }
+    })
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['session-bound', 'session', 'mint', 'put', 'finalize'])
+    expect(startSession).toHaveBeenLastCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+      takeId,
+    })
+    // The UNBOUND row is what the take is stamped with and what the mint
+    // reserves this key on — the legacy update path, still there for this.
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+    expect(mintTakeUrl).toHaveBeenCalledWith(
+      takeId,
+      'audio/webm;codecs=opus',
+      MINTED_SESSION,
+    )
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  it('the bound start is NEVER re-sent for a take that already tried one', async () => {
+    const takeId = await unattemptedTake()
+    startSession.mockImplementation(async () => {
+      order.push('session')
+      return null
+    })
+
+    // Both calls answer nothing, so the take still has no row — but it now
+    // remembers that a bound create went out, and that is what survives.
+    await secureTake(port(), takeId)
+    expect(startSession).toHaveBeenCalledTimes(2)
+    expect(metaOf(takeId).startBoundAttempted).toBe(true)
+    expect(metaOf(takeId).secureError).toBe('session')
+
+    await jest.advanceTimersByTimeAsync(60_000)
+    startSession.mockClear()
+    startSession.mockImplementation(async () => {
+      order.push('session')
+      return { id: MINTED_SESSION }
+    })
+    await secureTake(port(), takeId)
+    // ONE call, and it carries no container: the key that first create may have
+    // reserved is one core's unique index would refuse for the life of the row.
+    expect(startSession).toHaveBeenCalledTimes(1)
+    expect(startSession).toHaveBeenCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+      takeId,
+    })
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
   // The drain minted the row, so the RECORDER's own field is still null — and

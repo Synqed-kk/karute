@@ -160,6 +160,19 @@ export type TakeMeta = {
    *  page mounts on every navigation onto it. Absent = never attempted, or a
    *  take stamped before this field existed — both read as "cooled down". */
   lastSecureAttemptAt?: number
+  /** ⚖ ONE BOUND START PER TAKE (capture pipeline PR3 fix round 9). A session
+   *  created with `{takeId, mimeType}` is BORN RESERVED (PR2 fix round 10) — and
+   *  a create that carries a key is not blind-retry-safe, which is that round's
+   *  own named ceiling: if the reply is lost after core made the row, the client
+   *  has no id, and re-sending the same take composes the same key, which core's
+   *  unique index refuses forever. So the bound create is attempted exactly ONCE
+   *  per take, and this records that it was ATTEMPTED — never that it succeeded,
+   *  because the failure it exists for is precisely the one that answers
+   *  nothing. Every later attempt sends the argument-less start instead, whose
+   *  unbound row the upload mint still reserves through its legacy update path.
+   *  Absent = a take stamped before this field existed, read as "never
+   *  attempted", which is what those takes are. */
+  startBoundAttempted?: boolean
   /** The recorder's OWN measurement of this take, stamped at stop. It subtracts
    *  paused time, which no store-side estimate can: the retry's only other
    *  source is (updatedAt − startedAt), and a take paused for twenty minutes
@@ -368,6 +381,15 @@ export async function markTakeSecureError(takeId: string, code: string): Promise
   )
 }
 
+/** Capture pipeline PR3 fix round 9: a BORN-RESERVED start is about to be sent
+ *  for this take. Stamped BEFORE the request leaves, because the case it guards
+ *  is a LOST RESPONSE — a flag written when the reply lands is a flag the one
+ *  failure that matters never writes. See `startBoundAttempted` above for why
+ *  one attempt is all a bound create ever gets. */
+export async function markTakeStartBoundAttempted(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { startBoundAttempted: true })
+}
+
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
  *  stamped at stop so a LATER attempt (the record page's mount retry, PR5's
  *  drain) finalizes the same number the stop would have. Without it those
@@ -403,10 +425,18 @@ async function readOwnTakeMeta(takeId: string): Promise<TakeMeta | null> {
  *  mints one attributed the same way the recorder's start-mint would have —
  *  plus the recorder's own duration — the ONLY measurement a take is finalized
  *  with (fix round 7: the flush window that used to stand in behind it was
- *  unreachable, so the two fields that fed it are no longer read out). */
+ *  unreachable, so the two fields that fed it are no longer read out) — and
+ *  whether a BOUND start has already been sent for this take (fix round 9),
+ *  which both routes to the session door read before they offer the pair. */
 export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   TakeMeta,
-  'mimeType' | 'recordingSessionId' | 'target' | 'finalizedAt' | 'secureError' | 'durationMs'
+  | 'mimeType'
+  | 'recordingSessionId'
+  | 'target'
+  | 'finalizedAt'
+  | 'secureError'
+  | 'durationMs'
+  | 'startBoundAttempted'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -417,6 +447,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     finalizedAt: meta.finalizedAt,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
+    startBoundAttempted: meta.startBoundAttempted,
   }
 }
 

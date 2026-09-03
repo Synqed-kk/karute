@@ -9,6 +9,7 @@ import {
   appendTakeSegment,
   createTake,
   deleteTake,
+  markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeDuration,
   stampTakeSession,
@@ -302,7 +303,15 @@ class GlobalRecorder {
      *
      *  BOTH OR NEITHER — the door's schema refuses half a pair — so a take with
      *  no uuid to name (the composed fallback id below) or no negotiated
-     *  container simply gets today's create. */
+     *  container simply gets today's create.
+     *
+     *  ⚖ AND IT IS SENT ONCE (fix round 9). A create that carries a key is not
+     *  blind-retry-safe: a lost reply after a successful create leaves us with
+     *  no id, and the same take composes the same key, which core's unique
+     *  index refuses forever. So ANY failure of a reserved create steps back to
+     *  the argument-less one — below, inside this method — and every LATER
+     *  attempt for the take reads `startBoundAttempted` off its meta and never
+     *  offers the pair again. */
     reserve?: { takeId: string; mimeType: string } | null
   }): Promise<string | null> {
     const gen = ++this.recordingSessionGen
@@ -321,7 +330,27 @@ class GlobalRecorder {
       appointmentId: input.appointmentId,
       ...(input.reserve ?? {}),
     }
-    const promise = startRecordingSession(args).then((res) => {
+    const promise = startRecordingSession(args)
+      // ⚖ ONE BOUND ATTEMPT, THEN THE UNBOUND ONE (fix round 9). Round 8's step
+      // back lived in the phone's doors and fired only on the door's own 400.
+      // Every other failure — a 409 on the key, a 5xx, a timeout, a reply lost
+      // on the way back — left the take with no row at all, and no second
+      // bound try can ever fix that (it composes the same key). So the step
+      // back happens HERE, on ANY failure, and it is the argument-less create:
+      // an unbound row, which the upload mint still reserves through its legacy
+      // update path. Never a loop — one step, once.
+      //
+      // A stale generation spends nothing: its row would belong to a take the
+      // user has already discarded or replaced.
+      .then((res) =>
+        res || !input.reserve || gen !== this.recordingSessionGen
+          ? res
+          : startRecordingSession({
+              customerId: input.customerId,
+              appointmentId: input.appointmentId,
+            }),
+      )
+      .then((res) => {
       // Stale mint (user discarded / started a new recording while this was
       // in flight): drop it — its row belongs to a different take/customer.
       // The flag is NOT cleared here: it belongs to whichever mint owns the
@@ -367,6 +396,10 @@ class GlobalRecorder {
     const uuid =
       typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null
     const mimeType = getSupportedMimeType()
+    // Settled once, because the take row has to REMEMBER that this start sent a
+    // bound create (fix round 9): the pair the door is offered and the flag the
+    // take is born with must never disagree.
+    const reserve = uuid && mimeType ? { takeId: uuid, mimeType } : null
 
     // Mint the recording-session id (synqed-core) IN PARALLEL with getUserMedia
     // below — a network call must NEVER block or delay the mic prompt. Held so
@@ -375,7 +408,7 @@ class GlobalRecorder {
     void this.mintRecordingSession({
       customerId: this.target?.customerId ?? null,
       appointmentId: this.target?.appointmentId ?? null,
-      reserve: uuid && mimeType ? { takeId: uuid, mimeType } : null,
+      reserve,
     })
 
     let micStream: MediaStream
@@ -492,6 +525,12 @@ class GlobalRecorder {
       mimeType: mimeType || recorder.mimeType,
       startedAt: this.startTime,
       ...(uuid ? {} : { secureError: 'no_uuid' }),
+      // The take is BORN knowing a bound create went out for it (fix round 9),
+      // so no later route offers the pair a second time — not the retry below,
+      // not the drain's own session-first call. Written with the row rather
+      // than stamped after the mint answers, because the failure this exists
+      // for is the one that never answers.
+      ...(reserve ? { startBoundAttempted: true } : {}),
     }).then((ok) => {
       if (this.takeId !== takeId) return
       if (!ok) {
@@ -590,22 +629,32 @@ class GlobalRecorder {
       (this.recordingSessionMintTakeId ?? this.takeId) === takeId
         ? this.recordingSessionPromise
         : null
-    const promise =
-      inFlightForThisTake ??
-      this.mintRecordingSession({
+    let promise = inFlightForThisTake
+    if (!promise) {
+      // …and this row is born reserved too (fix round 8): the take already
+      // knows its container, and a row minted here is the SAME row the take's
+      // audio will land on. `no_uuid` is the store's own verdict that this
+      // take id can never be signed for (stamped at creation, and terminal —
+      // nothing overwrites it), so the pair is not offered for one.
+      //
+      // ⚖ AND ONLY WHILE NO BOUND CREATE HAS GONE OUT (fix round 9). start()
+      // already sent one for every take it named, and a second would compose
+      // the same key core's unique index refuses — so this route is the
+      // argument-less create for all but a take whose start never offered the
+      // pair at all.
+      const reserve =
+        meta?.mimeType && meta.secureError !== 'no_uuid' && !meta.startBoundAttempted
+          ? { takeId, mimeType: meta.mimeType }
+          : null
+      // Before the send, never after: a lost reply is the case the flag is for.
+      if (reserve) await markTakeStartBoundAttempted(takeId)
+      promise = this.mintRecordingSession({
         customerId: opts?.customerId ?? this.target?.customerId ?? null,
         appointmentId: opts?.appointmentId ?? this.target?.appointmentId ?? null,
         stampTakeId: takeId,
-        // …and this row is born reserved too (fix round 8): the take already
-        // knows its container, and a row minted here is the SAME row the take's
-        // audio will land on. `no_uuid` is the store's own verdict that this
-        // take id can never be signed for (stamped at creation, and terminal —
-        // nothing overwrites it), so the pair is not offered for one.
-        reserve:
-          meta?.mimeType && meta.secureError !== 'no_uuid'
-            ? { takeId, mimeType: meta.mimeType }
-            : null,
+        reserve,
       })
+    }
     const timeout = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), opts?.timeoutMs ?? MINT_AWAIT_MS),
     )
