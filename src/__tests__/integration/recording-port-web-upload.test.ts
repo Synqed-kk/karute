@@ -52,8 +52,14 @@ const finalizeTakeAction = jest.fn(async (_i: unknown) => ({
   ok: true as const,
   recordingSessionId: 'rs-1',
 }))
+/** The recorder's own start-mint door — the port reaches the SAME action
+ *  global-recorder imports (fix round 6: row minting has one home). */
+const startRecordingSessionAction = jest.fn(
+  async (_i: unknown): Promise<{ id: string } | null> => ({ id: 'rs-new' }),
+)
 jest.mock('@/actions/recordings', () => ({
   finalizeTake: (i: unknown) => finalizeTakeAction(i),
+  startRecordingSession: (i: unknown) => startRecordingSessionAction(i),
 }))
 
 import { webRecordingPort } from '@/lib/ports/recording-port'
@@ -68,6 +74,7 @@ beforeEach(() => {
     url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
   }))
   removeRecordingObject.mockImplementation(async () => ({ ok: true as const }))
+  startRecordingSessionAction.mockImplementation(async () => ({ id: 'rs-new' }))
   fetchMock.mockImplementation(async () => ({ ok: true, status: 200 }) as unknown as Response)
   global.fetch = fetchMock as unknown as typeof fetch
 })
@@ -190,6 +197,30 @@ describe('the browser-direct uploader is gone', () => {
 // what these pin is that the client's take id and container actually reach the
 // shared server bodies, and that the finalize twin's REFUSALS come back settled
 // rather than thrown.
+// Fix round 6 — the row minter. The web arm reaches the very action
+// global-recorder's start-mint calls, so a take whose start-mint failed and a
+// take whose drain minted its row land on the same kind of row.
+describe('webRecordingPort.startSession', () => {
+  it("calls the recorder's own start-mint action, verbatim", async () => {
+    await expect(
+      webRecordingPort.startSession({ customerId: 'cust-1', appointmentId: 'appt-1' }),
+    ).resolves.toEqual({ id: 'rs-new' })
+    expect(startRecordingSessionAction).toHaveBeenCalledWith({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+    })
+  })
+
+  // The action's own FAIL-OPEN contract, passed through untouched: capture must
+  // never block on the mint, so an unresolvable staff / SDK failure is null.
+  it('a null from the action stays a null — the take is retried, not failed forever', async () => {
+    startRecordingSessionAction.mockImplementation(async () => null)
+    await expect(
+      webRecordingPort.startSession({ customerId: null, appointmentId: null }),
+    ).resolves.toBeNull()
+  })
+})
+
 describe('webRecordingPort.mintTakeUrl', () => {
   it('names the take, its container AND the row to reserve — the mint composes the key', async () => {
     await expect(
@@ -206,6 +237,23 @@ describe('webRecordingPort.mintTakeUrl', () => {
       mimeType: 'audio/mp4',
       recordingSessionId: 'rs-1',
     })
+  })
+
+  // The port TYPE drops `token` (it already rides inside `url`), and the object
+  // must drop it too: a caller handed a credential the contract says it never
+  // gets is a second signed-request assembler waiting to be written.
+  it('the signing token never leaves the port — the object matches the type', async () => {
+    const minted = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm', 'rs-1')
+    expect(minted).toEqual({
+      path: 'app_biz-1_uuid-1.webm',
+      url: MINTED.url,
+      contentType: 'audio/webm',
+      recordingSessionId: 'rs-1',
+    })
+    expect(Object.keys(minted)).not.toContain('token')
+    // …and the action really did hand one over, so the line above is the port
+    // dropping it rather than the fake never sending it.
+    expect(MINTED.token).toBe('up')
   })
 
   // The action answers with the shared core's result UNION now (PR2 fix round

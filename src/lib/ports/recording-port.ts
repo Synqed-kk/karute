@@ -79,6 +79,23 @@ export interface RecordingPipelinePort {
    */
   stageForJob(blob: Blob): Promise<{ path: string }>
   /**
+   * Mint the recording_sessions ROW for a take that has none (capture pipeline
+   * PR3 fix round 6). The SAME door the recorder's own start-mint knocks on —
+   * web: the startRecordingSession action; thin: POST …/recordings/session —
+   * so row minting has exactly one home. The mint below no longer creates a row
+   * for a client-named take (PR2 fix round 7: a lost RESPONSE to a create left
+   * an orphan row and a retry that could not name it), which is why the drain
+   * needs this door of its own.
+   *
+   * FAIL-OPEN, exactly like the recorder's: `null` on an unresolvable staff, a
+   * dead socket or a core 5xx — all moments in time, so secure-take records a
+   * RETRYABLE 'session' and the next drain asks again. Never throws.
+   */
+  startSession(input: {
+    customerId: string | null
+    appointmentId: string | null
+  }): Promise<{ id: string } | null>
+  /**
    * Mint the signed upload URL for THIS take's finalized key (capture pipeline
    * PR3 — secure-take.ts). Unlike stageForJob's mint the key is CLIENT-NAMED:
    * the device already owns the take id and the recorder already negotiated the
@@ -92,9 +109,9 @@ export interface RecordingPipelinePort {
    * its name can never disagree.
    *
    * `recordingSessionId` is the row the mint must RESERVE this key on (PR2 fix
-   * round 4 — the mint binds, finalize verifies). Null when the start-mint
-   * never landed: the mint then creates the row itself, and either way the
-   * reply names the row the take is now bound to.
+   * round 4 — the mint binds, finalize verifies). secure-take ALWAYS names one
+   * now (fix round 6: startSession above runs first when the take carries
+   * none), and the reply names the row the take is bound to.
    *
    * NEVER THROWS ON A REFUSAL — the same contract finalizeTake below carries,
    * and for the same reason: `exists` and `reserved_elsewhere` are answers the
@@ -112,10 +129,10 @@ export interface RecordingPipelinePort {
    * "This take is complete" — the finalize door (web action / facade twin),
    * which writes audio_storage_path + duration onto the core row.
    *
-   * NEVER throws on a REFUSAL: `object_missing`, `busy` and friends are settled
-   * answers the caller records and a later drain retries. Both arms reach the
-   * one shared body (lib/recording/finalize-take.ts), so the phone and the web
-   * page cannot drift into different finalize semantics.
+   * NEVER throws on a REFUSAL: `object_missing`, `failed` and friends are
+   * settled answers the caller records and a later drain retries. Both arms
+   * reach the one shared body (lib/recording/finalize-take.ts), so the phone
+   * and the web page cannot drift into different finalize semantics.
    */
   finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTakeResult>
   /**
@@ -195,12 +212,26 @@ export const webRecordingPort: RecordingPipelinePort = {
     // NO cleanup — the worker deletes the object on success.
     return { path }
   },
+  async startSession(input) {
+    // The recorder's own start-mint door, reached exactly as it reaches it
+    // (global-recorder.ts imports this action directly). Lazy for the same
+    // reason finalizeTake below is: @/actions/recordings reaches
+    // @synqed-kk/client, which jest cannot parse.
+    const { startRecordingSession } = await import('@/actions/recordings')
+    return startRecordingSession(input)
+  },
   async mintTakeUrl(takeId, mimeType, recordingSessionId) {
     const { mintRecordingUploadUrl } = await uploadActions()
     // The action already answers with the shared core's result UNION (PR2 fix
     // round 4), which IS this port's shape — so the refusals reach secureTake
     // named, with nothing in between to flatten them.
-    return mintRecordingUploadUrl({ takeId, mimeType, recordingSessionId })
+    const minted = await mintRecordingUploadUrl({ takeId, mimeType, recordingSessionId })
+    if ('error' in minted) return minted
+    // `token` is DROPPED here, not merely dropped from the type: it already
+    // rides inside `url`, and handing a caller a credential the contract says
+    // it never gets is how a second signed-request assembler is born.
+    const { path, url, contentType, recordingSessionId: bound } = minted
+    return { path, url, contentType, recordingSessionId: bound }
   },
   async finalizeTake(input) {
     // Lazy, same reason as enqueueJob below — this module's import graph

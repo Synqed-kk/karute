@@ -2126,6 +2126,43 @@ describe('the mount retry secures a take the stop could not', () => {
     )
   })
 
+  // ONE AT A TIME. A take is a whole recording — tens of megabytes — so three
+  // owed takes fired at once on salon wifi means three PUTs starving each other
+  // (and the app's own calls) until they all time out. Fanning out was the old
+  // shape; sequential turns that into three uploads that finish.
+  it('owed takes are drained ONE AT A TIME, never fanned out at once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2', 'take-3']
+    let releaseFirst!: () => void
+    const firstDone = new Promise<void>((r) => (releaseFirst = r))
+    mockSecureTake.mockImplementationOnce(async () => {
+      await firstDone
+    })
+
+    await renderPage()
+    // The first upload is still in flight, so nothing else has started.
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+
+    await act(async () => {
+      releaseFirst()
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+    expect(mockSecureTake).toHaveBeenCalledTimes(3)
+    expect(mockSecureTake).toHaveBeenNthCalledWith(
+      3,
+      expect.anything(),
+      'take-3',
+      undefined,
+      expect.any(Function),
+    )
+  })
+
   // The finalized/terminal exclusions now live in the store read (one home for
   // the rule); from the page's side "nothing owed" is simply an empty list.
   it('nothing owed, nothing secured', async () => {

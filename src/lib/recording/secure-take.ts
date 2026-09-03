@@ -13,11 +13,25 @@
 //
 // WHAT CHANGED AGAIN (fix round 4). The MINT binds now: it reserves this
 // take's key on the recorder's own row before it signs anything, and answers
-// with the row it bound. So the session id is settled BEFORE the PUT — stamped
-// here the moment the mint replies, because a kill between the PUT and the
-// finalize must not leave uploaded audio with no way back to its row. And the
-// mint's refusals are ANSWERS now, not throws: `exists` / `reserved_elsewhere`
-// mean this take is spoken for and no retry helps.
+// with the row it bound. So the session id is settled BEFORE the PUT — because
+// a kill between the PUT and the finalize must not leave uploaded audio with no
+// way back to its row. And the mint's refusals are ANSWERS now, not throws:
+// `exists` / `reserved_elsewhere` mean this take is spoken for and no retry
+// helps.
+//
+// AND ONCE MORE (fix round 6). A take now gets its ROW first, from the session
+// door — the same one the recorder's start-mint uses — and only then knocks on
+// the mint. The mint stopped creating rows for client-named takes (PR2 fix
+// round 7): a create whose response was lost orphaned a row the retry could
+// not name. Two paths can therefore mint a take's session — the recorder's
+// (start, or retryRecordingSessionMint) and this one — but never both: each
+// reads the stamp on the take before it issues anything.
+//
+// A take is secured only once a recorder has MEASURED it (fix round 6, P1): a
+// stop off-page leaves no live recorder for the isActive belt to ask, and
+// sealing the segments flushed so far under the immutable key would truncate
+// the tail still being written. `durationMs` (stamped at onstop) or the stop
+// path's own argument is that proof.
 //
 // IT IS A HINT, NEVER A GUARANTEE (⚖ v2 item 2). Phase `recorded` renders
 // before this is called and never waits on it; an offline stop simply records
@@ -52,7 +66,8 @@ const inFlight = new Set<string>()
  * @param durationSeconds the recorder's OWN measurement, when a caller has one
  *   (it subtracts paused time, and iOS fMP4 reports duration 0 — ⚖ v2 item 13).
  *   Omitted (the retry path, which has no recorder), the value the recorder
- *   STAMPED at stop stands in, and only failing that the take's flush window.
+ *   STAMPED at stop stands in — and a take carrying neither is not one a
+ *   recorder has finished, so it is not secured at all (fix round 6).
  * @param isActive answers "is this take the one you are CAPTURING right now?"
  *   — passed by callers that share a runtime with the recorder singleton
  *   (globalRecorder.isActiveTake). A caller with no recorder at all (PR5's
@@ -82,6 +97,16 @@ export async function secureTake(
     // Gone, another staffer's, or already secured — all three mean there is
     // nothing to do, and the finalizedAt read is what makes a second call free.
     if (!meta || meta.finalizedAt) return
+    // ⚖ NO STOP STAMP, NO SECURING (fix round 6) — the belt's second half.
+    // isActive above can only answer for the take the recorder in THIS runtime
+    // is holding; a stop that happened off-page (the staffer navigates to 記録
+    // before the tail flush resolves) leaves no live recorder to ask, and
+    // securing then seals the segments flushed so far under the IMMUTABLE key
+    // while the tail is still being written. `durationMs` is stamped at onstop
+    // and `durationSeconds` is passed only BY the stop path, so between them
+    // one of the two is present exactly when a take is complete. Mark NOTHING:
+    // an unfinished take has not failed at anything.
+    if (meta.durationMs === undefined && durationSeconds === undefined) return
     // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
@@ -92,9 +117,40 @@ export async function secureTake(
     if (!blob || blob.size === 0) return
 
     const mimeType = meta.mimeType || DEFAULT_MIME
-    // The row the mint must RESERVE this key on. Null when the start-mint never
-    // landed — the mint then creates the row itself and answers with its id.
-    const minted = await port.mintTakeUrl(takeId, mimeType, meta.recordingSessionId)
+
+    // ⚖ A TAKE HAS ITS ROW BEFORE IT IS SECURED (fix round 6). The mint used to
+    // create one for a take whose start-mint never landed; it does not any more
+    // (PR2 fix round 7), because a create whose RESPONSE was lost left an orphan
+    // row and a retry with no id to name it. Row minting has ONE home — the
+    // session door the recorder's own start-mint knocks on — so this leg knocks
+    // on the same one through the port, and the mint below always carries an id.
+    let recordingSessionId = meta.recordingSessionId
+    if (!recordingSessionId) {
+      const started = await port.startSession({
+        // Attributed exactly as the recorder's own start-mint would have: the
+        // take remembers who the recording is for, and a row minted without
+        // that is a row the karute could never be read beside.
+        customerId: meta.target?.customerId ?? null,
+        appointmentId: meta.target?.appointmentId ?? null,
+      })
+      if (!started) {
+        // RETRYABLE. The door fails OPEN by contract — an unresolvable staff, a
+        // dead socket, a core 5xx all answer null — and every one of those is a
+        // moment in time, so the next drain asks again.
+        await markTakeSecureError(takeId, 'session')
+        return
+      }
+      recordingSessionId = started.id
+      // THE SESSION IS SETTLED BEFORE THE BYTES, and before the mint that binds
+      // them: a kill anywhere after this must not leave audio (or a reserved
+      // key) whose retry cannot name the row it belongs to.
+      await stampTakeSession(takeId, recordingSessionId)
+    }
+
+    // The row the mint RESERVES this key on — never null now, and never
+    // re-pointed from the reply: a take's row is what its discard and its
+    // karute write against.
+    const minted = await port.mintTakeUrl(takeId, mimeType, recordingSessionId)
     // A refusal is a settled ANSWER now, the same as finalize's. Recorded
     // verbatim: TERMINAL_SECURE_ERRORS is the one place that judges which of
     // them can ever turn into a yes.
@@ -102,24 +158,6 @@ export async function secureTake(
       await markTakeSecureError(takeId, minted.error)
       return
     }
-
-    // THE SESSION IS SETTLED BEFORE THE BYTES. The server has already written
-    // this key onto the row, so the device's copy of that fact must survive a
-    // kill between the PUT and the finalize — a retry that arrives with no
-    // session id could not name the row its own audio is already bound to.
-    //
-    // Only when the take carries none: a take that already has a session is the
-    // row its discard and its karute write against, and re-pointing it from a
-    // reply would orphan them.
-    const recordingSessionId = meta.recordingSessionId ?? minted.recordingSessionId
-    if (!recordingSessionId) {
-      // A CLIENT-NAMED mint always answers with a row (mint-take-url.ts), so a
-      // null here is a door that named the take itself — nothing this leg can
-      // finalize against, and no retry changes which door answered.
-      await markTakeSecureError(takeId, 'no_session')
-      return
-    }
-    if (!meta.recordingSessionId) await stampTakeSession(takeId, recordingSessionId)
 
     const put = await fetch(minted.url, {
       method: 'PUT',
@@ -150,20 +188,22 @@ export async function secureTake(
       takeId,
       mimeType,
       // The recorder's live measurement when this IS the stop; the one it
-      // stamped at stop when this is a later retry; and only failing both,
-      // the flush window — which counts paused time as recording.
+      // stamped at stop when this is a later retry. The stop-stamp gate above
+      // proves one of those two is here, so the flush window below — which
+      // counts paused time as recording — is a FLOOR now, not a live path.
       durationSeconds:
         durationSeconds ??
         (meta.durationMs !== undefined
           ? Math.max(0, meta.durationMs / 1000)
           : Math.max(0, (meta.updatedAt - meta.startedAt) / 1000)),
       byteLength: blob.size,
-      // REQUIRED by the door now — proved non-null above, stamped on the take.
+      // REQUIRED by the door — the take's own row, stamped on the take before
+      // the mint was even asked.
       recordingSessionId,
     })
     // `already: true` rides the ok arm on purpose — an exact retry and a take a
     // job already finished are both settled successes, not failures to re-run.
-    // Nothing is stamped here: the session was settled at the mint, above.
+    // Nothing is stamped here: the session was settled before the mint, above.
     if ('ok' in result) await markTakeFinalized(takeId)
     else await markTakeSecureError(takeId, result.error)
   } catch (err) {

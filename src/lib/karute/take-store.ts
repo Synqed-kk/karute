@@ -51,8 +51,8 @@ const ACTIVE_GRACE_MS = 20_000
  *  re-uploaded on every mount, forever. The door refuses these on facts that do
  *  not change: the input is malformed, the caller is not allowed, the object's
  *  bytes already disagree with the key, or there is no row to write. Everything
- *  else — busy, network, upload_<status>, mint_<status>, object_missing — is a
- *  moment in time and stays retryable.
+ *  else — session, network, upload_<status>, mint_<status>, object_missing — is
+ *  a moment in time and stays retryable.
  *
  *  ⚠ These takes are NOT abandoned: the audio stays on the device and the take
  *  stays plainly un-finalized, which is what surfaces it as 要対応 (R10) for a
@@ -88,9 +88,6 @@ export const TERMINAL_SECURE_ERRORS = new Set([
   // renegotiate, and a retry sends the identical rejected value.
   'bad_take_id',
   'bad_mime',
-  // The mint answered with no row at all (a door that named the take itself),
-  // so there is nothing this take could ever be finalized against.
-  'no_session',
 ])
 
 export type TakeMeta = {
@@ -141,9 +138,10 @@ export type TakeMeta = {
    *  row. Absent on every take stamped before this field existed — read as "not
    *  secured", which is the honest answer for them. */
   finalizedAt?: number
-  /** Why the last secure attempt did not finish — the finalize door's own code
-   *  ('busy' | 'object_missing' | 'failed' | …), 'upload_<status>' for a refused
-   *  PUT, 'mint_<status>' for a refused mint, or 'network' for a throw. A
+   /** Why the last secure attempt did not finish — the finalize door's own code
+   *  ('object_missing' | 'size_mismatch' | 'failed' | …), 'session' for a take
+   *  that could not get a row at all, 'upload_<status>' for a refused PUT,
+   *  'mint_<status>' for a refused mint, or 'network' for a throw. A
    *  success clears it. Mostly diagnostic — the one thing that READS it is
    *  TERMINAL_SECURE_ERRORS above, which stops re-uploading whole takes against
    *  a refusal that can never turn into a yes. */
@@ -300,14 +298,23 @@ export async function stampTakeSession(
 
 /** Merge fields into a take's meta row — the body stampTakeSession above and
  *  the two marks below share. Best-effort, no-throw, no-op-if-gone, exactly
- *  like every other stamp in this file. */
-async function patchTakeMeta(takeId: string, patch: Partial<TakeMeta>): Promise<void> {
+ *  like every other stamp in this file.
+ *
+ *  `when` is read on the row this transaction just fetched, so a caller can
+ *  refuse to write against a state it must not overwrite without opening a
+ *  read-then-write window of its own. */
+async function patchTakeMeta(
+  takeId: string,
+  patch: Partial<TakeMeta>,
+  when?: (meta: TakeMeta) => boolean,
+): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
     const tx = db.transaction(TAKES, 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
     if (!meta) return
+    if (when && !when(meta)) return
     await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
   } catch (err) {
     console.error('[take-store] patchTakeMeta failed:', err)
@@ -322,9 +329,16 @@ export async function markTakeFinalized(takeId: string): Promise<void> {
 
 /** Capture pipeline PR3: the last secure attempt did not finish. Records WHY
  *  and nothing else — the take stays un-finalized, which is the only fact the
- *  retry (and PR5's drain) reads. */
+ *  retry (and PR5's drain) reads.
+ *
+ *  NEVER writes over a FINALIZED take (fix round 6). Two tabs can name the same
+ *  take: the winner finalizes it, the loser's mint answers `exists` a moment
+ *  later, and that late mark would put a TERMINAL code on a take whose audio is
+ *  already safely on the server — which is what the 要対応 surface reads. The
+ *  read and the write share one transaction in patchTakeMeta, so there is no
+ *  window between them. */
 export async function markTakeSecureError(takeId: string, code: string): Promise<void> {
-  await patchTakeMeta(takeId, { secureError: code })
+  await patchTakeMeta(takeId, { secureError: code }, (meta) => !meta.finalizedAt)
 }
 
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
@@ -357,12 +371,15 @@ async function readOwnTakeMeta(takeId: string): Promise<TakeMeta | null> {
 
 /** What secureTake needs: whether this take is already secured, why the last
  *  attempt failed (a TERMINAL code must not be re-uploaded against), which
- *  container the key must carry, which session to finalize against, the
- *  recorder's own duration, and the window that stands in when there is none. */
+ *  container the key must carry, which session to finalize against — and who
+ *  the recording is FOR, so a take that has to mint its own row (fix round 6)
+ *  mints one attributed the same way the recorder's start-mint would have —
+ *  plus the recorder's own duration and the window that stands in without one. */
 export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   TakeMeta,
   | 'mimeType'
   | 'recordingSessionId'
+  | 'target'
   | 'finalizedAt'
   | 'secureError'
   | 'durationMs'
@@ -374,6 +391,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   return {
     mimeType: meta.mimeType,
     recordingSessionId: meta.recordingSessionId,
+    target: meta.target,
     finalizedAt: meta.finalizedAt,
     secureError: meta.secureError,
     durationMs: meta.durationMs,

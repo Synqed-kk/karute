@@ -741,10 +741,14 @@ export function RecordPageView({
     // this page keeps rendering has nothing to do with whether the audio is on
     // the server. No UI, no toast — secureTake is idempotent (its in-flight
     // guard and finalizedAt make the repeats free) and records its own outcome.
+    // ONE AT A TIME. A take is a whole recording — tens of megabytes — and a
+    // staffer with three owed takes on salon wifi would otherwise start three
+    // PUTs at once, each starving the others (and the app's own calls) until
+    // they all time out. Sequential turns that into three uploads that finish.
     void (async () => {
       const port = getRecordingPipelinePort()
       for (const id of await listOwnStoppedUnsecuredTakeIds())
-        void secureTake(port, id, undefined, isActive)
+        await secureTake(port, id, undefined, isActive)
     })()
     void Promise.all([
       loadDraft(),

@@ -190,6 +190,7 @@ import {
   stampDiscardPending,
   stampTakeDuration,
   stampTakeOutcome,
+  stampTakeSession,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import {
@@ -207,9 +208,12 @@ import { extFromMime, normalizeAudioMime } from '@/lib/recording/key-grammar'
 // whole file; the last describe drives it.
 const order: string[] = []
 const putBodies: Blob[] = []
-/** The row the door RESERVES for a take that names none — the id the device has
- *  never seen, so "the minted id is stamped" is provable rather than an echo. */
-const MINTED_SESSION = 'rs-reserved-by-the-mint'
+/** The row the SESSION DOOR mints for a take that has none — the id the device
+ *  has never seen, so "the minted id is stamped" is provable rather than an
+ *  echo. Fix round 6: the door that answers it is the recorder's own
+ *  start-mint door, reached through the port; the upload mint stopped minting
+ *  rows entirely (PR2 fix round 7). */
+const MINTED_SESSION = 'rs-minted-by-the-session-door'
 /** What the SERVER would compose for this take (mint-take-url.ts →
  *  composeTakeKey): the codec parameters are stripped, and BOTH the extension
  *  and the content type come off the same closed map — so the recorder's
@@ -219,18 +223,35 @@ const MINTED_SESSION = 'rs-reserved-by-the-mint'
  *  The reply also names the row the key is now BOUND to (PR2 fix round 4): the
  *  caller's own session when it named one, and a row the mint created when it
  *  did not — the two branches reserveTakeForRecorder actually has. */
-function mintedFor(takeId: string, mimeType: string, recordingSessionId: string | null) {
+function mintedFor(takeId: string, mimeType: string, recordingSessionId: string) {
   const contentType = normalizeAudioMime(mimeType) ?? 'audio/webm'
   const ext = extFromMime(contentType) ?? 'webm'
   return {
     path: `app_biz-1_${takeId}.${ext}`,
     url: `https://proj.supabase.co/upload/app_biz-1_${takeId}.${ext}?token=up`,
     contentType,
-    recordingSessionId: recordingSessionId ?? MINTED_SESSION,
+    recordingSessionId,
   }
 }
+/** The session door — the row minter, and the ONLY one (fix round 6). The
+ *  recorder's start-mint knocks on it, and so does a drain whose take never got
+ *  an id. */
+const startSession = jest.fn(
+  async (_input: {
+    customerId: string | null
+    appointmentId: string | null
+  }): Promise<{ id: string } | null> => {
+    order.push('session')
+    return { id: MINTED_SESSION }
+  },
+)
 /** Composes the key the SERVER would compose (same closed MIME map), so the
- *  container the client sends is provable from the name that comes back. */
+ *  container the client sends is provable from the name that comes back.
+ *
+ *  REFUSES A NAMELESS TAKE, exactly as the real door does since PR2 fix round 7:
+ *  a client-named mint with no recordingSessionId is `bad_input`, because row
+ *  minting has one home and it is not this one. That refusal is what makes the
+ *  session call provable — skip it and the leg dies here. */
 const mintTakeUrl = jest.fn(
   async (
     takeId: string,
@@ -238,6 +259,7 @@ const mintTakeUrl = jest.fn(
     recordingSessionId: string | null,
   ): Promise<MintTakeUrlPortResult> => {
     order.push('mint')
+    if (!recordingSessionId) return { error: 'bad_input' }
     return mintedFor(takeId, mimeType, recordingSessionId)
   },
 )
@@ -258,6 +280,7 @@ const putMock = jest.fn(async (_url: string, init?: RequestInit) => {
 })
 setRecordingPipelinePort({
   ...getRecordingPipelinePort(),
+  startSession,
   mintTakeUrl,
   finalizeTake,
 } as RecordingPipelinePort)
@@ -300,9 +323,14 @@ beforeEach(async () => {
   jest.clearAllMocks()
   order.length = 0
   putBodies.length = 0
+  startSession.mockImplementation(async () => {
+    order.push('session')
+    return { id: MINTED_SESSION }
+  })
   mintTakeUrl.mockImplementation(
     async (takeId: string, mimeType: string, recordingSessionId: string | null) => {
       order.push('mint')
+      if (!recordingSessionId) return { error: 'bad_input' }
       return mintedFor(takeId, mimeType, recordingSessionId)
     },
   )
@@ -884,7 +912,9 @@ describe('secure at stop', () => {
 
     await jest.advanceTimersByTimeAsync(0)
     await drain(200)
-    expect(order).toEqual(['mint', 'put', 'finalize'])
+    // This take's start-mint failed, so the row is minted HERE, first (fix
+    // round 6) — the upload mint refuses a take that names none.
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     // The tail flush landed BEFORE the read-back: the uploaded object carries
     // the final 'TAIL' chunk, not just the 5 s segment.
     expect(putBodies[0].size).toBe('aaa'.length + 'TAIL'.length)
@@ -901,7 +931,7 @@ describe('secure at stop', () => {
       durationSeconds: expect.any(Number),
       byteLength: 'aaa'.length + 'TAIL'.length,
       // REQUIRED now, and never null: this start-mint failed, so the row is the
-      // one the MINT reserved a moment earlier.
+      // one the SESSION DOOR minted a moment earlier (fix round 6).
       recordingSessionId: MINTED_SESSION,
     })
     // The PUT carries the SERVER's content type for the key it composed —
@@ -917,7 +947,7 @@ describe('secure at stop', () => {
     })
     const takeId = await stoppedTake()
 
-    expect(order).toEqual(['mint', 'put'])
+    expect(order).toEqual(['session', 'mint', 'put'])
     expect(finalizeTake).not.toHaveBeenCalled()
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
     expect(metaOf(takeId).secureError).toBe('upload_503')
@@ -936,7 +966,7 @@ describe('secure at stop', () => {
     })
     const takeId = await stoppedTake()
 
-    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(finalizeTake).toHaveBeenCalledWith(
       expect.objectContaining({ takeId, byteLength: 'aaa'.length + 'TAIL'.length }),
     )
@@ -944,13 +974,13 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).secureError).toBeUndefined()
   })
 
-  it("finalize 'busy' is recorded and stays RETRYABLE — the next attempt runs the whole leg again", async () => {
+  it("finalize 'failed' is recorded and stays RETRYABLE — the next attempt runs the whole leg again", async () => {
     finalizeTake.mockImplementation(async () => {
       order.push('finalize')
-      return { error: 'busy' } as unknown as { ok: true; recordingSessionId: string }
+      return { error: 'failed' } as unknown as { ok: true; recordingSessionId: string }
     })
     const takeId = await stoppedTake()
-    expect(metaOf(takeId).secureError).toBe('busy')
+    expect(metaOf(takeId).secureError).toBe('failed')
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
 
     order.length = 0
@@ -983,26 +1013,18 @@ describe('secure at stop', () => {
   })
 
   it('a stop and a mount retry racing the same take PUT it ONCE', async () => {
-    const takeId = await startAndSettle()
-    pushChunk('aaa')
-    await jest.advanceTimersByTimeAsync(5_000)
-    globalRecorder.discard({ keepTake: true }) // leave the take, no onstop
-    await drain()
+    const takeId = await stoppedOwedTake()
 
     await Promise.all([secureTake(port(), takeId), secureTake(port(), takeId)])
-    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
   })
 
   it('a take stamped before mimeType existed falls back to audio/webm — and to a .webm key', async () => {
-    const takeId = await startAndSettle()
-    pushChunk('aaa')
-    await jest.advanceTimersByTimeAsync(5_000)
-    globalRecorder.discard({ keepTake: true })
-    await drain()
+    const takeId = await stoppedOwedTake()
     delete metaOf(takeId).mimeType
 
     await secureTake(port(), takeId)
-    expect(mintTakeUrl).toHaveBeenCalledWith(takeId, 'audio/webm', null)
+    expect(mintTakeUrl).toHaveBeenCalledWith(takeId, 'audio/webm', MINTED_SESSION)
     expect(putMock.mock.calls[0][0]).toContain(`app_biz-1_${takeId}.webm`)
     expect(finalizeTake).toHaveBeenCalledWith(
       expect.objectContaining({ mimeType: 'audio/webm' }),
@@ -1021,7 +1043,7 @@ describe('secure at stop', () => {
   it("another staff member's take is never secured from this device (the store's own owner gate)", async () => {
     const takeId = await keptTake()
     // The OWNER's own last attempt left a code on the row.
-    await markTakeSecureError(takeId, 'busy')
+    await markTakeSecureError(takeId, 'failed')
     order.length = 0
 
     mockUid = 'staff-B'
@@ -1030,13 +1052,13 @@ describe('secure at stop', () => {
     // A null meta read is "not mine / not there", never "it failed" — writing a
     // code here would let one staffer scribble on another's row, and would
     // overwrite the only record of why the owner's attempt stopped.
-    expect(metaOf(takeId).secureError).toBe('busy')
+    expect(metaOf(takeId).secureError).toBe('failed')
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
   })
 
   // ── The take has no bytes ─────────────────────────────────────────────────
   it('a zero-byte take is not uploaded — and is not marked failed either', async () => {
-    const takeId = await keptTake()
+    const takeId = await stoppedOwedTake()
     // Everything on disk is empty (a kill between the meta row and the first
     // real chunk). loadTakeBlob still answers a Blob — a zero-length one — so
     // only the size guard stands between this and an empty object PUT under an
@@ -1055,17 +1077,26 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
   })
 
-  // ── The session id the MINT reserved ──────────────────────────────────────
-  // When the start-mint failed the take carries no session, so the MINT creates
-  // the row (fix round 4 — it binds the key before a byte can exist) and hands
-  // back its id. Throw that id away and the recorder's own retry mints a SECOND
-  // row: the audio pointer lands on one, the karute on the other.
-  it("the mint's own reserved session lands on the take, and the mint retry then mints NOTHING", async () => {
-    const takeId = await keptTake()
+  // ── ⚖ THE TAKE GETS ITS ROW FIRST (fix round 6) ──────────────────────────
+  // When the start-mint failed the take carries no session, and the upload mint
+  // no longer creates one (PR2 fix round 7 — a create whose response was lost
+  // orphaned a row the retry could not name). So this leg knocks on the SAME
+  // session door the recorder's start-mint uses, stamps the id, and only then
+  // asks for a key. Throw that id away and the recorder's own retry mints a
+  // SECOND row: the audio pointer lands on one, the karute on the other.
+  it('a take with no row gets one from the session door FIRST, and the mint then carries it', async () => {
+    const takeId = await stoppedOwedTake()
     expect(metaOf(takeId).recordingSessionId).toBeNull() // the start-mint failed
 
     await secureTake(port(), takeId)
-    expect(mintTakeUrl).toHaveBeenCalledWith(takeId, expect.any(String), null)
+    // The door is asked for the customer this recording is FOR — a row minted
+    // without that attribution is a row the karute could never be read beside.
+    expect(startSession).toHaveBeenCalledWith({
+      customerId: TARGET.customerId,
+      appointmentId: TARGET.appointmentId,
+    })
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(mintTakeUrl).toHaveBeenCalledWith(takeId, expect.any(String), MINTED_SESSION)
     expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
 
@@ -1078,13 +1109,91 @@ describe('secure at stop', () => {
     expect(mockStartRecordingSession).not.toHaveBeenCalled()
   })
 
-  // THE ORDER THIS ROUND EXISTS FOR. The server has already written the key onto
-  // the row by the time it answers, so the device's copy of that binding must be
-  // on disk BEFORE the bytes go out: a kill between the PUT and the finalize
-  // otherwise leaves uploaded audio whose retry cannot name its own row.
-  it('the reserved session is stamped on the take BEFORE the bytes go out', async () => {
-    const takeId = await keptTake()
+  // The drain minted the row, so the RECORDER's own field is still null — and
+  // awaitRecordingSessionId reads that field first, against a mint promise that
+  // settled null and will never resolve again. Without this the save that
+  // follows writes a karute linked to nothing, on a take whose audio is
+  // already on that very row.
+  it("the id the retry reads back becomes the recorder's own, when it is the recorder's take", async () => {
+    const takeId = await stoppedTake() // secured on stop → the drain minted it
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+    expect(globalRecorder.takeId).toBe(takeId)
+    expect(globalRecorder.recordingSessionId).toBeNull()
+
+    await expect(globalRecorder.retryRecordingSessionMint()).resolves.toBe(MINTED_SESSION)
+    expect(globalRecorder.recordingSessionId).toBe(MINTED_SESSION)
+    // …which is what the save path actually asks (it reads the field, not the
+    // return value, and the settled mint promise answers null forever).
+    expect(await globalRecorder.awaitRecordingSessionId()).toBe(MINTED_SESSION)
+  })
+
+  // …and never for SOMEONE ELSE'S take: a review-path retry names a take this
+  // singleton is not holding, and writing its row onto the live recorder would
+  // link the next save to the wrong recording.
+  it("a stamped id read for another take never lands on the recorder's field", async () => {
+    const other = await stoppedOwedTake()
+    await secureTake(port(), other)
+    expect(metaOf(other).recordingSessionId).toBe(MINTED_SESSION)
+
+    globalRecorder.discard()
+    await drain()
+    globalRecorder.takeId = 'take-live-1'
+    globalRecorder.recordingSessionId = null
+    try {
+      await expect(
+        globalRecorder.retryRecordingSessionMint({ takeId: other }),
+      ).resolves.toBe(MINTED_SESSION)
+      expect(globalRecorder.recordingSessionId).toBeNull()
+    } finally {
+      globalRecorder.takeId = null
+    }
+  })
+
+  // A door that cannot answer is a MOMENT, not a verdict: the staff member is
+  // offline, or core is down. Retryable, and nothing is uploaded blind — the
+  // bytes would have no row to be claimed against.
+  it("a session door that answers nothing marks 'session', uploads nothing, and stays retryable", async () => {
+    startSession.mockImplementation(async () => {
+      order.push('session')
+      return null
+    })
+    const takeId = await stoppedOwedTake()
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['session'])
+    expect(finalizeTake).not.toHaveBeenCalled()
+    expect(metaOf(takeId).secureError).toBe('session')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect(metaOf(takeId).recordingSessionId).toBeNull()
+    // Retryable: the drain still owes this take, and the next attempt runs the
+    // whole leg — including a session door that has come back.
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
+    startSession.mockImplementation(async () => {
+      order.push('session')
+      return { id: MINTED_SESSION }
+    })
+    order.length = 0
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // THE ORDER THIS ROUND EXISTS FOR. The mint writes this key onto the row, so
+  // the device's copy of that binding must be on disk BEFORE anything is bound
+  // or sent: a kill between the PUT and the finalize otherwise leaves uploaded
+  // audio whose retry cannot name its own row.
+  it('the minted session is stamped on the take BEFORE the key is even reserved', async () => {
+    const takeId = await stoppedOwedTake()
+    let sessionAtMint: string | null | undefined
     let sessionAtPut: string | null | undefined
+    mintTakeUrl.mockImplementation(
+      async (id: string, mimeType: string, recordingSessionId: string | null) => {
+        order.push('mint')
+        sessionAtMint = metaOf(id).recordingSessionId
+        if (!recordingSessionId) return { error: 'bad_input' }
+        return mintedFor(id, mimeType, recordingSessionId)
+      },
+    )
     putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
       order.push('put')
       putBodies.push(init?.body as Blob)
@@ -1093,6 +1202,7 @@ describe('secure at stop', () => {
     })
 
     await secureTake(port(), takeId)
+    expect(sessionAtMint).toBe(MINTED_SESSION)
     expect(sessionAtPut).toBe(MINTED_SESSION)
     expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
   })
@@ -1103,6 +1213,10 @@ describe('secure at stop', () => {
     mockStartRecordingSession.mockResolvedValueOnce({ id: 'sess-1' })
     const takeId = await stoppedTake()
 
+    // The session door is never knocked on for a take that already has a row —
+    // a second row would be one the audio is not on (fix round 6).
+    expect(startSession).not.toHaveBeenCalled()
+    expect(order).toEqual(['mint', 'put', 'finalize'])
     expect(mintTakeUrl).toHaveBeenCalledWith(takeId, 'audio/webm;codecs=opus', 'sess-1')
     expect(metaOf(takeId).recordingSessionId).toBe('sess-1')
     expect(finalizeTake).toHaveBeenCalledWith(
@@ -1120,7 +1234,7 @@ describe('secure at stop', () => {
     })
     const takeId = await stoppedTake()
 
-    expect(order).toEqual(['mint'])
+    expect(order).toEqual(['session', 'mint'])
     expect(finalizeTake).not.toHaveBeenCalled()
     expect(metaOf(takeId).secureError).toBe('exists')
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
@@ -1130,25 +1244,9 @@ describe('secure at stop', () => {
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
   })
 
-  // Impossible against the real door (a client-named mint always reserves a
-  // row), which is exactly why it must not upload BLIND if it ever happens:
-  // finalize requires the id, so those bytes could never be claimed.
-  it('a mint that reserved NO row is terminal — the bytes never go out', async () => {
-    mintTakeUrl.mockImplementation(async (takeId: string, mimeType: string) => {
-      order.push('mint')
-      return { ...mintedFor(takeId, mimeType, null), recordingSessionId: null }
-    })
-    const takeId = await stoppedTake()
-
-    expect(order).toEqual(['mint'])
-    expect(metaOf(takeId).secureError).toBe('no_session')
-    expect(metaOf(takeId).finalizedAt).toBeUndefined()
-    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
-  })
-
   // ── Refusals that can never turn into a yes ───────────────────────────────
   it('a TERMINAL refusal is never retried — no mint, no whole-take re-PUT', async () => {
-    const takeId = await keptTake()
+    const takeId = await stoppedOwedTake()
     for (const code of [
       'bad_input',
       'forbidden',
@@ -1163,7 +1261,6 @@ describe('secure at stop', () => {
       'superseded',
       'bad_take_id',
       'bad_mime',
-      'no_session',
     ]) {
       await markTakeSecureError(takeId, code)
       order.length = 0
@@ -1176,15 +1273,18 @@ describe('secure at stop', () => {
   })
 
   it('a RETRYABLE refusal runs the whole leg again — the moment may simply have passed', async () => {
-    const takeId = await keptTake()
+    const takeId = await stoppedOwedTake()
+    // Its row is already on the take, so every turn below is the same three
+    // calls — the session door belongs to the take that has none.
+    await stampTakeSession(takeId, 'sess-1')
     // finalize keeps refusing, so each turn is judged on the code under test
     // rather than on a finalizedAt the previous turn wrote.
     finalizeTake.mockImplementation(async () => {
       order.push('finalize')
-      return { error: 'busy' } as unknown as { ok: true; recordingSessionId: string }
+      return { error: 'failed' } as unknown as { ok: true; recordingSessionId: string }
     })
     for (const code of [
-      'busy',
+      'session',
       'network',
       'upload_503',
       'object_missing',
@@ -1232,14 +1332,49 @@ describe('secure at stop', () => {
     expect(lastFinalized().durationSeconds).toBeCloseTo(10, 1)
   })
 
-  it('a take with no stamped duration still falls back to the flush window (pre-PR3 rows)', async () => {
+  // ── ⚖ NO STOP STAMP, NO SECURING (fix round 6) ───────────────────────────
+  // The isActive belt can only answer for the take the recorder in THIS runtime
+  // holds. Stop, then navigate to 記録 before the tail flush resolves: the page
+  // mounts with no live recorder to ask, and securing there would seal the
+  // segments flushed so far under the IMMUTABLE key while the tail is still
+  // being written — permanently truncated audio, and the stop path's own call
+  // then finds the take claimed. The stop stamp (or the stop path's own
+  // argument) is the positive fact that a recorder finished this take.
+  it('an UNSTAMPED take is never secured by the mount path — and is not marked failed', async () => {
+    const takeId = await keptTake() // no onstop, so no stop stamp
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // Unfinished is not failed: nothing is written on the take at all.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it('…while the STOP path, which carries its own measurement, secures the same take', async () => {
     const takeId = await keptTake()
     expect(metaOf(takeId).durationMs).toBeUndefined()
-    await secureTake(port(), takeId)
-    expect(lastFinalized().durationSeconds).toBeCloseTo(
-      (metaOf(takeId).updatedAt - metaOf(takeId).startedAt) / 1000,
-      1,
-    )
+
+    // Exactly what onstop hands over — the paused-aware seconds it just measured.
+    await secureTake(port(), takeId, 5)
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(lastFinalized().durationSeconds).toBe(5)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // Two tabs, one take: the winner finalizes it, the loser's mint answers
+  // `exists` a moment later. That late mark used to put a TERMINAL code on a
+  // take whose audio is provably on the server — the 要対応 surface reads
+  // exactly that field, so a finished recording would sit there as broken.
+  it('a late failure never lands on a take that is already FINALIZED', async () => {
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+    await markTakeSecureError(takeId, 'exists')
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // …and it stays out of the owed list, which is the fact that matters.
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
   })
 
   it('markTakeFinalized clears an earlier failure and survives a store read', async () => {
@@ -1257,11 +1392,7 @@ describe('secure at stop', () => {
   })
 
   it('a take row written before these fields existed still loads and still secures', async () => {
-    const takeId = await startAndSettle()
-    pushChunk('aaa')
-    await jest.advanceTimersByTimeAsync(5_000)
-    globalRecorder.discard({ keepTake: true })
-    await drain()
+    const takeId = await stoppedOwedTake()
     // The exact pre-PR3 row shape: no finalizedAt, no secureError.
     const row = metaOf(takeId) as Record<string, unknown>
     delete row.finalizedAt
@@ -1338,7 +1469,7 @@ describe('secure at stop', () => {
 
     order.length = 0
     await mountDrain()
-    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(metaOf(stopped).finalizedAt).toEqual(expect.any(Number))
     // The unstopped one is untouched — still on the device, still un-finalized,
     // and NOT marked failed: it is unfinished, not broken. It waits for PR5's
@@ -1372,7 +1503,7 @@ describe('secure at stop', () => {
     // …and the moment it really stops, the whole leg runs.
     globalRecorder.stop()
     await drain(200)
-    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
@@ -1392,7 +1523,7 @@ describe('secure at stop', () => {
     await stampTakeDuration(empty, 5_000)
 
     const owed = await stoppedOwedTake()
-    await markTakeSecureError(owed, 'busy') // retryable — the moment passed
+    await markTakeSecureError(owed, 'failed') // retryable — the moment passed
 
     expect(takes().size).toBe(4)
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([owed])

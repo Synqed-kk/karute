@@ -485,14 +485,32 @@ class GlobalRecorder {
     if (this.recordingSessionId !== null) return this.recordingSessionId
     const takeId = opts?.takeId ?? this.takeId
     if (!takeId) return null
-    // Capture pipeline PR3: the finalize door MINTS the row when the start-mint
-    // failed, and stamps its id on the take. That id is this take's session —
-    // its audio pointer already lives on that row — so minting a second one
-    // here would key the discard/karute to a row the audio is not on. Read
-    // before anything is issued; the store's own owner gate answers null for a
-    // take that is gone or another staffer's, which falls through to the mint.
+    // Capture pipeline PR3: secureTake MINTS the row through the session door
+    // when the start-mint failed, and stamps its id on the take before it sends
+    // a byte. That id is this take's session — its audio pointer lives on that
+    // row — so minting a second one here would key the discard/karute to a row
+    // the audio is not on.
+    //
+    // ⚖ TWO PATHS, ONE ROW (fix round 6): this method is how the RECORDER path
+    // gets a take its id, secureTake's own startSession call is how the DRAIN
+    // path does, and both stamp the same field. Never both for one take —
+    // whichever runs second reads the stamp first and returns it, which is what
+    // this line is. Read before anything is issued; the store's own owner gate
+    // answers null for a take that is gone or another staffer's, which falls
+    // through to the mint.
     const stamped = (await readTakeSecureMeta(takeId))?.recordingSessionId
-    if (stamped) return stamped
+    if (stamped) {
+      // …and when the take is the one this singleton is holding, that id IS the
+      // recorder's session. Leaving the field null would make the very next
+      // awaitRecordingSessionId() (the save path) answer null — its settled
+      // promise never resolves twice — so the karute would save unlinked and
+      // the photo/hook readers would see nothing.
+      if (takeId === this.takeId) {
+        this.recordingSessionId = stamped
+        this.notify()
+      }
+      return stamped
+    }
     const inFlightForThisTake =
       this.recordingSessionMintInFlight &&
       !this.recordingSessionMintTakeUnknown &&

@@ -19,6 +19,7 @@
  * Shape follows thin-recording-discard-port.test.ts (the closest sibling).
  */
 import { setDataPort } from '@/lib/ports/data-port'
+import { TERMINAL_SECURE_ERRORS } from '@/lib/karute/take-store'
 
 import { viteRecordingPort } from '../../../thin/ports/recording.vite'
 
@@ -43,6 +44,60 @@ const errorBody = (code: string) => JSON.stringify({ error: { code, message: cod
  *  carry a sentence and are recognised by their classification. */
 const facadeError = (code: string, message: string) =>
   JSON.stringify({ error: { code, message } })
+
+// Fix round 6 — the row minter, and the only one. secure-take knocks here when
+// a take's start-mint never landed, because the upload mint stopped creating
+// rows for client-named takes (PR2 fix round 7).
+describe('thin recording port — startSession', () => {
+  it('POSTs the customer and appointment to the shared session door, with an idempotency key', async () => {
+    let seen: [string, RequestInit | undefined] | null = null
+    const apiFetch = port(async (path: string, init?: RequestInit) => {
+      seen = [path, init]
+      return new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    await expect(
+      viteRecordingPort.startSession({ customerId: 'cust-1', appointmentId: 'appt-1' }),
+    ).resolves.toEqual({ id: 'rs-new' })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    const [path, init] = seen!
+    // The SAME door the recorder's own start-mint uses — one home for row
+    // minting, so a drain-minted row and a start-minted one cannot differ.
+    expect(path).toBe('/api/app/v1/recordings/session')
+    expect(init?.method).toBe('POST')
+    // An effectful create: the route REQUIRES the key, and a retried POST on a
+    // flaky tunnel must not leave two rows behind.
+    expect(
+      (init?.headers as Record<string, string>)['idempotency-key'],
+    ).toEqual(expect.any(String))
+    expect(JSON.parse(init?.body as string)).toEqual({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+    })
+  })
+
+  // FAIL-OPEN, exactly like the web action: every one of these is a moment in
+  // time, and secure-take records a RETRYABLE 'session' for it. A throw here
+  // would reach secure-take's catch as a blanket 'network' instead.
+  it.each([
+    ['a 500', async () => new Response(errorBody('upstream_unavailable'), { status: 500 })],
+    ['a 403', async () => new Response(errorBody('forbidden'), { status: 403 })],
+    ['an unreadable 2xx body', async () => new Response('<html>x</html>', { status: 200 })],
+    ['a null id (unresolvable staff)', async () => new Response(JSON.stringify({ id: null }))],
+    [
+      'a dead socket',
+      async () => {
+        throw new Error('offline')
+      },
+    ],
+  ])('%s answers null, never a throw', async (_label, res) => {
+    port(res as () => Promise<Response>)
+    await expect(
+      viteRecordingPort.startSession({ customerId: null, appointmentId: null }),
+    ).resolves.toBeNull()
+  })
+})
 
 describe('thin recording port — mintTakeUrl', () => {
   it('POSTs the take id and container to the shared upload-url door', async () => {
@@ -189,13 +244,24 @@ describe('thin recording port — finalizeTake', () => {
   // retry on audio the server never got.
   it.each([
     [502, 'upstream_unavailable'],
-    [403, 'forbidden'],
     [401, 'unauthorized'],
   ])('HTTP %i (%s) → failed, never a silent success', async (status, code) => {
     port(async () => new Response(errorBody(code), { status }))
     await expect(viteRecordingPort.finalizeTake(FINALIZE)).resolves.toEqual({
       error: 'failed',
     })
+  })
+
+  // …except a 403, which is not a moment in time: the door is saying this take
+  // is not this caller's to finalize, and it will say the same forever. Folded
+  // into the retryable 'failed' it made the phone re-upload a whole take on
+  // every mount; 'forbidden' is TERMINAL, the same answer the web twin gives.
+  it('HTTP 403 → forbidden, the TERMINAL code — not a whole-take re-upload forever', async () => {
+    port(async () => new Response(errorBody('forbidden'), { status: 403 }))
+    await expect(viteRecordingPort.finalizeTake(FINALIZE)).resolves.toEqual({
+      error: 'forbidden',
+    })
+    expect(TERMINAL_SECURE_ERRORS.has('forbidden')).toBe(true)
   })
 
   it('an unreadable body is failed too, not an assumed success', async () => {

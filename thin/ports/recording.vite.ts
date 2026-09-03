@@ -105,6 +105,32 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
     return { path }
   },
+  // Capture pipeline PR3 fix round 6 — the session door, the phone twin of the
+  // web action (thin/ports/actions.vite.ts#facadeStartRecordingSession, which
+  // the recorder's own start-mint reaches by the same route). Spelled here like
+  // every other call in this file rather than imported from that module: this
+  // port is loaded on its own by the thin entry and by its tests.
+  //
+  // Effectful row mint → the route REQUIRES an Idempotency-Key. FAIL-OPEN like
+  // the recorder's: every failure is null, and secure-take reads that as a
+  // retryable 'session'.
+  async startSession(input) {
+    try {
+      const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': crypto.randomUUID(),
+        },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) return null
+      const body = (await res.json().catch(() => null)) as { id?: string | null } | null
+      return body?.id ? { id: body.id } : null
+    } catch {
+      return null
+    }
+  },
   // Capture pipeline PR3 — the two doors secureTake knocks on. Same
   // apiFetch discipline as stageForJob above (Bearer + the store lens are
   // assembled in facade-fetch.ts, never spelled here), plus a JSON body: the
@@ -132,10 +158,16 @@ export const viteRecordingPort: RecordingPipelinePort = {
     })
     const body = (await res.json().catch(() => null)) as FinalizeTakeResult | null
     // The route answers every SOFT refusal (object_missing, already-finalized)
-    // in a 2xx body, so a non-2xx here is real transport/auth/forbidden trouble
-    // — reported as 'failed', which leaves the take un-finalized for the retry.
+    // in a 2xx body, so a non-2xx here is real transport/auth trouble —
+    // reported as 'failed', which leaves the take un-finalized for the retry.
     // Guarding on `!res.ok` as well as the body is the discard port's lesson:
     // a facade error body parses perfectly.
+    //
+    // …except a 403, which is the door saying this take is not this caller's to
+    // finalize. That is a fact about the caller, not a moment in time: folded
+    // into 'failed' it made the phone re-upload a whole take forever, so it
+    // comes back as the TERMINAL 'forbidden' the web twin already answers.
+    if (res.status === 403) return { error: 'forbidden' as const }
     if (!res.ok || !body) return { error: 'failed' as const }
     return body
   },
