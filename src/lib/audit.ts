@@ -927,7 +927,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
 
   cleanup: {
     kind: 'skip',
-    justification: 'CRON_SECRET-gated system janitor: orphaned-recording + expired-cache deletion; no user-attributable action.',
+    justification: 'CRON_SECRET-gated system janitor: orphaned-recording REPORTING (it deletes no audio, 2026-09-03) + expired-cache deletion; no user-attributable action.',
     dated: '2026-07-27',
   },
   'jobs/process': {

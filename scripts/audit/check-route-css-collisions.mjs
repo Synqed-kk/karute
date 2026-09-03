@@ -54,14 +54,56 @@ export function routeSheets(biz, dir = biz, out = []) {
  *  a breathe-style animation the gate failed on two sheets that share nothing but
  *  arithmetic (今日の運営's `wc-settle` meeting 録音's `rcBreathe`). A gate that
  *  fails for a reason that is not a defect gets muted, so the fix is here rather
- *  than a room renaming its stops. */
+ *  than a room renaming its stops.
+ *
+ *  ⚠ THE INVARIANT: only `{` `}` `;` written as STRUCTURE move this walker.
+ *  The same characters inside a comment, inside a quoted string, or inside
+ *  `url(...)` parentheses are CONTENT and must pass through untouched — one
+ *  `content: "{"` in a keyframe stop used to leave framesDepth permanently
+ *  positive, which silently skipped every rule in the rest of that sheet, and a
+ *  quoted `}` closed blocks early (splitting `[data-guide="}"]` heads, turning
+ *  keyframe stops back into "selectors"). A guard that goes blind is worse than
+ *  no guard, so content is stepped over here rather than trusted to be rare.
+ *  Inside either body a backslash is a CSS escape and consumes the next
+ *  character, so `\)` `\"` `\{` `\}` `\;` are content too — an unquoted
+ *  `url(a\)b{c}d)` used to close the paren on its escaped `)` and then read the
+ *  `{` behind it as structure, recording the declaration itself as a selector.
+ *  Comments are read in the same pass and not pre-stripped: a quote only starts
+ *  a string outside a comment (so prose like `don't` is inert), and `/*` only
+ *  starts a comment outside a string. String and paren bodies still land in
+ *  `head`, because `[data-guide="x"]` and `:not(...)` are parts of a selector. */
 export function selectorsOf(css) {
-  const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
   const found = new Set()
   let head = ''
   /** >0 while inside a @keyframes block: the depth of nesting still to close. */
   let framesDepth = 0
-  for (const ch of clean) {
+  /** The opening quote while inside a string, else null. */
+  let quote = null
+  /** Depth of unclosed `(` — url(...), :not(...), an @media condition. */
+  let parens = 0
+  for (let i = 0; i < css.length; i += 1) {
+    const ch = css[i]
+    // One escape rule for both content bodies — a string and a `(...)` body: a
+    // backslash consumes the next character, whatever it is (a line
+    // continuation included), so no escaped delimiter ever moves the walker.
+    if ((quote || parens > 0) && ch === '\\') { head += ch + (css[i + 1] ?? ''); i += 1; continue }
+    if (quote) {
+      head += ch
+      // An unescaped newline ends a bad string, per spec — so a typo'd quote
+      // cannot swallow the rest of the sheet either.
+      if (ch === quote || ch === '\n') quote = null
+      continue
+    }
+    if (ch === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2)
+      i = end === -1 ? css.length : end + 1
+      continue
+    }
+    if (ch === '"' || ch === "'") { quote = ch; head += ch; continue }
+    if (ch === '(') { parens += 1; head += ch; continue }
+    if (ch === ')') { if (parens > 0) parens -= 1; head += ch; continue }
+    if (parens > 0) { head += ch; continue }
+
     if (ch === '{') {
       const text = head.trim()
       head = ''

@@ -567,14 +567,11 @@ export const SDK_WRITE_ALLOWLIST: {
       'Best-effort cleanup of the staged audio object after transcription (finally block, mirrors ai-pipeline.ts\'s own cleanup() timing — right after the transcribe call resolves, before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits.',
     dated: '2026-07-27',
   },
-  {
-    file: 'src/app/api/cleanup/route.ts',
-    call: 'storage.recordings.remove',
-    symbols: ['GET'],
-    justification:
-      "CRON_SECRET-gated system janitor (see API_ROUTE_DECISIONS['cleanup']: \"no user-attributable action\") — deletes orphaned recording objects on a schedule, not in response to any staff action.",
-    dated: '2026-07-27',
-  },
+  // src/app/api/cleanup/route.ts#GET held a 'storage.recordings.remove' entry
+  // until 2026-09-03. The sweep no longer deletes anything (⚖ audio is never
+  // deleted — it reports orphan candidates and a human decides), so the call is
+  // gone and the entry with it: an allowlist row for a write that no longer
+  // exists is exactly what the dead-entry rule refuses.
   {
     file: 'src/lib/ai-cache.ts',
     call: 'aiCache.upsert',

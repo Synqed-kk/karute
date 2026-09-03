@@ -41,6 +41,11 @@ import {
   mintRecordingReadUrl,
   removeRecordingObject,
 } from '@/actions/recording-upload'
+import {
+  parseRecordingKey,
+  isOwnRecordingKey,
+  looksLikeRecordingKey,
+} from '@/lib/recording/key-grammar'
 
 // A real lowercase uuid, so a fixture only ever fails the ONE clause it targets —
 // a placeholder body would be refused by the uuid clause and silently mask the rest.
@@ -69,6 +74,9 @@ const REFUSED: [string, string][] = [
   ['a fragment suffix', `app_biz-1_${UUID}.webm#frag`],
   ['a query suffix', `app_biz-1_${UUID}.webm?download=1`],
   ['no unique part at all', 'app_biz-1_.webm'],
+  // Parses (it IS this tenant's), and is still refused: these actions mean a
+  // whole take, and the widened grammar must not widen a single fence.
+  ['this business’s own segment', `seg/app_biz-1_${UUID}/000000.webm`],
 ]
 
 // Not a string, but string-SHAPED: every method the fence calls answers
@@ -196,5 +204,72 @@ describe('removeRecordingObject — same fence, and it never throws', () => {
   it('a storage error returns the error arm', async () => {
     removeObj.mockResolvedValue({ error: { message: 'gone' } })
     await expect(removeRecordingObject(OWN)).resolves.toEqual({ error: 'gone' })
+  })
+})
+
+// The grammar itself (src/lib/recording/key-grammar.ts). The suites above prove
+// the FENCES delegate to it; this proves what it answers — and above all that
+// widening it to a second shape and four extensions widened no fence, because
+// the fences ask for kind 'take' and a segment is not one.
+describe('parseRecordingKey — two shapes, one grammar', () => {
+  const EXTS = ['webm', 'mp4', 'ogg', 'wav'] as const
+
+  it.each(EXTS)('reads a flat take as kind take (.%s)', (ext) => {
+    expect(parseRecordingKey(`app_biz-1_${UUID}.${ext}`, 'biz-1')).toEqual({
+      kind: 'take',
+      takeId: UUID,
+      ext,
+    })
+  })
+
+  it.each(EXTS)('reads a nested segment as kind segment, seq numeric (.%s)', (ext) => {
+    expect(parseRecordingKey(`seg/app_biz-1_${UUID}/000007.${ext}`, 'biz-1')).toEqual({
+      kind: 'segment',
+      takeId: UUID,
+      seq: 7,
+      ext,
+    })
+  })
+
+  it.each([
+    ['an unpadded seq', `seg/app_biz-1_${UUID}/7.webm`],
+    ['an extension outside the closed set', `seg/app_biz-1_${UUID}/000007.exe`],
+    ['another business’s segment', `seg/app_biz-2_${UUID}/000000.webm`],
+    ['a doubled seg/ prefix', `seg/seg/app_biz-1_${UUID}/000000.webm`],
+    ['a take folder with no seg/ prefix', `app_biz-1_${UUID}/000000.webm`],
+    ['a traversal inside the take folder', `seg/app_biz-1_${UUID}/../../x.webm`],
+    ['an empty extension', `app_biz-1_${UUID}.`],
+    ['an uppercase uuid', `app_biz-1_${UUID.toUpperCase()}.webm`],
+  ])('refuses %s', (_label, key) => {
+    expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+  })
+
+  it('refuses a string-shaped non-string before it calls a method on it', () => {
+    expect(parseRecordingKey(IMPOSTOR, 'biz-1')).toBeNull()
+  })
+
+  it('isOwnRecordingKey means TAKE — a valid segment of this tenant’s own take is FALSE', () => {
+    const segment = `seg/app_biz-1_${UUID}/000000.webm`
+    expect(parseRecordingKey(segment, 'biz-1')).toMatchObject({ kind: 'segment' })
+    expect(isOwnRecordingKey(segment, 'biz-1')).toBe(false)
+    // The one widening that IS intended: iOS negotiates mp4, not webm.
+    expect(isOwnRecordingKey(`app_biz-1_${UUID}.mp4`, 'biz-1')).toBe(true)
+  })
+
+  it('looksLikeRecordingKey reads the businessId back out of the name', () => {
+    // /api/cleanup lists the bucket root with no tenant to compare against.
+    expect(looksLikeRecordingKey(`app_biz-1_${UUID}.webm`)).toBe(true)
+    // Tenant-blind by design: cleanup can't name the business a key belongs
+    // to, so ANY businessId shape it can read back out counts — this is not
+    // biz-1's bucket, and the check still says true.
+    expect(looksLikeRecordingKey(`app_other-biz_${UUID}.webm`)).toBe(true)
+    expect(looksLikeRecordingKey(`orphan-${UUID}.webm`)).toBe(false)
+    expect(looksLikeRecordingKey('seg')).toBe(false)
+    expect(looksLikeRecordingKey(IMPOSTOR)).toBe(false)
+    // A derived businessId that reopens the tenant prefix (a traversal body,
+    // a folder-shaped id) must not read as this shape just because the rest
+    // re-parses — a real businessId never contains '/'.
+    expect(looksLikeRecordingKey(`app_../../evil_${UUID}.webm`)).toBe(false)
+    expect(looksLikeRecordingKey(`app_a/b_${UUID}.webm`)).toBe(false)
   })
 })

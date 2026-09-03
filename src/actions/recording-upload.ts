@@ -26,8 +26,9 @@ import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
  * and processJob enforce on `audio_path`. Throws on a foreign or
  * non-tenant-scoped key.
  * Minted keys have exactly one shape (see mintRecordingUploadUrl), so the
- * grammar is matched POSITIVELY — own prefix, a lowercase uuid, `.webm` — and
- * anything that is not exactly that shape is refused. The grammar itself lives
+ * grammar is matched POSITIVELY — kind 'take': own prefix, a lowercase uuid,
+ * and one of the closed set of extensions — and anything that is not exactly
+ * that shape is refused. The grammar itself lives
  * in @/lib/recording/key-grammar, shared with the three service-role call
  * sites that fence the same client-supplied key.
  */
