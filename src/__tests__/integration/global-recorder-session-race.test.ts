@@ -20,6 +20,31 @@ jest.mock('@/actions/recordings', () => ({
     mockStartRecordingSession(input),
 }))
 
+/** The persisted take's session stamp — the only part of take-store a mint
+ *  resolution touches, modelled with the store's own FIRST-WRITE-WINS rule
+ *  (the real one refuses a take that already carries a row). jsdom has no
+ *  IndexedDB, so without this every call answers "layer disabled" and the
+ *  adoption arm below is unreachable. */
+const mockTakeSessions = new Map<string, string>()
+const mockStampTakeSession = jest.fn(async (takeId: string, sessionId: string) => {
+  if (mockTakeSessions.has(takeId)) return false
+  mockTakeSessions.set(takeId, sessionId)
+  return true
+})
+jest.mock('@/lib/karute/take-store', () => ({
+  createTake: async () => true,
+  appendTakeSegment: async () => true,
+  deleteTake: async () => {},
+  markTakeStartBoundAttempted: async () => {},
+  stampTakeDuration: async () => {},
+  readTakeSecureMeta: async (takeId: string) =>
+    mockTakeSessions.has(takeId)
+      ? { takeId, recordingSessionId: mockTakeSessions.get(takeId) }
+      : null,
+  stampTakeSession: (takeId: string, sessionId: string) =>
+    mockStampTakeSession(takeId, sessionId),
+}))
+
 import { globalRecorder } from '@/lib/global-recorder'
 
 function deferred<T>() {
@@ -41,6 +66,7 @@ const TARGET_B = { customerId: 'cust-B', customerName: 'B', karuteNumber: null, 
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockTakeSessions.clear()
   globalRecorder.discard()
 })
 
@@ -144,5 +170,56 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     await globalRecorder.start({ target: TARGET_A })
     expect(await globalRecorder.awaitRecordingSessionId()).toBe('session-live')
     expect(globalRecorder.recordingSessionId).toBe('session-live')
+  })
+})
+
+// ⚖ THE PREVIOUS TAKE IS NOT THIS MINT'S TAKE (fix round 12, P1).
+//
+// start() fires its mint BEFORE getUserMedia, so for that whole window the
+// take sitting on the singleton belongs to the PREVIOUS recording — stopped,
+// already secured, already carrying its row. The mint's resolution reads
+// `this.takeId` as "my take" and, when the store refused the stamp, ADOPTED
+// what was there (fix round 10's late-reply arm). So a fast reply for take B
+// made A's row the recorder's: B was created on A's row, B's own upload mint
+// reserved against it, and the door answered `reserved_elsewhere` — terminal.
+// B's audio never left the phone and B's karute pointed at A's session.
+//
+// jsdom has no getUserMedia, so start() ALWAYS lands in the mic-error path
+// before it names its take — which is exactly the window, held open.
+describe('GlobalRecorder — a start-mint that answers before its own take exists', () => {
+  it("stamps nothing on the previous take, and keeps B's own row", async () => {
+    // A: stopped and still held (not yet used or discarded), carrying the row
+    // secureTake minted and finalized its audio against at stop.
+    mockTakeSessions.set('take-A', 'session-A')
+    globalRecorder.takeId = 'take-A'
+    globalRecorder.state = 'recorded'
+
+    // B starts; its mint answers inside the pre-mic window.
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-B' })
+    await globalRecorder.start({ target: TARGET_B })
+    await settle()
+
+    // The recorder holds B's OWN row — createTake carries it onto B's take.
+    expect(globalRecorder.recordingSessionId).toBe('session-B')
+    // A was not written to and not read FROM: its row is still its own, and
+    // the recorder never adopted it.
+    expect(mockStampTakeSession).not.toHaveBeenCalled()
+    expect(mockTakeSessions.get('take-A')).toBe('session-A')
+  })
+
+  // The other half of the same window — the take is live, not stopped. Same
+  // rule, and the reason is bigger: stamping a mint minted for the NEXT
+  // customer onto a recording still being captured would put its audio on the
+  // wrong customer's row.
+  it('the same holds while the previous take is still RECORDING', async () => {
+    globalRecorder.takeId = 'take-A'
+    globalRecorder.state = 'recording'
+
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-B' })
+    await globalRecorder.start({ target: TARGET_B })
+    await settle()
+
+    expect(mockStampTakeSession).not.toHaveBeenCalled()
+    expect(globalRecorder.recordingSessionId).toBe('session-B')
   })
 })

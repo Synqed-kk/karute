@@ -149,7 +149,9 @@ class GlobalRecorder {
    *  the one case where the null marker must NOT be read as "the live take":
    *  start() fires its mint before creating its own take, so a take sitting
    *  there belongs to the PREVIOUS recording. Pins what the retry's fallback
-   *  silently assumed (start() runs with no take live). */
+   *  silently assumed (start() runs with no take live) — and, since fix round
+   *  12, what mintStampTakeId reads to keep a fast reply off that take. True
+   *  only for the window between the mint and start() naming its own take. */
   private recordingSessionMintTakeUnknown = false
   /** Staleness guard for the mint. A slow mint from recording A resolving
    *  AFTER discard()/a new start() must not stamp its id (minted for A's
@@ -281,6 +283,33 @@ class GlobalRecorder {
   }
 
   /**
+   * WHICH take a mint resolution may stamp — or adopt a row from (fix round
+   * 12, P1).
+   *
+   * The omitted-`stampTakeId` fallback means "the recorder's own live take,
+   * read at resolution", and that reading is only true once the take exists.
+   * start() fires its mint BEFORE getUserMedia and therefore before it names
+   * its take, so a take sitting on the singleton at that moment is the
+   * PREVIOUS recording's — stopped, maybe already stamped and secured. A fast
+   * reply then stamped B's row onto A (refused, A has one), read A's stamp
+   * back, and made A's row the recorder's: B was born on A's row, B's own mint
+   * reserved against it, and the door answered `reserved_elsewhere` — terminal.
+   * B's audio never left the device and B's karute pointed at A's session.
+   *
+   * `recordingSessionMintTakeUnknown` is exactly that condition, so null here
+   * means "no take of mine yet": stamp nothing, adopt nothing, and let the
+   * minted id stand. It reaches the new take the way it always did — start()
+   * hands `recordingSessionId` to createTake, and createTake's callback
+   * re-stamps — first-write-wins for THAT take.
+   *
+   * Only ever read from inside the generation guard, so the flag still belongs
+   * to this mint: a newer one would have bumped the generation.
+   */
+  private mintStampTakeId(explicit?: string | null): string | null {
+    return explicit ?? (this.recordingSessionMintTakeUnknown ? null : this.takeId)
+  }
+
+  /**
    * The session mint itself, extracted from start() so a FAILED one can be
    * re-run (see retryRecordingSessionMint). Assigns the held promise and
    * returns it.
@@ -328,8 +357,9 @@ class GlobalRecorder {
     const gen = ++this.recordingSessionGen
     this.recordingSessionMintInFlight = true
     this.recordingSessionMintTakeId = input.stampTakeId ?? null
-    // ponytail: never cleared once start() creates its take — the retry then
-    // just mints fresh instead of sharing, which is the safe side of the trade.
+    // Cleared the moment start() names its take (fix round 12, P1) — until
+    // then it is what stops a resolution stamping/adopting on the previous
+    // recording's take. discard() clears it too.
     this.recordingSessionMintTakeUnknown = input.stampTakeId == null && this.takeId !== null
     // Assembled as a value, not an object literal at the call site: the action
     // learns the optional pair in PR2 fix round 10, and until that lands a
@@ -361,7 +391,7 @@ class GlobalRecorder {
         // and stamped it. An argument-less create here would make a second row
         // for one take — an orphan nothing ever points at, one per slow
         // start-mint. The stamp is the answer, so take it and mint nothing.
-        const stampTakeId = input.stampTakeId ?? this.takeId
+        const stampTakeId = this.mintStampTakeId(input.stampTakeId)
         const stamped = stampTakeId
           ? (await readTakeSecureMeta(stampTakeId))?.recordingSessionId
           : null
@@ -391,7 +421,7 @@ class GlobalRecorder {
       // it must name the row the audio is on. AWAITED, not fired off, because
       // awaitRecordingSessionId resolves with this promise — an id read before
       // the adoption settled would be the wrong one.
-      const stampTakeId = input.stampTakeId ?? this.takeId
+      const stampTakeId = this.mintStampTakeId(input.stampTakeId)
       const minted = res?.id ?? null
       const id =
         stampTakeId && minted && !(await stampTakeSession(stampTakeId, minted))
@@ -561,6 +591,13 @@ class GlobalRecorder {
     // is reserving for (fix round 8) — this take IS that one.
     const takeId = uuid ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
     this.takeId = takeId
+    // …and from here `this.takeId` IS this mint's take, so the marker above is
+    // no longer true (fix round 12, P1). It says "a take is live, but it is the
+    // PREVIOUS recording's" — a fact about the window between the mint going
+    // out and this line. Left standing, mintStampTakeId would refuse to stamp
+    // this take with its own row, and a mint that answers after this line
+    // (every ordinary one) would leave the take carrying nothing.
+    this.recordingSessionMintTakeUnknown = false
     this.persistDisabled = false
     this.persistSeq = 0
     this.persistedChunkCount = 0

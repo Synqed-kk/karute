@@ -359,3 +359,113 @@ describe('webRecordingPort.finalizeTake', () => {
     ).resolves.toEqual({ error: 'object_missing' })
   })
 })
+
+// ⚖ NO WEB DOOR WAITS FOREVER EITHER (fix round 12, P3). The phone's three
+// doors have carried a deadline since fix round 7; this arm's are server
+// ACTIONS, which take no AbortSignal, and the standing answer was "the
+// platform's function timeout bounds them". It does not bound US: a hung action
+// leaves secureTake's take in `inFlight` for the whole page life, so the stop
+// path is gone, every mount/re-drain attempt hits the guard and returns, and no
+// other owed take is ever reached. One stall starves the drain.
+//
+// Every deadline lands as a RETRYABLE answer — a stall is a moment in time, and
+// a code the take store judges terminal would stop the take being sent ever
+// again.
+describe('the web arm’s doors are bounded too', () => {
+  beforeEach(() => {
+    // The ports reach their actions through a dynamic import, which settles on
+    // the microtask queue — faking that would deadlock every call here.
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  /** Resolves only when the port does — so "still waiting" is provable. */
+  function watch<T>(work: Promise<T>) {
+    const state = { settled: false, value: undefined as T | undefined }
+    const done = work.then((v) => {
+      state.settled = true
+      state.value = v
+      return v
+    })
+    return { state, done }
+  }
+
+  it('a session mint that never answers is abandoned at 10 s — as the fail-open null', async () => {
+    // …Once, so the hang cannot leak into the control below (this file's
+    // beforeEach re-seeds some implementations, not all of them).
+    startRecordingSessionAction.mockImplementationOnce(() => new Promise(() => {}))
+    const { state, done } = watch(
+      webRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: null,
+        takeId: 'take-uuid-1',
+      }),
+    )
+
+    await jest.advanceTimersByTimeAsync(9_000)
+    // The action really was reached and really is still out — the deadline is
+    // what ends this, not a call that never happened.
+    expect(startRecordingSessionAction).toHaveBeenCalledTimes(1)
+    expect(state.settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1_000)
+
+    // null is this door's own fail-open answer, which secureTake already reads
+    // as the retryable 'session'.
+    await expect(done).resolves.toBeNull()
+  })
+
+  it('a mint that never answers is abandoned at 30 s — retryable, never terminal', async () => {
+    mintRecordingUploadUrl.mockImplementationOnce(() => new Promise(() => {}))
+    const { state, done } = watch(webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm', 'rs-1'))
+
+    await jest.advanceTimersByTimeAsync(29_000)
+    expect(mintRecordingUploadUrl).toHaveBeenCalledTimes(1)
+    expect(state.settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1_000)
+
+    await expect(done).resolves.toEqual({ error: 'upstream' })
+  })
+
+  it('a finalize that never answers is abandoned at 30 s — the take stays un-finalized and retryable', async () => {
+    finalizeTakeAction.mockImplementationOnce(() => new Promise(() => {}))
+    const { state, done } = watch(
+      webRecordingPort.finalizeTake({
+        takeId: 'take-uuid-1',
+        mimeType: 'audio/webm',
+        durationSeconds: 42,
+        byteLength: 1234,
+        recordingSessionId: 'rs-1',
+      }),
+    )
+
+    await jest.advanceTimersByTimeAsync(29_000)
+    expect(finalizeTakeAction).toHaveBeenCalledTimes(1)
+    expect(state.settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1_000)
+
+    await expect(done).resolves.toEqual({ error: 'failed' })
+  })
+
+  // A deadline that answers normally must leave NOTHING pending: the timer is
+  // cleared, not merely ignored. Without this the drain would hold one live
+  // timer per door per take for its whole cooldown.
+  it('a door that answers in time leaves no timer behind', async () => {
+    await webRecordingPort.startSession({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: 'take-uuid-1',
+    })
+    await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm', 'rs-1')
+    await webRecordingPort.finalizeTake({
+      takeId: 'take-uuid-1',
+      mimeType: 'audio/webm',
+      durationSeconds: 42,
+      byteLength: 1234,
+      recordingSessionId: 'rs-1',
+    })
+
+    expect(jest.getTimerCount()).toBe(0)
+  })
+})

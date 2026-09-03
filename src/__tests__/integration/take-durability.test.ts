@@ -1049,6 +1049,78 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
+  // ⚖ THE NEXT RECORDING IS BORN ON ITS OWN ROW (fix round 12, P1).
+  //
+  // start() fires its mint BEFORE the mic, and only names its take once the mic
+  // is live — so for that whole window the take on the singleton is the
+  // PREVIOUS recording's. The mint's resolution read `this.takeId` as "my take"
+  // and, when the store refused the stamp (A already had a row), ADOPTED what
+  // was there. B was then created on A's row: B's own upload mint reserved
+  // against a row already bound to A's key, the door answered
+  // `reserved_elsewhere` — TERMINAL — and B's audio never left the phone, with
+  // B's karute pointing at A's session.
+  //
+  // The mic is held on a timer here so the mint definitively answers inside
+  // that window; a microtask race would prove nothing.
+  async function slowMic(): Promise<() => void> {
+    const real = navigator.mediaDevices.getUserMedia
+    ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = () =>
+      new Promise((resolve) => setTimeout(() => resolve({ getTracks: () => [] }), 50))
+    return () => {
+      ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = real
+    }
+  }
+
+  it("a start-mint that answers before the mic stamps nothing on the STOPPED take — B carries B's row", async () => {
+    // A: a normal stop, secured, its row on its meta. Still HELD — 使用/破棄
+    // has not happened yet, which is exactly when the next customer is started.
+    mockStartRecordingSession.mockImplementationOnce(async () => ({ id: 'session-A' }))
+    const takeA = await stoppedTake()
+    expect(metaOf(takeA).recordingSessionId).toBe('session-A')
+    expect(metaOf(takeA).finalizedAt).toEqual(expect.any(Number))
+
+    const restore = await slowMic()
+    try {
+      mockStartRecordingSession.mockImplementationOnce(async () => ({ id: 'session-B' }))
+      const started = globalRecorder.start({ target: TARGET })
+      await drain(50) // the mint lands; the mic is still pending
+      await jest.advanceTimersByTimeAsync(50) // …now B exists
+      await started
+      await drain(50)
+    } finally {
+      restore()
+    }
+
+    const takeB = globalRecorder.takeId!
+    expect(takeB).not.toBe(takeA)
+    expect(metaOf(takeB).recordingSessionId).toBe('session-B')
+    // A keeps everything: its row, its finalized stamp, its audio.
+    expect(metaOf(takeA).recordingSessionId).toBe('session-A')
+    expect(metaOf(takeA).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // …and the guard closes the moment start() names its take, or the ordinary
+  // reply — the one that lands after the mic — would stamp nothing at all and
+  // every second recording would save unlinked.
+  it('a start-mint that answers AFTER the mic still stamps its own take (control)', async () => {
+    mockStartRecordingSession.mockImplementationOnce(async () => ({ id: 'session-A' }))
+    const takeA = await stoppedTake()
+
+    let answer: (v: { id: string }) => void = () => {}
+    mockStartRecordingSession.mockImplementationOnce(
+      () => new Promise<{ id: string }>((res) => (answer = res)),
+    )
+    const takeB = await startAndSettle()
+    expect(takeB).not.toBe(takeA)
+
+    answer({ id: 'session-B' })
+    await drain(50)
+
+    expect(metaOf(takeB).recordingSessionId).toBe('session-B')
+    expect(globalRecorder.recordingSessionId).toBe('session-B')
+    expect(metaOf(takeA).recordingSessionId).toBe('session-A')
+  })
+
   // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7, P1). The tail flush is queued
   // at stop; start() empties `chunks` SYNCHRONOUSLY and only takes its new take
   // id once the mic is live, so the queued task could find nothing pending and
@@ -1194,6 +1266,63 @@ describe('secure at stop', () => {
     )
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
     expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  // …and that conflict does not always arrive AS a 409 (fix round 12, P2).
+  // Supabase's signed-upload endpoint has answered HTTP 400 with the real code
+  // demoted into the body — {"statusCode":"409","error":"Duplicate"}. Read as a
+  // plain 400 it became a retryable `upload_400`, so a take whose object had
+  // LANDED and whose finalize was merely lost re-PUT its whole self on every
+  // cooldown, forever, and never finalized. Both body shapes, and the 400 that
+  // really is a 400.
+  const put400 = (body: unknown) => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return {
+        ok: false,
+        status: 400,
+        clone: () => ({ json: async () => body }),
+      } as unknown as Response
+    })
+  }
+
+  it('a 400 whose body carries statusCode 409 is the same answer — finalize still runs', async () => {
+    put400({ statusCode: '409', error: 'Duplicate', message: 'The resource already exists' })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it('…and a 400 that only NAMES the duplicate is read the same way', async () => {
+    put400({ error: 'Duplicate' })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  it('a 400 that means something else is still a refusal — nothing finalizes', async () => {
+    put400({ statusCode: '400', error: 'InvalidRequest' })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['session', 'mint', 'put'])
+    expect(finalizeTake).not.toHaveBeenCalled()
+    expect(metaOf(takeId).secureError).toBe('upload_400')
+  })
+
+  it('an unreadable 400 body is a refusal too — the safe side', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      // A proxy's HTML page: `clone().json()` throws, and so does a double
+      // whose Response shape stops at ok/status.
+      return { ok: false, status: 400 } as unknown as Response
+    })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['session', 'mint', 'put'])
+    expect(metaOf(takeId).secureError).toBe('upload_400')
   })
 
   it("finalize 'failed' is recorded and stays RETRYABLE — the next attempt runs the whole leg again", async () => {

@@ -91,11 +91,20 @@ describe('thin recording port — startSession', () => {
     })
   })
 
-  // ⚖ ONE TAKE, ONE ROW (fix round 7). This call is retried by design — and a
-  // dead socket on the way BACK is indistinguishable from one on the way out,
-  // so core may already have created the row. With a fresh key per attempt
-  // every lost reply left another orphan row that no take could ever name.
-  it('every attempt for the same take carries the SAME idempotency key', async () => {
+  // ⚖ A FRESH KEY PER ATTEMPT (fix round 12, P3) — one discipline with the web
+  // arm's twin (thin/ports/actions.vite.ts#idemPost), which has always minted a
+  // uuid here.
+  //
+  // Round 7 keyed this off the TAKE, so a retry after a lost reply landed back
+  // on the same row rather than orphaning another. Real — but it collided with
+  // the step back below: an Idempotency-Key is a promise that the SAME request
+  // gets the SAME answer, so a door replaying its 400 to the second,
+  // differently shaped body is correct, and the step back became unreachable. A
+  // take on a server that predates the pair then got no row at all, and audio
+  // with no row never leaves the device. Losing a take beats leaving a stray
+  // row, so both arms now take the orphan-row degradation core already accepts
+  // for this door (packet-10 fact 3).
+  it('every attempt carries its OWN idempotency key — never the take id', async () => {
     const keys: string[] = []
     port(async (_path: string, init?: RequestInit) => {
       keys.push((init?.headers as Record<string, string>)['idempotency-key'])
@@ -105,12 +114,12 @@ describe('thin recording port — startSession', () => {
     const input = { customerId: 'cust-1', appointmentId: null, takeId: FINALIZE.takeId }
     await viteRecordingPort.startSession(input)
     await viteRecordingPort.startSession(input)
-    // A DIFFERENT take is a different row, so it must not share the key.
     await viteRecordingPort.startSession({ ...input, takeId: OTHER_TAKE })
 
-    expect(keys[0]).toBe(keys[1])
-    expect(keys[0]).toContain(FINALIZE.takeId)
-    expect(keys[2]).not.toBe(keys[0])
+    expect(new Set(keys).size).toBe(3)
+    // Nothing about the take is in the key any more — a replay of one attempt's
+    // answer must never be able to reach another attempt.
+    expect(keys.some((k) => k.includes(FINALIZE.takeId))).toBe(false)
   })
 
   // ── ⚖ BORN RESERVED (fix round 8) ────────────────────────────────────────
@@ -145,7 +154,10 @@ describe('thin recording port — startSession', () => {
   // TRANSITIONAL (fix round 8). The pair is refused wholesale by a server that
   // predates it — the door's schema is strict — and a capture that lost its row
   // over a field the server has never heard of would be a regression. So: one
-  // step back, to the body the door has always taken, under the same key.
+  // step back, to the body the door has always taken — under its OWN key (fix
+  // round 12), because an Idempotency-Key promises the same answer to the same
+  // request, and sharing one let a door replay the first attempt's 400 to the
+  // second, differently shaped body: the step back never reached the server.
   it('a door that does not know the pair is asked ONCE more without it', async () => {
     const bodies: unknown[] = []
     const keys: string[] = []
@@ -168,9 +180,9 @@ describe('thin recording port — startSession', () => {
 
     expect(apiFetch).toHaveBeenCalledTimes(2)
     expect(bodies[1]).toEqual({ customerId: 'cust-1', appointmentId: null })
-    // The same key both times: the step back must land on the row the first
-    // call would have made, never a second one.
-    expect(keys[1]).toBe(keys[0])
+    // A key of its own — a replayed 400 would make this step back a no-op, and
+    // a take with no row never leaves the device.
+    expect(keys[1]).not.toBe(keys[0])
   })
 
   // …and ONLY on the 400. Any other refusal is the door being unable to answer

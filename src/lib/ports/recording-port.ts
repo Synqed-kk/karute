@@ -195,6 +195,38 @@ async function putTake(url: string, blob: Blob): Promise<void> {
   if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 }
 
+/** ⚖ NO WEB DOOR WAITS FOREVER EITHER (fix round 12, P3). The phone's three
+ *  doors have carried a deadline since fix round 7 — this arm's are server
+ *  ACTIONS, which take no AbortSignal, and the answer here was "the platform's
+ *  function timeout bounds them". It does not bound US: a hung action leaves
+ *  secureTake's take in `inFlight` for the whole page life, so the stop path is
+ *  gone, every mount/re-drain attempt hits the guard and returns, and no other
+ *  owed take is ever reached. One stall starves the drain.
+ *
+ *  Same numbers as the arms that already have them: 10 s for the session mint
+ *  (thin/ports/actions.vite.ts's START_SESSION_TIMEOUT_MS, and the recorder's
+ *  own SECURE_MINT_AWAIT_MS), 30 s for the two small-JSON doors
+ *  (thin/ports/recording.vite.ts's DOOR_TIMEOUT_MS). The whole-take PUT is not
+ *  here: it carries its own size-derived deadline in secure-take.ts.
+ *
+ *  ponytail: known ceiling — this stops US waiting, it cannot cancel the
+ *  action, so the work may still land server-side. That is exactly the
+ *  lost-reply case every one of these doors is already built for (the take
+ *  keeps its audio, the failure is retryable, the next attempt reads what
+ *  landed). Upgrade path if actions ever take a signal: pass one instead. */
+const WEB_SESSION_DEADLINE_MS = 10_000
+const WEB_DOOR_DEADLINE_MS = 30_000
+
+function withDeadline<T>(work: Promise<T>, ms: number, onDeadline: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(onDeadline), ms)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 /** Web default — same-origin /api/ai + server-minted signed upload/read URLs
  *  (the browser-direct supabase-js upload is dead: bucket RLS 403s it). */
 export const webRecordingPort: RecordingPipelinePort = {
@@ -255,14 +287,24 @@ export const webRecordingPort: RecordingPipelinePort = {
     // (the action ignores what it does not know, which is the transitional
     // shape this whole round is built around).
     const args = { customerId, appointmentId, ...(mimeType ? { takeId, mimeType } : {}) }
-    return startRecordingSession(args)
+    // A deadline lands as this door's own fail-open null, which secureTake
+    // already reads as the retryable 'session'.
+    return withDeadline(startRecordingSession(args), WEB_SESSION_DEADLINE_MS, null)
   },
   async mintTakeUrl(takeId, mimeType, recordingSessionId) {
     const { mintRecordingUploadUrl } = await uploadActions()
     // The action already answers with the shared core's result UNION (PR2 fix
     // round 4), which IS this port's shape — so the refusals reach secureTake
     // named, with nothing in between to flatten them.
-    const minted = await mintRecordingUploadUrl({ takeId, mimeType, recordingSessionId })
+    // 'upstream' on the deadline — the one code in this door's closed union
+    // that means "the far side did not answer", and the only one of them the
+    // take store does NOT judge terminal. A stall is a moment in time, so it
+    // has to leave the take retryable.
+    const minted = await withDeadline(
+      mintRecordingUploadUrl({ takeId, mimeType, recordingSessionId }),
+      WEB_DOOR_DEADLINE_MS,
+      { error: 'upstream' as const },
+    )
     if ('error' in minted) return minted
     // `token` is DROPPED here, not merely dropped from the type: it already
     // rides inside `url`, and handing a caller a credential the contract says
@@ -274,7 +316,11 @@ export const webRecordingPort: RecordingPipelinePort = {
     // Lazy, same reason as enqueueJob below — this module's import graph
     // reaches @synqed-kk/client, which jest cannot parse.
     const { finalizeTake } = await import('@/actions/recordings')
-    return finalizeTake(input)
+    // 'failed' on the deadline — this door's own retryable refusal, the one the
+    // thin twin already answers for transport trouble.
+    return withDeadline(finalizeTake(input), WEB_DOOR_DEADLINE_MS, {
+      error: 'failed' as const,
+    })
   },
   async enqueueJob(input) {
     // Lazy import (same reason as customer-facade.ts's provePackForCustomer):

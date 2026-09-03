@@ -147,13 +147,22 @@ export const viteRecordingPort: RecordingPipelinePort = {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          // ⚖ KEYED OFF THE TAKE, never a fresh uuid (fix round 7). This call
-          // is retried by design — a dead socket on the way BACK is
-          // indistinguishable from one on the way out, so a fresh key per
-          // attempt leaves core a new orphan row every time a reply is lost.
-          // One take owns one row, so the take id is the key — and the step
-          // back below re-sends under the SAME key, so it lands on the same row.
-          'idempotency-key': `session-${takeId}`,
+          // ⚖ A FRESH KEY PER ATTEMPT (fix round 12, P3) — one discipline with
+          // the web arm's twin (thin/ports/actions.vite.ts#idemPost), which has
+          // always minted a uuid here.
+          //
+          // Round 7 keyed this off the TAKE so a retry after a lost reply
+          // landed back on the same row instead of orphaning another. That is
+          // real, but it collided with the step back below: an
+          // Idempotency-Key is a promise that the SAME request gets the SAME
+          // answer, so the door replaying its 400 to the second, differently
+          // shaped body is correct behaviour — and it made the step back
+          // unreachable. A take on a server that predates the pair then got no
+          // row at all, and audio that has no row never leaves the device.
+          // Losing a take beats leaving a stray row, so the orphan-row
+          // degradation core already accepts for this door (packet-10 fact 3,
+          // the web arm's standing trade) is the one both arms now take.
+          'idempotency-key': crypto.randomUUID(),
         },
         body: JSON.stringify(body),
       })

@@ -475,6 +475,48 @@ describe('a discard that cannot leave its trace does not happen', () => {
     expect(reasonGate()).toBeNull()
   })
 
+  // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since the
+  // take is secured at STOP, the recorder is no longer the only route to a row:
+  // a start-mint that failed leaves the bounded await answering null forever
+  // (its promise is settled), while secureTake's own session-first call has
+  // already minted this take's row and STAMPED it. The save read that null and
+  // filed the karute UNLINKED, beside audio sitting on that very row — and
+  // silently, because null is also the honest answer when there is no row at
+  // all. So the save falls back exactly the way the discard gate does.
+  it('the SAVE re-reads the stamp too: a row secureTake minted still reaches the karute', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    // What retryRecordingSessionMint answers for a take that already carries a
+    // row: the stamp, with nothing minted.
+    mockRetryMint.mockImplementationOnce(async () => 'sess-secured-at-stop')
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({
+      recordingSessionId: 'sess-secured-at-stop',
+    })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+  })
+
+  // …and a take that genuinely has no row still saves — unlinked, exactly as it
+  // did before any of this existed. The fallback adds a second chance, never a
+  // new way to fail.
+  it('no row anywhere: the save still goes through, without a session id', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({ recordingSessionId: null })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+  })
+
   // ── The 使用/破棄 race (fix round 1) ────────────────────────────────────
   // proceedDiscard bumps useRecordingGen, and since P5-A it runs only AFTER the
   // server round-trip — so for the whole dialog lifetime an in-flight 使用 was

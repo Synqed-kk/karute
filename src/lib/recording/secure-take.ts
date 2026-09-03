@@ -42,7 +42,9 @@
 // to finish), and the phone's three doors carry a 30 s one of their own
 // (thin/ports/recording.vite.ts). A deadline lands as a RETRYABLE code and the
 // loop moves on. The web arm's doors are server actions — no signal reaches
-// them; they are bounded by the platform's own function timeout.
+// them, so since fix round 12 they are bounded by a Promise.race deadline
+// instead (10 s / 30 s, recording-port.ts): the action may still land, but a
+// hung one no longer pins this take in `inFlight` and starves the drain.
 //
 // IT IS A HINT, NEVER A GUARANTEE (⚖ v2 item 2). Phase `recorded` renders
 // before this is called and never waits on it; an offline stop simply records
@@ -87,6 +89,36 @@ const PUT_FLOOR_MS = 60_000
 const PUT_BYTES_PER_MS = 10
 const putDeadlineMs = (bytes: number) =>
   Math.max(PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
+
+/** "The object is ALREADY there" — the storage answer that is a SUCCESS for us
+ *  (see the long note at the call site), in both shapes it arrives in.
+ *
+ *  Supabase's signed-upload endpoint does not always give the conflict its own
+ *  status: it has answered HTTP **400** with `{"statusCode":"409","error":
+ *  "Duplicate", …}` — the real code demoted into the body. Read as a plain 400
+ *  that was a retryable `upload_400`, so a take whose object LANDED and whose
+ *  finalize was merely lost re-PUT its whole self on every cooldown, forever,
+ *  and never finalized.
+ *
+ *  Defensive by construction: a `clone()` so nothing downstream loses the body,
+ *  and one catch for every way a body can refuse to be JSON (an HTML proxy
+ *  page, an already-consumed stream, a Response-shaped test double with no
+ *  clone at all). Unreadable → not a duplicate, which keeps the take retryable
+ *  — the safe side. */
+async function putSaysAlreadyThere(put: Response): Promise<boolean> {
+  if (put.status === 409) return true
+  if (put.status !== 400) return false
+  try {
+    const body = (await put.clone().json()) as
+      | { statusCode?: unknown; error?: unknown }
+      | null
+    return (
+      String(body?.statusCode ?? '') === '409' || /duplicate/i.test(String(body?.error ?? ''))
+    )
+  } catch {
+    return false
+  }
+}
 
 /**
  * Upload the whole take to its finalized key and tell the server it is complete.
@@ -270,7 +302,11 @@ export async function secureTake(
     // Known ceiling: if that first PUT landed with the WRONG bytes, nothing can
     // replace them under this key. Finalize refuses on the size mismatch and
     // the take surfaces as 要対応 (R10) for a human to resolve.
-    if (!put.ok && put.status !== 409) {
+    //
+    // And the refusal does not always carry 409 as its STATUS (fix round 12,
+    // P2) — putSaysAlreadyThere above reads the body for the shape that hides
+    // it in a 400.
+    if (!put.ok && !(await putSaysAlreadyThere(put))) {
       // Nothing is finalized against an object storage refused to take.
       await markTakeSecureError(takeId, `upload_${put.status}`)
       return

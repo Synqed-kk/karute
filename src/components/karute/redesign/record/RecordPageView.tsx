@@ -1500,9 +1500,19 @@ export function RecordPageView({
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
-      // null on timeout/failure → save proceeds without recording_session_id,
-      // exactly as before this feature existed (no dedupe for that save).
-      const recordingSessionId = await awaitRecordingSessionId()
+      let recordingSessionId = await awaitRecordingSessionId()
+      // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since
+      // the take is secured at STOP, the recorder is no longer the only route
+      // to a row: a start-mint that failed leaves this await answering null
+      // forever (the promise is settled), while secureTake's own session-first
+      // call has already minted the take's row and STAMPED it. Saving null
+      // there files the karute unlinked beside audio that is on that row —
+      // silently, because null is also the honest answer when there simply is
+      // no row. So read the stamp the same way the discard gate does: the
+      // retry returns it without minting anything when it is there, and mints
+      // once (bounded) when it is not. Still null → the save proceeds without
+      // a session id, exactly as before any of this existed.
+      if (!recordingSessionId) recordingSessionId = await globalRecorder.retryRecordingSessionMint()
       // A discard during the await bumps the generation — this take no longer
       // belongs to us; drop it instead of pipelining a discarded recording.
       if (gen !== useRecordingGen.current) return
