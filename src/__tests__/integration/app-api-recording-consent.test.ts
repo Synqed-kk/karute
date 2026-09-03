@@ -33,7 +33,7 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 // synqed client — customers (get/getConsent/grantConsent), appointments, recordings.
 const grantConsent = jest.fn(async () => ({ id: 'consent-1' }))
-const recordingsCreate = jest.fn(async () => ({ id: 'rec-1' }))
+const recordingsCreate = jest.fn(async (_input: unknown) => ({ id: 'rec-1' }))
 const customersGet = jest.fn(async (id: string) => { if (id !== 'cust-1') throw Object.assign(new Error('x'), { status: 404 }); return { id, name: 'Y' } })
 const getConsent = jest.fn(async () => ({ consent: { granted_at: '2026-05-01T00:00:00Z' } }))
 const fakeClient = {
@@ -187,6 +187,46 @@ describe('POST recordings/session mint', () => {
     getUser.fn.mockResolvedValueOnce({ data: { user: null }, error: { message: 'revoked' } })
     const res = await mintPOST(jreq({ ...auth, ...idem }, {}), noRoute)
     expect(res.status).toBe(401)
+  })
+
+  // ── BORN RESERVED (fix round 10) ──────────────────────────────────────────
+  const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+  it('a named take → the row is CREATED carrying its key, prefixed with the BEARER’s tenant', async () => {
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem }, { customerId: 'cust-1', takeId: TAKE, mimeType: 'audio/mp4' }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ audio_storage_path: `app_business-1_${TAKE}.mp4`, status: 'UPLOADING' }),
+    )
+  })
+  it('an absent take still mints the walk-in row — no key, no status', async () => {
+    await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
+    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
+  })
+  // A refused take is the ONE thing this door does not fail open on: a 200
+  // {id:null} would tell the caller "carry on" about a key it has to fix.
+  it.each([
+    ['a take id with no container', { takeId: TAKE }],
+    ['a container with no take id', { mimeType: 'audio/webm' }],
+    ['an uppercase take id', { takeId: TAKE.toUpperCase(), mimeType: 'audio/webm' }],
+    ['a container we do not store', { takeId: TAKE, mimeType: 'audio/aiff' }],
+    ['the prototype key "constructor"', { takeId: TAKE, mimeType: 'constructor' }],
+    ['the prototype key "__proto__"', { takeId: TAKE, mimeType: '__proto__' }],
+  ])('%s → 400, and no row is created', async (_label, body) => {
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1', ...body }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+  it('an unknown field is still refused — .strict() has not been widened', async () => {
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem }, { takeId: TAKE, mimeType: 'audio/webm', storeId: 'store-9' }),
+      noRoute,
+    )
+    expect(res.status).toBe(400)
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 })
 

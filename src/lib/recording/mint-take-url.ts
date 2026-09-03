@@ -48,6 +48,21 @@
 // because it is the client's own first step and carries no key. So a
 // CLIENT-NAMED mint REQUIRES a recordingSessionId — bad_input without one —
 // and this file only ever READS a row and UPDATES the one it was given.
+//
+// WHAT CHANGED AGAIN (fix round 10) — EVERY SESSION IS BORN RESERVED, so this
+// mint's UPDATE path is now the LEGACY path. startRecordingSession composes the
+// take's key and creates the row WITH it (src/actions/recordings.ts), which
+// closes the last reservation race in this file by deleting the window it lived
+// in: two mints naming DIFFERENT takes on one UNBOUND row could both read a null
+// pointer and write in turn, and core's unique key never fires because the two
+// keys differ. Only a conditional update in core could close that (Anthony
+// addendum #4) — a row that is never unbound does not need one.
+//
+// So the ordinary mint of this app version meets its OWN key already on the row
+// and takes the "already ours" exit below: no write, no audit row, nothing to
+// race. The pointer-is-null branch is kept, unchanged, for rows minted BEFORE
+// this round (bounded: they age out with the 7-day take window), and it carries
+// the same residual race it always did, with core's unique index as the belt.
 
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
@@ -214,11 +229,17 @@ async function planReservation(
   const pointer = row.audio_storage_path
   if (exists && pointer !== key) return { error: 'exists' }
 
+  // LEGACY ONLY (fix round 10): a row minted before sessions were born reserved.
+  // Every row this app version creates for a client-named take already carries
+  // its key, and lands on the retry exit below instead.
   if (pointer === null) return { kind: 'update', row }
   // Bound to another take already. Never repointed here: the displaced object
   // would keep its bytes and lose its only row.
   if (pointer !== key) return { error: 'reserved_elsewhere' }
-  // The retry. The binding is already exactly what this call would write.
+  // ALREADY OURS. Either the ordinary path now (the row was BORN with this key,
+  // fix round 10) or the legitimate retry (the PUT landed, the answer was lost):
+  // the binding is already exactly what this call would write, so commit writes
+  // nothing and audits nothing.
   return { kind: 'retry', row }
 }
 
@@ -259,6 +280,12 @@ async function commitReservation(
     // expose (Anthony addendum #4). This re-read still closes the WIDER window
     // above it — plan-to-commit, a whole signing round trip — which is the one
     // ordinary concurrency actually opens.
+    //
+    // FIX ROUND 10 CLOSED IT BY REMOVING THE UNBOUND ROW, not by winning the
+    // race: a session created by this app version is born carrying its key, so
+    // the only rows that can still reach the write below are LEGACY ones from
+    // before that round. The residual is bounded by their 7-day window, and
+    // core's unique index remains the belt underneath it.
     row = await synqed.recordings.get(plan.row.id)
   } catch (err) {
     // The row went away between the plan and the commit (a 破棄 cleanup).
@@ -281,7 +308,9 @@ async function commitReservation(
   // reserved_elsewhere.
   if (row.audio_storage_path !== null) return { error: 'reserved_elsewhere' }
 
-  // The reservation itself. Status stays the job's when a job owns the row:
+  // THE LEGACY WRITE (fix round 10). Reachable only for a row minted before
+  // sessions were born reserved — a current row met its own key above.
+  // Status stays the job's when a job owns the row:
   // UPLOADING over PROCESSING/COMPLETED would put a live or finished take back
   // into 要対応 for a key nobody has uploaded yet. The status is read off the
   // RE-READ row too — it is the fresher truth about who owns this row now.

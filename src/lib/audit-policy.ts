@@ -520,7 +520,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordings.create',
     symbols: ['startRecordingSessionWithClient'],
     justification:
-      "mints the recording_sessions id only — nothing auditable happens until the eventual save. Feeds EITHER downstream pipeline (verified, FIX ROUND 1 #17): the interactive save (createOrUpdateKaruteRecord) or the job pipeline (processJob) — see FACADE_AUDIT_MAP['recordings.session.mint'] skip row comment for the same ambiguity on its facade twin.",
+      "mints the recording_sessions id only — nothing auditable happens until the eventual save. Feeds EITHER downstream pipeline (verified, FIX ROUND 1 #17): the interactive save (createOrUpdateKaruteRecord) or the job pipeline (processJob) — see FACADE_AUDIT_MAP['recordings.session.mint'] skip row comment for the same ambiguity on its facade twin. STILL TRUE after capture-pipeline PR2 fix round 10, which made the create carry the take's audio_storage_path + UPLOADING when the recorder names its take (BORN RESERVED): that is the SAME reservation the mint used to write one call later as an UPDATE, moved earlier to delete the race window — not a new act. It stays unaudited here, deliberately and per the round's ruling: no audit row is added at session start (this file has never had one — FACADE_AUDIT_MAP['recordings.session.mint'] is a skip), so the STATED consequence is that a born-reserved take files no recording.take_named row, because the mint it used to come from now finds its own key already on the row and writes nothing. The binding is no longer a separate act to receipt — it is part of the row this entry already covers — and the eventual save is still what audits the recording.",
     dated: '2026-07-27',
   },
   {

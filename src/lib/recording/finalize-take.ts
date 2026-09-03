@@ -17,6 +17,14 @@
 // refusal that stops a same-tenant staffer attaching a colleague's audio to a
 // row of their own.
 //
+// AND WHAT THAT NOW RESTS ON (fix round 10). Every session created by this app
+// version is BORN RESERVED: startRecordingSession composes the take's key and
+// creates the row with it in one call (src/actions/recordings.ts), so a row is
+// never unbound and the reservation cannot be raced away between two takes. The
+// check here is unchanged — this row reserved exactly this key, or nothing
+// happens — it simply now holds against concurrency by construction rather than
+// by the mint's re-read.
+//
 // NO 'use server' directive, deliberately — same rule as discard.ts and
 // session-cleanup.ts: `actor` is the authenticated identity the CALLER
 // resolved and vouches for. As a server action a caller could supply its own.

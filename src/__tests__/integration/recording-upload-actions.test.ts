@@ -53,9 +53,14 @@ const row = (over: Partial<Row> = {}): Row => ({
 const get = jest.fn(async (_id: string): Promise<Row> => row())
 const create = jest.fn(async (_input: unknown): Promise<Row> => row({ id: 'sess-new' }))
 const update = jest.fn(async (id: string, _input: unknown): Promise<Row> => row({ id }))
+const apptGet = jest.fn(async (_id: string) => ({ staff_id: 'staff-1' }))
+const fakeClient = { recordings: { get, create, update }, appointments: { get: apptGet } }
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: () => ({ recordings: { get, create, update } }),
-  getSynqedClient: jest.fn(),
+  newSynqedClient: () => fakeClient,
+  // Wired (fix round 10): the born-reserved proof runs the SESSION door and the
+  // MINT against ONE fake core, which is the only way to show that a row this
+  // app version creates is never the one the mint has to update.
+  getSynqedClient: async () => fakeClient,
 }))
 
 // storage-js's single-object probe. Default: the key is FREE — the bucket has
@@ -95,6 +100,7 @@ import {
   mintRecordingReadUrl,
   removeRecordingObject,
 } from '@/actions/recording-upload'
+import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
   isOwnRecordingKey,
@@ -542,6 +548,48 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     update.mockRejectedValue(Object.assign(new Error('conflict'), { status: 409 }))
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
     expect(createSignedUploadUrl).toHaveBeenCalled()
+  })
+
+  // ── THE ROUND-10 PROOF ────────────────────────────────────────────────────
+  // The whole point of born-reserved: a row created by THIS app version already
+  // holds its take's key, so the mint's UPDATE path — the last place two
+  // client-named takes could race on one unbound row — is never reached at all.
+  //
+  // It runs BOTH doors against one fake core on purpose. Drop the reservation
+  // from startRecordingSessionWithClient's create() and this test goes red: the
+  // row comes back with a null pointer and the mint updates it.
+  it('a session created for this take is BORN reserved — the mint writes nothing', async () => {
+    // The core, honestly: create() keeps what it is given, get() returns it.
+    create.mockImplementation(async (input: unknown) => row({ ...(input as object), id: SESSION }))
+    get.mockImplementation(async () => create.mock.results[0].value as unknown as Row)
+
+    const started = await startRecordingSession({
+      customerId: 'cust-1',
+      takeId: UUID,
+      mimeType: 'audio/webm',
+    })
+    expect(started).toEqual({ id: SESSION })
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ audio_storage_path: OWN, status: 'UPLOADING' }),
+    )
+
+    const res = await mintOk({ takeId: UUID, mimeType: 'audio/webm', recordingSessionId: SESSION })
+    // ALREADY OURS: no second write to race, and no second receipt for one act.
+    expect(update).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+    // …and the caller still gets everything it needs to upload.
+    expect(res.path).toBe(OWN)
+    expect(res.recordingSessionId).toBe(SESSION)
+  })
+
+  // The legacy path is KEPT, not deleted: rows minted before this round are
+  // still unbound, and their mint must still reserve them the old way.
+  it('a LEGACY unbound row still reserves through the update path', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    const res = await mintOk(named)
+    expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: OWN, status: 'UPLOADING' })
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(auditFn).toHaveBeenCalledTimes(1)
   })
 
   // FIX ROUND 7 (J3). planReservation reads the row BEFORE the signing round
