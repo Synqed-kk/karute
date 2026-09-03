@@ -100,18 +100,55 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
  *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
  *
- *  `pinnedLine` makes the literal START its line (indentation only — `//` and
- *  `*` are not spaces, and neither is anything else a comment can begin with)
- *  and END it, so a comment prefix misses and a trailing addition on the same
- *  line misses too. Zero indentation is allowed because top-level `import`
- *  lines are pinned this way as well.
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` strips whole block comments FIRST (an
+ *  unterminated one runs to the end of the input, which is what a SLICE of a
+ *  file can hand it), and the old rule for comment-continuation lines goes with
+ *  them: once the blocks are gone no continuation line is left to blank, and
+ *  `//` is the only comment shape a line can still begin with. Relied on only
+ *  because neither comment delimiter occurs OUTSIDE a comment in any of the
+ *  three pinned product files — checked first, because one sitting inside a
+ *  string literal could open or close a comment that is not one.
  *
- *  `codeOnly` blanks comment-LED lines so a COUNT is a count of code. A decoy
- *  hidden as a TRAILING comment on a real code line survives that filter — and
- *  then it INFLATES the count, which is red the other way round. */
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  A decoy hidden as a TRAILING comment on a real code line survives the
+ *  filter — and then it INFLATES the count, which is red the other way
+ *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const pinnedLine = (src: string, line: string) => new RegExp('^ *' + escapeRegExp(line) + '$', 'm').test(src)
-const codeOnly = (src: string) => src.replace(/^[ \t]*(?:\/\/|\*|\/\*).*$/gm, '')
+const codeOnly = (src: string) => src.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+const pinnedLines = (src: string, line: string) =>
+  (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
+
+/** ONE call's own text, from its opening anchor to the dependency-array line
+ *  that closes the hook it lives in. Both anchors are unique in the file, and
+ *  `ok` is asserted before anything inside `text` is counted — a slice that came
+ *  back empty because an anchor moved would make every pin over it vacuous. */
+const callSlice = (src: string, open: string, close: string) => {
+  const i = src.indexOf(open)
+  const j = i < 0 ? -1 : src.indexOf(close, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? src.slice(i, j) : '' }
+}
 
 // ── THE REAL FIXTURE WORLD, driven exactly as E2 drove it ───────────────────
 
@@ -615,6 +652,9 @@ describe('1 — the round gate', () => {
     const screen = SRC('TodayScreen.tsx')
     const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
     expect(reads).toBe(5)
+    // ⚖ D1 — and the number does not move when `codeOnly` learns about block
+    // comments: all five reads are code, none of the six raw occurrences the
+    // pre-armour count saw ever sat inside a block the new filter removes.
     // ⚖ BREAKER-827 F1 — AND THE FOUR SPELLINGS ARE WHOLE-LINE ANCHORED. The
     // fifth read (`heldBoard`'s bare `SELLING_ENGINE_LAW` line, the head of a
     // ternary) is held by the count alone: comment it out and the count is 4.
@@ -630,6 +670,26 @@ describe('1 — the round gate', () => {
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ LENS-2 DECOY 3 (MAJOR) — AND EACH DOOR IS PINNED INSIDE ITS OWN CALL.
+    // Presence-in-the-file is reachability-blind, and a MOVE leaves every total
+    // exactly where it was: the lens deleted the verdict's door from the live
+    // object literal and parked a byte-identical copy in a `void`-discarded
+    // dead block above the hook — 486 green, tsc clean, and the guard back on
+    // the raw pocket-minute enumeration, which is BREAKER F1's defect reached
+    // by a different road. So each door line is now counted ONCE over code
+    // file-wide AND pinned inside the slice of the call it is an argument to:
+    // a duplicate moves the count, a move leaves the slice, and the two
+    // together have nowhere left to stand.
+    const rail = callSlice(screen, '? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = callSlice(screen, '? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    expect({ rail: rail.ok, verdict: verdict.ok }).toEqual({ rail: true, verdict: true })
+    for (const [where, call, line] of [
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
+    ] as const) {
+      expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(screen, line) })
+        .toEqual({ where, line, inThisCall: 1, inTheFile: 1 })
     }
   })
 

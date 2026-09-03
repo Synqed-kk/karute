@@ -89,17 +89,45 @@ const supabase = createClient as jest.Mock
  *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
  *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
  *
- *  `pinnedLine` makes the literal START its line (indentation only — `//` and
- *  `*` are not spaces, and neither is anything else a comment can begin with)
- *  and END it, so a comment prefix misses and a trailing addition on the same
- *  line misses too. Zero indentation is allowed because top-level `import`
- *  lines are pinned this way as well.
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` strips whole block comments FIRST (an
+ *  unterminated one runs to the end of the input, which is what a SLICE of a
+ *  file can hand it), and the old rule for comment-continuation lines goes with
+ *  them: once the blocks are gone no continuation line is left to blank, and
+ *  `//` is the only comment shape a line can still begin with. Relied on only
+ *  because neither comment delimiter occurs OUTSIDE a comment in any of the
+ *  three pinned product files — checked first, because one sitting inside a
+ *  string literal could open or close a comment that is not one.
  *
- *  `codeOnly` blanks comment-LED lines so a COUNT is a count of code. A decoy
- *  hidden as a TRAILING comment on a real code line survives that filter — and
- *  then it INFLATES the count, which is red the other way round. */
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  A decoy hidden as a TRAILING comment on a real code line survives the
+ *  filter — and then it INFLATES the count, which is red the other way
+ *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const pinnedLine = (src: string, line: string) => new RegExp('^ *' + escapeRegExp(line) + '$', 'm').test(src)
+const codeOnly = (src: string) => src.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+const pinnedLines = (src: string, line: string) =>
+  (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
