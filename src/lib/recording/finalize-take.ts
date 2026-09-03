@@ -193,25 +193,38 @@ export async function finalizeTakeWithClient(
     // handed is now unreferenced, and that must be TRACEABLE rather than a
     // silent {ok, already} nobody would ever look at again.
     let superseded = false
-    if (pointer === key) {
-      // The reservation is this call's own. If the finalize already ran, this
-      // is an exact retry: nothing to write, and no second audit row for one act.
-      if (finalizedBefore(row)) return { ok: true, recordingSessionId: row.id, already: true }
-    } else if (pointer === null || !isJobOwnedStatus(row.status)) {
-      // The row never reserved this key. TERMINAL: the take was bound to another
-      // row (or never minted at all), and no retry changes that.
-      return { error: 'not_reserved' }
-    } else {
+    // The reservation is this call's own — but "already finalized" is not
+    // decided here (fix round 9, Greptile): a pre-PR2 COMPLETED row can carry a
+    // duration with its pointer set and STILL have no object behind it (a mint
+    // whose PUT never landed), and answering `already: true` for that says
+    // "safe" about audio that is not in the bucket. The object check below
+    // is the actual proof; this only decides whether THIS row's reservation is
+    // exact, missing, or moved on.
+    const alreadyFinalized = pointer === key && finalizedBefore(row)
+    if (pointer !== key) {
+      if (pointer === null || !isJobOwnedStatus(row.status)) {
+        // The row never reserved this key. TERMINAL: the take was bound to
+        // another row (or never minted at all), and no retry changes that.
+        return { error: 'not_reserved' }
+      }
       superseded = true
     }
 
     const verdict = await objectVerdict(key, input.byteLength)
     // The take says it is complete; the bucket says there is nothing there.
-    // Refusing keeps a duration for a non-existent object off the core row.
+    // Refusing keeps a duration for a non-existent object off the core row —
+    // true for an exact retry too: a row that LOOKS finalized with nothing in
+    // the bucket is not "already safe", it is the same object_missing anyone
+    // else would get.
     if (verdict === 'missing') return { error: 'object_missing' }
     if (verdict === 'size_mismatch') return { error: 'size_mismatch' }
     // Storage could not answer. Retryable, and nothing is written meanwhile.
     if (verdict === 'unknown') return { error: 'failed' }
+
+    // The object is proven present and correctly sized. NOW an exact retry can
+    // safely settle as `already: true` — nothing left to write, no second audit
+    // row for one act.
+    if (alreadyFinalized) return { ok: true, recordingSessionId: row.id, already: true }
 
     if (superseded) {
       // Filed AFTER the byte check (fix round 7), never before it: the detail
@@ -233,6 +246,8 @@ export async function finalizeTakeWithClient(
         input,
         composed.ext,
         parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
+        // Honest about what was actually proved, same as emitFinalized below.
+        { size_verified: verdict === 'ok' },
       )
     }
 
@@ -330,7 +345,9 @@ function emitFinalized(
  *
  * ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No `duration_seconds`: this
  * call wrote no duration, so stating one here would claim a measurement that
- * never landed.
+ * never landed. `size_verified` (fix round 9) is the same flag emitFinalized
+ * carries — was the byte match actually proved, or did the listing just not
+ * carry a size?
  *
  * EMITS AND RETURNS, same emitSave idiom as emitFinalized above.
  */
@@ -340,6 +357,7 @@ function emitCaptureUnlinked(
   input: { takeId: string; byteLength: number },
   ext: string,
   rowTakeId: string | null,
+  extra: Record<string, unknown>,
 ): FinalizeTakeResult {
   audit({
     category: 'recording',
@@ -356,6 +374,7 @@ function emitCaptureUnlinked(
       row_take_id: rowTakeId,
       bytes: input.byteLength,
       ext,
+      ...extra,
     },
     requestId: actor.requestId,
     source: actor.source,

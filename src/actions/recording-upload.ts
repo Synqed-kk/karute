@@ -14,7 +14,7 @@
 // Capability records.write on all three (only recorders stage audio) — the same
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
-import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -75,12 +75,17 @@ async function requireOwnPath(path: string): Promise<void> {
  * Returns the result UNION rather than throwing (fix round 4), the same shape
  * finalizeTake gives: `exists` and `reserved_elsewhere` are answers the client
  * must branch on — "this take is spoken for, start a new one" — and a throw
- * flattens them all into one unusable failure.
+ * flattens them all into one unusable failure. The capability gate follows the
+ * same rule (fix round 9): asked with can(), not requireCapability(), so a
+ * denial settles as `{ error: 'forbidden' }` instead of throwing — aligned
+ * with finalizeTake (src/actions/recordings.ts), which made the same call for
+ * the same reason: a thrown denial the client reads as retryable would loop
+ * forever against a permission it will never gain.
  */
 export async function mintRecordingUploadUrl(
   input?: MintTakeUrlInput,
 ): Promise<MintTakeUrlResult> {
-  await requireCapability('records.write')
+  if (!(await can('records.write'))) return { error: 'forbidden' }
   // The cookie session is the ONLY source of every one of these: a caller names
   // neither its tenant, nor itself, nor its reach. staffId owns any row the
   // mint reserves, and is what the take_named row is attributed to.

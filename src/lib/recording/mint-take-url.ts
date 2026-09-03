@@ -271,12 +271,15 @@ async function commitReservation(
   // the plan's read and this one. Either way there is nothing to write and
   // nothing to audit; only a DIFFERENT non-null pointer is a real collision.
   if (row.audio_storage_path === key) return { recordingSessionId: row.id }
-  // The pointer this call planned against, re-proved on the fresh row: null for
-  // the reservation, this key for the retry — which, having already failed the
-  // check above, can only fail this one too, so both collapse to the same
+  // NULL now (fix round 9, Greptile): re-reserve regardless of plan.kind. A
+  // fresh 'update' plan expected exactly this — its own pointer was still null
+  // at plan time too. A 'retry' plan expected this key (having already failed
+  // the check above), but a pointer CLEARED between plan and commit (a 破棄
+  // cleanup racing the signing round trip) is not a foreign collision to
+  // refuse — it is an open reservation to take, so the retry proceeds exactly
+  // like a fresh update. Only a DIFFERENT non-null pointer is the real
   // reserved_elsewhere.
-  const expected = plan.kind === 'retry' ? key : null
-  if (row.audio_storage_path !== expected) return { error: 'reserved_elsewhere' }
+  if (row.audio_storage_path !== null) return { error: 'reserved_elsewhere' }
 
   // The reservation itself. Status stays the job's when a job owns the row:
   // UPLOADING over PROCESSING/COMPLETED would put a live or finished take back

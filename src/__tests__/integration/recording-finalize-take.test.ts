@@ -207,6 +207,10 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
         row_take_id: OLD_TAKE,
         bytes: 1024,
         ext: 'webm',
+        // Fix round 9 (O2): same size_verified flag emitFinalized carries —
+        // the default `info` mock answers a real size, so this byte match was
+        // actually proved, not just unlisted.
+        size_verified: true,
       })
     },
   )
@@ -401,6 +405,20 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
     get.mockResolvedValue(row({ duration_seconds: 42, status: 'UPLOADING' }))
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION, already: true })
+    expectNoWrites()
+  })
+
+  // FIX ROUND 9 (fresh-eyes #6, O1). A row that LOOKS finalized (pointer ===
+  // key, a duration set, status left the RECORDING state) is not "already
+  // safe" if the object it claims never landed — a pre-PR2 COMPLETED row, or a
+  // mint whose PUT never happened. `already: true` must never answer before
+  // the object is actually checked: a bucket with nothing in it is
+  // object_missing for an exact retry exactly like it is for anyone else.
+  it('a COMPLETED row that LOOKS finalized but has NO object — object_missing, zero writes', async () => {
+    get.mockResolvedValue(row({ status: 'COMPLETED', duration_seconds: 55 }))
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
   })
 

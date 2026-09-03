@@ -7,9 +7,11 @@
  *      BEFORE the service-role client (which has no RLS) ever touches it;
  *   3. removeRecordingObject never throws, whatever goes wrong.
  */
+const can = jest.fn(async (_c: string) => true)
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
 jest.mock('@/lib/auth/require-permission', () => ({
+  can: (c: string) => can(c),
   requireCapability: (c: string) => requireCapability(c),
   getMyCapabilities: () => getMyCapabilities(),
 }))
@@ -179,6 +181,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   // removeRecordingObject warns on every refusal by design — keep the run readable.
   jest.spyOn(console, 'warn').mockImplementation(() => {})
+  can.mockImplementation(async () => true)
   requireCapability.mockImplementation(async () => {})
   getMyCapabilities.mockImplementation(async () => new Set(['records.write']))
   resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
@@ -235,10 +238,10 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
     expect(info).not.toHaveBeenCalled()
   })
 
-  it('gates on records.write BEFORE minting anything', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(mintRecordingUploadUrl()).rejects.toThrow('forbidden')
-    expect(requireCapability).toHaveBeenCalledWith('records.write')
+  it('gates on records.write BEFORE minting anything — a denial settles, never throws', async () => {
+    can.mockResolvedValue(false)
+    await expect(mintRecordingUploadUrl()).resolves.toEqual({ error: 'forbidden' })
+    expect(can).toHaveBeenCalledWith('records.write')
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
@@ -359,10 +362,8 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
   })
 
   it('gates on records.write BEFORE it looks at any client input', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(mintRecordingUploadUrl(NAMED)).rejects.toThrow(
-      'forbidden',
-    )
+    can.mockResolvedValue(false)
+    await expect(mintRecordingUploadUrl(NAMED)).resolves.toEqual({ error: 'forbidden' })
     expect(getBusinessId).not.toHaveBeenCalled()
     expectNoBinding()
   })
@@ -579,6 +580,27 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     info.mockResolvedValue({ data: { size: 2048 }, error: null })
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
     expect(update).not.toHaveBeenCalled()
+  })
+
+  // FIX ROUND 9 (fresh-eyes #6, O4). A 'retry' plan means the pointer matched
+  // this key AT PLAN TIME — but the signing round trip is real time, and a
+  // concurrent cleanup (破棄) can CLEAR that pointer back to null before the
+  // commit's re-read. Unlike the moved-on case above (a DIFFERENT key — a real
+  // collision), a null pointer here is an OPEN reservation: the commit must
+  // re-reserve it exactly like a fresh 'update' plan would, not refuse a take
+  // whose own row is free to bind.
+  it('a RETRY whose pointer was CLEARED during the sign — re-reserves rather than reserved_elsewhere', async () => {
+    get
+      .mockResolvedValueOnce(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
+      .mockResolvedValue(row({ audio_storage_path: null, status: 'RECORDING' }))
+    info.mockResolvedValue({ data: { size: 2048 }, error: null })
+    const res = await mintOk(named)
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(update).toHaveBeenCalledWith(SESSION, {
+      audio_storage_path: OWN,
+      status: 'UPLOADING',
+    })
+    expect(auditFn).toHaveBeenCalled()
   })
 
   it('a row DELETED during the sign — not_found, nothing written', async () => {
