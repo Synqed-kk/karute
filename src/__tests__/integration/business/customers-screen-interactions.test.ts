@@ -564,6 +564,51 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     expect(CSS_CODE).not.toMatch(/\.st-[\w-]/)
   })
 
+  it('the sliding wash TRAVELS — one spring pair per mount, and a separate effect that animates', () => {
+    // ⚠ THE DEAD-LEVER SHAPE THIS KILLS: springs re-created on every filter
+    // change also re-create `placed = false`, so the only reachable path is the
+    // JUMP one and the wash teleports. The spring pair must therefore outlive a
+    // filter change, and the travel must be its own effect.
+    expect(SCREEN_CODE).toMatch(/thumbMoveRef\.current = move[\s\S]{0,700}?\}, \[reduced\]\)/)
+    expect(SCREEN_CODE).toContain('thumbMoveRef.current?.(false)')
+    expect(SCREEN_CODE).toMatch(/thumbMoveRef\.current\?\.\(false\)\s*\}, \[filter, counts\]\)/)
+    // …and `move(false)` is genuinely reachable: it is the ONLY caller that
+    // animates, and the jumping callers are named (first placement, resize,
+    // scroll, fonts).
+    expect(SCREEN_CODE).toContain('const relayout = () => move(true)')
+  })
+
+  it('each overlay owns ONE spring for its whole mount, seated closed, and only `set` travels', () => {
+    // A spring re-created per state change cannot be interrupted: a close
+    // pressed mid-open snaps to fully open and slides back. One spring per
+    // element, `jump` once to seat it, `set` for every state after that.
+    for (const [ref, seat] of [['drawerSpringRef', 'sp.jump(100)'], ['sheetSpringRef', 'sp.jump(100)']]) {
+      expect(SCREEN_CODE).toContain(`${ref}.current = sp`)
+      expect(SCREEN_CODE).toContain(seat)
+    }
+    expect(SCREEN_CODE).toContain('drawerSpringRef.current?.set(drawerOpen ? 0 : 100)')
+    expect(SCREEN_CODE).toContain('sheetSpringRef.current?.set(sheetOpen ? 0 : 100)')
+    // ⚠ THE CREATION EFFECTS KEY ON THE BAND AND THE MOTION PREFERENCE ONLY.
+    // The open flag in those deps is the whole defect: the spring is rebuilt and
+    // re-seated on every open and close, so a press mid-flight snaps to the far
+    // end before travelling instead of reversing from where it is.
+    expect(SCREEN_CODE).toMatch(/drawerSpringRef\.current = null\s*\n\s*sp\.stop\(\)\s*\n\s*\}\s*\n\s*\}, \[reduced\]\)/)
+    expect(SCREEN_CODE).toMatch(/sheetSpringRef\.current = null\s*\n\s*sp\.stop\(\)\s*\n\s*\}\s*\n\s*\}, \[phone, reduced\]\)/)
+    expect(SCREEN_CODE).not.toMatch(/sp\.jump\(drawerOpen/)
+    expect(SCREEN_CODE).not.toMatch(/sp\.jump\(sheetOpen/)
+  })
+
+  it('正本と操作の所有 is keyed to the ROW, so its toggle can never describe a state the page is not in', () => {
+    // `.cu-insp-body` remounts on a selection change, so a bare boolean left the
+    // new panel closed by CSS while `aria-expanded` still said open.
+    expect(SCREEN_CODE).toContain('const [ownOpenFor, setOwnOpenFor] = useState<string | null>(null)')
+    expect(SCREEN_CODE).toContain('ownOpen={ownOpenFor === current.id}')
+    expect(SCREEN_CODE).toContain('useCollapse(ownPanelRef, ownOpenFor !== null && ownOpenFor === current?.id)')
+    expect(SCREEN_CODE).not.toMatch(/useState\(false\)[\s\S]{0,40}ownOpen\b/)
+    // …the same shape 本人関係 already uses, rather than a second mechanism.
+    expect(SCREEN_CODE).toContain('const [openParty, setOpenParty] = useState<string | null>(null)')
+  })
+
   it('there is ONE keydown listener, and it closes ONE layer per Escape', () => {
     expect(SCREEN_CODE.match(/addEventListener\('keydown'/g)).toHaveLength(1)
     // innermost first: the tour owns Escape while it is up, then the drawer,

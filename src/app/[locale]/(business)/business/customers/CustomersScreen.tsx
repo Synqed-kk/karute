@@ -35,7 +35,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
-import { makeSpring } from '@/business/lib/spring'
+import { makeSpring, type Spring } from '@/business/lib/spring'
 import { winBackLine, type CustomerRow, type CustomersProps } from './customers-props'
 
 export type { CustomerRow }
@@ -251,7 +251,14 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
   const [shown, setShown] = useState<string[]>(DEFAULT_COLUMNS)
   const [colsOpen, setColsOpen] = useState(false)
   const [openParty, setOpenParty] = useState<string | null>(null)
-  const [ownOpen, setOwnOpen] = useState(false)
+  /** ⚠ KEYED TO THE ROW, not a bare boolean (the 本人関係 block's own shape, two
+   *  lines up). `.cu-insp-body` remounts on a selection change, so a bare flag
+   *  left the NEW panel closed by CSS while `aria-expanded` still said open and
+   *  the chevron was still rotated — a control describing a state the page was
+   *  not in (lessons §A-10). Keyed, the flag is false the moment another row is
+   *  selected, in the same render, which is also what the mock does: it rebuilds
+   *  the inspector with the collapse closed every time. */
+  const [ownOpenFor, setOwnOpenFor] = useState<string | null>(null)
   const [footOpen, setFootOpen] = useState(false)
   const [toast, setToast] = useState('')
   const [compareOf, setCompareOf] = useState<string | null>(null)
@@ -365,6 +372,7 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
    *  when the counts change width. It jumps on first layout, on resize and once
    *  the web fonts land (a thumb measured against fallback metrics is measured
    *  against the wrong tile). */
+  const thumbMoveRef = useRef<((jump?: boolean) => void) | null>(null)
   useEffect(() => {
     const tiles = tilesRef.current
     const thumb = thumbRef.current
@@ -400,44 +408,59 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
         placed = true
       }
     }
+    thumbMoveRef.current = move
     move(true)
+    // A relayout is not a state change: the thumb belongs under the SAME tile at
+    // its new size, so it is re-seated rather than animated there.
     const relayout = () => move(true)
     window.addEventListener('resize', relayout)
     tiles.addEventListener('scroll', relayout)
     if (document.fonts?.ready) void document.fonts.ready.then(() => move(true))
     return () => {
+      thumbMoveRef.current = null
       sx.stop()
       sw.stop()
       window.removeEventListener('resize', relayout)
       tiles.removeEventListener('scroll', relayout)
     }
-  }, [reduced, filter, counts])
+  }, [reduced])
 
-  /** THE COMPARE DRAWER — one translateX spring, and it leaves by the SAME PATH
-   *  it arrived on. It is seated at the far end of that path before the first
-   *  frame (`jump`, never an animation), so the panel is off-stage on load
-   *  rather than sliding away in front of a reader who never opened it. */
-  const drawerFirst = useRef(true)
+  /** ⚠ THE PRESSED TILE CHANGING IS THE ONE THING THE THUMB TRAVELS FOR, and it
+   *  needs its own effect. The spring pair above lives for the whole mount: when
+   *  it was re-created on every `filter` change it also re-created `placed =
+   *  false`, so the only path that ever ran was the JUMP one — `move(false)` was
+   *  unreachable and the wash TELEPORTED between tiles, springs and all. The
+   *  effect below is the only caller that animates, and the counts are in its
+   *  deps because a tile that changes width moves the tile after it. */
+  useLayoutEffect(() => {
+    thumbMoveRef.current?.(false)
+  }, [filter, counts])
+
+  /** THE COMPARE DRAWER — ONE translateX spring for the whole mount, and it
+   *  leaves by the same path it arrived on. It is SEATED closed on creation (a
+   *  `jump`, never a travel: a panel that slid out on load would be an overlay
+   *  opening in front of a reader who never touched it), and every open and
+   *  close after that is a `set` — so a close pressed mid-open REVERSES FROM
+   *  WHERE IT IS instead of snapping to the far end first (the Studio standard's
+   *  interruptibility, which a spring re-created per state change cannot keep). */
+  const drawerSpringRef = useRef<Spring | null>(null)
   useEffect(() => {
     const el = drawerRef.current
     if (!el) return
     const sp = makeSpring((v) => {
       el.style.transform = `translateX(${v}%)`
     }, { response: 0.34, eps: 0.05, reduced })
-    // ⚠ THE FIRST RUN SEATS, IT DOES NOT TRAVEL. Every later run starts the
-    // spring at the END IT IS COMING FROM so the panel leaves by the same path
-    // it arrived on — but on MOUNT there is no path to come from, and seating it
-    // at the far end would make the closed drawer jump fully open and slide out
-    // in front of a reader who never touched it. (It did: the shots caught the
-    // slide, and no assertion that opens the drawer first could have.)
-    if (drawerFirst.current) {
-      drawerFirst.current = false
-      sp.jump(drawerOpen ? 0 : 100)
-      return () => sp.stop()
+    sp.jump(100)
+    drawerSpringRef.current = sp
+    return () => {
+      drawerSpringRef.current = null
+      sp.stop()
     }
-    sp.jump(drawerOpen ? 100 : 0)
-    sp.set(drawerOpen ? 0 : 100)
-    return () => sp.stop()
+  }, [reduced])
+  useEffect(() => {
+    // `reduced` rides along so a re-created spring is told the state again; the
+    // creation effect above is declared first, so it has already re-seated.
+    drawerSpringRef.current?.set(drawerOpen ? 0 : 100)
   }, [drawerOpen, reduced])
 
   /** THE PHONE SHEET — the same spring shape on translateY.
@@ -445,13 +468,17 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
    *  BEHIND ON THE DESK LAYOUT (the responsive round's own fix, kept at source):
    *  the apply itself clears the inline transform the moment it is not the phone
    *  band any more. */
-  const sheetFirst = useRef(true)
+  /** THE PHONE SHEET — the same shape on translateY, for the same reasons.
+   *  ⚠ A FRAME STILL RUNNING WHEN THE BAND CHANGES MUST NOT LEAVE A TRANSFORM
+   *  BEHIND ON THE DESK LAYOUT (the responsive round's own fix, kept at source):
+   *  the apply clears the inline transform the moment this is not the phone band
+   *  any more, and leaving the band clears it outright. */
+  const sheetSpringRef = useRef<Spring | null>(null)
   useEffect(() => {
     const el = inspRef.current
     if (!el) return
     if (!phone) {
       el.style.transform = ''
-      sheetFirst.current = true
       return
     }
     const sp = makeSpring((v) => {
@@ -461,17 +488,16 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       }
       el.style.transform = `translateY(${v}%)`
     }, { response: 0.34, eps: 0.05, reduced })
-    // The same rule as the drawer's, for the same reason: entering the phone
-    // band SEATS the sheet where it belongs; only a later open or close travels.
-    if (sheetFirst.current) {
-      sheetFirst.current = false
-      sp.jump(sheetOpen ? 0 : 100)
-      return () => sp.stop()
+    sp.jump(100)
+    sheetSpringRef.current = sp
+    return () => {
+      sheetSpringRef.current = null
+      sp.stop()
     }
-    sp.jump(sheetOpen ? 100 : 0)
-    sp.set(sheetOpen ? 0 : 100)
-    return () => sp.stop()
-  }, [phone, sheetOpen, reduced])
+  }, [phone, reduced])
+  useEffect(() => {
+    sheetSpringRef.current?.set(sheetOpen ? 0 : 100)
+  }, [sheetOpen, phone, reduced])
 
   /**
    * ⚖ THE COLLAPSE, AND IT IS THE MOCK'S OWN (`makeCollapse`). A height spring
@@ -503,7 +529,7 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       return () => sp.stop()
     }, [ref, open])
   }
-  useCollapse(ownPanelRef, ownOpen)
+  useCollapse(ownPanelRef, ownOpenFor !== null && ownOpenFor === current?.id)
   useCollapse(footPanelRef, footOpen)
 
   /** PRESS STATES ON POINTER-DOWN, one document listener for the whole room (the
@@ -722,8 +748,8 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       offList={offList}
       openParty={openParty === current.id}
       onToggleParty={() => setOpenParty((v) => (v === current.id ? null : current.id))}
-      ownOpen={ownOpen}
-      onToggleOwn={() => setOwnOpen((v) => !v)}
+      ownOpen={ownOpenFor === current.id}
+      onToggleOwn={() => setOwnOpenFor((v) => (v === current.id ? null : current.id))}
       ownPanelRef={ownPanelRef}
       onCompare={(e) => openCompare(current.id, e.currentTarget)}
       karuteHref={karuteHref}
