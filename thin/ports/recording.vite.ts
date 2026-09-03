@@ -11,6 +11,10 @@ import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
 } from '@/actions/recording-jobs'
+import type {
+  FinalizeTakeInput,
+  FinalizeTakeResult,
+} from '@/lib/recording/finalize-take'
 
 export const viteRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/app/v1/ai',
@@ -59,6 +63,42 @@ export const viteRecordingPort: RecordingPipelinePort = {
     })
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
     return { path }
+  },
+  // Capture pipeline PR3 — the two doors secureTake knocks on. Same
+  // apiFetch discipline as stageForJob above (Bearer + the store lens are
+  // assembled in facade-fetch.ts, never spelled here), plus a JSON body: the
+  // device NAMES the take and the container it recorded.
+  async mintTakeUrl(takeId: string, mimeType: string) {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ takeId, mimeType }),
+    })
+    // The status is the whole diagnosis — a 403 (wrong tenant) and a 502
+    // (storage down) are the same word to a caller that only sees a throw, and
+    // the take meta would record both as 'network'. Named here so secure-take
+    // writes `mint_<status>` instead.
+    if (!res.ok) {
+      throw Object.assign(new Error(`Upload URL failed (${res.status})`), {
+        secureError: `mint_${res.status}`,
+      })
+    }
+    return (await res.json()) as { path: string; url: string; contentType: string }
+  },
+  async finalizeTake(input: FinalizeTakeInput) {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/finalize', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const body = (await res.json().catch(() => null)) as FinalizeTakeResult | null
+    // The route answers every SOFT refusal (object_missing, already-finalized)
+    // in a 2xx body, so a non-2xx here is real transport/auth/forbidden trouble
+    // — reported as 'failed', which leaves the take un-finalized for the retry.
+    // Guarding on `!res.ok` as well as the body is the discard port's lesson:
+    // a facade error body parses perfectly.
+    if (!res.ok || !body) return { error: 'failed' as const }
+    return body
   },
   async enqueueJob(input: EnqueueRecordingJobInput) {
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/job', {

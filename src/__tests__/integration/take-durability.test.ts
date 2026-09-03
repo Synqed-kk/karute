@@ -36,6 +36,13 @@ jest.mock('@/actions/recordings', () => ({
 type Row = Record<string, unknown>
 const norm = (k: unknown) => JSON.stringify(k)
 let failWrites = false
+/** Make SEGMENT writes land on a timer instead of a microtask. Real IndexedDB
+ *  writes a multi-MB blob to disk — it is nothing like a microtask — and with a
+ *  microtask-fast shim "the tail flush is awaited" is proven by nothing: an
+ *  UNawaited secureTake wins the race anyway, because its own store reads cost
+ *  more microtasks than the flush does. One test flips this so the ordering has
+ *  to be real. */
+let slowSegmentWrites = false
 
 class FakeObjectStore {
   data = new Map<string, Row>()
@@ -54,8 +61,8 @@ class FakeRequest<T> {
   onerror: (() => void) | null = null
   result!: T
   error: unknown = null
-  constructor(exec: () => T) {
-    queueMicrotask(() => {
+  constructor(exec: () => T, slow = false) {
+    const settle = () => {
       try {
         this.result = exec()
         this.onsuccess?.()
@@ -63,9 +70,13 @@ class FakeRequest<T> {
         this.error = e
         this.onerror?.()
       }
-    })
+    }
+    if (slow) setTimeout(settle, 0)
+    else queueMicrotask(settle)
   }
 }
+
+const SEGMENTS_STORE = 'segments'
 
 class FakeIDB {
   stores = new Map<string, FakeObjectStore>()
@@ -82,10 +93,13 @@ class FakeIDB {
         const s = this.stores.get(n)!
         return {
           put: (row: Row) =>
-            new FakeRequest(() => {
-              if (failWrites) throw new Error('idb write failure (test)')
-              s.data.set(s.keyOf(row), row)
-            }),
+            new FakeRequest(
+              () => {
+                if (failWrites) throw new Error('idb write failure (test)')
+                s.data.set(s.keyOf(row), row)
+              },
+              slowSegmentWrites && n === SEGMENTS_STORE,
+            ),
           get: (key: unknown) => new FakeRequest(() => s.data.get(norm(key))),
           getAll: () => new FakeRequest(() => [...s.data.values()]),
           delete: (key: unknown) =>
@@ -168,10 +182,69 @@ import {
   listOwnTakes,
   listPendingDiscardTakes,
   loadTakeBlob,
+  markTakeFinalized,
+  markTakeSecureError,
+  readTakeOutcome,
+  readTakeSecureMeta,
   stampDiscardPending,
   stampTakeOutcome,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
+import {
+  getRecordingPipelinePort,
+  setRecordingPipelinePort,
+  type RecordingPipelinePort,
+} from '@/lib/ports/recording-port'
+import { secureTake } from '@/lib/recording/secure-take'
+import { extFromMime, normalizeAudioMime } from '@/lib/recording/key-grammar'
+
+// ── The secure-at-stop doors (capture pipeline PR3) ─────────────────────────
+// onstop now reaches the port, so EVERY test in this file would otherwise fire
+// the real web port's dynamic server-action import. One fake stands in for the
+// whole file; the last describe drives it.
+const order: string[] = []
+const putBodies: Blob[] = []
+/** What the SERVER would compose for this take (mint-take-url.ts →
+ *  composeTakeKey): the codec parameters are stripped, and BOTH the extension
+ *  and the content type come off the same closed map — so the recorder's
+ *  `audio/webm;codecs=opus` becomes an `audio/webm` object under a `.webm`
+ *  name, which is the mislabelling bug dying. */
+function mintedFor(takeId: string, mimeType: string) {
+  const contentType = normalizeAudioMime(mimeType) ?? 'audio/webm'
+  const ext = extFromMime(contentType) ?? 'webm'
+  return {
+    path: `app_biz-1_${takeId}.${ext}`,
+    url: `https://proj.supabase.co/upload/app_biz-1_${takeId}.${ext}?token=up`,
+    contentType,
+  }
+}
+/** Composes the key the SERVER would compose (same closed MIME map), so the
+ *  container the client sends is provable from the name that comes back. */
+const mintTakeUrl = jest.fn(async (takeId: string, mimeType: string) => {
+  order.push('mint')
+  return mintedFor(takeId, mimeType)
+})
+/** The door's own reply shape: it finalizes AGAINST the session the client
+ *  named, and MINTS one only when the client named none (a failed start-mint) —
+ *  so echoing the input back is what makes "the minted id is stamped" provable
+ *  rather than a constant this file wrote. */
+const finalizeTake = jest.fn(async (input: unknown) => {
+  order.push('finalize')
+  const named = (input as { recordingSessionId?: string | null } | undefined)
+    ?.recordingSessionId
+  return { ok: true as const, recordingSessionId: named ?? 'rs-1' }
+})
+const putMock = jest.fn(async (_url: string, init?: RequestInit) => {
+  order.push('put')
+  putBodies.push(init?.body as Blob)
+  return { ok: true, status: 200 } as unknown as Response
+})
+setRecordingPipelinePort({
+  ...getRecordingPipelinePort(),
+  mintTakeUrl,
+  finalizeTake,
+} as RecordingPipelinePort)
+global.fetch = putMock as unknown as typeof fetch
 
 const TARGET = {
   customerId: 'cust-1',
@@ -208,8 +281,26 @@ beforeEach(async () => {
   // default, which would deadlock every store call.
   jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
   jest.clearAllMocks()
+  order.length = 0
+  putBodies.length = 0
+  mintTakeUrl.mockImplementation(async (takeId: string, mimeType: string) => {
+    order.push('mint')
+    return mintedFor(takeId, mimeType)
+  })
+  finalizeTake.mockImplementation(async (input: unknown) => {
+    order.push('finalize')
+    const named = (input as { recordingSessionId?: string | null } | undefined)
+      ?.recordingSessionId
+    return { ok: true as const, recordingSessionId: named ?? 'rs-1' }
+  })
+  putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+    order.push('put')
+    putBodies.push(init?.body as Blob)
+    return { ok: true, status: 200 } as unknown as Response
+  })
   mockUid = 'staff-A'
   failWrites = false
+  slowSegmentWrites = false
   globalRecorder.discard()
   await drain()
   fakeDb.stores.get('takes')?.data.clear()
@@ -295,6 +386,31 @@ describe('take durability — owner gate (store layer)', () => {
     expect(await loadTakeBlob(takeId)).toBeNull()
     mockUid = 'staff-A'
     expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  // The gate lives in readOwnTakeMeta, which these two are the ONLY callers of.
+  // Called directly on purpose: routing through loadTakeBlob (which carries its
+  // own, separate gate) would prove loadTakeBlob's gate and nothing else — so
+  // dropping the one here would still read green.
+  it('readTakeSecureMeta and readTakeOutcome carry the owner gate THEMSELVES', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeOutcome(takeId, { status: 'no_deal' })
+    await drain()
+
+    mockUid = 'staff-B'
+    expect(await readTakeSecureMeta(takeId)).toBeNull()
+    expect(await readTakeOutcome(takeId)).toBeNull()
+    mockUid = null
+    expect(await readTakeSecureMeta(takeId)).toBeNull()
+    expect(await readTakeOutcome(takeId)).toBeNull()
+
+    // …and the rightful owner still gets both, so the null above is the gate
+    // and not an unreadable row.
+    mockUid = 'staff-A'
+    expect((await readTakeSecureMeta(takeId))?.mimeType).toBe('audio/webm;codecs=opus')
+    expect((await readTakeOutcome(takeId))?.outcome).toEqual({ status: 'no_deal' })
   })
 
   it('persists nothing at all when no user is signed in (fail-closed)', async () => {
@@ -670,5 +786,369 @@ describe('take durability — the discard-transcript register (A2-2)', () => {
 
   it('stamping a take that is already gone reports false — the caller must not hold audio back', async () => {
     expect(await stampDiscardPending('take-that-never-existed', PENDING)).toBe(false)
+  })
+})
+
+// ── Capture pipeline PR3 — the take is SECURED at stop ──────────────────────
+// Until now audio left the device only after 録音を使用 (durability trace §3).
+// What these pin is the new promise: the whole take goes to its finalized key
+// the moment recording stops, the outcome lands on the take meta, and NOTHING
+// about it can make the UI wait or throw.
+describe('secure at stop', () => {
+  const port = () => getRecordingPipelinePort()
+
+  /** A take with one flushed segment, recorder stopped and settled. */
+  async function stoppedTake(): Promise<string> {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.stop()
+    await drain(200)
+    return takeId
+  }
+
+  /** A take with a flushed segment whose recorder was never STOPPED — the shape
+   *  every retry-path case needs (no onstop, so nothing has been secured). */
+  async function keptTake(): Promise<string> {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    return takeId
+  }
+
+  const metaOf = (takeId: string) =>
+    takes().get(JSON.stringify(takeId)) as {
+      finalizedAt?: number
+      secureError?: string
+      mimeType?: string
+      recordingSessionId?: string | null
+      durationMs?: number
+      startedAt: number
+      updatedAt: number
+    }
+
+  const lastFinalized = () =>
+    finalizeTake.mock.calls.at(-1)![0] as { durationSeconds: number }
+
+  it('onstop: `recorded` renders synchronously, the tail flush is awaited, THEN the take is uploaded', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    // The tail segment now takes a TIMER to land, the way a real multi-MB
+    // IndexedDB write does. That is what makes "awaited" mean something: an
+    // unawaited secureTake has all the microtasks it needs to read the take
+    // back and PUT it short.
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    // The whole point of item 2: the card is already on screen and NOTHING has
+    // touched the network yet.
+    expect(globalRecorder.state).toBe('recorded')
+    expect(order).toEqual([])
+
+    // Every microtask in the queue, and the flush is STILL pending — so the
+    // upload must be too. (Un-await the flush and the whole leg runs here.)
+    await drain(200)
+    expect(order).toEqual([])
+
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    // The tail flush landed BEFORE the read-back: the uploaded object carries
+    // the final 'TAIL' chunk, not just the 5 s segment.
+    expect(putBodies[0].size).toBe('aaa'.length + 'TAIL'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  it('finalize is told the take id, container, byte length and session — never a path', async () => {
+    const takeId = await stoppedTake()
+    expect(finalizeTake).toHaveBeenCalledWith({
+      takeId,
+      // The recorder's OWN negotiated container, codec parameters and all —
+      // the door normalizes (composeTakeKey), the client never guesses.
+      mimeType: 'audio/webm;codecs=opus',
+      durationSeconds: expect.any(Number),
+      byteLength: 'aaa'.length + 'TAIL'.length,
+      recordingSessionId: null,
+    })
+    // The PUT carries the SERVER's content type for the key it composed —
+    // normalized, not the client's string.
+    expect(putMock.mock.calls[0][1]?.headers).toEqual({ 'content-type': 'audio/webm' })
+    expect(putMock.mock.calls[0][0]).toContain(`app_biz-1_${takeId}.webm`)
+  })
+
+  it('a refused PUT never finalizes — the take keeps its audio, un-finalized, with the reason', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['mint', 'put'])
+    expect(finalizeTake).not.toHaveBeenCalled()
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+    // The audio is untouched — nothing here deletes.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
+  })
+
+  // PR2 fix round 3: the mint stopped signing for upsert, so a finalized key is
+  // immutable and a second PUT to it comes back 409. That is the RETRY — the
+  // object landed, only the finalize call was lost — so it must finish the leg,
+  // not record a failure. Every other refusal still stops the leg (above).
+  it('a 409 PUT means the object is ALREADY there — finalize still runs and the take is secured', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 409 } as unknown as Response
+    })
+    const takeId = await stoppedTake()
+
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({ takeId, byteLength: 'aaa'.length + 'TAIL'.length }),
+    )
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it("finalize 'busy' is recorded and stays RETRYABLE — the next attempt runs the whole leg again", async () => {
+    finalizeTake.mockImplementation(async () => {
+      order.push('finalize')
+      return { error: 'busy' } as unknown as { ok: true; recordingSessionId: string }
+    })
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).secureError).toBe('busy')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+
+    order.length = 0
+    finalizeTake.mockImplementation(async () => {
+      order.push('finalize')
+      return { ok: true as const, recordingSessionId: 'rs-1' }
+    })
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // A success is the last word on the failure that preceded it.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it('a settled take is never uploaded twice — a second call touches nothing', async () => {
+    const takeId = await stoppedTake()
+    order.length = 0
+    await secureTake(port(), takeId)
+    expect(order).toEqual([])
+  })
+
+  it("finalize's `already` counts as secured — an exact retry is a success, not a failure", async () => {
+    finalizeTake.mockImplementation(async () => {
+      order.push('finalize')
+      return { ok: true as const, recordingSessionId: 'rs-1', already: true as const }
+    })
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it('a stop and a mount retry racing the same take PUT it ONCE', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true }) // leave the take, no onstop
+    await drain()
+
+    await Promise.all([secureTake(port(), takeId), secureTake(port(), takeId)])
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+  })
+
+  it('a take stamped before mimeType existed falls back to audio/webm — and to a .webm key', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    delete metaOf(takeId).mimeType
+
+    await secureTake(port(), takeId)
+    expect(mintTakeUrl).toHaveBeenCalledWith(takeId, 'audio/webm')
+    expect(putMock.mock.calls[0][0]).toContain(`app_biz-1_${takeId}.webm`)
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({ mimeType: 'audio/webm' }),
+    )
+  })
+
+  it('a throwing door never escapes: the take stays un-finalized with the reason', async () => {
+    mintTakeUrl.mockImplementation(async () => {
+      throw new Error('offline')
+    })
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).secureError).toBe('network')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+  })
+
+  it("another staff member's take is never secured from this device (the store's own owner gate)", async () => {
+    const takeId = await keptTake()
+    // The OWNER's own last attempt left a code on the row.
+    await markTakeSecureError(takeId, 'busy')
+    order.length = 0
+
+    mockUid = 'staff-B'
+    await secureTake(port(), takeId)
+    expect(order).toEqual([])
+    // A null meta read is "not mine / not there", never "it failed" — writing a
+    // code here would let one staffer scribble on another's row, and would
+    // overwrite the only record of why the owner's attempt stopped.
+    expect(metaOf(takeId).secureError).toBe('busy')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+  })
+
+  // ── The take has no bytes ─────────────────────────────────────────────────
+  it('a zero-byte take is not uploaded — and is not marked failed either', async () => {
+    const takeId = await keptTake()
+    // Everything on disk is empty (a kill between the meta row and the first
+    // real chunk). loadTakeBlob still answers a Blob — a zero-length one — so
+    // only the size guard stands between this and an empty object PUT under an
+    // IMMUTABLE key, which no later retry could ever replace.
+    segments().clear()
+    segments().set(JSON.stringify([takeId, 0]), {
+      takeId,
+      seq: 0,
+      blob: new Blob([]),
+    })
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual([])
+    // Not an error: there is simply nothing to send yet.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+  })
+
+  // ── The session id the DOOR minted ────────────────────────────────────────
+  // When the start-mint failed the take carries no session, so finalize mints
+  // the row itself. Throw that id away and the recorder's own retry mints a
+  // SECOND row: the audio pointer lands on one, the karute on the other.
+  it("finalize's own minted session lands on the take, and the mint retry then mints NOTHING", async () => {
+    const takeId = await keptTake()
+    expect(metaOf(takeId).recordingSessionId).toBeNull() // the start-mint failed
+
+    finalizeTake.mockImplementation(async () => {
+      order.push('finalize')
+      return { ok: true as const, recordingSessionId: 'rs-minted-by-the-door' }
+    })
+    await secureTake(port(), takeId)
+    expect(metaOf(takeId).recordingSessionId).toBe('rs-minted-by-the-door')
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+    // …and that is the id the recorder's retry answers with, without reaching
+    // upstream at all (the fake create would answer null — a fresh row).
+    mockStartRecordingSession.mockClear()
+    await expect(
+      globalRecorder.retryRecordingSessionMint({ takeId }),
+    ).resolves.toBe('rs-minted-by-the-door')
+    expect(mockStartRecordingSession).not.toHaveBeenCalled()
+  })
+
+  // ── Refusals that can never turn into a yes ───────────────────────────────
+  it('a TERMINAL refusal is never retried — no mint, no whole-take re-PUT', async () => {
+    const takeId = await keptTake()
+    for (const code of ['bad_input', 'forbidden', 'size_mismatch', 'not_found', 'no_uuid']) {
+      await markTakeSecureError(takeId, code)
+      order.length = 0
+      await secureTake(port(), takeId)
+      expect(order).toEqual([])
+      // And the reason is preserved — this take surfaces as 要対応, it is not
+      // silently forgotten.
+      expect(metaOf(takeId).secureError).toBe(code)
+    }
+  })
+
+  it('a RETRYABLE refusal runs the whole leg again — the moment may simply have passed', async () => {
+    const takeId = await keptTake()
+    // finalize keeps refusing, so each turn is judged on the code under test
+    // rather than on a finalizedAt the previous turn wrote.
+    finalizeTake.mockImplementation(async () => {
+      order.push('finalize')
+      return { error: 'busy' } as unknown as { ok: true; recordingSessionId: string }
+    })
+    for (const code of ['busy', 'network', 'upload_503', 'object_missing', 'mint_502']) {
+      await markTakeSecureError(takeId, code)
+      order.length = 0
+      await secureTake(port(), takeId)
+      expect(order).toEqual(['mint', 'put', 'finalize'])
+    }
+  })
+
+  // ── How long the take actually ran ────────────────────────────────────────
+  it("a later attempt finalizes the recorder's PAUSED-AWARE duration, not the flush window", async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.pause()
+    await jest.advanceTimersByTimeAsync(60_000) // a minute of NOT recording
+    globalRecorder.resume()
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    // The stop's own upload dies, so the leg is left to a later attempt.
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    globalRecorder.stop()
+    await drain(200)
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+    expect(metaOf(takeId).durationMs).toBe(10_000)
+
+    // The retry has no recorder to ask — what it finalizes is what stop stamped.
+    putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      order.push('put')
+      putBodies.push(init?.body as Blob)
+      return { ok: true, status: 200 } as unknown as Response
+    })
+    await secureTake(port(), takeId)
+    // 10 s recorded across a 70 s wall clock. The flush window would have said
+    // 70 — a minute of silence billed as session time.
+    expect(lastFinalized().durationSeconds).toBeCloseTo(10, 1)
+  })
+
+  it('a take with no stamped duration still falls back to the flush window (pre-PR3 rows)', async () => {
+    const takeId = await keptTake()
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    await secureTake(port(), takeId)
+    expect(lastFinalized().durationSeconds).toBeCloseTo(
+      (metaOf(takeId).updatedAt - metaOf(takeId).startedAt) / 1000,
+      1,
+    )
+  })
+
+  it('markTakeFinalized clears an earlier failure and survives a store read', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    await passGrace()
+
+    await markTakeFinalized(takeId)
+    // The recovery read carries it, so a surface can tell "already on the
+    // server" from "still device-only" without a second store read.
+    expect((await getRecoverableTake([]))?.finalizedAt).toEqual(expect.any(Number))
+  })
+
+  it('a take row written before these fields existed still loads and still secures', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    // The exact pre-PR3 row shape: no finalizedAt, no secureError.
+    const row = metaOf(takeId) as Record<string, unknown>
+    delete row.finalizedAt
+    delete row.secureError
+    await passGrace()
+
+    expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
+    await secureTake(port(), takeId)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 })

@@ -98,6 +98,12 @@ jest.mock('@synqed-kk/ui', () => {
  *  below-floor take so RecoveryBanner's belowFloor discard link appears. */
 let mockRecoverableTake: Record<string, unknown> | null = null
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
+// Capture pipeline PR3 — the record page's mount retry. This suite's take-store
+// is a fake, so the real secureTake would reach for functions that are not in
+// it; nothing here is about whether the audio reaches the server (that is
+// take-durability.test.ts + recovery-banner-save-only.test.tsx).
+jest.mock('@/lib/recording/secure-take', () => ({ secureTake: jest.fn(async () => {}) }))
+
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   // A2-2 — the discard-transcript register.

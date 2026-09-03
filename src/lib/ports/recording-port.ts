@@ -11,6 +11,10 @@ import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
 } from '@/actions/recording-jobs'
+import type {
+  FinalizeTakeInput,
+  FinalizeTakeResult,
+} from '@/lib/recording/finalize-take'
 
 export interface RecordingPipelinePort {
   /** AI route base — web '/api/ai', thin '/api/app/v1/ai'. */
@@ -54,6 +58,37 @@ export interface RecordingPipelinePort {
    * daily sweep. Returns the bucket path the job payload carries.
    */
   stageForJob(blob: Blob): Promise<{ path: string }>
+  /**
+   * Mint the signed upload URL for THIS take's finalized key (capture pipeline
+   * PR3 — secure-take.ts). Unlike stageForJob's mint the key is CLIENT-NAMED:
+   * the device already owns the take id and the recorder already negotiated the
+   * container, so the same take always lands on the same object instead of
+   * duplicating. The mint does NOT sign for upsert (PR2 fix round 3), so a
+   * retry does not overwrite: storage refuses a second PUT (409 = already
+   * there), which secure-take reads as "the object landed, finish the leg".
+   *
+   * `contentType` is the SERVER's, composed from the closed MIME map beside the
+   * key's extension — the PUT sends it back verbatim, so the object's label and
+   * its name can never disagree. Throws on a refusal (a container this server
+   * will not store, storage down): the caller treats that as "not secured yet".
+   * An arm that KNOWS why (the thin arm has the HTTP status) puts a
+   * `secureError` code on the thrown error, so the take meta records the
+   * reason instead of a blanket 'network'.
+   */
+  mintTakeUrl(
+    takeId: string,
+    mimeType: string,
+  ): Promise<{ path: string; url: string; contentType: string }>
+  /**
+   * "This take is complete" — the finalize door (web action / facade twin),
+   * which writes audio_storage_path + duration onto the core row.
+   *
+   * NEVER throws on a REFUSAL: `object_missing`, `busy` and friends are settled
+   * answers the caller records and a later drain retries. Both arms reach the
+   * one shared body (lib/recording/finalize-take.ts), so the phone and the web
+   * page cannot drift into different finalize semantics.
+   */
+  finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTakeResult>
   /**
    * Enqueue the recording job. Web calls the server action directly
    * (attribution + store scope resolved from the cookie session); thin POSTs
@@ -130,6 +165,18 @@ export const webRecordingPort: RecordingPipelinePort = {
     await putTake(url, blob)
     // NO cleanup — the worker deletes the object on success.
     return { path }
+  },
+  async mintTakeUrl(takeId, mimeType) {
+    const { mintRecordingUploadUrl } = await uploadActions()
+    // The action throws its refusals; secureTake reads a throw as "not secured
+    // yet", which is the same verdict the facade twin's non-2xx gets.
+    return mintRecordingUploadUrl({ takeId, mimeType })
+  },
+  async finalizeTake(input) {
+    // Lazy, same reason as enqueueJob below — this module's import graph
+    // reaches @synqed-kk/client, which jest cannot parse.
+    const { finalizeTake } = await import('@/actions/recordings')
+    return finalizeTake(input)
   },
   async enqueueJob(input) {
     // Lazy import (same reason as customer-facade.ts's provePackForCustomer):

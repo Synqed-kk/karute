@@ -87,6 +87,26 @@ export type TakeMeta = {
    *  long enough to be transcribed onto the discarded session; it is deleted the
    *  moment that lands. */
   discardPending?: DiscardPending
+  /** Capture pipeline PR3: the whole take is on the server under its finalized
+   *  key AND its core row carries the pointer (lib/recording/secure-take.ts).
+   *  THE STOP CONDITION PR5's launch drain reads: a take with segments and NO
+   *  finalizedAt is audio the server does not have yet, whatever else is on the
+   *  row. Absent on every take stamped before this field existed — read as "not
+   *  secured", which is the honest answer for them. */
+  finalizedAt?: number
+  /** Why the last secure attempt did not finish — the finalize door's own code
+   *  ('busy' | 'object_missing' | 'failed' | …), 'upload_<status>' for a refused
+   *  PUT, 'mint_<status>' for a refused mint, or 'network' for a throw. A
+   *  success clears it. Mostly diagnostic — the one thing that READS it is
+   *  secure-take's TERMINAL set, which stops re-uploading whole takes against a
+   *  refusal that can never turn into a yes. */
+  secureError?: string
+  /** The recorder's OWN measurement of this take, stamped at stop. It subtracts
+   *  paused time, which no store-side estimate can: the retry's only other
+   *  source is (updatedAt − startedAt), and a take paused for twenty minutes
+   *  would finalize twenty minutes too long. Absent = no recorder ever stamped
+   *  it (a pre-PR3 take, or a kill before stop) → that window stands in. */
+  durationMs?: number
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -231,6 +251,90 @@ export async function stampTakeSession(
   }
 }
 
+/** Merge fields into a take's meta row — the body stampTakeSession above and
+ *  the two marks below share. Best-effort, no-throw, no-op-if-gone, exactly
+ *  like every other stamp in this file. */
+async function patchTakeMeta(takeId: string, patch: Partial<TakeMeta>): Promise<void> {
+  try {
+    const db = await openDb()
+    if (!db) return
+    const tx = db.transaction(TAKES, 'readwrite')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (!meta) return
+    await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+  } catch (err) {
+    console.error('[take-store] patchTakeMeta failed:', err)
+  }
+}
+
+/** Capture pipeline PR3: this take's audio is on the server and its core row
+ *  points at it. Clears any earlier failure — a success is the last word. */
+export async function markTakeFinalized(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { finalizedAt: Date.now(), secureError: undefined })
+}
+
+/** Capture pipeline PR3: the last secure attempt did not finish. Records WHY
+ *  and nothing else — the take stays un-finalized, which is the only fact the
+ *  retry (and PR5's drain) reads. */
+export async function markTakeSecureError(takeId: string, code: string): Promise<void> {
+  await patchTakeMeta(takeId, { secureError: code })
+}
+
+/** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
+ *  stamped at stop so a LATER attempt (the record page's mount retry, PR5's
+ *  drain) finalizes the same number the stop would have. Without it those
+ *  callers have only the flush window, which counts pause time as recording. */
+export async function stampTakeDuration(takeId: string, durationMs: number): Promise<void> {
+  await patchTakeMeta(takeId, { durationMs })
+}
+
+/** The owner gate every read in this file shares, in one place: the take's meta
+ *  row, or null when IndexedDB is unavailable, nobody is signed in, the take is
+ *  gone, or it belongs to another staff member. */
+async function readOwnTakeMeta(takeId: string): Promise<TakeMeta | null> {
+  try {
+    const db = await openDb()
+    if (!db) return null
+    const uid = await currentUserId()
+    if (!uid) return null
+    const meta = (await req(
+      db.transaction(TAKES).objectStore(TAKES).get(takeId),
+    )) as TakeMeta | undefined
+    if (!meta || meta.ownerUid !== uid) return null
+    return meta
+  } catch (err) {
+    console.error('[take-store] readOwnTakeMeta failed:', err)
+    return null
+  }
+}
+
+/** What secureTake needs: whether this take is already secured, why the last
+ *  attempt failed (a TERMINAL code must not be re-uploaded against), which
+ *  container the key must carry, which session to finalize against, the
+ *  recorder's own duration, and the window that stands in when there is none. */
+export async function readTakeSecureMeta(takeId: string): Promise<Pick<
+  TakeMeta,
+  | 'mimeType'
+  | 'recordingSessionId'
+  | 'finalizedAt'
+  | 'secureError'
+  | 'durationMs'
+  | 'startedAt'
+  | 'updatedAt'
+> | null> {
+  const meta = await readOwnTakeMeta(takeId)
+  if (!meta) return null
+  return {
+    mimeType: meta.mimeType,
+    recordingSessionId: meta.recordingSessionId,
+    finalizedAt: meta.finalizedAt,
+    secureError: meta.secureError,
+    durationMs: meta.durationMs,
+    startedAt: meta.startedAt,
+    updatedAt: meta.updatedAt,
+  }
+}
+
 /** R-B3: stamp the 結果 answer onto the take so recovery restores it instead of
  *  re-asking.
  *
@@ -326,24 +430,13 @@ export async function listPendingDiscardTakes(): Promise<
 export async function readTakeOutcome(takeId: string): Promise<
   Pick<TakeMeta, 'outcome' | 'outcomeSkipped' | 'outcomeLegs' | 'outcomeNewPack'> | null
 > {
-  try {
-    const db = await openDb()
-    if (!db) return null
-    const uid = await currentUserId()
-    if (!uid) return null
-    const meta = (await req(
-      db.transaction(TAKES).objectStore(TAKES).get(takeId),
-    )) as TakeMeta | undefined
-    if (!meta || meta.ownerUid !== uid) return null
-    return {
-      outcome: meta.outcome,
-      outcomeSkipped: meta.outcomeSkipped,
-      outcomeLegs: meta.outcomeLegs,
-      outcomeNewPack: meta.outcomeNewPack,
-    }
-  } catch (err) {
-    console.error('[take-store] readTakeOutcome failed:', err)
-    return null
+  const meta = await readOwnTakeMeta(takeId)
+  if (!meta) return null
+  return {
+    outcome: meta.outcome,
+    outcomeSkipped: meta.outcomeSkipped,
+    outcomeLegs: meta.outcomeLegs,
+    outcomeNewPack: meta.outcomeNewPack,
   }
 }
 
@@ -459,6 +552,9 @@ export async function listOwnTakes(
         outcomeSkipped: m.outcomeSkipped,
         outcomeLegs: m.outcomeLegs,
         outcomeNewPack: m.outcomeNewPack,
+        // Carried so a recovery surface can tell "the server already has this"
+        // from "this is still device-only" without a second store read.
+        finalizedAt: m.finalizedAt,
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)

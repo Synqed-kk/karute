@@ -3,10 +3,14 @@
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { secureTake } from '@/lib/recording/secure-take'
 import {
   appendTakeSegment,
   createTake,
   deleteTake,
+  readTakeSecureMeta,
+  stampTakeDuration,
   stampTakeSession,
 } from '@/lib/karute/take-store'
 
@@ -208,9 +212,14 @@ class GlobalRecorder {
   }
 
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
-   *  fire-and-forget — MUST never block or throw into the capture path. */
-  private flushTake() {
-    if (this.persistDisabled || !this.takeId) return
+   *  fire-and-forget — MUST never block or throw into the capture path.
+   *
+   *  Returns the queue tail so ONE caller can wait for it: onstop must know the
+   *  tail segment is on disk before secureTake reads the take back, or the
+   *  uploaded object would be short by the last chunk. Every other caller still
+   *  ignores it, and the promise never rejects (the catch below is the queue's). */
+  private flushTake(): Promise<void> {
+    if (this.persistDisabled || !this.takeId) return Promise.resolve()
     const takeId = this.takeId
     this.persistQueue = this.persistQueue
       .then(async () => {
@@ -233,6 +242,7 @@ class GlobalRecorder {
       .catch(() => {
         this.persistDisabled = true
       })
+    return this.persistQueue
   }
 
   /**
@@ -350,8 +360,27 @@ class GlobalRecorder {
       // timer stops but the persisted take is KEPT — it outlives the recorder
       // until the karute record is saved / discarded / TTL / logout.
       this.clearTakePersistence()
-      this.flushTake()
+      const takeId = this.takeId
+      const flushed = this.flushTake()
       this.notify()
+      // ⚖ THE AUDIO BECOMES SAFE HERE, not at 録音を使用 (design R4, v2 items
+      // 1-2). Deliberately last and deliberately un-awaited: `recorded` is
+      // already set and notify() has already run, so the card renders at the
+      // same instant it always did — offline included. The tail flush IS
+      // awaited first (secureTake reads the take back off disk), and whatever
+      // this cannot finish is recorded on the take meta for the record page's
+      // mount retry, and for PR5's launch drain after that.
+      if (takeId) {
+        void flushed.then(async () => {
+          // The measurement is stamped BEFORE the upload, and it is the only
+          // paused-aware one anyone will ever have for this take: if this stop
+          // cannot reach the server, the mount retry (and PR5's drain) reads it
+          // back instead of guessing from the flush window. After the flush so
+          // it cannot race the tail segment's own write to the same row.
+          await stampTakeDuration(takeId, durationMs)
+          await secureTake(getRecordingPipelinePort(), takeId, durationMs / 1000)
+        })
+      }
     }
 
     this.recorder = recorder
@@ -365,10 +394,16 @@ class GlobalRecorder {
     // the timer. All fire-and-forget AFTER the mic is live — persistence can
     // never delay or break capture. createTake resolves the owner at the
     // store layer; no signed-in user / any failure → memory-only, as today.
-    const takeId =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    // A take id is a uuid or it is nothing the server will sign for: the key
+    // grammar (composeTakeKey) refuses anything else, so a composed fallback id
+    // could NEVER be secured — it would just re-upload and be refused on every
+    // mount. The fallback still exists because crash RECOVERY (this store's
+    // original job) does not care about the shape, so a browser with no
+    // randomUUID keeps its durability; the take is simply born terminal for the
+    // secure path (`no_uuid`, in secure-take's TERMINAL set).
+    const uuid =
+      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : null
+    const takeId = uuid ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
     this.takeId = takeId
     this.persistDisabled = false
     this.persistSeq = 0
@@ -379,6 +414,7 @@ class GlobalRecorder {
       recordingSessionId: this.recordingSessionId,
       mimeType: mimeType || recorder.mimeType,
       startedAt: this.startTime,
+      ...(uuid ? {} : { secureError: 'no_uuid' }),
     }).then((ok) => {
       if (this.takeId !== takeId) return
       if (!ok) {
@@ -444,6 +480,14 @@ class GlobalRecorder {
     if (this.recordingSessionId !== null) return this.recordingSessionId
     const takeId = opts?.takeId ?? this.takeId
     if (!takeId) return null
+    // Capture pipeline PR3: the finalize door MINTS the row when the start-mint
+    // failed, and stamps its id on the take. That id is this take's session —
+    // its audio pointer already lives on that row — so minting a second one
+    // here would key the discard/karute to a row the audio is not on. Read
+    // before anything is issued; the store's own owner gate answers null for a
+    // take that is gone or another staffer's, which falls through to the mint.
+    const stamped = (await readTakeSecureMeta(takeId))?.recordingSessionId
+    if (stamped) return stamped
     const inFlightForThisTake =
       this.recordingSessionMintInFlight &&
       !this.recordingSessionMintTakeUnknown &&

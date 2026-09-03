@@ -132,6 +132,14 @@ jest.mock('@/lib/karute/take-store', () => ({
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
 
+// Capture pipeline PR3 — the mount retry. Mocked (not exercised for real) for
+// the same reason take-store is: this suite's store is a fake, and what the
+// page owes is one call, on the right takes only.
+const mockSecureTake = jest.fn(async () => {})
+jest.mock('@/lib/recording/secure-take', () => ({
+  secureTake: (...a: unknown[]) => mockSecureTake(...(a as [])),
+}))
+
 let offerDraft: Record<string, unknown> | null = null
 jest.mock('@/lib/karute/draft', () => ({
   loadDraft: jest.fn(async () => offerDraft),
@@ -183,6 +191,10 @@ jest.mock('@/lib/global-pipeline', () => ({
 }))
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+// The REAL singleton — the page reads it directly for the recovery exclude list
+// and (PR3 fix round 2) for its own stopped take's retry. The hook above is what
+// the render tree consumes; this is the module the effect reaches for.
+import { globalRecorder } from '@/lib/global-recorder'
 import {
   RecordPageView,
   resolveRecoveryTicketState,
@@ -2041,3 +2053,78 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
 })
 
 export {}
+
+// ── Capture pipeline PR3 — the record page's one secure retry ───────────────
+// A stop that happened offline (or whose finalize died) leaves a take with
+// audio and no finalizedAt. Nothing else in the app would ever try again until
+// PR5's launch drain, so this mount is it — and it must be silent: no UI, no
+// toast, and no dependence on whether the banner ends up showing the take.
+describe('the mount retry secures a take the stop could not', () => {
+  it('an unfinalized recoverable take is secured once, through the arm\'s own port', async () => {
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-1')
+  })
+
+  it('a take already on the server is left alone', async () => {
+    takeOverride = { ...TAKE, finalizedAt: Date.now() }
+    await renderPage()
+    expect(mockSecureTake).not.toHaveBeenCalled()
+  })
+
+  it('no take to recover, nothing to secure', async () => {
+    offerTake = false
+    await renderPage()
+    expect(mockSecureTake).not.toHaveBeenCalled()
+  })
+
+  // THE case the recoverable-take read can never reach: the recorder's OWN
+  // take, which is deliberately excluded from that read (an in-progress session
+  // must not be offered as its own recovery). Stop → phone locked → the PUT
+  // dies: onstop has already run and will not run again, so without this the
+  // audio waits for a cold relaunch.
+  it("the recorder's own stopped take is retried too, though recovery never offers it", async () => {
+    offerTake = false // nothing recoverable — this take IS the live one
+    globalRecorder.state = 'recorded'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).toHaveBeenCalledTimes(1)
+      expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-live-1')
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a recorder that never stopped is left alone — nothing to secure mid-recording', async () => {
+    offerTake = false
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-live-1'
+    try {
+      await renderPage()
+      expect(mockSecureTake).not.toHaveBeenCalled()
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
+  })
+
+  it('a DRAFT outranking the take for the banner does not stop the audio being secured', async () => {
+    offerDraft = {
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      duration: 1380,
+      appointmentId: 'appt-1',
+      appointmentCustomerId: 'cust-1',
+      recordingSessionId: 'sess-1',
+      takeId: 'take-1',
+      savedAt: Date.parse('2026-08-18T05:45:00Z'),
+    }
+    await renderPage()
+    // The banner shows the draft (recoveredTake is nulled) — the audio is
+    // secured all the same.
+    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-1')
+  })
+})

@@ -27,6 +27,8 @@ import {
   runDiscardTranscript,
   sweepDiscardTranscripts,
 } from '@/lib/recording/discard-transcript'
+import { secureTake } from '@/lib/recording/secure-take'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
 import { globalRecorder } from '@/lib/global-recorder'
@@ -710,10 +712,27 @@ export function RecordPageView({
     // recorder/pipeline take is excluded so an in-progress session is never
     // offered as its own recovery.
     let cancelled = false
+    // THE likeliest failure, and the one the recoverable-take read below can
+    // never see: a stop whose upload died (phone locked, tunnel gone) on the
+    // recorder's OWN take. That take is deliberately EXCLUDED from the recovery
+    // read — it is not lost, it is right here — and onstop never runs twice, so
+    // without this line its audio waits for a cold relaunch. Free when there is
+    // nothing owed: secureTake returns on finalizedAt, on a terminal code, and
+    // on its own in-flight guard.
+    if (globalRecorder.state === 'recorded' && globalRecorder.takeId) {
+      void secureTake(getRecordingPipelinePort(), globalRecorder.takeId)
+    }
     void Promise.all([
       loadDraft(),
       getRecoverableTake([globalRecorder.takeId, globalPipeline.context?.takeId]),
     ]).then(([d, tk]) => {
+      // Capture pipeline PR3 — the ONE retry for a stop the network missed.
+      // Deliberately ahead of the cancelled check and outside every UI branch:
+      // whether this page keeps rendering, and whether a draft outranks the
+      // take for the banner, has nothing to do with whether the audio is on the
+      // server. No UI, no toast — secureTake is idempotent and records its own
+      // outcome. (PR5 replaces this with a full launch drain.)
+      if (tk && !tk.finalizedAt) void secureTake(getRecordingPipelinePort(), tk.takeId)
       if (cancelled) return
       setRecoveredDraft(d)
       setRecoveredTake(d ? null : tk)
