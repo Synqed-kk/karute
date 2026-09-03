@@ -49,6 +49,7 @@ import {
   framingSample,
   discountNote,
   hqNote,
+  packedPrice,
   priceButtonCaption,
   money,
 } from '@/business/lib/canon-logic/pricing'
@@ -83,6 +84,7 @@ import {
   liveTimeLabel,
   proxyTransform,
   stretchOrCarry,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardCheckRow,
@@ -142,6 +144,7 @@ import {
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
+import { heldCommittedFor } from './held-committed'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
 import { SELLING_ENGINE_LAW } from './selling-engine-gate'
 
@@ -1375,32 +1378,84 @@ export function TodayScreen(props: TodayProps) {
    *  every seam falls through to the code that shipped, which is what the
    *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
    *  separate and independent no-op: `reservedMaskFor` returns empty before it
-   *  touches the book. */
-  const committedBook = useMemo(
-    // ⚖ R3's ONE DOOR, obeyed rather than worked around: `bedViewsFor` is the
-    // only way into the book on this screen, and `null` is the honest hand for a
-    // world nobody is holding anything out of.
-    () => (SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null),
-    [committedLanes, props.rooms, ledgerFrame],
-  )
+   *  touches the book.
+   *
+   *  ⚖ R5 POST-MERGE, ROUND 1 — ONE SEAM, NOT TWO, AND IT IS NOT HERE. Every
+   *  decision this screen used to spell for the committed world now lives in
+   *  `heldCommittedFor` (held-committed.ts), where the suite can CALL it: the
+   *  round-gate-off fall-through, the forwarding of the store's スキマガード dial
+   *  to the one function that owns what 'off' means, and — round 1's fix — the
+   *  building of the committed book itself. The reason is measured, not
+   *  stylistic. POSTMERGE-CHECK-88b7726c.md findings 1-2 showed the #817 text
+   *  pin on the old inline body letting two severe mutants through, and the
+   *  blind round after it walked through what the first cut left behind: while
+   *  the BOOK was still built in a second memo up here, pre-gating that memo on
+   *  the store's dial emptied the mask for a guarded store with every pin in the
+   *  family green. A text pin cannot close a semantic property, so the property
+   *  moved somewhere a unit test can reach it (held-committed.test.ts) — all of
+   *  it, including R3's ONE DOOR into the book, which the wrapper walks with the
+   *  `null` hand this world has always passed.
+   *
+   *  ⚖ ROUND 2 — AND THE DOOR INTO THE BOOK IS HANDED OVER TOO. Round 1 had
+   *  `held-committed.ts` import `bedViewsFor` from this file, which made the
+   *  two files import each other. Nothing broke (the door is a hoisted
+   *  declaration, called a render later), but a cycle on this seam is a trap
+   *  for the next edit, so the door is now the tenth forwarded key — a value,
+   *  never called here. R3's ONE DOOR is stronger for it: the wrapper has no
+   *  way to the capacity book except the one it is handed.
+   *
+   *  ⚖ R1 (ROUND 3) — WHAT THE MOVE COSTS, ACCEPTED AND NAMED. Building the
+   *  book inside the wrapper means it is REBUILT whenever this memo recomputes,
+   *  and this memo depends on the guard dial and the released list — where the
+   *  shape before the round reused a warm book across those two. The UNION of
+   *  recompute triggers is unchanged; what grew is the cost of ONE recompute,
+   *  and only on events that are clicks and settings, never pointer frames.
+   *  Measured against the perf instrument at selling-engine-doors.test.ts §7
+   *  (THE COST): the raw cold-vs-warm spread is noisy and JIT-dominated — 8-25
+   *  ms across runs — so that spread is not the claim; the steady-state A/B
+   *  median is ~0.5 ms at 25 staff and ~0.8 ms at HQ 100 lanes. A warm-book
+   *  cache inside the wrapper would buy that back and cost a SECOND memo home
+   *  — the exact seam this round removed, and the one a mutation lens walked
+   *  straight through — so the trade is taken knowingly, on the DIRECTION and
+   *  the TRIGGER SET (settings and release clicks, never pointer frames), not
+   *  on any single millisecond figure. R7 and R9 re-measure it in their own
+   *  perf tables (QUEUE-RIDERS).
+   *
+   *  KEEP THIS BODY LITERAL-FREE AND BRANCH-FREE. flip §9 pins that each of
+   *  the ten forwarded `key: value` lines matches WHOLE and anchored to its
+   *  own line, so no decision can be spelled INSIDE this slice. What that
+   *  does not close: a decision prepared ABOVE the slice (a const, computed
+   *  from something) and referenced here by a changed forwarded value — that
+   *  class is the recorded ceiling of a text pin (QUEUE-RIDERS 9/3), and the
+   *  anchored line pins the value it forwards, not where that value came
+   *  from. The ban list includes the quote characters, which is why the
+   *  comments INSIDE the memo carry no apostrophes: a stray one is a false red
+   *  rather than a silent pass, and that is the trade this pin is making. */
   const heldCommitted = useMemo(
     () =>
-      committedBook
-        ? reservedMaskFor({
-            lanes: committedLanes,
-            closeMin: hours.close,
-            nowMin: props.sell.nowMinute,
-            guard: props.guard.config,
-            gapGuardMode: props.guard.mode,
-            book: committedBook,
-            // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
-            // board world's instance below, so a window a manager put back on
-            // sale is released at both doors or at neither.
-            // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
-            released: releasedHere,
-          })
-        : undefined,
-    [committedBook, committedLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+      heldCommittedFor({
+        gateOn: SELLING_ENGINE_LAW,
+        lanes: committedLanes,
+        rooms: props.rooms,
+        frame: ledgerFrame,
+        // ⚖ ROUND 2 — THE DOOR IS HANDED IN, NOT IMPORTED. Round 1 had the
+        // wrapper import this function from here, so the two files imported
+        // each other. It ran, but a cycle on a law-bearing seam is a trap for
+        // the next edit. The screen hands the door over instead, so R3s ONE
+        // DOOR holds in a stronger form: the wrapper cannot reach the book
+        // except through what it is given.
+        bookOf: bedViewsFor,
+        closeMin: hours.close,
+        nowMin: props.sell.nowMinute,
+        guard: props.guard.config,
+        gapGuardMode: props.guard.mode,
+        // ⚖ E5 — ONE FACT, TWO SNAPSHOTS: the same released list reaches the
+        // board world instance below, so a window a manager put back on sale is
+        // released at both doors or at neither.
+        // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
+        released: releasedHere,
+      }),
+    [committedLanes, props.rooms, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
@@ -1554,9 +1609,19 @@ export function TodayScreen(props: TodayProps) {
       cleanupMinutesByBed: props.bedCleanupMinutes,
       rooms: props.rooms,
       held: heldCommitted,
+      // ⚖ Greptile #815 — the same locked-lane list `gap` above already took, so
+      // this pass can shield the walk with `sellStaffLanes` exactly as
+      // `heldDrawnFor` does, instead of advertising a lane シフトロック has
+      // already promised is excluded from online inventory.
+      locked,
+      // ⚖ R6 B1 — ONE FLOOR RULE, ONE ANSWER. `gap` above is already floored
+      // inside `gapLayerFor`; until this line the additions merged into
+      // `gapDrawn` unfloored, so the same 20-minute orphan the native layer
+      // deletes was drawn when it came out of the fallback instead.
+      minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, locked, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -2010,10 +2075,17 @@ export function TodayScreen(props: TodayProps) {
           // ⚖ R3 one world — the one thing the sentence cannot read off the
           // board: which of these cards is the operator's own 仮押さえ.
           stagedId: pending?.id ?? null,
+          // ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — AND WHO IS ASKING.
+          // The strict dial refuses a costed landing for the people the 上書きの
+          // 権限 dial excludes, and only for them; the verdict home cannot know
+          // that from geometry. This component has held the answer since ruling
+          // 91 and passed it only to the card — so the card said 長押しで注意して
+          // 配置 while the board underneath refused to stage anything for anyone.
+          overrideLevel: props.overrideLevel,
         },
         cell,
       ),
-    [boardLanes, hours, locked, props.rooms, pending?.id],
+    [boardLanes, hours, locked, props.rooms, pending?.id, props.overrideLevel],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
@@ -4817,7 +4889,36 @@ export function TodayScreen(props: TodayProps) {
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
       ticketCat: '単発',
-      ticketCore: yen(dialogs.pricing.base),
+      // ⚖ R6 B2 — THE ¥ IS THE BOARD'S OWN PRICE, BY CONSTRUCTION. This used to
+      // read `yen(dialogs.pricing.base)` — the store's FLAT 基準価格, which is
+      // neither this person's 定価 nor this hour's. A ¥7,700 staff member's
+      // staged card said ¥6,600 at every hour of the day, and the 仮押さえ bar
+      // beside it quoted the same wrong number. `priceAt` was the first fix
+      // (F1 line audit, this pin) but a staged card is not an hourly sell slot:
+      // its start sits on the 5-minute lattice and its length is the store's
+      // `standardSessionMin`, so pricing the START'S HOUR ONLY was wrong for an
+      // off-hour start and for a ≠60-minute session. `packedPrice` is the same
+      // span-true home the multi-hour packing pass already prices through
+      // (today-interactions.ts:1419/1485) — it prices the whole span across the
+      // hour curve end to end, so an off-hour start and a 90-minute standard
+      // session both come out honest. Same levers, same curve as the 販売可能枠
+      // box it lands on — the two agree exactly at the shipped 60-minute grid,
+      // where a slot spans one curve hour outright. On a finer grid the box
+      // still prices by its START HOUR alone (`priceFor(s, hourOfSlot)`,
+      // availability.ts:128) while the card keeps prorating its own span; the
+      // card is the span-honest side of that gap, not the box.
+      //
+      // ⚖ R6 fix round D2 — AND A LANE WITH NO 定価 SAYS NOTHING, rather than
+      // ¥0. `staffListPrice[id] ?? 0` is a real store state (a staff member
+      // whose price has not been set yet), and every price this board mints for
+      // that lane is 0 — so the staged card's face and the 仮押さえ bar beside it
+      // both read 「¥0」, which to the customer in front of the counter is not
+      // 「unpriced」 but 「free」. `ticketCore` is `string | null` (today-board.ts
+      // :255) and the board already draws priceless cards every day (a 予定
+      // ブロック, a 休憩, any booking with no ticket) — they carry null and the
+      // 「¥」 line simply is not there. This lane joins them: no new word is
+      // invented for a state the board already knows how to say nothing about.
+      ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,
       held: false,
       micro: false,
       caseId: id,
@@ -5242,7 +5343,12 @@ export function TodayScreen(props: TodayProps) {
           {!isLocked &&
             gapHere.map((c) => {
               const span = place(c.s, c.e, hours)
-              const packedHere = gapDrawn.packed.includes(c)
+              // ⚖ R6 B3 — READ OFF THE BOX. This was `gapDrawn.packed.includes(c)`
+              // — an O(n) identity scan per cell per frame that would have
+              // answered 'スキマ枠' for every 詰め込み box the moment any pass
+              // copied a cell. Both producers tag at creation; this is the one
+              // reader (today-interactions.ts `gapKindOf`).
+              const packedHere = gapKindOf(c) === 'packed'
               // ⚖ Liam flag 38 / BATCH-5 R6 — COLOUR CARRIES MEANING, BORDERS
               // CARRY DRAG STATE. A full-length session is the product: blue.
               // Anything shorter is a leftover the residue broke off — the same

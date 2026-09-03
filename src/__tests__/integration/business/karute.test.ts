@@ -1281,11 +1281,14 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    // RE-DERIVED as AI相談 joined the list (probe build1–3 measured its ladder).
-    // The literal stays a literal on purpose: a room joining this shell-owned
-    // line has to trip every neighbour's pin, so no room can slip onto the
-    // floor exemption without a round that looked at it.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-ask-ai) { min-width: 0; }')
+    // RE-DERIVED as 録音 (2026-08-31, main) and AI相談 (probe build1–3 measured
+    // its ladder) joined the list. ⚠ ONE ROOM PER LINE, ADDED THE ROUND ITS
+    // PROOF LANDS — and the literal stays a LITERAL on purpose: a room joining
+    // this shell-owned line has to trip every neighbour's pin, so no room can
+    // slip onto the floor exemption without a round that looked at it. The
+    // regex form origin/main reached for asserts only カルテ's own membership,
+    // which this literal already contains.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1333,12 +1336,19 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
   }
 
-  it('the neighbours are all here — SEVEN sheets, read from disk, never restated', () => {
-    // ⚠ RE-DERIVED, NOT EXTENDED BY HABIT (room 7, AI相談): a new room shipping a
-    // sheet is a new neighbour for THIS room, and the fence's whole point is that
-    // the list is read from disk and pinned rather than remembered. ask-ai.css
-    // scopes every rule under `.pg-ask-ai`, so it adds no collision below.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'register', 'reservations', 'shifts', 'today'])
+  it('the neighbours are all here — TEN sheets, read from disk, never restated', () => {
+    // ⚠ RE-DERIVED, NOT EXTENDED BY HABIT: a new room shipping a sheet is a new
+    // neighbour for THIS room, and the fence's whole point is that the list is
+    // read from disk and pinned rather than remembered. `recording` joined the
+    // family in room 6 (2026-08-31), `settings` in the 予約と確保 round (⚖ Liam
+    // 9/1) and `ask-ai` in room 7. The list is READ from disk and this line is
+    // the pin on what was read — a new neighbour is MEANT to fail here once, so
+    // the room that added it re-derives the collision list below in the same
+    // pass rather than discovering the bleed in a browser (the 売上・レジ room
+    // states the rule in its own words). `settings` states every rule under
+    // `.pg-settings` and `ask-ai` every rule under `.pg-ask-ai`, so neither adds
+    // a collision below.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

@@ -443,6 +443,9 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
         dials: gapPackingDials(w.lanes, dialOpts),
       })
     : null
@@ -517,18 +520,51 @@ describe('1 — the round gate', () => {
   })
 
   it('is read at the screen boundary ONLY — never in a layer, a predicate or a handler', () => {
-    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts']
+    // ⚖ R5 POST-MERGE — `held-committed.ts` joins the list on the same terms as
+    // its four siblings: it is a caller-side wrapper over the mask, so if it
+    // ever read the round gate the constant would have a second home and the
+    // five-read count below would not see it.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts']
     for (const f of readers) expect({ f, has: SRC(f).includes('SELLING_ENGINE_LAW') }).toEqual({ f, has: false })
+    // ⚖ ROUND 2 — AND IT READS NO SCREEN EITHER, for the same reason one file
+    // over. Round 1 gave the wrapper the committed world's book by importing
+    // `bedViewsFor` from TodayScreen, so the two files imported each other; it
+    // ran, but a cycle on this seam is a trap for the next edit. The door is
+    // handed in as `bookOf` now: the wrapper may not name the screen, and it
+    // may not go around the door to `bedTruthViews` (the capacity book's own
+    // producer) either. R3's ONE DOOR in its stronger form — the wrapper cannot
+    // reach the book at all except through the function its caller gives it.
+    //
+    // ⚖ ROUND 3 — AND WHAT GUARANTEES THAT IS NOT THESE TWO LINES. The comment
+    // here used to say it was, and a NAME pin is dodgeable: lens B's G3 reached
+    // the screen through a SPLIT-STRING DYNAMIC REQUIRE, which spells neither
+    // `./TodayScreen` nor `bedTruthViews` and left both lines green. It went
+    // red at held-committed.test.ts §3 — the test that HANDS OVER a different
+    // door and reads the answer that comes back. That behavioural test is the
+    // guarantee. These two lines are belt-and-braces: they make the honest
+    // spelling of the mistake unspellable, which is worth keeping and is cheap.
+    // They are not the proof.
+    expect(SRC('held-committed.ts')).not.toContain('./TodayScreen')
+    expect(SRC('held-committed.ts')).not.toContain('bedTruthViews')
     // …and on the screen it appears exactly five times: the import, one prose
     // mention in the memo that explains it, and THREE reads — the committed
-    // world's book, the board world's mask, and the rail's protected-window
+    // world's mask, the board world's mask, and the rail's protected-window
     // door. All three are memo bodies at the top level of the component; none
     // is inside a predicate, a handler or a render path.
+    //
+    // ⚖ PIN MIGRATED at ROUND 1 OF THE FIX ROUND, WITH the decision. The
+    // committed world's read used to sit in a SECOND memo up here (the one that
+    // built the book), and that memo is gone — its book is built inside
+    // `heldCommittedFor` now, because a screen-level book memo was a second
+    // untested seam and a mutation lens went through it. The gate is still read
+    // on the screen and still at the boundary; it is handed to the wrapper as a
+    // bare parameter value instead of spelling a ternary here. Same decision,
+    // same count, one home fewer.
     const screen = SRC('TodayScreen.tsx')
     const reads = [...screen.matchAll(/SELLING_ENGINE_LAW/g)].length
     expect(reads).toBe(5)
     expect(screen).toContain("import { SELLING_ENGINE_LAW } from './selling-engine-gate'")
-    expect(screen).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes')
+    expect(screen).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(screen).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
   })
 
@@ -544,12 +580,51 @@ describe('1 — the round gate', () => {
     expect(int).not.toMatch(/import \{[^}]*reservedMaskFor/)
   })
 
+  // ⚖ PIN MIGRATED at R5 POST-MERGE, WITH the decision. What the pin is for has
+  // not changed — TWO worlds, TWO construction sites, both inside a `useMemo`
+  // and neither inside a predicate, a callback or a handler. What moved is the
+  // COMMITTED world's spelling: its call is now one hop deep, through
+  // `heldCommittedFor` (held-committed.ts), because the memo's inline body could
+  // only ever be held by a text pin and POSTMERGE-CHECK-88b7726c.md findings 1-2
+  // measured two severe mutants slipping one. The wrapper is app-side and it is
+  // NOT a layer, a predicate or a handler: it takes the world as a parameter
+  // like every other seam, it calls `reservedMaskFor` exactly once, and it holds
+  // no derivation of its own — held-committed.test.ts pins its answer against a
+  // direct call. The gate constant is still read only on the screen (the test
+  // above), and the mask is still built once per world per frame.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 1, same decision, one seam fewer. The committed
+  // world's BOOK moved into the wrapper as well: a screen-level book memo was a
+  // second seam no unit test could reach, and pre-gating it on the store's dial
+  // emptied the mask with this whole family green. So the committed site's
+  // first line is the round gate now rather than a book the screen already
+  // built, and `bedViewsFor` — R3's ONE DOOR — is walked inside the wrapper for
+  // that world. Still one construction site per world, still both in a memo.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 2, same decision, one import fewer. The wrapper
+  // no longer IMPORTS the door — the screen hands it in as `bookOf`, because
+  // round 1's import made the two files import each other. So the walk is
+  // pinned by the parameter it now goes through rather than by the identifier
+  // it used to import, and the test above pins that the wrapper cannot name
+  // the screen or the book's producer at all. One walk, one hand, still.
   it('the mask is built ONCE PER WORLD PER FRAME, in a memo and never in a predicate', () => {
     const screen = SRC('TodayScreen.tsx')
-    // Two construction sites, both world-named, both inside a `useMemo`.
-    expect(screen.split('reservedMaskFor({').length - 1).toBe(2)
-    for (const world of ['lanes: committedLanes,', 'lanes: boardLanes,']) {
-      const at = screen.indexOf(`reservedMaskFor({\n            ${world}`)
+    // One inline construction site left on the screen, one hop away in the
+    // wrapper — and the wrapper is a wrapper, not a second derivation home.
+    expect(screen.split('reservedMaskFor({').length - 1).toBe(1)
+    expect(SRC('held-committed.ts').split('reservedMaskFor({').length - 1).toBe(1)
+    // …and the committed world's book has exactly ONE door and one hand: the
+    // wrapper walks it once, with `null`, because prices read the settled board.
+    expect(SRC('held-committed.ts').split('bookOf(').length - 1).toBe(1)
+    expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    // …and the door it is handed is the screen's one wrapper, not a second one.
+    expect(screen).toContain('bookOf: bedViewsFor,')
+    const sites: readonly (readonly [string, string])[] = [
+      ['committed', 'heldCommittedFor({\n        gateOn: SELLING_ENGINE_LAW,'],
+      ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],
+    ]
+    for (const [world, spelling] of sites) {
+      const at = screen.indexOf(spelling)
       expect({ world, wired: at }).not.toEqual({ world, wired: -1 })
       // The nearest enclosing hook before it is a useMemo, not a callback or a
       // handler — the ledger-threading discipline the capacity book is under.
@@ -829,10 +904,11 @@ describe('3 — the sales door with the mask live', () => {
    *  guard OFF and the round gate ON gets the fragments back — 「nothing new
    *  appears」 becomes false for that store, by exactly this many boxes.
    *
-   *  Nothing is decided here: the round gate is OFF, so no store sees either
-   *  behaviour yet. The number is measured, pinned, and goes to Liam with E3b's
-   *  flip. Making the fallback guard-conditional is one `&&` if he rules that
-   *  way; it is a product call and not a builder's. */
+   *  Nothing is decided here: the round gate is ON (it shipped at E3b) — this
+   *  fallback's guard-off gain is live product today, unruled as
+   *  guard-conditional. The number is measured, pinned, and goes to Liam with
+   *  E3b's flip. Making the fallback guard-conditional is one `&&` if he rules
+   *  that way; it is a product call and not a builder's. */
   it('MEASURED, NOT RULED: what a guard-OFF store gains from the §5 fallback alone', () => {
     const w = fixtureWorld()
     const c: Combo = { ...shipped(), mode: 'off' }

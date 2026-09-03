@@ -929,6 +929,56 @@ export async function listReassignCustomerOptions(
  * installed @synqed-kk/client types predate the fields, so the
  * payload is widened structurally until the client republish.
  */
+/**
+ * The manual create's SHARED body — an EXPLICIT client plus an ALREADY-RESOLVED
+ * store and staff, so the web action (cookie identity/store) and the facade
+ * POST (Bearer identity, clamp store) run the identical core write. Same P-B
+ * split as createCustomerWithClient (src/actions/customers.ts).
+ *
+ * Deliberately OUT here, with the callers: the capability + other-staff checks
+ * (each door has its own capability source), store resolution, the cache
+ * invalidations (updateTag is Server-Action-only), the redirect, and the audit
+ * row (the facade's, off FACADE_AUDIT_MAP).
+ *
+ * ⚖ STORE ISOLATION LAW: `storeId` is a PARAMETER, never read off `input` —
+ * both doors hand this body a SERVER-resolved store. The payload below is an
+ * EXPLICIT field list, not a spread of `input`; that is the load-bearing guard
+ * (a `...input` spread turns the payload assertion red under mutation).
+ */
+export async function createManualKaruteRecordWithClient(
+  synqed: Pick<SynqedClient, 'karuteRecords'>,
+  input: {
+    customerId: string
+    staffId: string
+    storeId: string | null
+    sessionDate: string // YYYY-MM-DD — actual session day (backdating)
+    durationMinutes: number
+    service: string
+  },
+): Promise<{ id: string } | { error: string }> {
+  try {
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      store_id: input.storeId,
+      staff_id: input.staffId,
+      status: 'DRAFT',
+      // No transcript / no entries on manual create — staff fills
+      // those in on the detail page (or via a later recording).
+      transcript: null,
+      ai_summary: null,
+      entries: [],
+      ...({
+        service: input.service || null,
+        duration_minutes: input.durationMinutes > 0 ? input.durationMinutes : null,
+        session_date: input.sessionDate || null,
+      } as Record<string, unknown>),
+    })
+    return { id: record.id }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unexpected error' }
+  }
+}
+
 export async function createManualKaruteRecord(input: {
   customerId: string
   staffId: string
@@ -964,23 +1014,12 @@ export async function createManualKaruteRecord(input: {
     // straight to the viewer's active-store cookie.
     const { storeId } = await resolveKaruteStoreId(synqed, null)
 
-    const record = await synqed.karuteRecords.create({
-      customer_id: input.customerId,
-      store_id: storeId,
-      staff_id: input.staffId,
-      status: 'DRAFT',
-      // No transcript / no entries on manual create — staff fills
-      // those in on the detail page (or via a later recording).
-      transcript: null,
-      ai_summary: null,
-      entries: [],
-      ...({
-        service: input.service || null,
-        duration_minutes: input.durationMinutes > 0 ? input.durationMinutes : null,
-        session_date: input.sessionDate || null,
-      } as Record<string, unknown>),
-    })
-    recordId = record.id
+    const result = await createManualKaruteRecordWithClient(synqed, { ...input, storeId })
+    // The shared body's catch already produced this door's exact { error }
+    // shape (same message, same 'Unexpected error' fallback), so returning it
+    // is byte-equivalent to the throw reaching the catch below.
+    if ('error' in result) return result
+    recordId = result.id
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }

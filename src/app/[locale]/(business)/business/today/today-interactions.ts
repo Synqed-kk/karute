@@ -756,7 +756,7 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
-export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
+export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
     .map((l) => ({
@@ -1359,9 +1359,22 @@ export const isCrumbOffer = (c: { s: number; e: number }, sessionMin: number): b
  *
  *  R2, and the reason this cannot be done by adding the pieces up: the price is
  *  ONE `packedPrice` call over the union. Each piece is rounded to ¥10 on its
- *  own, and summing rounded pieces charges the rounding remainder twice. */
-function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKey: string, s: number, e: number) => number): GapCell[] {
-  const out: GapCell[] = []
+ *  own, and summing rounded pieces charges the rounding remainder twice.
+ *
+ *  ⚖ R6 fix round D1 — EXPORTED, because there are TWO producers now and only
+ *  one of them was merging. The fragment fallback emits through the same canon
+ *  function and then applies the same display floor, so an un-merged pair there
+ *  meets a floor written for merged runs: canon hands a menu-exact 50-minute
+ *  residue back as [30, 20], and the floor deletes the 20 the native layer
+ *  would have kept inside a 50-minute box. Generic over the cell so the
+ *  fallback's provenance fields ride through the merge rather than being cast
+ *  back on afterwards. */
+export function combineCrumbs<T extends GapCell>(
+  cells: readonly T[],
+  sessionMin: number,
+  priceUnion: (laneKey: string, s: number, e: number) => number,
+): T[] {
+  const out: T[] = []
   // The engine emits a staff row and a bed row per piece, so the previous cell
   // in the array is never the previous cell of the same run — each run is
   // tracked by its own (group, staff lane, bed) identity. A piece that found no
@@ -1372,7 +1385,7 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
     const at = lastOfRun.get(runKey)
     const prev = at == null ? null : out[at]
     if (at != null && prev && prev.e === c.s && isCrumbOffer(prev, sessionMin) && isCrumbOffer(c, sessionMin)) {
-      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) }
+      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) } as T
       continue
     }
     lastOfRun.set(runKey, out.length)
@@ -1420,6 +1433,36 @@ export function gapPackingDials(
     gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   }
 }
+
+/** ⚖ R6 B3 (plan R6, perf F11) — WHICH KIND OF BOX THIS IS, SAID ON THE CELL
+ *  rather than re-derived by whoever draws it.
+ *
+ *  The renderer used to ask `gapDrawn.packed.includes(c)` (TodayScreen :5252,
+ *  and again for the React key and the 名前タグ): an O(n) scan per cell per
+ *  frame whose answer is OBJECT IDENTITY. The day any pass copies a cell on its
+ *  way to the screen — a spread for a tag, a sort into a new array, a memo that
+ *  re-freezes — every 詰め込み box silently becomes a スキマ枠: wrong wash, wrong
+ *  word, wrong price format, and nothing anywhere to fail. The kind is a fact
+ *  about the box, so it is written ON the box, at BOTH producers, at creation,
+ *  which also keeps one object identity for every downstream consumer.
+ *
+ *  Canon's `GapCell` cannot grow a field, so this is `HeldBoundSellCell`'s exact
+ *  pattern (:1137-1144): an app-side interface the tag rides in, and ONE narrow
+ *  reader. Never test the property by hand. */
+export interface KindedGapCell extends GapCell {
+  readonly gapKind: 'packed' | 'scrap'
+}
+
+/** The one reader. An untagged cell reads as 'scrap' — the same answer
+ *  `.includes` gave for anything not in `packed` — so a cell from some future
+ *  producer that has not been taught to tag degrades exactly as it did before
+ *  rather than into a shape nobody has drawn. */
+export const gapKindOf = (c: GapCell): 'packed' | 'scrap' =>
+  (c as { gapKind?: unknown }).gapKind === 'packed' ? 'packed' : 'scrap'
+
+const kinded =
+  (gapKind: 'packed' | 'scrap') =>
+  (c: GapCell): KindedGapCell => ({ ...c, gapKind })
 
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
@@ -1481,9 +1524,14 @@ export function gapLayerFor(
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
+  // ⚖ R6 B3 — TAGGED AT THE RETURN, which IS creation for everything downstream:
+  // `combineCrumbs` mints new objects and the floor throws some away, so tagging
+  // any earlier would tag boxes the board never draws and leave the survivors of
+  // a merge untagged. These objects are the ones `gapClaims`, the reconcile, the
+  // fallback's survivor set and the renderer all hold.
   return {
-    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable),
-    scraps: raw.scraps.filter(sellable),
+    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable).map(kinded('packed')),
+    scraps: raw.scraps.filter(sellable).map(kinded('scrap')),
   }
 }
 
@@ -1688,7 +1736,19 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
   // `input.close` and takes the render thread with it. Unreachable today only
   // because both call sites hardcode canon's 30 — which is exactly the kind of
   // "safe by accident" a settings dial stops being. No step, no rails.
-  if (input.stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — AND NOW IT CATCHES NaN, which `<= 0`
+  // never could: NaN fails every comparison, so a non-numeric step walked
+  // straight past this line, painted ONE cell at `input.open`, then ended the
+  // loop the moment `start` became NaN. Not a hang — a SILENT WRONG ANSWER,
+  // which is worse: the rail rendered, and it was a lie about the rest of the
+  // day. The room shipping this round puts a real number field (予約の刻み) in
+  // front of an operator for the first time, so the shape that catches an empty
+  // or half-typed box is the one this file already uses for exactly this reason
+  // (`impactOf`'s `!(protectedDur > 0)`). Infinity goes with it: a step no
+  // arithmetic can advance is no step. Same answer as before — no step, no
+  // rails — for one more class of input.
+  if (!(Number.isFinite(input.stepMin) && input.stepMin > 0)) return []
   const engine = createGapGuard(input.guard)
   const rails: GuardRail[] = []
   for (const lane of lanes) {
@@ -2308,10 +2368,15 @@ export function offerableCell(
   // control, through the gate written to stop it. A settings field reaching
   // `Number('1e400')` or a bare `Infinity` is the same text input S5 named.
   // Behaviour-identical for every finite step; ±Infinity and NaN now share the
-  // one door. (`guardRailsFor` reads the same class of dial with the weaker
-  // `<= 0` spelling and is left alone: its walk is `start += stepMin`, so an
-  // infinite step overshoots `close` on the first step and the rail comes back
-  // short rather than wrong — a degeneracy, not a lie on a control.)
+  // one door.
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND (fix round 1 F8) — AND THE CLAUSE THAT USED TO
+  // STAND HERE IS DELETED, NOT CORRECTED. It said `guardRailsFor` could keep the
+  // weaker `<= 0` spelling because 「the rail comes back short rather than wrong
+  // — a degeneracy, not a lie on a control」. The settings round's own M1 red-run
+  // disproved it on a NaN step: the rail painted ONE cell at `input.open` and
+  // then ended, so it did not come back short, it came back WRONG about the rest
+  // of the day. That sibling now carries this same guard (:1703) and says so.
   if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
@@ -2362,7 +2427,18 @@ export function nearestFreeStarts(
   // board's whole render thread with it. A refusal box is not the place to find
   // out a store typed 0 into a settings field: no step means no lattice to walk,
   // and no lattice means nothing to offer.
-  if (stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — the SAME shape as `guardRailsFor`'s
+  // sibling guard, landed in the same commit as the 予約の刻み field that can
+  // finally produce a non-number. ⚠ AND IT IS THE HONEST HALF OF THAT PAIR:
+  // unlike the rail's, this guard changes NO behaviour. A NaN step makes
+  // `attempted + dir * stepMin` NaN, and `NaN >= hours.open` is false, so the
+  // loop never ran and this already returned `[]` — measured, not assumed. It is
+  // kept because a reader may not be left to work that out from the arithmetic:
+  // the two siblings now refuse the same inputs in the same words, and neither
+  // is safe only by accident. The packet's 「nearestFreeStarts can HANG on NaN」
+  // does not reproduce; the rail's silent-wrong-answer, next door, does.
+  if (!(Number.isFinite(stepMin) && stepMin > 0)) return []
   const out: number[] = []
   for (const dir of [-1, 1] as const) {
     for (let s = attempted + dir * stepMin; s >= hours.open && s + dur <= hours.close; s += dir * stepMin) {
@@ -3102,6 +3178,18 @@ export interface LandingQuestion {
    *  honest default: a board with nothing staged has no such occupant, and every
    *  caller that genuinely has one passes it. */
   stagedId?: string | null
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — WHO IS ASKING, at the only
+   *  landing class where the store's dial has anything to say about it.
+   *
+   *  Every other field here is geometry, and that was the whole bug: with no
+   *  operator in the question, a STRICT store's guard refusal was `'hard'` for
+   *  everyone, so 「確保枠を壊す場所に置けるのは店長だけです」 shipped over a board
+   *  where the 店長 could not place there either. `TodayScreen` has had the answer
+   *  all along (`props.overrideLevel`) and simply never handed it over.
+   *
+   *  OPTIONAL, and absent means NOT ADMITTED (`dialAdmits`): the callers that ask
+   *  this question about pure geometry keep working and keep the closed answer. */
+  overrideLevel?: OverrideLevel
 }
 
 /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT HOME.
@@ -3264,7 +3352,40 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
   // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls
   // impossible is not a floor a manager can be given authority over.
-  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')
+  //
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — AND THE STRICT DIAL'S REFUSAL
+   *  IS NOT THAT FLOOR, SO IT IS NOT EVERYONE'S.
+   *
+   *  `ackAllowed: false` arrives from TWO different places and this line read
+   *  them as one:
+   *    · gap-guard :372 — `R-UNAVAILABLE`, a placement that cannot be made. It
+   *      comes through `railCell`'s `blocked()` with NO `impact` at all, because
+   *      the engine never weighed a protected window there.
+   *    · gap-guard :398 — `ackAllowed = mode === 'standard'`, i.e. the STORE'S
+   *      strict dial refusing a landing the engine has costed. It always carries
+   *      an `impact`: that is what the refusal is about.
+   *  Collapsing them made the store's own dial as absolute as physics, so at
+   *  STRICT no drag, nudge or rail tap could place for ANYONE — while this very
+   *  round ships 「確保枠を壊す場所に置けるのは店長だけです」 on the settings page.
+   *
+   *  THE SPLIT IS THE ENGINE'S OWN SIGNAL, NEVER THE MODE. `lossOf(cell) > 0` is
+   *  the identical test `warnFaceFor` calls `guardWarn`, so the card and the board
+   *  classify one cell one way. Reading `mode` instead would soften physics: an
+   *  `R-UNAVAILABLE` at a strict store would become escalatable, and ⚖ 73 says a
+   *  floor the engine calls impossible is not one a manager may be given
+   *  authority over. The mutation is pinned red for exactly that reason.
+   *
+   *  'policy' is not a grant — it is the floor the board already escalates
+   *  through (a failed 勤務/ロック row lands here), so the operator still reads
+   *  置けない and still has to press 注意して配置; `canOverride` is the authority
+   *  gate, untouched. For a `refuse` operator the stop stays `'hard'`, which is
+   *  the dial's promise word for word: the sentence, the safe suggestions and
+   *  元に戻す, and no button onto a card they could not commit. */
+  if (cell?.state === 'blocked' && !cell.ackAllowed) {
+    return lossOf(cell) > 0 && dialAdmits(q.overrideLevel)
+      ? stop(cell.sentence, 'policy')
+      : stop(cell.sentence, 'hard')
+  }
   if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
   return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
@@ -3302,6 +3423,30 @@ export function overrideLevelFor(
   if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'
   return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
 }
+
+/** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — DOES THE 上書きの権限 DIAL ADMIT
+ *  THIS OPERATOR? One spelling, because TWO seams now gate on the answer and they
+ *  may never disagree: the LANDING (`landingVerdict`, whether the strict store
+ *  even offers the escalation) and the CARD (`warnFaceFor`, whether the staged
+ *  commit is live). Round 1 fixed only the second, and the delta-verifier proved
+ *  the first still walled everyone — the board hard-stopped 店長 at the landing,
+ *  so the composer's permitted arm was reachable only when the board moved under
+ *  an already-staged hold. Two questions, one predicate, no drift.
+ *
+ *  ⚠ ABSENT IS NOT ADMITTED. `LandingQuestion.overrideLevel` is optional (most
+ *  callers of that shape are asking about geometry, not people), so this answers
+ *  `false` for `undefined` — a caller that has not been taught the question gets
+ *  the CLOSED answer. A permission gate that fails open on a forgotten field is
+ *  the defect this round exists to remove, not one to introduce next to it.
+ *
+ *  'needs-approval' IS admitted here, deliberately (⚖ D2, which refused the
+ *  verifier's `level !== 'allow-warned'`): the dial promises 確定できなくなります,
+ *  and a DISABLED 店長に許可を求める is not a 確定 — the sentence stays literally
+ *  true while the approval tier keeps the middle ground it was designed for. It
+ *  is unreachable today at BOTH seams (`overrideLevelFor` cannot return it), so
+ *  this states the contract rather than lighting a path. */
+export const dialAdmits = (level: OverrideLevel | undefined): boolean =>
+  level === 'allow-warned' || level === 'needs-approval'
 
 /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, 8/30:
  *  release is automatic AND a manager button, logged) — WHO MAY PRESS IT.
@@ -3641,6 +3786,40 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
 export const lossOf = (c: RailCell | null): number =>
   c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
 
+/** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
+ *
+ *  The 設定 room's guardrail line 「…確保枠を◯枠作れます」 is about exactly this
+ *  number, and a room that counted pockets of its own would be a second spelling
+ *  of the question `protectedCapacity` already answers — the same disease ⚖ 54
+ *  names and the same reason `lossOf` above was lifted out of a screen.
+ *
+ *  So it lives beside `lossOf`, on the same inputs the rail is drawn from
+ *  (`RailInput`), and the lane walk is `guardRailsFor`'s own — staff lanes with a
+ *  window, minus the locked ones — so the number counts precisely the lanes the
+ *  rail would draw on. `.before` is the day AS IT STANDS: nothing is being placed
+ *  here, the question is what the day can still hold. */
+export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
+  const engine = createGapGuard(input.guard)
+  let total = 0
+  for (const lane of lanes) {
+    if (lane.group !== 'staff' || lane.window == null || input.locked.includes(lane.key)) continue
+    const pockets = freePockets({
+      from: lane.window.from,
+      until: lane.window.until,
+      close: input.close,
+      now: input.nowMinute,
+      occupied: laneSpans(lane, input.excludeId),
+    })
+    // `railCtx` is this file's one ctx home, so the capacity question is asked in
+    // exactly the ctx the rail's own verdicts are — a caller that supplies the
+    // bed callbacks is answered by them here too, rather than by a second,
+    // callback-less ctx spelled beside it.
+    const ctx = railCtx(lane, input)
+    for (const pocket of pockets) total += engine.protectedCapacity(pocket, null, ctx).before
+  }
+  return total
+}
+
 export function warnFaceFor(input: WarnCardInput): WarnCardModel {
   const { cell, rows, level, protectedDur, operatorName } = input
   /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET. The trigger used
@@ -3826,7 +4005,38 @@ export function warnFaceFor(input: WarnCardInput): WarnCardModel {
    *  all, so it is `guardWarn`-false by construction and never arrives here.
    *  What answers the operator is round 9 W1's DEAD LABELED COMMIT below: the
    *  price is named, and the button that cannot pay it says why. */
-  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false) {
+  /** ⚖ 9/1 STRICT-SWITCH RULING (settings round, fix round 1 F1) — AND THE WALL
+   *  IS THE DIAL'S, SO IT ANSWERS THE DIAL'S OWN QUESTION: WHO.
+   *
+   *  `ackAllowed` is role-BLIND — gap-guard sets it from the store's mode alone
+   *  (`reason.ackAllowed = mode === 'standard'`, :398, FROZEN) — so this branch
+   *  walled EVERYONE at STRICT, 店長・オーナー included. The approved settings
+   *  page says the opposite in as many words: its 店長がしっかり見る preset reads
+   *  「確保枠を壊す場所に置けるのは店長だけです」, and 「店長のみでも警告を止める」
+   *  promises 「権限のないスタッフは…確定できなくなります」. Both are about the
+   *  people the 上書きの権限 dial EXCLUDES; the permitted keep the warn commit.
+   *  The copy is the ruling, and the code drifted when ruling 1/2's lock face was
+   *  deleted — the wall lost the only branch that knew whose it was.
+   *
+   *  So the role half is composed HERE rather than in the engine, which is where
+   *  it has to live anyway: gap-guard is canon and knows nothing about operators,
+   *  and this composer is already handed `level` — ruling 91's answer about THIS
+   *  operator (`overrideLevelFor`: the store's own override roles, with
+   *  `lockedOut` answering first). `refuse` is exactly 「the store did not give
+   *  this person the override」, by role or by name, so it is the whole of the
+   *  test. A store at STRICT whose dial admits everyone is a coherent no-op, and
+   *  STANDARD is untouched (`ackAllowed` is true there, so this branch never
+   *  fired for anyone: ⚖ ruling 1/2's loosen stands, walls only true 置けない).
+   *
+   *  ⚖ 73 IS UNTOUCHED. Its floor — `R-UNAVAILABLE`, the physically impossible
+   *  placement — reaches the rail through `railCell`'s `blocked()` with NO
+   *  `impact` at all (gap-guard :372 → :1747), so `lossOf` is 0, `guardWarn` is
+   *  false, and it has never arrived at this branch since round 8 Z1 put
+   *  `guardWarn` on the front of it (round 11 P1 says so in its own words). What
+   *  survives here is the STRICT refusal and nothing else, which is why the level
+   *  may decide it: a cost the engine WILL let the store pay is the dial's to
+   *  govern, and this is the dial governing it. */
+  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && !dialAdmits(level)) {
     return {
       face: 'warn', impact, provenance: null, lock: null, safePrimary,
       commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },

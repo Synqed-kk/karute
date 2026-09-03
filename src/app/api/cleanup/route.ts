@@ -1,17 +1,29 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { cleanupExpiredAiCache } from '@/lib/ai-cache'
+import { looksLikeRecordingKey } from '@/lib/recording/key-grammar'
 
 export const maxDuration = 30
 
 /**
  * Daily cleanup:
- * 1. Delete any orphaned recordings from storage (older than 1 hour)
+ * 1. REPORT non-conforming objects in the recordings bucket (older than 1 hour)
  * 2. Delete expired AI cache entries (in synqed-core)
+ *
+ * ⚖ Liam 2026-09-03 — recorded audio is NEVER deleted (the post-transcription
+ * delete in process-recording.ts is removed in the retention round), so pass 1
+ * deletes nothing. It used to remove every object older than an hour with no
+ * look at the job state behind it, which ate the audio of any take still
+ * queued, retrying or failed at the next daily sweep. It now walks the same
+ * bucket, runs the same key grammar the upload fences run, and LOGS what does
+ * not conform so a human can look; the count comes back as
+ * `recordingsOrphanCandidates`. Conforming takes are never reported here, so a
+ * take with no live job/session row is NOT surfaced by this sweep — that join
+ * is a later round. Anything that has to go, goes by a named hand.
  *
  * Runs from Vercel Cron (no user session) — which sends
  * `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured. This
- * endpoint deletes storage + purges cache with the service-role client, so it
+ * endpoint reads storage + purges cache with the service-role client, so it
  * must NOT be publicly callable. Fail CLOSED: if CRON_SECRET is unset, or the
  * header doesn't match, reject. (Set CRON_SECRET on Vercel prod+preview before
  * deploy, or the scheduled cleanup 401s until it's present.)
@@ -25,33 +37,35 @@ export async function GET(request: Request) {
 
   const supabase = createServiceClient()
 
-  let recordingsDeleted = 0
+  let recordingsOrphanCandidates = 0
   let cacheDeleted = 0
   // A degraded sweep must not read as a finished one. The caller is a cron with
-  // no other view of the run, and `recordingsDeleted` alone can't separate "the
+  // no other view of the run, and the candidate count alone can't separate "the
   // bucket held 12 orphans" from "we stopped after 12 and never saw the rest".
   // Flip this on every path that leaves part of the bucket unwalked; the
   // response carries it so a truncated run is legible to whoever reads it.
   let recordingsSweepComplete = true
 
-  // 1. Clean up orphaned recordings. The bucket listing is PAGED (storage-js
-  // defaults to 100 per call), so the old unparameterised list() only ever saw
-  // the FIRST page and left every orphan past it in the bucket. Walk to the end,
-  // THEN delete: removing mid-walk shifts the offsets underneath us and the next
-  // page skips exactly as many objects as the last one deleted. Advance by what
-  // the page RETURNED, not by the limit we asked for, so a server-side cap below
-  // PAGE_SIZE can't end the walk early; MAX_PAGES is the runaway stop.
+  // 1. Report orphaned-looking recordings. The bucket listing is PAGED
+  // (storage-js defaults to 100 per call), so the old unparameterised list()
+  // only ever saw the FIRST page and left every orphan past it unreported.
+  // Advance by what the page RETURNED, not by the limit we asked for, so a
+  // server-side cap below PAGE_SIZE can't end the walk early; MAX_PAGES is the
+  // runaway stop.
+  // ponytail: PAGE_SIZE × MAX_PAGES = 100k objects per run is the ceiling; a
+  // bucket past it reports recordingsSweepComplete:false rather than lying, and
+  // the fix if it ever fires is a resume cursor, not a bigger bound.
   const PAGE_SIZE = 1000
   const MAX_PAGES = 100
-  // Delete in fixed-size batches instead of handing every expired name to one
-  // remove(): a single oversized request can be refused WHOLE, and the old code
-  // discarded remove()'s result and reported expired.length regardless — a
-  // deletion count for objects still sitting in the bucket. 100 = the storage
-  // client's own default page size, so a batch is never bigger than a listing.
-  const REMOVE_BATCH_SIZE = 100
+  // A warn PER candidate can itself spend the route's 30s budget on a large
+  // backlog and starve the walk of the time it needs to finish. Collect names
+  // instead and emit one line at the end; the retained sample is capped, the
+  // count is not.
+  const ORPHAN_SAMPLE_CAP = 200
+  const orphanSample: string[] = []
   try {
-    const oneHourAgo = Date.now() - 60 * 60 * 1000
-    const expired: string[] = []
+    const now = Date.now()
+    const oneHourAgo = now - 60 * 60 * 1000
     let page = 0
     for (let offset = 0; page < MAX_PAGES; page++) {
       const { data: files, error: listError } = await supabase.storage
@@ -61,8 +75,8 @@ export async function GET(request: Request) {
       // read as "bucket ended here" — the sweep then finished silently and every
       // orphan past the failure waited for the next cron with nothing logged.
       // End the walk (the offsets after a failed page can't be trusted) but SAY
-      // so; the names already collected were genuinely listed and expired, so
-      // deleting them below stays correct.
+      // so; the names already reported were genuinely listed, so the count of
+      // them stays honest.
       if (listError) {
         console.error('[cleanup] recordings list error:', listError)
         recordingsSweepComplete = false
@@ -70,12 +84,24 @@ export async function GET(request: Request) {
       }
       if (!files || files.length === 0) break
       for (const f of files) {
+        // A root listing also carries FOLDER placeholders — `seg`, the tree the
+        // segment uploader writes into — which are not objects at all. storage-js
+        // marks exactly this with `id: null` (folders have no object id); skip on
+        // that signal, not on "has no dot" — a real dotless junk object must
+        // still be reported. The created_at guard below happens to catch a
+        // placeholder too, but as a belt, not as the reason.
+        if (f.id == null) continue
+        // Ours by the same grammar the upload fences run: never reported, at any
+        // age. ⚖ audio is never deleted, so age says nothing about a take.
+        if (looksLikeRecordingKey(f.name)) continue
         // A null/absent/unparseable created_at parses to NaN, which the old
         // `new Date(...) < cutoff` form read as the epoch — i.e. ALWAYS expired,
-        // queueing a row of unknown age for deletion. Require a real timestamp.
+        // reporting a row of unknown age. Require a real timestamp.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const createdAt = Date.parse((f as any).created_at)
-        if (Number.isFinite(createdAt) && createdAt < oneHourAgo) expired.push(f.name)
+        if (!Number.isFinite(createdAt) || createdAt >= oneHourAgo) continue
+        recordingsOrphanCandidates++
+        if (orphanSample.length < ORPHAN_SAMPLE_CAP) orphanSample.push(f.name)
       }
       offset += files.length
     }
@@ -89,20 +115,13 @@ export async function GET(request: Request) {
       console.error('[cleanup] recordings walk hit MAX_PAGES; bucket may extend past it')
       recordingsSweepComplete = false
     }
-    for (let i = 0; i < expired.length; i += REMOVE_BATCH_SIZE) {
-      const batch = expired.slice(i, i + REMOVE_BATCH_SIZE)
-      const { data, error } = await supabase.storage.from('recordings').remove(batch)
-      // Count only what storage confirmed gone; a failed batch must not inflate
-      // the number, and the batches after it still deserve their attempt.
-      if (error) {
-        console.error('[cleanup] recordings batch error:', error)
-        continue
-      }
-      // remove() returns the objects it ACTUALLY removed, which is not always
-      // every name we asked for — an object can vanish between the listing and
-      // the delete (this system's own post-transcription cleanup produces
-      // exactly that race). Count the result, not the ask.
-      recordingsDeleted += data?.length ?? 0
+    if (recordingsOrphanCandidates > 0) {
+      console.warn('[cleanup]', {
+        evt: 'recordings_orphan_candidates',
+        count: recordingsOrphanCandidates,
+        sample: orphanSample,
+        truncated: recordingsOrphanCandidates > orphanSample.length,
+      })
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)
@@ -116,7 +135,7 @@ export async function GET(request: Request) {
   // record as a successful run.
   return NextResponse.json(
     {
-      recordingsDeleted,
+      recordingsOrphanCandidates,
       recordingsSweepComplete,
       cacheDeleted,
     },

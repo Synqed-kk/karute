@@ -53,6 +53,7 @@ import { bedDoor, bedViewsFor, TodayScreen, type TodayProps } from '@/app/[local
 import {
   canReleaseHeld,
   explainRails,
+  gapKindOf,
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
@@ -412,6 +413,13 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
+        // ⚖ R6 B1 — the screen hands the pass the store's own display floor, so
+        // this composer does too (TodayScreen `salesDoor`). A door that differs
+        // from the screen's proves the wrong board.
+        minSellableMin: w.minSellableMin,
         dials: gapPackingDials(w.lanes, dialOpts),
       })
     : null
@@ -985,11 +993,61 @@ describe('4 — what paints, and what stops', () => {
     const frags = [...(on.fallback?.packed ?? []), ...(on.fallback?.scraps ?? [])]
     expect(frags.length).toBeGreaterThan(0)
     // They are IN `gapDrawn`, which is the only list `renderLane` draws gap
-    // boxes from, and `gapDrawn.packed.includes(c)` is the only thing that
-    // decides 詰め込み from スキマ枠 — so a fallback cell wears whichever word
-    // its shape earns, exactly like every other box on that layer.
+    // boxes from, and ONE field decides 詰め込み from スキマ枠 — so a fallback
+    // cell wears whichever word its shape earns, exactly like every other box
+    // on that layer.
+    //
+    // ⚖ PIN MIGRATED at R6, WITH the decision (B3). The decider used to be
+    // `gapDrawn.packed.includes(c)` — object identity, which is precisely what
+    // made this pin necessary AND fragile: it held only while no pass between
+    // the producers and the renderer ever copied a cell. Both producers now tag
+    // `gapKind` at creation and the renderer reads it through `gapKindOf`, so
+    // the same claim is pinned on the FACT rather than on the array membership.
     for (const f of frags) expect([...on.gapDrawn.packed, ...on.gapDrawn.scraps]).toContain(f)
-    expect(SRC('TodayScreen.tsx')).toContain('const packedHere = gapDrawn.packed.includes(c)')
+    for (const f of on.fallback?.packed ?? []) expect(gapKindOf(f)).toBe('packed')
+    // ⚠ this board's fallback has no scraps — the kind of a FALLBACK scrap is
+    // proven where such a scrap exists (fallback-cells.test.ts §9, ⚖ A3).
+    expect(on.fallback?.packed?.length ?? 0).toBeGreaterThan(0)
+    for (const f of on.fallback?.scraps ?? []) expect(gapKindOf(f)).toBe('scrap')
+    expect(SRC('TodayScreen.tsx')).toContain("const packedHere = gapKindOf(c) === 'packed'")
+    // ⚖ R6 fix round A7 (L4-7) — BROADENED. The old negative named one exact
+    // line, so the identity scan could come back in any other punctuation and
+    // stay green; and the scraps side never had a negative at all. (Text pins
+    // are the declared armor for TodayScreen's un-rendered half — the standing
+    // import-fence rider — so their spelling has to be the part that is wrong,
+    // not one sentence of it. The prose below is a COMMENT in the source, which
+    // is why the negatives are anchored on the assignment.)
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.packed.includes')
+    expect(SRC('TodayScreen.tsx')).not.toContain('= gapDrawn.scraps.includes')
+    expect(SRC('TodayScreen.tsx')).not.toContain('const packedHere = gapDrawn.packed.includes(c)')
+  })
+
+  /** ⚖ R6 fix round A3 (L4-3) — THE KIND, ASSERTED AS A FACT ABOUT THE BOXES.
+   *
+   *  The pin above reads the FALLBACK's boxes. Nothing read the NATIVE
+   *  producer's: flip `kinded('packed')` and `kinded('scrap')` at
+   *  today-interactions' `gapLayerFor` return and every 詰め込み box on the board
+   *  becomes a スキマ枠 — wrong wash, wrong word, wrong price format — with the
+   *  whole suite green. And nothing read `gapKindOf` itself, so the reader could
+   *  have been a constant. */
+  it('every native 詰め込み box reads `packed` and every スキマ枠 reads `scrap` — and the reader is not a constant', () => {
+    const w = fixtureWorld()
+    const c: Combo = { ...shipped(), mode: 'off' }
+    const on = door(w, c, maskOf(w, c))
+    // THE PREMISE: both lists have something in them, or the two loops below
+    // prove nothing at all (which is exactly how the fallback half slipped).
+    expect(on.gapDrawn.packed.length).toBeGreaterThan(0)
+    expect(on.gapDrawn.scraps.length).toBeGreaterThan(0)
+    for (const p of on.gapDrawn.packed) expect(gapKindOf(p)).toBe('packed')
+    for (const s of on.gapDrawn.scraps) expect(gapKindOf(s)).toBe('scrap')
+
+    // THE READER ITSELF, on hand-made cells — one tagged each way and one that
+    // was never taught to tag, which must degrade to the answer `.includes`
+    // used to give for anything outside `packed`.
+    const cell = (over: object) => ({ laneKey: 'p-01', resourceKey: 'bed-01', group: 'staff' as const, staff: '', s: 900, e: 960, price: 0, ...over })
+    expect(gapKindOf(cell({ gapKind: 'packed' }))).toBe('packed')
+    expect(gapKindOf(cell({ gapKind: 'scrap' }))).toBe('scrap')
+    expect(gapKindOf(cell({}))).toBe('scrap')
   })
 })
 
@@ -1292,7 +1350,15 @@ describe('6 — a manager releases ごろう’s held window, and the board re-d
     // list both doors receive is the BOARD-SCOPED one. Still one fact and two
     // snapshots — what changed is that the fact now names the board it is true
     // of, so a release cannot travel to tomorrow or to the other store.
-    expect(screen.match(/^ {12}released: releasedHere,$/gm)).toHaveLength(2)
+    // ⚖ PIN MIGRATED at R5 POST-MERGE, WITH the decision — which is the COUNT,
+    // not the column. The committed world's call moved out of the memo body
+    // into `heldCommittedFor` (held-committed.ts, POSTMERGE findings 1-2), so
+    // that site now sits two levels shallower; the regex asked for exactly
+    // twelve spaces and went red on the indentation alone. It is indent-
+    // agnostic now and still says the only thing it ever meant: the same
+    // `releasedHere` list is handed to BOTH world instances, on its own line,
+    // exactly twice.
+    expect(screen.match(/^ +released: releasedHere,$/gm)).toHaveLength(2)
     expect(screen).toContain('const releasedHere = useMemo(\n    () => released.filter((r) => onShownBoard(r, board)),')
   })
 })
@@ -1867,5 +1933,533 @@ describe('the artifacts', () => {
       '# DEFINITION, which ⚖ Q3 already ruled. Two dials, two questions; the',
       '# artifact says both so neither rides under the other.',
     ])
+  })
+})
+
+// ── 9 · MONOTONICITY, THE REGRESSION PIN (⚖ R6) ─────────────────────────────
+//
+// THE MEASUREMENT (PROBE-R5R6 §2, tip 4d10d4d5): removing a committed booking —
+// strictly MORE free staff time — sometimes makes the advertised total strictly
+// WORSE. 46 violations over 240 sweeps at that tip, 3 of them at the shipped
+// dial point. Three mechanisms were dumped offer-by-offer: held-mask expansion,
+// held-window re-phasing, and the greedy bed cascade in canon's own `bedLedger`.
+//
+// ⚠ THIS IS NOT A CLEAN PROPERTY AND MUST NOT BE WRITTEN AS ONE. The cascade
+// class is R5's territory (`bedLedger`, canon, frozen) and is STILL LIVE. So the
+// pin is a REGRESSION pin: the surviving set is enumerated and frozen, and any
+// NEW violation — or any new dial point / caseId entering the set — is red.
+// R6's own job is only that the grid-30 closure does not ADD to it.
+//
+// ⚠ AND GUARD-ON TRADES ARE NOT DEFECTS. Under the store's own guard, freeing
+// time can turn paid stock into a price-free 新規用に確保 window (probe M1) or
+// re-phase a mask edge on an unrelated lane (M2). That is the ⚖ ONE-LAW
+// working as ruled — capacity protection outranks the advertised total — so
+// those rows are inside the frozen set with their reason, not treated as bugs
+// to fix here.
+
+const R6_EVIDENCE = process.env.R6_EVIDENCE ?? ''
+const R6_SHA = process.env.R6_SHA ?? 'unstamped'
+
+/** The advertised total, per the probe's own definition: the staff rows of the
+ *  PUBLISHED sell layer plus both gap kinds as the board draws them. Bed rows
+ *  are the same offer drawn a second time (`onlineOffers`' own comment) and
+ *  reserved rows are price-free by construction, so neither is counted. */
+function advertisedTotal(d: Door): number {
+  const staff = <T extends { group: string; price: number | null }>(xs: readonly T[]) =>
+    xs.filter((c) => c.group === 'staff').reduce((n, c) => n + (c.price ?? 0), 0)
+  return staff(d.sellDrawn.cells) + staff(d.gapDrawn.packed) + staff(d.gapDrawn.scraps)
+}
+
+/** THE REMOVABLE BOOKINGS — the probe's own set, spelled the probe's own way:
+ *  a `booking` on a staff lane with a case behind it. Breaks, blocks and the
+ *  absence washes are skipped because removing one is not "more free time a
+ *  customer could buy"; every state of a real booking IS, including the ones
+ *  carrying an open 担当変更 or a 来店なし (apt-26 and apt-23 — narrowing this to
+ *  `state === 'confirmed'` silently dropped both and took the sweep from 10
+ *  removals to 8, which is two of the probe's own measured rows).
+ *
+ *  Filtering by `caseId` takes the staff row AND its paired bed-row copy in one
+ *  pass, which is what makes the edited board a board a store could run. */
+function removableIn(w: World): Array<{ caseId: string; laneKey: string; s: number; e: number }> {
+  const out: Array<{ caseId: string; laneKey: string; s: number; e: number }> = []
+  for (const l of w.lanes) {
+    if (l.group !== 'staff') continue
+    for (const i of l.items) {
+      if (i.kind !== 'booking' || !i.caseId) continue
+      out.push({ caseId: i.caseId, laneKey: l.key, s: i.startMin, e: i.endMin })
+    }
+  }
+  return out.sort((a, b) => (a.laneKey === b.laneKey ? a.s - b.s : a.laneKey < b.laneKey ? -1 : 1))
+}
+
+const without = (w: World, caseId: string): World => ({
+  ...w,
+  lanes: w.lanes.map((l) => ({ ...l, items: l.items.filter((i) => i.caseId !== caseId) })),
+})
+
+/** The probe's own sweep axes — the dial space the monotonicity question was
+ *  measured over, including the `minSellableMin` axis the FLIP matrix does not
+ *  carry. */
+const MONO_DIALS: Array<{ gridMin: number; sessionMin: number; minSellableMin: number }> = [30, 60].flatMap(
+  (gridMin) =>
+    [45, 60, 90].flatMap((sessionMin) =>
+      [0, 30].map((minSellableMin) => ({ gridMin, sessionMin, minSellableMin })),
+    ),
+)
+const monoLabel = (d: (typeof MONO_DIALS)[number]) => `grid=${d.gridMin} S=${d.sessionMin} minSell=${d.minSellableMin}`
+
+/** ⚖ R6 — THE SURVIVING SET, MEASURED AT THE ROUND'S OWN TIP AND FROZEN.
+ *
+ *  Provenance: R5's documented ceiling. Every row here is one of the three
+ *  mechanisms the probe dumped; none of them is R6's to fix (the cascade lives
+ *  in canon's frozen `bedLedger`, and the two mask mechanisms are the ⚖ ONE-LAW
+ *  trading advertised yen for protected capacity). A row LEAVING the set is a
+ *  win and should be deleted with the fix that earned it. A row ARRIVING is red:
+ *  it means a change made the board's answer non-monotone somewhere it was not.
+ *
+ *  ⚖ R5 S0 — TWELVE GUARD-OFF ROWS LEFT BY MEASUREMENT CORRECTION, NOT BY A
+ *  PRODUCT FIX. The set as R6 froze it was measured with `door(world, c,
+ *  undefined)` for guard=off, which is the ROUND GATE off — not a guard-off
+ *  store. A guard-off store is an EMPTY mask (reserved-mask.ts:200) and the
+ *  fallback runs for it (F0, and the comment on `doorOf` below). Re-measured on
+ *  the screen's own composition, the fallback's EXISTING two triggers — the
+ *  reconcile's drops and the sub-60 grid holes — already recover these twelve:
+ *    grid=30 S=45 minSell=0/30 guard=off apt-28, apt-29
+ *    grid=60 S=45 minSell=0/30 guard=off apt-28, apt-29
+ *    grid=60 S=60 minSell=0/30 guard=off apt-09, apt-26
+ *  Nothing shipped changed to make that true; the previous number was measured
+ *  on a board no screen draws. The 34 guard=on rows are byte-identical before
+ *  and after S0 (they used `maskOf` already).
+ *
+ *  These twelve are absent because the fallback RUNS for a guard-off store,
+ *  which is today's shipped behaviour (doors :912 measured it) — the doors
+ *  suite names it unruled as guard-conditional (doors :901-911). If Liam ever
+ *  rules it guard-conditional, these twelve return BY RULING, not by
+ *  regression, and the pin is re-frozen with that ruling.
+ *
+ *  ⚖ FOLD (BREAKER-817-561ca62a.md, 2026-09-02) — SCOPE OF THE MEASUREMENT.
+ *  This set is measured on `fixtureWorld` ONLY: one board, no locked lanes,
+ *  `now` fixed at the fixture's 804. The same greedy bed-cascade class still
+ *  produces guard=off non-monotonicity on the suite's `syntheticWorld` at
+ *  these pinned dials (10/180), on this board with one lane locked (2/120),
+ *  off these pinned dial points entirely (35/2520), and at `now = null`
+ *  (tomorrow's board) at the shipped dials — all measured by the breaker.
+ *  Those rows are the frozen `bedLedger`'s class and ride
+ *  ANTHONY-ASK-BEDLEDGER-2026-09-02.md as evidence, not this pin's. A row
+ *  ARRIVING on THIS board at THESE dials is still red. */
+const MONO_PINNED: string[] = [
+  'grid=30 S=45 minSell=0 guard=on apt-14',
+  'grid=30 S=45 minSell=0 guard=on apt-29',
+  'grid=30 S=45 minSell=0 guard=on apt-33',
+  'grid=30 S=45 minSell=30 guard=on apt-14',
+  'grid=30 S=45 minSell=30 guard=on apt-29',
+  'grid=30 S=45 minSell=30 guard=on apt-33',
+  'grid=30 S=60 minSell=0 guard=on apt-29',
+  'grid=30 S=60 minSell=0 guard=on apt-33',
+  'grid=30 S=60 minSell=30 guard=on apt-29',
+  'grid=30 S=60 minSell=30 guard=on apt-33',
+  'grid=30 S=90 minSell=0 guard=on apt-14',
+  'grid=30 S=90 minSell=0 guard=on apt-29',
+  'grid=30 S=90 minSell=0 guard=on apt-33',
+  'grid=30 S=90 minSell=30 guard=on apt-14',
+  'grid=30 S=90 minSell=30 guard=on apt-29',
+  'grid=30 S=90 minSell=30 guard=on apt-33',
+  'grid=60 S=45 minSell=0 guard=on apt-14',
+  'grid=60 S=45 minSell=0 guard=on apt-29',
+  'grid=60 S=45 minSell=0 guard=on apt-33',
+  'grid=60 S=45 minSell=30 guard=on apt-14',
+  'grid=60 S=45 minSell=30 guard=on apt-29',
+  'grid=60 S=45 minSell=30 guard=on apt-33',
+  'grid=60 S=60 minSell=0 guard=on apt-14',
+  'grid=60 S=60 minSell=0 guard=on apt-29',
+  'grid=60 S=60 minSell=0 guard=on apt-33',
+  'grid=60 S=60 minSell=30 guard=on apt-14',
+  'grid=60 S=60 minSell=30 guard=on apt-29',
+  'grid=60 S=60 minSell=30 guard=on apt-33',
+  'grid=60 S=90 minSell=0 guard=on apt-14',
+  'grid=60 S=90 minSell=0 guard=on apt-29',
+  'grid=60 S=90 minSell=0 guard=on apt-33',
+  'grid=60 S=90 minSell=30 guard=on apt-14',
+  'grid=60 S=90 minSell=30 guard=on apt-29',
+  'grid=60 S=90 minSell=30 guard=on apt-33',
+]
+
+describe('9 — monotonicity: the surviving violations are exactly the set R5 owns', () => {
+  it('removing a committed booking never loses advertised ¥ anywhere NEW', () => {
+    const w = fixtureWorld()
+    const removable = removableIn(w)
+    // The sweep is only worth anything if it swept something.
+    expect(removable.length).toBeGreaterThanOrEqual(8)
+
+    const rows: string[] = []
+    const found: string[] = []
+    for (const d of MONO_DIALS) {
+      for (const guard of ['on', 'off'] as const) {
+        // `axis: 'law'` on purpose — it is what keeps `configOf` on the STORE'S
+        // REAL MENU. The probe's one deliberate divergence from the flip
+        // matrix's grid axis was exactly this ("the brief says other dials at
+        // fixture defaults"), and comparing an AFTER measured on a synthetic
+        // menu against a BEFORE measured on the real one would compare boards.
+        const c: Combo = { ...shipped(), gridMin: d.gridMin, sessionMin: d.sessionMin, axis: 'law', mode: guard === 'on' ? 'standard' : 'off' }
+        const base = { ...w, minSellableMin: d.minSellableMin }
+        // ⚖ R5 F0 — THE SCREEN'S OWN COMPOSITION, IN BOTH GUARD MODES. `door`'s
+        // `held === undefined` is the GATE off — and the gate is ON
+        // (`SELLING_ENGINE_LAW`, selling-engine-gate.ts:30). A guard-OFF STORE is a
+        // different thing entirely: `reservedMaskFor` answers an EMPTY mask for
+        // `gapGuardMode === 'off'` (reserved-mask.ts:200), TodayScreen's `salesDoor`
+        // gates on `!heldCommitted`, and `[]` is truthy — so the §5 fallback RUNS for a
+        // guard-off store, with `held: []`. The doors suite already measured what that
+        // store gains from it (selling-engine-doors.test.ts :912). Handing `undefined`
+        // here measured a composition no live screen runs: the fallback's existing
+        // triggers switched off. `maskOf` is one spelling for both modes because
+        // `reservedMaskFor` itself is where 'off' becomes the empty mask.
+        // Door/screen parity holds for THIS fixture only: no locked lanes, prices
+        // always shown. The composer's `locked: []` / `showPrice: true` (above, in
+        // `door`) are pre-existing door simplifications this file already carried —
+        // not something this round changed.
+        const doorOf = (world: World) => door(world, c, maskOf(world, c))
+        const before = advertisedTotal(doorOf(base))
+        for (const r of removable) {
+          const after = advertisedTotal(doorOf(without(base, r.caseId)))
+          const key = `${monoLabel(d)} guard=${guard} ${r.caseId}`
+          if (after < before) found.push(key)
+          rows.push(
+            `${monoLabel(d).padEnd(28)} guard=${guard.padEnd(3)} | ${r.caseId.padEnd(7)} ${r.laneKey} ${span(r.s, r.e)}` +
+              ` | before ¥${String(before).padStart(6)} after ¥${String(after).padStart(6)}` +
+              ` | ${after < before ? `LOSS ${after - before}` : after > before ? `+${after - before}` : '0'}`,
+          )
+        }
+      }
+    }
+
+    if (R6_EVIDENCE) {
+      mkdirSync(R6_EVIDENCE, { recursive: true })
+      writeFileSync(
+        join(R6_EVIDENCE, `DIAL-SWEEP-AFTER-${R6_SHA}.txt`),
+        [
+          '# DIAL-SWEEP (AFTER) — the probe’s Scene-B removal sweep, re-run post-R6',
+          `# tip: ${R6_SHA}`,
+          '#',
+          '# BEFORE = PROBE-R5R6-rawlog-4d10d4d5.txt §PROBE A, measured at 4d10d4d5 with the',
+          '# same axes and the same definition of the advertised total.',
+          '#',
+          '# ⚖ R5 S0 — the guard=off rows below are measured on the screen’s own',
+          '# composition (empty mask, fallback running); the probe’s guard=off rows were',
+          '# gate-off and are NOT comparable to these — the guard=on rows are.',
+          `# axes: {gridMin 30/60} × {S 45/60/90} × {minSellableMin 0/30} × guard {on,off}`,
+          `#       × ${removable.length} removable committed bookings = ${rows.length} measurements.`,
+          '#',
+          '# columns: dials | guard | removed booking | advertised ¥ before/after | delta',
+          '#',
+          ...rows,
+          '#',
+          `# VIOLATIONS (after < before): ${found.length} / ${rows.length}`,
+          ...found.map((f) => `#   ${f}`),
+          '',
+        ].join('\n'),
+      )
+    }
+
+    expect([...found].sort()).toEqual([...MONO_PINNED].sort())
+  })
+
+  /** ⚖ R5 F0 ARMOR — BREAKER-817-561ca62a.md finding 4: the sweep above proves
+   *  the MASK FUNCTION is monotone; it says nothing about whether the SCREEN
+   *  hands that function's answer to the store or invents its own. Two
+   *  mutations slip past every render-free suite in this family:
+   *    A) `salesDoor`'s gate on `heldCommitted` changed from `!heldCommitted`
+   *       to a length check (`heldCommitted.length > 0`) — `[]` is truthy, so
+   *       a guard-off store would stop reaching the fallback F0 fixed.
+   *    B) the `heldCommitted` memo decides "off" itself (e.g.
+   *       `props.guard.mode !== 'off' ? reservedMaskFor(...) : undefined`)
+   *       instead of forwarding the mode and letting `reservedMaskFor` own
+   *       the decision (reserved-mask.ts:200) — handing a guard-off store
+   *       `undefined` again, the exact composition F0 moved away from.
+   *  No test renders TodayScreen (§4's header explains why), so nothing else
+   *  in this suite goes red for either mutation.
+   *
+   *  ⚖ PIN REWRITTEN at R5 POST-MERGE, WITH the decision — and the decision is
+   *  that the OLD SHAPE OF THIS PIN COULD NOT HOLD MUTATION B.
+   *  POSTMERGE-CHECK-88b7726c.md measured it against nine mutants on the
+   *  merged tip: the negatives scanned an 816-char slice, so hoisting the
+   *  comparison ONE LINE ABOVE the memo — the file's own `guardOn` const,
+   *  moved up — slipped clean (finding 1, HIGH), and so did `gapGuardMode:
+   *  'standard'` HARDCODED in the call, which carries no comparison and no
+   *  `'off'` to catch and would hand a guard-off store a NON-EMPTY mask
+   *  (finding 2, HIGH). A text pin cannot close a semantic property, so the
+   *  property MOVED: the memo body is now a pure pass-through into
+   *  `heldCommittedFor` (held-committed.ts), and held-committed.test.ts proves
+   *  the behaviour by CALLING it — the gate off ⇒ `undefined`, mode 'off' ⇒ the
+   *  frozen empty mask, and every live mode ⇒ `reservedMaskFor`'s own answer
+   *  byte for byte.
+   *
+   *  ⚖ PIN TIGHTENED at ROUND 1 OF THE FIX ROUND, WITH the decision, and the
+   *  decision is that A PASS-THROUGH PIN IS ONLY AS GOOD AS THE SET IT PINS.
+   *  The blind round after the rewrite found three ways through the version
+   *  that only named four keys and banned five characters: a tenth key added
+   *  beside the nine (a pre-gate on the store's dial, wrapped around the call),
+   *  a `...spread` that overrides a forwarded key further down the literal, and
+   *  a sibling identifier carrying the mask to the doors while this memo sat
+   *  untouched. So the pin now states the WHOLE literal rather than a subset —
+   *  every `key: value` line spelled out, and a key COUNT so one more cannot be
+   *  added — the ban list grows the spread and both loose comparisons, and a
+   *  CENSUS below reads every `held:` payload on the screen so the answer
+   *  cannot be re-routed around this memo.
+   *
+   *  ⚖ ONE MORE BAN AT ROUND 3, AND THE COUNT SENTENCE ABOVE CORRECTED WITH IT.
+   *  The count is a count of `\w+:`-spelled keys, so ON ITS OWN it does not say
+   *  "one more cannot be added". A lens-B mutant spelled the exception: a
+   *  COMPUTED key, `[dialKey]: forcedMode,`, whose `dialKey` const is typed
+   *  `string` (which dodges TS1117) and written with backticks (which dodges
+   *  the quote ban). It carries no banned character and `^\s+\w+: ` cannot see
+   *  it, so the count still read ten with eleven keys in the literal. What
+   *  closes it is the BRACKET ban below, on the forwarding literal: nothing in
+   *  a ten-key pass-through needs a `[`. The count and the bracket ban hold the
+   *  no-eleventh-key claim TOGETHER; neither of them holds it alone.
+   *
+   *  ⚖ ONE KEY ADDED AT ROUND 2, WITH the decision, and the decision is that
+   *  THE DOOR INTO THE BOOK IS NOW HANDED OVER RATHER THAN IMPORTED. Round 1
+   *  built the committed book inside `heldCommittedFor` by importing
+   *  `bedViewsFor` from this screen, which made the two files import each
+   *  other — it ran, but a cycle on a law-bearing seam is a trap for the next
+   *  edit. The screen passes the door as `bookOf` instead. So the literal is
+   *  TEN lines rather than nine and the count moves with it; the claim this
+   *  test makes is untouched, because the tenth line is a bare forwarded
+   *  identifier like the other nine — a value, not a call, and the ban list
+   *  still forbids any decision being spelled around it. A mutant that hands
+   *  over a DIFFERENT door has to change this line to do it, which is red here;
+   *  a wrapper that ignores the door it was handed and reaches for the screen
+   *  again is red at held-committed.test.ts §3, which HANDS OVER a different
+   *  door and reads the answer that comes back. ⚖ ROUND 3 — that behavioural
+   *  test is the guarantee, and this sentence used to credit the wrong pin:
+   *  selling-engine-doors.test.ts §1 pins that held-committed.ts names neither
+   *  the screen nor `bedTruthViews`, and lens B walked past BOTH names with a
+   *  split-string dynamic require. Name pins are belt-and-braces here — cheap,
+   *  and they make the honest spelling of the mistake unspellable — but the
+   *  door test is what proves it.
+   *
+   *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
+   *  much smaller claim: no decision is spelled INSIDE the slice. It forwards
+   *  ten named inputs and contains no conditional and no literal of any kind —
+   *  no `?`, no `undefined`, no `null`, no quote character, no spread — so a
+   *  mutant cannot express a guard-off branch inside the slice, and expressing
+   *  one outside it means changing the tested function, where the unit test is
+   *  waiting. What this tripwire does not reach: a decision prepared ABOVE the
+   *  slice (a const, computed from something) and referenced here by a
+   *  changed forwarded value — that class is the recorded ceiling of a text
+   *  pin (QUEUE-RIDERS 9/3); the anchored per-line check pins the value each
+   *  line forwards, not where that value came from.
+   *
+   *  ⚠ THE PRICE OF THE QUOTE BAN, PAID KNOWINGLY. Because `'` and `"` are
+   *  banned anywhere in the slice, the COMMENTS inside the memo body may not
+   *  carry an apostrophe either — an English possessive in there is a FALSE RED
+   *  rather than a silent pass. That is the trade: the ban is what kills a
+   *  hardcoded `'standard'`, and a loud red on a comment is the cheapest
+   *  possible failure mode. The memo's own JSDoc says so beside the code.
+   *  ⚖ ROUND 3 — AND IT IS NOT ONLY THE QUOTES, which this paragraph used to
+   *  document alone. `?`, `...`, `null` and `undefined` are banned anywhere in
+   *  the slice too, and `[` inside the forwarding literal, so the memo's
+   *  COMMENTS may carry none of them either: no question mark, no ellipsis, no
+   *  bare `null`/`undefined`, no bracket. Write the note around them. Every one
+   *  of these is a FALSE RED rather than a silent pass — the same trade as the
+   *  apostrophe, paid four more times.
+   *
+   *  ⚖ THE LIMIT THAT WAS ACCEPTED IS CLOSED AT ROUND 3 (POSTMERGE finding 3
+   *  and lens B P3), AND WITHOUT A RENDERER. The gate used to be held by a bare
+   *  `toContain` on a SENTENCE, and two mutants walked past it: RED-e rewrote
+   *  `salesDoor`'s gate and kept the pinned sentence alive as a COMMENT (0
+   *  red), and lens B's P3 added a SECOND gate line BELOW the pinned one
+   *  (`if (!heldGuardOn) return null`, the comparison hoisted above the memo) —
+   *  which the census cannot see either, because it adds no `held:` payload.
+   *  Both are closed by slicing `salesDoor` the same bounded way this memo is
+   *  sliced and pinning that the slice holds EXACTLY ONE `return null` which IS
+   *  the pinned sentence: a commented-out copy is a second match, a second gate
+   *  is a second match, and replacing the sentence outright fails the
+   *  `toContain`. fallback-cells.test.ts:892 keeps its own pin on that same
+   *  sentence and is belt-and-braces beside this one.
+   *
+   *  ⚠ WHAT THE TWO SLICES STILL DO NOT REACH is a decision taken OUTSIDE
+   *  them — a consumer further down that drops what `salesDoor` returned. That
+   *  is a different seam with its own pins, and the proof for the guard-off
+   *  composition is held-committed.test.ts either way, never a text pin. */
+  it('⚖ R5 F0 — the SCREEN decides nothing: the memo is a pass-through into the tested function', () => {
+    const screen = SRC('TodayScreen.tsx')
+
+    // Bounded slice so a failed/empty match cannot silently pass. The bound
+    // stays (POSTMERGE finding 7): the pass-through memo is short, and a slice
+    // that ever over-read into the neighbouring `gapDials` memo would be a
+    // false red rather than a silent pass.
+    const START = 'const heldCommitted = useMemo('
+    const startIdx = screen.indexOf(START)
+    expect(startIdx).toBeGreaterThanOrEqual(0)
+    const endIdx = screen.indexOf('\n  )', startIdx + START.length)
+    expect(endIdx).toBeGreaterThan(startIdx)
+    const memo = screen.slice(startIdx, endIdx + '\n  )'.length)
+    expect(memo.length).toBeGreaterThan(0)
+    expect(memo.length).toBeLessThan(2500)
+
+    // It calls the tested function, and the literal it hands over is EXACTLY
+    // these ten lines: the round gate, the world the book is built from, the
+    // door it is built through, and the dials. Each one is a bare forwarded
+    // expression, not a value this memo chose — and the count below, TOGETHER
+    // with the bracket ban further down, is what means an eleventh key cannot
+    // be smuggled in beside them: the count reads `\w+:`-spelled keys only, so
+    // a computed key slips it, and the bracket is what stops one being written
+    // at all (⚖ lens B B1).
+    expect(memo).toContain('heldCommittedFor(')
+    const FORWARDED = [
+      'gateOn: SELLING_ENGINE_LAW,',
+      'lanes: committedLanes,',
+      'rooms: props.rooms,',
+      'frame: ledgerFrame,',
+      // ⚖ ROUND 2 — the one door into the capacity book, handed over as a
+      // VALUE. Passed, never called: `bedViewsFor,` with no parenthesis, so
+      // this memo still spells no derivation of its own.
+      'bookOf: bedViewsFor,',
+      'closeMin: hours.close,',
+      'nowMin: props.sell.nowMinute,',
+      'guard: props.guard.config,',
+      'gapGuardMode: props.guard.mode,',
+      'released: releasedHere,',
+    ]
+    // ⚖ ROUND 4 — `includes` WAS WALKED BY A COMMENTED-OUT COPY. Breaker on
+    // 569cfe6e (M1) found that `memo.includes(line)` is satisfied by `//
+    // gapGuardMode: props.guard.mode,` sitting beside a real
+    // `gapGuardMode: forcedMode,` — a `//`-prefixed line contains the pinned
+    // text as a substring, and the key-count regex (`^\s+\w+: `, anchored on
+    // the LINE START) cannot see a commented line either, so both checks stay
+    // green while the memo silently pins a hoisted constant instead of the
+    // forwarded value. Each forwarded line must now match WHOLE and anchored:
+    // it has to START the line (after indentation only, so a `// ` prefix
+    // misses) and END it (so a trailing addition on the same line misses too).
+    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    for (const line of FORWARDED) {
+      const anchored = new RegExp('^ +' + escapeRegExp(line) + '$', 'm')
+      expect({ line, has: anchored.test(memo) }).toEqual({ line, has: true })
+    }
+    expect((memo.match(/^\s+\w+: /gm) ?? []).length).toBe(FORWARDED.length)
+
+    // …and it decides NOTHING. No conditional and no literal of any kind, no
+    // spread that could override one of the ten, no loose comparison: any
+    // branch a mutant wants has to be written in `heldCommittedFor`, where
+    // held-committed.test.ts calls it. This is the shape the old regex
+    // negatives were reaching for and could not hold.
+    for (const banned of ['?', 'undefined', 'null', "'", '"', '...', '==', '!=']) {
+      expect({ banned, at: memo.indexOf(banned) }).toEqual({ banned, at: -1 })
+    }
+
+    // ⚖ LENS B B1 — AND NO COMPUTED KEY. The count above reads `\w+:` keys, so
+    // `[dialKey]: forcedMode,` is an ELEVENTH forwarded key that the count
+    // cannot see and none of the eight bans above catches. The BRACKET is what
+    // stops it: nothing in a ten-key pass-through literal needs one. It is
+    // banned on the LITERAL rather than on the whole slice because the memo's
+    // dependency array below is brackets by construction — bounding it here is
+    // exactly what lets the eight bans above keep the WHOLE memo, the `() =>`
+    // line included, where a hoisted ternary would have to be written.
+    const CALL = 'heldCommittedFor({'
+    const callAt = memo.indexOf(CALL)
+    expect(callAt).toBeGreaterThanOrEqual(0)
+    const literalEnd = memo.indexOf('\n      })', callAt)
+    expect(literalEnd).toBeGreaterThan(callAt)
+    const literal = memo.slice(callAt, literalEnd)
+    expect(literal.length).toBeGreaterThan(0)
+    expect({ banned: '[', at: literal.indexOf('[') }).toEqual({ banned: '[', at: -1 })
+
+    // THE CENSUS — every `held:` payload on the WHOLE screen, so the answer
+    // cannot be re-routed around the memo this pin guards. A decoy gate plus a
+    // sibling identifier (`heldForDoor = …` handed to the doors instead) leaves
+    // the memo above untouched and every assertion so far green; it cannot
+    // survive here, because it has to appear in this list to be used at all.
+    //
+    // ⚠ MEASURED, AND `held: false` IS IN IT HONESTLY. Six payloads, three
+    // spellings: the sales door's three (the committed mask), the staff strip's
+    // one (the board mask), and TWO `held: false` — which are a DIFFERENT field
+    // entirely, `BoardBooking.held` (today-board.ts:257), the boolean a card
+    // face carries for 「reassigned from」. They are counted rather than filtered
+    // out: a census that quietly drops the spellings it did not expect is a
+    // census a mutant can hide inside.
+    //
+    // ⚖ ROUND 3 — SORTED, SO MOVING JSX IS NOT A RED. The list was asserted in
+    // SOURCE ORDER, which made re-ordering two elements on the screen a red for
+    // a pin that has nothing to say about layout. Sorted, it is a MULTISET: the
+    // reach is unchanged — every `held:` payload on the whole screen is still
+    // in it, and a NEW one still reds, which is the guard — and only the
+    // accident of position is dropped.
+    //
+    // ⚠ WHAT TO DO WHEN AN HONEST EDIT REDS THIS. Add the exact payload to the
+    // list below with a one-line reason for it. Three belong here and no
+    // others: `heldCommitted` (the committed mask), `heldBoard` (the board
+    // mask), and the `false` a BoardBooking literal carries. A payload that is
+    // none of those is a REVIEW QUESTION rather than a list edit — it means
+    // something other than the committed mask is reaching a door.
+    //
+    // ⚠ AND THE REGEX READS COMMENTS AND STRINGS TOO. It does not know it is
+    // looking at code, so a comment or a string anywhere on the screen that
+    // happens to spell that shape is counted and reds this line. Same trade as
+    // the quote ban above — a loud false red, never a silent pass — and the
+    // same answer: write the note around it.
+    expect([...screen.matchAll(/\bheld: ([^,\n]+),/g)].map((m) => m[1]).sort()).toEqual([
+      'false',
+      'false',
+      'heldBoard',
+      'heldCommitted',
+      'heldCommitted',
+      'heldCommitted',
+    ])
+
+    // ⚖ ROUND 4 — THE OTHER HALF OF THE CENSUS: NOT WHAT REACHES THE DOOR, BUT
+    // HOW MANY PLACES DECIDE "IS THE GUARD OFF" AT ALL. The held: census above
+    // proves the mask reaching each door is one of three honest spellings; it
+    // says nothing about how many independent comparisons produce 'off' in the
+    // first place. A whole-screen COUNT of `[!=]== 'off'` comparisons closes
+    // that gap: every drift-shaped mutant that re-decides 'off' downstream of
+    // the memo — a second gate returning a constant instead of null in
+    // `salesDoor`; a gate moved into `gapDrawn`/`drawnClaims`; a gate in
+    // `shelf`; a destructured `{ mode: dial }` read — has to write one more
+    // comparison to do it, and that extra comparison reds this line.
+    //
+    // ITS CEILING, NAMED HONESTLY: a lookup-based decision
+    // (`POLICY_WORD[props.guard.mode] === POLICY_WORD.off`) or a comparison
+    // written via a helper defined off-screen dodges it — closing that class
+    // is the bounded-slice-plus-census treatment already given above to
+    // `salesDoor`/`gapDrawn`/`drawnClaims`/`shelf`, or a renderer fence (the
+    // standing 8/31 rider). Measured by the 9/3 mutation lens (lens B, third
+    // campaign), which found five such respellings all landing 1681/1681
+    // green.
+    //
+    // ⚠ WHAT TO DO WHEN AN HONEST EDIT REDS THIS. A new legitimate `'off'`
+    // comparison on the screen: update the count below with a one-line
+    // reason. A new comparison that gates a DOOR on the dial: that is a
+    // REVIEW QUESTION, not a count edit — the dial is decided in
+    // reserved-mask.ts only.
+    expect((screen.match(/[!=]==\s*'off'/g) ?? []).length).toBe(3)
+
+    // The other half of the claim (mutation A's gate) — kept beside F0 so
+    // both halves of "the screen forwards, never invents" live in one place.
+    // The original pin stays at fallback-cells.test.ts:892.
+    expect(screen).toContain('if (!heldCommitted) return null')
+
+    // ⚖ LENS B B2 — AND THAT SENTENCE IS THE ONLY GATE IN THE DOOR. Bounded
+    // the same way the memo above is bounded and for the same reason: an empty
+    // or over-reaching match is a loud red rather than a silent pass. EXACTLY
+    // ONE `return null` in the whole `salesDoor` body, and it is the sentence
+    // pinned on the line above — so a SECOND gate below it (lens B P3) and a
+    // commented-out copy of the original beside a rewritten one (RED-e) are
+    // both a second match, and both red. This is what closes the limit the
+    // ⚠ paragraph in the JSDoc used to accept, and it needs no renderer.
+    const DOOR = 'const salesDoor = useMemo<FallbackResult | null>(() => {'
+    const doorAt = screen.indexOf(DOOR)
+    expect(doorAt).toBeGreaterThanOrEqual(0)
+    const doorEnd = screen.indexOf('\n  }, [', doorAt)
+    expect(doorEnd).toBeGreaterThan(doorAt)
+    const door = screen.slice(doorAt, doorEnd)
+    expect(door.length).toBeGreaterThan(0)
+    expect(door.length).toBeLessThan(2500)
+    const GATE = 'if (!heldCommitted) return null'
+    expect(door.indexOf(GATE)).toBeGreaterThanOrEqual(0)
+    expect((door.match(/return null/g) ?? []).length).toBe(1)
+    // …and the one match IS the pinned sentence, not a second gate that happens
+    // to sit beside it: same index, offset by the sentence's own prefix.
+    expect(door.indexOf('return null')).toBe(door.indexOf(GATE) + 'if (!heldCommitted) '.length)
   })
 })
