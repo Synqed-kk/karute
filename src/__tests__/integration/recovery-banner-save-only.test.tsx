@@ -2175,22 +2175,31 @@ describe('the mount retry secures a take the stop could not', () => {
   // THE case the recoverable-take read can never reach: the recorder's OWN
   // take, which is deliberately excluded from that read (an in-progress session
   // must not be offered as its own recovery). Stop → phone locked → the PUT
-  // dies: onstop has already run and will not run again, so without this the
-  // audio waits for a cold relaunch.
-  it("the recorder's own stopped take is retried too, though recovery never offers it", async () => {
+  // dies: onstop has already run and will not run again, so its audio must
+  // still be retried here.
+  //
+  // It rides the WORKLIST, and only the worklist (fix round 7). onstop stamps
+  // the duration the store's read requires before it ever uploads, so the take
+  // this page is holding is simply one of the ids the drain gets. The second,
+  // un-awaited call it used to get of its own bought nothing — an unstamped
+  // take is one secureTake returns from untouched — and it put two whole takes
+  // on the wire at once, which is exactly what the sequential loop above
+  // exists to prevent.
+  it("the recorder's own stopped take is retried too — on the worklist, once", async () => {
     offerTake = false // nothing recoverable — this take IS the live one
-    unsecuredTakeIds = [] // and the store has not seen it yet either
+    unsecuredTakeIds = ['take-live-1', 'take-older']
     globalRecorder.state = 'recorded'
     globalRecorder.takeId = 'take-live-1'
     try {
       await renderPage()
-      expect(mockSecureTake).toHaveBeenCalledTimes(1)
-      expect(mockSecureTake).toHaveBeenCalledWith(
-      expect.anything(),
-      'take-live-1',
-      undefined,
-      expect.any(Function),
-    )
+      expect(mockSecureTake).toHaveBeenCalledTimes(2)
+      expect(mockSecureTake).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        'take-live-1',
+        undefined,
+        expect.any(Function),
+      )
     } finally {
       globalRecorder.state = 'idle'
       globalRecorder.takeId = null

@@ -90,10 +90,20 @@ export interface RecordingPipelinePort {
    * FAIL-OPEN, exactly like the recorder's: `null` on an unresolvable staff, a
    * dead socket or a core 5xx — all moments in time, so secure-take records a
    * RETRYABLE 'session' and the next drain asks again. Never throws.
+   *
+   * `takeId` is here for ONE reason (fix round 7): it is the take this row will
+   * belong to, so it is the natural idempotency anchor. Every retryable failure
+   * above is a moment that may have passed AFTER core already created the row —
+   * a dead socket on the way back is indistinguishable from one on the way out.
+   * A fresh key per attempt therefore mints a new orphan row every time the
+   * reply is lost. Keyed off the take, the retries collapse onto one row.
+   * (Thin only: the web arm is a server action, which carries no key — noted at
+   * its implementation.)
    */
   startSession(input: {
     customerId: string | null
     appointmentId: string | null
+    takeId: string
   }): Promise<{ id: string } | null>
   /**
    * Mint the signed upload URL for THIS take's finalized key (capture pipeline
@@ -212,13 +222,19 @@ export const webRecordingPort: RecordingPipelinePort = {
     // NO cleanup — the worker deletes the object on success.
     return { path }
   },
-  async startSession(input) {
+  async startSession({ customerId, appointmentId }) {
     // The recorder's own start-mint door, reached exactly as it reaches it
     // (global-recorder.ts imports this action directly). Lazy for the same
     // reason finalizeTake below is: @/actions/recordings reaches
     // @synqed-kk/client, which jest cannot parse.
+    //
+    // `takeId` is DROPPED here, not forwarded: a server action has no
+    // Idempotency-Key header to carry it (the action's own signature has no
+    // such field either), so the retry-collapses-onto-one-row property is the
+    // phone's. The web arm keeps the orphan-row degradation core already
+    // accepts for this door (packet-10 fact 3).
     const { startRecordingSession } = await import('@/actions/recordings')
-    return startRecordingSession(input)
+    return startRecordingSession({ customerId, appointmentId })
   },
   async mintTakeUrl(takeId, mimeType, recordingSessionId) {
     const { mintRecordingUploadUrl } = await uploadActions()

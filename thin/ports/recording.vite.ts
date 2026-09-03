@@ -27,12 +27,39 @@ import type {
 const MINT_ERROR_CODES = new Set([
   'bad_mime',
   'bad_take_id',
+  // The door's refusal for a client-named take that carries no row (PR2 fix
+  // round 7). TERMINAL, and it was missing here (fix round 7): read as the
+  // generic `mint_400` it stayed retryable, so the phone re-uploaded a whole
+  // take against an answer that can never change.
+  'bad_input',
   'exists',
   'reserved_elsewhere',
   'forbidden',
   'not_found',
   'upstream',
 ])
+
+/** How long the phone waits on a door that has not answered. Not a performance
+ *  budget — a device that walks out of signal STALLS its requests rather than
+ *  failing them, and a stalled mint or finalize holds secure-take's one-at-a-
+ *  time slot for the whole page lifetime, so every other owed take starves.
+ *  30 s for these three: they are small JSON calls (the whole-take PUT carries
+ *  its own, size-derived deadline in secure-take.ts).
+ *
+ *  AbortController + a timer rather than AbortSignal.timeout: that static is
+ *  absent from jsdom (this port's own tests) and from WebViews older than
+ *  Chrome 103, where reaching for it would throw and fail every take. */
+const DOOR_TIMEOUT_MS = 30_000
+
+async function doorFetch(path: string, init: RequestInit): Promise<Response> {
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), DOOR_TIMEOUT_MS)
+  try {
+    return await getDataPort().apiFetch(path, { ...init, signal: deadline.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /** Facade classification → the mint code it carries, for the refusals the route
  *  spells out for a human instead of echoing the code (…/upload-url/route.ts). */
@@ -114,13 +141,18 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // Effectful row mint → the route REQUIRES an Idempotency-Key. FAIL-OPEN like
   // the recorder's: every failure is null, and secure-take reads that as a
   // retryable 'session'.
-  async startSession(input) {
+  async startSession({ takeId, ...input }) {
     try {
-      const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', {
+      const res = await doorFetch('/api/app/v1/recordings/session', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          // ⚖ KEYED OFF THE TAKE, never a fresh uuid (fix round 7). This call
+          // is retried by design — a dead socket on the way BACK is
+          // indistinguishable from one on the way out, so a fresh key per
+          // attempt leaves core a new orphan row every time a reply is lost.
+          // One take owns one row, so the take id is the key.
+          'idempotency-key': `session-${takeId}`,
         },
         body: JSON.stringify(input),
       })
@@ -136,7 +168,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // assembled in facade-fetch.ts, never spelled here), plus a JSON body: the
   // device NAMES the take and the container it recorded.
   async mintTakeUrl(takeId: string, mimeType: string, recordingSessionId: string | null) {
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
+    const res = await doorFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       // recordingSessionId is the row the mint RESERVES this key on — sent even
@@ -151,7 +183,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     return body
   },
   async finalizeTake(input: FinalizeTakeInput) {
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/finalize', {
+    const res = await doorFetch('/api/app/v1/recordings/finalize', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),

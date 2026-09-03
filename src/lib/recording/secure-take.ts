@@ -33,6 +33,17 @@
 // the tail still being written. `durationMs` (stamped at onstop) or the stop
 // path's own argument is that proof.
 //
+// AND NO CALL WAITS FOREVER (fix round 7, P1). A phone that walks out of
+// signal does not fail its requests — it STALLS them, and a stalled PUT held
+// the take in `inFlight` for the whole page lifetime: the stop path was gone,
+// every mount retry hit the guard and returned, and the sequential drain below
+// never reached its second take. So the PUT carries a deadline (its own size
+// at ~50 KB/s, floor 60 s — a 2 h take on slow cellular must still be allowed
+// to finish), and the phone's three doors carry a 30 s one of their own
+// (thin/ports/recording.vite.ts). A deadline lands as a RETRYABLE code and the
+// loop moves on. The web arm's doors are server actions — no signal reaches
+// them; they are bounded by the platform's own function timeout.
+//
 // IT IS A HINT, NEVER A GUARANTEE (⚖ v2 item 2). Phase `recorded` renders
 // before this is called and never waits on it; an offline stop simply records
 // its failure on the take meta and the record page's mount retry — PR5's launch
@@ -59,6 +70,16 @@ const DEFAULT_MIME = 'audio/webm'
  *  race each other's finalize. Module-level because the two callers share no
  *  object — the recorder singleton and a React effect. */
 const inFlight = new Set<string>()
+
+/** The PUT's deadline, in ms: this take's own bytes at ~50 KB/s, never under a
+ *  minute. A FLAT timeout cannot work here — a take is the whole recording, so
+ *  the same number that mercy-kills a stalled 2 MB upload would cut a 90-minute
+ *  one off mid-flight on salon wifi. Generous by design: this exists to release
+ *  a socket that will never answer, not to police slow ones. */
+const PUT_FLOOR_MS = 60_000
+const PUT_BYTES_PER_MS = 50 // ≈50 KB/s
+const putDeadlineMs = (bytes: number) =>
+  Math.max(PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
 
 /**
  * Upload the whole take to its finalized key and tell the server it is complete.
@@ -106,7 +127,14 @@ export async function secureTake(
     // and `durationSeconds` is passed only BY the stop path, so between them
     // one of the two is present exactly when a take is complete. Mark NOTHING:
     // an unfinished take has not failed at anything.
-    if (meta.durationMs === undefined && durationSeconds === undefined) return
+    //
+    // It is also the ONLY measurement this take will ever be finalized with:
+    // the flush window (updatedAt − startedAt) that used to stand in behind it
+    // counted paused time as recording, and this gate made it unreachable, so
+    // it is gone (fix round 7) rather than left as a floor nothing can reach.
+    const measuredSeconds =
+      durationSeconds ?? (meta.durationMs !== undefined ? meta.durationMs / 1000 : undefined)
+    if (measuredSeconds === undefined) return
     // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
@@ -132,6 +160,9 @@ export async function secureTake(
         // that is a row the karute could never be read beside.
         customerId: meta.target?.customerId ?? null,
         appointmentId: meta.target?.appointmentId ?? null,
+        // The idempotency anchor (fix round 7) — one row per take, however many
+        // times a lost reply sends us back here.
+        takeId,
       })
       if (!started) {
         // RETRYABLE. The door fails OPEN by contract — an unresolvable staff, a
@@ -159,14 +190,30 @@ export async function secureTake(
       return
     }
 
-    const put = await fetch(minted.url, {
-      method: 'PUT',
-      // The SERVER's content type for the key it composed, never our own guess:
-      // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
-      // dies for the finalized object.
-      headers: { 'content-type': minted.contentType },
-      body: blob,
-    })
+    // AbortController + a timer, not AbortSignal.timeout: that static is absent
+    // from jsdom (this file's own tests) and from WebViews older than Chrome
+    // 103, where it would throw a TypeError and fail every take instead of
+    // saving them. A plain timer is universal — and it is the only form jest's
+    // fake timers can advance, which is what makes the stall provable.
+    const deadline = new AbortController()
+    const putTimer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+    let put: Response
+    try {
+      put = await fetch(minted.url, {
+        method: 'PUT',
+        // The SERVER's content type for the key it composed, never our own guess:
+        // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
+        // dies for the finalized object.
+        headers: { 'content-type': minted.contentType },
+        body: blob,
+        // An abort throws, so a stalled upload lands in the catch below as the
+        // RETRYABLE 'network' — and the finally releases this take, which is
+        // what lets the drain reach the next one.
+        signal: deadline.signal,
+      })
+    } finally {
+      clearTimeout(putTimer)
+    }
     // 409 IS a success. The mint no longer signs for upsert (PR2 fix round 3):
     // a finalized key is immutable evidence, so storage refusing a second PUT
     // to it is exactly right — and for us that refusal means "the object is
@@ -188,14 +235,8 @@ export async function secureTake(
       takeId,
       mimeType,
       // The recorder's live measurement when this IS the stop; the one it
-      // stamped at stop when this is a later retry. The stop-stamp gate above
-      // proves one of those two is here, so the flush window below — which
-      // counts paused time as recording — is a FLOOR now, not a live path.
-      durationSeconds:
-        durationSeconds ??
-        (meta.durationMs !== undefined
-          ? Math.max(0, meta.durationMs / 1000)
-          : Math.max(0, (meta.updatedAt - meta.startedAt) / 1000)),
+      // stamped at stop when this is a later retry — settled at the gate above.
+      durationSeconds: Math.max(0, measuredSeconds),
       byteLength: blob.size,
       // REQUIRED by the door — the take's own row, stamped on the take before
       // the mint was even asked.

@@ -713,20 +713,11 @@ export function RecordPageView({
     // recorder/pipeline take is excluded so an in-progress session is never
     // offered as its own recovery.
     let cancelled = false
-    // THE likeliest failure, and the one the recoverable-take read below can
-    // never see: a stop whose upload died (phone locked, tunnel gone) on the
-    // recorder's OWN take. That take is deliberately EXCLUDED from the recovery
-    // read — it is not lost, it is right here — and onstop never runs twice, so
-    // without this line its audio waits for a cold relaunch. Free when there is
-    // nothing owed: secureTake returns on finalizedAt, on a terminal code, and
-    // on its own in-flight guard.
     // ⚖ `recorded` and nothing else: a take still recording (or paused) must
     // never be finalized — its remaining audio could not land afterwards.
-    // isActiveTake below is the same rule read from the recorder itself.
+    // isActiveTake is that rule read from the recorder itself, the belt behind
+    // the worklist's own stopped-only filter.
     const isActive = (id: string) => globalRecorder.isActiveTake(id)
-    if (globalRecorder.state === 'recorded' && globalRecorder.takeId) {
-      void secureTake(getRecordingPipelinePort(), globalRecorder.takeId, undefined, isActive)
-    }
     // Capture pipeline PR3 — the retry for every stop the network missed, on
     // its OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one
     // below. STOPPED takes only: a take whose recorder never stopped may still
@@ -741,10 +732,14 @@ export function RecordPageView({
     // this page keeps rendering has nothing to do with whether the audio is on
     // the server. No UI, no toast — secureTake is idempotent (its in-flight
     // guard and finalizedAt make the repeats free) and records its own outcome.
-    // ONE AT A TIME. A take is a whole recording — tens of megabytes — and a
-    // staffer with three owed takes on salon wifi would otherwise start three
-    // PUTs at once, each starving the others (and the app's own calls) until
-    // they all time out. Sequential turns that into three uploads that finish.
+    // ONE AT A TIME, and this loop is the ONLY mount path (fix round 7). A take
+    // is a whole recording — tens of megabytes — and a staffer with three owed
+    // takes on salon wifi would otherwise start three PUTs at once, each
+    // starving the others (and the app's own calls) until they all time out.
+    // The recorder's own stopped take used to get a second, un-awaited call of
+    // its own here: it is already on this worklist (onstop stamps the duration
+    // the list reads), and starting it outside the loop put two whole takes on
+    // the wire at once — the exact starvation this is sequential to prevent.
     void (async () => {
       const port = getRecordingPipelinePort()
       for (const id of await listOwnStoppedUnsecuredTakeIds())

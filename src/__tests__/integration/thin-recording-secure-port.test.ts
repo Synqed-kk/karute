@@ -31,6 +31,9 @@ const FINALIZE = {
   recordingSessionId: '99999999-2222-4333-8444-555555555555',
 }
 
+/** A second take id — the key must be per-TAKE, not per-device. */
+const OTHER_TAKE = '11111111-2222-4333-8444-666666666666'
+
 function port(res: (path: string, init?: RequestInit) => Promise<Response>) {
   const apiFetch = jest.fn(res)
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
@@ -57,7 +60,11 @@ describe('thin recording port — startSession', () => {
     })
 
     await expect(
-      viteRecordingPort.startSession({ customerId: 'cust-1', appointmentId: 'appt-1' }),
+      viteRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: 'appt-1',
+        takeId: FINALIZE.takeId,
+      }),
     ).resolves.toEqual({ id: 'rs-new' })
 
     expect(apiFetch).toHaveBeenCalledTimes(1)
@@ -71,10 +78,35 @@ describe('thin recording port — startSession', () => {
     expect(
       (init?.headers as Record<string, string>)['idempotency-key'],
     ).toEqual(expect.any(String))
+    // The take id is the KEY's anchor, never part of the body: the door mints a
+    // row from the customer/appointment, and a field it does not know would
+    // just be a dead value on the wire.
     expect(JSON.parse(init?.body as string)).toEqual({
       customerId: 'cust-1',
       appointmentId: 'appt-1',
     })
+  })
+
+  // ⚖ ONE TAKE, ONE ROW (fix round 7). This call is retried by design — and a
+  // dead socket on the way BACK is indistinguishable from one on the way out,
+  // so core may already have created the row. With a fresh key per attempt
+  // every lost reply left another orphan row that no take could ever name.
+  it('every attempt for the same take carries the SAME idempotency key', async () => {
+    const keys: string[] = []
+    port(async (_path: string, init?: RequestInit) => {
+      keys.push((init?.headers as Record<string, string>)['idempotency-key'])
+      return new Response(JSON.stringify({ id: 'rs-new' }), { status: 200 })
+    })
+
+    const input = { customerId: 'cust-1', appointmentId: null, takeId: FINALIZE.takeId }
+    await viteRecordingPort.startSession(input)
+    await viteRecordingPort.startSession(input)
+    // A DIFFERENT take is a different row, so it must not share the key.
+    await viteRecordingPort.startSession({ ...input, takeId: OTHER_TAKE })
+
+    expect(keys[0]).toBe(keys[1])
+    expect(keys[0]).toContain(FINALIZE.takeId)
+    expect(keys[2]).not.toBe(keys[0])
   })
 
   // FAIL-OPEN, exactly like the web action: every one of these is a moment in
@@ -94,7 +126,11 @@ describe('thin recording port — startSession', () => {
   ])('%s answers null, never a throw', async (_label, res) => {
     port(res as () => Promise<Response>)
     await expect(
-      viteRecordingPort.startSession({ customerId: null, appointmentId: null }),
+      viteRecordingPort.startSession({
+        customerId: null,
+        appointmentId: null,
+        takeId: FINALIZE.takeId,
+      }),
     ).resolves.toBeNull()
   })
 })
@@ -173,6 +209,10 @@ describe('thin recording port — mintTakeUrl', () => {
     [409, 'reserved_elsewhere', facadeError('conflict', 'reserved_elsewhere')],
     [400, 'bad_mime', facadeError('validation', 'bad_mime')],
     [400, 'bad_take_id', facadeError('validation', 'bad_take_id')],
+    // The door's refusal for a client-named take with no row (PR2 fix round 7).
+    // Read as the generic `mint_400` it stayed RETRYABLE, so the phone
+    // re-uploaded a whole take against an answer that can never change.
+    [400, 'bad_input', facadeError('validation', 'bad_input')],
     // …and these with a sentence, so the classification carries the code.
     [403, 'forbidden', facadeError('forbidden', 'that recording session is not yours to record onto')],
     [404, 'not_found', facadeError('not_found', 'no such recording session')],
@@ -182,6 +222,11 @@ describe('thin recording port — mintTakeUrl', () => {
     await expect(
       viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/mp4', FINALIZE.recordingSessionId),
     ).resolves.toEqual({ error: code })
+  })
+
+  it('…and every one of those named refusals the store judges TERMINAL really is', () => {
+    for (const code of ['exists', 'reserved_elsewhere', 'bad_mime', 'bad_take_id', 'bad_input'])
+      expect(TERMINAL_SECURE_ERRORS.has(code)).toBe(true)
   })
 
   // Anything the body does NOT name falls back to the status — retryable, which

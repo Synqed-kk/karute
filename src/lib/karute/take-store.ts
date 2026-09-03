@@ -46,6 +46,14 @@ const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000
  *  offering — and letting a save delete — another tab's in-progress audio. */
 const ACTIVE_GRACE_MS = 20_000
 
+/** How long the drain leaves a take alone after a failed secure attempt (fix
+ *  round 7). Retryable failures are moments in time — an offline stop, a 502 —
+ *  and the record page's drain runs on every mount, so without a floor a
+ *  staffer bouncing between screens re-uploads the same whole take every few
+ *  seconds. One minute: long enough that the moment can pass, short enough that
+ *  a take still finishes inside the same shift. */
+const SECURE_RETRY_COOLDOWN_MS = 60_000
+
 /** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
  *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
  *  re-uploaded on every mount, forever. The door refuses these on facts that do
@@ -146,6 +154,12 @@ export type TakeMeta = {
    *  TERMINAL_SECURE_ERRORS above, which stops re-uploading whole takes against
    *  a refusal that can never turn into a yes. */
   secureError?: string
+  /** When that failure was recorded (fix round 7) — the anchor for the drain's
+   *  cooldown. A take is the WHOLE recording, so a retryable failure that
+   *  re-uploads on every mount is a storm of tens of megabytes each: the record
+   *  page mounts on every navigation onto it. Absent = never attempted, or a
+   *  take stamped before this field existed — both read as "cooled down". */
+  lastSecureAttemptAt?: number
   /** The recorder's OWN measurement of this take, stamped at stop. It subtracts
    *  paused time, which no store-side estimate can: the retry's only other
    *  source is (updatedAt − startedAt), and a take paused for twenty minutes
@@ -302,7 +316,15 @@ export async function stampTakeSession(
  *
  *  `when` is read on the row this transaction just fetched, so a caller can
  *  refuse to write against a state it must not overwrite without opening a
- *  read-then-write window of its own. */
+ *  read-then-write window of its own.
+ *
+ *  OWNER-GATED like every read in this file (fix round 7). A shared salon
+ *  device signs one staffer out and the next one in, and these stamps carry a
+ *  take id from wherever the caller got it — so without this, a stale drain or
+ *  a late resolution could scribble a duration or a failure code onto the
+ *  colleague's row it names. The uid is resolved BEFORE the transaction (an
+ *  await inside one closes it) and compared on the row this transaction
+ *  fetched, so the gate costs no second read. */
 async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
@@ -311,9 +333,11 @@ async function patchTakeMeta(
   try {
     const db = await openDb()
     if (!db) return
+    const uid = await currentUserId()
+    if (!uid) return
     const tx = db.transaction(TAKES, 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta) return
+    if (!meta || meta.ownerUid !== uid) return
     if (when && !when(meta)) return
     await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
   } catch (err) {
@@ -338,7 +362,11 @@ export async function markTakeFinalized(takeId: string): Promise<void> {
  *  read and the write share one transaction in patchTakeMeta, so there is no
  *  window between them. */
 export async function markTakeSecureError(takeId: string, code: string): Promise<void> {
-  await patchTakeMeta(takeId, { secureError: code }, (meta) => !meta.finalizedAt)
+  await patchTakeMeta(
+    takeId,
+    { secureError: code, lastSecureAttemptAt: Date.now() },
+    (meta) => !meta.finalizedAt,
+  )
 }
 
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
@@ -374,17 +402,12 @@ async function readOwnTakeMeta(takeId: string): Promise<TakeMeta | null> {
  *  container the key must carry, which session to finalize against — and who
  *  the recording is FOR, so a take that has to mint its own row (fix round 6)
  *  mints one attributed the same way the recorder's start-mint would have —
- *  plus the recorder's own duration and the window that stands in without one. */
+ *  plus the recorder's own duration — the ONLY measurement a take is finalized
+ *  with (fix round 7: the flush window that used to stand in behind it was
+ *  unreachable, so the two fields that fed it are no longer read out). */
 export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   TakeMeta,
-  | 'mimeType'
-  | 'recordingSessionId'
-  | 'target'
-  | 'finalizedAt'
-  | 'secureError'
-  | 'durationMs'
-  | 'startedAt'
-  | 'updatedAt'
+  'mimeType' | 'recordingSessionId' | 'target' | 'finalizedAt' | 'secureError' | 'durationMs'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -395,8 +418,6 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     finalizedAt: meta.finalizedAt,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
-    startedAt: meta.startedAt,
-    updatedAt: meta.updatedAt,
   }
 }
 
@@ -687,6 +708,12 @@ export async function listOwnStoppedUnsecuredTakeIds(): Promise<string[]> {
           m.durationMs !== undefined &&
           !m.finalizedAt &&
           !(m.secureError && TERMINAL_SECURE_ERRORS.has(m.secureError)) &&
+          // ponytail: one flat cooldown, not per-code backoff — the record page
+          // mounts on every navigation onto it, and a take is the whole
+          // recording, so a failing take would re-PUT tens of megabytes several
+          // times a minute. A minute of quiet is enough to stop the storm; the
+          // take is never abandoned (the next mount after it takes it).
+          Date.now() - (m.lastSecureAttemptAt ?? 0) >= SECURE_RETRY_COOLDOWN_MS &&
           m.lastSeq >= 0,
       )
       .map((m) => m.takeId)

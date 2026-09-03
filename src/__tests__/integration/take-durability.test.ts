@@ -460,6 +460,36 @@ describe('take durability — owner gate (store layer)', () => {
     expect((await readTakeOutcome(takeId))?.outcome).toEqual({ status: 'no_deal' })
   })
 
+  // The WRITES carry the same gate (fix round 7). A shared salon device signs
+  // one staffer out and the next one in, and these stamps take a take id from
+  // wherever their caller got it — a stale drain, a late resolution — so
+  // without the gate one staffer's device could scribble a duration, a failure
+  // code, or a finalized stamp onto a colleague's row.
+  it('the STAMPS are owner-gated too: nobody else writes on this take', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await stampTakeDuration(takeId, 5_000)
+
+    mockUid = 'staff-B'
+    await stampTakeDuration(takeId, 999)
+    await markTakeSecureError(takeId, 'forbidden')
+    await markTakeFinalized(takeId)
+    mockUid = null
+    await markTakeSecureError(takeId, 'network')
+
+    mockUid = 'staff-A'
+    const meta = takes().get(JSON.stringify(takeId)) as {
+      durationMs?: number
+      secureError?: string
+      finalizedAt?: number
+    }
+    // The owner's own measurement, untouched — and no code, no false 'secured'.
+    expect(meta.durationMs).toBe(5_000)
+    expect(meta.secureError).toBeUndefined()
+    expect(meta.finalizedAt).toBeUndefined()
+  })
+
   it('persists nothing at all when no user is signed in (fail-closed)', async () => {
     mockUid = null
     await startAndSettle()
@@ -921,6 +951,56 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
+  // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7, P1). The tail flush is queued
+  // at stop; start() empties `chunks` SYNCHRONOUSLY and only takes its new take
+  // id once the mic is live, so the queued task could find nothing pending and
+  // report "written" for a take whose last chunks it never wrote. onstop then
+  // stamped and secured a SHORT blob under the immutable finalized key — the
+  // rest of that recording could never land afterwards.
+  it('the next customer starts before the tail lands: the short take is never stamped, never sealed', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // one segment on disk
+    pushChunk('bbb') // …and this one is still memory-only
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    // The staffer is already recording the next customer.
+    void globalRecorder.start({ target: TARGET })
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    // Nothing was sent, and the take carries NO stop stamp — so the mount drain
+    // will not touch it either (PR5's launch drain rules on unstamped takes).
+    expect(order).toEqual([])
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // The audio that did land is untouched — nothing here deletes.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  // The same window, the other way out of it: the stop is handed to the
+  // pipeline (or a reasoned discard), which KEEPS the audio and nulls the
+  // recorder's take id. The queued tail is skipped just the same.
+  it('a stop handed straight to the pipeline (keepTake) is not sealed by a skipped tail', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    pushChunk('bbb')
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    globalRecorder.discard({ keepTake: true })
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    expect(order).toEqual([])
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+  })
+
   it('finalize is told the take id, container, byte length and session — never a path', async () => {
     const takeId = await stoppedTake()
     expect(finalizeTake).toHaveBeenCalledWith({
@@ -953,6 +1033,50 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).secureError).toBe('upload_503')
     // The audio is untouched — nothing here deletes.
     expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
+  })
+
+  // ⚖ NO CALL WAITS FOREVER (fix round 7, P1). A phone that walks out of signal
+  // does not FAIL its upload — it stalls it. The take then held secureTake's
+  // one-at-a-time slot for the whole page lifetime: the stop path was gone, and
+  // every later attempt (and every other owed take behind it) hit the in-flight
+  // guard and returned. So the PUT carries a deadline of its own bytes at
+  // ~50 KB/s, floored at a minute.
+  it('a PUT that never answers is abandoned at its deadline — retryable, and the take is RELEASED', async () => {
+    putMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          order.push('put')
+          // What a real fetch does on an aborted request.
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted.', 'AbortError')),
+          )
+        }),
+    )
+    const takeId = await stoppedOwedTake()
+
+    const stalled = secureTake(port(), takeId)
+    await drain(200)
+    // Hanging: nothing marked, and this take is in flight.
+    expect(order).toEqual(['session', 'mint', 'put'])
+    expect(metaOf(takeId).secureError).toBeUndefined()
+
+    await jest.advanceTimersByTimeAsync(60_000)
+    await stalled
+    // A deadline is a moment in time, so it lands RETRYABLE — never a code that
+    // would stop this take from ever being sent again.
+    expect(metaOf(takeId).secureError).toBe('network')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+
+    // …and the slot is free: the very next attempt runs the whole leg.
+    putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      order.push('put')
+      putBodies.push(init?.body as Blob)
+      return { ok: true, status: 200 } as unknown as Response
+    })
+    order.length = 0
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
   // PR2 fix round 3: the mint stopped signing for upsert, so a finalized key is
@@ -1094,6 +1218,10 @@ describe('secure at stop', () => {
     expect(startSession).toHaveBeenCalledWith({
       customerId: TARGET.customerId,
       appointmentId: TARGET.appointmentId,
+      // …and the take itself, which is what keys the mint's idempotency (fix
+      // round 7): a retried session call must land on the same row, not mint a
+      // fresh orphan every time a reply is lost.
+      takeId,
     })
     expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(mintTakeUrl).toHaveBeenCalledWith(takeId, expect.any(String), MINTED_SESSION)
@@ -1166,7 +1294,9 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
     expect(metaOf(takeId).recordingSessionId).toBeNull()
     // Retryable: the drain still owes this take, and the next attempt runs the
-    // whole leg — including a session door that has come back.
+    // whole leg — including a session door that has come back. (Past the
+    // cooldown the failure just started — fix round 7.)
+    await jest.advanceTimersByTimeAsync(60_000)
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
     startSession.mockImplementation(async () => {
       order.push('session')
@@ -1421,14 +1551,9 @@ describe('secure at stop', () => {
   }
 
   it('a reload INSIDE the 20 s grace still secures the take the recovery read hides', async () => {
-    // The stop's own upload dies (phone locked, tunnel gone).
-    putMock.mockImplementation(async () => {
-      order.push('put')
-      return { ok: false, status: 503 } as unknown as Response
-    })
-    const takeId = await stoppedTake()
-    expect(metaOf(takeId).secureError).toBe('upload_503')
-    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // A stop whose secure leg never got to run at all (the app was killed
+    // between the stamp and the upload) — owed, and freshly flushed.
+    const takeId = await stoppedOwedTake()
 
     // The page is reloaded 5 s later — well inside the grace.
     await jest.advanceTimersByTimeAsync(5_000)
@@ -1437,12 +1562,42 @@ describe('secure at stop', () => {
     expect(await getRecoverableTake([])).toBeNull()
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
 
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ── The retry COOLDOWN (fix round 7, P3) ─────────────────────────────────
+  // The other half of that scenario: a stop that actually FAILED. This effect
+  // runs on every mount, and a take is the whole recording — a staffer bouncing
+  // on and off this page re-uploaded tens of megabytes each time, against a
+  // refusal seconds old. The take is never abandoned; it waits a minute.
+  it('a stop whose upload died is left alone for a minute, then the next mount takes it', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+
+    // Two mounts in the next five seconds change nothing — no re-PUT storm.
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
+
     putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
       order.push('put')
       putBodies.push(init?.body as Blob)
       return { ok: true, status: 200 } as unknown as Response
     })
     order.length = 0
+    await mountDrain()
+    expect(order).toEqual([])
+
+    // …and a minute after the failure the take is owed again, and finishes.
+    await jest.advanceTimersByTimeAsync(60_000)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
     await mountDrain()
     expect(order).toEqual(['mint', 'put', 'finalize'])
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
@@ -1526,6 +1681,9 @@ describe('secure at stop', () => {
     await markTakeSecureError(owed, 'failed') // retryable — the moment passed
 
     expect(takes().size).toBe(4)
+    // Past the cooldown the two marks above started (fix round 7) — what this
+    // test judges is WHICH takes the drain owes, not how recently they failed.
+    await jest.advanceTimersByTimeAsync(60_000)
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([owed])
     expect(await listOwnStoppedUnsecuredTakeIds()).not.toContain(empty)
   })

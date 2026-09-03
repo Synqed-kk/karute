@@ -201,10 +201,17 @@ describe('the browser-direct uploader is gone', () => {
 // global-recorder's start-mint calls, so a take whose start-mint failed and a
 // take whose drain minted its row land on the same kind of row.
 describe('webRecordingPort.startSession', () => {
-  it("calls the recorder's own start-mint action, verbatim", async () => {
+  it("calls the recorder's own start-mint action, verbatim — and the take id is NOT part of it", async () => {
     await expect(
-      webRecordingPort.startSession({ customerId: 'cust-1', appointmentId: 'appt-1' }),
+      webRecordingPort.startSession({
+        customerId: 'cust-1',
+        appointmentId: 'appt-1',
+        takeId: 'take-uuid-1',
+      }),
     ).resolves.toEqual({ id: 'rs-new' })
+    // The take id is the PHONE's idempotency anchor (fix round 7); a server
+    // action carries no key, and the action's own signature has no such field —
+    // forwarding it would put a dead, misleading value on the wire.
     expect(startRecordingSessionAction).toHaveBeenCalledWith({
       customerId: 'cust-1',
       appointmentId: 'appt-1',
@@ -216,7 +223,11 @@ describe('webRecordingPort.startSession', () => {
   it('a null from the action stays a null — the take is retried, not failed forever', async () => {
     startRecordingSessionAction.mockImplementation(async () => null)
     await expect(
-      webRecordingPort.startSession({ customerId: null, appointmentId: null }),
+      webRecordingPort.startSession({
+        customerId: null,
+        appointmentId: null,
+        takeId: 'take-uuid-1',
+      }),
     ).resolves.toBeNull()
   })
 })

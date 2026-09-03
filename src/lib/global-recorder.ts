@@ -217,32 +217,55 @@ class GlobalRecorder {
    *  Returns the queue tail so ONE caller can wait for it: onstop must know the
    *  tail segment is on disk before secureTake reads the take back, or the
    *  uploaded object would be short by the last chunk. Every other caller still
-   *  ignores it, and the promise never rejects (the catch below is the queue's). */
-  private flushTake(): Promise<void> {
-    if (this.persistDisabled || !this.takeId) return Promise.resolve()
+   *  ignores it, and the promise never rejects (the catch below is the queue's).
+   *
+   *  ⚖ AND IT SAYS WHETHER IT WROTE (fix round 7, P1). `true` = the disk holds
+   *  this take's chunks (it wrote them, or there was nothing left to write);
+   *  `false` = it SKIPPED, because the recorder moved on before the queued task
+   *  ran — the staffer stopped and immediately started the next recording, or
+   *  discarded. onstop must be able to tell those apart: a skipped tail means
+   *  the take on disk may be SHORT, and sealing a short take under its
+   *  immutable finalized key truncates it forever. */
+  private flushTake(): Promise<boolean> {
+    if (this.persistDisabled || !this.takeId) return Promise.resolve(false)
     const takeId = this.takeId
-    this.persistQueue = this.persistQueue
+    const flushed = this.persistQueue
       .then(async () => {
         // Re-check inside the queued task: a discard may have run meanwhile.
-        if (this.persistDisabled || this.takeId !== takeId) return
+        if (this.persistDisabled || this.takeId !== takeId) return false
+        // start() empties `chunks` SYNCHRONOUSLY and only takes its new take id
+        // once the mic is live, so a tail queued at stop can find the array
+        // already reset while the id still matches. `pending` is then empty and
+        // the flush would report "nothing to write" — which is how a take that
+        // lost its tail used to be sealed as complete. Fewer chunks than are
+        // already on disk can mean nothing else.
+        if (this.chunks.length < this.persistedChunkCount) return false
         const pending = this.chunks.slice(this.persistedChunkCount)
-        if (pending.length === 0) return
+        if (pending.length === 0) return true
         const seq = this.persistSeq
         const count = this.persistedChunkCount + pending.length
         const ok = await appendTakeSegment(takeId, seq, new Blob(pending))
-        if (this.takeId !== takeId) return
+        // The bytes landed, but this recorder is on to something else — so the
+        // caller waiting on the stop does NOT get to seal the take. It stays
+        // unstamped, which is what the launch drain reads.
+        if (this.takeId !== takeId) return false
         if (!ok) {
           // ponytail: fail-open to memory-only — capture continues as today.
           this.persistDisabled = true
-          return
+          return false
         }
         this.persistSeq = seq + 1
         this.persistedChunkCount = count
+        return true
       })
       .catch(() => {
         this.persistDisabled = true
+        return false
       })
-    return this.persistQueue
+    // The queue itself stays a plain chain — the answer rides out to the one
+    // caller that waits, and the next flush still serializes behind this one.
+    this.persistQueue = flushed.then(() => {})
+    return flushed
   }
 
   /**
@@ -371,7 +394,17 @@ class GlobalRecorder {
       // this cannot finish is recorded on the take meta for the record page's
       // mount retry, and for PR5's launch drain after that.
       if (takeId) {
-        void flushed.then(async () => {
+        void flushed.then(async (flushedWholeTake) => {
+          // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7). The staffer who stops
+          // and immediately starts the next recording — or discards — clears
+          // the chunks out from under the queued tail flush, so what is on disk
+          // may be short of what this recorder captured. Stamping the duration
+          // and securing it would seal that short blob under the IMMUTABLE
+          // finalized key: the rest of the recording could never land. Leave
+          // the take unstamped instead; nothing here deletes, the mount drain
+          // reads the stamp so it will not touch it, and PR5's launch drain
+          // decides what an unstamped take deserves.
+          if (!flushedWholeTake) return
           // The measurement is stamped BEFORE the upload, and it is the only
           // paused-aware one anyone will ever have for this take: if this stop
           // cannot reach the server, the mount retry (and PR5's drain) reads it
