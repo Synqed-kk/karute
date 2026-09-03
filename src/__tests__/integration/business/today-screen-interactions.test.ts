@@ -124,6 +124,30 @@ const STEP = stepPct(9)
  *  The tests that care about the dials set their own. */
 const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
 
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  `pinnedLine` makes the literal START its line (indentation only — `//` and
+ *  `*` are not spaces, and neither is anything else a comment can begin with)
+ *  and END it, so a comment prefix misses and a trailing addition on the same
+ *  line misses too. Zero indentation is allowed because top-level `import`
+ *  lines are pinned this way as well.
+ *
+ *  `codeOnly` blanks comment-LED lines so a COUNT is a count of code. A decoy
+ *  hidden as a TRAILING comment on a real code line survives that filter — and
+ *  then it INFLATES the count, which is red the other way round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const pinnedLine = (src: string, line: string) => new RegExp('^ *' + escapeRegExp(line) + '$', 'm').test(src)
+const codeOnly = (src: string) => src.replace(/^[ \t]*(?:\/\/|\*|\/\*).*$/gm, '')
+
 /** jsdom has no layout: give a node the rect the test needs. */
 function rect(el: Element, r: { left: number; top: number; width: number; height: number }) {
   el.getBoundingClientRect = () =>
@@ -1209,23 +1233,38 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  be lifted out of the world is `live?.id`, full stop. `?? pending?.id` was
    *  the excluded world, and it may not come back anywhere in this file. */
   it('the screen hands the rooms to BOTH guard doors, out of the ONE book', () => {
-    expect(SRC).toContain('const handId = live?.id ?? null')
+    // ⚖ R7 (SPEC §3.1) — BOTH DOORS, BOTH CALLBACKS, ONE BOOK. `placementFeasible`
+    // answers 「can the card being placed occupy this span」; `protectedWindow-
+    // Feasible` answers 「does the real world publish a protected window starting
+    // here」. The rail was handed the second at E3a and the verdict was not, so
+    // the strip's marks were bed-honest and the word under the cursor was not —
+    // two readings of one board, measured disagreeing on 1,625 of 7,956 cells
+    // (PROBE-R7 §P1). Pinned as the PAIR, because the failure this catches is
+    // exactly half a world; and `handId` above them, because the id that may be
+    // lifted out of the world is `live?.id`, full stop.
+    //
+    // ⚖ BREAKER-827 F1 (BLOCKER) — WHOLE-LINE ANCHORED. Every one of these five
+    // was a `toContain`, and the breaker walked straight through the last of
+    // them: comment the verdict's door out, leave the pinned text beside it as
+    // `// protectedWindowFeasible: …`, and this test stayed green with the
+    // verdict back on the raw pocket-minute enumeration — the exact defect the
+    // round measures. A pinned line has to BE a line now.
+    for (const line of [
+      'const handId = live?.id ?? null',
+      'placementFeasible: bedDoorFor(handId),',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
     // ⚖ FIX-4(a) — the ENGINE's exclusion moved with the door's. Pinning only
     // `placementFeasible` would let a round put `pending` back into the pocket
     // walk while the beds stayed honest: half a world, which is worse than
-    // either whole one.
+    // either whole one. (Still `toContain`: it is one spelling standing for the
+    // TWO sites that carry it, which is not a whole-line question. Out of this
+    // round's named set — recorded in PIN-DELTA as declared residue.)
     expect(SRC).toContain('excludeId: handId,')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
-    // ⚖ R7 (SPEC §3.1) — BOTH DOORS, BOTH CALLBACKS, ONE BOOK. `placementFeasible`
-    // above answers 「can the card being placed occupy this span」; this one
-    // answers 「does the real world publish a protected window starting here」.
-    // The rail was handed it at E3a and the verdict was not, so the strip's marks
-    // were bed-honest and the word under the cursor was not — two readings of one
-    // board, measured disagreeing on 1,625 of 7,956 cells (PROBE-R7 §P1). Pinned
-    // as the pair, because the failure this catches is exactly half a world.
-    expect(SRC).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
-    expect(SRC).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,')
     // The book is built ONCE per frame, in a memo — never inside a predicate,
     // a pointer frame or a drag handler.
     expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
@@ -1252,9 +1291,21 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  dropped from THIS memo is a confirm surface answering about last frame's
    *  board, which is the ⚖ FIX-4(f) failure one memo over). */
   it('the hold bar’s checks are memoised, on exactly the inputs the expression had', () => {
-    expect(SRC).toContain(
-      'const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])',
-    )
+    // ⚖ BREAKER-827 F3 (MAJOR) — ANCHORED, AND COUNTED. The breaker replaced the
+    // memo with `useMemo(() => [], [])` and left the pinned line above it as a
+    // comment: 530 suites green, tsc clean, and the hold bar had lost every
+    // check row — `overrideCaption` is an every-row-ok predicate, so 確定 stopped
+    // being gated by the checks at all. Nothing in the repo EXECUTES this memo
+    // (no suite renders TodayScreen — the ⚖ renderer-fence question on Liam's
+    // desk), so this one line is the whole armour and it has to hold both ways:
+    // the real line must BE a line, and there must be exactly ONE assignment to
+    // `pendingChecks` in the file, counted over code, so a second one cannot be
+    // written under it.
+    const MEMO =
+      'const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])'
+    expect({ line: MEMO, has: pinnedLine(SRC, MEMO) }).toEqual({ line: MEMO, has: true })
+    const assignments = (codeOnly(SRC).match(/^[ \t]+const pendingChecks = /gm) ?? []).length
+    expect({ assignments }).toEqual({ assignments: 1 })
   })
 
   /** ⚖ FIX-4(e) — THE ONE-DOOR INVARIANT, IN R3's SHAPE.
@@ -4170,34 +4221,81 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  `nextVisitCategory` — VIP and 回数券 are the customer's own traits and ride
    *  along. The helper itself is pinned BEHAVIOURALLY in the test below; here
    *  only the wiring is text-pinned, positively and negatively, because the bare
-   *  read is another literal TypeScript cannot flag. */
+   *  read is another literal TypeScript cannot flag.
+   *
+   *  ⚠ AND EVERY HOP IS WHOLE-LINE ANCHORED NOW (⚖ BREAKER-827 F2, MAJOR). The
+   *  chain was seven `toContain`s, and the breaker reverted hops 4, 5 and 7
+   *  together with a comment decoy per hop and a re-spelling that walked past
+   *  each negative: `category: 'repeat' as BookingCategory,` at the arming and
+   *  at the card (neither is `'repeat' as const`), and `vip: !1,` at the landing
+   *  (which is not `vip: false`). Chain green, VIP back on a standard bed with
+   *  nothing said. So each hop must BE a line, and three counts close the room a
+   *  decoy needs: one `category:` line in the minted card, one `solveBed(` in
+   *  `placeNextVisit`, one `vip:` in the landing. The dodges themselves are
+   *  banned outright in the three slices, which is cheap and says out loud what
+   *  was tried. */
   it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
     const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
     const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
-    // 1 · the intent's own field, and the type it is…
-    expect(EDITS).toContain('  category: BookingCategory')
-    expect(EDITS).toContain("import type { BoardItem, BookingCategory } from '@/business/lib/today-board'")
-    // 2 · …the prop it is filled from…
-    expect(SRC).toContain('inStore: { name: string; bookingId: string; category: BookingCategory } | null')
-    // 3 · …the one line in page.tsx that stopped dropping it…
-    expect(PROPS).toContain('inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,')
-    // 4 · …and the arming that carries it onto the armed mode — turned over to
-    // the NEXT visit's word on the way in (⚖ #827), never copied.
     const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
-    expect(armed).toContain('category: nextVisitCategory(props.inStore.category),')
-    expect(armed).not.toContain('category: props.inStore.category,')
-    // 5 · the landing asks the room floor as a VIP…
-    expect(SRC).toContain("vip: placing.category === 'vip',")
-    // 6 · …and so does the placement that follows it. One field, two readers.
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
-    expect(place_).toContain("solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))")
-    // …and the hardcode is gone from both, in the spelling it had.
+    // The minted card's own literal, and the landing — the `askGuard(` the empty
+    // slot raises while 配置モード is armed, bounded by the callback it hands its
+    // `run`. Both bounds are asserted before they are used: a slice that came
+    // back empty because an anchor moved would make every count below vacuous.
+    const faceAt = place_.indexOf('const face = {')
+    const seedAt = SRC.indexOf('const slot = place(seed.start, seed.end, hours)')
+    expect({ faceAt: faceAt > -1, seedAt: seedAt > -1 }).toEqual({ faceAt: true, seedAt: true })
+    const face = place_.slice(faceAt, place_.indexOf('\n    }', faceAt))
+    const landing = SRC.slice(seedAt, SRC.indexOf('(s, override) => placeNextVisit(lane, s, override),', seedAt))
+    expect({ face: face.length > 0, landing: landing.length > 0 }).toEqual({ face: true, landing: true })
+    // 1 · the intent's own field and the type it is · 2 · the prop it is filled
+    // from · 3 · the one line in page.tsx that stopped dropping it · 4 · the
+    // arming, which TURNS the word over to the next visit's (⚖ #827) rather
+    // than copying it · 5 · the landing asking the room floor as a VIP · 6 · the
+    // placement that follows it, one field two readers · 7 · and the CARD the
+    // placement mints, which is what every LATER gesture asks.
+    for (const [hop, src, line] of [
+      ['1 intent field', EDITS, 'category: BookingCategory'],
+      ['1 intent type', EDITS, "import type { BoardItem, BookingCategory } from '@/business/lib/today-board'"],
+      ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
+      ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
+      ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
+      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },"],
+      ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
+      ['7 minted card', face, 'category: p.category,'],
+    ] as const) {
+      expect({ hop, has: pinnedLine(src, line) }).toEqual({ hop, has: true })
+    }
+    // ⚖ BREAKER-827 F2 — AND THERE IS NO ROOM BESIDE THEM. Hop 5's line is one
+    // long object literal, so it is anchored as the whole line it is rather than
+    // reformatted one key per line — a whitespace change to a product file is
+    // not something a test round gets to make. The counts are what a decoy has
+    // to survive: it can only be added, and every one of these says ONE.
+    for (const [where, n, want] of [
+      ['category: lines in the minted card', (codeOnly(face).match(/^.*category:.*$/gm) ?? []).length, 1],
+      ['solveBed( calls in placeNextVisit', (codeOnly(place_).match(/solveBed\(/g) ?? []).length, 1],
+      ['vip: keys in the landing', (codeOnly(landing).match(/vip:/g) ?? []).length, 1],
+    ] as const) {
+      expect({ where, n }).toEqual({ where, n: want })
+    }
+    // …and the hardcodes are gone, in the spellings they had AND in the two the
+    // breaker reached for. `as BookingCategory` is how `'repeat'` gets past a
+    // `BookingCategory` field without `as const`; `!1` / `!0` are how `false` /
+    // `true` get past a negative that spells the word.
+    expect(armed).not.toContain('category: props.inStore.category,')
     expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
     expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
-    // 7 · …and so does the CARD the placement mints, which is what every later
-    // gesture reads. A hardcoded 'repeat' here made the fix last one press.
-    expect(place_).toContain('category: p.category,')
     expect(place_).not.toContain("category: 'repeat' as const,")
+    for (const [where, slice] of [
+      ['arming', armed],
+      ['landing', landing],
+      ['placeNextVisit', place_],
+    ] as const) {
+      for (const dodge of ['as BookingCategory', '!1', '!0']) {
+        expect({ where, dodge, at: slice.indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
   })
 
   /** ⚖ Greptile #827 — 新規 IS A FACT ABOUT ONE VISIT, and the visit 配置モード

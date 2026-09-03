@@ -78,6 +78,29 @@ import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
 
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  `pinnedLine` makes the literal START its line (indentation only — `//` and
+ *  `*` are not spaces, and neither is anything else a comment can begin with)
+ *  and END it, so a comment prefix misses and a trailing addition on the same
+ *  line misses too. Zero indentation is allowed because top-level `import`
+ *  lines are pinned this way as well.
+ *
+ *  `codeOnly` blanks comment-LED lines so a COUNT is a count of code. A decoy
+ *  hidden as a TRAILING comment on a real code line survives that filter — and
+ *  then it INFLATES the count, which is red the other way round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const pinnedLine = (src: string, line: string) => new RegExp('^ *' + escapeRegExp(line) + '$', 'm').test(src)
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
   if (!node || typeof node !== 'object') return null
@@ -1476,12 +1499,20 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   it('BOTH landing sites carry the seed, and the two excluded solves are untouched', () => {
     // The drop and the keyboard nudge, byte for byte — this is the parity claim
     // the replay above stands on.
-    expect(SRC).toContain(
+    // ⚖ BREAKER-827 F1/F2 — WHOLE-LINE ANCHORED, ALL FOUR. `toContain` on these
+    // four spellings is satisfied by a `//`-prefixed copy left beside a changed
+    // line, and the `solveBed(` count below cannot tell a call that LEFT from a
+    // comment that took its place. The two landing lines were already whole
+    // lines; the 配置モード solve and the shelf chip's are pinned WITH their
+    // assignment now, because that is what a whole line is here — strictly more
+    // than the substring they pinned before, and the smallest change that
+    // anchors them.
+    for (const line of [
       "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-    )
-    expect(SRC).toContain(
       "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-    )
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
     // ⛔ DELIBERATELY EXCLUDED FROM THE SEED. A 次回予約 placement and a shelf chip
     // are FIRST landings: neither has a staged change of its own to have an
     // origin from, and 配置モード's solve is asked with no room at all. Different
@@ -1492,10 +1523,12 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // read the customer's category, so a VIP's 次回予約 was solved onto whatever
     // bed came first. The category rides `PlacingIntent` now. The seed is still
     // `null, null` — which is what this test is actually about.
-    expect(SRC).toContain("solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))")
-    expect(SRC).toContain(
-      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
-    )
+    for (const line of [
+      "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
+      "const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
     // ⚖ flag 92 — A THIRD SITE, and it is the same law rather than an exception:
     // taking the warn card's safe start is another landing of a change that is
     // already staged, so it re-solves from the room that change OWNS. It seeds

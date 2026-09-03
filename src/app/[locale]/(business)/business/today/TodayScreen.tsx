@@ -2264,7 +2264,13 @@ export function TodayScreen(props: TodayProps) {
   // ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole
   // board, and the expression re-walked it on every render. The memo's inputs
   // are exactly the expression's, so a render that moves NONE of them — a hover,
-  // a chip render, the clock — reads the rows it already had.
+  // a chip render, a popover opening (`pop`) — reads the rows it already had.
+  //
+  // ⚖ BREAKER-827 F7 — AND THE CLOCK IS NOT ONE OF THEM; this line used to say
+  // it was. A moved clock arrives as NEW PROPS, so `props.sell` is new, so
+  // `sellDrawn.cells` is new, so `checksFor` — a dep of this memo — is new, and
+  // the memo recomputes exactly like the expression did. What it saves is the
+  // render that moves no prop and no board state of its own.
   //
   // It does not save the DRAG, and the comment used to imply it did. The only
   // card a gesture can start on while `pendingChecks` exists is the staged one

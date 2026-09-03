@@ -89,6 +89,30 @@ const supabase = createClient as jest.Mock
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
 
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  `pinnedLine` makes the literal START its line (indentation only — `//` and
+ *  `*` are not spaces, and neither is anything else a comment can begin with)
+ *  and END it, so a comment prefix misses and a trailing addition on the same
+ *  line misses too. Zero indentation is allowed because top-level `import`
+ *  lines are pinned this way as well.
+ *
+ *  `codeOnly` blanks comment-LED lines so a COUNT is a count of code. A decoy
+ *  hidden as a TRAILING comment on a real code line survives that filter — and
+ *  then it INFLATES the count, which is red the other way round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const pinnedLine = (src: string, line: string) => new RegExp('^ *' + escapeRegExp(line) + '$', 'm').test(src)
+const codeOnly = (src: string) => src.replace(/^[ \t]*(?:\/\/|\*|\/\*).*$/gm, '')
+
 // ── THE REAL FIXTURE WORLD, driven exactly as E2 drove it ───────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -556,12 +580,22 @@ describe('1 — the round gate', () => {
     // They are not the proof.
     expect(SRC('held-committed.ts')).not.toContain('./TodayScreen')
     expect(SRC('held-committed.ts')).not.toContain('bedTruthViews')
-    // …and on the screen it appears exactly six times: the import, one prose
-    // mention in the memo that explains it, and FOUR reads — the committed
+    // …and on the screen the gate is read exactly FIVE times, counted over the
+    // file with its comment-led lines blanked: the import, the committed
     // world's mask, the board world's mask, the rail's protected-window door,
-    // and (⚖ R7, SPEC §3.1) the VERDICT's. All four are memo or useCallback
-    // bodies at the top level of the component; none is inside a predicate, a
-    // handler or a render path.
+    // and (⚖ R7, SPEC §3.1) the VERDICT's. All four reads are memo or
+    // useCallback bodies at the top level of the component; none is inside a
+    // predicate, a handler or a render path.
+    //
+    // ⚖ BREAKER-827 F1 (BLOCKER) — SIX → FIVE, AND THE DECISION IS THE POINT.
+    // The old count was SIX over the RAW file: the five above plus the JSDoc
+    // sentence that explains the gate. A count that includes comments is the
+    // count a decoy inflates — comment a real read out, leave a `//`-prefixed
+    // copy where it stood, and the total never moves. So the prose mention is
+    // no longer counted and the number is the number of READS. It still catches
+    // a sixth read arriving (6 ≠ 5) and it now also catches a read leaving,
+    // which is the direction the breaker walked through. The JSDoc is free to
+    // be reworded without moving a pin, which it was not before.
     //
     // ⚖ R7 — THE COUNT MOVED BECAUSE THE GATE HALF LANDED. E3a threaded the
     // protected-window door into the RAIL and left `verdictAt` reading the raw
@@ -579,16 +613,24 @@ describe('1 — the round gate', () => {
     // bare parameter value instead of spelling a ternary here. Same decision,
     // same count, one home fewer.
     const screen = SRC('TodayScreen.tsx')
-    const reads = [...screen.matchAll(/SELLING_ENGINE_LAW/g)].length
-    expect(reads).toBe(6)
-    expect(screen).toContain("import { SELLING_ENGINE_LAW } from './selling-engine-gate'")
-    expect(screen).toContain('gateOn: SELLING_ENGINE_LAW,')
-    expect(screen).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
-    // ⚖ R7 — the VERDICT's own door, the rail's line one argument wider. `lanes`
-    // for the reason `placementFeasible` beside it passes it (the block advisor
-    // asks about a board it has taken something out of); `null` for the reason
-    // the rail asks `null` — a new client is never the card in hand.
-    expect(screen).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,')
+    const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
+    expect(reads).toBe(5)
+    // ⚖ BREAKER-827 F1 — AND THE FOUR SPELLINGS ARE WHOLE-LINE ANCHORED. The
+    // fifth read (`heldBoard`'s bare `SELLING_ENGINE_LAW` line, the head of a
+    // ternary) is held by the count alone: comment it out and the count is 4.
+    // The second line here is the VERDICT's own door, the rail's line one
+    // argument wider — `lanes` for the reason `placementFeasible` beside it
+    // passes it (the block advisor asks about a board it has taken something
+    // out of); `null` for the reason the rail asks `null`, a new client is
+    // never the card in hand.
+    for (const line of [
+      "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      'gateOn: SELLING_ENGINE_LAW,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+    ]) {
+      expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
   })
 
   it('every seam takes the mask as a PARAMETER, so an absent mask is today’s code', () => {
