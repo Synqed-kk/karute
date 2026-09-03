@@ -149,8 +149,11 @@ export async function reservationsPropsFor(
   const storeId = clamped ? store! : null
   const inLens = (rows: FixtureAppointment[]) =>
     clamped ? rows.filter((a) => a.store_id === storeId) : rows
+  // F-2 (fix round 1, LENS-2 NIT) — `<=` matches `listAppointments`'s own
+  // `<= range.to` (data.ts), so a world row and a door row are windowed
+  // identically.
   const appointments = world?.appointments
-    ? inLens(world.appointments).filter((a) => a.starts_at >= from && a.starts_at < to)
+    ? inLens(world.appointments).filter((a) => a.starts_at >= from && a.starts_at <= to)
     : doorWindow
   const historyScope = world?.appointments ? inLens(world.appointments) : doorAll
   const exceptionPlane = world?.reservations ?? planes.reservations
