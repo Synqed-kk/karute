@@ -49,6 +49,20 @@ export type AskAiCategory = 'customer_follow' | 'staffing' | 'booking' | 'vip'
 export interface FixtureSuggestion {
   id: string
   category: AskAiCategory
+  /** ⚖ THE CARD LEADS WITH THE TO-DO (the accepted mock, S15). A staff member
+   *  reading a rail of proposals is looking for WHAT TO DO and WHOSE, and the
+   *  paragraph under it is the explanation they open when they want it. So a
+   *  suggestion now says its job in two short lines as well as its paragraph.
+   *
+   *  ⚠ `{name}` IS A SLOT, NOT A NAME. The plane still states no person: the
+   *  substitution happens in `ask-ai.ts` with the SAME `personOf` the 根拠 line
+   *  resolves through, so a headline can never name somebody the lens cannot
+   *  see — a card whose subject does not resolve is dropped before the model,
+   *  exactly as it already was. */
+  headline: string
+  /** …and WHY, in one grey line. It restates no world fact either: no name, no
+   *  date, no menu, no store — only the situation the category is about. */
+  reason: string
   /** The recommendation, in the store's own words. It says what to DO — never
    *  who, when or where, which the 根拠 line answers by joining the world. */
   text: string
@@ -217,6 +231,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // K-0001's outcome is 再来のご提案 and its 次回 drawer holds the proposal.
     id: 'sug-revisit',
+    headline: '{name}様に再来のご案内',
+    reason: '前回の記録に次回のご提案が残っています',
     category: 'customer_follow',
     text: '前回の記録に次回のご提案が残ったままです。再来のご案内をおすすめします。',
     sourceRef: { collection: 'karuteRecords', id: 'K-0001' },
@@ -225,6 +241,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // apt-26 is the 仮押さえ the customer has not accepted — `board_state: 'hold'`.
     id: 'sug-hold',
+    headline: '{name}様に返事をもらう',
+    reason: '担当変更のお席が承諾待ちです',
     category: 'booking',
     text: '担当変更のお席がまだ承諾を待っています。内容をお伝えして返事をもらってください。',
     sourceRef: { collection: 'bookings', id: 'apt-26' },
@@ -232,6 +250,8 @@ export const suggestions: FixtureSuggestion[] = [
   },
   {
     id: 'sug-change',
+    headline: '{name}様の日時変更に返事する',
+    reason: '日時変更のご希望に返信がまだです',
     category: 'booking',
     text: '予約の日時変更のご希望に、まだ返信できていません。空き枠の候補を確かめてお返事してください。',
     sourceRef: { collection: 'inbox', id: 'inb-change' },
@@ -239,6 +259,8 @@ export const suggestions: FixtureSuggestion[] = [
   },
   {
     id: 'sug-absence',
+    headline: '{name}様の振り替えを決める',
+    reason: '担当が不在の枠が残っています',
     category: 'staffing',
     text: '担当が不在の枠が残っています。振り替え先を決めて、お客様にご連絡してください。',
     sourceRef: { collection: 'inbox', id: 'inb-absence' },
@@ -252,6 +274,8 @@ export const suggestions: FixtureSuggestion[] = [
     // were unreachable in the shipped demo, the same class of defect as the
     // board's own 詰め込み layer before apt-29 moved to 14:05.
     id: 'sug-noshow',
+    headline: '{name}様の空き枠を組み直す',
+    reason: '来店のなかった枠が空いたままです',
     category: 'staffing',
     text: '来店のなかった枠が空いたままです。担当の当日の動きを組み直せないか確認してください。',
     sourceRef: { collection: 'bookings', id: 'apt-23' },
@@ -260,6 +284,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // apt-25's settlement is 'awaiting', and its customer is the world's one VIP.
     id: 'sug-vip-settle',
+    headline: '{name}様の精算を確認する',
+    reason: 'VIPのお客様の会計がまだ済んでいません',
     category: 'vip',
     text: 'VIPのお客様の会計がまだ済んでいません。精算の状況をご確認ください。',
     sourceRef: { collection: 'bookings', id: 'apt-25' },
@@ -268,6 +294,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // K-0002's AI summary is a 下書き nobody has confirmed.
     id: 'sug-draft',
+    headline: '{name}様のAI要約を確認する',
+    reason: 'AIの要約がまだ確認されていません',
     category: 'customer_follow',
     text: 'AIの要約がまだ確認されていません。内容を確かめて確定してください。',
     sourceRef: { collection: 'karuteRecords', id: 'K-0002' },
@@ -277,6 +305,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // inb-wait is the ONE thread in the world carrying its own 期限.
     id: 'sug-waitlist',
+    headline: '{name}様に空き枠をご案内する',
+    reason: '空き待ちのお申し込みに枠をご提案できていません',
     category: 'booking',
     text: '空き待ちのお申し込みに、まだ枠をご提案できていません。空き枠が出たらご案内してください。',
     sourceRef: { collection: 'inbox', id: 'inb-wait' },
@@ -285,6 +315,8 @@ export const suggestions: FixtureSuggestion[] = [
   {
     // K-0011 burned a 回数券 — the balance is the 顧客 room's own fact.
     id: 'sug-ticket',
+    headline: '{name}様に回数券の更新をご案内',
+    reason: '回数券の残りが少なくなっています',
     category: 'customer_follow',
     text: '回数券の残りが少なくなっているお客様です。次回のご来店時に更新のご案内をおすすめします。',
     sourceRef: { collection: 'karuteRecords', id: 'K-0011' },
@@ -292,6 +324,8 @@ export const suggestions: FixtureSuggestion[] = [
   },
   {
     id: 'sug-vip-next',
+    headline: '{name}様の申し送りを合わせる',
+    reason: 'VIPのお客様の次のご予約が入っています',
     category: 'vip',
     text: 'VIPのお客様の次のご予約が入っています。担当と申し送りを合わせておいてください。',
     sourceRef: { collection: 'bookings', id: 'apt-16' },

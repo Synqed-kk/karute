@@ -191,6 +191,28 @@ function refInLens(ref: AskAiSourceRef, ix: AskAiIndex): boolean {
 const personOf = (id: string | null | undefined, ix: AskAiIndex): string | null =>
   id ? (ix.customer.get(id)?.name ?? null) : null
 
+/** ⚖ ONE RESOLVER FOR WHO A ROW IS ABOUT (S15). The headline's `{name}` slot,
+ *  the 根拠 line's own name and an answer's name chips are three renderings of
+ *  ONE question —「whose record is this?」 — so they read it from one place (⚖ A8).
+ *  `null` when the reference does not resolve at all, which is the same answer
+ *  `evidenceLineOf` gives, so a card can never carry a headline naming somebody
+ *  its evidence line could not. */
+export function personForRef(ref: AskAiSourceRef, ix: AskAiIndex): string | null {
+  switch (ref.collection) {
+    case 'karuteRecords': {
+      const rec = ix.record.get(ref.id)
+      const appt = rec ? ix.appointment.get(rec.appointment_id) : undefined
+      return appt ? personOf(appt.customer_id, ix) : null
+    }
+    case 'bookings':
+      return personOf(ix.appointment.get(ref.id)?.customer_id, ix)
+    case 'inbox':
+      return personOf(ix.thread.get(ref.id)?.customer_id, ix)
+    case 'customers':
+      return personOf(ref.id, ix)
+  }
+}
+
 const staffNameOf = (id: string | null, ix: AskAiIndex): string =>
   (id ? ix.staff.get(id)?.full_name : null) ?? '担当未定'
 
@@ -280,11 +302,41 @@ export interface FeedCard {
   id: string
   category: AskAiCategory
   categoryLabel: string
+  /** The to-do, with the plane's `{name}` slot already filled by the resolver. */
+  headline: string
+  /** …and the one grey line under it saying why. */
+  reason: string
   text: string
   badge: string | null
   evidence: string
+  /** The person the 根拠 line is about, as the resolver spelled them — so the
+   *  screen can render the name as a chip inside the line by SPLITTING ON THIS
+   *  STRING rather than pattern-matching a name out of free prose. */
+  evidenceName: string | null
   segment: string
   linkLabel: string
+}
+
+/** Split a resolved line at a name the RESOLVER produced. Not a regex over free
+ *  text: the needle is the same string the world handed back, so a customer
+ *  called 「予約」 could not make this cut in the wrong place. Returns the whole
+ *  line as `before` when there is no name to find, which is what a line about a
+ *  record with no person would be. */
+export function splitAtName(line: string, name: string | null): { before: string; name: string; after: string } {
+  if (!name) return { before: line, name: '', after: '' }
+  const i = line.indexOf(name)
+  if (i < 0) return { before: line, name: '', after: '' }
+  return { before: line.slice(0, i), name, after: line.slice(i + name.length) }
+}
+
+/** ⚖ THE EVIDENCE LINE READS AS A PILL: a tag and the rest (S15, the accepted
+ *  mock's `.cite`). The cut is at the line's FIRST 「・」 — the one separator
+ *  `evidenceLineOf` writes between 「カルテ K-0001」 and the human half — so the
+ *  ONE evidence grammar is rendered two ways rather than written twice. A line
+ *  with no separator keeps all of itself in `rest`, and the pill shows no tag. */
+export function splitEvidence(line: string): { tag: string; rest: string } {
+  const i = line.indexOf('・')
+  return i < 0 ? { tag: '', rest: line } : { tag: line.slice(0, i), rest: line.slice(i + 1) }
 }
 
 /** EXCEPTION-FIRST, STABLE (canon's own sort, and 受信トレイ's convention):
@@ -311,13 +363,21 @@ export function buildFeed(suggestions: FixtureSuggestion[], world: AskAiWorld): 
     if (evidence === null) continue
     const linkLabel = LIVE_SEGMENTS[s.deepLink]
     if (!linkLabel) continue
+    // ⚠ THE SLOT IS FILLED FROM THE SAME RESOLVER THE LINE ABOVE USED. A card
+    // whose subject does not resolve never gets here (`evidence === null` drops
+    // it), so this is never `null` in practice — and the fallback is the plane's
+    // own sentence rather than a literal `{name}` reaching a reader.
+    const person = personForRef(s.sourceRef, ix)
     cards.push({
       id: s.id,
       category: s.category,
       categoryLabel: CATEGORY_LABEL[s.category],
+      headline: person ? s.headline.replace('{name}', person) : s.headline.replace('{name}様', 'このお客様'),
+      reason: s.reason,
       text: s.text,
       badge,
       evidence,
+      evidenceName: person,
       segment: s.deepLink,
       linkLabel,
     })
@@ -356,11 +416,23 @@ export interface AnswerSource {
   line: string
 }
 
+/** A person an answer's 出典 rows are about, and the question a tap on their
+ *  chip puts in the composer. */
+export interface AnswerPerson {
+  name: string
+  prompt: string
+}
+
 export interface ConversationTurn {
   id: string
   role: 'user' | 'assistant' | 'error'
   text: string
   sources: AnswerSource[]
+  /** ⚖ WHO THE ANSWER IS ABOUT, DERIVED — never authored (S15). The DISTINCT
+   *  customers across this turn's RESOLVED sources, in order of first
+   *  appearance, so a lens that can read one of three rows sees one chip and a
+   *  lens that can read none sees no row of chips at all. */
+  people: AnswerPerson[]
   /** ⚖ 8/25 — the count says WHAT it counts, and it counts the rows printed
    *  under it. `null` when there are none, never 「出典 0件」. */
   sourceCountLabel: string | null
@@ -389,15 +461,37 @@ export function todayRosterSize(world: AskAiWorld): number {
   return new Set(world.todayAppointments.map((a) => a.customer_id).filter(Boolean)).size
 }
 
+/** ⚖ THE ANSWER HAS A SHAPE, AND IT IS DERIVED FROM THE ONE STRING THE SHIPPED
+ *  CONTRACT RETURNS (S15, ⚖-ADJ D). `reply` is one paragraph
+ *  (`src/lib/ai/karute-chat.ts` — plain JSON `{ reply, context_label? }`), so the
+ *  desk cannot be handed a lead and a body: it CUTS the paragraph at its first
+ *  full stop, which in Japanese is the first 「。」. The opening sentence is the
+ *  answer; the rest is the advice under it. A one-sentence reply has no advice
+ *  and the row simply does not render — never an empty box under a heading. */
+export function splitLead(text: string): { lead: string; advice: string } {
+  const i = text.indexOf('。')
+  if (i < 0) return { lead: text, advice: '' }
+  return { lead: text.slice(0, i + 1), advice: text.slice(i + 1).trim() }
+}
+
+/** What a tap on a name chip puts in the composer. Composed HERE, from the
+ *  resolver's own name, for the same reason an evidence line is: a plane
+ *  holding 「見本 いつき様の…」 would be restating the world's own fact. */
+export const namePrompt = (name: string): string =>
+  `${name}様の記録をもとに、ご案内の文面を作ってください。`
+
 export function buildConversation(turns: FixtureTurn[], world: AskAiWorld): ConversationTurn[] {
   const ix = askAiIndex(world)
   return turns.map((t) => {
     const sources: AnswerSource[] = []
+    const people: AnswerPerson[] = []
     for (const ref of t.sources) {
       if (!refInLens(ref, ix)) continue
       const line = evidenceLineOf(ref, ix)
       if (line === null) continue
       sources.push({ ref: `${ref.collection}:${ref.id}`, line })
+      const name = personForRef(ref, ix)
+      if (name && !people.some((p) => p.name === name)) people.push({ name, prompt: namePrompt(name) })
     }
     const contextLabel =
       t.contextRef && t.contextRef.collection === 'customers' && refInLens(t.contextRef, ix)
@@ -408,10 +502,29 @@ export function buildConversation(turns: FixtureTurn[], world: AskAiWorld): Conv
       role: t.role,
       text: t.text,
       sources,
+      people,
       sourceCountLabel: sources.length === 0 ? null : `出典 ${sources.length}件`,
       contextLabel,
     }
   })
+}
+
+/** ⚖ 「もう一度送る」 IS THE SEND PATH, AND IT NEEDS A QUESTION TO SEND (S15,
+ *  ⚖-ADJ F — this supersedes R7-10's waiver of the retry law). The question is
+ *  the nearest PRECEDING user turn's own words and the context hint it carried;
+ *  a failure with nothing before it has nothing to re-send, so `null` and the
+ *  screen renders no button rather than one that would ask an empty question.
+ *
+ *  Pure, and it reads the BUILT turns rather than the plane, so what the retry
+ *  would send is exactly what the reader can see above it — including a context
+ *  label the lens dropped, which then correctly reaches the refusal as `null`. */
+export function precedingQuestion(turns: ConversationTurn[], id: string): { text: string; contextLabel: string | null } | null {
+  const at = turns.findIndex((t) => t.id === id)
+  if (at < 0) return null
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (turns[i].role === 'user') return { text: turns[i].text, contextLabel: turns[i].contextLabel }
+  }
+  return null
 }
 
 // ── the two prompt systems (§2b-6 — both are contract, and they differ) ─────
@@ -561,8 +674,15 @@ export const REFUSAL = {
   // contract (§2b-3, both routes, shared core) is the live door at reconnect.
   send: '見本データのため回答を生成できません。回答はAIに実際に問い合わせる操作のため、実データとAIの接続後に有効になります（未接続）。',
   // RECONNECT SEAM: 登録⑦ AI設定ダイヤル接続 — 積極度 + the four category
-  // switches + 回答の言語, whose home is the 設定 room (it builds LAST).
-  settings: '見本データのためAI設定を開けません。積極度・カテゴリ・回答の言語は設定画面で決める項目のため、設定画面の追加後に有効になります（未接続）。',
+  // switches + 回答の言語 + 業種, whose home is the 設定 room.
+  //
+  // ⚠ TRUTH-FIX AT THE MAIN-MOVED FOLD (S15). This sentence used to say the
+  // settings screen itself was still to come — and #812 shipped it. What is
+  // still missing is narrower and the copy now says exactly that: the 設定 room
+  // exists and holds 予約と確保; the AI items are not in it yet. A refusal that
+  // names a thing that already shipped is a surface lying about the family
+  // (⚖ A10), which is why this rides the fold rather than waiting for a round.
+  settings: '見本データのためAI設定を開けません。積極度・カテゴリ・回答の言語・業種は、設定画面にまだ用意されていない項目です（未接続）。',
 } as const
 
 /** 却下 IS NOT REFUSED — it works, and it is honest about being demo-local
