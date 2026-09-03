@@ -47,64 +47,53 @@ const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000
  *  offering — and letting a save delete — another tab's in-progress audio. */
 const ACTIVE_GRACE_MS = 20_000
 
-/** ⚖ THE CROSS-TAB LIVENESS SIGNAL (fix round 14) — one localStorage key per
- *  live take, re-stamped every ~5 s by the recorder holding it (global-recorder
- *  writes it on the flush timer it already runs; nothing here schedules
- *  anything). IndexedDB is shared between same-origin tabs but says nothing
- *  about who is RECORDING; `isActive` can only answer for the singleton in the
- *  caller's own runtime. localStorage is the one store every tab writes and
- *  every tab reads synchronously, which is what isStoppedTake needs.
+/** ⚖ THE CROSS-TAB LIVENESS SIGNAL (fix round 14, moved onto the take row in
+ *  round 15) — `heartbeatAt` on the take's OWN meta row, re-stamped every ~5 s
+ *  by the recorder holding it (global-recorder writes it on the flush timer it
+ *  already runs; nothing here schedules anything). IndexedDB is shared between
+ *  same-origin tabs but says nothing about who is RECORDING; `isActive` can
+ *  only answer for the singleton in the caller's own runtime.
  *
  *  A PAUSED take is exactly the case it exists for: it flushes nothing, so it
  *  looks stale within seconds, and on the web it may be paused in the tab next
- *  door. The heartbeat keeps beating while paused, so "quiet" and "gone" stop
- *  being the same reading. Removed at stop/discard, so a finished take stops
- *  claiming to be alive. */
-const HEARTBEAT_KEY_PREFIX = 'karute.takeHeartbeat.'
+ *  door. The beat keeps beating while paused, so "quiet" and "gone" stop being
+ *  the same reading.
+ *
+ *  ⚖ ONE HOME (fix round 15). Round 14 kept the beat in localStorage, and two
+ *  stores meant two failure modes feeding one judgement: a READ that threw was
+ *  read as "might be live" while a WRITE that threw (Safari private mode,
+ *  quota) left a live recording looking stopped — the asymmetry that seals
+ *  audio. On the take row there is only the store the drain ALREADY reads. A
+ *  beat whose write is lost makes the take look older, never deader, and the
+ *  stale window below absorbs a missed tick; and if IndexedDB is the thing
+ *  failing, the drain cannot read its worklist either, so it seals nothing. */
+
+/** HOW LONG ONE BEAT SPEAKS FOR — deliberately far longer than the ~5 s
+ *  cadence that writes it (fix round 15). A hidden tab's timers are throttled
+ *  to roughly once a MINUTE after five minutes in the background, and a tab
+ *  that is merely capturing gets no audible-media exemption: the beat of a
+ *  perfectly live recording in the tab next door can be a full minute old.
+ *
+ *  The two errors are not symmetric. A beat that expires LATE only delays an
+ *  upload by a couple of minutes; one that expires EARLY seals a live
+ *  recording under its IMMUTABLE key and destroys the rest of the audio. So
+ *  this is two minutes — not the 20 s ACTIVE_GRACE_MS above, which judges a
+ *  different fact (how long since bytes were flushed) and keeps its own value. */
+const HEARTBEAT_STALE_MS = 120_000
 
 /** Stamp this take as still held by a live recorder. Best-effort like every
- *  other write in this file: Safari private mode throws on setItem, and a
- *  recording must never notice. */
-export function writeTakeHeartbeat(takeId: string): void {
-  try {
-    localStorage.setItem(HEARTBEAT_KEY_PREFIX + takeId, String(Date.now()))
-  } catch (err) {
-    console.error('[take-store] writeTakeHeartbeat failed:', err)
-  }
+ *  other write in this file — patchTakeMeta swallows its errors and answers
+ *  false, and capture must never notice. */
+export async function writeTakeHeartbeat(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { heartbeatAt: Date.now() })
 }
 
-/** …and the recorder let go of it (stop, discard, the next take). Leaving the
- *  key would make a finished take claim a recorder for a whole grace window. */
-export function clearTakeHeartbeat(takeId: string): void {
-  try {
-    localStorage.removeItem(HEARTBEAT_KEY_PREFIX + takeId)
-  } catch (err) {
-    console.error('[take-store] clearTakeHeartbeat failed:', err)
-  }
-}
-
-/** Might a recorder in ANOTHER TAB still be holding this take? A fresh
- *  heartbeat says yes.
- *
- *  Also yes when the store cannot be read at all. A localStorage that throws
- *  for this tab threw for the writer too (same browser, same private-mode
- *  setting), so "no key" there is the absence of the whole mechanism rather
- *  than evidence of a stopped take — and reading it as evidence would seal a
- *  take another tab is still recording under an IMMUTABLE key. With no signal
- *  either way the web falls back to round 5's stopped-only rule, which is the
- *  behaviour it had before this existed. A key present but unreadable as a
- *  number was not written by the recorder and is treated as no key. */
-function takeMayBeLiveElsewhere(takeId: string): boolean {
-  let raw: string | null
-  try {
-    raw = localStorage.getItem(HEARTBEAT_KEY_PREFIX + takeId)
-  } catch (err) {
-    console.error('[take-store] heartbeat read failed:', err)
-    return true
-  }
-  if (!raw) return false
-  const beatAt = Number(raw)
-  return Number.isFinite(beatAt) && Date.now() - beatAt < ACTIVE_GRACE_MS
+/** …and the recorder let go of it: the stop leg's `finally` (the point after
+ *  which there is no short blob left to seal), a discard, or the next take.
+ *  Leaving the beat would make a finished take claim a recorder for two whole
+ *  minutes. */
+export async function clearTakeHeartbeat(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { heartbeatAt: undefined })
 }
 
 /** How long the drain leaves a take alone after a failed secure attempt (fix
@@ -190,6 +179,14 @@ export type TakeMeta = {
   updatedAt: number
   /** Highest persisted segment seq; -1 until the first flush lands. */
   lastSeq: number
+  /** ⚖ THE CROSS-TAB LIVENESS BEAT (fix round 15) — when a recorder last said
+   *  it is still holding this take. Re-stamped every ~5 s while recording OR
+   *  paused and once more at the stop, cleared when the stop leg has nothing
+   *  short left to seal. Absent = nothing is claiming it (a finished take, or
+   *  one recorded by a bundle older than this field — read as no beat, which
+   *  is what those takes are). Read by isStoppedTake, and only on the web —
+   *  see HEARTBEAT_STALE_MS. */
+  heartbeatAt?: number
   /** R-B3: the 結果 answer, stamped HERE the moment staff answer it. Without
    *  it the answer rides only the in-memory pipeline context
    *  (global-pipeline.ts), so a crash between the money writes (already
@@ -572,6 +569,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'startedAt'
   | 'updatedAt'
   | 'lastSeq'
+  | 'heartbeatAt'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -586,6 +584,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     startedAt: meta.startedAt,
     updatedAt: meta.updatedAt,
     lastSeq: meta.lastSeq,
+    heartbeatAt: meta.heartbeatAt,
   }
 }
 
@@ -854,20 +853,23 @@ export async function getRecoverableTake(
  *  · has been quiet longer than ACTIVE_GRACE_MS
  *  is a stopped take whose stamp failed. Its bytes may go.
  *
- *  ⚖ AND THE WEB ASKS THE OTHER TABS (fix round 14). Round 5's hazard is real —
- *  another same-origin tab can be recording this very take, `isActive` cannot
- *  see into it, and a finalized key is IMMUTABLE, so sealing it there would
- *  truncate that recording forever. But "quiet" was never the same fact as
- *  "gone", and until now the web had no way to tell them apart, which left the
- *  failed-stamp case above device-only on every browser. The heartbeat above is
- *  that way: a live recorder re-stamps its take's key every ~5 s, paused or
- *  not, so on the web the same four facts plus a heartbeat that is absent or
- *  older than the grace mean no recorder anywhere is holding this take. A tab
- *  that is merely PAUSED keeps beating and keeps its take.
+ *  ⚖ AND THE WEB ASKS THE OTHER TABS (fix round 14; the beat moved onto this
+ *  very row in round 15). Round 5's hazard is real — another same-origin tab
+ *  can be recording this very take, `isActive` cannot see into it, and a
+ *  finalized key is IMMUTABLE, so sealing it there would truncate that
+ *  recording forever. But "quiet" was never the same fact as "gone", and until
+ *  now the web had no way to tell them apart, which left the failed-stamp case
+ *  above device-only on every browser. The beat above is that way: a live
+ *  recorder re-stamps `heartbeatAt` every ~5 s, paused or not, so on the web
+ *  the same four facts plus a beat that is absent or older than
+ *  HEARTBEAT_STALE_MS mean no recorder anywhere is holding this take. A tab
+ *  that is merely PAUSED keeps beating and keeps its take — and one whose
+ *  timers the browser has THROTTLED to a beat a minute keeps it too, which is
+ *  why that window is two minutes and not the grace.
  *
  *  The native shell does not need it (round 13's reading stands on its own: one
  *  WebView, so a page that is loading is proof enough), and must not depend on
- *  it — a take recorded by an older bundle has no key at all.
+ *  it — a take recorded by an older bundle carries no beat at all.
  *
  *  `isActive` comes from the caller because the recorder is a module singleton
  *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
@@ -875,7 +877,7 @@ export async function getRecoverableTake(
  *  than inventing a check it never made — at launch there is nothing to ask. */
 export function isStoppedTake(
   takeId: string,
-  meta: Pick<TakeMeta, 'durationMs' | 'lastSeq' | 'updatedAt'>,
+  meta: Pick<TakeMeta, 'durationMs' | 'lastSeq' | 'updatedAt' | 'heartbeatAt'>,
   isActive?: (takeId: string) => boolean,
 ): boolean {
   if (meta.durationMs !== undefined) return true
@@ -883,7 +885,13 @@ export function isStoppedTake(
   if (isActive?.(takeId)) return false
   if (Date.now() - meta.updatedAt < ACTIVE_GRACE_MS) return false
   if (isNativeShell()) return true
-  return !takeMayBeLiveElsewhere(takeId)
+  // …and on the web the beat on this very row is the only thing that can
+  // answer for a recorder in ANOTHER TAB. Absent, or older than the throttled
+  // cadence a background tab can manage: nothing is holding this take.
+  return !(
+    meta.heartbeatAt !== undefined &&
+    Date.now() - meta.heartbeatAt < HEARTBEAT_STALE_MS
+  )
 }
 
 /** Every take of the SIGNED-IN user that is KNOWN STOPPED and whose audio the

@@ -89,8 +89,8 @@ jest.mock('@/lib/karute/take-store', () => ({
   // The cross-tab heartbeat (fix round 14). This suite has no store layer at
   // all, so both calls are the no-ops the real ones become when localStorage
   // refuses — the recorder must not notice either way.
-  writeTakeHeartbeat: () => {},
-  clearTakeHeartbeat: () => {},
+  writeTakeHeartbeat: async () => {},
+  clearTakeHeartbeat: async () => {},
   readTakeSecureMeta: async (takeId: string) =>
     mockTakeSessions.has(takeId)
       ? { takeId, recordingSessionId: mockTakeSessions.get(takeId) }
