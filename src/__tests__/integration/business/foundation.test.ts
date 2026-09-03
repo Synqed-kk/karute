@@ -910,6 +910,23 @@ describe('顧客一覧 screen', () => {
     // cus-05's only forward booking (apt-21, 代官山) is cancelled.
     expect((await render(STORE_B)).find((r) => r.id === 'cus-05')!.hasNext).toBe(false)
   })
+  it('a SAME-DAY future slot IS a 次回予約 — the anchor is an instant, never a day boundary', async () => {
+    // ⚠ THE TRUTH A DAY-GRANULAR FILTER WOULD SILENTLY BREAK. The suite's clock
+    // is 2026-08-19T00:00Z = 09:00 JST, so TODAY's 14:05 and 14:30 slots are
+    // still ahead: きり's apt-09 and さくら's apt-26 must both read today's date.
+    // A `starts_at >= endOfToday`-style filter drops exactly these two rows and
+    // nothing else, which is why they are pinned by name.
+    const ginza = await render(STORE_A)
+    expect(ginza.find((r) => r.id === 'cus-07')!.nextLabel).toBe('8月19日 14:05')
+    expect(ginza.find((r) => r.id === 'cus-11')!.nextLabel).toBe('8月19日 14:30')
+    expect(ginza.find((r) => r.id === 'cus-07')!.hasNext).toBe(true)
+    expect(ginza.find((r) => r.id === 'cus-11')!.hasNext).toBe(true)
+    // …and the same instant excludes a slot that has already BEGUN today:
+    // cus-06's apt-14 starts 13:00 today, which is ahead of 09:00, so she has
+    // one; いつき's only slot today is `done`, so she has none.
+    expect(ginza.find((r) => r.id === 'cus-06')!.hasNext).toBe(true)
+    expect(ginza.find((r) => r.id === 'cus-02')!.hasNext).toBe(false)
+  })
   it('a booking that already started is not a next booking', async () => {
     const ginza = await render(STORE_A)
     // cus-01 holds past bookings AND a future one: the future one wins.
