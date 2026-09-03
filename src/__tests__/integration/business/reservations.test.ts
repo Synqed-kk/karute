@@ -57,6 +57,7 @@ import {
   decisionKindOf,
   eligibilityOf,
   flagsOf,
+  genuineOf,
   isQueued,
   lifecycleOf,
   matchesFilters,
@@ -522,6 +523,15 @@ describe('the transplanted bands are populated from fixtures', () => {
     expect(sourceOf('電話予約 #357540', false)).toMatchObject({ label: '電話予約', group: 'store' })
     expect(sourceOf('店頭受付 #357498', false)).toMatchObject({ label: '店頭受付', group: 'store' })
     expect(sourceOf('外部予約元 #357505', false)).toMatchObject({ label: '外部予約元', group: 'external' })
+  })
+
+  it('⚖-ADJ G · 正本 — SYNQED for reserve and store, 外部予約元 only for an externally-owned booking (F-1, fix round 1)', () => {
+    // D5 SETTLED: Reserve and SYNQED are two doors onto ONE database, so the
+    // mock's own 「Reserve」正本 inference is refuted — a `reserve` row falls to
+    // the same SYNQED arm as a `store` row.
+    expect(genuineOf('reserve')).toBe('SYNQED')
+    expect(genuineOf('store')).toBe('SYNQED')
+    expect(genuineOf('external')).toBe('外部予約元')
   })
 
   it('価格条件 reads strongest-first, the same order the board colours by', () => {

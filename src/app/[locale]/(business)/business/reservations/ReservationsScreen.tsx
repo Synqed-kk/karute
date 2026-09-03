@@ -51,12 +51,14 @@ import {
   LIFECYCLE,
   PAGE_BANDS,
   QUEUE_ACTION,
+  SCRIM_SETTLE_MS,
   WANTS_CHANGE,
   chipCounts,
   countdownText,
   deadlineOf,
   decisionKindOf,
   flagsOf,
+  genuineOf,
   isQueued,
   matchesFilters,
   primaryActionOf,
@@ -185,6 +187,13 @@ const CHANGE_REASONS = ['お客様希望', '担当者の勤務変更', '設備�
  *  refusal says which write it is and that nothing moved, in that order. */
 const SEND_REFUSAL =
   '見本データのため、お客様への返信は送れません。Reserve通知とSMSの送信はまだつないでいないので、この画面では枠と理由の確認までを示します。予約は変わっていません。'
+
+/** F-5 (fix round 1, LENS-4) — ONE escalate toast for both call sites: the
+ *  rail card's own action and the inspector's `Primary` used to diverge by
+ *  one clause for the identical non-write hand-off. The inspector's wording
+ *  is the kept one. */
+const ESCALATE_TOAST = (no: string) =>
+  `この画面内のプロトタイプでは、予約 ${no}を判断できる担当者へ渡すところまでを示します`
 
 export interface Decorated extends ReservationRow {
   deadlineMinute: number | null
@@ -425,6 +434,10 @@ function Screen(props: ReservationsProps) {
   const segRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
   const sheetRef = useRef<HTMLElement>(null)
+  // F6 (fix round 1, LENS-3 F-1) — the sheet's own modal hardening state,
+  // mirroring RecordingScreen.tsx's `Overlay` (:2275-2300, IN-ROOM).
+  const sheetOpenedAt = useRef(Number.POSITIVE_INFINITY)
+  const sheetOpenerId = useRef<string | null>(null)
   const helpRef = useRef<HTMLButtonElement>(null)
   const tourCardRef = useRef<HTMLDivElement>(null)
   const tourNextRef = useRef<HTMLButtonElement>(null)
@@ -645,7 +658,19 @@ function Screen(props: ReservationsProps) {
 
   function selectRow(id: string, fromRow: boolean) {
     setSelected(id)
-    if (fromRow && sheetBand) setSheetOpen(true)
+    if (fromRow && sheetBand) {
+      sheetOpenerId.current = id
+      setSheetOpen(true)
+    }
+  }
+
+  /** F6 (fix round 1) — closes the sheet and hands focus back to the row that
+   *  opened it, via `focusResult` (canon :541, the same handoff every commit
+   *  on this page uses). */
+  function closeSheet() {
+    setSheetOpen(false)
+    const id = sheetOpenerId.current
+    if (id) requestAnimationFrame(() => focusResult(listRef.current, countRef.current, id))
   }
 
   /** A rail card selects its booking AND takes the reader to its row — the two
@@ -661,7 +686,13 @@ function Screen(props: ReservationsProps) {
     [reduced],
   )
 
-  function toggleAtt(id: string) {
+  /** ⚖ ONE SCROLL PER ACTION (F7, fix round 1, LENS-3 F-2): a rail-card click
+   *  takes the reader DOWN to its row (`target: 'row'`, unchanged — the
+   *  mock's own 420ms wait for the detail's height spring to rest); the
+   *  inspector's 変更 button takes the reader UP to the decision surface it
+   *  just opened instead (`target: 'rail'`) — the row is where they came
+   *  from, not where they are going. The two used to fire back to back. */
+  function toggleAtt(id: string, target: 'row' | 'rail' = 'row') {
     setPickedSlot('')
     setPickReason('')
     setSendRefused(false)
@@ -671,7 +702,8 @@ function Screen(props: ReservationsProps) {
     }
     setOpenAtt(id)
     setSelected(id)
-    scrollToRow(id)
+    if (target === 'row') scrollToRow(id)
+    else detailRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
   }
 
   // ── the two height springs: the rail's detail, and the picker's confirm ────
@@ -717,6 +749,18 @@ function Screen(props: ReservationsProps) {
     sp.set(sheetOpen ? 0 : 100)
     return () => sp.stop()
   }, [sheetOpen, reduced])
+
+  /** F6 (fix round 1, LENS-3 F-1) — the sheet is a real modal: the moment it
+   *  opened is stamped (fail-closed until then, so no unstamped scrim can
+   *  dismiss it) and focus moves into its first focusable, mirroring
+   *  RecordingScreen.tsx's `Overlay` (:2288-2300) IN-ROOM — a shared overlay
+   *  primitive is a family-sweep item, not this round. */
+  useLayoutEffect(() => {
+    const panel = sheetRef.current
+    if (!sheetOpen || !panel) return
+    sheetOpenedAt.current = Date.now()
+    return wireSheet(panel)
+  }, [sheetOpen])
 
   // ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ─────────────────────────────
   const tourRectsRef = useRef<SpotRect[]>([])
@@ -769,7 +813,7 @@ function Screen(props: ReservationsProps) {
         if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
         return
       }
-      if (e.key === 'Escape') setSheetOpen(false)
+      if (e.key === 'Escape') closeSheet()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -802,11 +846,10 @@ function Screen(props: ReservationsProps) {
         // cleared can still ask for this button while having no card on the
         // rail to open. It says so rather than doing nothing.
         if (!current.queued) {
-          setToast(`予約 ${current.no}の変更希望は要対応の期限が外れています。下の一覧で内容を確認してください`)
+          setToast(`予約 ${current.no}の変更希望は、すでに要対応の対象から外れています。下の一覧で内容を確認してください`)
           return
         }
-        toggleAtt(current.id)
-        railRef.current?.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+        toggleAtt(current.id, 'rail')
       }}
       onToast={setToast}
     />
@@ -838,7 +881,7 @@ function Screen(props: ReservationsProps) {
               aria-label="画面の説明"
               aria-haspopup="dialog"
               aria-expanded={tourOpen}
-              aria-controls="rvTour"
+              aria-controls={tourOpen ? 'rvTour' : undefined}
               onClick={() => setTourIdx(0)}
             >
               ?
@@ -880,7 +923,7 @@ function Screen(props: ReservationsProps) {
                   data-att={r.id}
                   className={`rv-rcard${r.overdue ? ' is-over' : ''}${openAtt === r.id ? ' is-sel' : ''}`}
                   aria-expanded={openAtt === r.id}
-                  onClick={() => toggleAtt(r.id)}
+                  onClick={() => toggleAtt(r.id, 'row')}
                 >
                   <span className="rv-dl">{DEADLINE_WORD[r.kind]} {hhmm(r.deadlineMinute!)}まで</span>
                   <span className="rv-cd">{countdownText(r.deadlineMinute!, boardNow, elapsedSec)}</span>
@@ -998,7 +1041,7 @@ function Screen(props: ReservationsProps) {
         <section
           className="rv-card rv-filterrow"
           data-guide-title="絞り込み"
-          data-guide="件数のチップがそのまま絞り込みです。押すと、その件数ぶんの予約だけが下の一覧に残ります。検索と期間は、選んでいるチップの中をさらに絞り込みます。"
+          data-guide="件数のチップがそのまま絞り込みです。押すと、そのチップに当てはまる予約だけが下の一覧に残ります。検索と期間は、選んでいるチップの中をさらに絞り込みます。"
         >
           <div className="rv-seg" ref={segRef} role="group" aria-label="予約の絞り込み">
             <span className="rv-seg-thumb" ref={thumbRef} aria-hidden="true" />
@@ -1154,17 +1197,26 @@ function Screen(props: ReservationsProps) {
           render never carries one and a phone's first paint cannot flash it. */}
       {sheetOpen && current && (
         <>
-          <div className="rv-scrim" onClick={() => setSheetOpen(false)} />
+          {/* F6 (fix round 1, LENS-3 F-1) — the scrim's click is gated on how
+              long the panel has been on screen (RecordingScreen.tsx's
+              Overlay, :2322-2325), so a double-tap on the row that just
+              opened it cannot land here and close what it opened. */}
+          <div
+            className="rv-scrim"
+            onClick={() => { if (Date.now() - sheetOpenedAt.current >= SCRIM_SETTLE_MS) closeSheet() }}
+          />
           <aside
             className="rv-sheet"
             ref={sheetRef}
+            tabIndex={-1}
             role="dialog"
+            aria-modal="true"
             aria-label="予約の詳細"
             data-guide-title="予約の詳細"
             data-guide="選んでいる予約の中身です。受付時に合意した価格と現在の公開価格を並べているので、公開価格が動いたあとでも受付時の価格が保たれていることをそのまま確認できます。"
           >
             <div className="rv-sheet-grip" aria-hidden="true" />
-            <button className="btn rv-sheet-close" type="button" data-press aria-label="閉じる" onClick={() => setSheetOpen(false)}>✕</button>
+            <button className="btn rv-sheet-close" type="button" data-press aria-label="閉じる" onClick={closeSheet}>✕</button>
             {inspector}
           </aside>
         </>
@@ -1224,7 +1276,7 @@ function Screen(props: ReservationsProps) {
               <div className="rv-dlg-fact"><span>予約・お客様</span><b>{current.no} / {current.customerName}</b></div>
               <div className="rv-dlg-fact"><span>予約枠</span><b>{current.dateLabel} {current.timeLabel}</b></div>
               <div className="rv-dlg-fact"><span>受付価格</span><b>{current.priceLabel}</b></div>
-              <div className="rv-dlg-fact"><span>正本・受付元</span><b>{current.sourceGroup === 'external' ? '外部予約元' : `SYNQED / ${current.sourceLabel}`}</b></div>
+              <div className="rv-dlg-fact"><span>正本・受付元</span><b>{current.sourceGroup === 'external' ? genuineOf(current.sourceGroup) : `${genuineOf(current.sourceGroup)} / ${current.sourceLabel}`}</b></div>
             </div>
           )}
           <label className="rv-field">
@@ -1360,6 +1412,44 @@ function useCollapse(ref: React.RefObject<HTMLDivElement | null>, open: boolean,
 
 function href(props: ReservationsProps, segment: string): string {
   return `/${props.locale}/business/${segment}${props.store ? `?store=${props.store}` : ''}`
+}
+
+/** F6 (fix round 1, LENS-3 F-1) — the sheet's own focusable set, spelled ONCE
+ *  so the Tab trap and the focus-on-open read cannot disagree, ported from
+ *  RecordingScreen.tsx's `Overlay` (:2263) IN-ROOM: a shared overlay
+ *  primitive is a family-sweep item, not this round. */
+export const SHEET_FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]'
+
+/** The sheet's Tab trap, ported from RecordingScreen.tsx's `Overlay`
+ *  (:2302-2310). Exported so the suite drives it on real nodes, the same
+ *  reason `focusResult` is. */
+export function trapSheetTab(panel: HTMLElement, e: KeyboardEvent): void {
+  if (e.key !== 'Tab') return
+  const focusable = Array.from(panel.querySelectorAll<HTMLElement>(SHEET_FOCUSABLE))
+  if (focusable.length === 0) {
+    e.preventDefault()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+/** Wires the sheet panel on open: focuses its first focusable and installs
+ *  the Tab trap, returning the cleanup — same shape as `wireColumnsPopover`
+ *  (column-config.ts), IN-ROOM because this room's overlay is not that
+ *  shared primitive. */
+export function wireSheet(panel: HTMLElement): () => void {
+  ;(panel.querySelector<HTMLElement>(SHEET_FOCUSABLE) ?? panel).focus()
+  const onKey = (e: KeyboardEvent) => trapSheetTab(panel, e)
+  panel.addEventListener('keydown', onKey)
+  return () => panel.removeEventListener('keydown', onKey)
 }
 
 /** canon `focusResult` (:541): after a commit or a rail jump, focus lands on
@@ -1615,7 +1705,7 @@ function RailAction({
       data-press
       onClick={() => {
         if (row.kind === 'accept') onAccept()
-        else if (row.kind === 'escalate') onToast(`この画面内のプロトタイプでは、予約 ${row.no}と影響範囲を判断できる担当者へ渡すところまでを示します`)
+        else if (row.kind === 'escalate') onToast(ESCALATE_TOAST(row.no))
         else onFocusRow()
       }}
     >
@@ -1685,8 +1775,10 @@ function InspectorBody({
             {/* ⚖-ADJ G — 正本 is SYNQED for a Reserve row. Reserve and SYNQED are
                 two doors onto ONE database; only an外部予約元 booking is owned
                 somewhere else. The accept dialog's own 「お客様・正本 … / SYNQED」
-                and the external readonly band below both say the same thing. */}
-            <div><span className="rv-k2">正本</span><span className="rv-v2">{row.sourceGroup === 'external' ? '外部予約元' : 'SYNQED'}</span></div>
+                and the external readonly band below both say the same thing.
+                F-1 (fix round 1, LENS-2 BLOCKER): ONE home, `genuineOf` — this
+                site and the 記録 dialog's 正本・受付元 both read it now. */}
+            <div><span className="rv-k2">正本</span><span className="rv-v2">{genuineOf(row.sourceGroup)}</span></div>
           </div>
         </div>
         {row.lifecycle === 'external' && (
@@ -1760,7 +1852,7 @@ function Primary({
   switch (action) {
     case 'escalate':
       return (
-        <button className={cls} type="button" data-press onClick={() => onToast(`この画面内のプロトタイプでは、予約 ${row.no}を判断できる担当者へ渡すところまでを示します`)}>
+        <button className={cls} type="button" data-press onClick={() => onToast(ESCALATE_TOAST(row.no))}>
           判断できる担当者へ相談
         </button>
       )

@@ -40,6 +40,7 @@ import {
   decorate,
   focusResult,
   recordCommit,
+  wireSheet,
   type ReservationRow,
   type SlotOption,
 } from '@/app/[locale]/(business)/business/reservations/ReservationsScreen'
@@ -838,10 +839,99 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     expect(SCREEN_CODE).toContain('disabled={!picked || !pickReason}')
   })
 
-  it('⚖-ADJ G · 正本 reads SYNQED for a Reserve row — D5 settled, the mock’s own inference refuted', () => {
-    // the inspector's 正本 line has exactly two arms: 外部予約元, else SYNQED —
-    // a Reserve row is NOT external, so it must fall to the SYNQED arm, never
-    // a third 'Reserve' arm (the mock's own inference, refuted by the data door)
-    expect(SCREEN_CODE).toContain("{row.sourceGroup === 'external' ? '外部予約元' : 'SYNQED'}")
+  it('F-1 (fix round 1, LENS-2 BLOCKER) · 正本 has ONE home — genuineOf, read at both JSX sites, never re-spelled', () => {
+    // the inspector's 正本 line USED TO spell the rule inline a second time
+    // (the 記録 dialog's 正本・受付元 spelled it a first time, unpinned) — now
+    // both call the one helper, so a future "fix" to either site alone cannot
+    // ship with the suite green: there is nothing left to fix in two places.
+    expect([...SCREEN_CODE.matchAll(/genuineOf\(/g)].length).toBeGreaterThanOrEqual(2)
+    // …and the literal the helper alone is allowed to spell never appears at
+    // a JSX site again — the mutant that re-inlines 'SYNQED' at either site
+    // goes red here rather than surviving unpinned.
+    expect(SCREEN_CODE).not.toMatch(/'SYNQED'/)
+  })
+
+  it('F-5 (fix round 1, LENS-4) · ONE escalate toast for both call sites — the rail card and the inspector agree', () => {
+    // the rail card's own action used to add a clause the inspector's
+    // `Primary` did not, for the identical non-write hand-off. One template
+    // now, or a second spelling of the tail goes red here.
+    expect([...SCREEN_CODE.matchAll(/渡すところまでを示します/g)].length).toBe(1)
+    expect([...SCREEN_CODE.matchAll(/ESCALATE_TOAST\(row\.no\)/g)].length).toBe(2)
+  })
+
+  it('F-7 (fix round 1, LENS-3 F-2) · one scroll per action — the rail-card click and the inspector’s 変更 never double-scroll', () => {
+    // toggleAtt takes the scroll TARGET now — 'row' (rail-card click,
+    // unchanged) or 'rail' (the inspector) — so a caller can never fire both.
+    expect(SCREEN_CODE).toContain("function toggleAtt(id: string, target: 'row' | 'rail' = 'row')")
+    expect(SCREEN_CODE).toContain('if (target === \'row\') scrollToRow(id)')
+    expect(SCREEN_CODE).toContain("else detailRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })")
+    expect(SCREEN_CODE).toContain("toggleAtt(r.id, 'row')")
+    expect(SCREEN_CODE).toContain("toggleAtt(current.id, 'rail')")
+    // …and the old second scroll the inspector used to fire right after
+    // (`railRef.current?.scrollIntoView`) is gone — exactly one call per
+    // branch, three in the whole file (scrollToRow's row scroll, the
+    // toggleAtt rail scroll, the tour's own).
+    expect([...SCREEN_CODE.matchAll(/scrollIntoView/g)].length).toBe(3)
+  })
+
+  it('F-8 (fix round 1, LENS-3 F-3) · aria-controls names the tour panel only while it exists', () => {
+    expect(SCREEN_CODE).toContain("aria-controls={tourOpen ? 'rvTour' : undefined}")
+    expect(SCREEN_CODE).not.toContain('aria-controls="rvTour"')
+  })
+
+  it('F-6 (fix round 1, LENS-3 F-1 MUST-FIX) · the sheet declares itself a modal, and the trap/focus/scrim wiring exists in source', () => {
+    expect(SCREEN_CODE).toContain('aria-modal="true"')
+    expect(SCREEN_CODE).toContain('export function wireSheet(')
+    expect(SCREEN_CODE).toContain('export function trapSheetTab(')
+    expect(SCREEN_CODE).toContain(
+      "export const SHEET_FOCUSABLE = 'button:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]'",
+    )
+    // wired the instant the panel mounts (useLayoutEffect, same timing as
+    // RecordingScreen.tsx's Overlay)
+    expect(SCREEN_CODE).toContain('return wireSheet(panel)')
+    // the scrim's click is gated on the platform's own double-click interval
+    expect(SCREEN_CODE).toContain('SCRIM_SETTLE_MS) closeSheet()')
+    const LIB = readFileSync(join(process.cwd(), 'src/business/lib/reservations.ts'), 'utf8')
+    expect(LIB).toContain('export const SCRIM_SETTLE_MS = 500')
+    // close hands focus back to the row that opened it — the SAME focusResult
+    // handoff every other commit on this page uses
+    const closeSheetBody = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('function closeSheet() {'),
+      SCREEN_CODE.indexOf('function toggleAtt('),
+    )
+    expect(closeSheetBody).toContain('focusResult(listRef.current, countRef.current, id)')
+    // …and the opener row is captured where the sheet actually opens
+    expect(SCREEN_CODE).toContain('sheetOpenerId.current = id')
+  })
+
+  it('F-6 · `wireSheet` drives real focus — opens onto the first focusable, Tab wraps at both ends', () => {
+    // real DOM nodes, plain jsdom — the house pattern (mountPopover, above)
+    document.body.innerHTML = ''
+    const panel = document.createElement('aside')
+    const grip = document.createElement('div')
+    const close = document.createElement('button')
+    close.textContent = '✕'
+    const primary = document.createElement('button')
+    primary.textContent = '受付リクエストを確認'
+    const link = document.createElement('a')
+    link.href = '/business/today'
+    panel.append(grip, close, primary, link)
+    document.body.append(panel)
+
+    const cleanup = wireSheet(panel)
+    // open — focus lands on the first FOCUSABLE (the grip carries no
+    // button/link/select/textarea, so it is skipped)
+    expect(document.activeElement).toBe(close)
+
+    // Tab from the last focusable wraps to the first
+    link.focus()
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(close)
+
+    // Shift+Tab from the first wraps to the last
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(link)
+
+    cleanup()
   })
 })
