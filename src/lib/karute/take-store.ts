@@ -748,8 +748,19 @@ export async function getRecoverableTake(
  *  take: no recorder stopped it (above), it is already finalized, its last
  *  refusal can never turn into a yes (TERMINAL_SECURE_ERRORS), or nothing has
  *  been flushed to disk yet (lastSeq < 0 — there is literally nothing to send).
- *  Owner-gated like every other read here. */
-export async function listOwnStoppedUnsecuredTakeIds(): Promise<string[]> {
+ *  Owner-gated like every other read here.
+ *
+ *  @param includeCoolingDown counts the takes the cooldown is currently HIDING
+ *    as well — the answer to "is anything still owed?", which is not the same
+ *    question as "what may I try right now?". The record page's re-drain
+ *    (fix round 11) needs both: the eligible list is what it works, and this
+ *    one is what tells it whether to keep looking. Without the distinction its
+ *    tick would stop on an empty eligible list — which is exactly what a take
+ *    that failed a minute ago produces, so the retry would end at the moment it
+ *    became necessary. */
+export async function listOwnStoppedUnsecuredTakeIds(
+  includeCoolingDown = false,
+): Promise<string[]> {
   try {
     const db = await openDb()
     if (!db) return []
@@ -771,7 +782,8 @@ export async function listOwnStoppedUnsecuredTakeIds(): Promise<string[]> {
           // recording, so a failing take would re-PUT tens of megabytes several
           // times a minute. A minute of quiet is enough to stop the storm; the
           // take is never abandoned (the next mount after it takes it).
-          Date.now() - (m.lastSecureAttemptAt ?? 0) >= SECURE_RETRY_COOLDOWN_MS &&
+          (includeCoolingDown ||
+            Date.now() - (m.lastSecureAttemptAt ?? 0) >= SECURE_RETRY_COOLDOWN_MS) &&
           m.lastSeq >= 0,
       )
       .map((m) => m.takeId)

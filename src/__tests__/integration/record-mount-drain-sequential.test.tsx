@@ -15,6 +15,12 @@
  * it ran outside the loop it put two whole takes on the wire at once, which is
  * exactly what being sequential exists to prevent.
  *
+ * The second describe pins fix round 11: the drain runs MORE THAN ONCE per page
+ * life. It used to run only at mount, so a take that failed retryably while the
+ * staffer stayed on this page — or one whose stop stamp landed after the effect
+ * had read the worklist — waited for a REMOUNT, which on the page the recorder
+ * lives on is the whole shift.
+ *
  * Module walls mirror session-photo-mount-guard.test.tsx (the documented mock
  * set for mounting RecordPageView under jsdom).
  */
@@ -25,6 +31,21 @@ import { render, act } from '@testing-library/react'
 const secured: string[] = []
 let live = 0
 let mostAtOnce = 0
+
+/** The worklist the store would answer with. Two owed takes by default — the
+ *  recorder's own stopped one (it stamped its duration at onstop, so the
+ *  worklist names it) and one left over from an earlier stop. */
+let owed: string[] = ['take-own', 'take-older']
+/** When the last secure attempt FAILED retryably, modelling take-store's own
+ *  cooldown: a failed take is hidden from the ELIGIBLE list for a minute, and
+ *  visible on the includeCoolingDown one throughout. null = nothing has failed.
+ *  Mirrors SECURE_RETRY_COOLDOWN_MS in src/lib/karute/take-store.ts. */
+let failedAt: number | null = null
+let secureFails = false
+const COOLDOWN_MS = 60_000
+/** One tick of the page's re-drain: its REDRAIN_MS plus its whole jitter, and a
+ *  millisecond so the boundary is never the question under test. */
+const REDRAIN_WINDOW_MS = 65_001
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -69,9 +90,13 @@ jest.mock('@/lib/karute/take-store', () => ({
   createTake: jest.fn(),
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
-  // Two owed takes — the recorder's own stopped one (it stamped its duration at
-  // onstop, so the worklist names it) and one left over from an earlier stop.
-  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => ['take-own', 'take-older']),
+  // The eligible worklist, and — with the flag — the same list plus whatever the
+  // cooldown is hiding, which is the read the re-drain's tick decision uses.
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async (includeCoolingDown?: boolean) =>
+    includeCoolingDown || failedAt === null || Date.now() - failedAt >= COOLDOWN_MS
+      ? owed
+      : [],
+  ),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(),
 }))
@@ -84,6 +109,10 @@ jest.mock('@/lib/recording/secure-take', () => ({
     mostAtOnce = Math.max(mostAtOnce, live)
     await new Promise<void>((resolve) => setTimeout(resolve, 1))
     live -= 1
+    // What the real leg leaves behind: a finalized take drops off the worklist,
+    // a retryable failure stamps the moment and stays on it (cooling down).
+    if (secureFails) failedAt = Date.now()
+    else owed = owed.filter((id) => id !== takeId)
   }),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({
@@ -105,6 +134,7 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   }),
 }))
 
+import { listOwnStoppedUnsecuredTakeIds } from '@/lib/karute/take-store'
 import { globalRecorder } from '@/lib/global-recorder'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 
@@ -123,6 +153,10 @@ beforeEach(() => {
   secured.length = 0
   live = 0
   mostAtOnce = 0
+  owed = ['take-own', 'take-older']
+  failedAt = null
+  secureFails = false
+  jest.mocked(listOwnStoppedUnsecuredTakeIds).mockClear()
 })
 
 afterEach(async () => {
@@ -178,5 +212,136 @@ describe('record page mount drain', () => {
 
     first.unmount()
     second.unmount()
+  })
+})
+
+// ⚖ THE DRAIN RUNS MORE THAN ONCE PER PAGE LIFE (fix round 11). Fake timers
+// throughout: the whole subject is WHEN the page looks again, and the delay is a
+// minute of it.
+describe('record page re-drain', () => {
+  const mount = () => render(<RecordPageView {...baseProps} />)
+  /** Let the mount drain finish (its secure holds a 1 ms slot). */
+  const settle = async () => {
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10)
+    })
+  }
+  const reads = () => jest.mocked(listOwnStoppedUnsecuredTakeIds).mock.calls.length
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+  afterEach(() => {
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  // THE regression. A take that fails offline used to sit on the device until
+  // the staffer navigated away and back — and this is the page they stay on.
+  it('retries a take that failed retryably — no remount', async () => {
+    owed = ['take-owed']
+    secureFails = true
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual(['take-owed'])
+
+    // Nothing remounts, nothing is tapped. The cooldown passes and the page
+    // asks again by itself.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    })
+    expect(secured).toEqual(['take-owed', 'take-owed'])
+
+    view.unmount()
+  })
+
+  // The stop that lands AFTER the mount read the worklist — the other half of
+  // "once per page life". The stop path secures it itself, un-awaited; when
+  // that leg fails, this is what comes back for it.
+  it('a stop that lands while the page stays open gets its own re-drain', async () => {
+    owed = []
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual([])
+
+    await act(async () => {
+      globalRecorder.state = 'recorded'
+      // notify() is the recorder's own private fan-out — the transition the
+      // page subscribes to. Reached directly because nothing here drives a real
+      // MediaRecorder.
+      ;(globalRecorder as unknown as { notify: () => void }).notify()
+      owed = ['take-just-stopped']
+      await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    })
+    expect(secured).toEqual(['take-just-stopped'])
+
+    view.unmount()
+  })
+
+  // A phone locked mid-upload, a WebView the OS froze, a staffer on another tab.
+  it('drains when the page comes back to the front', async () => {
+    owed = []
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual([])
+
+    // A stop landed while this page was in the background.
+    owed = ['take-late']
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    expect(secured).toEqual(['take-late'])
+
+    view.unmount()
+  })
+
+  // …and it is a TICK, not a heartbeat: nothing owed, nothing scheduled.
+  it('stops ticking once nothing is owed', async () => {
+    owed = ['take-owed']
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual(['take-owed'])
+    const afterMount = reads()
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10 * REDRAIN_WINDOW_MS)
+    })
+    // The worklist was never read again — the page went quiet.
+    expect(reads()).toBe(afterMount)
+    expect(secured).toEqual(['take-owed'])
+
+    view.unmount()
+  })
+
+  // Every timer and listener dies with the mount.
+  it('unmount clears the pending re-drain and its listeners', async () => {
+    owed = ['take-owed']
+    secureFails = true
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual(['take-owed'])
+
+    // The re-drain's own wake-up, and nothing else on this page is pending.
+    expect(jest.getTimerCount()).toBe(1)
+    view.unmount()
+    // Genuinely CLEARED, not merely inert: a timer left behind holds the whole
+    // effect closure for a minute after the page is gone.
+    expect(jest.getTimerCount()).toBe(0)
+    const afterUnmount = reads()
+
+    // Everything that would wake a mounted page: the tick, and a return to the
+    // front.
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await jest.advanceTimersByTimeAsync(10 * REDRAIN_WINDOW_MS)
+    })
+    expect(reads()).toBe(afterUnmount)
+    expect(secured).toEqual(['take-owed'])
   })
 })

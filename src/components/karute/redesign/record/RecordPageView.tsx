@@ -116,12 +116,24 @@ import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
  *  starvation the loop exists to prevent. Module-level because the two runs
  *  share no object — the same reason secure-take's own in-flight set is.
  *
- *  ponytail: a boolean that DROPS the second run, not a queue that defers it —
- *  the running drain is already working the same worklist, and a take stopped
- *  since waits for the next mount (or its own stop path, which secures it
- *  directly). Upgrade path if a drain ever runs long enough for that wait to
- *  matter: chain instead of drop. */
+ *  ponytail: a boolean that DEFERS the second run, not a queue that interleaves
+ *  it — the running drain is already working the same worklist, so the loser
+ *  simply asks again on the next tick. (It used to DROP the run outright, which
+ *  under React's double mount left the surviving mount holding no schedule at
+ *  all — fix round 11.) Upgrade path if that wait ever matters: chain the runs
+ *  instead of re-reading the worklist. */
 let mountDrainRunning = false
+
+/** How long the page waits before it looks at the worklist again (fix round
+ *  11). It is take-store's own SECURE_RETRY_COOLDOWN_MS: a take that just
+ *  failed is not eligible again until then, so a shorter tick could only re-read
+ *  the list and find it hidden. Deliberately a copy rather than an import — this
+ *  is the PAGE's policy (how often it looks), the store's is the TAKE's (how
+ *  soon it may be tried again), and they are equal only by today's arithmetic. */
+const REDRAIN_MS = 60_000
+/** …plus a spread, so a salon's phones — all mounted at the same 10:00 opening
+ *  — do not knock on the same door in the same instant. */
+const REDRAIN_JITTER_MS = 5_000
 
 export interface RecordPageNextAppointment {
   id: string
@@ -722,6 +734,114 @@ export function RecordPageView({
       alive = false
     }
   }, [])
+  // Capture pipeline PR3 — the retry for every stop the network missed, on its
+  // OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one below.
+  // STOPPED takes only: a take whose recorder never stopped may still be running
+  // (this tab remounting, another same-origin tab), and sealing its finalized
+  // key early would truncate it forever. Those wait for PR5's launch drain,
+  // where the single-webview shell proves nothing is live.
+  //
+  // ⚖ AND IT RUNS MORE THAN ONCE PER PAGE LIFE (fix round 11). It used to run
+  // exactly once, at mount — so a take that failed retryably while the staffer
+  // stayed on this page, and a take whose stop stamp landed after the effect had
+  // already read the worklist, both waited for a REMOUNT. This is the page the
+  // recorder lives on, the one a staffer never navigates away from mid-shift:
+  // that wait is the whole shift, and the audio stays device-only for it.
+  // (getRecoverableTake's own 20 s grace hid the same take from the recovery
+  // offer, so nothing on screen said so either.) FOUR moments now schedule the
+  // SAME lock-guarded drain — the mount, the page becoming visible again, the
+  // recorder reaching `recorded`, and a tick that runs only while a take still
+  // owes its bytes — and every timer and listener dies with the mount.
+  //
+  // No UI, no toast, and deliberately outside every render branch: whether the
+  // audio is on the server has nothing to do with what this page shows.
+  // secureTake is idempotent (its in-flight guard and finalizedAt make the
+  // repeats free) and records its own outcome, so a needless run costs a read.
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // ⚖ `recorded` and nothing else: a take still recording (or paused) must
+    // never be finalized — its remaining audio could not land afterwards.
+    // isActiveTake is that rule read from the recorder itself, the belt behind
+    // the worklist's own stopped-only filter.
+    const isActive = (id: string) => globalRecorder.isActiveTake(id)
+
+    /** THE scheduler: ONE pending wake-up, ever. Every trigger routes through
+     *  here, so a burst (the page comes back AND a recording stops AND the tick
+     *  is due) still leaves exactly one timer — and unmount exactly one to
+     *  clear. */
+    const schedule = () => {
+      if (!alive) return
+      clearTimeout(timer)
+      timer = setTimeout(() => void drain(), REDRAIN_MS + Math.random() * REDRAIN_JITTER_MS)
+    }
+
+    const drain = async () => {
+      if (!alive) return
+      // …and ONE drain across mounts, not one per mount — see mountDrainRunning.
+      // The other runner is already on this same worklist: ask again after it,
+      // never beside it.
+      if (mountDrainRunning) {
+        schedule()
+        return
+      }
+      mountDrainRunning = true
+      try {
+        const port = getRecordingPipelinePort()
+        // ONE AT A TIME, and this loop is the ONLY drain path (fix round 7). A
+        // take is a whole recording — tens of megabytes — and a staffer with
+        // three owed takes on salon wifi would otherwise start three PUTs at
+        // once, each starving the others (and the app's own calls) until they
+        // all time out. The recorder's own stopped take used to get a second,
+        // un-awaited call of its own here: it is already on this worklist
+        // (onstop stamps the duration the list reads), and starting it outside
+        // the loop put two whole takes on the wire at once — the exact
+        // starvation this is sequential to prevent.
+        for (const id of await listOwnStoppedUnsecuredTakeIds())
+          await secureTake(port, id, undefined, isActive)
+      } finally {
+        mountDrainRunning = false
+      }
+      // Keep ticking only while a take still OWES its bytes — counting the ones
+      // the cooldown is HIDING, which is what the flag asks for. The eligible
+      // list is empty both when everything is safely on the server and when
+      // everything failed a minute ago; stopping on that would end the retry at
+      // the moment it became necessary. Empty here means finalized or terminal,
+      // and neither of those is waiting for us.
+      if (alive && (await listOwnStoppedUnsecuredTakeIds(true)).length) schedule()
+    }
+
+    // 1. The mount — every navigation onto this page, as before.
+    void drain()
+
+    // 2. The page comes back: a phone locked mid-upload, a WebView the OS
+    //    froze, a staffer who was on another tab. A stalled PUT's own deadline
+    //    has landed by then, so the take is answerable again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void drain()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    // 3. A recording just stopped. The stop path secures it itself, un-awaited;
+    //    this is the net under that leg. SCHEDULED, never immediate — at the
+    //    `recorded` transition the take carries no duration stamp yet (onstop
+    //    writes it after the tail flush resolves), so a drain fired on this
+    //    instant would find the worklist empty and stop looking.
+    let lastState = globalRecorder.state
+    const unsubscribe = globalRecorder.subscribe(() => {
+      const justStopped = globalRecorder.state === 'recorded' && lastState !== 'recorded'
+      lastState = globalRecorder.state
+      if (justStopped) schedule()
+    })
+
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      unsubscribe()
+    }
+  }, [])
+
   useEffect(() => {
     // Both loads are async and owner-gated at their store layer — only the
     // staff member who recorded/saved is ever offered anything (privacy on a
@@ -729,45 +849,6 @@ export function RecordPageView({
     // recorder/pipeline take is excluded so an in-progress session is never
     // offered as its own recovery.
     let cancelled = false
-    // ⚖ `recorded` and nothing else: a take still recording (or paused) must
-    // never be finalized — its remaining audio could not land afterwards.
-    // isActiveTake is that rule read from the recorder itself, the belt behind
-    // the worklist's own stopped-only filter.
-    const isActive = (id: string) => globalRecorder.isActiveTake(id)
-    // Capture pipeline PR3 — the retry for every stop the network missed, on
-    // its OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one
-    // below. STOPPED takes only: a take whose recorder never stopped may still
-    // be running (this tab remounting, another same-origin tab), and sealing
-    // its finalized key early would truncate it forever. Those wait for PR5's
-    // launch drain, where the single-webview shell proves nothing is live.
-    // getRecoverableTake waits out a 20 s grace, so a failed stop-time upload
-    // plus a reload inside those 20 s used to leave a fresh page with no
-    // recorder take and a recovery read that hid it — the audio then stayed
-    // device-only for the whole page lifetime, because this effect runs once.
-    // Deliberately outside every UI branch and the cancelled check: whether
-    // this page keeps rendering has nothing to do with whether the audio is on
-    // the server. No UI, no toast — secureTake is idempotent (its in-flight
-    // guard and finalizedAt make the repeats free) and records its own outcome.
-    // ONE AT A TIME, and this loop is the ONLY mount path (fix round 7). A take
-    // is a whole recording — tens of megabytes — and a staffer with three owed
-    // takes on salon wifi would otherwise start three PUTs at once, each
-    // starving the others (and the app's own calls) until they all time out.
-    // The recorder's own stopped take used to get a second, un-awaited call of
-    // its own here: it is already on this worklist (onstop stamps the duration
-    // the list reads), and starting it outside the loop put two whole takes on
-    // the wire at once — the exact starvation this is sequential to prevent.
-    // …and ONE drain across mounts, not one per mount — see mountDrainRunning.
-    void (async () => {
-      if (mountDrainRunning) return
-      mountDrainRunning = true
-      try {
-        const port = getRecordingPipelinePort()
-        for (const id of await listOwnStoppedUnsecuredTakeIds())
-          await secureTake(port, id, undefined, isActive)
-      } finally {
-        mountDrainRunning = false
-      }
-    })()
     void Promise.all([
       loadDraft(),
       getRecoverableTake([globalRecorder.takeId, globalPipeline.context?.takeId]),
