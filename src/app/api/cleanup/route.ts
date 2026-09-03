@@ -7,16 +7,19 @@ export const maxDuration = 30
 
 /**
  * Daily cleanup:
- * 1. REPORT orphaned-looking objects in the recordings bucket (older than 1 hour)
+ * 1. REPORT non-conforming objects in the recordings bucket (older than 1 hour)
  * 2. Delete expired AI cache entries (in synqed-core)
  *
- * ⚖ Liam 2026-09-03 — recorded audio is NEVER deleted, so pass 1 deletes
- * nothing. It used to remove every object older than an hour with no look at
- * the job state behind it, which ate the audio of any take still queued,
- * retrying or failed at the next daily sweep. It now walks the same bucket,
- * runs the same key grammar the upload fences run, and LOGS what does not
- * conform so a human can look; the count comes back as
- * `recordingsOrphanCandidates`. Anything that has to go, goes by a named hand.
+ * ⚖ Liam 2026-09-03 — recorded audio is NEVER deleted (the post-transcription
+ * delete in process-recording.ts is removed in the retention round), so pass 1
+ * deletes nothing. It used to remove every object older than an hour with no
+ * look at the job state behind it, which ate the audio of any take still
+ * queued, retrying or failed at the next daily sweep. It now walks the same
+ * bucket, runs the same key grammar the upload fences run, and LOGS what does
+ * not conform so a human can look; the count comes back as
+ * `recordingsOrphanCandidates`. Conforming takes are never reported here, so a
+ * take with no live job/session row is NOT surfaced by this sweep — that join
+ * is a later round. Anything that has to go, goes by a named hand.
  *
  * Runs from Vercel Cron (no user session) — which sends
  * `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured. This
@@ -54,6 +57,12 @@ export async function GET(request: Request) {
   // the fix if it ever fires is a resume cursor, not a bigger bound.
   const PAGE_SIZE = 1000
   const MAX_PAGES = 100
+  // A warn PER candidate can itself spend the route's 30s budget on a large
+  // backlog and starve the walk of the time it needs to finish. Collect names
+  // instead and emit one line at the end; the retained sample is capped, the
+  // count is not.
+  const ORPHAN_SAMPLE_CAP = 200
+  const orphanSample: string[] = []
   try {
     const now = Date.now()
     const oneHourAgo = now - 60 * 60 * 1000
@@ -92,11 +101,7 @@ export async function GET(request: Request) {
         const createdAt = Date.parse((f as any).created_at)
         if (!Number.isFinite(createdAt) || createdAt >= oneHourAgo) continue
         recordingsOrphanCandidates++
-        console.warn('[cleanup]', {
-          evt: 'recordings_orphan_candidate',
-          name: f.name,
-          ageHours: Math.round((now - createdAt) / 3_600_000),
-        })
+        if (orphanSample.length < ORPHAN_SAMPLE_CAP) orphanSample.push(f.name)
       }
       offset += files.length
     }
@@ -109,6 +114,14 @@ export async function GET(request: Request) {
     if (page === MAX_PAGES) {
       console.error('[cleanup] recordings walk hit MAX_PAGES; bucket may extend past it')
       recordingsSweepComplete = false
+    }
+    if (recordingsOrphanCandidates > 0) {
+      console.warn('[cleanup]', {
+        evt: 'recordings_orphan_candidates',
+        count: recordingsOrphanCandidates,
+        sample: orphanSample,
+        truncated: recordingsOrphanCandidates > orphanSample.length,
+      })
     }
   } catch (err) {
     console.error('[cleanup] recordings error:', err)

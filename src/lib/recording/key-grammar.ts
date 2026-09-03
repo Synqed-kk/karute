@@ -122,5 +122,11 @@ export function looksLikeRecordingKey(name: unknown): boolean {
   // `+ 2` = the separator plus at least one businessId character.
   const uuidStart = name.lastIndexOf('.') - UUID_LENGTH
   if (uuidStart < TAKE_PREFIX.length + 2 || name[uuidStart - 1] !== '_') return false
-  return parseRecordingKey(name, name.slice(TAKE_PREFIX.length, uuidStart - 1)) !== null
+  const businessId = name.slice(TAKE_PREFIX.length, uuidStart - 1)
+  // A real businessId never contains a path separator — a name that only
+  // parses because the derived id happens to reopen the tenant prefix (a
+  // traversal body, a folder-shaped id) is not this shape, whatever
+  // parseRecordingKey below would otherwise say.
+  if (businessId.includes('/')) return false
+  return parseRecordingKey(name, businessId) !== null
 }

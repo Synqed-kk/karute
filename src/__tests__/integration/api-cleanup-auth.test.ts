@@ -39,15 +39,18 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-// The sweep's whole output besides the count: one structured warn line per
-// orphan candidate. Silenced (a 1000-row page would drown the run) and read
-// back here, so "counted 1002" can be checked against WHICH names.
+// The sweep's whole output besides the count: ONE structured warn line for
+// the whole walk (never one per candidate — that itself could spend the
+// route's time budget on a large backlog). Silenced and read back here.
 const warn = jest.spyOn(console, 'warn')
-const reported = (): string[] =>
-  warn.mock.calls.flatMap(([, row]) => {
-    const line = row as { evt?: string; name?: string } | undefined
-    return line?.evt === 'recordings_orphan_candidate' && line.name ? [line.name] : []
-  })
+type OrphanWarnRow = { count: number; sample: string[]; truncated: boolean }
+const orphanWarnCall = (): OrphanWarnRow | undefined => {
+  const call = warn.mock.calls.find(
+    ([, row]) => (row as { evt?: string } | undefined)?.evt === 'recordings_orphan_candidates'
+  )
+  return call?.[1] as OrphanWarnRow | undefined
+}
+const reported = (): string[] => orphanWarnCall()?.sample ?? []
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -161,7 +164,11 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
 
     // Asked for a second page at all, and advanced by what page 1 RETURNED.
     expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000, 1003])
-    expect(reported()).toContain('p2-0.webm')
+    // One line for the whole walk, not 1002 — count is exact, the retained
+    // sample is capped, and the line says the sample is short of the count.
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(orphanWarnCall()).toMatchObject({ count: 1002, truncated: true })
+    expect(reported()).toHaveLength(200)
     expect(reported()).not.toContain('too-new.webm')
   })
 
@@ -198,7 +205,8 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
     })
 
     expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000])
-    expect(reported()).toHaveLength(1000)
+    expect(orphanWarnCall()).toMatchObject({ count: 1000, truncated: true })
+    expect(reported()).toHaveLength(200)
     expect(consoleError).toHaveBeenCalledWith(
       '[cleanup] recordings list error:',
       expect.objectContaining({ message: 'list failed' })
@@ -271,7 +279,29 @@ describe('GET /api/cleanup — the sweep reports, it does not delete', () => {
     }))
 
     expect(await run()).toMatchObject({ recordingsOrphanCandidates: 0 })
+    expect(warn).not.toHaveBeenCalled()
     expect(reported()).toEqual([])
+  })
+
+  it('aggregates a large batch into one warn line, sample capped at 200', async () => {
+    // The line this route emits must not itself cost one console.warn per
+    // candidate — that alone can burn the route's 30s budget on a big backlog.
+    // 250 old junk objects: every one is counted, only the first 200 names
+    // are retained, and the line says the sample is short of the count.
+    const names = Array.from({ length: 250 }, (_, i) => ({
+      name: `junk-${i}.webm`,
+      id: `junk-${i}`,
+      created_at: old,
+    }))
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: opts.offset === 0 ? names : [],
+    }))
+
+    expect(await run()).toMatchObject({ recordingsOrphanCandidates: 250 })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(orphanWarnCall()).toMatchObject({ count: 250, truncated: true })
+    expect(reported()).toHaveLength(200)
+    expect(reported()[0]).toBe('junk-0.webm')
   })
 
   it('counts and names junk older than an hour — and still deletes none of it', async () => {

@@ -259,8 +259,17 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
   it('looksLikeRecordingKey reads the businessId back out of the name', () => {
     // /api/cleanup lists the bucket root with no tenant to compare against.
     expect(looksLikeRecordingKey(`app_biz-1_${UUID}.webm`)).toBe(true)
+    // Tenant-blind by design: cleanup can't name the business a key belongs
+    // to, so ANY businessId shape it can read back out counts — this is not
+    // biz-1's bucket, and the check still says true.
+    expect(looksLikeRecordingKey(`app_other-biz_${UUID}.webm`)).toBe(true)
     expect(looksLikeRecordingKey(`orphan-${UUID}.webm`)).toBe(false)
     expect(looksLikeRecordingKey('seg')).toBe(false)
     expect(looksLikeRecordingKey(IMPOSTOR)).toBe(false)
+    // A derived businessId that reopens the tenant prefix (a traversal body,
+    // a folder-shaped id) must not read as this shape just because the rest
+    // re-parses — a real businessId never contains '/'.
+    expect(looksLikeRecordingKey(`app_../../evil_${UUID}.webm`)).toBe(false)
+    expect(looksLikeRecordingKey(`app_a/b_${UUID}.webm`)).toBe(false)
   })
 })
