@@ -154,18 +154,51 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
-const pinnedLines = (src: string, line: string) =>
-  (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
+const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
+const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
 
 /** ONE call's own text, from its opening anchor to the dependency-array line
- *  that closes the hook it lives in. Both anchors are unique in the file, and
- *  `ok` is asserted before anything inside `text` is counted — a slice that came
- *  back empty because an anchor moved would make every pin over it vacuous. */
+ *  that closes the hook it lives in — found and counted by the SAME anchored
+ *  regex `pinnedLines` uses, over `codeOnly(src)`.
+ *
+ *  ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — THE ANCHORS HAVE TO BE UNIQUE, AND
+ *  THIS FUNCTION IS WHERE THAT IS DECIDED. It used to be `src.indexOf(open)`
+ *  then `src.indexOf(close, i)` over the RAW file: first occurrence, both ends,
+ *  nothing asserting there was only one. The comment that stood here CLAIMED
+ *  「Both anchors are unique in the file」 and never checked it, so the armour
+ *  was not reading the call — it was reading whichever copy came first. The
+ *  breaker copied the rail's fourteen lines verbatim into a `(false as
+ *  boolean) ?` branch ABOVE the real memo, deleted the live protected door and
+ *  re-spelled the two other pinned lines so no file-wide count moved: 530
+ *  suites green, `tsc` exit 0, every slice pin satisfied — by the decoy — and
+ *  both protected doors dark (rail 5 + verdict 5 of 90 fixture cells at
+ *  now=804, 12 + 12 with no clock). `opens` and `closes` are those two counts,
+ *  and every caller asserts both are ONE before reading `text`: a second copy
+ *  then has nowhere to stand, which is the argument `inTheFile: 1` already
+ *  makes one level down for a duplicate LINE.
+ *
+ *  AND THE LOCATOR MOVED WITH THE COUNT. `indexOf` finds an anchor anywhere —
+ *  mid-line, or inside a comment — while the count only sees it at the start of
+ *  a line of code; a locator the count cannot see is a decoy site by
+ *  construction (append the open anchor to the tail of a live line and the
+ *  count still reads one). Both halves run `anchoredLine` over `codeOnly(src)`
+ *  now, so what is counted and what is sliced are the same thing, and `text`
+ *  arrives at the caller already comment-blanked.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Blanking the whole file before slicing means
+ *  an unterminated block comment ABOVE the open anchor eats the anchors
+ *  themselves — `ok` goes false, which is red, so that direction is safe. A
+ *  comment can only ADD lines to a slice or TRUNCATE it; it can never SUPPLY a
+ *  pinned line, because `codeOnly` removed it before the slice existed. */
 const callSlice = (src: string, open: string, close: string) => {
-  const i = src.indexOf(open)
-  const j = i < 0 ? -1 : src.indexOf(close, i)
-  return { ok: i > -1 && j > i, text: i > -1 && j > i ? src.slice(i, j) : '' }
+  const code = codeOnly(src)
+  const opens = [...code.matchAll(anchoredLine(open))]
+  const closes = [...code.matchAll(anchoredLine(close))]
+  const at = (ms: readonly { index?: number }[], after: number) => ms.find((m) => (m.index ?? -1) > after)?.index ?? -1
+  const i = at(opens, -1)
+  const j = i < 0 ? -1 : at(closes, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? code.slice(i, j) : '', opens: opens.length, closes: closes.length }
 }
 
 // ── THE REAL FIXTURE WORLD, driven exactly as E2 drove it ───────────────────
@@ -674,8 +707,11 @@ describe('1 — the round gate', () => {
     // comments: all five reads are code, none of the six raw occurrences the
     // pre-armour count saw ever sat inside a block the new filter removes.
     // ⚖ BREAKER-827 F1 — AND THE FOUR SPELLINGS ARE WHOLE-LINE ANCHORED. The
-    // fifth read (`heldBoard`'s bare `SELLING_ENGINE_LAW` line, the head of a
-    // ternary) is held by the count alone: comment it out and the count is 4.
+    // fifth read is `heldBoard`'s bare `SELLING_ENGINE_LAW` line, the head of a
+    // ternary; it used to be held by the count alone, which is the hole §DELTA
+    // 3 S2 walked through (pay the token back at that line and shadow the name
+    // above). It is anchored and pinned inside its own memo at the end of this
+    // test now — the count is no longer carrying it by itself.
     // The second line here is the VERDICT's own door, the rail's line one
     // argument wider — `lanes` for the reason `placementFeasible` beside it
     // passes it (the block advisor asks about a board it has taken something
@@ -699,15 +735,83 @@ describe('1 — the round gate', () => {
     // file-wide AND pinned inside the slice of the call it is an argument to:
     // a duplicate moves the count, a move leaves the slice, and the two
     // together have nowhere left to stand.
-    const rail = callSlice(screen, '? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
-    const verdict = callSlice(screen, '? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
-    expect({ rail: rail.ok, verdict: verdict.ok }).toEqual({ rail: true, verdict: true })
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — AND THE SLICE MUST BE THE CALL.
+    // `callSlice` took the FIRST occurrence of each anchor and nothing asserted
+    // there was only one, so a verbatim DECOY of the rail's fourteen lines
+    // parked in a never-taken branch above the real memo answered every pin
+    // below while the live call shed its protected door: 530 suites green, tsc
+    // exit 0, both doors dark. Each anchor is COUNTED before its text is read.
+    const uniqueSlice = (open: string, close: string) => {
+      const s = callSlice(screen, open, close)
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      return s
+    }
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
     ] as const) {
       expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(screen, line) })
         .toEqual({ where, line, inThisCall: 1, inTheFile: 1 })
+    }
+
+    // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND FIVE READS IS NOT ONE BINDING.
+    // The count above counts READS of a NAME; nothing here said where the name
+    // is bound. `const SELLING_ENGINE_LAW = false` at the top of the component
+    // shadows the import, and the fifth token is handed straight back by
+    // hardcoding `heldBoard`'s bare ternary head to `true` — `reads` is still
+    // 5, the import line is still pinned and present, `gateOn:
+    // SELLING_ENGINE_LAW,` is still a whole anchored line, both door lines are
+    // byte-identical inside their own slices, and BOTH protected doors are dark
+    // with `heldCommittedFor`'s `gateOn` false beside them (487 green, tsc exit
+    // 0). So: the import is the ONE binding site, every other binding shape is
+    // banned, and the fifth read is pinned as a line inside the memo it decides.
+    const CODE = codeOnly(screen)
+    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
+    expect({
+      declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
+    }).toEqual({ declarations: 0 })
+    expect(CODE).not.toMatch(/\bSELLING_ENGINE_LAW\s*=(?!=)/)
+    // The one legitimate `{ SELLING_ENGINE_LAW }` on this screen is the import
+    // line, so it is removed before the destructuring and parameter shapes are
+    // looked for rather than carved out of the patterns themselves.
+    const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    const heldBoard = uniqueSlice(
+      'const heldBoard = useMemo(',
+      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+    )
+    expect({
+      bareGateLines: pinnedLines(screen, 'SELLING_ENGINE_LAW'),
+      inHeldBoard: pinnedLines(heldBoard.text, 'SELLING_ENGINE_LAW'),
+    }).toEqual({ bareGateLines: 1, inHeldBoard: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — AND THE ENGINE THE DOORS ARE HANDED
+    // TO IS THE IMPORTED ONE. Both slices call `guardRailsFor` /
+    // `guardVerdictAt` BY NAME, and a module-level shim (`guardRailsFor as
+    // guardRailsForImpl` plus a local wrapper spreading
+    // `protectedWindowFeasible: undefined` over the object the slice built)
+    // forwards the door exactly as written and throws it away one line later:
+    // every pinned character byte-identical, 487 green, tsc exit 0, and the
+    // engine's own unit tests green because they import the real thing. The
+    // two specifiers are whole-line anchored and counted, each name has exactly
+    // TWO code mentions (the specifier and the call), and neither may be
+    // defined on this screen.
+    for (const [name, mentions] of [
+      ['guardRailsFor', 2],
+      ['guardVerdictAt', 2],
+    ] as const) {
+      expect({
+        name,
+        specifiers: pinnedLines(screen, `${name},`),
+        mentions: (CODE.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length,
+        calls: (CODE.match(new RegExp('\\b' + name + '\\(', 'g')) ?? []).length,
+        definitions: (CODE.match(new RegExp('\\b(?:function|const|let|var|class)\\s+' + name + '\\b', 'g')) ?? []).length,
+      }).toEqual({ name, specifiers: 1, mentions, calls: 1, definitions: 0 })
     }
   })
 

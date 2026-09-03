@@ -189,18 +189,51 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
-const pinnedLines = (src: string, line: string) =>
-  (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
+const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
+const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
 
 /** ONE call's own text, from its opening anchor to the dependency-array line
- *  that closes the hook it lives in. Both anchors are unique in the file, and
- *  `ok` is asserted before anything inside `text` is counted — a slice that came
- *  back empty because an anchor moved would make every pin over it vacuous. */
+ *  that closes the hook it lives in — found and counted by the SAME anchored
+ *  regex `pinnedLines` uses, over `codeOnly(src)`.
+ *
+ *  ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — THE ANCHORS HAVE TO BE UNIQUE, AND
+ *  THIS FUNCTION IS WHERE THAT IS DECIDED. It used to be `src.indexOf(open)`
+ *  then `src.indexOf(close, i)` over the RAW file: first occurrence, both ends,
+ *  nothing asserting there was only one. The comment that stood here CLAIMED
+ *  「Both anchors are unique in the file」 and never checked it, so the armour
+ *  was not reading the call — it was reading whichever copy came first. The
+ *  breaker copied the rail's fourteen lines verbatim into a `(false as
+ *  boolean) ?` branch ABOVE the real memo, deleted the live protected door and
+ *  re-spelled the two other pinned lines so no file-wide count moved: 530
+ *  suites green, `tsc` exit 0, every slice pin satisfied — by the decoy — and
+ *  both protected doors dark (rail 5 + verdict 5 of 90 fixture cells at
+ *  now=804, 12 + 12 with no clock). `opens` and `closes` are those two counts,
+ *  and every caller asserts both are ONE before reading `text`: a second copy
+ *  then has nowhere to stand, which is the argument `inTheFile: 1` already
+ *  makes one level down for a duplicate LINE.
+ *
+ *  AND THE LOCATOR MOVED WITH THE COUNT. `indexOf` finds an anchor anywhere —
+ *  mid-line, or inside a comment — while the count only sees it at the start of
+ *  a line of code; a locator the count cannot see is a decoy site by
+ *  construction (append the open anchor to the tail of a live line and the
+ *  count still reads one). Both halves run `anchoredLine` over `codeOnly(src)`
+ *  now, so what is counted and what is sliced are the same thing, and `text`
+ *  arrives at the caller already comment-blanked.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Blanking the whole file before slicing means
+ *  an unterminated block comment ABOVE the open anchor eats the anchors
+ *  themselves — `ok` goes false, which is red, so that direction is safe. A
+ *  comment can only ADD lines to a slice or TRUNCATE it; it can never SUPPLY a
+ *  pinned line, because `codeOnly` removed it before the slice existed. */
 const callSlice = (src: string, open: string, close: string) => {
-  const i = src.indexOf(open)
-  const j = i < 0 ? -1 : src.indexOf(close, i)
-  return { ok: i > -1 && j > i, text: i > -1 && j > i ? src.slice(i, j) : '' }
+  const code = codeOnly(src)
+  const opens = [...code.matchAll(anchoredLine(open))]
+  const closes = [...code.matchAll(anchoredLine(close))]
+  const at = (ms: readonly { index?: number }[], after: number) => ms.find((m) => (m.index ?? -1) > after)?.index ?? -1
+  const i = at(opens, -1)
+  const j = i < 0 ? -1 : at(closes, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? code.slice(i, j) : '', opens: opens.length, closes: closes.length }
 }
 
 /** jsdom has no layout: give a node the rect the test needs. */
@@ -1321,10 +1354,22 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // guard back on the raw enumeration. Counted ONCE over code file-wide AND
     // present inside its own call: a duplicate moves the count, a move leaves
     // the slice.
-    const rail = callSlice(SRC, '? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
-    const verdict = callSlice(SRC, '? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
-    const mask = callSlice(SRC, '? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
-    expect({ rail: rail.ok, verdict: verdict.ok, mask: mask.ok }).toEqual({ rail: true, verdict: true, mask: true })
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — AND THE SLICE HAS TO BE THE CALL.
+    // `callSlice` took the FIRST occurrence of each anchor and nothing said
+    // there was only one, so a verbatim DECOY of the rail's fourteen lines,
+    // parked in a `(false as boolean) ?` branch above the real memo, captured
+    // every pin below while the live call shed its protected door: 530 green,
+    // tsc clean, both doors dark. Every anchor is counted before it is read.
+    const uniqueSlice = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      return s
+    }
+    const CODE = codeOnly(SRC)
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
@@ -1384,7 +1429,77 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // …and there are exactly TWO mentions of `bedDoor(` in the file, counted
     // over code: the exported declaration and that one call. A second call is a
     // second door, which is the disease this family exists to remove.
-    expect({ bedDoorMentions: (codeOnly(SRC).match(/bedDoor\(/g) ?? []).length }).toEqual({ bedDoorMentions: 2 })
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 — AND EXACTLY ONE of those two DEFINES it. The
+    // shim shape one paragraph down works on any name a slice calls; `bedDoor`
+    // is defined on this screen rather than imported into it, so what is banned
+    // here is a SECOND definition shadowing the exported one. `bedDoorFor` is
+    // not it — the word boundary after `bedDoor` sees the `F` and misses.
+    expect({
+      bedDoorMentions: (CODE.match(/bedDoor\(/g) ?? []).length,
+      bedDoorDefinitions: (CODE.match(/\b(?:function|const|let|var|class)\s+bedDoor\b/g) ?? []).length,
+    }).toEqual({ bedDoorMentions: 2, bedDoorDefinitions: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND THE GATE'S NAME IS BOUND IN
+    // EXACTLY ONE PLACE. Every pin above reads a NAME and none of them said
+    // where that name comes from. `const SELLING_ENGINE_LAW = false` written at
+    // the top of the component shadows the import, and the doors suite's read
+    // COUNT is paid back by hardcoding `heldBoard`'s bare ternary head to
+    // `true`: five reads still, every anchored line still a line, both door
+    // lines byte-identical inside their own slices — and BOTH protected doors
+    // dark, `heldCommittedFor`'s `gateOn` false with them. A count of READS was
+    // never a count of BINDINGS, so the bindings are banned and the import is
+    // the only site left.
+    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
+    expect({
+      declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
+    }).toEqual({ declarations: 0 })
+    expect(CODE).not.toMatch(/\bSELLING_ENGINE_LAW\s*=(?!=)/)
+    // …and no destructured or parameter binding either. The one legitimate
+    // `{ SELLING_ENGINE_LAW }` on this screen is the import line above, so it is
+    // taken out before the shape is looked for rather than carved out of it.
+    const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    // …and the fifth read — `heldBoard`'s bare ternary head, the read the doors
+    // suite used to hold by its COUNT alone — is a whole line, counted ONCE
+    // over the file, and inside the memo whose answer it decides. `true` in its
+    // place leaves the slice a line short: red here, and red again on the count.
+    const heldBoard = uniqueSlice(
+      'const heldBoard = useMemo(',
+      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+    )
+    expect({
+      bareGateLines: pinnedLines(SRC, 'SELLING_ENGINE_LAW'),
+      inHeldBoard: pinnedLines(heldBoard.text, 'SELLING_ENGINE_LAW'),
+    }).toEqual({ bareGateLines: 1, inHeldBoard: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — AND THE TWO ENGINE NAMES THE SLICES
+    // CALL ARE THE IMPORTED ONES. The slices name `guardRailsFor` and
+    // `guardVerdictAt`; the import specifiers were not anchored and nothing
+    // counted the names, so a module-level shim — `guardRailsFor as
+    // guardRailsForImpl` plus a local wrapper that spreads
+    // `protectedWindowFeasible: undefined` over whatever the slice handed in —
+    // left every pinned character byte-identical and threw the door away
+    // BETWEEN the slice and the engine, at 487 green and tsc exit 0. That is
+    // §DELTA 2 D4 one level further out: D4 changed what `bedDoorFor` hands
+    // back, this changes what the callee does with what it was handed. So each
+    // name is counted over code — TWO mentions (the import specifier and the
+    // call), ONE of them with a parenthesis — and no local definition of either
+    // is allowed. The specifiers themselves are pinned as exact lines in the
+    // exact-lines test below, which is what reds an `as` rename.
+    for (const [name, mentions, calls] of [
+      ['guardRailsFor', 2, 1],
+      ['guardVerdictAt', 2, 1],
+    ] as const) {
+      expect({
+        name,
+        mentions: (CODE.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length,
+        calls: (CODE.match(new RegExp('\\b' + name + '\\(', 'g')) ?? []).length,
+        definitions: (CODE.match(new RegExp('\\b(?:function|const|let|var|class)\\s+' + name + '\\b', 'g')) ?? []).length,
+      }).toEqual({ name, mentions, calls, definitions: 0 })
+    }
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
@@ -1429,20 +1544,34 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  caught by `tsc` alone (TS2783 — the type-checker doing armour's job). It is
    *  a fifteenth line in the verdict array now, so it is a test red too.
    *
-   *  ⚠ WHAT THIS STILL DOES NOT REACH is a decision taken OUTSIDE these three
+   *  ⚖ BREAKER-827 §DELTA 3 S3 — AND A FOURTH SLICE JOINS THEM: the import
+   *  statement that brings `guardRailsFor` and `guardVerdictAt` onto this
+   *  screen. The three arrays pin what the screen HANDS IN; none of them said
+   *  who receives it, and a module-level shim behind an `as` rename forwarded
+   *  the door and dropped it one line later at 487 green and `tsc` exit 0.
+   *
+   *  ⚠ WHAT THIS STILL DOES NOT REACH is a decision taken OUTSIDE these
    *  slices — a lookup elsewhere on the screen that drops what a door returned,
-   *  or a rewiring at the renderer. No suite renders `TodayScreen`, so that is
-   *  the ⚖ renderer-fence question already on Liam's desk, and it is the
+   *  or a rewiring at the renderer. §DELTA 3 S4 executed exactly that: the
+   *  memo's answer rewritten by `railByLane` one line below it, every mark on
+   *  the strip reading 安全, 487 green. No suite renders `TodayScreen`, so that
+   *  is the ⚖ renderer-fence question already on Liam's desk, and it is the
    *  recorded CEILING of this family rather than the next round of text. */
   it('the two guard doors and the wrapper they go through are EXACTLY these lines', () => {
     /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
      *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
-     *  blanked, so a decoy has to be real code to appear at all. `ok` is
-     *  asserted before the text is read: a slice that came back empty because an
-     *  anchor moved would make the equality below vacuous. */
+     *  blanked, so a decoy has to be real code to appear at all. `ok` — and, ⚖
+     *  §DELTA 3 S1, each anchor's uniqueness — is asserted before the text is
+     *  read: a slice that came back empty because an anchor moved, or that came
+     *  back pointing at a verbatim COPY, would make the equality below vacuous. */
     const sliceLines = (open: string, close: string) => {
       const s = callSlice(SRC, open, close)
-      expect({ open, ok: s.ok }).toEqual({ open, ok: true })
+      // ⚖ BREAKER-827 §DELTA 3 S1 — and `opens`/`closes` are asserted with it.
+      // A verbatim copy of these lines above the real one satisfied every
+      // equality below while the live call lost its door; the equality does not
+      // know which copy it is looking at, so the anchor's uniqueness has to be
+      // established before the text is read at all.
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       const code = codeOnly(s.text)
       return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
     }
@@ -1514,6 +1643,109 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     ] as const) {
       expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
     }
+
+    // 4 · THE TWO ENGINE NAMES ARRIVE, AND THE IMPORT IS EXACTLY THESE LINES.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — the three arrays above pin what the
+    // screen HANDS IN; none of them pinned who receives it. The breaker renamed
+    // both specifiers (`guardRailsFor as guardRailsForImpl`) and wrote two
+    // module-level wrappers that spread `protectedWindowFeasible: undefined`
+    // over the object the slice built: every pinned character byte-identical,
+    // 487 green, `tsc` exit 0, both protected doors dark. So the whole import
+    // statement that brings the engine onto this screen is an exact-lines slice
+    // of its own — an `as` rename, an added specifier, a removed one and a
+    // re-ordered one are all one red that PRINTS the block. The name COUNTS
+    // beside it (two mentions each, one call each, no local definition) are in
+    // the BOTH-doors test above; the two together leave the shim nowhere: the
+    // rename reds here, and a shim that keeps the plain specifier names reds
+    // there on the third mention.
+    //
+    // ⚠ The open anchor is TWO lines (`import {` and its first specifier)
+    // because `import {` alone is three lines on this screen and an anchor that
+    // is not unique is exactly what S1 was — `callSlice` counts it, so a
+    // non-unique anchor is a red rather than a silent wrong slice.
+    expect(sliceLines('import {\n  allocateBed,', "} from './today-interactions'").lines).toEqual([
+      "import {",
+      "allocateBed,",
+      "anchorOnScreen,",
+      "applyBlockMoves,",
+      "applyMoves,",
+      "blockChrome,",
+      "blockClash,",
+      "blockDragModeAt,",
+      "blockEdgeZones,",
+      "blockStepPct,",
+      "BLOCK_STEP_MIN_DEFAULT,",
+      "cardNodes,",
+      "chipProxySize,",
+      "clampLabelWidth,",
+      "clickClosesPopover,",
+      "dragModeAt,",
+      "fieldsPopAnchor,",
+      "fitsDrag,",
+      "fractionIn,",
+      "labelWidthOf,",
+      "liveTimeLabel,",
+      "proxyTransform,",
+      "stretchOrCarry,",
+      "gapKindOf,",
+      "gapLayerFor,",
+      "gapPackingDials,",
+      "guardCheckRow,",
+      "guardCheckRowBesideOffer,",
+      "guardRailsFor,",
+      "guardVerdictAt,",
+      "blockNode,",
+      "heldDrawnFor,",
+      "holdPopAnchor,",
+      "holdSummary,",
+      "isCrumbOffer,",
+      "isHeldBound,",
+      "isOverShelf,",
+      "laneKeyAtY,",
+      "landingVerdict,",
+      "lossOf,",
+      "bedClassCell,",
+      "nearestFreeStarts,",
+      "needsPrivateRoom,",
+      "offerableCell,",
+      "nextSpan,",
+      "onlineOffers,",
+      "overrideCaption,",
+      "onShownBoard,",
+      "pairLanesOf,",
+      "parkChipText,",
+      "pinInViewport,",
+      "restCueStarts,",
+      "warnFaceFor,",
+      "holdClock,",
+      "holdResumeAt,",
+      "HOLD_MS,",
+      "explainRails,",
+      "reservedSentence,",
+      "sameStore,",
+      "sharesStore,",
+      "sellDrawnFor,",
+      "sellLayerFor,",
+      "sidesAt,",
+      "seedBed,",
+      "seedSpanIn,",
+      "slotStartAt,",
+      "unparkOutcome,",
+      "foreignStoreRefusal,",
+      "type GuardRail,",
+      "type LandingFloor,",
+      "type LandingQuestion,",
+      "type LandingVerdict,",
+      "type Move,",
+      "type Moves,",
+      "type OverrideLevel,",
+      "type PairLanes,",
+      "type RailCell,",
+      "type RoomPolicy,",
+      "type SellDrop,",
+      "type WarnCardModel,",
+    ])
   })
 
   /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
