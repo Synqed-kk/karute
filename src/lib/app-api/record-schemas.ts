@@ -36,10 +36,14 @@ export const SessionMintSchema = z
 
 // ── Upload-url mint (capture pipeline PR2) ──────────────────────────────────
 // ALL THREE fields optional at the FIELD level: an absent body is the
-// server-named take this route has always minted. The caps here only BOUND the
-// strings — the real validation is server-side (composeTakeKey: the uuid
-// grammar and the closed MIME map), so a well-formed-but-wrong value is refused
-// by the fence, not by zod.
+// server-named take this route has always minted. mimeType's cap only BOUNDS
+// the string — the real validation is server-side (composeTakeKey: the closed
+// MIME map), so a well-formed-but-wrong container is refused by the fence, not
+// by zod. takeId is `.uuid()` (fix round 8, matching recordingSessionId below
+// and finalize's own): zod's shape check is case-INSENSITIVE, so an uppercase
+// uuid still reaches composeTakeKey and is refused there, bad_take_id, by the
+// grammar's case-exact TAKE_UUID — anything that fails zod's OWN shape is
+// bad_input, one fence earlier.
 //
 // recordingSessionId (fix round 4) is the row the mint RESERVES this take's key
 // on. It is a uuid for the same reason the finalize schema's is: it rides into a
@@ -55,7 +59,7 @@ export const SessionMintSchema = z
 const MAX_MIME_CHARS = 100
 export const UploadUrlMintSchema = z
   .object({
-    takeId: z.string().max(MAX_ID_CHARS).nullish(),
+    takeId: z.string().uuid().nullish(),
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
     recordingSessionId: z.string().uuid().nullish(),
   })

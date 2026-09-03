@@ -322,15 +322,27 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     },
   )
 
+  // FIX ROUND 8 (M2): takeId is now z.string().uuid() (like recordingSessionId
+  // and finalize's own), so anything that fails zod's OWN uuid shape is
+  // refused at the schema — one fence earlier than composeTakeKey ever runs.
   it.each([
     ['a traversal body', '../../x'],
-    ['an uppercase uuid', UUID.toUpperCase()],
     ['a separator', `${UUID}/000000`],
     ['an extension smuggled into the id', `${UUID}.webm`],
     ['a non-uuid body', 'stolen'],
-  ])('refuses %s as a take id — bad_take_id, nothing is signed or bound', async (_label, takeId) => {
+  ])('refuses %s as a take id — bad_input, zod refuses the shape', async (_label, takeId) => {
     await expect(
       mintRecordingUploadUrl({ ...NAMED, takeId: takeId as string }),
+    ).resolves.toEqual({ error: 'bad_input' })
+    expectNoBinding()
+  })
+
+  // zod's uuid check is case-INSENSITIVE (unlike the grammar's TAKE_UUID),
+  // so an uppercase uuid alone passes the schema and reaches composeTakeKey —
+  // still refused there, bad_take_id, by the case-exact grammar.
+  it('refuses an uppercase uuid as a take id — bad_take_id, the grammar is case-exact', async () => {
+    await expect(
+      mintRecordingUploadUrl({ ...NAMED, takeId: UUID.toUpperCase() }),
     ).resolves.toEqual({ error: 'bad_take_id' })
     expectNoBinding()
   })
@@ -391,8 +403,11 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
   })
 
   it('files nothing when the named take is REFUSED — no row for a key never signed', async () => {
+    // 'stolen' fails zod's own uuid shape (fix round 8) — bad_input, one fence
+    // earlier than composeTakeKey. The point this test proves is unchanged:
+    // nothing is filed for a take id that never got a signed URL.
     await expect(mintRecordingUploadUrl({ ...NAMED, takeId: 'stolen' })).resolves.toEqual({
-      error: 'bad_take_id',
+      error: 'bad_input',
     })
     expect(auditFn).not.toHaveBeenCalled()
   })
@@ -538,6 +553,21 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
       .mockResolvedValueOnce(row())
       .mockResolvedValue(row({ audio_storage_path: OTHER_KEY, status: 'UPLOADING' }))
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expect(update).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // FIX ROUND 8 (M1). A concurrent in-flight mint of the SAME take can win the
+  // write during THIS call's own signing round trip — the commit re-read then
+  // finds the row already pointing at the exact key this call planned too. That
+  // is not a collision, it is a duplicate mint of one take: ok, already ours,
+  // nothing written twice. Only a DIFFERENT key (the test above) is a real one.
+  it('a concurrent mint of the SAME take lands first — ok, already ours, nothing overwritten', async () => {
+    get
+      .mockResolvedValueOnce(row())
+      .mockResolvedValue(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
+    const res = await mintOk(named)
+    expect(res.recordingSessionId).toBe(SESSION)
     expect(update).not.toHaveBeenCalled()
     expect(auditFn).not.toHaveBeenCalled()
   })

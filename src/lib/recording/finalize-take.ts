@@ -222,6 +222,11 @@ export async function finalizeTakeWithClient(
       // take. Its OWN action (fix round 6, I2): nothing was saved here, so this
       // must never file under capture_finalized ("audio saved") — that name is
       // reserved for a call that actually wrote a pointer or a duration.
+      // NO DEDUPE here (fix round 8, accepted): unlike finalizedBefore's
+      // `already` short-circuit above, a superseded row has no "already
+      // reported" state to check, so every retry of a stale finalize files its
+      // own capture_unlinked row. The bound on how many is the CLIENT's own
+      // retry count, not a dedupe in this function.
       return emitCaptureUnlinked(
         actor,
         row.id,

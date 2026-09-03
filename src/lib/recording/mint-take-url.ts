@@ -249,23 +249,34 @@ async function commitReservation(
 ): Promise<{ recordingSessionId: string } | { error: MintErrorCode }> {
   let row: Recording
   try {
+    // A NARROWER TOCTOU survives even this re-read (Greptile, fix round 8):
+    // two DIFFERENT take ids racing to reserve this SAME unbound session can
+    // both read null HERE, before either writes below — the second update then
+    // silently overwrites the first's pointer, and core's unique key never
+    // fires because the two keys are distinct. Not closable in this repo: it
+    // needs a CONDITIONAL update in core (write only if audio_storage_path is
+    // still the value this call read), a compare-and-swap the SDK does not
+    // expose (Anthony addendum #4). This re-read still closes the WIDER window
+    // above it — plan-to-commit, a whole signing round trip — which is the one
+    // ordinary concurrency actually opens.
     row = await synqed.recordings.get(plan.row.id)
   } catch (err) {
     // The row went away between the plan and the commit (a 破棄 cleanup).
     if (statusOf(err) === 404) return { error: 'not_found' }
     throw err
   }
+  // ALREADY OURS (fix round 8): the pointer is exactly this key on the fresh
+  // read — a retry that matched at plan time, or a fresh 'update' beaten to
+  // the write by a concurrent in-flight mint of the SAME take racing between
+  // the plan's read and this one. Either way there is nothing to write and
+  // nothing to audit; only a DIFFERENT non-null pointer is a real collision.
+  if (row.audio_storage_path === key) return { recordingSessionId: row.id }
   // The pointer this call planned against, re-proved on the fresh row: null for
-  // the reservation, this key for the retry that finds its own binding.
+  // the reservation, this key for the retry — which, having already failed the
+  // check above, can only fail this one too, so both collapse to the same
+  // reserved_elsewhere.
   const expected = plan.kind === 'retry' ? key : null
   if (row.audio_storage_path !== expected) return { error: 'reserved_elsewhere' }
-
-  if (plan.kind === 'retry') {
-    // Nothing to write — and (fix round 6, I3) nothing to audit either: the
-    // binding this call would have made already exists, so there is no write
-    // for a row to attest to.
-    return { recordingSessionId: row.id }
-  }
 
   // The reservation itself. Status stays the job's when a job owns the row:
   // UPLOADING over PROCESSING/COMPLETED would put a live or finished take back
