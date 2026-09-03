@@ -60,6 +60,12 @@ import {
 import {
   accessFor,
   askAiIndex,
+  namePrompt,
+  personForRef,
+  precedingQuestion,
+  splitAtName,
+  splitEvidence,
+  splitLead,
   buildConversation,
   buildFeed,
   buildSignals,
@@ -185,6 +191,54 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
     }
   })
 
+  it('⚖ S15 — every suggestion carries a TO-DO and a REASON, and neither states a world fact', () => {
+    // The accepted mock's card leads with what to do. The two new fields are
+    // ADD-only on the plane and they obey the same law as `text`: they say what
+    // to DO and WHY, and they restate nothing the world already answers — which
+    // is why the person is a SLOT rather than a name.
+    for (const s of suggestionPlane) {
+      expect({ id: s.id, slot: s.headline.includes('{name}') }).toEqual({ id: s.id, slot: true })
+      expect({ id: s.id, reason: s.reason.trim().length > 6 }).toEqual({ id: s.id, reason: true })
+      // a reason is ONE line — the paragraph is `text`, behind the press
+      expect({ id: s.id, oneLine: !s.reason.includes('。') }).toEqual({ id: s.id, oneLine: true })
+    }
+    // …and the plane-law scan above (no person, no staff, no menu, no date)
+    // covers these two strings too, because it reads the whole FILE.
+  })
+
+  it('⚖ S15 — the {name} slot is filled by the SAME resolver the 根拠 line uses', () => {
+    // THE MUTANT THIS EXISTS FOR: substituting from the plane literal, or from
+    // any second lookup. A headline can then name somebody the lens cannot see,
+    // which is the isolation law failing at the copy rather than at the read.
+    for (const [lens, world] of [['銀座', WORLD_A], ['代官山', WORLD_B]] as const) {
+      const ix = askAiIndex(world)
+      for (const c of buildFeed(suggestionPlane, world)) {
+        const plane = suggestionPlane.find((s) => s.id === c.id)!
+        const person = personForRef(plane.sourceRef, ix)
+        expect({ lens, id: c.id, person: person !== null }).toEqual({ lens, id: c.id, person: true })
+        expect({ lens, id: c.id, headline: c.headline })
+          .toEqual({ lens, id: c.id, headline: plane.headline.replace('{name}', person!) })
+        // the slot never reaches a reader, and the name really is in the line
+        expect({ lens, id: c.id, raw: c.headline.includes('{name}') }).toEqual({ lens, id: c.id, raw: false })
+        expect({ lens, id: c.id, named: c.headline.includes(person!) }).toEqual({ lens, id: c.id, named: true })
+        // …and the 根拠 line's own name is the SAME string, which is what lets
+        // the screen cut the line at it instead of guessing where a name is.
+        expect({ lens, id: c.id, evName: c.evidenceName }).toEqual({ lens, id: c.id, evName: person })
+        expect({ lens, id: c.id, inLine: c.evidence.includes(person!) }).toEqual({ lens, id: c.id, inLine: true })
+        expect({ lens, id: c.id, reason: c.reason }).toEqual({ lens, id: c.id, reason: plane.reason })
+      }
+    }
+  })
+
+  it('⚖ S15 — splitAtName cuts on the RESOLVER’s string, never on a pattern', () => {
+    const parts = splitAtName('カルテ K-0001・見本 いつき様（担当 見本 しろう）', '見本 いつき')
+    expect(parts).toEqual({ before: 'カルテ K-0001・', name: '見本 いつき', after: '様（担当 見本 しろう）' })
+    // a line with no name to find keeps all of itself, rather than being cut in
+    // a place a regex guessed at
+    expect(splitAtName('受信トレイ・空き待ち', null)).toEqual({ before: '受信トレイ・空き待ち', name: '', after: '' })
+    expect(splitAtName('受信トレイ・空き待ち', '誰か')).toEqual({ before: '受信トレイ・空き待ち', name: '', after: '' })
+  })
+
   it('every category the plane uses has a label, and they are canon AI設定’s four', () => {
     expect(Object.keys(CATEGORY_LABEL).sort()).toEqual(['booking', 'customer_follow', 'staffing', 'vip'])
     expect(Object.values(CATEGORY_LABEL)).toEqual(
@@ -307,12 +361,22 @@ describe('the feed — canon’s rules, as pure functions', () => {
     // none of them badged (a karute record carries no hard fact), so the order
     // is the plane's own — a 30-row feed must not reshuffle itself.
     expect(feed.map((c) => c.id)).toEqual(bulk(30).map((s) => s.id))
-    // …and the sheet gives the feed no scroller of its own to hide them in. The
-    // WINDOW below is what shortens the page; an axis on a box would be the ⚖
-    // page-scroll ruling broken, not the fix for it.
-    expect(CSS_CODE).not.toMatch(/\.ak-feed[^{]*\{[^}]*overflow/)
-    expect(CSS_CODE).not.toMatch(/max-height/)
+    // …and the sheet gives the RAIL no vertical axis of its own to hide them in.
+    // The WINDOW below is what shortens the page; a height cap on the rail would
+    // be the ⚖ page-scroll ruling broken, not the fix for it.
+    // ⚠ AND NOWHERE IN THE ROOM, IN ANY BAND (⚖-ADJ A's other half): the ONE
+    // bounded box is the transcript reading panel, and `overscroll-behavior` is
+    // deliberately absent from it so the page keeps the document's axis. The
+    // exhaustive equality — which selectors own which axis — is the ⚖ PAGE-SCROLL
+    // pin below; here the RAIL's own half is what matters.
     expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
+    for (const sel of ['.ak-rail {', '.ak-rail-body {', '.ak-rail-list {']) {
+      const at = CSS_CODE.indexOf(sel)
+      expect({ sel, found: at > 0 }).toEqual({ sel, found: true })
+      const body = CSS_CODE.slice(at, CSS_CODE.indexOf('}', at))
+      expect({ sel, cappedOrScrolling: /max-height|overflow-y:\s*(auto|scroll)/.test(body) })
+        .toEqual({ sel, cappedOrScrolling: false })
+    }
   })
 
   /** The 25+ world, built once per call so a test that mutates its own copy
@@ -321,6 +385,8 @@ describe('the feed — canon’s rules, as pure functions', () => {
     Array.from({ length: n }, (_, i) => ({
       id: `bulk-${i}`,
       category: 'customer_follow' as const,
+      headline: '{name}様に見本の確認をする',
+      reason: '見本のため、理由の行もここに入ります',
       text: `見本の提案 ${i}`,
       sourceRef: { collection: 'karuteRecords' as const, id: 'K-0001' },
       deepLink: 'karute',
@@ -495,6 +561,98 @@ describe('the consultation — the phone’s contract, mirrored', () => {
     const claim = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!.text
     expect(claim).toContain('次回のご提案が残っています')
     expect(claim).not.toContain('そのあとのご予約がまだ入っていない')
+  })
+
+  it('⚖ S15 · ⚖-ADJ D — the answer’s SHAPE is derived from the contract’s ONE string', () => {
+    // The shipped contract returns a single `reply` paragraph
+    // (`src/lib/ai/karute-chat.ts`), so the desk cannot be handed a lead and a
+    // body: it CUTS at the first 「。」. Authoring the split in the plane would be
+    // inventing a response shape the reconnect seam does not return.
+    const answer = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    const { lead, advice } = splitLead(answer.text)
+    expect(lead.endsWith('。')).toBe(true)
+    expect(lead + advice).toBe(answer.text.replace(lead, lead))
+    expect(answer.text.startsWith(lead)).toBe(true)
+    expect(answer.text.endsWith(advice)).toBe(true)
+    expect(advice.length).toBeGreaterThan(0)
+    // a ONE-sentence reply has no advice, and the row simply does not render —
+    // never an empty box under a heading
+    expect(splitLead('わかりました。')).toEqual({ lead: 'わかりました。', advice: '' })
+    // …and a reply with no full stop at all is ALL lead rather than all advice.
+    expect(splitLead('確認中')).toEqual({ lead: '確認中', advice: '' })
+  })
+
+  it('⚖ S15 — an answer’s NAME CHIPS are the distinct people of its resolved 出典 rows', () => {
+    const a = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    // Order of FIRST APPEARANCE, distinct, and derived from the rows that
+    // actually rendered — so a lens that drops a row drops its chip with it.
+    expect(a.people.map((p) => p.name)).toEqual(['見本 いつき', 'テスト なぎ'])
+    expect(a.people.map((p) => p.prompt)).toEqual(a.people.map((p) => namePrompt(p.name)))
+    expect(a.people[0].prompt).toBe('見本 いつき様の記録をもとに、ご案内の文面を作ってください。')
+    const b = buildConversation(conversationPlane, WORLD_B).find((t) => t.role === 'assistant')!
+    expect(b.people.map((p) => p.name)).toEqual(['見本 きり'])
+    // a question and a failure carry no people at all
+    for (const t of buildConversation(conversationPlane, WORLD_A)) {
+      if (t.role !== 'assistant') expect({ id: t.id, people: t.people }).toEqual({ id: t.id, people: [] })
+    }
+    // …and DISTINCT really is distinct: three rows about one customer are ONE
+    // chip, not three.
+    // K-0002 and K-0004 are two records of ONE customer (テスト くらら) — the
+    // pair the context label 「…のカルテ2件」 counts, so the fixture is the
+    // world's own rather than a hand-built duplicate.
+    const one = buildConversation([{
+      id: 'x', role: 'assistant', text: 'テストです。',
+      sources: [
+        { collection: 'karuteRecords', id: 'K-0002' },
+        { collection: 'karuteRecords', id: 'K-0004' },
+      ],
+      contextRef: null,
+    }], WORLD_A)[0]
+    expect(one.sources.length).toBeGreaterThan(1)
+    expect(one.people).toHaveLength(1)
+  })
+
+  it('⚖ S15 — a cite pill is the SAME line, cut at its first 「・」', () => {
+    const a = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    expect(splitEvidence(a.sources[0].line))
+      .toEqual({ tag: 'カルテ K-0001', rest: '見本 いつき様（担当 見本 しろう / テスト整体 60分）' })
+    expect(splitEvidence('受信トレイ・テスト えいた様（予約日時の変更希望）'))
+      .toEqual({ tag: '受信トレイ', rest: 'テスト えいた様（予約日時の変更希望）' })
+    // …and a line with no separator keeps all of itself, so the pill shows no tag
+    expect(splitEvidence('出どころ不明')).toEqual({ tag: '', rest: '出どころ不明' })
+    // ONE GRAMMAR, TWO RENDERINGS: whatever is cut here is the same string the
+    // rail's 根拠 line prints whole.
+    for (const s of a.sources) {
+      const { tag, rest } = splitEvidence(s.line)
+      expect({ ref: s.ref, whole: `${tag}・${rest}` }).toEqual({ ref: s.ref, whole: s.line })
+    }
+  })
+
+  it('⚖ S15 · ⚖-ADJ F — 「もう一度送る」 re-sends the NEAREST PRECEDING question', () => {
+    // This supersedes R7-10's waiver of the error-state retry law: the failed
+    // turn now carries its own way out, and what it sends is the question it was
+    // answering — the same text and the same context hint the reader can see
+    // above it, so the refusal that follows names the right slice of data.
+    const turns = buildConversation(conversationPlane, WORLD_A)
+    const err = turns.find((t) => t.role === 'error')!
+    const q = precedingQuestion(turns, err.id)!
+    const asked = turns.filter((t) => t.role === 'user')
+    expect(q.text).toBe(asked[asked.length - 1].text)
+    expect(q.contextLabel).toBe(asked[asked.length - 1].contextLabel)
+    expect(q.contextLabel).toBe('テスト くらら様のカルテ2件')
+    // …and under 代官山 the SAME question carries no label, because the lens can
+    // read none of that customer's records — so the refusal cannot promise one.
+    const tB = buildConversation(conversationPlane, WORLD_B)
+    expect(precedingQuestion(tB, 'turn-4')!.contextLabel).toBeNull()
+    // A FAILURE WITH NOTHING BEFORE IT HAS NOTHING TO RE-SEND, and the screen
+    // renders no button — a retry that asked an empty question would be a lever
+    // with no effect (⚖ §A-2).
+    const orphan = buildConversation([{ id: 'e', role: 'error', text: 'だめでした。', sources: [], contextRef: null }], WORLD_A)
+    expect(precedingQuestion(orphan, 'e')).toBeNull()
+    expect(precedingQuestion(turns, 'no-such-turn')).toBeNull()
+    // …and an answer between the failure and the question does not become the
+    // question: only a `user` turn can.
+    expect(precedingQuestion(turns, 'turn-2')!.text).toBe(turns[0].text)
   })
 
   it('context_label is present ONLY when the lens can read the rows — the shipped rule', () => {
@@ -791,7 +949,16 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     // the toast's, and it only takes a message AWAY.
     const timers = [...SCREEN_CODE.matchAll(/setTimeout\(/g)]
     expect(timers).toHaveLength(1)
-    expect(SCREEN_CODE).toContain('toastTimer.current = setTimeout(() => setToast(null), 2800)')
+    // …and its window is longer only when there is an undo to offer, which is
+    // the ONE thing the timer's length is allowed to depend on.
+    expect(SCREEN_CODE).toContain('toastTimer.current = setTimeout(() => setToast(null), undoId ? 5000 : 2800)')
+    // ⚖ D-2's other half, made explicit by the accepted mock: the mock's own
+    // typing indicator and entrance stagger are MOCK-ONLY theatre. Every turn is
+    // present at first paint, so none of their machinery exists here.
+    for (const ghost of ['typing', 'dots', 'playConversation', 'stagger']) {
+      expect({ ghost, present: SCREEN_CODE.includes(ghost) }).toEqual({ ghost, present: false })
+    }
+    expect(CSS_CODE).not.toContain('@keyframes')
   })
 
   it('SEND refuses honestly, IN PLAIN WORDS, and changes NOTHING', () => {
@@ -803,7 +970,13 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     expect(REFUSAL.send).toContain('実データとAIの接続後')
     expect(REFUSAL.send).toContain('（未接続）')
     expect(REFUSAL.settings).toContain('AI設定を開けません')
-    expect(REFUSAL.settings).toContain('設定画面の追加後')
+    // ⚠ RE-PINNED AT THE MAIN-MOVED FOLD (S15). The sentence used to say the
+    // settings SCREEN was still to come, and #812 shipped it. What is missing is
+    // narrower — the 設定 room holds 予約と確保, and the AI items are not in it —
+    // so the copy says that instead. A refusal naming a thing that already
+    // shipped is a surface lying about the family (⚖ A10).
+    expect(REFUSAL.settings).toContain('設定画面にまだ用意されていない項目です')
+    expect(REFUSAL.settings).not.toContain('設定画面の追加後')
     expect(REFUSAL.settings).toContain('（未接続）')
     // The composer's state is never touched on the refusal path: `refuseSend`
     // sets the refusal and nothing else, and no handler clears the draft.
@@ -843,24 +1016,35 @@ describe('⚖ ASKING IS A CALL, AND THIS ROOM MAKES NONE', () => {
     // Read the two handler BODIES rather than measuring a distance: a proximity
     // regex is a pin that can be true for a second reason (the M10 lesson), and
     // these two behaviours are the whole difference between the systems.
-    const signalBody = SCREEN_CODE.slice(
-      SCREEN_CODE.indexOf('const takeSignal'),
-      SCREEN_CODE.indexOf('const takeTemplate'),
-    )
-    const templateBody = SCREEN_CODE.slice(
-      SCREEN_CODE.indexOf('const takeTemplate'),
-      SCREEN_CODE.indexOf('const onComposerKey'),
-    )
-    expect(signalBody.length).toBeGreaterThan(60)
-    expect(templateBody.length).toBeGreaterThan(60)
-    // 今日のヒント: fills AND walks the send path, with its context label —
-    // and the fill is GUARDED (⚖ F2-3: it may not type over a typed question).
-    expect(signalBody).toContain('if (!typed) setDraft(chip.prompt)')
-    expect(signalBody).toContain('refuseSend(chip.contextLabel,')
-    // じっくり相談: fills ONLY — no send, no refusal.
-    expect(templateBody).toContain('setDraft(pill.example)')
-    expect(templateBody).toContain('setRefusal(null)')
-    expect(templateBody).not.toContain('refuseSend')
+    // ⚠ RE-PINNED FOR S15's TWO NAMED PATHS. There are now three controls that
+    // carry a question — a 今日 chip, 「もう一度送る」 and a じっくり chip — and
+    // exactly TWO behaviours between them, so each behaviour lives in ONE helper
+    // and the pins read the helper rather than three copies of it (⚖ A8, and
+    // ⚖-ADJ D's ceiling: the day the F2-3 guard is argued for the fill path it
+    // moves in one place).
+    const bodyBetween = (from: string, to: string) =>
+      SCREEN_CODE.slice(SCREEN_CODE.indexOf(from), SCREEN_CODE.indexOf(to))
+    const fillBody = bodyBetween('const fill = (text: string)', 'const walkSend')
+    const sendBody = bodyBetween('const walkSend', 'const takeSignal')
+    expect(fillBody.length).toBeGreaterThan(40)
+    expect(sendBody.length).toBeGreaterThan(60)
+    // THE SEND PATH: fills AND refuses, with the context label — and the fill is
+    // GUARDED (⚖ F2-3: it may not type over a typed question).
+    expect(sendBody).toContain("const typed = draft.trim() !== '' && draft !== text")
+    expect(sendBody).toContain('if (!typed) setDraft(text)')
+    expect(sendBody).toContain('refuseSend(contextLabel, typed ? text : null)')
+    // …and there is exactly ONE write to the draft in it, the guarded one.
+    expect([...sendBody.matchAll(/setDraft\(/g)]).toHaveLength(1)
+    // THE FILL PATH: sets the draft and CLEARS the standing refusal — no send.
+    expect(fillBody).toContain('setDraft(text)')
+    expect(fillBody).toContain('setRefusal(null)')
+    expect(fillBody).not.toContain('refuseSend')
+    // …and the three controls each pick one of the two, visibly.
+    expect(SCREEN_CODE).toContain('const takeSignal = (chip: SignalChip) => walkSend(chip.prompt, chip.contextLabel)')
+    expect(SCREEN_CODE).toContain('const takeTemplate = (pill: TemplatePill) => fill(pill.example)')
+    expect(SCREEN_CODE).toContain('const takeRetry = (q: { text: string; contextLabel: string | null }) => walkSend(q.text, q.contextLabel)')
+    // …and an answer's name chip is the TEMPLATE semantics, not the send path.
+    expect(SCREEN_CODE).toContain('onClick={() => fill(p.prompt)}')
   })
 
   it('却下 is DEMO-LOCAL and says so — and is persisted nowhere', () => {
@@ -1078,29 +1262,46 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     expect(SCREEN_CODE).toContain("const ROOT = 'page pg-ask-ai'")
   })
 
-  it('⚖ PAGE-SCROLL — not one container in this room owns an axis', () => {
-    // The one exception is the composer, which is a TEXT CONTROL and not a
-    // wrapper: it is named here so the exemption is argued rather than assumed.
-    const offenders = []
+  it('⚖ PAGE-SCROLL — EXACTLY ONE wrapper owns a vertical axis, and it is the transcript', () => {
+    // ⚖-ADJ A, and it is RE-PINNED rather than loosened. The ⚖ 8/22 ruling
+    // targets board and list wrappers — a reader hunting a row inside a box —
+    // and the accepted mock's conversation is a READING panel of the same class
+    // as 破棄の記録's `.rc-tscroll` (recording.css:1443), which Liam approved by
+    // name. So the pin becomes an EQUALITY on the room's whole sheet: one
+    // vertical scroller, and it is `.ak-chat-scroll`; the two horizontal panners
+    // are content strips, which the ruling allows and each owns its own
+    // container; nothing else caps a height; and `overscroll-behavior` is absent
+    // everywhere, so the page keeps the document's axis when the panel ends.
+    const vertical: string[] = []
+    const horizontal: string[] = []
+    const capped: string[] = []
     for (const block of stripCss(CSS_SRC).split('}')) {
       const i = block.indexOf('{')
       if (i < 0) continue
-      const sel = block.slice(0, i).trim()
+      const sel = block.slice(0, i).trim().split('\n').pop()!.trim()
       const body = block.slice(i + 1)
-      if (/overflow(-x|-y)?\s*:\s*(auto|scroll)/.test(body) || /overscroll-behavior/.test(body) || /max-height/.test(body)) {
-        offenders.push(sel)
-      }
+      if (/overflow-y\s*:\s*(auto|scroll)/.test(body)) vertical.push(sel)
+      if (/overflow-x\s*:\s*(auto|scroll)/.test(body)) horizontal.push(sel)
+      if (/max-height/.test(body)) capped.push(sel)
     }
-    expect(offenders).toEqual([])
+    expect(vertical).toEqual(['.biz .pg-ask-ai .ak-chat-scroll'])
+    expect(horizontal).toEqual(['.biz .pg-ask-ai .ak-rail-list', '.biz .pg-ask-ai .ak-hintrow'])
+    // the SAME one box, once at the desk ceiling and once at the ≤743 one
+    expect(capped).toEqual(['.biz .pg-ask-ai .ak-chat-scroll', '.biz .pg-ask-ai .ak-chat-scroll'])
+    expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
     // …and `position: sticky` appears nowhere at all in this room.
     expect(CSS_CODE).not.toMatch(/position:\s*sticky/)
+    // ⚠ AND THE PANEL REALLY IS THE ONE THE SCREEN SCROLLS TO ITS NEWEST ENTRY.
+    expect(SCREEN_CODE).toContain('el.scrollTop = el.scrollHeight')
+    expect(SCREEN_CODE).toContain('<div className="ak-chat-scroll" ref={chatRef}>')
   })
 
   it('⚖ R13 + the one-way accent law — no black-filled interactive, accent on pressables only', () => {
     // The commit action and the deep link are the ONLY solid accent fills.
-    const solid = [...CSS_CODE.matchAll(/([^{}]+)\{([^}]*background:\s*var\(--ak-accent\)[^}]*)\}/g)].map((m) => m[1].trim())
+    const solid = [...CSS_CODE.matchAll(/([^{}]+)\{([^}]*background:\s*var\(--ak-accent\)[^}]*)\}/g)]
+      .map((m) => m[1].trim().split('\n').pop()!.trim())
     expect(solid.sort()).toEqual([
-      '.biz .pg-ask-ai .ak-open',
+      '.biz .pg-ask-ai .ak-door',
       '.biz .pg-ask-ai .ak-send',
     ])
     // …and the hover DARKENS within the accent rather than lightening toward

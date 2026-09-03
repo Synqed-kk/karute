@@ -672,6 +672,11 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/ask-ai/AskAiScreen.tsx': [
         '@/business/lib/ask-ai',
         '@/business/lib/guide',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY (S15). It is the accepted
+        // 録音 mock's own `makeSpring`, ported rather than re-invented, and it is
+        // PURE — no React, no DOM — so a second easing written by hand beside it
+        // would be a second motion language on one page.
+        '@/business/lib/spring',
         'next/link',
         'react',
       ],

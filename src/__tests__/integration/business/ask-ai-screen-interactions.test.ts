@@ -134,17 +134,21 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
   })
 
   it('the room’s own census, by name — a new section fails this the day it lands', () => {
+    // ⚠ RE-DERIVED FOR S15, and the change is the accepted mock's: 今日のヒント
+    // and じっくり相談 were two headed blocks and are ONE 質問のヒント row of
+    // chips now, so the census loses two names and gains one. Everything else is
+    // where it was; the trace card kept its own name when it folded into the
+    // footnote bar.
     expect(DECLARATIONS.map((d) => d.title).sort()).toEqual([
       'AI相談',
       'AIが提案する次のアクション',
       'さらに表示',
       'この画面の値の設定元',
       'この画面の見え方',
-      'じっくり相談',
-      '今日のヒント',
       '会話',
       '接続済みデータ',
       '業種の設定',
+      '質問のヒント',
       '質問を入力',
     ].sort())
   })
@@ -154,12 +158,20 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // one, この画面の見え方 for a reader who has the permission, さらに表示 in a store
     // whose whole feed already fits: each renders behind a guard, and each
     // declares, so the walk's N/M shrinks and grows by itself.
-    for (const title of ['今日のヒント', '業種の設定', 'この画面の見え方', 'さらに表示']) {
+    for (const title of ['質問のヒント', '業種の設定', 'この画面の見え方', 'さらに表示']) {
       expect(DECLARATIONS.map((d) => d.title)).toContain(title)
     }
-    for (const guard of ['props.signals.length > 0 &&', 'props.profileHint &&', 'denied &&', 'walk.moreLabel &&']) {
+    for (const guard of [
+      '(props.signals.length > 0 || props.templates.length > 0) &&',
+      'props.profileHint &&',
+      'denied &&',
+      'walk.moreLabel &&',
+    ]) {
       expect(SRC_CODE).toContain(guard)
     }
+    // …and INSIDE the merged row the 今日 group is its own conditional, so a
+    // store with no signals shows じっくり alone rather than an empty group word.
+    expect(SRC_CODE).toContain('{props.signals.length > 0 && (')
   })
 
   it('EVERY HEADING THE PAGE PRINTS SITS INSIDE A DECLARED ELEMENT', () => {
@@ -183,7 +195,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     const headings = [
       ...[...SRC_CODE.matchAll(/<h1[\s>]/g)].map((m) => ({ what: 'h1', at: m.index ?? 0 })),
       ...[...SRC_CODE.matchAll(/<h2[\s>]/g)].map((m) => ({ what: 'h2', at: m.index ?? 0 })),
-      ...[...SRC_CODE.matchAll(/className="ak-sec-title"/g)].map((m) => ({ what: 'ak-sec-title', at: m.index ?? 0 })),
+      ...[...SRC_CODE.matchAll(/className="ak-chat-hd"/g)].map((m) => ({ what: 'ak-chat-hd', at: m.index ?? 0 })),
+      ...[...SRC_CODE.matchAll(/className="ak-rail-ttl"/g)].map((m) => ({ what: 'ak-rail-ttl', at: m.index ?? 0 })),
+      ...[...SRC_CODE.matchAll(/className="ak-fn-title"/g)].map((m) => ({ what: 'ak-fn-title', at: m.index ?? 0 })),
+      ...[...SRC_CODE.matchAll(/className="ak-hint-k"/g)].map((m) => ({ what: 'ak-hint-k', at: m.index ?? 0 })),
     ].filter((h) => !(h.at > boundaryAt && h.at < boundaryEnd))
     expect(headings.length).toBeGreaterThan(4)
     const orphans = headings
@@ -197,7 +212,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // A step on one of them would spotlight a column and explain the column,
     // which is a fact about the CSS rather than about the shop's work; the
     // sections inside them are what a reader is actually asking about.
-    for (const wrapper of ['ak-workspace', 'ak-main', 'ak-aside']) {
+    // ⚠ RE-DERIVED FOR S15: the two column wrappers became one grid, and the
+    // page gained its own content box (the 1416px cap + the ladder's container).
+    // Neither holds content of its own, so neither declares.
+    for (const wrapper of ['ak-page', 'ak-workspace', 'ak-rail-body']) {
       const at = SRC_CODE.indexOf(`className="${wrapper}"`)
       expect({ wrapper, found: at > 0 }).toEqual({ wrapper, found: true })
       const tagEnd = SRC_CODE.indexOf('>', at)
@@ -274,13 +292,24 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect({ dead }).toEqual({ dead: [] })
   })
 
-  it('却下 removes the card and says out loud that nothing was saved', () => {
-    expect(SRC_CODE).toContain('onClick={() => dismiss(c.id)}')
+  it('却下 collapses the card, says nothing was saved, and OFFERS THE UNDO', () => {
+    expect(SRC_CODE).toContain('onClick={() => onDismiss(card.id)}')
     expect(SRC_CODE).toContain('const visible = props.feed.filter((c) => !dismissed.includes(c.id))')
-    expect(SRC_CODE).toContain('showToast(props.dismissToast)')
+    // ⚖ S15 — THE CARD LEAVES BEFORE THE LIST DOES. The press starts a spring
+    // and the id joins `dismissed` at REST, so the row does not vanish under the
+    // finger that pressed it; the toast is up immediately with its undo.
+    expect(SRC_CODE).toContain('showToast(props.dismissToast, id)')
+    expect(SRC_CODE).toContain('onRest: (v) => { if (v <= 0.5) onCollapsed(card.id) }')
+    expect(SRC_CODE).toContain('response: 0.28')
+    // 元に戻す catches the card in EITHER state — still collapsing, or already
+    // dismissed — because both are one request from the reader.
+    expect(SRC_CODE).toContain('const undo = (id: string) => {')
+    expect(SRC_CODE).toContain('setCollapsing((c) => (c === id ? null : c))')
+    expect(SRC_CODE).toContain('setDismissed((was) => was.filter((x) => x !== id))')
+    expect(SRC_CODE).toContain('onClick={() => undo(toast.undoId!)}')
     // …and the count above the list is the VISIBLE count, so a dismissal moves
     // the number a reader is looking at (one call, rendered twice — ⚖ A8).
-    expect(SRC_CODE).toContain('提案 {visible.length}件')
+    expect(SRC_CODE).toContain('提案 <b>{visible.length}</b>件')
   })
 
   it('⚖ THE FEED IS WINDOWED, and the head’s count is still the TOTAL', () => {
@@ -292,8 +321,8 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(SRC_CODE).toContain('{walk.shown.map((c) => (')
     // the head counts the TOTAL, never the window — the two must not agree by
     // being the same expression
-    expect(SRC_CODE).toContain('提案 {visible.length}件')
-    expect(SRC_CODE).not.toContain('提案 {walk.shown.length}件')
+    expect(SRC_CODE).toContain('提案 <b>{visible.length}</b>件')
+    expect(SRC_CODE).not.toContain('提案 <b>{walk.shown.length}</b>件')
     // the control's own label is DERIVED in the lib beside the arithmetic; this
     // file states no count of its own
     expect(SRC_CODE).toContain('{walk.moreLabel}')
@@ -304,6 +333,9 @@ describe('the room’s controls — every one has a visible effect', () => {
     // page, it does not put an axis on a box).
     expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-more {')
     expect(CSS_CODE).not.toMatch(/\.ak-more[^{]*\{[^}]*(overflow|max-height)/)
+    // …and below the two-column band it rides the STRIP as its last item rather
+    // than dropping out of the reader's reach under a sideways row.
+    expect(CSS_CODE).toMatch(/@container akpage \(max-width: 907px\)[\s\S]*?\.ak-more \{ flex: 0 0 auto/)
   })
 
   it('⚖ F2-5 — the 設定する CTA answers in ITS OWN section, and the composer’s slot stays send-only', () => {
@@ -341,17 +373,24 @@ describe('the room’s controls — every one has a visible effect', () => {
     // S7-3: over a half-written question the chip's fill was a silent,
     // unrecoverable delete of the reader's own words — the exact thing the
     // refusal path exists never to do (⚖ §A-7). Both branches are pinned.
-    const body = SRC_CODE.slice(SRC_CODE.indexOf('const takeSignal'), SRC_CODE.indexOf('const takeTemplate'))
-    expect(body).toContain("const typed = draft.trim() !== '' && draft !== chip.prompt")
+    // ⚠ RE-PINNED ON THE ONE HELPER (S15). The guard used to live inside
+    // `takeSignal`; 「もう一度送る」 now walks the same path (⚖-ADJ F), so the guard
+    // moved into `walkSend` — ONE home, which is what stops the second control
+    // from growing a second answer to the same question (⚖ A8).
+    const body = SRC_CODE.slice(SRC_CODE.indexOf('const walkSend'), SRC_CODE.indexOf('const takeSignal'))
+    expect(body).toContain("const typed = draft.trim() !== '' && draft !== text")
     // EMPTY BOX (or the same question already in it): today's behaviour, kept.
-    expect(body).toContain('if (!typed) setDraft(chip.prompt)')
-    // TYPED BOX: the draft is untouched and the chip's question goes into the
-    // refusal instead, where the reader can read and copy it.
-    expect(body).toContain('refuseSend(chip.contextLabel, typed ? chip.prompt : null)')
+    expect(body).toContain('if (!typed) setDraft(text)')
+    // TYPED BOX: the draft is untouched and the question goes into the refusal
+    // instead, where the reader can read and copy it.
+    expect(body).toContain('refuseSend(contextLabel, typed ? text : null)')
     // …and there is exactly ONE write to the draft in this handler, the guarded
     // one: a second, unguarded `setDraft` anywhere in the body would be the
     // overwrite coming back by another door.
     expect([...body.matchAll(/setDraft\(/g)]).toHaveLength(1)
+    // …and BOTH controls that carry a question go through it.
+    expect(SRC_CODE).toContain('const takeSignal = (chip: SignalChip) => walkSend(chip.prompt, chip.contextLabel)')
+    expect(SRC_CODE).toContain('const takeRetry = (q: { text: string; contextLabel: string | null }) => walkSend(q.text, q.contextLabel)')
     expect(SRC_CODE).toContain('{refusal.intended && (')
     expect(SRC_CODE).toContain('この質問を送る予定でした：{refusal.intended}')
     // …beside the context label the same press already showed, and with its own
@@ -381,17 +420,100 @@ describe('the room’s controls — every one has a visible effect', () => {
     // S7-2: the head printed a standalone 「出典」 span beside the derived
     // 「出典 3件」, so the word appeared twice in one line and its label lived in
     // two places. The derived string already carries the label (⚖ 8/25).
-    expect(SRC_CODE).toContain('<div className="ak-sources-head">{t.sourceCountLabel}</div>')
+    expect(SRC_CODE).toContain('<div className="ak-cites-k">{t.sourceCountLabel}</div>')
     const head = SRC_CODE.slice(
-      SRC_CODE.indexOf('className="ak-sources"'),
+      SRC_CODE.indexOf('className="ak-cites"'),
       SRC_CODE.indexOf('{t.sources.map'),
     )
     expect(head.length).toBeGreaterThan(20)
     expect(head).not.toContain('出典')
-    expect(SRC_CODE).not.toContain('ak-sources-label')
-    expect(SRC_CODE).not.toContain('ak-sources-count')
-    expect(CSS_CODE).not.toContain('.ak-sources-label')
-    expect(CSS_CODE).not.toContain('.ak-sources-count')
+    expect(SRC_CODE).not.toContain('ak-cites-label')
+    expect(SRC_CODE).not.toContain('ak-cites-count')
+    expect(CSS_CODE).not.toContain('.ak-cites-label')
+    expect(CSS_CODE).not.toContain('.ak-cites-count')
+  })
+
+  it('⚖-ADJ E — A CITE PILL IS NOT PRESSABLE, and does not look like one', () => {
+    // Registry ⑥: no shipped room accepts a record-level param at this tip, so
+    // there is nowhere for a pill to go and this room invents no param. A door
+    // that does not open must not LOOK like a door (⚖ §A-2's other half — the
+    // dead-lever class starts with something that reads as a lever).
+    const citeRow = SRC_CODE.slice(SRC_CODE.indexOf('className="ak-citerow"'), SRC_CODE.indexOf('</div>', SRC_CODE.indexOf('className="ak-citerow"')) + 400)
+    expect(citeRow).toContain('<span className="ak-cite" key={s.ref}>')
+    expect(citeRow).not.toContain('<button')
+    expect(citeRow).not.toContain('<Link')
+    expect(citeRow).not.toContain('onClick')
+    expect(citeRow).not.toContain('data-press')
+    // …and the sheet gives it no pointer, no lift and no shadow — a wash tint on
+    // a non-pressable, which the one-way accent law allows at exactly this tier.
+    const rule = CSS_CODE.slice(CSS_CODE.indexOf('.biz .pg-ask-ai .ak-cite {'))
+    const body = rule.slice(0, rule.indexOf('}'))
+    expect(body).not.toContain('cursor')
+    expect(body).not.toContain('transition')
+    expect(CSS_CODE).not.toContain('.ak-cite:hover')
+  })
+
+  it('⚖ S15 — the ONE 質問のヒント row: two group words, chips that carry their own preview', () => {
+    // The two prompt systems keep their two behaviours (pinned in ask-ai.test)
+    // and lose their two headings. A chip's LABEL is the short word and the long
+    // one rides the native `title` — ⚖-ADJ G rules the mock's hover popover
+    // MOCK-ONLY, because a native tooltip carries the same text with no floating
+    // layer to clamp at four edges.
+    expect(SRC_CODE).toContain('<span className="ak-hint-k">質問のヒント</span>')
+    expect(SRC_CODE).toContain('<span className="ak-hint-g">今日</span>')
+    expect(SRC_CODE).toContain('<span className="ak-hint-g">じっくり</span>')
+    expect(SRC_CODE).toContain('<span className="ak-gsep" />')
+    expect(SRC_CODE).toContain('title={s.title} onClick={() => takeSignal(s)}')
+    expect(SRC_CODE).toContain('title={t.preview} onClick={() => takeTemplate(t)}')
+    // the chip's own words: a signal reads by its TAG, a template by its TITLE
+    expect(SRC_CODE).toMatch(/onClick=\{\(\) => takeSignal\(s\)\}>\s*\{s\.tag\}/)
+    expect(SRC_CODE).toMatch(/onClick=\{\(\) => takeTemplate\(t\)\}>\s*\{t\.title\}/)
+    // …and at phone it is ONE swipeable strip: a horizontal pan in its own
+    // container, with no height of its own (⚖ page-scroll).
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    expect(phoneBand).toMatch(/\.ak-hintrow \{ flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden/)
+  })
+
+  it('⚖-ADJ C · I — the two disclosures open IN FLOW, downward, on the family’s spring', () => {
+    // The mock's help popover and its UPWARD absolute footnote panel are
+    // mock-only: a floating layer has to be clamped at four edges and can cover
+    // its own anchor (the ⚖ popup laws). Both of this room's disclosures are
+    // height springs on a panel that is part of the document.
+    for (const panel of ['ak-why-panel', 'ak-fn-panel']) {
+      expect(CSS_CODE).toMatch(new RegExp(`\\.${panel} \\{ height: 0; overflow: hidden; \\}`))
+      expect(CSS_CODE).not.toMatch(new RegExp(`\\.${panel} \\{[^}]*position: absolute`))
+    }
+    expect(SRC_CODE).toContain('useCollapse(whyRef, whyOpen, reduced)')
+    expect(SRC_CODE).toContain('useCollapse(footRef, footOpen, reduced)')
+    expect(SRC_CODE).toContain('aria-expanded={whyOpen}')
+    expect(SRC_CODE).toContain('aria-expanded={footOpen}')
+    // …and the head's old sentence really did MOVE rather than being cut: it is
+    // the first line the pop-down carries.
+    expect(SRC_CODE).toContain('{props.why.lines.map((line) => (')
+    expect(SRC_CODE).not.toContain('className="ak-subtitle"')
+  })
+
+  it('⚖ MOTION — one integrator, the family’s, and both borrowed pieces carry their cite', () => {
+    // The Studio standard: transform/opacity only, springs for state. The
+    // integrator is the family's shared `makeSpring`; the collapse hook and the
+    // `[data-press]` listener are the 録音 room's, copied WITH their file:line
+    // because a room may not import a sibling room's SCREEN (the R7-6 precedent,
+    // and the shared home for them is a family-sweep item).
+    expect(SRC_CODE).toContain("import { makeSpring } from '@/business/lib/spring'")
+    // ⚠ THE CITES ARE READ FROM THE RAW SOURCE, not from `SRC_CODE`: they live
+    // in the comments beside the copies, which is exactly where a cite belongs
+    // and exactly what `stripComments` removes.
+    expect(SRC).toContain('business/recording/RecordingScreen.tsx:816-841')
+    expect(SRC).toContain('RecordingScreen.tsx:842-859')
+    expect(SRC_CODE).toContain("t.classList.add('is-pressed')")
+    // the presses are ONE rule over the attribute rather than a per-control sweep
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai [data-press] { transition: transform 100ms ease-out; }')
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai [data-press].is-pressed { transform: scale(.97); }')
+    // …and nothing animates on FIRST PAINT: the first run of every collapse jumps
+    expect(SRC_CODE).toContain("el.style.height = open ? 'auto' : '0px'")
+    // reduced motion is answered at CONSTRUCTION time, so the state still changes
+    expect(SRC_CODE).toContain("window.matchMedia('(prefers-reduced-motion: reduce)')")
+    expect([...SRC_CODE.matchAll(/reduced,/g)].length).toBeGreaterThanOrEqual(3)
   })
 
   it('the tour hands the keyboard back, and owns Escape only while it is open', () => {
@@ -412,32 +534,55 @@ describe('the room’s controls — every one has a visible effect', () => {
 
 describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', () => {
   const bands = [...CSS_CODE.matchAll(/@media ([^{]+)\{/g)].map((m) => m[1].trim())
+  const containerBands = [...CSS_CODE.matchAll(/@container ([^{]+)\{/g)].map((m) => m[1].trim())
 
-  it('every required band has a rule of its own', () => {
+  it('⚖-ADJ J — the COMPOSITION ladder is keyed to the PAGE, and only device facts stay on @media', () => {
+    // THE HAZARD the container ladder exists for (the 録音 room's F-V5 lesson,
+    // ported): the shell's rail is 76px collapsed and 264px open, so PAGE WIDTH
+    // FALLS BY 188px as the viewport crosses 1024. A rule that chose a column
+    // count from a viewport width would be choosing it from the wrong number.
+    expect(CSS_CODE).toContain('container-type: inline-size; container-name: akpage;')
+    expect(containerBands).toEqual([
+      'akpage (max-width: 907px)',
+      'akpage (max-width: 599px)',
+    ])
+    // …and what is left on @media is what genuinely belongs to the VIEWPORT:
+    // the page's own outer padding, the ≥44px touch floor and reduced motion.
     expect(bands).toEqual([
       '(min-width: 1400px)',
       '(max-width: 1279px)',
-      '(max-width: 1099px)',
-      '(max-width: 1023px)',
-      '(min-width: 800px) and (max-width: 1023px)',
       '(max-width: 743px)',
       '(prefers-reduced-motion: reduce)',
     ])
+    // THE THRESHOLDS ARE DERIVED, NOT CHOSEN: a chat column stops being a
+    // workspace under ~620px, the rail's floor is 276px and the gap is 12 —
+    // 620 + 276 + 12 = 908, so two columns hold to 908 and stack at 907.
+    expect(CSS_CODE).toContain('clamp(276px, 26cqi, 364px)')
   })
 
-  it('the two zones stack at ≤1023, consultation FIRST', () => {
-    expect(CSS_CODE).toMatch(/@media \(max-width: 1023px\) \{[\s\S]*?\.ak-workspace \{ grid-template-columns: minmax\(0, 1fr\)/)
-    // The stack order is the DOM order — the consultation is the titular
-    // function and is written first, so no `order:` rule exists to drift.
-    expect(CSS_CODE).not.toMatch(/\border\s*:\s*-?\d/)
-    expect(SRC_CODE.indexOf('className="ak-main"')).toBeLessThan(SRC_CODE.indexOf('className="ak-aside"'))
-    // …and inside the aside, the feed is above the trace card.
-    expect(SRC_CODE.indexOf('className="ak-feed"')).toBeLessThan(SRC_CODE.indexOf('className="ak-trace"'))
+  it('the two zones stack when the PAGE cannot hold them, consultation FIRST', () => {
+    expect(CSS_CODE).toMatch(/@container akpage \(max-width: 907px\) \{[\s\S]*?\.ak-workspace \{ grid-template-columns: minmax\(0, 1fr\)/)
+    // ⚖-ADJ K — THE ONE `order` RULE IN THE SHEET, and it is inside the phone
+    // band. A collapsed 44px 提案 bar is a HEADER, not a zone: the chat is still
+    // the page under it, which is what the accepted 440 shot shows. The old pin
+    // forbade `order:` outright; it is re-pinned to allow exactly this one rule,
+    // in exactly this band, so a second one still fails the round.
+    const orders = [...CSS_CODE.matchAll(/[^;{}]*\border\s*:\s*-?\d[^;}]*/g)].map((m) => m[0].trim())
+    expect(orders).toEqual(['order: -1'])
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    expect(phoneBand.slice(0, phoneBand.indexOf('@media'))).toContain('.ak-rail { order: -1; }')
+    // …and above that band the DOM order is the stack order: the consultation is
+    // the titular function and is written first, so nothing has to reorder it.
+    expect(SRC_CODE.indexOf('className="ak-chat"')).toBeLessThan(SRC_CODE.indexOf('className="ak-rail"'))
   })
 
   it('≤743 raises every interactive control to ≥44px, swept flat', () => {
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
-    for (const sel of ['.ak-send', '.ak-open', '.ak-dismiss', '.ak-signal', '.ak-tpl', '.ak-profile-cta', '.ak-spot-foot button', '.btn']) {
+    for (const sel of [
+      '.ak-send', '.ak-door', '.ak-dismiss', '.ak-hchip', '.ak-namechip', '.ak-retry',
+      '.ak-sug-open', '.ak-rail-hd', '.ak-fn-bar', '.ak-why', '.ak-undo', '.ak-btn-out',
+      '.ak-profile-cta', '.ak-spot-foot button', '.btn',
+    ]) {
       expect({ sel, raised: new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^{]*\\{[^}]*min-height: 4[46]px`).test(phone) })
         .toEqual({ sel, raised: true })
     }
@@ -445,18 +590,21 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     expect(phone).toContain('.biz .pg-ask-ai .ak-help::after')
   })
 
-  it('⚖ F2-9 — at ≤743 the feed count drops BELOW the wrapped title, not onto its baseline', () => {
-    // S7-10. At 390 the head's title wraps to two lines and 「提案 7件」 was
-    // pinned to the second line's baseline, hard against the wrap. The title
-    // takes the row it needs; the count takes the next one.
+  it('⚖ THE F2-9 CLASS, SOLVED STRUCTURALLY — the rail head is ONE row that cannot collide with its own count', () => {
+    // S7-10 was a WRAP defect: at 390 the head's title wrapped to two lines and
+    // 「提案 7件」 landed on the second line's baseline. The accepted mock's head
+    // solves the class rather than the case — title · flexible spacer · count ·
+    // chevron, all `align-items: center`, so the count is never asked to share a
+    // baseline with a wrap. The old pin named two rules that no longer exist;
+    // this one names the shape that makes the defect impossible.
+    const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@container'))
+    expect(desk).toMatch(/\.ak-rail-hd \{[^}]*align-items: center/)
+    expect(desk).toMatch(/\.ak-rail-cnt \{[^}]*white-space: nowrap/)
+    expect(SRC_CODE).toContain('<span className="ak-sp" />\n                  <span className="ak-rail-cnt">')
+    // …and at the touch band the whole head is a ≥44px target, because there it
+    // is the control that opens the 提案 bar.
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
-    expect(phone).toContain('.biz .pg-ask-ai .ak-feed-head { flex-wrap: wrap; align-items: flex-start; row-gap: 3px; }')
-    expect(phone).toContain('.biz .pg-ask-ai .ak-feed-head h2 { flex: 1 1 100%; }')
-    // …and the desk band is UNTOUCHED: where there is room, the count still sits
-    // on the title's baseline at the far end of the head.
-    const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@media'))
-    expect(desk).toMatch(/\.ak-feed-head \{[^}]*align-items: baseline/)
-    expect(desk).toMatch(/\.ak-feed-head \{[^}]*justify-content: space-between/)
+    expect(phone).toMatch(/\.ak-rail-hd \{[^}]*min-height: 44px/)
   })
 
   it('⚖ the composer is NOT sticky — it rides the page flow at every width', () => {
@@ -517,37 +665,52 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
     // The screen hands the sheet a fact; the sheet decides what it looks like.
     // A className switch here would put the palette in two homes, and a category
     // the plane grows later would arrive with no rule and no fallback.
-    expect(SRC_CODE).toContain('data-cat={c.category}')
+    expect(SRC_CODE).toContain('data-cat={card.category}')
     expect(SRC_CODE).not.toMatch(/ak-sug-(?:cat-|tone)/)
   })
 
   it('every canon category has a tone, and the BASE is neutral so a new one arrives grey', () => {
+    // ⚠ RE-PINNED FOR S15 (LIAM-VISIBLE): the accepted mock RETIRES the
+    // カルテ-borrowed palette the 8/31 build shipped (teal / violet / pink /
+    // orange) and gives each canon category one hue spent in three places — the
+    // card's left rule, the icon's wash and the category WORD's ink. The tone is
+    // three named custom properties now rather than one rgb triple, because the
+    // three places want three different saturations of it.
+    //
     // The neutral default is the whole reason a fifth category cannot turn up
     // wearing a fourth's colour (the カルテ room's own note, carried).
-    expect(CSS_CODE).toMatch(/\.biz \.pg-ask-ai \.ak-sug \{ --ak-cat: 136, 135, 128; \}/)
+    expect(CSS_CODE).toMatch(/\.ak-sug-in \{\s*--ak-cat-rule: var\(--ak-slate-line\);\s*--ak-cat-wash: var\(--ak-wash\);\s*--ak-cat-ink: var\(--ink-3\);\s*\}/)
     for (const cat of CATEGORIES) {
-      expect({ cat, toned: new RegExp(`\\.ak-sug\\[data-cat="${cat}"\\] \\{ --ak-cat: \\d+, \\d+, \\d+; \\}`).test(CSS_CODE) })
+      expect({ cat, toned: new RegExp(`\\.ak-sug-in\\[data-cat="${cat}"\\] \\{ --ak-cat-rule: [^;]+; --ak-cat-wash: [^;]+; --ak-cat-ink: [^;]+; \\}`).test(CSS_CODE) })
         .toEqual({ cat, toned: true })
     }
     // four tones, four categories, no fifth rule waiting for a category that
     // does not exist
-    expect([...CSS_CODE.matchAll(/\.ak-sug\[data-cat="([^"]+)"\]/g)].map((m) => m[1]).sort()).toEqual([...CATEGORIES].sort())
+    expect([...CSS_CODE.matchAll(/\.ak-sug-in\[data-cat="([^"]+)"\]/g)].map((m) => m[1]).sort()).toEqual([...CATEGORIES].sort())
+    // …and the SCREEN has no fifth glyph either: a category the plane grows later
+    // gets the neutral mark rather than borrowing one.
+    expect(SRC_CODE).toContain('{CATEGORY_MARK[card.category] ?? <NeutralMark />}')
   })
 
-  it('WASH TIER ONLY — the tone is never a fill, never text, and never touches a pressable', () => {
-    // ⚖ the one-way accent law: colour on a non-pressable stays at wash level.
-    // Every use of the tone is an rgba() with an alpha well under half, so there
-    // is no solid fill and no coloured ink to be mistaken for "you can press me".
-    const uses = [...CSS_CODE.matchAll(/rgba\(var\(--ak-cat\),\s*\.(\d+)\)/g)].map((m) => Number(`0.${m[1]}`))
-    expect(uses.length).toBeGreaterThanOrEqual(2)
-    for (const alpha of uses) expect({ alpha, wash: alpha <= 0.4 }).toEqual({ alpha, wash: true })
-    // the tone never becomes ink…
-    expect(CSS_CODE).not.toMatch(/color:\s*rgba?\(var\(--ak-cat\)/)
-    // …and the card's chip keeps NEUTRAL text over its wash.
-    expect(CSS_CODE).toMatch(/\.ak-sug-cat \{[^}]*background: rgba\(var\(--ak-cat\), \.14\);[^}]*color: var\(--ink-3\)/)
+  it('WASH TIER ONLY — the tone is a rule, a wash and ONE label, and never touches a pressable', () => {
+    // ⚖ THE ONE-WAY ACCENT LAW, AND THE ONE PLACE THIS ROOM ARGUES AT IT. The
+    // mock colours the category WORD, and the S15 packet §2.5 rules it in: it is
+    // a 10.5px/700 LABEL naming which AI設定 switch produced the row, it sits on
+    // a non-pressable, and its hue is the card's own rule. The previous build's
+    // pin said 「the tone never becomes ink」; this one says WHERE it may, and
+    // holds everything else exactly where it was.
+    const inked = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*color: var\(--ak-cat-ink\)[^}]*\}/g)]
+      .map((m) => m[1].trim().split('\n').pop()!.trim())
+    expect(inked.sort()).toEqual(['.biz .pg-ask-ai .ak-sug-ic', '.biz .pg-ask-ai .ak-sug-w'])
+    // the card's BACKGROUND is never the tone — only its 3px left rule and the
+    // 17px icon chip are, which is the wash tier the law allows.
+    const filled = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*background: var\(--ak-cat-wash\)[^}]*\}/g)]
+      .map((m) => m[1].trim().split('\n').pop()!.trim())
+    expect(filled).toEqual(['.biz .pg-ask-ai .ak-sug-ic'])
+    expect(CSS_CODE).toMatch(/\.ak-sug-in \{[^}]*border-left: 3px solid var\(--ak-cat-rule\)/)
     // …and the two pressables inside a card are untouched by any of it.
     for (const block of CSS_CODE.split('}')) {
-      if (/\.ak-open|\.ak-dismiss/.test(block.slice(0, block.indexOf('{') + 1))) {
+      if (/\.ak-door|\.ak-dismiss/.test(block.slice(0, block.indexOf('{') + 1))) {
         expect({ block: block.slice(0, 60), tone: block.includes('--ak-cat') }).toEqual({ block: block.slice(0, 60), tone: false })
       }
     }
