@@ -105,7 +105,7 @@ import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
 // operator acts on has to be provable without a renderer.
-import { bedDoor, bedViewsFor } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bedDoor, bedViewsFor, nextVisitCategory } from '@/app/[locale]/(business)/business/today/TodayScreen'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -4160,7 +4160,17 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  one lane over or sent through 安全な開始に置く, asked the room floor as a
    *  非VIP again and could be seated on a standard bed with nothing said. The
    *  hop is pinned positively AND negatively, because the old spelling is a
-   *  literal TypeScript cannot flag. */
+   *  literal TypeScript cannot flag.
+   *
+   *  ⚠ AND HOP 4 IS A TURN, NOT A COPY (fix round 2, Greptile #827). Carrying
+   *  the category straight across made the OTHER half wrong: `BookingCategory`
+   *  is a per-booking word and 'new' means THIS visit is the customer's first,
+   *  so a first-timer's 次回予約 card came out tagged 新規 and every 新規-reading
+   *  surface counted it. The arming turns that one word over through
+   *  `nextVisitCategory` — VIP and 回数券 are the customer's own traits and ride
+   *  along. The helper itself is pinned BEHAVIOURALLY in the test below; here
+   *  only the wiring is text-pinned, positively and negatively, because the bare
+   *  read is another literal TypeScript cannot flag. */
   it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
     const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
     const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
@@ -4171,9 +4181,11 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(SRC).toContain('inStore: { name: string; bookingId: string; category: BookingCategory } | null')
     // 3 · …the one line in page.tsx that stopped dropping it…
     expect(PROPS).toContain('inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,')
-    // 4 · …and the arming that carries it onto the armed mode.
+    // 4 · …and the arming that carries it onto the armed mode — turned over to
+    // the NEXT visit's word on the way in (⚖ #827), never copied.
     const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
-    expect(armed).toContain('category: props.inStore.category,')
+    expect(armed).toContain('category: nextVisitCategory(props.inStore.category),')
+    expect(armed).not.toContain('category: props.inStore.category,')
     // 5 · the landing asks the room floor as a VIP…
     expect(SRC).toContain("vip: placing.category === 'vip',")
     // 6 · …and so does the placement that follows it. One field, two readers.
@@ -4186,6 +4198,25 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // gesture reads. A hardcoded 'repeat' here made the fix last one press.
     expect(place_).toContain('category: p.category,')
     expect(place_).not.toContain("category: 'repeat' as const,")
+  })
+
+  /** ⚖ Greptile #827 — 新規 IS A FACT ABOUT ONE VISIT, and the visit 配置モード
+   *  arms is the one AFTER it. This is the only hop in the chain that is a
+   *  decision rather than a wire, so it is pinned as a FUNCTION and not as text:
+   *  the rule survives the arming line being respelled, and a drift shows up as
+   *  a wrong answer instead of a moved string. */
+  it('⚖ 51 — 新規 does not ride to the next visit; the customer’s own traits do', () => {
+    // The turn: a first visit's word cannot describe the visit after it.
+    expect(nextVisitCategory('new')).toBe('repeat')
+    // …and everything else is the CUSTOMER's, so it carries over unchanged.
+    expect(nextVisitCategory('repeat')).toBe('repeat')
+    expect(nextVisitCategory('vip')).toBe('vip')
+    expect(nextVisitCategory('ticket')).toBe('ticket')
+    // The law behind the four rows: whatever today was, the next visit is never
+    // a first one. A fifth category arriving in today-board.ts lands here too.
+    for (const today of ['new', 'repeat', 'ticket', 'vip'] as const) {
+      expect(nextVisitCategory(today)).not.toBe('new')
+    }
   })
 
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {

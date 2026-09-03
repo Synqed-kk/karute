@@ -168,10 +168,15 @@ export interface PlacingIntent {
   name: string
   store: string | null
   storeLabel: string
-  /** ⚖ 51 — THE CUSTOMER'S CATEGORY RIDES THE INTENT, so the landing can ask the
-   *  room floor the same question a card asks. 配置モード placed the ご来店中
+  /** ⚖ 51 — THE NEXT VISIT'S CATEGORY RIDES THE INTENT, so the landing can ask
+   *  the room floor the same question a card asks. 配置モード placed the ご来店中
    *  customer's 次回予約 with `vip: false` hardcoded, so a VIP was solved onto a
-   *  standard bed with no word said — the silent path ⚖ 51 exists to prevent. */
+   *  standard bed with no word said — the silent path ⚖ 51 exists to prevent.
+   *
+   *  ⚖ Greptile #827 — the NEXT visit's, not today's. VIP and 回数券 are the
+   *  customer's own traits; 新規 is a fact about the visit being paid for now,
+   *  and the intent describes the one after it. TodayScreen's
+   *  `nextVisitCategory` is the one place that word is turned over. */
   category: BookingCategory
 }
 

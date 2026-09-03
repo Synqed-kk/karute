@@ -268,6 +268,20 @@ export function bedDoor(
   }
 }
 
+/** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
+ *
+ *  `BookingCategory` is a per-BOOKING word, not a customer's badge:
+ *  `bookingCategory` (today-board.ts) answers 'new' when the customer has no
+ *  completed visit BEFORE today, so 'new' is a fact about THIS visit and cannot
+ *  describe the one after it. A 次回予約 is by construction not a first visit —
+ *  once today is done the customer has been here — so the one word that must be
+ *  turned over on the way is 'new'. VIP and 回数券 are the customer's own traits
+ *  and ride along untouched, which is the half fix round 1 was right about.
+ *
+ *  Exported for the reason everything on this board's answer path is: an answer
+ *  the operator acts on has to be provable without a renderer. */
+export const nextVisitCategory = (today: BookingCategory): BookingCategory => (today === 'new' ? 'repeat' : today)
+
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
  *  see; a refusal is the only evidence that a thing did not happen, and it has
@@ -4832,12 +4846,20 @@ export function TodayScreen(props: TodayProps) {
       // the same two fields and is refused by the same rule.
       store: props.store,
       storeLabel: props.lensLabel,
-      // ⚖ 51 — and the customer's own category, because the landing below solves
-      // a room and the room floor is a rule about the treatment. It travels with
-      // the intent for the reason the store does: 配置モード outlives the day and
-      // the store switch, and a VIP who stopped being one on a day flip would be
-      // the floor going silent exactly where it matters.
-      category: props.inStore.category,
+      // ⚖ 51 — and the NEXT VISIT'S category (`nextVisitCategory`, top of this
+      // file), because the landing below solves a room and the room floor is a
+      // rule about the treatment. It travels with the intent for the reason the
+      // store does: 配置モード outlives the day and the store switch, and a VIP
+      // who stopped being one on a day flip would be the floor going silent
+      // exactly where it matters.
+      //
+      // ⚖ Greptile #827 — AND IT IS TURNED OVER HERE, at the one point the intent
+      // is armed, rather than at any of the readers. The card being armed is the
+      // visit AFTER this one, and 新規 is a fact about this one: copying it
+      // straight across would tag a first-timer's 次回予約 新規 and every
+      // 新規-reading surface would count it. One turn, one home, and every reader
+      // downstream keeps asking the one field it already asks.
+      category: nextVisitCategory(props.inStore.category),
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
   }
@@ -4892,11 +4914,12 @@ export function TodayScreen(props: TodayProps) {
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
     // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID. The landing
-    // above now reads the customer's category off the intent; if this line kept
-    // its hardcoded `false` the two would disagree by construction — the word
-    // would solve the 個室 and the release would put the VIP in whatever bed
-    // `privateIsLastResort` reaches first. ⚖ 50's law is that the word and what
-    // the release DOES are one answer, so they read one field.
+    // above now reads the intent's category — the NEXT visit's, turned over by
+    // `nextVisitCategory` at the arming. If this line kept its hardcoded `false`
+    // the two would disagree by construction — the word would solve the 個室 and
+    // the release would put the VIP in whatever bed `privateIsLastResort` reaches
+    // first. ⚖ 50's law is that the word and what the release DOES are one
+    // answer, so they read one field.
     const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
