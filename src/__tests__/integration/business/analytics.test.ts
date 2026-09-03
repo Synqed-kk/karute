@@ -1276,11 +1276,21 @@ describe('analytics.css', () => {
       expect(totalIn).toMatch(new RegExp(`\\.an-trow-tot > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
       expect(rung).toBe(cls === 'an-always' ? '' : rung)
     }
-    // …and the cells that STAY are locked to the first line, so a restacked
-    // cell can never drag the ones after it into column 1 (次回予約率's defect).
+    // …and EVERY cell is locked to the first line, so a restacked cell can
+    // never drag the ones after it into column 1 (次回予約率's defect). ⚠ EVERY,
+    // not「everything except the shed classes」: a shed class is only shed at
+    // ITS rung, so excluding them left 既存数 and 新規数 auto-placed AFTER the
+    // locked cells at rung 0 and scrambled the row against its own head — the
+    // battery's M22 found that, and this is the shape that fixes it.
     expect(blocks['@container anpage (min-width: 800px)']).toMatch(
-      /\.an-trow > td:not\(\.an-always\):not\(\.an-sh1\):not\(\.an-sh2\)\s*\{[^}]*grid-row:\s*1/,
+      /\.an-trow > td\s*\{[^}]*grid-row:\s*1/,
     )
+    // …and every rule that restacks a cell RELEASES the lock in the same rule
+    const restacks = [...CSS.matchAll(/\{([^}]*grid-column:\s*1 \/ -1[^}]*)\}/g)].map((m) => m[1])
+    expect(restacks.length).toBeGreaterThanOrEqual(7)
+    const unreleased = restacks.filter((d) => !/grid-row:\s*auto/.test(d))
+    // the phone rung's card rules are the exception: the lock is scoped ≥800
+    expect(unreleased.length).toBeLessThanOrEqual(2)
   })
 
   /**
