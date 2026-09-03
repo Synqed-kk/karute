@@ -864,7 +864,7 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     // unchanged) or 'rail' (the inspector) — so a caller can never fire both.
     expect(SCREEN_CODE).toContain("function toggleAtt(id: string, target: 'row' | 'rail' = 'row')")
     expect(SCREEN_CODE).toContain('if (target === \'row\') scrollToRow(id)')
-    expect(SCREEN_CODE).toContain("else detailRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })")
+    expect(SCREEN_CODE).toContain("else railRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })")
     expect(SCREEN_CODE).toContain("toggleAtt(r.id, 'row')")
     expect(SCREEN_CODE).toContain("toggleAtt(current.id, 'rail')")
     // …and the old second scroll the inspector used to fire right after
@@ -872,6 +872,9 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     // branch, three in the whole file (scrollToRow's row scroll, the
     // toggleAtt rail scroll, the tour's own).
     expect([...SCREEN_CODE.matchAll(/scrollIntoView/g)].length).toBe(3)
+    // the rail row is a scroll target now — it needs the same clearance off
+    // the sticky topbar the sticky headers use, or its top edge lands under it.
+    expect(CSS).toContain('scroll-margin-top: calc(var(--rv-topbar) + 10px)')
   })
 
   it('F-8 (fix round 1, LENS-3 F-3) · aria-controls names the tour panel only while it exists', () => {

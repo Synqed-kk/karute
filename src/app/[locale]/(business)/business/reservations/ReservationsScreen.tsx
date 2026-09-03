@@ -690,8 +690,10 @@ function Screen(props: ReservationsProps) {
    *  takes the reader DOWN to its row (`target: 'row'`, unchanged — the
    *  mock's own 420ms wait for the detail's height spring to rest); the
    *  inspector's 変更 button takes the reader UP to the decision surface it
-   *  just opened instead (`target: 'rail'`) — the row is where they came
-   *  from, not where they are going. The two used to fire back to back. */
+   *  just opened instead (`target: 'rail'`, scrolled via the rail row so both
+   *  the cards and the detail clear the sticky topbar) — the row is where
+   *  they came from, not where they are going. The two used to fire back to
+   *  back. */
   function toggleAtt(id: string, target: 'row' | 'rail' = 'row') {
     setPickedSlot('')
     setPickReason('')
@@ -703,7 +705,7 @@ function Screen(props: ReservationsProps) {
     setOpenAtt(id)
     setSelected(id)
     if (target === 'row') scrollToRow(id)
-    else detailRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
+    else railRef.current?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
   }
 
   // ── the two height springs: the rail's detail, and the picker's confirm ────

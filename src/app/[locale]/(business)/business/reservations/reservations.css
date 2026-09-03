@@ -180,7 +180,8 @@
 .biz .pg-reservations .rv-cta { white-space: nowrap; }
 
 /* ── 2. ⚖-ADJ A · the 要対応 deadline rail, at the TOP ─────────────────────── */
-.biz .pg-reservations .rv-railrow { display: flex; align-items: stretch; gap: 8px; padding: 6px 8px; }
+/* scroll target (toggleAtt 'rail'): the shell's topbar is sticky, so the row needs the same clearance the sticky headers use */
+.biz .pg-reservations .rv-railrow { display: flex; align-items: stretch; gap: 8px; padding: 6px 8px; scroll-margin-top: calc(var(--rv-topbar) + 10px); }
 .biz .pg-reservations .rv-raillabel {
   flex: 0 0 76px; display: flex; flex-direction: column; justify-content: center; gap: 1px;
   border-right: 1px solid var(--rv-line-soft); padding-right: 8px; min-width: 0;
