@@ -1165,6 +1165,24 @@ describe('⚖ R8 T2 — the terminal hold is clamped at the door', () => {
     // The 照合 dialog those rows open has nothing to show either — no row
     // naming a booking this lens cannot even read.
     expect(b.dialogs.terminal.rows).toEqual([])
-    expect(a.dialogs.terminal.rows).toHaveLength(5)
+    // …and the owning store's dialog shows one BLOCK of rows per held row its
+    // own door returned (page.tsx builds the block with `flatMap`), counted off
+    // the door rather than typed here.
+    const heldA = (await data.readDayPlanes(STORE_A, todayKey())).register.terminal_held
+    expect(heldA.map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(a.dialogs.terminal.rows.filter(([k]) => k === '端末取引')).toHaveLength(heldA.length)
+  })
+
+  // ⚖ FIX ROUND 1 (blind round 1, L4 F6) — THE SIBLING DOOR ANSWERS THE SAME.
+  // `readReservationPlanes` handed the register out to the 予約一覧 / 受信箱 /
+  // レジ rooms with the list unclamped, so the plane had one answer at one door
+  // and another at the other. Same helper, same reading, both doors.
+  it('the reservations door clamps the same list', async () => {
+    const held = async (lens: data.StoreLens) => (await data.readReservationPlanes(lens)).register.terminal_held
+    expect((await held(STORE_A)).map((h) => h.appointment_id)).toEqual(['apt-25'])
+    expect(await held(STORE_B)).toEqual([])
+    expect((await held({ viewAll: true })).map((h) => h.appointment_id)).toEqual(
+      register.terminal_held.map((h) => h.appointment_id),
+    )
   })
 })

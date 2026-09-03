@@ -91,6 +91,7 @@ import {
   guardCheckRowBesideOffer,
   guardRailsFor,
   guardVerdictAt,
+  hasPriceFact,
   blockNode,
   heldDrawnFor,
   holdPopAnchor,
@@ -1268,27 +1269,21 @@ export function TodayScreen(props: TodayProps) {
   /** ⚖ R8 T1 — 「DOES THIS PLACEMENT HAVE A PRICE THE 保持 ROW CAN BE ABOUT?」,
    *  asked once for the whole screen so no gesture invents its own answer.
    *
-   *  Two kinds of card stand on this board and they carry their price in two
-   *  different places:
-   *  · a card the SERVER put here answers from the server's own record —
-   *    `props.pricedIds`, the bookings whose `price` is non-null. apt-09 has
-   *    none by documented fixture intent, and it is the scene this item is for.
-   *  · a 次回予約 this SESSION minted has no server row at all; its price is the
-   *    one `placeNextVisit` wrote onto the card — `ticketCore`, which is `null`
-   *    on a staff lane with no 定価 (⚖ R6 D2).
-   *
-   *  The two are told apart by whether the SERVER's lanes know the id — never by
-   *  the shape of the id, and never by `ticketCore` alone: a real booking's
-   *  ticket line is non-null even with no price (「価格未記録」/「残り3回」), and
-   *  `placeFromShelf` puts a real booking's own card back into `added` carrying
-   *  it, so reading `ticketCore` first would answer 「price」 for apt-09. */
+   *  ⚖ FIX ROUND 1 (blind round 1, L2 F10) — THE DECISION ITSELF LIVES IN
+   *  `hasPriceFact` (today-interactions), which is where its reasoning and its
+   *  truth table are written down. This is the binder and nothing else: three
+   *  sets built once per board, handed to the pure function. It is a `useMemo`
+   *  so the sets are built once per board rather than once per gesture, and it
+   *  is declared exactly ONCE on this screen — a second `hasPriceFor` binding
+   *  anywhere is a shadow that answers for one call site, and the pin counts
+   *  this declaration. */
   const hasPriceFor = useMemo(() => {
     const priced = new Set(props.pricedIds)
-    const fromServer = new Set(props.lanes.flatMap((l) => l.items).map((i) => i.caseId))
-    return (id: string | null): boolean =>
-      id != null
-      && (priced.has(id)
-        || (!fromServer.has(id) && addedHere.some((a) => a.item.caseId === id && a.item.ticketCore != null)))
+    const fromServer = new Set(props.lanes.flatMap((l) => l.items).map((i) => i.caseId).filter((c): c is string => c != null))
+    const addedPriced = new Set(
+      addedHere.filter((a) => a.item.ticketCore != null).map((a) => a.item.caseId).filter((c): c is string => c != null),
+    )
+    return (id: string | null): boolean => hasPriceFact(id, priced, fromServer, addedPriced)
   }, [props.pricedIds, props.lanes, addedHere])
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
    *  One pass, ahead of the booking passes, so both the live board and the
@@ -1379,6 +1374,15 @@ export function TodayScreen(props: TodayProps) {
    *  BLOCK in flight — that landing belongs to the 休憩, whose proxy carries no
    *  ticket line and is rendered by its own branch. */
   const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null
+  /** ⚖ FIX ROUND 1 (blind round 1, L1 F2) — THE SAME SENTENCE FOR THE BLOCK IN
+   *  HAND. A 休憩 wears a SPAN (`HH:MM〜HH:MM`, today-board :462/:472), not a
+   *  start, so its proxy needs both ends of the landing it is over — and both
+   *  are already here: `blockLive.x` is what the dashed ghost above is drawn
+   *  from and `+ w` is the same box's other edge. No new snapping author and no
+   *  work per pointer frame the render was not already doing. `null` whenever
+   *  no block is in flight, which is when the block branch is not rendered at
+   *  all. */
+  const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null
   /** ⚖ Liam flag 50(a) (2026-08-22) — THE CANDIDATE LANE IS OUTLINED WHILE THE
    *  DRAG IS OVER IT, own lane included.
    *
@@ -1899,7 +1903,7 @@ export function TodayScreen(props: TodayProps) {
       }
     }
     return null
-  }, [live, proxy, parkChips, boardLanes, props.store])
+  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])
 
   /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
    *  out once per frame instead of once per press.
@@ -2301,7 +2305,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sellDrawn.cells, hours, locked],
+    [boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
@@ -7362,9 +7366,13 @@ export function TodayScreen(props: TodayProps) {
           ) : proxy.kind === 'block' ? (
             // The block's own face, not a card's: it has no ticket and no
             // customer, and a micro carries no time label on the board either.
+            // ⚖ FIX ROUND 1 (L1 F2) — but the time it prints is the one under
+            // the cursor, exactly as the card's is: a 休憩 being carried said
+            // where it came FROM for the whole gesture while the ghost under it
+            // said where it was going. Its grammar is the span, not the start.
             <>
               <strong>{proxy.item.title}</strong>
-              {!proxy.item.micro && <small>{proxy.item.time}</small>}
+              {!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
             </>
           ) : (
             // ⚖ R8 GAP-11 — the ONE difference between the card in hand and the

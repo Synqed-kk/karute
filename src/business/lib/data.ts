@@ -323,7 +323,11 @@ export async function readReservationPlanes(lens: StoreLens) {
     staffQualifications,
     absence: inLens([absence], lens, false)[0] ?? null,
     sellSlots: inLens(sellSlots, lens, false),
-    register,
+    // ⚖ R8 T2, FIX ROUND 1 (blind round 1, L4 F6) — the SAME clamp as the day
+    // door's. This plane hands the register out to three rooms, and a plane
+    // that answers 「1件」 at one door and 「0件」 at the other is two answers to
+    // one question; `heldInLens` is the one reading, so both doors make it.
+    register: { ...register, terminal_held: heldInLens(register.terminal_held, lens) },
   }
 }
 

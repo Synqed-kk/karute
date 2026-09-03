@@ -90,6 +90,7 @@ import {
   pinInViewport,
   proxyTimeLabel,
   withPriceFact,
+  hasPriceFact,
   PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
@@ -1698,6 +1699,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "guardCheckRowBesideOffer,",
       "guardRailsFor,",
       "guardVerdictAt,",
+      "hasPriceFact,",
       "blockNode,",
       "heldDrawnFor,",
       "holdPopAnchor,",
@@ -5756,7 +5758,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
-    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store])')
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
@@ -10121,6 +10123,64 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // dialog where the price is still to be chosen.
     expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
   })
+
+  // (f) — ⚖ FIX ROUND 1 (blind round 1, L2 F10) — AND THE ANSWER ITSELF, NOT
+  // ONLY ITS WIRING. The screen's closure kept T1's whole rule and had no unit
+  // pin at all: dropping the server guard inside it left 444 tests green while
+  // the 保持 row came back on a price-less booking — the exact defect this item
+  // exists to remove. The rule is a pure function now (`hasPriceFact`), and
+  // this is its whole truth table.
+  it('hasPriceFact reads the server’s record first and the session’s mint only second', () => {
+    // apt-26 is priced on the server; apt-09 is a server booking with
+    // `booked_price: null`; `nextvisit-*` are ids no server lane knows.
+    const priced = new Set(['apt-26'])
+    const fromServer = new Set(['apt-26', 'apt-09', 'apt-25'])
+    const minted = new Set(['nextvisit-1', 'apt-09'])
+    // A server card WITH a price — the record says so.
+    expect(hasPriceFact('apt-26', priced, fromServer, minted)).toBe(true)
+    // apt-09's shape — a server card with no recorded price.
+    expect(hasPriceFact('apt-09', priced, fromServer, new Set())).toBe(false)
+    // …and STILL none while the session is carrying that same card with its
+    // ticket line intact: `placeFromShelf` puts a real booking's own card back
+    // into the session's list carrying a non-null `ticketCore`, so a rule that
+    // read the mint FIRST would answer 「price」 for apt-09. THIS is the row the
+    // surviving mutant deleted.
+    expect(hasPriceFact('apt-09', priced, fromServer, minted)).toBe(false)
+    // A 次回予約 minted this session on a lane WITH a 定価 — no server row knows
+    // it, and the mint wrote a ¥ face onto it.
+    expect(hasPriceFact('nextvisit-1', priced, fromServer, minted)).toBe(true)
+    // The same mint on a lane with NO 定価 (⚖ R6 D2 — `ticketCore` null, so the
+    // id is not in the minted-priced set).
+    expect(hasPriceFact('nextvisit-2', priced, fromServer, minted)).toBe(false)
+    // A booking that does not exist yet (the empty-slot form ask) has no price
+    // for a row to be about.
+    expect(hasPriceFact(null, priced, fromServer, minted)).toBe(false)
+    // An empty world prices nothing, and a card that is both is still just yes.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set())).toBe(false)
+    expect(hasPriceFact('apt-26', priced, fromServer, new Set(['apt-26']))).toBe(true)
+  })
+
+  it('the screen has exactly ONE hasPriceFor, and it only binds that function', () => {
+    const code = codeOnly(SRC)
+    // The memo hands the three sets to the pure rule and returns its answer —
+    // not a constant, and not a second copy of the rule.
+    expect(pinnedLines(SRC, 'return (id: string | null): boolean => hasPriceFact(id, priced, fromServer, addedPriced)')).toBe(1)
+    expect((code.match(/hasPriceFact\(/g) ?? []).length).toBe(1)
+    // …and the name is DECLARED once. A `const hasPriceFor = () => true`
+    // dropped above any ONE of the 11 ask sites answered for that site alone
+    // and every wiring pin above still passed (blind round 1, L2 F2), because
+    // they only ever read the text `hasPrice: hasPriceFor(`.
+    expect((code.match(/\b(?:const|let|var|function)\s+hasPriceFor\b/g) ?? []).length).toBe(1)
+    expect(pinnedLines(SRC, 'const hasPriceFor = useMemo(() => {')).toBe(1)
+    // …and it cannot arrive as an import either: no module exports that name,
+    // so there is no shim to swap the one declaration for.
+    expect(pinnedLines(SRC, 'hasPriceFor,')).toBe(0)
+    expect(codeOnly(INT)).not.toContain('hasPriceFor')
+    // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
+    // it, so neither can answer from a board that has moved on.
+    expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')).toBe(1)
+    expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -10153,7 +10213,9 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     // The proxy is the ONE caller that hands it anything else, and what it
     // hands is the live landing.
     expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
-    expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(1)
+    // TWO callers since the fix round: the card branch here and the block
+    // branch below it. Nothing else on this screen labels a thing in flight.
+    expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(2)
     // …read off the GHOST's own landing, so the dashed preview and the card in
     // hand can never name two different starts.
     expect(pinnedLines(SRC, 'const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null')).toBe(1)
@@ -10161,6 +10223,32 @@ describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () =
     // still, are gone.
     expect(code).not.toContain('cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))')
     for (const dodge of ['proxyTimeLabel(proxy.item.time, null)', 'const liveStart = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+
+  // ⚖ FIX ROUND 1 (blind round 1, L1 F2) — THE BLOCK IN HAND TOLD THE SAME LIE.
+  // A 休憩 being carried printed the time it came FROM while the ghost under it
+  // said where it was going. Same law, same seam, one grammar along: a block
+  // wears a SPAN (today-board :462/:472), not a start.
+  it('the block proxy says the span under the cursor, in the block’s own grammar', () => {
+    const code = codeOnly(SRC)
+    // Both ends known — the block's face, start AND end, from the landing.
+    expect(proxyTimeLabel('12:00〜13:00', 780, 840)).toBe('13:00〜14:00')
+    // A start with no end is the CARD's grammar, byte-unchanged.
+    expect(proxyTimeLabel('12:00〜13:00', 780)).toBe('13:00〜')
+    expect(proxyTimeLabel('12:00〜13:00', 780, null)).toBe('13:00〜')
+    // No landing at all leaves the resting face alone, end or no end — and 0 is
+    // a real minute on both ends.
+    expect(proxyTimeLabel('12:00〜13:00', null, 840)).toBe('12:00〜13:00')
+    expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
+    // The branch reads the BLOCK's own landing — the one its dashed ghost is
+    // drawn from — and the pre-fix spelling is gone from the file.
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(code).not.toContain('<small>{proxy.item.time}</small>')
+    expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
+    // The two ways a decoy could make the block's label stand still.
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null, null)', 'const blockSpan = null']) {
       expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
     }
   })

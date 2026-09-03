@@ -893,8 +893,8 @@ export interface SellDrop {
  *  box could both point at ベッド2 at the same minute. The shipped suppression
  *  ran inside `renderLane` and filtered `onThisLane` — the same DRAWN ROW — so
  *  it could not see a cross-row collision at all, and because it ran after
- *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, 安全な空き)
- *  were computed from boxes the screen then declined to draw.
+ *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, the 運営影響
+ *  stat) were computed from boxes the screen then declined to draw.
  *
  *  Reconciling HERE, between `deriveSellableCells` and `buildSellLayer`, makes
  *  those counts honest BY CONSTRUCTION: every surface reads a layer built out of
@@ -1155,7 +1155,7 @@ export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown
  *  purchasable, or be painted.
  *
  *  ⚖ R4's OWN LESSON, OBEYED. The reconcile moved out of the renderer in R4
- *  precisely because 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the 公開価格
+ *  precisely because 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the 公開価格
  *  button were counting boxes the paint then declined to draw. Withholding at
  *  the RENDERER would rebuild that defect one law along, so it happens to the
  *  LAYER: every surface that reads the layer stays honest for free, both rows
@@ -2724,9 +2724,18 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
  *  shelf, off the board) and the card keeps the label it rests with. The
  *  grammar is `today-board`'s own — `${hhmm(startMinute)}〜`, start only
  *  (:423) — reused rather than re-spelled, so a card in hand and the same card
- *  at rest can never format one minute two ways. */
-export function proxyTimeLabel(restTime: string, liveStartMin: number | null): string {
-  return liveStartMin == null ? restTime : `${hhmm(liveStartMin)}〜`
+ *  at rest can never format one minute two ways.
+ *
+ *  ⚖ FIX ROUND 1 (blind round 1, L1 F2) — AND THE SAME LIE WAS ON THE BLOCK.
+ *  A 休憩/予定ブロック in flight printed the time it came FROM too, for exactly
+ *  the reason the card did, so it gets the same answer here rather than a
+ *  second author on the same board. Its face is the OTHER grammar today-board
+ *  writes — `${hhmm(start)}〜${hhmm(end)}` (:462 休憩, :472 block), a span and
+ *  not a start — so an end minute, when the caller has one already in render,
+ *  selects it; no end, and the start-only card grammar stands. */
+export function proxyTimeLabel(restTime: string, liveStartMin: number | null, liveEndMin: number | null = null): string {
+  if (liveStartMin == null) return restTime
+  return liveEndMin == null ? `${hhmm(liveStartMin)}〜` : `${hhmm(liveStartMin)}〜${hhmm(liveEndMin)}`
 }
 
 /** Every drawing of one booking. The board puts the same card on a staff lane
@@ -3190,6 +3199,42 @@ export const PRICE_HOLD_ROW = '予約時価格を保持（動的価格は適用�
  *  filter, never a rebuild. */
 export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
   return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
+}
+
+/** ⚖ R8 T1, FIX ROUND 1 (blind round 1, L2 F10) — 「DOES THIS PLACEMENT HAVE A
+ *  PRICE THE 保持 ROW CAN BE ABOUT?」, asked once for the whole screen.
+ *
+ *  It lives HERE, over four primitives, because the answer IS the item: the
+ *  screen's own closure could have its guard dropped and 444 tests stayed green
+ *  — the wiring was counted, the decision was not. Its two siblings on this
+ *  round (`withPriceFact`, `proxyTimeLabel`) were lifted for that reason and
+ *  this one was not; the truth table below is now pinned like theirs.
+ *
+ *  Two kinds of card stand on this board and they carry their price in two
+ *  different places:
+ *  · a card the SERVER put here answers from the server's own record —
+ *    `priced`, the bookings whose `price` is non-null. apt-09 has none by
+ *    documented fixture intent, and it is the scene this item is for.
+ *  · a 次回予約 this SESSION minted has no server row at all; its price is the
+ *    one `placeNextVisit` wrote onto the card — `ticketCore`, which is `null`
+ *    on a staff lane with no 定価 (⚖ R6 D2). `addedPricedIds` is exactly the
+ *    ids of the session's cards whose `ticketCore` is non-null.
+ *
+ *  The two are told apart by whether the SERVER's lanes know the id
+ *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
+ *  a real booking's ticket line is non-null even with no price (「価格未記録」/
+ *  「残り3回」), and `placeFromShelf` puts a real booking's own card back into
+ *  the session's list carrying it, so reading the mint FIRST would answer
+ *  「price」 for apt-09, which is the exact bug this item removes. That ordering
+ *  is the whole logic, and it is why the guard is a pinned row and not a
+ *  comment. */
+export function hasPriceFact(
+  id: string | null,
+  priced: ReadonlySet<string>,
+  fromServer: ReadonlySet<string>,
+  addedPricedIds: ReadonlySet<string>,
+): boolean {
+  return id != null && (priced.has(id) || (!fromServer.has(id) && addedPricedIds.has(id)))
 }
 
 /** One landing, as a question. Every field is something the caller already has;
