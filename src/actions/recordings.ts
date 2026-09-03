@@ -5,7 +5,6 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
 import {
   finalizeTakeWithClient,
@@ -87,7 +86,9 @@ export async function startRecordingSessionWithClient(
  * check, the idempotency and the single audit row.
  *
  * Every identity the core needs is resolved HERE, from the cookie session:
- * a caller cannot name its own business, staff, store or reach.
+ * a caller cannot name its own business, staff or reach. NO store: finalize
+ * never mints a row any more (the mint binds the take to one first), so it has
+ * no store to choose — see actions/recording-upload.ts#mintRecordingUploadUrl.
  *
  * NEVER THROWS. Finalize runs on the stop path, and a thrown finalize would
  * put an error dialog between the staffer and a take whose audio is already
@@ -97,18 +98,16 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
   try {
     // Same gate as the mint and the session start — recording = records.write.
     await requireCapability('records.write')
-    const [businessId, staffId, capabilities, scope] = await Promise.all([
+    const [businessId, staffId, capabilities] = await Promise.all([
       getBusinessId(),
       getCurrentUserStaffId(),
       getMyCapabilities(),
-      resolveStoreScope(),
     ])
     return await finalizeTakeWithClient(
       newSynqedClient(businessId),
       {
         staffId,
         businessId,
-        storeId: scope.storeId,
         canViewAll: capabilities.has('recordings.viewAll'),
         source: 'web',
       },

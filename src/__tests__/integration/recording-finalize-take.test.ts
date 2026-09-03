@@ -3,11 +3,14 @@
  * both doors run. What only this file can prove:
  *   1. the tenant fence: a key is COMPOSED server-side from the caller's own
  *      business, so no client input reaches storage or core unfenced;
- *   2. the object must actually exist, at the claimed size, before any core
- *      write — a finalize can never point a row at audio that is not there;
- *   3. ownership: own session yes, colleague's no, owner (recordings.viewAll)
+ *   2. THE RESERVATION (fix round 4): finalize accepts a key only from the row
+ *      the MINT bound it to — a colleague's audio can never be attached to a
+ *      row of the caller's own, and no row is ever minted here;
+ *   3. the object must actually exist, at the claimed size, before any core
+ *      write — a finalize can never claim audio that is not there;
+ *   4. ownership: own session yes, colleague's no, owner (recordings.viewAll)
  *      yes, another tenant's never;
- *   4. it never regresses a terminal status, and a repeat writes nothing and
+ *   5. it never regresses a terminal status, and a repeat writes nothing and
  *      files no second audit row.
  */
 const auditFn = jest.fn()
@@ -36,8 +39,7 @@ const KEY = `app_${BIZ}_${TAKE}.webm`
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 /** A well-formed session id core does not know. */
 const GHOST = '00000000-0000-4000-8000-000000000000'
-// A second, DIFFERENT take of the same tenant — the row's pointer before a
-// re-finalize replaces it.
+// A second, DIFFERENT take of the same tenant — what a row that moved on holds.
 const OLD_TAKE = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const OLD_KEY = `app_${BIZ}_${OLD_TAKE}.webm`
 
@@ -49,12 +51,14 @@ type Row = {
   audio_storage_path: string | null
   duration_seconds: number | null
 }
+/** The state the MINT leaves behind: this take's key reserved, UPLOADING, and
+ *  no duration yet — the one thing finalize is here to add. */
 const row = (over: Partial<Row> = {}): Row => ({
   id: SESSION,
   business_id: BIZ,
   staff_id: 'staff-1',
-  status: 'RECORDING',
-  audio_storage_path: null,
+  status: 'UPLOADING',
+  audio_storage_path: KEY,
   duration_seconds: null,
   ...over,
 })
@@ -67,12 +71,17 @@ const synqed = { recordings: { get, create, update } } as never
 const actor = (over: Partial<FinalizeTakeActor> = {}): FinalizeTakeActor => ({
   staffId: 'staff-1',
   businessId: BIZ,
-  storeId: 'store-1',
   canViewAll: false,
   source: 'web',
   ...over,
 })
-const input = { takeId: TAKE, mimeType: 'audio/webm', durationSeconds: 42.7, byteLength: 1024 }
+const input = {
+  takeId: TAKE,
+  mimeType: 'audio/webm',
+  durationSeconds: 42.7,
+  byteLength: 1024,
+  recordingSessionId: SESSION,
+}
 const notFound = Object.assign(new Error('nope'), { status: 404 })
 
 /** Nothing was written and nothing was claimed — the assertion every refusal owes. */
@@ -92,15 +101,13 @@ beforeEach(() => {
 })
 
 describe('finalizeTakeWithClient — the happy path', () => {
-  it('writes the pointer, the floored duration and UPLOADING on the existing row', async () => {
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+  it('writes the floored duration and UPLOADING on the row that reserved the key', async () => {
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(info).toHaveBeenCalledWith(KEY)
+    // The POINTER is NOT rewritten: the mint wrote it, and this call proved it
+    // is this exact key. Finalize adds only what the mint could not know.
     expect(update).toHaveBeenCalledWith(SESSION, {
-      audio_storage_path: KEY,
       duration_seconds: 42,
       status: 'UPLOADING',
     })
@@ -108,22 +115,13 @@ describe('finalizeTakeWithClient — the happy path', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
-  it('mints the row with the actor’s staff + store when the take carries no session', async () => {
-    const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ ok: true, recordingSessionId: 'sess-new' })
-    expect(create).toHaveBeenCalledWith({
-      staff_id: 'staff-1',
-      store_id: 'store-1',
-      customer_id: null,
-      audio_storage_path: KEY,
-      duration_seconds: 42,
-      status: 'UPLOADING',
-    })
-    expect(update).not.toHaveBeenCalled()
+  it('NEVER mints a row — one place binds takes, and it is the mint', async () => {
+    await finalizeTakeWithClient(synqed, actor(), input)
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('files ONE audit row of ids, numbers and flags — no key, no path, no PII', async () => {
-    await finalizeTakeWithClient(synqed, actor(), { ...input, recordingSessionId: SESSION })
+    await finalizeTakeWithClient(synqed, actor(), input)
     expect(auditFn).toHaveBeenCalledTimes(1)
     const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
     expect(event).toMatchObject({
@@ -138,7 +136,6 @@ describe('finalizeTakeWithClient — the happy path', () => {
     })
     expect(event.detail).toEqual({
       recording_session_id: SESSION,
-      minted_row: false,
       take_id: TAKE,
       bytes: 1024,
       duration_seconds: 42,
@@ -151,22 +148,93 @@ describe('finalizeTakeWithClient — the happy path', () => {
 
   it('records that the size was NOT verified when the listing carried none', async () => {
     info.mockResolvedValue({ data: {}, error: null })
-    await finalizeTakeWithClient(synqed, actor(), { ...input, recordingSessionId: SESSION })
+    await finalizeTakeWithClient(synqed, actor(), input)
     const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
     expect(event.detail.size_verified).toBe(false)
     expect(update).toHaveBeenCalled()
   })
 })
 
+// FIX ROUND 4 — THE RESERVATION IS THE FENCE. The mint binds a take's key to
+// one row before any byte exists; finalize accepts that key from that row and
+// from nowhere else. Without this, a same-tenant staffer who learned a take
+// uuid and its byte length could attach a colleague's audio to a row of their
+// own — the P2 this round closes.
+describe('finalizeTakeWithClient — only the row that RESERVED the key may finalize it', () => {
+  it('refuses a row whose pointer is still null — not_reserved, zero writes', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null, status: 'RECORDING' }))
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'not_reserved' })
+    expectNoWrites()
+  })
+
+  it('refuses a row reserved for a DIFFERENT take — not_reserved, zero writes', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: OLD_KEY }))
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'not_reserved' })
+    expectNoWrites()
+  })
+
+  it('refuses BEFORE it asks storage anything — an unbound caller learns nothing', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    await finalizeTakeWithClient(synqed, actor(), input)
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it.each(['PROCESSING', 'COMPLETED', 'FAILED'])(
+    'a %s row that moved on to other audio is superseded — never a silent ok',
+    async (status) => {
+      get.mockResolvedValue(row({ status, audio_storage_path: OLD_KEY, duration_seconds: 30 }))
+      const res = await finalizeTakeWithClient(synqed, actor(), input)
+      expect(res).toEqual({ error: 'superseded' })
+      expect(update).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+      // …and the object we were handed is now unreferenced, so the row that
+      // says so is the ONLY thread back to it.
+      expect(auditFn).toHaveBeenCalledTimes(1)
+      const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
+      expect(event.detail).toMatchObject({
+        take_id: TAKE,
+        unlinked: true,
+        row_take_id: OLD_TAKE,
+      })
+    },
+  )
+})
+
+// Fix round 2, B1: the shared body parses FIRST, so the WEB door — a server
+// action whose argument is caller-supplied JSON however it is typed — gets the
+// same refusals the facade's zod gives. Nothing reaches storage or core.
+describe('finalizeTakeWithClient — the schema is the web door’s parse', () => {
+  it.each([
+    ['a negative duration', { durationSeconds: -1 }],
+    ['a NaN duration', { durationSeconds: Number.NaN }],
+    ['an absurd duration', { durationSeconds: 1e12 }],
+    ['a zero-byte take', { byteLength: 0 }],
+    ['a fractional byte length', { byteLength: 10.5 }],
+    ['a non-uuid session id', { recordingSessionId: 'sess-1' }],
+    // Fix round 4: the session id is REQUIRED — a take this server never bound
+    // has no row to finalize against.
+    ['a MISSING session id', { recordingSessionId: undefined }],
+    ['a null session id', { recordingSessionId: null }],
+    ['a storage path smuggled in (strict)', { audioPath: `app_${BIZ}_x.webm` }],
+  ])('refuses %s — bad_input, zero core calls', async (_label, over) => {
+    const res = await finalizeTakeWithClient(synqed, actor(), {
+      ...input,
+      ...over,
+    } as never)
+    expect(res).toEqual({ error: 'bad_input' })
+    expect(info).not.toHaveBeenCalled()
+    expect(get).not.toHaveBeenCalled()
+    expectNoWrites()
+  })
+})
+
 describe('finalizeTakeWithClient — the object must be there, at the size claimed', () => {
   it('refuses when storage has no such object — zero core writes, zero audit rows', async () => {
     info.mockResolvedValue({ data: null, error: { message: 'not found' } })
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
-    expect(get).not.toHaveBeenCalled()
     expectNoWrites()
   })
 
@@ -200,30 +268,6 @@ describe('finalizeTakeWithClient — the object must be there, at the size claim
   })
 })
 
-// Fix round 2, B1: the shared body parses FIRST, so the WEB door — a server
-// action whose argument is caller-supplied JSON however it is typed — gets the
-// same refusals the facade's zod gives. Nothing reaches storage or core.
-describe('finalizeTakeWithClient — the schema is the web door’s parse', () => {
-  it.each([
-    ['a negative duration', { durationSeconds: -1 }],
-    ['a NaN duration', { durationSeconds: Number.NaN }],
-    ['an absurd duration', { durationSeconds: 1e12 }],
-    ['a zero-byte take', { byteLength: 0 }],
-    ['a fractional byte length', { byteLength: 10.5 }],
-    ['a non-uuid session id', { recordingSessionId: 'sess-1' }],
-    ['a storage path smuggled in (strict)', { audioPath: `app_${BIZ}_x.webm` }],
-  ])('refuses %s — bad_input, zero core calls', async (_label, over) => {
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      ...over,
-    } as never)
-    expect(res).toEqual({ error: 'bad_input' })
-    expect(info).not.toHaveBeenCalled()
-    expect(get).not.toHaveBeenCalled()
-    expectNoWrites()
-  })
-})
-
 describe('finalizeTakeWithClient — the fences', () => {
   it.each([
     ['a traversal take id', '../../x'],
@@ -253,30 +297,21 @@ describe('finalizeTakeWithClient — the fences', () => {
 
   it('refuses a session row belonging to another business', async () => {
     get.mockResolvedValue(row({ business_id: 'biz-2' }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'forbidden' })
     expectNoWrites()
   })
 
   it('refuses another staffer’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'forbidden' })
     expectNoWrites()
   })
 
   it('allows an owner (recordings.viewAll) to finalize a colleague’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    const res = await finalizeTakeWithClient(synqed, actor({ canViewAll: true }), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+    const res = await finalizeTakeWithClient(synqed, actor({ canViewAll: true }), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalled()
   })
@@ -293,49 +328,39 @@ describe('finalizeTakeWithClient — the fences', () => {
 
   it('an unreadable session row fails rather than minting a second one', async () => {
     get.mockRejectedValue(Object.assign(new Error('core down'), { status: 503 }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'failed' })
     expectNoWrites()
   })
 })
 
 describe('finalizeTakeWithClient — idempotency and the terminal statuses', () => {
-  it('a second finalize with the same key writes nothing and files no second row', async () => {
-    get.mockResolvedValue(row({ audio_storage_path: KEY, status: 'UPLOADING' }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+  it('a second finalize of a finalized take writes nothing and files no second row', async () => {
+    get.mockResolvedValue(row({ duration_seconds: 42, status: 'UPLOADING' }))
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION, already: true })
     expectNoWrites()
   })
 
   it.each(['COMPLETED', 'FAILED'])(
-    '%s with a pointer already on it is left completely alone',
+    'a %s take of this same key is left completely alone',
     async (status) => {
-      get.mockResolvedValue(row({ status, audio_storage_path: 'app_biz-1_older.webm' }))
-      const res = await finalizeTakeWithClient(synqed, actor(), {
-        ...input,
-        recordingSessionId: SESSION,
-      })
+      get.mockResolvedValue(row({ status, duration_seconds: 55 }))
+      const res = await finalizeTakeWithClient(synqed, actor(), input)
       expect(res).toEqual({ ok: true, recordingSessionId: SESSION, already: true })
       expectNoWrites()
     },
   )
 
-  it.each(['COMPLETED', 'FAILED'])(
-    '%s with a NULL pointer gets the pointer only — status and duration untouched',
+  it.each(['PROCESSING', 'COMPLETED', 'FAILED'])(
+    '%s with NO duration yet gets the duration only — status untouched',
     async (status) => {
       get.mockResolvedValue(row({ status }))
-      const res = await finalizeTakeWithClient(synqed, actor(), {
-        ...input,
-        recordingSessionId: SESSION,
-      })
+      const res = await finalizeTakeWithClient(synqed, actor(), input)
       expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
-      expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: KEY })
+      expect(update).toHaveBeenCalledWith(SESSION, { duration_seconds: 42 })
+      // UPLOADING over PROCESSING is the regression this branch exists to stop.
+      expect(update).not.toHaveBeenCalledWith(SESSION, expect.objectContaining({ status: 'UPLOADING' }))
       expect(auditFn).toHaveBeenCalledTimes(1)
     },
   )
@@ -344,60 +369,20 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
     '%s takes the full write — the take is still ours to state',
     async (status) => {
       get.mockResolvedValue(row({ status }))
-      await finalizeTakeWithClient(synqed, actor(), { ...input, recordingSessionId: SESSION })
+      await finalizeTakeWithClient(synqed, actor(), input)
       expect(update).toHaveBeenCalledWith(SESSION, {
-        audio_storage_path: KEY,
         duration_seconds: 42,
         status: 'UPLOADING',
       })
     },
   )
-})
 
-// Fix round 2, B3. Three PROCESSING cases, one per pointer state — the middle
-// one used to fall into the full write and put a live take back into 要対応.
-describe('finalizeTakeWithClient — a job is PROCESSING the row', () => {
-  it('a differing pointer is busy — retryable, zero writes, zero audit rows', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
-    expect(res).toEqual({ error: 'busy' })
-    expectNoWrites()
-  })
-
-  it('a NULL pointer gets the POINTER ONLY — the running job keeps status and duration', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING' }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
+  // A RECORDING row with a duration is NOT "finalized before": the recorder is
+  // still running, and only a status it has left behind settles the take.
+  it('a RECORDING row carrying a duration still takes the write', async () => {
+    get.mockResolvedValue(row({ status: 'RECORDING', duration_seconds: 10 }))
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
-    expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: KEY })
-    // UPLOADING over PROCESSING is the regression this branch exists to stop.
-    expect(update).not.toHaveBeenCalledWith(SESSION, expect.objectContaining({ status: 'UPLOADING' }))
-    expect(auditFn).toHaveBeenCalledTimes(1)
-    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
-    expect(event.detail).toMatchObject({ minted_row: false, take_id: TAKE })
-  })
-
-  it('the same pointer is just already:true — unchanged', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: KEY }))
-    const res = await finalizeTakeWithClient(synqed, actor(), {
-      ...input,
-      recordingSessionId: SESSION,
-    })
-    expect(res).toEqual({ ok: true, recordingSessionId: SESSION, already: true })
-    expectNoWrites()
-  })
-})
-
-describe('finalizeTakeWithClient — the evidence chain survives a pointer replacement', () => {
-  it('a re-finalize with a different take on a non-terminal row carries both ids', async () => {
-    get.mockResolvedValue(row({ status: 'UPLOADING', audio_storage_path: OLD_KEY }))
-    await finalizeTakeWithClient(synqed, actor(), { ...input, recordingSessionId: SESSION })
-    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
-    expect(event.detail).toMatchObject({ take_id: TAKE, replaced_take_id: OLD_TAKE })
+    expect(update).toHaveBeenCalledWith(SESSION, { duration_seconds: 42, status: 'UPLOADING' })
   })
 })

@@ -7,7 +7,8 @@
  *      an error dialog between the staffer and audio already on the server;
  *   2. records.write gates it, before any core call;
  *   3. every identity the shared body trusts is resolved from the SESSION here
- *      — business, staff, store and reach, never from the argument.
+ *      — business, staff and reach, never from the argument (no STORE any more:
+ *      fix round 4 moved row-minting to the mint, so finalize has none to pick).
  */
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
@@ -23,6 +24,8 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
+// Still mocked, still asserted NOT to matter: finalizeTake must not reach for a
+// store it no longer has any use for (fix round 4).
 const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
 jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
 jest.mock('@/lib/audit-web', () => ({ resolveWebAuditContext: jest.fn() }))
@@ -44,7 +47,14 @@ jest.mock('@/lib/recording/finalize-take', () => ({
 import { finalizeTake } from '@/actions/recordings'
 
 const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
-const input = { takeId: TAKE, mimeType: 'audio/webm', durationSeconds: 42.7, byteLength: 1024 }
+const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
+const input = {
+  takeId: TAKE,
+  mimeType: 'audio/webm',
+  durationSeconds: 42.7,
+  byteLength: 1024,
+  recordingSessionId: SESSION,
+}
 
 /** The actor the door composed for the shared body. */
 function actorPassed(): Record<string, unknown> {
@@ -105,15 +115,10 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
     expect(actorPassed()).toMatchObject({ staffId: 'staff-1', businessId: 'biz-1', source: 'web' })
   })
 
-  it('the store comes from resolveStoreScope — the store a MINTED row lands in', async () => {
+  it('carries NO store — finalize never mints a row, so it never picks one', async () => {
     await finalizeTake(input)
-    expect(actorPassed().storeId).toBe('store-9')
-  })
-
-  it('a clamped staffer with no resolvable store still reaches the body with null', async () => {
-    resolveStoreScope.mockResolvedValue({ storeId: null })
-    await finalizeTake(input)
-    expect(actorPassed().storeId).toBeNull()
+    expect(actorPassed()).not.toHaveProperty('storeId')
+    expect(resolveStoreScope).not.toHaveBeenCalled()
   })
 
   it.each([

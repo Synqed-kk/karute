@@ -45,8 +45,24 @@ jest.mock('@/lib/supabase/service', () => ({
 
 // A real uuid: the finalize schema demands one for the session id (fix round 2).
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
-type Row = { id: string; business_id: string; staff_id: string; status: string; audio_storage_path: string | null }
-const ROW: Row = { id: SESSION, business_id: 'business-1', staff_id: 'auth-user-1', status: 'RECORDING', audio_storage_path: null }
+type Row = {
+  id: string
+  business_id: string
+  staff_id: string
+  status: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+}
+/** The state the MINT leaves behind — see the beforeEach: the finalize door only
+ *  ever meets a row that already reserved its take's key (fix round 4). */
+const ROW: Row = {
+  id: SESSION,
+  business_id: 'business-1',
+  staff_id: 'auth-user-1',
+  status: 'UPLOADING',
+  audio_storage_path: null,
+  duration_seconds: null,
+}
 const recordingsGet = jest.fn(async (_id: string): Promise<Row> => ROW)
 const recordingsUpdate = jest.fn(async (id: string, _i: unknown): Promise<Row> => ({ ...ROW, id }))
 const recordingsCreate = jest.fn(async (_i: unknown): Promise<Row> => ({ ...ROW, id: 'sess-new' }))
@@ -79,7 +95,17 @@ const jreq = (headers: Record<string, string>, body?: unknown) =>
   new Request('https://s/x', { method: 'POST', headers, body: body === undefined ? undefined : JSON.stringify(body) })
 
 const KEY = `app_business-1_${TAKE}.mp4`
-const finalizeBody = { takeId: TAKE, mimeType: 'audio/mp4', durationSeconds: 12.9, byteLength: 1024 }
+const finalizeBody = {
+  takeId: TAKE,
+  mimeType: 'audio/mp4',
+  durationSeconds: 12.9,
+  byteLength: 1024,
+  recordingSessionId: SESSION,
+}
+/** A client-named mint body. The mint RESERVES this key before it signs. */
+const mintBody = { takeId: TAKE, mimeType: 'audio/mp4' }
+/** storage-js's "no such object" — a free key, which is every first mint. */
+const objectFree = { data: null, error: { message: 'Object not found', status: 404 } }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -88,7 +114,7 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
-  recordingsGet.mockResolvedValue(ROW)
+  recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
   createSignedUploadUrl.mockImplementation(async (p: string) => ({
     data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
     error: null,
@@ -104,13 +130,86 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(body.contentType).toBe('audio/webm')
   })
 
-  it('a named take + container composes the tenant-prefixed key', async () => {
-    const res = await mintPOST(jreq(auth, { takeId: TAKE, mimeType: 'audio/mp4' }), noRoute)
-    expect(await res.json()).toMatchObject({ path: KEY, contentType: 'audio/mp4' })
+  it('a named take + container composes the tenant-prefixed key, and BINDS it', async () => {
+    info.mockResolvedValue(objectFree)
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    const body = await res.json()
+    expect(body).toMatchObject({ path: KEY, contentType: 'audio/mp4' })
     // Signed with NO options (fix round 3): the facade door mints the same way
     // the web door does, so neither can hand out a URL that overwrites a
     // finalized take. Exact arity is the pin against upsert returning.
     expect(createSignedUploadUrl).toHaveBeenCalledWith(KEY)
+    // Fix round 4: with no session named, the MINT creates the row and hands
+    // its id back for the client to stamp on the take.
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'auth-user-1', audio_storage_path: KEY, status: 'UPLOADING' }),
+    )
+    expect(body.recordingSessionId).toBe('sess-new')
+  })
+
+  it('reserves on the caller’s named session instead of creating one', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue(ROW)
+    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsUpdate).toHaveBeenCalledWith(SESSION, {
+      audio_storage_path: KEY,
+      status: 'UPLOADING',
+    })
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    expect((await res.json()).recordingSessionId).toBe(SESSION)
+  })
+
+  it('another staffer’s session → a real 403, and nothing is signed', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('a session id core does not know → 404, nothing bound', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    expect(res.status).toBe(404)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('an object that ALREADY EXISTS with no reservation of the caller’s → 409', async () => {
+    // info's default: the bucket HAS this key.
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(409)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('a row already bound to a different take → 409', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: 'app_business-1_other.mp4' })
+    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    expect(res.status).toBe(409)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a caller who is not on this roster → 403, nothing signed (#566)', async () => {
+    roster.current = [{ id: 'someone-else', full_name: 'x', display_role: 'practitioner' }]
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // The reservation is what costs an identity. A SERVER-named take binds no row,
+  // so it must not inherit the roster read or the assignment lookup — nor their
+  // failure modes, on the hot record-start path every field client uses today.
+  it('a server-named take asks core NOTHING — no roster, no store assignment', async () => {
+    roster.current = []
+    const res = await mintPOST(jreq(auth), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -153,16 +252,24 @@ describe('POST recordings/upload-url — the fenced mint', () => {
 })
 
 describe('POST recordings/finalize', () => {
-  it('happy → 200, and the shared body wrote the pointer', async () => {
-    const res = await finalizePOST(jreq(auth, { ...finalizeBody, recordingSessionId: SESSION }), noRoute)
+  it('happy → 200, and the shared body stated the take', async () => {
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(info).toHaveBeenCalledWith(KEY)
+    // The pointer was written by the MINT; finalize adds what it could not know.
     expect(recordingsUpdate).toHaveBeenCalledWith(SESSION, {
-      audio_storage_path: KEY,
       duration_seconds: 12,
       status: 'UPLOADING',
     })
+  })
+
+  it('a key this row never reserved → not_reserved in the 2xx body, zero writes', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: 'not_reserved' })
+    expect(recordingsUpdate).not.toHaveBeenCalled()
   })
 
   it('missing Bearer → 401, nothing written', async () => {
@@ -173,6 +280,7 @@ describe('POST recordings/finalize', () => {
 
   it.each([
     ['a missing required field', { takeId: TAKE, mimeType: 'audio/mp4' }],
+    ['a MISSING recordingSessionId', { takeId: TAKE, mimeType: 'audio/mp4', durationSeconds: 1, byteLength: 1 }],
     ['a storage path smuggled in (strict)', { ...finalizeBody, audioPath: 'app_business-1_x.webm' }],
     ['a negative byte length', { ...finalizeBody, byteLength: -1 }],
   ])('zod refuses %s → 400', async (_label, body) => {
@@ -196,8 +304,8 @@ describe('POST recordings/finalize', () => {
   })
 
   it('another staffer’s session → a real 403, not a 2xx nobody logs', async () => {
-    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
-    const res = await finalizePOST(jreq(auth, { ...finalizeBody, recordingSessionId: SESSION }), noRoute)
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(403)
     expect(recordingsUpdate).not.toHaveBeenCalled()
   })

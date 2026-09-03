@@ -14,11 +14,17 @@
 // Capability records.write on all three (only recorders stage audio) — the same
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
-import { requireCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { newSynqedClient } from '@/lib/synqed/client'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
-import { mintTakeUploadUrl, type MintTakeUrlInput } from '@/lib/recording/mint-take-url'
+import {
+  mintTakeUploadUrl,
+  type MintTakeUrlInput,
+  type MintTakeUrlResult,
+} from '@/lib/recording/mint-take-url'
 
 /**
  * Tenant fence for a CLIENT-SUPPLIED storage key. The service-role client
@@ -49,31 +55,42 @@ async function requireOwnPath(path: string): Promise<void> {
  * no durable state, it just expires.
  *
  * `input` is OPTIONAL and absent input is today's behaviour byte-for-byte
- * (server-named uuid, `.webm`). Present, it is CALLER-SUPPLIED and therefore
- * fenced: the shared core validates the take id against the key grammar and
- * the container against the closed MIME map, composes, and re-parses its own
- * output before signing anything (see mintTakeUploadUrl).
+ * (server-named uuid, `.webm`, no row touched). Present, it is CALLER-SUPPLIED
+ * and therefore fenced: the shared core validates the take id against the key
+ * grammar and the container against the closed MIME map, composes, re-parses
+ * its own output, and RESERVES the key on the caller's own recording row before
+ * it signs anything (see mintTakeUploadUrl).
+ *
+ * Returns the result UNION rather than throwing (fix round 4), the same shape
+ * finalizeTake gives: `exists` and `reserved_elsewhere` are answers the client
+ * must branch on — "this take is spoken for, start a new one" — and a throw
+ * flattens them all into one unusable failure.
  */
-export async function mintRecordingUploadUrl(input?: MintTakeUrlInput): Promise<{
-  path: string
-  url: string
-  token: string
-  contentType: string
-}> {
+export async function mintRecordingUploadUrl(
+  input?: MintTakeUrlInput,
+): Promise<MintTakeUrlResult> {
   await requireCapability('records.write')
-  // The cookie session is the ONLY source of both: a caller names neither its
-  // tenant nor itself. staffId is what the take_named row is attributed to
-  // when the client names the key.
-  const [businessId, staffId] = await Promise.all([getBusinessId(), getCurrentUserStaffId()])
+  // The cookie session is the ONLY source of every one of these: a caller names
+  // neither its tenant, nor itself, nor its reach. staffId owns any row the
+  // mint reserves, and is what the take_named row is attributed to.
+  const [businessId, staffId, capabilities, scope] = await Promise.all([
+    getBusinessId(),
+    getCurrentUserStaffId(),
+    getMyCapabilities(),
+    resolveStoreScope(),
+  ])
 
-  const minted = await mintTakeUploadUrl({ staffId, businessId, source: 'web' }, input)
-  if ('error' in minted) {
-    // The two client-input refusals and the storage failure all reach the web
-    // caller as a throw, which is this action's only failure vocabulary — the
-    // facade twin maps them to 400/502 instead.
-    throw new Error('could not mint an upload URL')
-  }
-  return minted
+  return await mintTakeUploadUrl(
+    newSynqedClient(businessId),
+    {
+      staffId,
+      businessId,
+      storeId: scope.storeId,
+      canViewAll: capabilities.has('recordings.viewAll'),
+      source: 'web',
+    },
+    input,
+  )
 }
 
 /**

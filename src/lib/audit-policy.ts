@@ -158,16 +158,22 @@ export const AUDITED_CORES: {
   // kept-discard build deletes the module, and this entry goes with it.
   { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
   // The take-finalize choke point (capture pipeline PR2) — its recordings
-  // .create/.update writes sit inside the same symbol as its audit() call, so
-  // no SDK_WRITE_ALLOWLIST row is needed for either.
+  // .update write sits inside the same symbol as its emit (via emitFinalized,
+  // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
+  // It no longer creates rows at all: fix round 4 moved the minting to
+  // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
-  // The take-URL mint (capture pipeline PR2 fix round 2). auditTakeNamed is a
-  // private auditLockout-pattern helper emitting unconditionally on its one
-  // path; mintTakeUploadUrl conditions the CALL (a server-named take files no
-  // row) and carries no audit() of its own, so CP7's registry-reality
-  // cross-check (exported symbols only) can never require this entry —
-  // recording-upload-actions.test.ts pins it directly instead.
-  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed'] },
+  // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
+  // 4). auditTakeNamed is a private helper emitting unconditionally on its one
+  // path; mintTakeUploadUrl conditions the CALL (a server-named take reserves
+  // nothing and files no row) and carries no audit() of its own, so CP7's
+  // registry-reality cross-check (exported symbols only) can never require this
+  // entry — recording-upload-actions.test.ts pins it directly instead.
+  // reserveTakeForRecorder joins it because the mint now WRITES: it binds the
+  // take's key to the recorder's row (recordings.create/.update) before the
+  // upload URL is signed, and every one of its success paths leaves through
+  // auditTakeNamed, so the write can never go unrecorded.
+  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'reserveTakeForRecorder'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.

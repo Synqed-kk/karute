@@ -22,7 +22,6 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
 import { finalizeTakeWithClient } from '@/lib/recording/finalize-take'
 
@@ -44,28 +43,20 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
 
   // ROSTER GATE — the half a capability check cannot carry (#566). The web
   // twin's getCurrentUserStaffId IS a roster-membership probe; ctx.identity
-  // .authUserId carries no such proof, and the core would otherwise mint a row
-  // attributed to a profile that is not on this business's roster.
+  // .authUserId carries no such proof, and the core would otherwise write a row
+  // on behalf of a profile that is not on this business's roster.
   const staffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
   if (!staffId) {
     throw new AppApiError('forbidden', 'no acting staff identity for this user; nothing was written')
   }
 
-  // Store scope: the Bearer twin of the action's resolveStoreScope() (cookie-
-  // only, unreachable here). Decides only which store a MINTED row lands in.
-  const clamp = await resolveStoreForRequest({
-    synqed,
-    authUserId: ctx.identity.authUserId,
-    capabilities: ctx.identity.capabilities,
-    requestedStoreId: ctx.req.headers.get('store-id'),
-  })
-
+  // NO store clamp here any more (fix round 4): finalize never mints a row, so
+  // it has no store to choose. The MINT does — see the upload-url twin.
   const result = await finalizeTakeWithClient(
     synqed,
     {
       staffId,
       businessId: ctx.identity.businessId,
-      storeId: clamp.storeId,
       canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
       source: 'facade',
       requestId: ctx.meta.requestId,
@@ -79,7 +70,9 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
     throw new AppApiError('forbidden', 'that recording session is not yours to finalize')
   }
   // Everything else IS the answer the client branches on (retry vs settle):
-  // object_missing means the PUT has not landed and the drain tries again.
+  // object_missing means the PUT has not landed and the drain tries again,
+  // while not_reserved / superseded are TERMINAL — this key was never bound to
+  // this row, and no retry can bind it now.
   return ok(ctx, result)
 })
 

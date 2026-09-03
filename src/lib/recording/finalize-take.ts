@@ -9,6 +9,14 @@
 // and it happens at stop — before any 結果 dialog, before consent, before the
 // karute exists.
 //
+// WHAT IT NO LONGER DOES (fix round 4). It does not mint rows and it does not
+// choose which row an object belongs to. THE MINT BINDS, FINALIZE VERIFIES:
+// mint-take-url.ts reserves the key on the recorder's own row before a byte can
+// exist, so the only thing left to prove here is that the row handed to us
+// reserved exactly this key. A key no row reserved is `not_reserved` — the
+// refusal that stops a same-tenant staffer attaching a colleague's audio to a
+// row of their own.
+//
 // NO 'use server' directive, deliberately — same rule as discard.ts and
 // session-cleanup.ts: `actor` is the authenticated identity the CALLER
 // resolved and vouches for. As a server action a caller could supply its own.
@@ -25,13 +33,14 @@ import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
 import { composeTakeKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
+import {
+  assertRecorderOwnsRow,
+  isJobOwnedStatus,
+  isStorageNotFound,
+  statusOf,
+} from '@/lib/recording/take-binding'
 
 type Core = Pick<SynqedClient, 'recordings'>
-
-/** Statuses the job pipeline owns. Finalize NEVER regresses one of these — a
- *  COMPLETED take that gets re-finalized by a late drain must not go back to
- *  UPLOADING and re-enter 要対応. */
-const TERMINAL = new Set(['COMPLETED', 'FAILED'])
 
 export interface FinalizeTakeActor {
   /** The AUTHENTICATED staff identity, resolved by the caller and NEVER read
@@ -40,9 +49,6 @@ export interface FinalizeTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key must carry. */
   businessId: string
-  /** Store for a row this call MINTS. Same source recording-jobs.ts's payload
-   *  uses (resolveStoreScope on web, resolveStoreForRequest on the facade). */
-  storeId: string | null
   /** Holds `recordings.viewAll` (owner-only). Lets a manager finalize a take
    *  recorded on another staffer's session; everyone else is own-session only. */
   canViewAll: boolean
@@ -55,16 +61,20 @@ export interface FinalizeTakeInput {
   mimeType: string
   durationSeconds: number
   byteLength: number
-  /** The session minted at record-start, when there is one. Absent (walk-in,
-   *  a failed mint, a drained take from a killed app) → the row is minted HERE. */
-  recordingSessionId?: string | null
+  /** REQUIRED (fix round 4). The row the MINT reserved this take's key on — no
+   *  key reaches storage without one, so a finalize that cannot name its row is
+   *  a finalize for a take this server never bound. */
+  recordingSessionId: string
 }
 
 /**
- * `already: true` means this call wrote NOTHING because the row already
- * carries a finalized pointer — an exact retry, or a terminal take whose
- * pointer must not be clobbered. A settled success either way, and it emits no
- * second audit row for one act.
+ * `already: true` means this call wrote NOTHING because the take was finalized
+ * before — an exact retry. A settled success, and it emits no second audit row
+ * for one act.
+ *
+ * `not_reserved` and `superseded` are TERMINAL for the client (no retry helps):
+ * the first says this row never reserved this key, the second that the row has
+ * moved on to other audio and this object is now unreferenced.
  */
 export type FinalizeTakeResult =
   | { ok: true; recordingSessionId: string; already?: true }
@@ -73,19 +83,12 @@ export type FinalizeTakeResult =
         | 'bad_input'
         | 'forbidden'
         | 'not_found'
+        | 'not_reserved'
+        | 'superseded'
         | 'object_missing'
         | 'size_mismatch'
-        | 'busy'
         | 'failed'
     }
-
-/** Core's HTTP status, duck-typed — the same structural check the rest of this
- *  family uses rather than an instanceof across module instances. */
-function statusOf(err: unknown): number | undefined {
-  return err && typeof err === 'object' && 'status' in err
-    ? ((err as { status?: unknown }).status as number | undefined)
-    : undefined
-}
 
 /**
  * Does the object this take claims actually exist, and is it the size claimed?
@@ -108,33 +111,38 @@ async function objectVerdict(
   // A 500, a timeout, a bad credential: storage did not ANSWER the question.
   // Reading that as 'missing' would tell the client its audio is gone and stop
   // the retry — the one wrong thing to say when we simply do not know.
-  if (error) return isNotFound(error) ? 'missing' : 'unknown'
+  if (error) return isStorageNotFound(error) ? 'missing' : 'unknown'
   if (!data) return 'missing'
   if (typeof data.size !== 'number') return 'size_unknown'
   return data.size === byteLength ? 'ok' : 'size_mismatch'
 }
 
-/** Storage's "no such object" — the ordinary "the PUT has not landed yet" case.
- *  storage-js answers a missing key with 404; the message text is the fallback
- *  for the shapes that carry no status. */
-function isNotFound(error: unknown): boolean {
-  if (statusOf(error) === 404) return true
-  const message = (error as { message?: unknown } | null)?.message
-  return typeof message === 'string' && /not found/i.test(message)
+/**
+ * Has this take already been finalized once?
+ *
+ * The MINT leaves the row pointing at the key with no duration (it cannot know
+ * one), so the pointer alone can no longer mean "finalized". The duration IS
+ * the finalize's own mark — plus a status the recorder has left behind, so a
+ * row still sitting at RECORDING is never mistaken for a finished one.
+ */
+function finalizedBefore(row: Recording): boolean {
+  return row.duration_seconds !== null && row.status !== 'RECORDING'
 }
 
 /**
- * Write the take's audio location, duration and status onto its core row.
+ * Write the take's duration and status onto the row that reserved its key.
  *
  * ORDER IS THE FENCE. The key is composed from the caller's take id and
  * container and re-parsed against the grammar (composeTakeKey) BEFORE the
- * service-role storage client is touched; the session row's ownership is
- * proved BEFORE anything is written to it. Nothing here deletes.
+ * service-role storage client is touched; the row's OWNERSHIP and its
+ * RESERVATION are both proved before the object is even looked up, so an
+ * unauthorized caller never learns whether a key exists. Nothing here deletes,
+ * and nothing here mints.
  *
  * PROCESSING is deliberately never WRITTEN: that status means "a job is
  * running" and belongs to enqueue (PR3/PR4). Finalize says UPLOADING — the
- * audio is on the server, nothing is processing it yet — and a row that is
- * ALREADY PROCESSING keeps its own status: it gets the pointer alone.
+ * audio is on the server, nothing is processing it yet — and a row a job
+ * already owns keeps its own status: it gets the duration alone.
  */
 export async function finalizeTakeWithClient(
   synqed: Core,
@@ -158,116 +166,127 @@ export async function finalizeTakeWithClient(
   const key = composed.key
 
   try {
+    let row: Recording
+    try {
+      row = await synqed.recordings.get(input.recordingSessionId)
+    } catch (err) {
+      if (statusOf(err) === 404) return { error: 'not_found' }
+      throw err
+    }
+    // Core's GET is BUSINESS-scoped only, so the tenant and the recorder are
+    // both re-checked here — the same predicate the mint reserved under.
+    const denied = assertRecorderOwnsRow(row, actor)
+    if (denied) return denied
+
+    // THE RESERVATION CHECK — the fence this whole round exists for. A key the
+    // row does not already hold is a key the mint never bound to it, and no
+    // amount of ownership on the ROW makes a colleague's OBJECT this take's.
+    const pointer = row.audio_storage_path
+    if (pointer === key) {
+      // The reservation is this call's own. If the finalize already ran, this
+      // is an exact retry: nothing to write, and no second audit row for one act.
+      if (finalizedBefore(row)) return { ok: true, recordingSessionId: row.id, already: true }
+    } else if (pointer === null || !isJobOwnedStatus(row.status)) {
+      // The row never reserved this key. TERMINAL: the take was bound to another
+      // row (or never minted at all), and no retry changes that.
+      return { error: 'not_reserved' }
+    } else {
+      // A job already claimed OTHER audio for this row. Cannot happen while
+      // every key is reserved at its mint — but if it ever does, the object we
+      // were handed is now unreferenced, and that must be TRACEABLE rather than
+      // a silent {ok, already} nobody would ever look at again.
+      return emitFinalized(
+        actor,
+        row.id,
+        input,
+        composed.ext,
+        { unlinked: true, row_take_id: parseRecordingKey(pointer, actor.businessId)?.takeId ?? null },
+        { error: 'superseded' },
+      )
+    }
+
     const verdict = await objectVerdict(key, input.byteLength)
     // The take says it is complete; the bucket says there is nothing there.
-    // Refusing keeps a pointer to a non-existent object off the core row.
+    // Refusing keeps a duration for a non-existent object off the core row.
     if (verdict === 'missing') return { error: 'object_missing' }
     if (verdict === 'size_mismatch') return { error: 'size_mismatch' }
     // Storage could not answer. Retryable, and nothing is written meanwhile.
     if (verdict === 'unknown') return { error: 'failed' }
 
-    let row: Recording | null = null
-    // The row's pointer BEFORE this write, for the audit trail below — only
-    // ever set when a session row was actually read (never for a minted row,
-    // which has no prior pointer to have replaced).
-    let priorPointer: string | null = null
-    if (input.recordingSessionId) {
-      try {
-        row = await synqed.recordings.get(input.recordingSessionId)
-      } catch (err) {
-        if (statusOf(err) === 404) return { error: 'not_found' }
-        throw err
-      }
-      // Core's GET is BUSINESS-scoped only, so both halves are checked here:
-      // the tenant (belt — the client is already business-scoped) and the
-      // recorder. A staffer may finalize their OWN session; only an owner
-      // (recordings.viewAll) may finalize a colleague's.
-      if (row.business_id !== actor.businessId) return { error: 'forbidden' }
-      if (row.staff_id !== actor.staffId && !actor.canViewAll) return { error: 'forbidden' }
-
-      // IDEMPOTENT, read-before-write: an exact retry writes nothing, and a
-      // take the job pipeline already finished keeps the pointer it has.
-      const pointer = row.audio_storage_path
-      priorPointer = pointer
-      if (pointer === key) return { ok: true, recordingSessionId: row.id, already: true }
-      // A job is PROCESSING the object the row already points at — that job
-      // never saw the new object, so overwriting the pointer mid-job would
-      // leave the row pointing at audio no job transcribed. Retryable: the
-      // drain tries again once the job settles.
-      if (row.status === 'PROCESSING' && pointer !== null) return { error: 'busy' }
-      if (pointer !== null && TERMINAL.has(row.status)) {
-        return { ok: true, recordingSessionId: row.id, already: true }
-      }
-    }
-
     const durationSeconds = Math.floor(input.durationSeconds)
-    // ⚖ v2 item 11: finalize MINTS the row when the take carries none — the
-    // record-start mint is fire-and-forget today, so a take whose mint failed
-    // (or never ran) must still get its audio recorded rather than be dropped.
-    if (row === null) {
-      row = await synqed.recordings.create({
-        staff_id: actor.staffId,
-        store_id: actor.storeId,
-        customer_id: null,
-        audio_storage_path: key,
-        duration_seconds: durationSeconds,
-        status: 'UPLOADING',
-      })
-    } else if (row.status === 'PROCESSING' || TERMINAL.has(row.status)) {
-      // A NULL pointer on a row a job owns (PROCESSING here — a differing
-      // pointer already left as `busy` above — or a finished COMPLETED/FAILED):
-      // the audio location is the one fact still missing, and adding it
-      // regresses nothing. Status and duration belong to that running or
-      // finished job, never to us — writing UPLOADING over PROCESSING would
-      // put a live take back into 要対応 mid-transcription.
-      await synqed.recordings.update(row.id, { audio_storage_path: key })
-    } else {
-      await synqed.recordings.update(row.id, {
-        audio_storage_path: key,
-        // ⚖ v2 item 13: iOS fMP4 reports duration 0, so the player needs the
-        // recorder's own measurement written here.
-        duration_seconds: durationSeconds,
-        status: 'UPLOADING',
-      })
-    }
+    // The POINTER is not written here — the mint wrote it and the comparison
+    // above just proved it is this exact key. What finalize adds is what the
+    // mint could not know: how long the take ran, and that it is now complete.
+    // ⚖ v2 item 13: iOS fMP4 reports duration 0, so the player needs the
+    // recorder's own measurement written here.
+    // Status and duration belong to a running or finished job, never to us —
+    // writing UPLOADING over PROCESSING would put a live take back into 要対応
+    // mid-transcription, so a job-owned row gets the duration alone.
+    await synqed.recordings.update(
+      row.id,
+      isJobOwnedStatus(row.status)
+        ? { duration_seconds: durationSeconds }
+        : { duration_seconds: durationSeconds, status: 'UPLOADING' },
+    )
 
-    // A pointer replaced by THIS write, so the take it displaced stays
-    // findable from the audit trail even after this row's pointer moves on —
-    // only when the prior pointer was both real and a different object.
-    const pointerReplaced = priorPointer !== null && priorPointer !== key
-
-    // ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no path, no
-    // customer: the storage key embeds the take id, which the ids below
-    // already carry honestly.
-    audit({
-      category: 'recording',
-      action: 'recording.capture_finalized',
-      actorId: actor.staffId,
-      actorType: 'staff',
-      businessId: actor.businessId,
-      targetType: 'recording',
-      targetId: row.id,
-      severity: 'notice',
-      detail: {
-        recording_session_id: input.recordingSessionId ?? null,
-        minted_row: !input.recordingSessionId,
-        take_id: input.takeId,
-        ...(pointerReplaced
-          ? { replaced_take_id: parseRecordingKey(priorPointer, actor.businessId)?.takeId ?? null }
-          : {}),
-        bytes: input.byteLength,
-        duration_seconds: durationSeconds,
-        ext: composed.ext,
-        // Honest about what was actually proved: the listing did not carry a
-        // size, so the byte match below is unverified for this row.
-        size_verified: verdict === 'ok',
-      },
-      requestId: actor.requestId,
-      source: actor.source,
-    })
-    return { ok: true, recordingSessionId: row.id }
+    return emitFinalized(
+      actor,
+      row.id,
+      input,
+      composed.ext,
+      // Honest about what was actually proved: the listing did not carry a
+      // size, so the byte match is unverified for this row.
+      { size_verified: verdict === 'ok' },
+      { ok: true, recordingSessionId: row.id },
+    )
   } catch (err) {
     console.warn('[finalize-take] failed:', err)
     return { error: 'failed' }
   }
+}
+
+/**
+ * The take's ONE audit row. ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No
+ * key, no path, no customer: the storage key embeds the take id, which the ids
+ * below already carry honestly.
+ *
+ * `extra` is what differs between the two facts this row can state: a finalize
+ * that landed carries `size_verified` (was the byte match actually proved?), a
+ * superseded one carries `unlinked` and the take the row points at instead —
+ * the only thread back to an object with no row.
+ *
+ * It EMITS AND RETURNS the caller's own result (the emitSave idiom,
+ * src/actions/karute.ts#createOrUpdateKaruteRecord) so both facts leave the
+ * choke point through an emit BY CONSTRUCTION — neither can grow a return that
+ * skips the row.
+ */
+function emitFinalized(
+  actor: FinalizeTakeActor,
+  recordingSessionId: string,
+  input: { takeId: string; byteLength: number; durationSeconds: number },
+  ext: string,
+  extra: Record<string, unknown>,
+  result: FinalizeTakeResult,
+): FinalizeTakeResult {
+  audit({
+    category: 'recording',
+    action: 'recording.capture_finalized',
+    actorId: actor.staffId,
+    actorType: 'staff',
+    businessId: actor.businessId,
+    targetType: 'recording',
+    targetId: recordingSessionId,
+    severity: 'notice',
+    detail: {
+      recording_session_id: recordingSessionId,
+      take_id: input.takeId,
+      bytes: input.byteLength,
+      duration_seconds: Math.floor(input.durationSeconds),
+      ext,
+      ...extra,
+    },
+    requestId: actor.requestId,
+    source: actor.source,
+  })
+  return result
 }

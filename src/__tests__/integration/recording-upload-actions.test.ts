@@ -8,9 +8,13 @@
  *   3. removeRecordingObject never throws, whatever goes wrong.
  */
 const requireCapability = jest.fn(async (_c: string) => {})
+const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (c: string) => requireCapability(c),
+  getMyCapabilities: () => getMyCapabilities(),
 }))
+const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
+jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
 // A jest.fn, not a bare async literal: the capability gate must run BEFORE the
 // tenant fence, and "the fence never asked who the caller is" is the only
 // evidence of that ordering (storage-not-reached also holds if the gate is last).
@@ -24,6 +28,47 @@ jest.mock('@/lib/staff', () => ({
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 
+// The reservation's own reads/writes (fix round 4): the mint binds the take to
+// a core row before it signs anything.
+type Row = {
+  id: string
+  business_id: string
+  staff_id: string
+  status: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+}
+const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
+const row = (over: Partial<Row> = {}): Row => ({
+  id: SESSION,
+  business_id: 'biz-1',
+  staff_id: 'staff-1',
+  status: 'RECORDING',
+  audio_storage_path: null,
+  duration_seconds: null,
+  ...over,
+})
+const get = jest.fn(async (_id: string): Promise<Row> => row())
+const create = jest.fn(async (_input: unknown): Promise<Row> => row({ id: 'sess-new' }))
+const update = jest.fn(async (id: string, _input: unknown): Promise<Row> => row({ id }))
+jest.mock('@/lib/synqed/client', () => ({
+  newSynqedClient: () => ({ recordings: { get, create, update } }),
+  getSynqedClient: jest.fn(),
+}))
+
+// storage-js's single-object probe. Default: the key is FREE — the bucket has
+// never held this take, which is every ordinary first mint.
+const notFoundError = { message: 'Object not found', status: 404 }
+const info = jest.fn(
+  async (
+    _key: string,
+  ): Promise<{
+    data: { size?: number } | null
+    // `status` matters: storage saying "no such object" and storage failing to
+    // ANSWER are different facts, and only the first frees the key.
+    error: { message: string; status?: number } | null
+  }> => ({ data: null, error: notFoundError }),
+)
 const createSignedUploadUrl = jest.fn(async (p: string) => ({
   data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
   error: null as { message: string } | null,
@@ -38,7 +83,7 @@ const removeObj = jest.fn(async (_paths: string[]) => ({
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
-      from: (_bucket: string) => ({ createSignedUploadUrl, createSignedUrl, remove: removeObj }),
+      from: (_bucket: string) => ({ createSignedUploadUrl, createSignedUrl, info, remove: removeObj }),
     },
   }),
 }))
@@ -56,11 +101,33 @@ import {
   extFromMime,
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
+import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+
+type MintedUrl = Extract<MintTakeUrlResult, { path: string }>
+
+/** The mint answers with a result UNION now (fix round 4). Every test that is
+ *  about a SUCCESSFUL mint says so here, so a refusal can never read as a pass
+ *  with undefined fields. */
+async function mintOk(input?: MintTakeUrlInput): Promise<MintedUrl> {
+  const res = await mintRecordingUploadUrl(input)
+  if ('error' in res) throw new Error(`expected a minted url, got ${res.error}`)
+  return res
+}
+
+/** Nothing was bound and nothing was claimed — the assertion every refusal owes. */
+function expectNoBinding(): void {
+  expect(create).not.toHaveBeenCalled()
+  expect(update).not.toHaveBeenCalled()
+  expect(auditFn).not.toHaveBeenCalled()
+  expect(createSignedUploadUrl).not.toHaveBeenCalled()
+}
 
 // A real lowercase uuid, so a fixture only ever fails the ONE clause it targets —
 // a placeholder body would be refused by the uuid clause and silently mask the rest.
 const UUID = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
 const OWN = `app_biz-1_${UUID}.webm`
+// A second, DIFFERENT take of the same tenant — what a row bound elsewhere holds.
+const OTHER_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 
 // Both legs run the SAME fence, so they get the SAME table — one clause wrong per row.
 const REFUSED: [string, string][] = [
@@ -108,8 +175,14 @@ beforeEach(() => {
   // removeRecordingObject warns on every refusal by design — keep the run readable.
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   requireCapability.mockImplementation(async () => {})
+  getMyCapabilities.mockImplementation(async () => new Set(['records.write']))
+  resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
+  info.mockResolvedValue({ data: null, error: notFoundError })
+  get.mockResolvedValue(row())
+  create.mockResolvedValue(row({ id: 'sess-new' }))
+  update.mockImplementation(async (id: string) => row({ id }))
   createSignedUploadUrl.mockImplementation(async (p: string) => ({
     data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
     error: null,
@@ -124,7 +197,7 @@ beforeEach(() => {
 describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', () => {
   it('mints app_${businessId}_<uuid>.webm and hands back the signed URL + token', async () => {
     getBusinessId.mockResolvedValue(BIZ_UUID)
-    const res = await mintRecordingUploadUrl()
+    const res = await mintOk()
     expect(res.path).toMatch(
       new RegExp(
         `^app_${BIZ_UUID}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webm$`,
@@ -141,8 +214,20 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
   })
 
   it('every take gets its own key (no Date.now() collision window)', async () => {
-    const [a, b] = await Promise.all([mintRecordingUploadUrl(), mintRecordingUploadUrl()])
+    const [a, b] = await Promise.all([mintOk(), mintOk()])
     expect(a.path).not.toBe(b.path)
+  })
+
+  // Fix round 4: a take the SERVER names is a fresh uuid nobody could have
+  // claimed, so it binds to no row — core is never touched, and the client is
+  // told there is no session to stamp.
+  it('a server-named take reserves NOTHING — no core read, no core write', async () => {
+    const res = await mintOk()
+    expect(res.recordingSessionId).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
   })
 
   it('gates on records.write BEFORE minting anything', async () => {
@@ -152,9 +237,9 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
-  it('a storage failure surfaces instead of returning a half-made URL', async () => {
+  it('a storage failure answers upstream instead of a half-made URL', async () => {
     createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
-    await expect(mintRecordingUploadUrl()).rejects.toThrow('could not mint an upload URL')
+    await expect(mintRecordingUploadUrl()).resolves.toEqual({ error: 'upstream' })
   })
 })
 
@@ -163,13 +248,13 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
 describe('mintRecordingUploadUrl(input) — the client names the take, the server fences it', () => {
   it('absent input is byte-identical to before: server uuid, .webm', async () => {
     getBusinessId.mockResolvedValue(BIZ_UUID)
-    const res = await mintRecordingUploadUrl()
+    const res = await mintOk()
     expect(res.path).toMatch(new RegExp(`^app_${BIZ_UUID}_[0-9a-f-]{36}\\.webm$`))
     expect(res.contentType).toBe('audio/webm')
   })
 
   it('a named take composes the SAME key the grammar accepts, and signs it WITHOUT upsert', async () => {
-    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })
+    const res = await mintOk({ takeId: UUID, mimeType: 'audio/webm' })
     expect(res.path).toBe(OWN)
     // The device names this key, so upsert here would let one staffer overwrite
     // another's finalized audio. A re-upload gets 409, which the client reads
@@ -182,7 +267,7 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
       data: { path: 'app_other-biz_hijacked.webm', signedUrl: 'https://proj.supabase.co/upload/x', token: 'tok-1' },
       error: null,
     })
-    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })
+    const res = await mintOk({ takeId: UUID, mimeType: 'audio/webm' })
     expect(res.path).toBe(OWN)
   })
 
@@ -193,7 +278,7 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     ['audio/ogg', 'ogg', 'audio/ogg'],
     ['audio/wav', 'wav', 'audio/wav'],
   ])('%s → .%s, contentType %s', async (mimeType, ext, contentType) => {
-    const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType })
+    const res = await mintOk({ takeId: UUID, mimeType })
     expect(res.path).toBe(`app_biz-1_${UUID}.${ext}`)
     expect(res.contentType).toBe(contentType)
   })
@@ -203,11 +288,11 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     ['a video container', 'video/mp4'],
     ['an empty mime', ''],
     ['a non-string mime', 12345 as unknown as string],
-  ])('refuses %s — nothing is signed', async (_label, mimeType) => {
-    await expect(mintRecordingUploadUrl({ takeId: UUID, mimeType })).rejects.toThrow(
-      'could not mint an upload URL',
-    )
-    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  ])('refuses %s — bad_mime, nothing is signed and nothing is bound', async (_label, mimeType) => {
+    await expect(mintRecordingUploadUrl({ takeId: UUID, mimeType })).resolves.toEqual({
+      error: 'bad_mime',
+    })
+    expectNoBinding()
   })
 
   it.each([
@@ -217,11 +302,11 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
     ['an extension smuggled into the id', `${UUID}.webm`],
     ['a non-uuid body', 'stolen'],
     ['a string-shaped non-string', IMPOSTOR],
-  ])('refuses %s as a take id — nothing is signed', async (_label, takeId) => {
+  ])('refuses %s as a take id — bad_take_id, nothing is signed or bound', async (_label, takeId) => {
     await expect(
       mintRecordingUploadUrl({ takeId: takeId as string, mimeType: 'audio/webm' }),
-    ).rejects.toThrow('could not mint an upload URL')
-    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    ).resolves.toEqual({ error: 'bad_take_id' })
+    expectNoBinding()
   })
 
   it('gates on records.write BEFORE it looks at any client input', async () => {
@@ -230,7 +315,7 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
       'forbidden',
     )
     expect(getBusinessId).not.toHaveBeenCalled()
-    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expectNoBinding()
   })
 })
 
@@ -239,8 +324,8 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
 // row is who reached for the name. A server-named uuid claims nothing and files
 // nothing, exactly as before.
 describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row', () => {
-  it('files one ids-only row for a named take', async () => {
-    await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/mp4' })
+  it('files one ids-only row for a named take, carrying the row it bound', async () => {
+    await mintOk({ takeId: UUID, mimeType: 'audio/mp4' })
     expect(auditFn).toHaveBeenCalledTimes(1)
     const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
     expect(event).toMatchObject({
@@ -254,36 +339,177 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
     })
     // ⚖ 8/17 doc law — ids, numbers and flags only; no key, no path, no URL.
     // No `upsert` field: the mint no longer has the flag to report.
-    expect(event.detail).toEqual({ take_id: UUID, ext: 'mp4' })
+    expect(event.detail).toEqual({
+      take_id: UUID,
+      ext: 'mp4',
+      recording_session_id: 'sess-new',
+      reserved: true,
+    })
     expect(JSON.stringify(event.detail)).not.toContain(OWN)
   })
 
   it('files NOTHING when the server names the take — old behaviour unchanged', async () => {
-    await mintRecordingUploadUrl()
+    await mintOk()
     expect(auditFn).not.toHaveBeenCalled()
   })
 
   it('files nothing when the named take is REFUSED — no row for a key never signed', async () => {
-    await expect(mintRecordingUploadUrl({ takeId: 'stolen' })).rejects.toThrow()
+    await expect(mintRecordingUploadUrl({ takeId: 'stolen' })).resolves.toEqual({
+      error: 'bad_take_id',
+    })
     expect(auditFn).not.toHaveBeenCalled()
   })
 
-  it('files nothing when storage refuses to sign', async () => {
+  // Fix round 4 flips this deliberately. The RESERVATION is a core write, and a
+  // core write must never be silent — so the claim is filed when the binding
+  // lands, not when the URL is signed. (The reservation is self-healing: the
+  // client's retry finds its own pointer and mints again.)
+  it('still files the claim when the signing then fails — a core write is never silent', async () => {
     createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
-    await expect(mintRecordingUploadUrl({ takeId: UUID })).rejects.toThrow()
-    expect(auditFn).not.toHaveBeenCalled()
+    await expect(mintRecordingUploadUrl({ takeId: UUID })).resolves.toEqual({ error: 'upstream' })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(auditFn).toHaveBeenCalledTimes(1)
   })
 
-  // The emitter is a PRIVATE auditLockout-pattern helper, so CP7's
-  // registry-reality cross-check (exported symbols only) can never require the
-  // registration — this pin is what goes red if the entry is dropped.
+  // The emitter is a PRIVATE helper, so CP7's registry-reality cross-check
+  // (exported symbols only) can never require the registration — this pin is
+  // what goes red if either entry is dropped. reserveTakeForRecorder is the
+  // symbol the SDK writes live in (CP3's containment rule).
   it('is registered in AUDITED_CORES as the file’s writer', () => {
     expect(AUDITED_CORES).toContainEqual(
       expect.objectContaining({
         file: 'src/lib/recording/mint-take-url.ts',
-        symbols: ['auditTakeNamed'],
+        symbols: ['auditTakeNamed', 'reserveTakeForRecorder'],
       }),
     )
+  })
+})
+
+// FIX ROUND 4 — THE RESERVATION. One audio object ↔ one recording row, bound to
+// its recorder BEFORE any bytes exist. Everything here is the fence that makes
+// a client-named key safe to hand a signed upload URL for.
+describe('mintRecordingUploadUrl — the take is BOUND before it is signed', () => {
+  const named = { takeId: UUID, mimeType: 'audio/webm' }
+
+  it('reserves the key on the caller’s own session row, then signs', async () => {
+    const res = await mintOk({ ...named, recordingSessionId: SESSION })
+    expect(update).toHaveBeenCalledWith(SESSION, {
+      audio_storage_path: OWN,
+      status: 'UPLOADING',
+    })
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(res.path).toBe(OWN)
+    // The binding comes first: the URL is the only way bytes can exist.
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      createSignedUploadUrl.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('a RETRY of the same take writes nothing and still reports the claim', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
+    // The PUT landed last time; storage says the object is there.
+    info.mockResolvedValue({ data: { size: 2048 }, error: null })
+    const res = await mintOk({ ...named, recordingSessionId: SESSION })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(res.recordingSessionId).toBe(SESSION)
+    const [event] = auditFn.mock.calls[0] as [{ detail: Record<string, unknown> }]
+    expect(event.detail).toMatchObject({ recording_session_id: SESSION, reserved: false })
+  })
+
+  it('with NO session the mint creates the row, with the caller’s staff and store', async () => {
+    const res = await mintOk(named)
+    expect(create).toHaveBeenCalledWith({
+      staff_id: 'staff-1',
+      store_id: 'store-9',
+      customer_id: null,
+      audio_storage_path: OWN,
+      status: 'UPLOADING',
+    })
+    expect(res.recordingSessionId).toBe('sess-new')
+  })
+
+  it('refuses another staffer’s session — forbidden, nothing bound', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
+  })
+
+  it('refuses another business’s session — forbidden, nothing bound', async () => {
+    get.mockResolvedValue(row({ business_id: 'biz-2' }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
+  })
+
+  it('lets an owner (recordings.viewAll) reserve on a colleague’s session', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await mintOk({ ...named, recordingSessionId: SESSION })
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('refuses a row already bound to a DIFFERENT take — reserved_elsewhere', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: `app_biz-1_${OTHER_UUID}.webm` }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expectNoBinding()
+  })
+
+  it.each([
+    ['no session at all', undefined],
+    ['a session whose row reserved nothing', SESSION],
+  ])(
+    'refuses a key whose object ALREADY EXISTS (%s) — exists, nothing bound',
+    async (_label, recordingSessionId) => {
+      info.mockResolvedValue({ data: { size: 4096 }, error: null })
+      await expect(mintRecordingUploadUrl({ ...named, recordingSessionId })).resolves.toEqual({
+        error: 'exists',
+      })
+      expectNoBinding()
+    },
+  )
+
+  it('fails CLOSED when storage cannot say whether the object exists', async () => {
+    info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'upstream' })
+    expectNoBinding()
+  })
+
+  it('refuses a session id core does not know — never binds a replacement', async () => {
+    get.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'not_found' })
+    expectNoBinding()
+  })
+
+  it('an unreadable session row is upstream — nothing bound, nothing signed', async () => {
+    get.mockRejectedValue(Object.assign(new Error('core down'), { status: 503 }))
+    await expect(
+      mintRecordingUploadUrl({ ...named, recordingSessionId: SESSION }),
+    ).resolves.toEqual({ error: 'upstream' })
+    expectNoBinding()
+  })
+
+  it.each(['PROCESSING', 'COMPLETED', 'FAILED'])(
+    'reserves on a %s row with the POINTER ONLY — the job keeps its status',
+    async (status) => {
+      get.mockResolvedValue(row({ status }))
+      await mintOk({ ...named, recordingSessionId: SESSION })
+      expect(update).toHaveBeenCalledWith(SESSION, { audio_storage_path: OWN })
+    },
+  )
+
+  it('refuses with no staff identity — nothing is attributable, nothing bound', async () => {
+    getCurrentUserStaffId.mockResolvedValue(null)
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
   })
 })
 

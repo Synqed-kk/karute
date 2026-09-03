@@ -35,15 +35,21 @@ export const SessionMintSchema = z
   .strict()
 
 // ── Upload-url mint (capture pipeline PR2) ──────────────────────────────────
-// BOTH fields optional: an absent body is the server-named take this route has
-// always minted. The caps here only BOUND the strings — the real validation is
-// server-side (composeTakeKey: the uuid grammar and the closed MIME map), so a
-// well-formed-but-wrong value is refused by the fence, not by zod.
+// ALL THREE fields optional: an absent body is the server-named take this route
+// has always minted. The caps here only BOUND the strings — the real validation
+// is server-side (composeTakeKey: the uuid grammar and the closed MIME map), so
+// a well-formed-but-wrong value is refused by the fence, not by zod.
+//
+// recordingSessionId (fix round 4) is the row the mint RESERVES this take's key
+// on. It is a uuid for the same reason the finalize schema's is: it rides into a
+// core URL PATH unencoded (the SDK's recordings.get), so a free string there is
+// a request-forgery surface.
 const MAX_MIME_CHARS = 100
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().max(MAX_ID_CHARS).nullish(),
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
+    recordingSessionId: z.string().uuid().nullish(),
   })
   .strict()
 
@@ -57,6 +63,9 @@ export const UploadUrlMintSchema = z
 // Both ids are uuids — a uuid IS the ceiling this file's .max() law asks for,
 // and recordingSessionId rides into a core URL PATH unencoded (the SDK's
 // recordings.get), so a free string there is a request-forgery surface.
+// recordingSessionId is REQUIRED as of fix round 4: the mint reserves the take's
+// key on that row before any byte can exist, so a finalize that cannot name its
+// row is a finalize for a take this server never bound.
 // The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
 // onto the core row, and a take of zero bytes is not a take at all.
 const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
@@ -67,7 +76,7 @@ export const FinalizeTakeSchema = z
     mimeType: z.string().max(MAX_MIME_CHARS),
     durationSeconds: z.number().finite().min(0).max(MAX_TAKE_SECONDS),
     byteLength: z.number().int().min(1).max(MAX_TAKE_BYTES),
-    recordingSessionId: z.string().uuid().nullish(),
+    recordingSessionId: z.string().uuid(),
   })
   .strict()
 
