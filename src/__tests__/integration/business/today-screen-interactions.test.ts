@@ -4131,7 +4131,8 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
   })
 
   /** ⚖ 51 (R7) — AND IT CARRIES THE CUSTOMER'S CATEGORY, for the same reason and
-   *  over the same four hops.
+   *  over SEVEN hops — the intent's field, the prop, page.tsx, the arming, the
+   *  landing, the solve, and the CARD the placement mints.
    *
    *  The 配置モード landing hardcoded `vip: false`, so a VIP's 次回予約 placed from
    *  the board was solved onto whatever bed `privateIsLastResort` reached first,
@@ -4149,7 +4150,17 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  would have made the word and the release disagree BY CONSTRUCTION — the
    *  verdict solving the 個室 and the placement putting the VIP somewhere else —
    *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
-   *  one field, and both are pinned here so neither can drift back alone. */
+   *  one field, and both are pinned here so neither can drift back alone.
+   *
+   *  ⚠ AND THE SEVENTH HOP IS THE CARD ITSELF (fix round 1, blind lens 1 #1).
+   *  `placeNextVisit` minted the staged card with `category: 'repeat' as const`,
+   *  and the card is what every LATER gesture asks — `placePendingAt`'s
+   *  `item?.category === 'vip'`, both `solveBed` releases, `bedDoor`'s subject
+   *  path. So the fix held for exactly one press: the same VIP booking, dragged
+   *  one lane over or sent through 安全な開始に置く, asked the room floor as a
+   *  非VIP again and could be seated on a standard bed with nothing said. The
+   *  hop is pinned positively AND negatively, because the old spelling is a
+   *  literal TypeScript cannot flag. */
   it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
     const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
     const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
@@ -4171,6 +4182,10 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // …and the hardcode is gone from both, in the spelling it had.
     expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
     expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
+    // 7 · …and so does the CARD the placement mints, which is what every later
+    // gesture reads. A hardcoded 'repeat' here made the fix last one press.
+    expect(place_).toContain('category: p.category,')
+    expect(place_).not.toContain("category: 'repeat' as const,")
   })
 
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {

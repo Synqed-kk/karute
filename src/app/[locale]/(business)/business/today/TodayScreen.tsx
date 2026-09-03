@@ -1373,8 +1373,9 @@ export function TodayScreen(props: TodayProps) {
    *  discipline the capacity book itself is under — and every seam below takes
    *  the answer as a parameter.
    *
-   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and in
-   *  exactly one other place (the board world's, below). OFF ⇒ `undefined` ⇒
+   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and at
+   *  THREE other sites: the board world's mask memo (below), the rail's
+   *  protected door and (⚖ R7) the verdict's protected door. OFF ⇒ `undefined` ⇒
    *  every seam falls through to the code that shipped, which is what the
    *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
    *  separate and independent no-op: `reservedMaskFor` returns empty before it
@@ -2247,10 +2248,15 @@ export function TodayScreen(props: TodayProps) {
    *  two can never drift apart. */
   const pendingOffBoard = pending != null && !onShownBoard(pending, board)
   // ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole
-  // board, and they were recomputed on every render of a screen that re-renders
-  // per pointer frame. Nothing about the answer changes: the memo's inputs are
-  // exactly the expression's, so a frame that moved none of them reads the rows
-  // it already had.
+  // board, and the expression re-walked it on every render. The memo's inputs
+  // are exactly the expression's, so a render that moves NONE of them — a hover,
+  // a chip render, the clock — reads the rows it already had.
+  //
+  // It does not save the DRAG, and the comment used to imply it did. The only
+  // card a gesture can start on while `pendingChecks` exists is the staged one
+  // (`onCardPointerDown` refuses every other), and dragging it rebuilds
+  // `boardLanes` — and therefore `checksFor`, a dep of this memo — per frame, so
+  // the memo recomputes there exactly like the expression did.
   const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])
   // ⚖ Liam flag 50(d) — an OVERRIDDEN landing confirms despite the one row it
   // overrode and nothing else. `overrideCaption` is `confirmCaption` with that
@@ -4912,7 +4918,11 @@ export function TodayScreen(props: TodayProps) {
     const face = {
       kind: 'booking' as const,
       state: 'hold' as const,
-      category: 'repeat' as const,
+      // ⚖ 51 — AND THE MINTED CARD CARRIES IT. Every later gesture asks the
+      // CARD, not the intent (`item?.category === 'vip'` at the verdict asks,
+      // `placePendingAt`, both `solveBed` releases, `bedDoor`'s subject path),
+      // so a hardcoded 'repeat' here made the VIP fix last exactly one press.
+      category: p.category,
       ...span,
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
