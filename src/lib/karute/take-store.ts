@@ -26,6 +26,7 @@
  */
 
 import { currentUserId } from '@/lib/karute/draft'
+import { isNativeShell } from '@/lib/platform'
 import type { RecordingTarget } from '@/lib/global-recorder'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -53,6 +54,23 @@ const ACTIVE_GRACE_MS = 20_000
  *  seconds. One minute: long enough that the moment can pass, short enough that
  *  a take still finishes inside the same shift. */
 const SECURE_RETRY_COOLDOWN_MS = 60_000
+
+/** How many times a stamp tries its write before giving up, and how long it
+ *  waits between tries (fix round 13).
+ *
+ *  Best-effort was never meant to be one-shot. `durationMs` is the stop stamp —
+ *  the ONE positive fact that says a recorder finished this take, and the whole
+ *  gate the drain reads. A single IndexedDB write that loses (a transaction the
+ *  browser aborted under memory pressure, a store momentarily locked by another
+ *  tab's transaction, a quota blip) therefore used to make a STOPPED take look
+ *  unstopped for the rest of the page's life: excluded from every drain, its
+ *  audio device-only, and silent — the stamp swallows its error by design.
+ *
+ *  Three tries and two short pauses, because the failures worth catching here
+ *  are momentary by nature; anything that survives 150 ms is a store that is
+ *  not coming back, and capture must never wait on one. */
+const STAMP_WRITE_TRIES = 3
+const STAMP_RETRY_MS = 50
 
 /** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
  *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
@@ -362,27 +380,38 @@ export async function stampTakeSession(
  *  a late resolution could scribble a duration or a failure code onto the
  *  colleague's row it names. The uid is resolved BEFORE the transaction (an
  *  await inside one closes it) and compared on the row this transaction
- *  fetched, so the gate costs no second read. */
+ *  fetched, so the gate costs no second read.
+ *
+ *  ⚖ AND A LOST WRITE GETS TWO MORE TRIES (fix round 13). Only a THROWN write
+ *  is retried — see STAMP_WRITE_TRIES. Every other `false` here is a settled
+ *  ANSWER, not a failure: no store, nobody signed in, the take is gone, it is
+ *  another staffer's, or `when` refused it. Re-asking those costs time and
+ *  changes nothing, and re-asking `when` would be worse — it is the
+ *  first-write-wins brace, and its "no" is the point. */
 async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
 ): Promise<boolean> {
-  try {
-    const db = await openDb()
-    if (!db) return false
-    const uid = await currentUserId()
-    if (!uid) return false
-    const tx = db.transaction(TAKES, 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta || meta.ownerUid !== uid) return false
-    if (when && !when(meta)) return false
-    await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
-    return true
-  } catch (err) {
-    console.error('[take-store] patchTakeMeta failed:', err)
-    return false
+  for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
+    try {
+      const db = await openDb()
+      if (!db) return false
+      const uid = await currentUserId()
+      if (!uid) return false
+      const tx = db.transaction(TAKES, 'readwrite')
+      const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+      if (!meta || meta.ownerUid !== uid) return false
+      if (when && !when(meta)) return false
+      await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+      return true
+    } catch (err) {
+      console.error('[take-store] patchTakeMeta failed:', err)
+      if (attempt < STAMP_WRITE_TRIES)
+        await new Promise((resolve) => setTimeout(resolve, STAMP_RETRY_MS * attempt))
+    }
   }
+  return false
 }
 
 /** Capture pipeline PR3: this take's audio is on the server and its core row
@@ -421,9 +450,19 @@ export async function markTakeStartBoundAttempted(takeId: string): Promise<void>
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
  *  stamped at stop so a LATER attempt (the record page's mount retry, PR5's
  *  drain) finalizes the same number the stop would have. Without it those
- *  callers have only the flush window, which counts pause time as recording. */
-export async function stampTakeDuration(takeId: string, durationMs: number): Promise<void> {
-  await patchTakeMeta(takeId, { durationMs })
+ *  callers have only the flush window, which counts pause time as recording.
+ *
+ *  It is also THE STOP STAMP — the fact listOwnStoppedUnsecuredTakeIds gates
+ *  on — so a write that quietly loses hides a finished take from every drain.
+ *  Retried by the shared body above, and it ANSWERS now (fix round 13): true
+ *  when the stamp is on disk. onstop does not wait on that answer — it holds
+ *  the live measurement either way — but a caller that needs to know whether a
+ *  later attempt will find this take can ask. */
+export async function stampTakeDuration(
+  takeId: string,
+  durationMs: number,
+): Promise<boolean> {
+  return patchTakeMeta(takeId, { durationMs })
 }
 
 /** The owner gate every read in this file shares, in one place: the take's meta
@@ -451,11 +490,16 @@ async function readOwnTakeMeta(takeId: string): Promise<TakeMeta | null> {
  *  container the key must carry, which session to finalize against — and who
  *  the recording is FOR, so a take that has to mint its own row (fix round 6)
  *  mints one attributed the same way the recorder's start-mint would have —
- *  plus the recorder's own duration — the ONLY measurement a take is finalized
- *  with (fix round 7: the flush window that used to stand in behind it was
- *  unreachable, so the two fields that fed it are no longer read out) — and
- *  whether a BOUND start has already been sent for this take (fix round 9),
- *  which both routes to the session door read before they offer the pair. */
+ *  plus the recorder's own duration — the measurement a take is normally
+ *  finalized with — and whether a BOUND start has already been sent for this
+ *  take (fix round 9), which both routes to the session door read before they
+ *  offer the pair.
+ *
+ *  The three flush-window fields (`startedAt`, `updatedAt`, `lastSeq`) are read
+ *  out again since fix round 13. Round 7 dropped them because the stop-stamp
+ *  gate had made the window unreachable; the native shell's own rule below
+ *  (isStoppedTake) reaches it again, for exactly the takes whose stop stamp
+ *  never landed. */
 export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   TakeMeta,
   | 'mimeType'
@@ -465,6 +509,9 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'secureError'
   | 'durationMs'
   | 'startBoundAttempted'
+  | 'startedAt'
+  | 'updatedAt'
+  | 'lastSeq'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -476,6 +523,9 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     secureError: meta.secureError,
     durationMs: meta.durationMs,
     startBoundAttempted: meta.startBoundAttempted,
+    startedAt: meta.startedAt,
+    updatedAt: meta.updatedAt,
+    lastSeq: meta.lastSeq,
   }
 }
 
@@ -718,6 +768,47 @@ export async function getRecoverableTake(
   return (await listOwnTakes(excludeTakeIds))[0] ?? null
 }
 
+/** ⚖ IS THIS TAKE FINISHED? — the one rule the drain's worklist and secureTake
+ *  itself both gate on, in one place so they can never drift apart.
+ *
+ *  THE STOP STAMP is the answer whenever it is there: `durationMs` is written
+ *  by stampTakeDuration at onstop, so its presence means a recorder measured
+ *  this take and said so. Nothing below weakens that; everything below is what
+ *  to do when the stamp is ABSENT.
+ *
+ *  ⚖ AND ON THE NATIVE SHELL, ABSENT IS NOT UNKNOWABLE (fix round 13). The
+ *  stamp is a best-effort IndexedDB write. If it loses (and it now takes three
+ *  tries to lose) AND the stop-time upload also fails, a reload takes the
+ *  recorder singleton with it — and the take was then excluded from every
+ *  drain, device-only, silent. The phone apps are a SINGLE WebView: a page
+ *  loading there means no recorder anywhere can be live, so a take that is
+ *  · not the singleton's active take (the ONE thing that can answer for a
+ *    PAUSED take, which flushes nothing and looks stale within seconds),
+ *  · has bytes on disk (lastSeq >= 0), and
+ *  · has been quiet longer than ACTIVE_GRACE_MS
+ *  is a stopped take whose stamp failed. Its bytes may go.
+ *
+ *  ⚖ THE WEB KEEPS ROUND 5'S RULE, unchanged: another same-origin tab can be
+ *  recording this very take, `isActive` cannot see into it, and a finalized key
+ *  is IMMUTABLE — sealing it there would truncate the recording forever. So off
+ *  the shell the answer is the stamp or nothing.
+ *
+ *  `isActive` comes from the caller because the recorder is a module singleton
+ *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
+ *  recorder in its runtime at all (PR5's launch drain) passes nothing rather
+ *  than inventing a check it never made — at launch there is nothing to ask. */
+export function isStoppedTake(
+  takeId: string,
+  meta: Pick<TakeMeta, 'durationMs' | 'lastSeq' | 'updatedAt'>,
+  isActive?: (takeId: string) => boolean,
+): boolean {
+  if (meta.durationMs !== undefined) return true
+  if (!isNativeShell()) return false
+  if (meta.lastSeq < 0) return false
+  if (isActive?.(takeId)) return false
+  return Date.now() - meta.updatedAt >= ACTIVE_GRACE_MS
+}
+
 /** Every take of the SIGNED-IN user that is KNOWN STOPPED and whose audio the
  *  SERVER DOES NOT HAVE — the record page's mount drain worklist.
  *
@@ -725,15 +816,13 @@ export async function getRecoverableTake(
  *  IMMUTABLE: securing a take whose recorder is still running would upload the
  *  segments flushed so far, finalize them, and leave the rest of the recording
  *  with nowhere to land — permanently truncated audio, in exchange for saving a
- *  few seconds. So the drain reads a POSITIVE fact rather than a heuristic:
- *  `durationMs` is written by stampTakeDuration at onstop, so its presence means
- *  a recorder actually stopped this take. No age or grace window can substitute
- *  — a PAUSED take flushes nothing and looks stale within seconds.
+ *  few seconds. "Stopped" is isStoppedTake above: the stop stamp on the web,
+ *  and on the single-WebView shell that stamp OR a take no recorder can be
+ *  holding (fix round 13 — a stamp that lost its write must not lose the take).
  *
- *  Which leaves unstopped takes (a kill mid-recording) to PR5: the native shell
- *  is a single webview, so at APP LAUNCH no recorder can be live and that drain
- *  may take them; the web multi-tab case gets a heartbeat there. Until then
- *  their audio stays on the device, plainly un-finalized — 要対応, not lost.
+ *  Which leaves the web's unstopped takes (a kill mid-recording) to PR5, whose
+ *  launch drain gets the multi-tab heartbeat. Until then their audio stays on
+ *  the device, plainly un-finalized — 要対応, not lost.
  *
  *  Deliberately NOT listOwnTakes. That read is the recovery OFFER, and its 20 s
  *  ACTIVE_GRACE_MS hides a take flushed moments ago (it might be live in another
@@ -757,9 +846,13 @@ export async function getRecoverableTake(
  *    one is what tells it whether to keep looking. Without the distinction its
  *    tick would stop on an empty eligible list — which is exactly what a take
  *    that failed a minute ago produces, so the retry would end at the moment it
- *    became necessary. */
+ *    became necessary.
+ *  @param isActive the recorder singleton's own live-take probe, passed by a
+ *    caller that shares its runtime — see isStoppedTake, which is the only
+ *    thing that reads it. */
 export async function listOwnStoppedUnsecuredTakeIds(
   includeCoolingDown = false,
+  isActive?: (takeId: string) => boolean,
 ): Promise<string[]> {
   try {
     const db = await openDb()
@@ -773,8 +866,9 @@ export async function listOwnStoppedUnsecuredTakeIds(
       .filter(
         (m) =>
           m.ownerUid === uid &&
-          // The stop stamp — the only proof this take is complete.
-          m.durationMs !== undefined &&
+          // The proof this take is COMPLETE — the stop stamp, or the native
+          // shell's own reading of a stamp that never landed.
+          isStoppedTake(m.takeId, m, isActive) &&
           !m.finalizedAt &&
           !(m.secureError && TERMINAL_SECURE_ERRORS.has(m.secureError)) &&
           // ponytail: one flat cooldown, not per-code backoff — the record page

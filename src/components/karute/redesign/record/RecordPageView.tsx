@@ -797,7 +797,13 @@ export function RecordPageView({
         // (onstop stamps the duration the list reads), and starting it outside
         // the loop put two whole takes on the wire at once — the exact
         // starvation this is sequential to prevent.
-        for (const id of await listOwnStoppedUnsecuredTakeIds())
+        // isActive goes to the WORKLIST too (fix round 13): inside the phone's
+        // single WebView the store may name a take whose stop stamp never
+        // landed, and the singleton is the only thing that can tell that from a
+        // take this very page is still capturing (a paused one flushes nothing
+        // and looks stale within seconds). On the web it changes nothing — the
+        // list stays stopped-only there.
+        for (const id of await listOwnStoppedUnsecuredTakeIds(false, isActive))
           await secureTake(port, id, undefined, isActive)
       } finally {
         mountDrainRunning = false
@@ -808,7 +814,7 @@ export function RecordPageView({
       // everything failed a minute ago; stopping on that would end the retry at
       // the moment it became necessary. Empty here means finalized or terminal,
       // and neither of those is waiting for us.
-      if (alive && (await listOwnStoppedUnsecuredTakeIds(true)).length) schedule()
+      if (alive && (await listOwnStoppedUnsecuredTakeIds(true, isActive)).length) schedule()
     }
 
     // 1. The mount — every navigation onto this page, as before.

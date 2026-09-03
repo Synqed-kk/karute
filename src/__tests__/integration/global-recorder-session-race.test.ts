@@ -7,9 +7,58 @@
  * recording A that resolves after discard() (or after a new start()) must be
  * dropped — its recording_sessions row was minted for A's customer, and
  * stamping it onto recording B would link B's karute record to A's session.
- * getUserMedia is absent in jsdom, so start() lands in its mic-error path —
- * irrelevant here: the mint is fired before the mic is touched.
+ *
+ * ⚖ THE MIC IS GRANTED HERE (fix round 13). This file used to lean on jsdom
+ * having no getUserMedia at all: start() landed in its mic-error path, which
+ * was a free way to hold the pre-mic window open. That path now ABANDONS the
+ * mint — a denied prompt means there is no recording, so the row it minted is
+ * an orphan nothing may file against — so leaning on it would test the abandon
+ * rather than the staleness guard. So the mic and the recorder are faked here
+ * (the same minimal pair take-durability.test.ts uses), and the two tests that
+ * genuinely need the pre-mic window hold it open with slowMic() instead.
  */
+
+class FakeMediaRecorder {
+  static isTypeSupported() {
+    return true
+  }
+  ondataavailable: ((e: { data: Blob }) => void) | null = null
+  onstop: (() => void) | null = null
+  state: 'inactive' | 'recording' | 'paused' = 'inactive'
+  mimeType = 'audio/webm'
+  start() {
+    this.state = 'recording'
+  }
+  stop() {
+    this.state = 'inactive'
+    this.onstop?.()
+  }
+  pause() {
+    this.state = 'paused'
+  }
+  resume() {
+    this.state = 'recording'
+  }
+}
+;(globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FakeMediaRecorder
+Object.defineProperty(navigator, 'mediaDevices', {
+  configurable: true,
+  value: { getUserMedia: async () => ({ getTracks: () => [] }) },
+})
+
+/** Hold the mic on a REAL timer, so a mint resolving in microtasks definitively
+ *  answers INSIDE the window between the mint going out and start() naming its
+ *  take. `settle()` below only drains microtasks, so this timer cannot fire
+ *  until the test awaits start() itself — which is what makes the window
+ *  deterministic rather than a race. */
+function slowMic(): () => void {
+  const real = navigator.mediaDevices.getUserMedia
+  ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = () =>
+    new Promise((resolve) => setTimeout(() => resolve({ getTracks: () => [] }), 5))
+  return () => {
+    ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = real
+  }
+}
 
 const mockStartRecordingSession = jest.fn(
   async (_input: { customerId?: string | null; appointmentId?: string | null }): Promise<{ id: string } | null> =>
@@ -70,6 +119,12 @@ beforeEach(() => {
   globalRecorder.discard()
 })
 
+// The mic is real here now, so every start() arms the flush interval — the
+// discard above clears it between tests, and this one clears the last.
+afterAll(() => {
+  globalRecorder.discard()
+})
+
 describe('GlobalRecorder — recording-session mint staleness guard', () => {
   it('drops a mint that resolves after discard()', async () => {
     const slow = deferred<{ id: string } | null>()
@@ -114,9 +169,9 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     await globalRecorder.start({ target: TARGET_A })
     expect(mockStartRecordingSession).toHaveBeenCalledTimes(1)
 
-    // start() lands in jsdom's mic-error path before it creates the take, so
-    // the take a real device would be holding is set here. The recorder arm
-    // then retries the way RecordPageView does: no opts, its own live take.
+    // Named, so the assertions read against a fixed id rather than the uuid
+    // start() just minted. The recorder arm then retries the way RecordPageView
+    // does: no opts, its own live take.
     globalRecorder.takeId = 'take-A'
     const first = await globalRecorder.retryRecordingSessionMint({ timeoutMs: 1 })
     const second = await globalRecorder.retryRecordingSessionMint({ timeoutMs: 1 })
@@ -184,9 +239,23 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
 // reserved against it, and the door answered `reserved_elsewhere` — terminal.
 // B's audio never left the phone and B's karute pointed at A's session.
 //
-// jsdom has no getUserMedia, so start() ALWAYS lands in the mic-error path
-// before it names its take — which is exactly the window, held open.
+// The mic is held on a timer here (slowMic), so the mint definitively answers
+// inside that window — a microtask race would prove nothing.
 describe('GlobalRecorder — a start-mint that answers before its own take exists', () => {
+  /** Run start() with the mint answering INSIDE the pre-mic window, then let
+   *  the mic land so the recording actually begins. */
+  async function startInsideTheWindow() {
+    const restore = slowMic()
+    try {
+      const started = globalRecorder.start({ target: TARGET_B })
+      await settle() // the mint lands; the mic is still pending
+      await started // …and now B exists
+      await settle()
+    } finally {
+      restore()
+    }
+  }
+
   it("stamps nothing on the previous take, and keeps B's own row", async () => {
     // A: stopped and still held (not yet used or discarded), carrying the row
     // secureTake minted and finalized its audio against at stop.
@@ -196,14 +265,15 @@ describe('GlobalRecorder — a start-mint that answers before its own take exist
 
     // B starts; its mint answers inside the pre-mic window.
     mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-B' })
-    await globalRecorder.start({ target: TARGET_B })
-    await settle()
+    await startInsideTheWindow()
 
     // The recorder holds B's OWN row — createTake carries it onto B's take.
     expect(globalRecorder.recordingSessionId).toBe('session-B')
+    expect(globalRecorder.takeId).not.toBe('take-A')
     // A was not written to and not read FROM: its row is still its own, and
-    // the recorder never adopted it.
-    expect(mockStampTakeSession).not.toHaveBeenCalled()
+    // the recorder never adopted it. (B's own take IS stamped once the mic
+    // lands — that is the ordinary path, and the control below pins it.)
+    expect(mockStampTakeSession).not.toHaveBeenCalledWith('take-A', expect.anything())
     expect(mockTakeSessions.get('take-A')).toBe('session-A')
   })
 
@@ -216,10 +286,58 @@ describe('GlobalRecorder — a start-mint that answers before its own take exist
     globalRecorder.state = 'recording'
 
     mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-B' })
-    await globalRecorder.start({ target: TARGET_B })
-    await settle()
+    await startInsideTheWindow()
 
-    expect(mockStampTakeSession).not.toHaveBeenCalled()
+    expect(mockStampTakeSession).not.toHaveBeenCalledWith('take-A', expect.anything())
     expect(globalRecorder.recordingSessionId).toBe('session-B')
+  })
+})
+
+// ⚖ A DENIED MIC LEAVES NOTHING TO FILE AGAINST (fix round 13, P3).
+//
+// The mint goes out BEFORE the permission prompt — deliberately, so a network
+// call can never delay the mic. When the prompt is refused there is no
+// recording, so that row is an orphan: a real recording_sessions row with no
+// audio, no duration and no take. Left on the singleton it is what the very
+// next save reads (awaitRecordingSessionId) and what the discard gate keys its
+// reason row to — a karute linked to an empty session, silently.
+describe('GlobalRecorder — the mic is denied', () => {
+  it('abandons the row its own start-mint made — nothing can file against it', async () => {
+    const denied = () => Promise.reject(new Error('NotAllowedError'))
+    const real = navigator.mediaDevices.getUserMedia
+    ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = denied
+    try {
+      mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-orphan' })
+      await globalRecorder.start({ target: TARGET_A })
+      await settle()
+    } finally {
+      ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = real
+    }
+
+    expect(globalRecorder.error).toBe('Microphone access denied.')
+    expect(globalRecorder.recordingSessionId).toBeNull()
+    // …and the SETTLED promise cannot hand the orphan back either — the field
+    // being null is not enough, because that is exactly when the save falls
+    // through to the promise.
+    expect(await globalRecorder.awaitRecordingSessionId()).toBeNull()
+  })
+
+  it('a LATE mint answering after the refusal is dropped too', async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    const denied = () => Promise.reject(new Error('NotAllowedError'))
+    const real = navigator.mediaDevices.getUserMedia
+    ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = denied
+    try {
+      await globalRecorder.start({ target: TARGET_A })
+      slow.resolve({ id: 'session-orphan' })
+      await slow.promise
+      await settle()
+    } finally {
+      ;(navigator.mediaDevices as unknown as { getUserMedia: unknown }).getUserMedia = real
+    }
+
+    expect(globalRecorder.recordingSessionId).toBeNull()
+    expect(mockStampTakeSession).not.toHaveBeenCalled()
   })
 })

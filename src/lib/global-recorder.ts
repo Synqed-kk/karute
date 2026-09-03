@@ -485,6 +485,10 @@ class GlobalRecorder {
       })
     } catch {
       this.error = 'Microphone access denied.'
+      // The mint above went out before the prompt did, so a refusal leaves a
+      // row for a recording that will never exist. Nothing may file against it
+      // — see abandonRecordingSessionMint (fix round 13, P3).
+      this.abandonRecordingSessionMint()
       this.notify()
       return
     }
@@ -744,6 +748,30 @@ class GlobalRecorder {
     return Promise.race([promise, timeout])
   }
 
+  /** Let go of the session mint this recording will never use — every field
+   *  that could hand its row to a later caller, plus the generation bump that
+   *  makes the mint's own late resolution stale.
+   *
+   *  Two callers, one behaviour: discard(), which always did this inline, and
+   *  start()'s mic-denied path (fix round 13). That second one matters because
+   *  the mint fires BEFORE getUserMedia — deliberately, so a network call can
+   *  never delay the mic prompt — so a denied prompt leaves a real
+   *  recording_sessions row for a recording that will never exist. Left on the
+   *  singleton it is what the next save or discard gate files against: a karute
+   *  keyed to an empty row, or a discard reason written onto one. Clearing
+   *  `recordingSessionId` alone is not enough — `recordingSessionPromise` is
+   *  SETTLED with that same id, and awaitRecordingSessionId reads the promise
+   *  when the field is null. The row itself stays orphaned server-side, which
+   *  is the same bounded degradation every other abandoned mint already has. */
+  private abandonRecordingSessionMint() {
+    this.recordingSessionId = null
+    this.recordingSessionPromise = null
+    this.recordingSessionMintInFlight = false
+    this.recordingSessionMintTakeId = null
+    this.recordingSessionMintTakeUnknown = false
+    this.recordingSessionGen++
+  }
+
   /** Is this take the one being CAPTURED right now? Capture pipeline PR3 fix
    *  round 5: securing a live take would seal the segments flushed so far under
    *  its IMMUTABLE finalized key, so the rest of the recording could never land.
@@ -814,14 +842,7 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.target = null
-    this.recordingSessionId = null
-    this.recordingSessionPromise = null
-    this.recordingSessionMintInFlight = false
-    this.recordingSessionMintTakeId = null
-    this.recordingSessionMintTakeUnknown = false
-    // Invalidate any in-flight mint so its late resolution can't stamp a
-    // discarded take's session id onto the next recording.
-    this.recordingSessionGen++
+    this.abandonRecordingSessionMint()
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null

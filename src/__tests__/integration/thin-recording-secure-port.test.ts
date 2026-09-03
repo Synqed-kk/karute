@@ -239,11 +239,19 @@ describe('thin recording port — mintTakeUrl', () => {
           url: 'https://proj.supabase.co/upload/x?token=up',
           contentType: 'audio/mp4',
           recordingSessionId: FINALIZE.recordingSessionId,
+          // The facade echoes the mint's WHOLE result, and the mint's result
+          // carries the bare signed token as well (fix round 13).
+          token: 'up',
         }),
         { status: 200 },
       )
     })
 
+    // toEqual, not toMatchObject: the ABSENCE of `token` is the assertion. It
+    // already rides inside `url`, and the port contract omits it — handing a
+    // caller a credential it is not supposed to have is how a second
+    // signed-request assembler gets born (the web arm drops it for the same
+    // reason, lib/ports/recording-port.ts).
     await expect(
       viteRecordingPort.mintTakeUrl(
         FINALIZE.takeId,
@@ -322,11 +330,27 @@ describe('thin recording port — mintTakeUrl', () => {
       expect(TERMINAL_SECURE_ERRORS.has(code)).toBe(true)
   })
 
+  // The route's OWN validation refusals carry a SENTENCE, not a mint code, so
+  // the allowlist above cannot catch them and they fell through to the generic
+  // `mint_400` — RETRYABLE. A body this server will never accept does not
+  // become acceptable by sending it again, so the phone re-uploaded a whole
+  // take against it on every cooldown, forever (fix round 13, P3).
+  it.each([
+    ['malformed JSON body'],
+    ['invalid upload-url payload'],
+  ])('a facade validation refusal (%s) is the TERMINAL bad_input, never a retry', async (message) => {
+    port(async () => new Response(facadeError('validation', message), { status: 400 }))
+    await expect(
+      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/webm', null),
+    ).resolves.toEqual({ error: 'bad_input' })
+    expect(TERMINAL_SECURE_ERRORS.has('bad_input')).toBe(true)
+  })
+
   // Anything the body does NOT name falls back to the status — retryable, which
   // is the safe default: a token blip must never mark a take permanently lost.
   it.each([
     [401, 'mint_401', errorBody('unauthenticated')],
-    [400, 'mint_400', errorBody('validation')],
+    [429, 'mint_429', errorBody('rate_limited')],
     [500, 'mint_500', '<html>gateway</html>'],
   ])('HTTP %i with a body naming nothing we know → %s', async (status, code, body) => {
     port(async () => new Response(body as string, { status }))

@@ -68,6 +68,16 @@ const FACADE_CODE_TO_MINT: Record<string, string> = {
   tenant_forbidden: 'forbidden',
   not_found: 'not_found',
   upstream_unavailable: 'upstream',
+  // The route's OWN validation refusals — 'malformed JSON body', 'invalid
+  // upload-url payload' — which carry a sentence rather than a mint code, so
+  // the allowlist above cannot catch them. Read as the generic `mint_400` they
+  // stayed RETRYABLE, and a body this server will never accept does not become
+  // acceptable by sending it again: the phone re-uploaded a whole take on every
+  // cooldown, forever. TERMINAL, exactly like the mint's own `bad_input` (fix
+  // round 13, P3). The mint's named 400s still win — `bad_mime`, `bad_take_id`
+  // and `bad_input` ride this same classification with the CODE as the message,
+  // and mintErrorCode reads the allowlist first.
+  validation: 'bad_input',
 }
 
 /** WHICH refusal, from the facade's error body — `{ error: { code, message } }`.
@@ -200,12 +210,20 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // when null, which is the shape that asks the mint to create the row.
       body: JSON.stringify({ takeId, mimeType, recordingSessionId }),
     })
-    const body = (await res.json().catch(() => null)) as MintTakeUrlPortResult | null
+    const body = (await res.json().catch(() => null)) as
+      | (MintTakeUrlPortResult & { token?: string })
+      | null
     // A refusal comes back NAMED, never thrown (the port contract) — and an
     // unreadable 2xx body is a refusal too, not an assumed success: the same
     // guard finalizeTake below carries, for the same reason.
-    if (!res.ok || !body) return { error: mintErrorCode(body, res.status) }
-    return body
+    if (!res.ok || !body || 'error' in body) return { error: mintErrorCode(body, res.status) }
+    // ⚖ THE TOKEN IS DROPPED HERE (fix round 13, P3), not merely absent from the
+    // type: the facade echoes the mint's whole result, and `token` already rides
+    // inside `url`. Handing a caller a credential the port contract says it
+    // never gets is how a second signed-request assembler is born. Same four
+    // fields, same reason, as the web arm (lib/ports/recording-port.ts).
+    const { path, url, contentType, recordingSessionId: bound } = body
+    return { path, url, contentType, recordingSessionId: bound }
   },
   async finalizeTake(input: FinalizeTakeInput) {
     const res = await doorFetch('/api/app/v1/recordings/finalize', {

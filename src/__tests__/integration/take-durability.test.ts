@@ -46,6 +46,11 @@ let failWrites = false
  *  more microtasks than the flush does. One test flips this so the ordering has
  *  to be real. */
 let slowSegmentWrites = false
+/** Fail the next N writes that carry a STOP STAMP — the one write fix round 13
+ *  is about. Narrower than `failWrites` on purpose: a transient IndexedDB
+ *  failure hits one transaction, not the store forever, and scoping it to the
+ *  stamp keeps the tail flush's own segment + meta writes out of the count. */
+let failNextDurationStamps = 0
 
 class FakeObjectStore {
   data = new Map<string, Row>()
@@ -80,6 +85,7 @@ class FakeRequest<T> {
 }
 
 const SEGMENTS_STORE = 'segments'
+const TAKES_STORE = 'takes'
 
 class FakeIDB {
   stores = new Map<string, FakeObjectStore>()
@@ -99,6 +105,14 @@ class FakeIDB {
             new FakeRequest(
               () => {
                 if (failWrites) throw new Error('idb write failure (test)')
+                if (
+                  n === TAKES_STORE &&
+                  failNextDurationStamps > 0 &&
+                  (row as { durationMs?: number }).durationMs !== undefined
+                ) {
+                  failNextDurationStamps--
+                  throw new Error('idb stop-stamp write failure (test)')
+                }
                 s.data.set(s.keyOf(row), row)
               },
               slowSegmentWrites && n === SEGMENTS_STORE,
@@ -194,6 +208,7 @@ import {
   stampTakeDuration,
   stampTakeOutcome,
   stampTakeSession,
+  TERMINAL_SECURE_ERRORS,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import {
@@ -319,6 +334,16 @@ async function startAndSettle() {
  *  flushes, which do NOT bump updatedAt.) */
 const passGrace = () => jest.advanceTimersByTimeAsync(20_000)
 
+/** Put this runtime inside the Capacitor shell, the way src/lib/platform.ts
+ *  detects it (the runtime injects `window.Capacitor`). Feature-based, so this
+ *  IS the production check — there is no second one to mock. Cleared in
+ *  beforeEach, so every other test in this file runs on the WEB. */
+const asNativeShell = () => {
+  ;(window as unknown as { Capacitor?: unknown }).Capacitor = {
+    isNativePlatform: () => true,
+  }
+}
+
 beforeEach(async () => {
   // The IDB shim resolves via queueMicrotask — modern fake timers fake it by
   // default, which would deadlock every store call.
@@ -355,6 +380,8 @@ beforeEach(async () => {
   mockUid = 'staff-A'
   failWrites = false
   slowSegmentWrites = false
+  failNextDurationStamps = 0
+  delete (window as unknown as { Capacitor?: unknown }).Capacitor
   globalRecorder.discard()
   await drain()
   fakeDb.stores.get('takes')?.data.clear()
@@ -1408,7 +1435,12 @@ describe('secure at stop', () => {
   })
 
   // ── The take has no bytes ─────────────────────────────────────────────────
-  it('a zero-byte take is not uploaded — and is not marked failed either', async () => {
+  // Nothing is sent, and nothing is finalized — but the attempt IS recorded
+  // (fix round 13). With no mark the take carried no `lastSecureAttemptAt`, so
+  // the cooldown never started: the re-drain re-read this take's meta and its
+  // empty blob on every tick for the whole page life. `no_segments` is
+  // deliberately NOT terminal — a queued flush can still land bytes.
+  it('a zero-byte take is not uploaded, and its empty attempt enters the cooldown', async () => {
     const takeId = await stoppedOwedTake()
     // Everything on disk is empty (a kill between the meta row and the first
     // real chunk). loadTakeBlob still answers a Blob — a zero-length one — so
@@ -1423,9 +1455,13 @@ describe('secure at stop', () => {
 
     await secureTake(port(), takeId)
     expect(order).toEqual([])
-    // Not an error: there is simply nothing to send yet.
-    expect(metaOf(takeId).secureError).toBeUndefined()
+    expect(metaOf(takeId).secureError).toBe('no_segments')
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // Retryable — so the take is merely resting, not abandoned.
+    expect(TERMINAL_SECURE_ERRORS.has('no_segments')).toBe(false)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
+    await jest.advanceTimersByTimeAsync(60_000)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
   })
 
   // ── ⚖ THE TAKE GETS ITS ROW FIRST (fix round 6) ──────────────────────────
@@ -1896,6 +1932,47 @@ describe('secure at stop', () => {
     expect(lastFinalized().durationSeconds).toBeCloseTo(10, 1)
   })
 
+  // ── ⚖ THE STOP STAMP GETS THREE TRIES (fix round 13) ─────────────────────
+  // `durationMs` is the ONE positive fact that says a recorder finished this
+  // take, and it is a best-effort IndexedDB write that swallows its own error.
+  // One transaction lost to memory pressure or a store another tab had locked
+  // therefore made a STOPPED take look unstopped — excluded from every drain
+  // for the rest of the page's life, silently.
+  it('a stop stamp whose write is lost twice still lands on the third try', async () => {
+    const takeId = await keptTake()
+    failNextDurationStamps = 2
+
+    const stamped = stampTakeDuration(takeId, 5_000)
+    // The two backoffs (50 ms, then 100 ms) — the stamp is genuinely waiting.
+    await jest.advanceTimersByTimeAsync(200)
+    expect(await stamped).toBe(true)
+    expect(metaOf(takeId).durationMs).toBe(5_000)
+    // …and the drain can see the take again, which is the whole point.
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([takeId])
+  })
+
+  // Three losses IS the store saying no. The stamp gives up — and the stop path
+  // does not care, because it never needed the stamp: it is holding the live
+  // measurement and hands it straight to secureTake. The stamp exists for the
+  // LATER attempt, which is the one this leaves without a duration.
+  it('a stop stamp lost three times gives up — and the stop still secures the take with its own measurement', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    failNextDurationStamps = 3
+    order.length = 0
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(500) // the two backoffs, and then some
+    await drain(200)
+
+    expect(metaOf(takeId).durationMs).toBeUndefined() // the stamp never landed
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // The recorder's own paused-aware seconds, not a store read.
+    expect(lastFinalized().durationSeconds).toBeCloseTo(5, 1)
+  })
+
   // ── ⚖ NO STOP STAMP, NO SECURING (fix round 6) ───────────────────────────
   // The isActive belt can only answer for the take the recorder in THIS runtime
   // holds. Stop, then navigate to 記録 before the tail flush resolves: the page
@@ -1976,11 +2053,14 @@ describe('secure at stop', () => {
   // whose fresh recorder held no take and whose offer read hid the one owed:
   // the audio stayed on the device for the whole page lifetime (the effect runs
   // once).
+  /** The singleton's live-take probe, exactly as RecordPageView passes it — to
+   *  the WORKLIST as well as to secureTake since fix round 13. */
+  const isActive = (id: string) => globalRecorder.isActiveTake(id)
+
   const mountDrain = async () => {
-    // The component's own two arguments: no recorder duration (this leg has no
-    // recorder) and the singleton's live-take probe.
-    const isActive = (id: string) => globalRecorder.isActiveTake(id)
-    for (const id of await listOwnStoppedUnsecuredTakeIds())
+    // The component's own arguments: no recorder duration (this leg has no
+    // recorder) and the singleton's live-take probe, on both calls.
+    for (const id of await listOwnStoppedUnsecuredTakeIds(false, isActive))
       await secureTake(port(), id, undefined, isActive)
   }
 
@@ -2065,6 +2145,83 @@ describe('secure at stop', () => {
     // launch drain, where the single-webview shell proves nothing is live.
     expect(metaOf(running).finalizedAt).toBeUndefined()
     expect(metaOf(running).secureError).toBeUndefined()
+  })
+
+  // ── ⚖ THE NATIVE SHELL'S SECOND PROOF (fix round 13) ─────────────────────
+  // The stop stamp is a best-effort write. When it loses AND the stop-time
+  // upload loses too, a reload takes the recorder singleton with it and the
+  // take was excluded from every drain — device-only, silent, until PR5.
+  // The phone apps are a SINGLE WebView: a page loading there means no recorder
+  // anywhere can be live, so an unstamped take with bytes that has been quiet
+  // past the grace is a stopped take whose stamp failed. Its audio may go.
+  it('the native shell drains an unstamped take that has gone quiet — a stop stamp that never landed', async () => {
+    const takeId = await keptTake() // flushed, never stopped, never stamped
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    asNativeShell()
+    await jest.advanceTimersByTimeAsync(20_000) // …and quiet past ACTIVE_GRACE_MS
+
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([takeId])
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // The flush window stands in for the measurement nobody stamped: 5 s of
+    // recording before the flush, and the 20 s of silence after it are NOT
+    // counted (updatedAt stops moving when the flushes do). A take PAUSED for
+    // twenty minutes would still finalize twenty minutes long — the documented
+    // trade, and the reason this is not the preferred number.
+    expect(lastFinalized().durationSeconds).toBeCloseTo(5, 1)
+  })
+
+  // …and never the take the recorder is still holding. This is the case no age
+  // or grace window can decide by itself (fix round 5): a PAUSED take flushes
+  // nothing, so it looks stale within seconds. Inside the single WebView the
+  // singleton IS the whole answer, which is why the rule asks it.
+  it('…but never a take the singleton is still holding, paused and silent', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.pause()
+    await drain()
+    asNativeShell()
+    await jest.advanceTimersByTimeAsync(20_000) // a paused take flushes nothing
+
+    expect(globalRecorder.state).toBe('paused')
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // Not failed — unfinished. And the moment it really stops, the leg runs.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    globalRecorder.stop()
+    await drain(200)
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ⚖ AND THE WEB KEEPS ROUND 5'S RULE. The same take, the same silence, on the
+  // open web — where ANOTHER SAME-ORIGIN TAB can be recording it and isActive
+  // cannot see into that tab at all. A finalized key is immutable, so sealing
+  // it here would truncate that recording forever. Stopped-only, unchanged.
+  it('the WEB never drains an unstamped take, however quiet — another tab may be recording it', async () => {
+    const takeId = await keptTake()
+    await jest.advanceTimersByTimeAsync(60_000) // three graces of silence
+
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect(metaOf(takeId).secureError).toBeUndefined()
+
+    // The belt refuses it too, not just the worklist: a caller that named this
+    // take directly gets the same answer on the web.
+    await secureTake(port(), takeId, undefined, isActive)
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
   })
 
   // The belt behind that filter. The store answers from a stamp on disk; only

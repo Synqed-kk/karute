@@ -31,7 +31,10 @@
 // stop off-page leaves no live recorder for the isActive belt to ask, and
 // sealing the segments flushed so far under the immutable key would truncate
 // the tail still being written. `durationMs` (stamped at onstop) or the stop
-// path's own argument is that proof.
+// path's own argument is that proof — and, inside the single-WebView shell
+// only, a take no recorder can be holding (fix round 13: the stamp is a
+// best-effort write, and losing it must not lose the take). One rule, one
+// home: take-store's isStoppedTake, which the drain's worklist reads too.
 //
 // AND NO CALL WAITS FOREVER (fix round 7, P1). A phone that walks out of
 // signal does not fail its requests — it STALLS them, and a stalled PUT held
@@ -54,6 +57,7 @@
 
 import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 import {
+  isStoppedTake,
   loadTakeBlob,
   markTakeFinalized,
   markTakeSecureError,
@@ -71,7 +75,17 @@ const DEFAULT_MIME = 'audio/webm'
  *  name the same take (a stop that failed offline, recovered on the next
  *  mount); without this they would PUT the same object twice concurrently and
  *  race each other's finalize. Module-level because the two callers share no
- *  object — the recorder singleton and a React effect. */
+ *  object — the recorder singleton and a React effect.
+ *
+ *  ITS REACH IS ONE RUNTIME, and saying so is the honest part (fix round 13).
+ *  A second browser tab has its own module instance and its own set, so two
+ *  tabs CAN both PUT the same take at once. That is survivable, by
+ *  construction rather than by luck: the key is immutable and per-take, so the
+ *  loser's PUT is refused as a duplicate (putSaysAlreadyThere below reads both
+ *  shapes of that refusal), and finalize is idempotent against the same object
+ *  — an exact retry answers `already`, which rides the ok arm. The cost of the
+ *  race is one wasted upload, never a lost or truncated take. The single-
+ *  WebView shell, which is where staff actually record, cannot have two. */
 const inFlight = new Set<string>()
 
 /** The PUT's deadline, in ms: this take's own bytes at ~50 KB/s, never under a
@@ -167,21 +181,41 @@ export async function secureTake(
     // one of the two is present exactly when a take is complete. Mark NOTHING:
     // an unfinished take has not failed at anything.
     //
-    // It is also the ONLY measurement this take will ever be finalized with:
-    // the flush window (updatedAt − startedAt) that used to stand in behind it
-    // counted paused time as recording, and this gate made it unreachable, so
-    // it is gone (fix round 7) rather than left as a floor nothing can reach.
-    const measuredSeconds =
+    let measuredSeconds =
       durationSeconds ?? (meta.durationMs !== undefined ? meta.durationMs / 1000 : undefined)
+    // ⚖ AND ON THE NATIVE SHELL, A LOST STAMP IS NOT A LOST TAKE (fix round
+    // 13). isStoppedTake is the store's own rule, read here so the belt and the
+    // drain's worklist can never disagree: inside the single-WebView shell a
+    // take that no live recorder is holding, has bytes, and has been quiet
+    // past the grace IS a stopped take whose best-effort stamp lost its write.
+    // On the web it answers false and this take is left exactly where round 5
+    // left it. Only then does the flush window come back:
+    //
+    // ⚠ (updatedAt − startedAt) counts PAUSED time as recording, so a take
+    // paused for twenty minutes finalizes twenty minutes long. It is the
+    // deliberate trade — a duration that is too generous versus audio that
+    // never leaves the phone — and it is reached ONLY when no recorder ever
+    // stamped this take. The transcript and the karute are unaffected; the
+    // number on the row is.
+    if (measuredSeconds === undefined && isStoppedTake(takeId, meta, isActive))
+      measuredSeconds = Math.max(0, meta.updatedAt - meta.startedAt) / 1000
     if (measuredSeconds === undefined) return
     // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
     // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
     if (meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError)) return
     const blob = await loadTakeBlob(takeId)
-    // No segments on disk yet (a kill before the first flush, persistence
-    // failed open to memory-only). Not an error, and not this PR's to fix.
-    if (!blob || blob.size === 0) return
+    // No segments on disk (a kill before the first flush, persistence failed
+    // open to memory-only). Nothing to send, and nothing this PR can fix — but
+    // it IS recorded now (fix round 13): without a mark the take carried no
+    // `lastSecureAttemptAt`, so the cooldown never started and the drain re-read
+    // its meta and its (empty) blob on every tick, forever. RETRYABLE on
+    // purpose — bytes can still arrive from a queued flush — it just costs one
+    // read a minute instead of one a tick.
+    if (!blob || blob.size === 0) {
+      await markTakeSecureError(takeId, 'no_segments')
+      return
+    }
 
     const mimeType = meta.mimeType || DEFAULT_MIME
 
