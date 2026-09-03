@@ -85,6 +85,32 @@ const PHONE = {
   tunedFor: '最適化対象：',
 } as const
 
+/** ⚖ THE DESK'S OWN NEW SENTENCES (S15), written from scratch in native
+ *  register — not one of them is a translation of an English line, and none
+ *  carries a mid-sentence dash. */
+const DESK = {
+  /** The trust row's disclosure. It names BOTH halves a reader might be asking
+   *  about, because the row it opens under is a row of counts and the two
+   *  questions those counts raise are 「what does an answer actually read?」 and
+   *  「is what I type kept?」. */
+  why: '回答が読み取るもの・相談の保存について',
+  /** …and the third line inside it: where the 今日 hints come from. The words
+   *  are the phone's own hint (`messages/ja.json` askAi.todayHintsHint), made a
+   *  whole sentence because here it stands on its own instead of under a
+   *  heading that already said 今日のヒント. */
+  hintNote: '質問のヒントの「今日」は、今日の予約とカルテから自動で提案しています。',
+  /** The dashed chip a shop with no 業種 wears, in the trust row's own grammar:
+   *  the same slot the 最適化対象 chip uses, saying what is missing instead. */
+  unsetType: '業種：未設定',
+  traceTitle: 'この画面の値の設定元',
+  traceLead: 'この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。',
+  /** The collapsed bar at the foot of the page. It names both of the things
+   *  behind it, so a reader who only wants the 見本データ note knows it is in
+   *  there too. */
+  footnoteBar: 'この画面の値の設定元 ・ 見本データについて',
+  undo: '元に戻す',
+} as const
+
 /** ⚖ THE PRIVACY LINE SAYS WHAT IS TRUE, and both halves come from the shipped
  *  contract rather than from a reassuring instinct:
  *  · nothing is kept — history lives in the client's own state and is re-sent
@@ -107,7 +133,10 @@ const PRIVACY = [
  *  them: the 設定 room builds LAST (contract v2), so until it lands this card is
  *  where a reader finds out that nothing is deciding these values yet. */
 const TRACE: Array<{ label: string; value: string; unconnected: boolean }> = [
-  { label: '提案の積極度', value: 'AI設定（未接続 — 設定画面は準備中です）', unconnected: true },
+  // ⚠ TRUTH-FIX AT THE MAIN-MOVED FOLD (S15): 「設定画面は準備中です」 stopped
+  // being true when the 設定 room merged (#812). It holds 予約と確保; the AI
+  // items are not in it yet, which is a narrower and honest thing to say.
+  { label: '提案の積極度', value: 'AI設定（未接続 — 設定画面にAIの項目がまだありません）', unconnected: true },
   { label: '提案のカテゴリ', value: 'AI設定（未接続 — 顧客フォロー / スタッフ配置・欠勤対応 / 予約・空き待ち案内 / VIP・ロイヤルティ）', unconnected: true },
   { label: '回答の言語', value: 'AI設定（未接続 — いまは日本語で表示しています）', unconnected: true },
   { label: '回答が読み取るデータ', value: 'この店舗のカルテとお客様の記録', unconnected: false },
@@ -208,6 +237,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
         signals: [],
         templates: [],
         tunedLabel: null,
+        unsetTypeLabel: DESK.unsetType,
         profileHint: null,
         turns: [],
         startHint: PHONE.startHint,
@@ -219,7 +249,12 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
         composer: { placeholder: PHONE.placeholder, hint: PHONE.inputHint, sendLabel: PHONE.sendLabel },
         refusals: { send: REFUSAL.send, settings: REFUSAL.settings },
         dismissToast: DISMISS_TOAST,
+        undoLabel: DESK.undo,
         footnote: FOOTNOTE,
+        why: { label: DESK.why, lines: [PHONE.subtitle, ...PRIVACY, DESK.hintNote] },
+        traceTitle: DESK.traceTitle,
+        traceLead: DESK.traceLead,
+        footnoteBarLabel: DESK.footnoteBar,
       },
       storeKey: clamped ? storeId! : 'all-stores',
     }
@@ -286,6 +321,7 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
       // type sets which prompt templates are the defaults, and says so. A shop
       // that has not chosen one gets the profileHint instead — never both.
       tunedLabel: type ? `${PHONE.tunedFor}${type.label}` : null,
+      unsetTypeLabel: DESK.unsetType,
       profileHint: type
         ? null
         : { title: PHONE.profileNotSet, body: PHONE.profileNotSetBody, cta: PHONE.profileCta },
@@ -299,7 +335,17 @@ export async function askAiProps({ locale, store, world }: AskAiPropsInput): Pro
       composer: { placeholder: PHONE.placeholder, hint: PHONE.inputHint, sendLabel: PHONE.sendLabel },
       refusals: { send: REFUSAL.send, settings: REFUSAL.settings },
       dismissToast: DISMISS_TOAST,
+      undoLabel: DESK.undo,
       footnote: FOOTNOTE,
+      // ⚖ THE HEAD'S SENTENCE MOVED, VERBATIM (S15 §2.2). `subtitle` is still
+      // the phone's own headerSubtitle and still a prop; it now reads inside the
+      // trust row's pop-down, beside the two privacy lines and the hint note,
+      // because the head became ONE compact title row. Dead prose FOLDS, it is
+      // never cut.
+      why: { label: DESK.why, lines: [PHONE.subtitle, ...PRIVACY, DESK.hintNote] },
+      traceTitle: DESK.traceTitle,
+      traceLead: DESK.traceLead,
+      footnoteBarLabel: DESK.footnoteBar,
     },
     storeKey: clamped ? storeId! : 'all-stores',
   }
