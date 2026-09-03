@@ -180,6 +180,7 @@ import {
   clearOwnTakes,
   getRecoverableTake,
   listOwnTakes,
+  listOwnUnsecuredTakeIds,
   listPendingDiscardTakes,
   loadTakeBlob,
   markTakeFinalized,
@@ -1150,5 +1151,93 @@ describe('secure at stop', () => {
     expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
     await secureTake(port(), takeId)
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ── The mount drain (fix round 3) ────────────────────────────────────────
+  // The record page's mount retry, in the two lines the component runs. It used
+  // to ride getRecoverableTake — the OFFER read, which hides a take flushed
+  // within ACTIVE_GRACE_MS because it might be live in another tab. A stop whose
+  // upload failed, plus a full reload inside those 20 s, therefore left a page
+  // whose fresh recorder held no take and whose offer read hid the one owed:
+  // the audio stayed on the device for the whole page lifetime (the effect runs
+  // once).
+  const mountDrain = async () => {
+    for (const id of await listOwnUnsecuredTakeIds()) await secureTake(port(), id)
+  }
+
+  it('a reload INSIDE the 20 s grace still secures the take the recovery read hides', async () => {
+    // The stop's own upload dies (phone locked, tunnel gone).
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+
+    // The page is reloaded 5 s later — well inside the grace.
+    await jest.advanceTimersByTimeAsync(5_000)
+    // The offer read says there is nothing (and the fresh recorder has no take
+    // of its own), which is exactly why the drain must not ask it.
+    expect(await getRecoverableTake([])).toBeNull()
+    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+
+    putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      order.push('put')
+      putBodies.push(init?.body as Blob)
+      return { ok: true, status: 200 } as unknown as Response
+    })
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  it('the drain names only takes the server LACKS — secured, terminally refused and segment-less takes are out', async () => {
+    const secured = await keptTake()
+    await secureTake(port(), secured)
+    expect(metaOf(secured).finalizedAt).toEqual(expect.any(Number))
+
+    const refused = await keptTake()
+    await markTakeSecureError(refused, 'forbidden') // can never turn into a yes
+
+    const empty = await startAndSettle() // a kill before the first flush
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+
+    const owed = await keptTake()
+    await markTakeSecureError(owed, 'busy') // retryable — the moment passed
+
+    expect(takes().size).toBe(4)
+    expect(await listOwnUnsecuredTakeIds()).toEqual([owed])
+    expect(await listOwnUnsecuredTakeIds()).not.toContain(empty)
+  })
+
+  it("another staff member's owed take is invisible to this device's drain", async () => {
+    const takeId = await keptTake()
+    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+
+    mockUid = 'staff-B'
+    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    mockUid = null
+    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    mockUid = 'staff-A'
+    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+  })
+
+  // Bytes are never gated on what a surface may SHOW: a discarded take still
+  // owes its words to the discard record, so its audio must still reach the
+  // server. (The offer read excludes it — that is a different question.)
+  it('a discarded take still owes its bytes — the drain names it', async () => {
+    const takeId = await keptTake()
+    await stampDiscardPending(takeId, {
+      recordingSessionId: 'rs-1',
+      durationSeconds: 60,
+      locale: 'ja',
+      stampedAt: Date.now(),
+    })
+    await passGrace()
+    expect(await getRecoverableTake([])).toBeNull() // never re-offered
+    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId]) // still sent
   })
 })

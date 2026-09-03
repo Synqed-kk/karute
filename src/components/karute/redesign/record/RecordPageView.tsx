@@ -14,6 +14,7 @@ import {
   deleteTake,
   getRecoverableTake,
   listOwnTakes,
+  listOwnUnsecuredTakeIds,
   loadTakeBlob,
   readTakeOutcome,
   stampDiscardPending,
@@ -722,17 +723,24 @@ export function RecordPageView({
     if (globalRecorder.state === 'recorded' && globalRecorder.takeId) {
       void secureTake(getRecordingPipelinePort(), globalRecorder.takeId)
     }
+    // Capture pipeline PR3 — the retry for every stop the network missed, on
+    // its OWN read (listOwnUnsecuredTakeIds), never the recovery one below.
+    // getRecoverableTake waits out a 20 s grace, so a failed stop-time upload
+    // plus a reload inside those 20 s used to leave a fresh page with no
+    // recorder take and a recovery read that hid it — the audio then stayed
+    // device-only for the whole page lifetime, because this effect runs once.
+    // Deliberately outside every UI branch and the cancelled check: whether
+    // this page keeps rendering has nothing to do with whether the audio is on
+    // the server. No UI, no toast — secureTake is idempotent (its in-flight
+    // guard and finalizedAt make the repeats free) and records its own outcome.
+    void (async () => {
+      const port = getRecordingPipelinePort()
+      for (const id of await listOwnUnsecuredTakeIds()) void secureTake(port, id)
+    })()
     void Promise.all([
       loadDraft(),
       getRecoverableTake([globalRecorder.takeId, globalPipeline.context?.takeId]),
     ]).then(([d, tk]) => {
-      // Capture pipeline PR3 — the ONE retry for a stop the network missed.
-      // Deliberately ahead of the cancelled check and outside every UI branch:
-      // whether this page keeps rendering, and whether a draft outranks the
-      // take for the banner, has nothing to do with whether the audio is on the
-      // server. No UI, no toast — secureTake is idempotent and records its own
-      // outcome. (PR5 replaces this with a full launch drain.)
-      if (tk && !tk.finalizedAt) void secureTake(getRecordingPipelinePort(), tk.takeId)
       if (cancelled) return
       setRecoveredDraft(d)
       setRecoveredTake(d ? null : tk)

@@ -121,6 +121,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   listOwnTakes: jest.fn(async () => [...stored].sort((a, b) => b.startedAt - a.startedAt)),
   // The BANNER stays out of the way in this suite — every assertion here is
   // about the inbox rows, and the banner has its own suite.
+  listOwnUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))

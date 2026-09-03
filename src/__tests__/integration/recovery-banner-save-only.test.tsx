@@ -108,6 +108,10 @@ const TAKE = {
   outcomeSkipped: undefined as boolean | undefined,
 }
 let offerTake = true
+/** What the store's drain read answers — the takes whose audio the server does
+ *  NOT have. Independent of `offerTake`: the recovery offer and the drain ask
+ *  different questions. */
+let unsecuredTakeIds: string[] = ['take-1']
 /** Per-test override of the offered take (e.g. an unbound walk-in one). Reset
  *  in afterEach — a mockResolvedValue would leak into every later test, since
  *  clearAllMocks clears CALLS, not implementations. */
@@ -128,6 +132,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // F-2: a draft's answer now survives a reload through the take id it already
   // carries. `stampedAnswer` is what a REMOUNT would read back.
   readTakeOutcome: jest.fn(async () => stampedAnswer),
+  // Capture pipeline PR3 fix round 3 — the mount DRAIN's own read. Separate
+  // from the offer below on purpose: the offer hides a take flushed inside the
+  // 20 s grace, and audio the server lacks must not be hidden by that.
+  listOwnUnsecuredTakeIds: jest.fn(async () => unsecuredTakeIds),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
@@ -217,6 +225,7 @@ afterEach(() => {
   mockDayFacts.mockReset()
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
   offerTake = true
+  unsecuredTakeIds = ['take-1']
   takeOverride = null
   stampedAnswer = null
   mockPipelineContext = null
@@ -2054,26 +2063,47 @@ describe('the new-pack payload is durable (Greptile #728)', () => {
 
 export {}
 
-// ── Capture pipeline PR3 — the record page's one secure retry ───────────────
+// ── Capture pipeline PR3 — the record page's secure retry ──────────────────
 // A stop that happened offline (or whose finalize died) leaves a take with
-// audio and no finalizedAt. Nothing else in the app would ever try again until
-// PR5's launch drain, so this mount is it — and it must be silent: no UI, no
-// toast, and no dependence on whether the banner ends up showing the take.
+// audio and no finalizedAt. Nothing else in the app would ever try again, so
+// this mount is it — and it must be silent: no UI, no toast, and no dependence
+// on whether the banner ends up showing the take.
 describe('the mount retry secures a take the stop could not', () => {
-  it('an unfinalized recoverable take is secured once, through the arm\'s own port', async () => {
+  it('every take the server lacks is secured once, through the arm\'s own port', async () => {
     await renderPage()
     expect(mockSecureTake).toHaveBeenCalledTimes(1)
     expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-1')
   })
 
-  it('a take already on the server is left alone', async () => {
-    takeOverride = { ...TAKE, finalizedAt: Date.now() }
+  // Fix round 3 — THE reason the drain has its own store read. The recovery
+  // offer hides a take flushed inside the 20 s grace (it could be live in
+  // another tab), so a stop whose upload failed, plus a reload seconds later,
+  // used to leave the audio device-only for the whole page lifetime: the fresh
+  // recorder has no take and the offer said nothing. Ask the drain instead and
+  // the take is still named.
+  it('a take the recovery offer HIDES is secured all the same', async () => {
+    offerTake = false
+    unsecuredTakeIds = ['take-hidden-by-the-grace']
     await renderPage()
-    expect(mockSecureTake).not.toHaveBeenCalled()
+    expect(mockSecureTake).toHaveBeenCalledTimes(1)
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-hidden-by-the-grace',
+    )
   })
 
-  it('no take to recover, nothing to secure', async () => {
+  it('more than one owed take is drained — each secured once', async () => {
+    unsecuredTakeIds = ['take-1', 'take-2']
+    await renderPage()
+    expect(mockSecureTake).toHaveBeenCalledTimes(2)
+    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-2')
+  })
+
+  // The finalized/terminal exclusions now live in the store read (one home for
+  // the rule); from the page's side "nothing owed" is simply an empty list.
+  it('nothing owed, nothing secured', async () => {
     offerTake = false
+    unsecuredTakeIds = []
     await renderPage()
     expect(mockSecureTake).not.toHaveBeenCalled()
   })
@@ -2085,6 +2115,7 @@ describe('the mount retry secures a take the stop could not', () => {
   // audio waits for a cold relaunch.
   it("the recorder's own stopped take is retried too, though recovery never offers it", async () => {
     offerTake = false // nothing recoverable — this take IS the live one
+    unsecuredTakeIds = [] // and the store has not seen it yet either
     globalRecorder.state = 'recorded'
     globalRecorder.takeId = 'take-live-1'
     try {
@@ -2099,6 +2130,7 @@ describe('the mount retry secures a take the stop could not', () => {
 
   it('a recorder that never stopped is left alone — nothing to secure mid-recording', async () => {
     offerTake = false
+    unsecuredTakeIds = []
     globalRecorder.state = 'recording'
     globalRecorder.takeId = 'take-live-1'
     try {

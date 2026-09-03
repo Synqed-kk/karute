@@ -46,6 +46,32 @@ const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000
  *  offering — and letting a save delete — another tab's in-progress audio. */
 const ACTIVE_GRACE_MS = 20_000
 
+/** Secure-attempt refusals that CANNOT become a yes by trying again, so trying
+ *  again is pure cost — and the cost here is a whole take (43 MB on cellular)
+ *  re-uploaded on every mount, forever. The door refuses these on facts that do
+ *  not change: the input is malformed, the caller is not allowed, the object's
+ *  bytes already disagree with the key, or there is no row to write. Everything
+ *  else — busy, network, upload_<status>, mint_<status>, object_missing — is a
+ *  moment in time and stays retryable.
+ *
+ *  ⚠ These takes are NOT abandoned: the audio stays on the device and the take
+ *  stays plainly un-finalized, which is what surfaces it as 要対応 (R10) for a
+ *  human. What stops is the automatic re-PUT.
+ *
+ *  It lives HERE, beside the `secureError` field it judges, because both of its
+ *  readers need it — secure-take's own guard and listOwnUnsecuredTakeIds below.
+ *  (Importing it the other way round would make this module and secure-take a
+ *  cycle.) One home, one list. */
+export const TERMINAL_SECURE_ERRORS = new Set([
+  'bad_input',
+  'forbidden',
+  'size_mismatch',
+  'not_found',
+  // The device could not mint a uuid, so composeTakeKey will refuse this take
+  // id for as long as it exists (global-recorder stamps it at create).
+  'no_uuid',
+])
+
 export type TakeMeta = {
   takeId: string
   /** Auth user id (Supabase auth.uid) of the staff member who recorded it. */
@@ -98,8 +124,8 @@ export type TakeMeta = {
    *  ('busy' | 'object_missing' | 'failed' | …), 'upload_<status>' for a refused
    *  PUT, 'mint_<status>' for a refused mint, or 'network' for a throw. A
    *  success clears it. Mostly diagnostic — the one thing that READS it is
-   *  secure-take's TERMINAL set, which stops re-uploading whole takes against a
-   *  refusal that can never turn into a yes. */
+   *  TERMINAL_SECURE_ERRORS above, which stops re-uploading whole takes against
+   *  a refusal that can never turn into a yes. */
   secureError?: string
   /** The recorder's OWN measurement of this take, stamped at stop. It subtracts
    *  paused time, which no store-side estimate can: the retry's only other
@@ -572,6 +598,47 @@ export async function getRecoverableTake(
   excludeTakeIds: ReadonlyArray<string | null | undefined> = [],
 ): Promise<RecoverableTake | null> {
   return (await listOwnTakes(excludeTakeIds))[0] ?? null
+}
+
+/** Every take of the SIGNED-IN user whose audio the SERVER DOES NOT HAVE — the
+ *  launch drain's worklist (capture pipeline PR5, in miniature).
+ *
+ *  Deliberately NOT listOwnTakes. That read is the recovery OFFER, and its 20 s
+ *  ACTIVE_GRACE_MS hides a take flushed moments ago (it might be live in another
+ *  tab). Offering is one question; getting the bytes off the device is another:
+ *  a stop whose upload failed, followed by a reload inside those 20 s, left the
+ *  fresh page with no recorder take and a recovery read that hid the take — so
+ *  the audio stayed device-only for the whole page lifetime.
+ *
+ *  BYTES ARE NEVER GATED. No grace, no discardPending filter (a discarded take
+ *  still owes its words), no consent or binding filter — those decide what is
+ *  SHOWN and what is KEPT, never whether the recording reaches the server.
+ *  Exactly three facts exclude a take: it is already finalized, its last refusal
+ *  can never turn into a yes (TERMINAL_SECURE_ERRORS), or nothing has been
+ *  flushed to disk yet (lastSeq < 0 — there is literally nothing to send).
+ *  Owner-gated like every other read here. */
+export async function listOwnUnsecuredTakeIds(): Promise<string[]> {
+  try {
+    const db = await openDb()
+    if (!db) return []
+    const uid = await currentUserId()
+    if (!uid) return []
+    const metas = (await req(
+      db.transaction(TAKES).objectStore(TAKES).getAll(),
+    )) as TakeMeta[]
+    return metas
+      .filter(
+        (m) =>
+          m.ownerUid === uid &&
+          !m.finalizedAt &&
+          !(m.secureError && TERMINAL_SECURE_ERRORS.has(m.secureError)) &&
+          m.lastSeq >= 0,
+      )
+      .map((m) => m.takeId)
+  } catch (err) {
+    console.error('[take-store] listOwnUnsecuredTakeIds failed:', err)
+    return []
+  }
 }
 
 /** Reassemble a take's audio from its persisted segments, in seq order.

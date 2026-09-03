@@ -24,32 +24,12 @@ import {
   markTakeSecureError,
   readTakeSecureMeta,
   stampTakeSession,
+  TERMINAL_SECURE_ERRORS,
 } from '@/lib/karute/take-store'
 
 /** Takes stamped before the recorder persisted its negotiated container. The
  *  same default the mint applies server-side with no client input. */
 const DEFAULT_MIME = 'audio/webm'
-
-/** Refusals that CANNOT become a yes by trying again, so trying again is pure
- *  cost — and the cost here is a whole take (43 MB on cellular) re-uploaded on
- *  every mount, forever. The door refuses these on facts that do not change:
- *  the input is malformed, the caller is not allowed, the object's bytes
- *  already disagree with the key, or there is no row to write. Everything else
- *  — busy, network, upload_<status>, mint_<status>, object_missing — is a
- *  moment in time and stays retryable.
- *
- *  ⚠ These takes are NOT abandoned: the audio stays on the device and the take
- *  stays plainly un-finalized, which is what surfaces it as 要対応 (R10) for a
- *  human. What stops is the automatic re-PUT. */
-const TERMINAL = new Set([
-  'bad_input',
-  'forbidden',
-  'size_mismatch',
-  'not_found',
-  // The device could not mint a uuid, so composeTakeKey will refuse this take
-  // id for as long as it exists (global-recorder stamps it at create).
-  'no_uuid',
-])
 
 /** A refusal a port could NAME, riding on the throw. Duck-typed like
  *  finalize-take's own statusOf — structural, so it survives the two module
@@ -89,9 +69,10 @@ export async function secureTake(
     // Gone, another staffer's, or already secured — all three mean there is
     // nothing to do, and the finalizedAt read is what makes a second call free.
     if (!meta || meta.finalizedAt) return
-    // A refusal that can never turn into a yes — see TERMINAL. Read BEFORE the
+    // A refusal that can never turn into a yes — see TERMINAL_SECURE_ERRORS
+    // (it lives in take-store, beside the field it judges). Read BEFORE the
     // blob so a terminal take costs one meta read, not a re-upload.
-    if (meta.secureError && TERMINAL.has(meta.secureError)) return
+    if (meta.secureError && TERMINAL_SECURE_ERRORS.has(meta.secureError)) return
     const blob = await loadTakeBlob(takeId)
     // No segments on disk yet (a kill before the first flush, persistence
     // failed open to memory-only). Not an error, and not this PR's to fix.
