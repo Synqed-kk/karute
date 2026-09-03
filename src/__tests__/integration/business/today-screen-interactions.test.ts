@@ -1246,24 +1246,51 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const wrapper = SRC.indexOf('export function bedViewsFor(')
     expect(wrapper).toBeGreaterThan(-1)
     expect(SRC.indexOf('bedTruthViews(', wrapper)).toBeGreaterThan(wrapper)
-    // …and the wrapper is CALLED exactly three times: the frame's book, ⚖ 39's
-    // own book for a caller that handed in a different board, and — ⚖ PIN
-    // MIGRATED at E3a, WITH the decision — the COMMITTED world's book.
+    // …and the wrapper is CALLED exactly twice ON THIS SCREEN: the frame's
+    // book, and ⚖ 39's own book for a caller that handed in a different board.
     //
-    // R3's invariant is unchanged and this is not a loophole in it: what it
-    // forbids is a reader helping itself to a world nobody named. SPEC-SELLING-
-    // ENGINE §2 names this one. It requires ONE mask builder over TWO world
-    // instances — the sales door prices the COMMITTED board (the measured WO-2d
-    // ruling, pinned two describes above) and the staff door's verdicts read the
-    // BOARD world — so a mask for the sales door cannot be answered out of the
-    // frame's book without handing the priced layers the pointer's position,
-    // which is the very thing this file's tripwire exists to stop.
+    // ⚖ PIN MIGRATED at E3a, WITH the decision — the COMMITTED world's book
+    // joined them as a third call. R3's invariant was unchanged and that was
+    // not a loophole in it: what it forbids is a reader helping itself to a
+    // world nobody named. SPEC-SELLING-ENGINE §2 names this one. It requires
+    // ONE mask builder over TWO world instances — the sales door prices the
+    // COMMITTED board (the measured WO-2d ruling, pinned two describes above)
+    // and the staff door's verdicts read the BOARD world — so a mask for the
+    // sales door cannot be answered out of the frame's book without handing the
+    // priced layers the pointer's position, which is the very thing this file's
+    // tripwire exists to stop.
     //
-    // It is also GATED: the call sits behind `SELLING_ENGINE_LAW`, so until E3b
-    // flips it there is no third book at runtime at all. Both halves asserted —
-    // the count, and that the new site is the gated one. (+1 for the definition.)
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
-    expect(SRC).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null')
+    // ⚖ MIGRATED AGAIN at ROUND 1 OF THE R5 POST-MERGE FIX ROUND, WITH the same
+    // decision. That third call has MOVED OFF THIS SCREEN, into
+    // `heldCommittedFor` (held-committed.ts) — the screen was building the
+    // committed book in a memo of its own, which is a seam no unit test could
+    // reach, and a blind mutation lens went through it (pre-gate the book memo
+    // on the store's dial and a guarded store silently gets no mask). The
+    // invariant is what it always was: ONE door, and every walk through it
+    // named. So the count here drops by one and the third walk is pinned where
+    // it now lives — including that it is still GATED, still built from the
+    // committed lanes, and still holding nobody's hand. (+1 for the definition.)
+    //
+    // ⚖ MIGRATED AGAIN at ROUND 2, and the invariant got STRONGER rather than
+    // moving. The wrapper used to IMPORT this door out of the screen, so the
+    // two files imported each other; now the screen HANDS IT IN (`bookOf`).
+    // The count here is unchanged — measured, not assumed: the new line passes
+    // `bedViewsFor` as a value with no parenthesis, so the three calls are
+    // still the definition and the two on this screen. What changed is the
+    // wrapper's half: it walks the door it was GIVEN, and it is pinned that it
+    // cannot name this screen or `bedTruthViews` to find another one
+    // (selling-engine-doors.test.ts §1). One door, every walk still named.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    expect(SRC).not.toContain('bedViewsFor(committedLanes')
+    expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
+    expect(SRC).toContain('bookOf: bedViewsFor,')
+    const WRAPPER = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/held-committed.ts'),
+      'utf8',
+    )
+    expect(WRAPPER.split('bookOf(').length - 1).toBe(1)
+    expect(WRAPPER).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    expect(WRAPPER).not.toContain('./TodayScreen')
   })
 })
 
