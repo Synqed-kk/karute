@@ -64,6 +64,10 @@ export function routeSheets(biz, dir = biz, out = []) {
  *  quoted `}` closed blocks early (splitting `[data-guide="}"]` heads, turning
  *  keyframe stops back into "selectors"). A guard that goes blind is worse than
  *  no guard, so content is stepped over here rather than trusted to be rare.
+ *  Inside either body a backslash is a CSS escape and consumes the next
+ *  character, so `\)` `\"` `\{` `\}` `\;` are content too — an unquoted
+ *  `url(a\)b{c}d)` used to close the paren on its escaped `)` and then read the
+ *  `{` behind it as structure, recording the declaration itself as a selector.
  *  Comments are read in the same pass and not pre-stripped: a quote only starts
  *  a string outside a comment (so prose like `don't` is inert), and `/*` only
  *  starts a comment outside a string. String and paren bodies still land in
@@ -79,13 +83,15 @@ export function selectorsOf(css) {
   let parens = 0
   for (let i = 0; i < css.length; i += 1) {
     const ch = css[i]
+    // One escape rule for both content bodies — a string and a `(...)` body: a
+    // backslash consumes the next character, whatever it is (a line
+    // continuation included), so no escaped delimiter ever moves the walker.
+    if ((quote || parens > 0) && ch === '\\') { head += ch + (css[i + 1] ?? ''); i += 1; continue }
     if (quote) {
       head += ch
-      // A backslash escapes the next character (including a line continuation);
-      // an unescaped newline ends a bad string, per spec — so a typo'd quote
+      // An unescaped newline ends a bad string, per spec — so a typo'd quote
       // cannot swallow the rest of the sheet either.
-      if (ch === '\\') { head += css[i + 1] ?? ''; i += 1 }
-      else if (ch === quote || ch === '\n') quote = null
+      if (ch === quote || ch === '\n') quote = null
       continue
     }
     if (ch === '/' && css[i + 1] === '*') {

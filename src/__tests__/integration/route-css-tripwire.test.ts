@@ -128,6 +128,33 @@ describe('the tripwire detects what it claims to detect', () => {
     ).toEqual([['.biz .board', ['today.css', 'reservations.css']]])
   })
 
+  it('reads an ESCAPED `)` in an unquoted url() as CONTENT, so the paren does not close early', () => {
+    // ⚠ Greptile on this PR: inside `url(...)` a backslash-escaped `\)` was
+    // counted as a real closing paren, so the walker left url state mid-value
+    // and read the `{` behind it as STRUCTURE — recording the declaration
+    // itself (`background: url(data:image/svg+xml,…<style>i`) as a selector in
+    // BOTH sheets, which is a false collision on text no room wrote as a rule.
+    // The real selector after the block must still be the ONLY thing reported.
+    expect(
+      findCollisions([
+        sheet('today.css', '.biz .page-today .icon { background: url(data:image/svg+xml,<svg><text>\\)</text><style>i{fill:red}</style></svg>); }\n.biz .board { gap: 8px; }'),
+        sheet('reservations.css', '.biz .page-reservations .icon { background: url(data:image/svg+xml,<svg><text>\\)</text><style>i{fill:red}</style></svg>); }\n.biz .board { gap: 12px; }'),
+      ]),
+    ).toEqual([['.biz .board', ['today.css', 'reservations.css']]])
+  })
+
+  it('reads an ESCAPED quote inside a string as CONTENT, so the string does not end early', () => {
+    // The same escape rule on the other body: `\"` inside a quoted attribute
+    // value keeps the string open, so the `}` after it stays content and the
+    // whole head survives as one selector.
+    expect(
+      findCollisions([
+        sheet('today.css', '.biz [data-guide="a\\"}"] .board { gap: 8px; }'),
+        sheet('reservations.css', '.biz [data-guide="a\\"}"] .board { gap: 12px; }'),
+      ]),
+    ).toEqual([['.biz [data-guide="a\\"}"] .board', ['today.css', 'reservations.css']]])
+  })
+
   it('does not report an @media HEAD shared by two sheets as a collision', () => {
     // Every room has a 768px breakpoint. If the at-rule head were recorded as a
     // selector, that shared head would be a false collision in almost every PR
