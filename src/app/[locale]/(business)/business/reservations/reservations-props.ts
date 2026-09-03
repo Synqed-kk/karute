@@ -23,7 +23,7 @@
 // THE WINDOW is today plus six days, canon's own 7-day span, derived from the
 // clock rather than typed (⚖ L-6). Past bookings belong to 来店履歴 on 顧客.
 
-import { jstDayKey, jstMinuteOfDay, jstSlot } from '@/business/lib/clock'
+import { jstDayKey, jstMinuteOfDay, jstSlot, jstYmd } from '@/business/lib/clock'
 import {
   defaultStoreId,
   listAppointments,
@@ -36,9 +36,12 @@ import {
   renderNow,
   type StoreLens,
 } from '@/business/lib/data'
+import type { FixtureAppointment } from '@/business/lib/fixtures'
+import type { FixtureReservation } from '@/business/lib/fixtures-reservations'
 import {
   eligibilityOf,
   lifecycleOf,
+  noShowCountOf,
   qualificationTextOf,
   shiftWarningOf,
   sourceOf,
@@ -49,6 +52,11 @@ import type { ReservationRow, ReservationsProps, SlotOption } from './Reservatio
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 
+/** 曜日, spelled ONCE and on the server. The day header reads 「9月3日(水)」 and
+ *  the screen holds no calendar at all, so the weekday is taken off the same
+ *  `jstYmd` the rest of the family reads rather than parsed from a string. */
+const WEEKDAY = ['日', '月', '火', '水', '木', '金', '土']
+
 /** Canon's span: today and the six days after it. */
 const WINDOW_DAYS = 7
 
@@ -57,6 +65,19 @@ export interface ReservationsPropsInput {
   /** The raw `?store=` value. Unknown or missing opens on the operator's own
    *  store, never the business-wide merge — `defaultStoreId` owns that rule. */
   store?: string
+  /** FIXTURE-SHAPED WORLD OVERRIDES, and the route never passes them. The
+   *  evidence harness needs worlds this demo plane does not contain — a twelve
+   *  item 要対応 rail, a sixty-row week, a store that has nothing to decide —
+   *  and the only honest way to picture any of them is to run the REAL
+   *  derivations on a different fixture world, never a class toggle or a
+   *  hand-written replica. Every field is exactly the shape its fixture module
+   *  exports, and the LENS still decides: the one line below applies the door's
+   *  own clamp to whatever the harness supplies, so a synthetic world cannot
+   *  smuggle another store's booking past the isolation proof. */
+  world?: {
+    appointments?: FixtureAppointment[]
+    reservations?: FixtureReservation[]
+  }
 }
 
 export interface ReservationsPropsResult {
@@ -74,6 +95,7 @@ export interface ReservationsPropsResult {
 export async function reservationsProps({
   locale,
   store,
+  world,
 }: ReservationsPropsInput): Promise<ReservationsPropsResult> {
   const storeOptions = await listStoreOptions()
   // A missing or unknown ?store= opens on the operator's own store, never the
@@ -83,7 +105,7 @@ export async function reservationsProps({
   const storeId = defaultStoreId(store, storeOptions)
   const clamped = storeId !== null
   const lens: StoreLens = clamped ? storeId! : { viewAll: true }
-  const props = await reservationsPropsFor(locale, lens, clamped, storeId ?? undefined, storeOptions)
+  const props = await reservationsPropsFor(locale, lens, clamped, storeId ?? undefined, storeOptions, world)
   return { props, storeKey: clamped ? storeId! : 'all-stores' }
 }
 
@@ -97,6 +119,7 @@ export async function reservationsPropsFor(
   clamped: boolean,
   store: string | undefined,
   storeOptions: Array<{ id: string; name: string }>,
+  world?: ReservationsPropsInput['world'],
 ): Promise<ReservationsProps> {
   // ONE CLOCK ANCHOR PER RENDER (the #724 finding, and this page had the same
   // exposure). The fixture calendar is RELATIVE, so a second bare clock read
@@ -107,8 +130,12 @@ export async function reservationsPropsFor(
   const from = jstSlot(0, 0, 0, now)
   const to = jstSlot(WINDOW_DAYS, 0, 0, now)
 
-  const [appointments, customers, menus, staff, resources, planes] = await Promise.all([
+  const [doorWindow, doorAll, customers, menus, staff, resources, planes] = await Promise.all([
     listAppointments(lens, { from, to }),
+    // The SAME lens, unwindowed — the customer's own past, which the 来店なし
+    // memory below counts over. The window above is today-forward by design
+    // (⚖ L-6), and a customer's history sits behind it.
+    listAppointments(lens),
     listCustomers(lens),
     listMenus(lens),
     listStaff(lens),
@@ -116,16 +143,42 @@ export async function reservationsPropsFor(
     readReservationPlanes(lens),
   ])
 
+  // ⚠ THE LENS STILL DECIDES. A harness world is filtered by the door's own
+  // clamp before anything reads it, so a synthetic booking cannot enter a store
+  // it does not belong to — the isolation proof runs through this line too.
+  const storeId = clamped ? store! : null
+  const inLens = (rows: FixtureAppointment[]) =>
+    clamped ? rows.filter((a) => a.store_id === storeId) : rows
+  const appointments = world?.appointments
+    ? inLens(world.appointments).filter((a) => a.starts_at >= from && a.starts_at < to)
+    : doorWindow
+  const historyScope = world?.appointments ? inLens(world.appointments) : doorAll
+  const exceptionPlane = world?.reservations ?? planes.reservations
+
   const customerById = new Map(customers.map((c) => [c.id, c]))
   const menuById = new Map(menus.map((m) => [m.id, m]))
   const staffName = new Map(staff.map((s) => [s.id, s.full_name]))
   const resourceName = new Map(resources.map((r) => [r.id, r.name]))
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
-  const recordById = new Map(planes.reservations.map((r) => [r.appointment_id, r]))
+  const recordById = new Map(exceptionPlane.map((r) => [r.appointment_id, r]))
   const shiftOf = (id: string | null) => planes.shifts.find((s) => s.staff_id === id) ?? null
 
   const todayKey = jstDayKey(now)
   const closeMinute = planes.operatingHours.close
+
+  /** 来店なし memory's own scope, shaped once so the pure counter needs no
+   *  clock and no calendar of its own. */
+  const noShowScope = historyScope.map((a) => ({
+    id: a.id,
+    customerId: a.customer_id,
+    boardState: a.board_state,
+    dayKey: jstDayKey(a.starts_at),
+    endMinute: jstMinuteOfDay(a.ends_at),
+  }))
+  /** ⚖ ONE PINNED CLOCK. The cut for 「already happened」 is the board's own
+   *  13:24, not the wall clock — the same moment every countdown on this page is
+   *  measured against, so the number is identical on every render. */
+  const nowPoint = { dayKey: todayKey, minute: planes.boardNow }
 
   const rows: ReservationRow[] = appointments
     .map((a) => {
@@ -139,15 +192,20 @@ export async function reservationsPropsFor(
       const dayKey = jstDayKey(a.starts_at)
       const isToday = dayKey === todayKey
       const who = a.staff_id ? (staffName.get(a.staff_id) ?? '担当未定') : '担当未定'
+      const at = new Date(a.starts_at)
 
       return {
         id: a.id,
         no: a.display_no,
-        dateLabel: fmtDay.format(new Date(a.starts_at)),
+        dateLabel: fmtDay.format(at),
+        // 「9月3日(水)」 — the day header's own label, built here for the same
+        // reason every other date is: the screen must never parse one.
+        dayLabel: `${fmtDay.format(at)}(${WEEKDAY[jstYmd(at).wd]})`,
         dayKey,
         isToday,
         startMinute,
         durationMinutes: endMinute - startMinute,
+        startLabel: hhmm(startMinute),
         timeLabel: `${hhmm(startMinute)}–${hhmm(endMinute)}`,
         customerName: customer?.name ?? '—',
         // La Estro's menus table is empty in production (contract §5), so the
@@ -186,6 +244,9 @@ export async function reservationsPropsFor(
         // Derived from the absence record the board's incident band is built on.
         staffUnavailable: isToday && suppressedByAbsence({ staff_id: a.staff_id, startMinute }, planes.absence),
         settled: a.settlement === 'settled',
+        // ⚖ rider #3 — how many times this customer has already not turned up,
+        // in this lens, before the pinned moment. Quiet memory, never a verdict.
+        noShowCount: noShowCountOf(noShowScope, a.customer_id, a.id, nowPoint),
         ...registerEvidence(a.id, a.settlement, planes.register),
       }
     })
