@@ -1,240 +1,577 @@
-/* 顧客 screen CSS — LIFTED from fable-store-customers.html (its own <style>,
-   lines 105-264) plus the three w2-bookings-customers.css rules its markup
-   uses (.w2-provenance / .w2-off-list / .w2-cross-store-group). Scoped under
-   `.biz` for the same reason business-shell.css is: canon owns a document,
-   this owns a route segment. Class names, sizes and colours are canon's.
+/* 顧客 — the room's sheet, rebuilt to the ACCEPTED MOCK (CUSTOMERS-MOCK-v1.html).
 
-   Canon's long Japanese engineering notes about column-width arithmetic are
-   kept where they explain a value, because the values are the ones being
-   preserved.
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · one compact title row;
+     · the five stat tiles, which ARE the filters, with a sliding wash behind
+       the pressed one;
+     · the duplicate triage strip, only when there is something to triage;
+     · the dense 52px list beside the sectioned inspector;
+     · the provenance footnote, opening downward in flow;
+     · and, over all of it, the compare drawer, the create dialog, the toast and
+       the four tour layers.
 
-   ONE STRUCTURAL CHANGE: canon's `#customerPanel { --fx-cols: … }` is a fixed
-   4-column track list that fable-shared.js rewrites when the optional columns
-   are toggled. Here the screen owns its own column state, so it hands the
-   panel BOTH track lists as custom properties and the media query below picks
-   between them — same widths, same 1320px breakpoint, no shared harness. */
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
-/* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE-2026-08-19, ADDENDUM 2): canon's
-   .btn weight disagrees per page (customers 600 / today 500 / settings 700) —
-   parity is each screen matching ITS OWN canon, so the shared shell sheet's
-   today-sourced 500 base is overridden back to 600 here, scoped to `.page`
-   (this screen's own root, holding every button incl. the dialog) so it
-   never reaches the shared sidebar/topbar chrome. */
-.biz .page .btn { font-weight: 600; }
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.page-customers`, and the screen puts that class on exactly one node — so
+   nothing here can restyle 今日の運営 / 予約一覧 / 受信トレイ / 売上・レジ /
+   カルテ / 録音 / 売上分析 / スタッフ・シフト / 設定 after a client-side
+   navigation leaves this sheet in the document.
 
-.biz .page.page-customers { padding: 24px 28px 40px; }
-.biz .page-customers .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
-.biz .page-customers .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .05em; }
-.biz .page.page-customers h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .page-customers .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.biz .head-actions { display: flex; align-items: center; gap: 8px; }
+   INCOMING (another room's sheet reaching THIS one). `.page-customers` does
+   nothing about it: App Router keeps every sibling sheet loaded, and the
+   neighbours state BARE `.biz .<name>` rules on names canon's pages share.
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries a `cu-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` / `workspace` / `dialog` are the only shared names this
+   sheet states, and each is fenced below at FOUR levels
+   (`.biz .page.page-customers …`) so a sibling's three-level rule cannot win on
+   insertion order. Derived FRESH from today's nine sibling route sheets by the
+   room's own probe and by `npm run audit:route-css`.
 
-.biz .page-customers .summary {
-  display: grid;
-  grid-template-columns: minmax(280px, 1.5fr) repeat(4, minmax(112px, .55fr));
-  margin-bottom: 14px;
-  border: 1px solid #dfe5fb;
-  border-radius: 11px;
-  background: #fafbff;
-  overflow: hidden;
-}
-.biz .page-customers .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
-.biz .page-customers .summary-main strong { display: block; font-size: 15px; }
-.biz .page-customers .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.biz .page-customers .summary-stat { display: grid; align-content: center; padding: 10px 13px; border-left: 1px solid #e5e9f7; }
-.biz .page-customers .summary-stat span { color: var(--muted); font-size: 12px; }
-.biz .page-customers .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
-.biz .summary-stat b.attention { color: var(--red); }
+   ⚖ THE ROOT CLASS STAYS `page page-customers` (⚖-ADJ R). Three neighbour pins
+   name that spelling — the today suite's exact root string, its
+   `.biz .page-customers .workspace {…grid-template-columns}` read and its
+   `.biz .page-customers dialog {` dresser — so no `pg-customers` is invented.
 
-.biz .identity-alert {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin: 0 0 14px;
-  padding: 13px 14px;
-  border: 1px solid #f0c9c5;
-  border-left: 3px solid var(--red);
-  border-radius: 10px;
-  background: var(--red-soft);
-}
-.biz .identity-alert strong { display: block; color: var(--red); font-size: 15px; }
-.biz .identity-alert > div > span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
+   ⚠ THE ROOM'S OWN BARE `.biz .page .btn { font-weight: 600 }` IS RETIRED. Its
+   job was canon-600 parity for a design this round replaces; the mock's buttons
+   are `cu-btn-*`, and the only `.btn`s left in the room are the create dialog's,
+   which state their weights at four levels below. Two neighbour suites
+   (`register` / `karute`) DERIVE their collision list from this sheet, so both
+   lose their `customers::.biz .page .btn` entry in the same pass.
 
-.biz .page-customers .workspace { display: grid; grid-template-columns: minmax(570px, 1fr) 400px; gap: 14px; align-items: start; }
-.biz .page-customers .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
-.biz .page-customers .panel-head {
-  min-height: 62px;
-  padding: 10px 15px;
-  border-bottom: 1px solid var(--line-2);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  background: #fafafb;
-}
-.biz .page-customers .panel-head strong { display: block; font-size: 15px; }
-.biz .page-customers .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .search-row { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); }
-.biz .search { min-height: 42px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
-.biz .page-customers .filters { display: flex; gap: 7px; padding: 10px 12px; border-bottom: 1px solid var(--line-2); overflow-x: auto; }
-.biz .filter { min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
-.biz .filter[aria-pressed="true"] { border-color: var(--select-line); background: var(--select-bg); color: var(--select-ink); }
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice; ⚖-ADJ E): the page scrolls and NOTHING
+   ELSE does. The mock's `.scrollrows`, its `.insp-body{overflow-y:auto}`, its
+   `.content{overflow:hidden}` and this room's old
+   `.detail{max-height…overflow-y:auto}` are all retired. `overflow-y` appears
+   nowhere in this sheet. `overflow-x: auto` appears TWICE and both are NAMED:
+   the phone band's tile chip strip and the list body at widths where the
+   optional columns genuinely exceed the page. The inspector is sticky and
+   UNCAPPED, which is the family's own answer in 受信トレイ / 売上・レジ /
+   カルテ.
 
-.biz .page-customers .list-head {
-  display: grid;
-  grid-template-columns: var(--fx-cols);
-  gap: 10px;
-  padding: 9px 13px;
-  border-bottom: 1px solid var(--line-2);
-  color: var(--quiet);
-  font-size: 12px;
-  font-weight: 800;
-}
-/* 列幅の正本はカスタムプロパティ1本。下限の合計は .workspace の 570px フロアに
-   収める必要がある（170+126+120+92 ＋隙間30＋余白26 = 564 ≤ 568）。 */
-.biz #customerPanel { --fx-cols: var(--fx-wide); }
+   ⚠ NO `overflow: hidden` ON ANYTHING THAT HOLDS A CONTROL (a clipped focus ring
+   is not a ring — the room-3 F2 lesson). Text truncation uses it on spans that
+   hold words; the two collapse panels use `overflow: clip`, which cannot become
+   a scroll container at all.
 
-.biz .customer-row .num { font-variant-numeric: tabular-nums; }
-.biz .customer-list { min-height: 410px; }
-.biz .customer-row {
-  display: grid;
-  grid-template-columns: var(--fx-cols);
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  min-height: 82px;
-  padding: 10px 13px;
-  border: 0;
-  border-bottom: 1px solid var(--row);
-  background: #fff;
-  color: var(--ink);
-  text-align: left;
-}
-.biz .customer-row:hover { background: #fafafb; }
-.biz .customer-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
-.biz .person { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.biz .person-mark {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-  border-radius: 50%;
-  background: #f0f0f3;
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 800;
-}
-.biz .person-mark.long { font-size: 10px; letter-spacing: -0.5px; }
-/* 名前は識別子で、折るところが無い。nowrap にするとこの列の min-content ＝
-   「その名前が折れずに収まる幅」そのものになり、列を足しても引いても
-   ブラウザが測り直す。補足行（顧客番号・電話）は「 / 」で素直に折れる。 */
-.biz .person strong { display: block; font-size: 14px; white-space: nowrap; }
-.biz .person .person-sub { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .page-customers .cell strong { display: block; font-size: 13px; }
-.biz .page-customers .cell span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-/* .pill.alert moved to business-shell.css — 予約 needs the same red pill, and
-   the shell owns the .pill primitive. */
-.biz .page-customers .empty { min-height: 300px; display: grid; place-content: center; padding: 28px; text-align: center; }
-.biz .page-customers .empty strong { font-size: 16px; }
-.biz .page-customers .empty span { margin-top: 6px; color: var(--muted); font-size: 13px; }
+   ⚖ FOCUS IS THE SHELL'S AND IT IS ALREADY RIGHT (business-shell.css:107-111).
+   Restating it here would be a second home for one verdict.
 
-.biz .page-customers .w2-provenance {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 4px;
-  color: #64748b;
-  font-size: 10px;
-  font-weight: 700;
-}
-.biz .w2-provenance::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #64748b; }
-.biz .w2-cross-store-group {
-  padding: 8px 12px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 11px;
-  font-weight: 800;
-}
-.biz .page-customers .w2-off-list {
-  margin: 0 0 9px;
-  padding: 8px 9px;
-  border-left: 3px solid #2563eb;
-  background: #eff6ff;
-  color: #1e3a8a;
-  font-size: 11px;
-  line-height: 1.5;
-}
+   ── ⚖-ADJ H · THE LADDER IS ON PAGE WIDTH, AND WHERE IT IS NOT, IT CANNOT BE ─
 
-/* ═══ 詳細 aside ═══ */
-.biz .detail { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow-y: auto; }
-.biz .detail-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
-.biz .detail-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
-.biz .detail-head h2 { margin: 6px 0 3px; font-size: 21px; }
-.biz .detail-head p { margin: 0; color: var(--muted); font-size: 13px; }
-.biz .detail-body { padding: 14px 15px 17px; }
-.biz .identity { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .identity-item { padding: 9px 10px; border-right: 1px solid var(--row); border-bottom: 1px solid var(--row); }
-.biz .identity-item:nth-child(even) { border-right: 0; }
-.biz .identity-item:nth-last-child(-n+2) { border-bottom: 0; }
-.biz .identity-item span { display: block; color: var(--muted); font-size: 12px; }
-.biz .identity-item b { display: block; margin-top: 3px; font-size: 13px; word-break: break-word; }
-.biz .merge-warning { margin-top: 10px; padding: 11px 12px; border-left: 3px solid var(--red); background: var(--red-soft); }
-.biz .merge-warning strong { display: block; color: var(--red); font-size: 13px; }
-.biz .merge-warning span { display: block; margin-top: 3px; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
-.biz .merge-warning .btn { width: 100%; margin-top: 9px; }
-.biz .page-customers .section-title { margin: 15px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
-.biz .metric-strip { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #dfe5fb; border-radius: 9px; background: #fafbff; overflow: hidden; }
-.biz .metric { padding: 9px 8px; border-right: 1px solid #e5e9f7; }
-.biz .metric:last-child { border-right: 0; }
-.biz .metric span { display: block; color: var(--muted); font-size: 12px; }
-.biz .metric b { display: block; margin-top: 3px; font-size: 15px; line-height: 1.35; }
-.biz .fact-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .page-customers .fact { display: grid; grid-template-columns: 98px 1fr; gap: 10px; padding: 9px 10px; border-bottom: 1px solid var(--row); font-size: 13px; line-height: 1.45; }
-.biz .fact:last-child { border-bottom: 0; }
-.biz .page-customers .fact span { color: var(--muted); }
-.biz .page-customers .fact b { text-align: right; font-weight: 600; }
-.biz .consent-box { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .consent-row { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 7px 10px; border-bottom: 1px solid var(--row); }
-.biz .consent-row:last-child { border-bottom: 0; }
-.biz .consent-row strong { font-size: 13px; }
-.biz .consent-row span { margin-left: auto; color: var(--muted); font-size: 12px; }
-.biz .page-customers .history { border-top: 1px solid var(--line-2); }
-.biz .page-customers .history-row { display: grid; grid-template-columns: 66px 1fr; gap: 9px; padding: 9px 0; border-bottom: 1px solid var(--row); }
-.biz .page-customers .history-row time { color: var(--quiet); font-size: 12px; }
-.biz .page-customers .history-row strong { display: block; font-size: 13px; }
-.biz .page-customers .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.biz .record-boundary { margin-top: 13px; padding: 11px 12px; border-left: 3px solid var(--indigo); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
-.biz .record-boundary strong { color: var(--indigo); }
-.biz .detail-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+   The shell's rail is 264px open and 76px collapsed, and it FORCES the
+   collapsed column below a 1024 viewport. So a page of 856–1015 (say) is
+   reachable in BOTH rail states at two different viewports — a column decision
+   taken from the viewport would fire at the wrong moment in one of them. Every
+   such band is therefore an `@container cupage` query against the room's own
+   content box.
 
-/* ═══ 本人関係 — COLLAPSED (⚖ cut #7: the five-party box never renders
-   exploded). One line per party, detail on click, and a chip only where the
-   fixture deviates from "the customer is all four parties". ═══ */
-.biz .page-customers .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .page-customers .party-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-height: 42px;
-  padding: 7px 10px;
-  border: 0;
-  border-bottom: 1px solid var(--row);
-  background: #fff;
-  color: var(--ink);
-  text-align: left;
+   BELOW A 1024 VIEWPORT THE RAIL IS ONE NUMBER, so page = viewport − 76 exactly
+   and the two phone bands are a bijection with the viewport: page ≤635 is
+   viewport ≤711, page ≤375 is viewport ≤451. Those two are `@media`, and they
+   HAVE to be: the inspector's phone sheet is `position: fixed`, and
+   `container-type: inline-size` implies `contain: layout`, which would make the
+   container its containing block and pin the sheet to a box that scrolls. The
+   containment is therefore lifted in the phone band, where no container query
+   is left to answer. Both readings are measured, in both rail states, by the
+   room's own probe. */
+
+/* ── the fence: the shared names this room still states, at FOUR levels ────── */
+.biz .page.page-customers { padding: 16px 28px 40px; }
+.biz .page.page-customers h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
+.biz .page.page-customers .btn { font-weight: 500; }
+.biz .page.page-customers .btn.primary { font-weight: 600; }
+
+/* ── the mock's own token block, as this room's `--cu-*` ──────────────────── */
+.biz .page.page-customers {
+  --cu-blue: #2563eb;                 /* ⚖ R13 / globals.css:99 --primary */
+  --cu-blue-ink: #1d4ed8;
+  --cu-blue-wash: #eef3ff;
+  --cu-blue-wash-2: #e3ecff;
+  --cu-blue-line: #d3e0fd;
+
+  --cu-green: #15803d;
+  --cu-green-wash: #eaf7ef;
+  --cu-green-line: #c7e9d5;
+
+  --cu-amber: #b45309;
+  --cu-amber-wash: #fdf5e6;
+  --cu-amber-line: #f0dcb4;
+
+  /* RED IS THE 重複候補 SIGNAL COLOUR — a DATA colour, never a pressable's
+     fill. It is spent on the candidate pill, the triage strip's frame, the
+     dupe box and the drawer's warning, and nowhere else. */
+  --cu-red: #dc2626;
+  --cu-red-wash: #fdeceb;
+  --cu-red-line: #f6ccc9;
+
+  --cu-ink: #111827;
+  --cu-ink-2: #374151;
+  --cu-ink-3: #6b7280;
+  --cu-ink-4: #9ca3af;
+
+  --cu-line: #e8eaee;
+  --cu-line-soft: #f0f1f4;
+  --cu-card: #ffffff;
+  --cu-wash: #f7f8fa;
+
+  --cu-r-lg: 14px;
+  --cu-r-md: 10px;
+  --cu-r-sm: 8px;
+
+  --cu-shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .03);
+  --cu-shadow-2: 0 4px 14px rgba(16, 24, 40, .07), 0 1px 3px rgba(16, 24, 40, .04);
+  --cu-shadow-3: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
+  --cu-shadow-4: 0 18px 46px rgba(16, 24, 40, .18), 0 3px 10px rgba(16, 24, 40, .08);
+
+  --cu-ease: cubic-bezier(.22, .9, .24, 1);
+  /* The shell's own sticky topbar, which the list header parks under. */
+  --cu-topbar: 62px;
+  /* ⚖-ADJ I · 1416 = the content box this layout has at a 1680 viewport
+     (1680 − 264 rail). Every width up to 1680 is untouched and 1920 / 2560
+     simply gain symmetric side margins. */
+  --cu-maxw: 1416px;
+  --cu-insp: clamp(348px, 26vw, 480px);
+
   font-size: 13px;
+  line-height: 1.55;
 }
-.biz .page-customers .party-row:last-of-type { border-bottom: 0; }
-.biz .party-row span:first-child { color: var(--muted); font-size: 12px; min-width: 72px; }
-.biz .page-customers .party-row b { font-weight: 600; }
-.biz .page-customers .party-row .pill { margin-left: auto; }
-.biz .page-customers .party-note { padding: 8px 10px; border-top: 1px solid var(--row); background: #fafbff; color: var(--ink-3); font-size: 12px; line-height: 1.5; }
 
-/* ═══ dialog ═══ */
+/* THE CONTENT BOX, AND THE ROOM'S OWN CONTAINER. Every column decision below is
+   a query against THIS element, so a layout can never be chosen from a width the
+   layout does not have. ⚠ CONTAINMENT IS SAFE HERE ONLY BECAUSE NOTHING FIXED
+   LIVES INSIDE IT above the phone band: the scrim, the drawer, the dialog, the
+   toast and the four tour layers are all SIBLINGS of this box at the room root,
+   and the inspector's own fixed sheet exists only in the band where the
+   containment is lifted (see the phone block at the foot of this sheet). */
+.biz .page-customers .cu-view {
+  container-type: inline-size;
+  container-name: cupage;
+  width: 100%;
+  max-width: var(--cu-maxw);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.biz .page-customers .cu-sp { flex: 1; min-width: 6px; }
+
+/* ── press states: pointer-down, 100ms, transform only ───────────────────── */
+.biz .page-customers [data-press] { transition: transform 100ms ease-out; }
+.biz .page-customers [data-press].is-pressed { transform: scale(.97); }
+
+/* ── the room's own levers ────────────────────────────────────────────────── */
+.biz .page-customers .cu-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 30px; padding: 6px 12px;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm);
+  background: #fff; color: var(--cu-ink-2);
+  font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  cursor: pointer; text-decoration: none;
+}
+.biz .page-customers .cu-btn:hover { background: var(--cu-wash); }
+/* COMMIT IS THE SOLID ACCENT, and it is the only solid fill in the room
+   (⚖ R13: selected = a light wash, commit = the accent, never black). */
+.biz .page-customers .cu-btn-solid {
+  border-color: transparent; background: var(--cu-blue); color: #fff;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, .28);
+}
+.biz .page-customers .cu-btn-solid:hover { background: var(--cu-blue-ink); }
+/* A REFUSED LEVER STAYS A LEVER: focusable, its reason on the accessible name,
+   and never repainted into something that looks like a different control. */
+.biz .page-customers .cu-btn[aria-disabled="true"],
+.biz .page-customers .cu-linklike[aria-disabled="true"],
+.biz .page-customers .cu-qbtn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.biz .page-customers .cu-btn-solid[aria-disabled="true"] { background: var(--cu-blue); color: #fff; }
+.biz .page-customers .cu-btn[aria-disabled="true"]:hover { background: #fff; }
+.biz .page-customers .cu-btn-solid[aria-disabled="true"]:hover { background: var(--cu-blue); }
+
+.biz .page-customers .cu-linklike {
+  border: 0; background: none; padding: 0;
+  color: var(--cu-blue); font: inherit; font-size: 12.5px; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+}
+.biz .page-customers .cu-linklike:hover { text-decoration: underline; }
+
+/* ── 1. the head — ONE COMPACT TITLE ROW (Liam F-1) ──────────────────────── */
+.biz .page-customers .cu-head { flex: 0 0 auto; }
+.biz .page-customers .cu-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.biz .page-customers .cu-eyebrow { color: var(--cu-ink-4); font-size: 11.5px; white-space: nowrap; }
+.biz .page-customers .cu-help {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; flex: 0 0 22px;
+  border: 1px solid var(--cu-line); border-radius: 50%;
+  background: #fff; color: var(--cu-ink-3); font: inherit; font-size: 12px; cursor: pointer;
+}
+.biz .page-customers .cu-help:hover { border-color: var(--cu-blue-line); background: var(--cu-blue-wash); color: var(--cu-blue); }
+.biz .page-customers .cu-subtitle {
+  min-width: 0; color: var(--cu-ink-3); font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── 2. the stat tiles ARE the filters ───────────────────────────────────── */
+.biz .page-customers .cu-tiles {
+  position: relative; flex: 0 0 auto;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px;
+}
+.biz .page-customers .cu-tile-thumb {
+  position: absolute; top: 0; left: 0; height: 100%; width: 100px;
+  border: 1px solid var(--cu-blue-line); border-radius: var(--cu-r-lg);
+  background: var(--cu-blue-wash); box-shadow: var(--cu-shadow-1);
+  transform-origin: left center; will-change: transform; pointer-events: none;
+  transition: background 200ms ease-out, border-color 200ms ease-out;
+}
+.biz .page-customers .cu-tile-thumb.is-red { background: var(--cu-red-wash); border-color: var(--cu-red-line); }
+.biz .page-customers .cu-tile {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; gap: 1px; min-width: 0;
+  padding: 8px 13px 9px; text-align: left;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-lg);
+  background: #fff; box-shadow: var(--cu-shadow-1);
+  color: var(--cu-ink); font: inherit; cursor: pointer;
+  transition: border-color 180ms ease-out, transform 100ms ease-out, box-shadow 180ms ease-out, background 180ms ease-out;
+}
+.biz .page-customers .cu-tile:hover { background: var(--cu-wash); transform: translateY(-1px); box-shadow: var(--cu-shadow-2); }
+/* THE PRESSED TILE IS THE WASH BEHIND IT, so the tile itself goes transparent
+   and lets the sliding thumb show through — the selected state is a light
+   accent wash, never a fill (⚖ R13). */
+.biz .page-customers .cu-tile[aria-pressed="true"] { background: transparent; border-color: transparent; box-shadow: none; transform: none; }
+.biz .page-customers .cu-tile[aria-pressed="true"]:hover { background: transparent; transform: none; box-shadow: none; }
+.biz .page-customers .cu-tile[aria-pressed="true"] .cu-tile-k,
+.biz .page-customers .cu-tile[aria-pressed="true"] .cu-tile-v { color: var(--cu-blue-ink); }
+.biz .page-customers .cu-tile-k {
+  color: var(--cu-ink-3); font-size: 11px; font-weight: 600; letter-spacing: .01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.biz .page-customers .cu-tile-v { font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.biz .page-customers .cu-u { margin-left: 1px; color: var(--cu-ink-3); font-size: 12px; font-weight: 700; }
+.biz .page-customers .cu-tile.is-dupe .cu-tile-v { color: var(--cu-red); }
+.biz .page-customers .cu-tile.is-dupe .cu-tile-k { color: #a33; }
+.biz .page-customers .cu-tile.is-dupe[aria-pressed="true"] .cu-tile-k,
+.biz .page-customers .cu-tile.is-dupe[aria-pressed="true"] .cu-tile-v { color: var(--cu-red); }
+
+/* ── 3. the duplicate triage strip ───────────────────────────────────────── */
+.biz .page-customers .cu-triage {
+  flex: 0 0 auto; padding: 6px 12px 6px 13px;
+  border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-lg);
+  background: #fffdfd; box-shadow: var(--cu-shadow-1);
+}
+.biz .page-customers .cu-tstrip { display: flex; align-items: center; gap: 9px; }
+.biz .page-customers .cu-ttl { color: var(--cu-red); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .page-customers .cu-hint { display: none; color: var(--cu-ink-4); font-size: 11px; white-space: nowrap; }
+.biz .page-customers .cu-dpills { display: flex; gap: 7px; }
+.biz .page-customers .cu-dpill {
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  min-height: 26px; padding: 3px 4px 3px 9px;
+  border: 1px solid var(--cu-red-line); border-radius: 999px; background: #fff;
+  color: var(--cu-ink); font: inherit; cursor: pointer;
+  transition: box-shadow 200ms ease-out, transform 160ms var(--cu-ease), border-color 200ms ease-out;
+}
+.biz .page-customers .cu-dpill:hover { box-shadow: var(--cu-shadow-2); transform: translateY(-1px); }
+.biz .page-customers .cu-dpill.is-amber { border-color: var(--cu-amber-line); background: #fffdf8; }
+.biz .page-customers .cu-dpill-n { font-size: 11.5px; font-weight: 700; color: var(--cu-ink-2); }
+.biz .page-customers .cu-dpill-id { font-size: 11px; color: var(--cu-ink-3); font-variant-numeric: tabular-nums; }
+.biz .page-customers .cu-dpill-m { display: none; font-size: 11px; color: var(--cu-ink-3); }
+.biz .page-customers .cu-go {
+  padding: 2px 11px; border: 1px solid var(--cu-blue-line); border-radius: 999px;
+  background: var(--cu-blue-wash); color: var(--cu-blue-ink); font-size: 11.5px; font-weight: 700;
+}
+.biz .page-customers .cu-dpill:hover .cu-go { background: var(--cu-blue-wash-2); }
+
+/* ── 4. the work area ────────────────────────────────────────────────────── */
+.biz .page-customers .workspace { display: grid; grid-template-columns: minmax(0, 1fr) var(--cu-insp); gap: 12px; align-items: start; }
+
+/* ── 5. the dense list ───────────────────────────────────────────────────── */
+.biz .page-customers .cu-list {
+  --fx-cols: var(--fx-wide);
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-lg);
+  background: var(--cu-card); box-shadow: var(--cu-shadow-1);
+}
+.biz .page-customers .cu-list-hd { display: flex; flex-direction: column; gap: 6px; padding: 7px 12px 8px 13px; border-bottom: 1px solid var(--cu-line-soft); }
+.biz .page-customers .cu-r1, .biz .page-customers .cu-r2 { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.biz .page-customers .cu-list-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .page-customers .cu-list-sub { color: var(--cu-ink-4); font-size: 11px; white-space: nowrap; }
+.biz .page-customers .cu-cols { position: relative; }
+.biz .page-customers .cu-cols-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 210px;
+  padding: 12px 13px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-lg);
+  background: #fff; box-shadow: var(--cu-shadow-3);
+}
+.biz .page-customers .cu-cols-pop h3 { margin: 0 0 7px; font-size: 12.5px; }
+.biz .page-customers .cu-cols-opt { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 12.5px; cursor: pointer; }
+.biz .page-customers .cu-cols-note { margin: 7px 0 0; color: var(--cu-ink-4); font-size: 11px; line-height: 1.5; }
+
+.biz .page-customers .cu-searchbox {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 10px;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: #fff;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.biz .page-customers .cu-searchbox:focus-within { border-color: var(--cu-blue-line); box-shadow: 0 0 0 3px rgba(37, 99, 235, .10); }
+.biz .page-customers .cu-searchbox svg { flex: 0 0 14px; color: var(--cu-ink-4); }
+.biz .page-customers .cu-searchbox input { width: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 12.5px; color: var(--cu-ink); }
+.biz .page-customers .cu-searchbox input::placeholder { color: var(--cu-ink-4); }
+
+/* THE HEADER PARKS UNDER THE SHELL'S OWN STICKY BAR, so a reader scrolling a
+   long roster keeps the column names. It is `sticky`, which costs the page no
+   scroller of its own (⚖ page-scroll). */
+.biz .page-customers .cu-thead {
+  position: sticky; top: var(--cu-topbar); z-index: 2;
+  display: grid; grid-template-columns: var(--fx-cols); gap: 8px; align-items: center;
+  height: 27px; padding: 0 13px;
+  border-bottom: 1px solid var(--cu-line-soft);
+  background: rgba(247, 248, 250, .94);
+  color: var(--cu-ink-3); font-size: 11px; font-weight: 600;
+}
+.biz .page-customers .cu-thead .cu-r { justify-self: end; }
+
+.biz .page-customers .cu-rows.is-swap { animation: cuFade 200ms ease-out; }
+@keyframes cuFade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.biz .page-customers .cu-row {
+  position: relative; width: 100%; min-height: 52px; padding: 0 13px; text-align: left;
+  display: grid; grid-template-columns: var(--fx-cols); gap: 8px; align-items: center;
+  border: 0; border-bottom: 1px solid var(--cu-line-soft);
+  background: #fff; color: var(--cu-ink); font: inherit; cursor: pointer;
+  transition: background 150ms ease-out;
+}
+.biz .page-customers .cu-row:hover { background: var(--cu-wash); }
+.biz .page-customers .cu-row.is-sel { background: var(--cu-blue-wash); }
+.biz .page-customers .cu-row.is-sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--cu-blue); }
+.biz .page-customers .cu-cname { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.biz .page-customers .cu-cname-t { min-width: 0; }
+.biz .page-customers .cu-ava {
+  display: grid; place-items: center; flex: 0 0 24px; width: 24px; height: 24px;
+  border: 1px solid var(--cu-line); border-radius: 50%;
+  background: var(--cu-wash); color: var(--cu-ink-3);
+  font-size: 7.5px; font-weight: 700; letter-spacing: -.05em; white-space: nowrap;
+}
+.biz .page-customers .cu-ava.is-long { font-size: 7px; }
+.biz .page-customers .cu-row.is-sel .cu-ava { background: #fff; border-color: var(--cu-blue-line); color: var(--cu-blue-ink); }
+/* 名前は識別子で、折るところが無い。nowrap にすると、この列の min-content が
+   「その名前が折れずに収まる幅」そのものになる。補足行は「 / 」で素直に折れる。 */
+.biz .page-customers .cu-nm { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .page-customers .cu-id { display: block; color: var(--cu-ink-3); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .page-customers .cu-chip {
+  padding: 1px 7px; border: 1px solid var(--cu-blue-line); border-radius: 999px;
+  background: var(--cu-blue-wash); color: var(--cu-blue-ink);
+  font-size: 10px; font-weight: 700; white-space: nowrap;
+}
+.biz .page-customers .cu-cnext, .biz .page-customers .cu-chold, .biz .page-customers .cu-cnum, .biz .page-customers .cu-ccons { min-width: 0; }
+.biz .page-customers .cu-cnext .cu-a { display: block; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .page-customers .cu-cnext .cu-b { display: block; color: var(--cu-ink-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .page-customers .cu-cnext.is-none .cu-a { color: var(--cu-ink-4); }
+.biz .page-customers .cu-chold .cu-a { display: block; color: var(--cu-ink-2); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.45; white-space: nowrap; }
+.biz .page-customers .cu-chold .cu-b { display: block; color: var(--cu-ink-3); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.45; white-space: nowrap; }
+.biz .page-customers .cu-cnum .cu-a, .biz .page-customers .cu-ccons .cu-a { display: block; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .page-customers .cu-cnum { justify-self: end; text-align: right; }
+.biz .page-customers .is-dim { color: var(--cu-ink-4); }
+/* ⚖ RIDER §3.2 — a FACT, and it is amber because it is the one thing on the row
+   a manager may want to act on before the next visit. */
+.biz .page-customers .cu-endsoon { display: block; color: var(--cu-amber); font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.biz .page-customers .cu-cstate { justify-self: end; }
+.biz .page-customers .cu-pill {
+  display: inline-block; padding: 2px 9px;
+  border: 1px solid transparent; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; white-space: nowrap;
+}
+.biz .page-customers .cu-pill.is-dupe { background: var(--cu-red-wash); color: var(--cu-red); border-color: var(--cu-red-line); }
+/* ⚖-ADJ D5 (the mock, LIAM-VISIBLE) — 統合確認中 is AMBER. It is a state that is
+   MOVING, which a neutral grey cannot say. */
+.biz .page-customers .cu-pill.is-merging { background: var(--cu-amber-wash); color: var(--cu-amber); border-color: var(--cu-amber-line); }
+.biz .page-customers .cu-pill.is-ok { background: var(--cu-wash); color: var(--cu-ink-3); border-color: var(--cu-line); }
+.biz .page-customers .cu-pill.is-simple { background: var(--cu-wash); color: var(--cu-ink-3); border-color: var(--cu-line); white-space: normal; line-height: 1.3; text-align: center; max-width: 92px; }
+.biz .page-customers .cu-pill.is-warn { margin-left: auto; background: var(--cu-amber-wash); color: var(--cu-amber); border-color: var(--cu-amber-line); }
+.biz .page-customers .cu-group { padding: 8px 13px; border-bottom: 1px solid var(--cu-line-soft); background: var(--cu-wash); color: var(--cu-ink-2); font-size: 11px; font-weight: 700; }
+.biz .page-customers .cu-empty { padding: 26px 14px; color: var(--cu-ink-3); font-size: 12.5px; text-align: center; }
+
+/* ── 6. the sectioned inspector — STICKY, UNCAPPED (⚖-ADJ E) ─────────────── */
+.biz .page-customers .cu-insp {
+  position: sticky; top: calc(var(--cu-topbar) + 12px); align-self: start;
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-lg);
+  background: var(--cu-card); box-shadow: var(--cu-shadow-1);
+}
+.biz .page-customers .cu-insp-hd { position: relative; padding: 10px 13px; border-bottom: 1px solid var(--cu-line-soft); }
+.biz .page-customers .cu-insp-close { display: none; position: absolute; top: 10px; right: 11px; width: 32px; height: 32px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm); background: #fff; color: var(--cu-ink-3); font: inherit; font-size: 15px; cursor: pointer; }
+.biz .page-customers .cu-eyeb { color: var(--cu-blue); font-size: 11.5px; font-weight: 700; }
+.biz .page-customers .cu-insp-hd h2 { margin: 1px 0; font-size: 18px; font-weight: 700; letter-spacing: -.015em; line-height: 1.25; }
+.biz .page-customers .cu-meta { color: var(--cu-ink-3); font-size: 11.5px; }
+.biz .page-customers .cu-qacts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.biz .page-customers .cu-qbtn {
+  display: inline-flex; align-items: center; min-height: 26px; padding: 3px 10px;
+  border: 1px solid var(--cu-line); border-radius: 999px;
+  background: var(--cu-wash); color: var(--cu-ink-2);
+  font: inherit; font-size: 11px; white-space: nowrap; text-decoration: none; cursor: pointer;
+}
+.biz .page-customers .cu-qbtn:hover { background: #f1f2f5; }
+.biz .page-customers .cu-insp-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 13px 12px; animation: cuFade 220ms ease-out; }
+.biz .page-customers .cu-lb-k { display: block; margin-bottom: 5px; color: var(--cu-ink-4); font-size: 10.5px; font-weight: 700; letter-spacing: .03em; }
+.biz .page-customers .cu-holds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.biz .page-customers .cu-hold { min-width: 0; padding: 6px 8px 7px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: #fff; }
+.biz .page-customers .cu-hold-k { display: block; color: var(--cu-ink-4); font-size: 9.5px; font-weight: 700; line-height: 1.35; white-space: nowrap; }
+.biz .page-customers .cu-hold-v { display: block; font-size: 15px; font-weight: 700; letter-spacing: -.02em; line-height: 1.4; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .page-customers .cu-hold-v.is-dim { color: var(--cu-ink-4); font-size: 11.5px; font-weight: 600; letter-spacing: 0; }
+.biz .page-customers .cu-thin-note { margin: 5px 0 0; color: var(--cu-ink-4); font-size: 11px; }
+.biz .page-customers .cu-winback { margin: 5px 0 0; color: var(--cu-ink-3); font-size: 11.5px; }
+
+.biz .page-customers .cu-kvbox { border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); }
+.biz .page-customers .cu-kvrow { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 5px 9px; border: 0; border-bottom: 1px solid var(--cu-line-soft); background: transparent; color: var(--cu-ink); font: inherit; text-align: left; }
+.biz .page-customers .cu-kvrow:last-child { border-bottom: 0; }
+.biz .page-customers .cu-party-row { min-height: 32px; cursor: pointer; }
+.biz .page-customers .cu-party-row:hover { background: var(--cu-wash); }
+.biz .page-customers .cu-kvk { flex: 0 0 74px; color: var(--cu-ink-3); font-size: 11px; line-height: 1.6; }
+.biz .page-customers .cu-kvv { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 12px; line-height: 1.6; text-align: right; word-break: break-all; }
+.biz .page-customers .cu-kvv.is-dim { color: var(--cu-ink-4); }
+.biz .page-customers .cu-party-note { padding: 7px 9px; border-top: 1px solid var(--cu-line-soft); background: var(--cu-wash); color: var(--cu-ink-3); font-size: 11.5px; line-height: 1.55; }
+
+.biz .page-customers .cu-consents { display: flex; flex-direction: column; gap: 4px; }
+.biz .page-customers .cu-crowc { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 3px 11px; border: 1px solid var(--cu-line); border-radius: 999px; background: #fff; }
+.biz .page-customers .cu-crowc.is-yes { border-color: var(--cu-green-line); background: var(--cu-green-wash); }
+.biz .page-customers .cu-crowc-k { flex: 0 0 auto; font-size: 11.5px; font-weight: 700; }
+.biz .page-customers .cu-crowc.is-yes .cu-crowc-k { color: #15653a; }
+.biz .page-customers .cu-crowc-v { color: var(--cu-ink-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .page-customers .cu-crowc.is-yes .cu-crowc-v { color: #245c3d; }
+
+.biz .page-customers .cu-hist { display: flex; flex-direction: column; gap: 4px; }
+.biz .page-customers .cu-hrow { display: flex; align-items: baseline; gap: 9px; padding: 5px 9px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm); background: #fff; }
+.biz .page-customers .cu-hd { flex: 0 0 auto; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz .page-customers .cu-ht { flex: 1; min-width: 0; color: var(--cu-ink-2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.biz .page-customers .cu-hp { color: var(--cu-ink-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.biz .page-customers .cu-nodata { padding: 7px 10px; border: 1px dashed #dfe3ea; border-radius: var(--cu-r-sm); background: var(--cu-wash); color: var(--cu-ink-3); font-size: 11.5px; line-height: 1.65; }
+.biz .page-customers .cu-off-list { margin: 0; padding: 8px 9px; border-left: 3px solid var(--cu-blue); background: var(--cu-blue-wash); color: #1e3a8a; font-size: 11px; line-height: 1.5; }
+
+.biz .page-customers .cu-dupebox { padding: 8px 10px 9px; border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-md); background: var(--cu-red-wash); }
+.biz .page-customers .cu-dupebox.is-amber { border-color: var(--cu-amber-line); background: var(--cu-amber-wash); }
+.biz .page-customers .cu-dupebox-t { color: var(--cu-red); font-size: 12px; font-weight: 700; }
+.biz .page-customers .cu-dupebox.is-amber .cu-dupebox-t { color: var(--cu-amber); }
+.biz .page-customers .cu-dupebox-p { margin-top: 2px; color: #8a3a35; font-size: 11.5px; line-height: 1.65; }
+.biz .page-customers .cu-dupebox.is-amber .cu-dupebox-p { color: #7a5312; }
+.biz .page-customers .cu-dupebox-act { width: 100%; min-height: 32px; margin-top: 7px; padding: 6px 10px; border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-sm); background: #fff; color: var(--cu-red); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.biz .page-customers .cu-dupebox-act:hover { background: #fff5f4; }
+.biz .page-customers .cu-dupebox.is-amber .cu-dupebox-act { border-color: var(--cu-amber-line); color: var(--cu-amber); }
+
+/* ── the two collapses — a height spring, `clip` never `hidden` ──────────── */
+.biz .page-customers .cu-own-panel, .biz .page-customers .cu-fn-panel { height: 0; overflow: clip; }
+.biz .page-customers .cu-own-toggle, .biz .page-customers .cu-fn-bar {
+  display: flex; align-items: center; gap: 7px; width: 100%; min-height: 32px; padding: 6px 10px;
+  border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: #fff;
+  color: var(--cu-ink-3); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.biz .page-customers .cu-own-toggle:hover, .biz .page-customers .cu-fn-bar:hover { background: var(--cu-wash); }
+.biz .page-customers .cu-cv { display: flex; transition: transform 240ms var(--cu-ease); }
+.biz .page-customers .cu-own.is-open .cu-cv, .biz .page-customers .cu-footnote.is-open .cu-cv { transform: rotate(180deg); }
+.biz .page-customers .cu-own-inner, .biz .page-customers .cu-fn-inner { padding-top: 6px; }
+.biz .page-customers .cu-own-body { padding: 8px 10px; border-left: 3px solid var(--cu-blue); border-radius: 0 var(--cu-r-sm) var(--cu-r-sm) 0; background: var(--cu-blue-wash); }
+.biz .page-customers .cu-own-t { color: var(--cu-blue-ink); font-size: 11.5px; font-weight: 700; }
+.biz .page-customers .cu-own-p { margin-top: 2px; color: var(--cu-ink-2); font-size: 11.5px; line-height: 1.65; }
+
+/* ── 7. the footnote — opens DOWNWARD, in flow (⚖-ADJ G) ─────────────────── */
+.biz .page-customers .cu-footnote { flex: 0 0 auto; }
+.biz .page-customers .cu-fn-bar { font-size: 12px; box-shadow: var(--cu-shadow-1); }
+.biz .page-customers .cu-fn-inner > div, .biz .page-customers .cu-fn-inner > h4, .biz .page-customers .cu-fn-inner > p { max-width: 100%; }
+.biz .page-customers .cu-fn-inner { padding: 14px 16px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-lg); background: #fff; box-shadow: var(--cu-shadow-1); }
+.biz .page-customers .cu-fn-inner h4 { margin: 0 0 3px; font-size: 13.5px; }
+.biz .page-customers .cu-fn-lead { margin: 0 0 10px; color: var(--cu-ink-3); font-size: 12px; }
+.biz .page-customers .cu-prov { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 7px 16px; font-size: 12.5px; }
+.biz .page-customers .cu-prov-k { color: var(--cu-ink-2); font-weight: 600; }
+.biz .page-customers .cu-prov-v { color: var(--cu-ink-3); line-height: 1.6; }
+.biz .page-customers .cu-samplenote { margin-top: 12px; padding: 9px 12px; border: 1px dashed #dfe3ea; border-radius: var(--cu-r-md); background: var(--cu-wash); color: var(--cu-ink-3); font-size: 12px; line-height: 1.6; }
+
+/* ── 8. the compare drawer ───────────────────────────────────────────────── */
+.biz .page-customers .cu-scrim {
+  position: fixed; inset: var(--cu-topbar) 0 0 0; z-index: 40;
+  background: rgba(17, 24, 39, .22); opacity: 0; pointer-events: none;
+  transition: opacity 220ms ease-out;
+}
+.biz .page-customers .cu-scrim.is-on { opacity: 1; pointer-events: auto; }
+.biz .page-customers .cu-drawer {
+  position: fixed; top: var(--cu-topbar); right: 0; bottom: 0; z-index: 50;
+  width: min(780px, calc(100% - 64px));
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--cu-line); background: #fff; box-shadow: var(--cu-shadow-4);
+  will-change: transform;
+}
+.biz .page-customers .cu-dw-hd { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px 10px; border-bottom: 1px solid var(--cu-line-soft); }
+.biz .page-customers .cu-dw-t { min-width: 0; }
+.biz .page-customers .cu-dw-hd h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
+.biz .page-customers .cu-why { margin-top: 1px; color: var(--cu-ink-3); font-size: 11.5px; }
+.biz .page-customers .cu-dw-close { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm); background: #fff; color: var(--cu-ink-3); font: inherit; font-size: 15px; cursor: pointer; }
+.biz .page-customers .cu-dw-close:hover { background: var(--cu-wash); }
+.biz .page-customers .cu-dw-warn { margin: 10px 16px 0; padding: 8px 11px; border: 1px solid var(--cu-red-line); border-radius: var(--cu-r-md); background: var(--cu-red-wash); color: #8a3a35; font-size: 12px; line-height: 1.65; }
+.biz .page-customers .cu-dw-warn b { display: block; color: var(--cu-red); font-size: 12.5px; }
+.biz .page-customers .cu-dw-body { flex: 1; min-height: 0; padding: 10px 16px 14px; }
+.biz .page-customers .cu-dw-nopartner { margin-top: 10px; }
+.biz .page-customers .cu-cmp-heads { display: grid; grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding-bottom: 8px; }
+.biz .page-customers .cu-chead { min-width: 0; padding: 7px 11px 8px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: var(--cu-wash); }
+.biz .page-customers .cu-chead.is-empty { border-style: dashed; background: #fff; }
+.biz .page-customers .cu-chead-id { color: var(--cu-blue); font-size: 11px; font-weight: 700; }
+.biz .page-customers .cu-chead-nm { font-size: 15px; font-weight: 700; letter-spacing: -.01em; line-height: 1.3; }
+.biz .page-customers .cu-chead.is-empty .cu-chead-nm { color: var(--cu-ink-4); font-size: 13px; }
+.biz .page-customers .cu-chead-st { margin-top: 3px; }
+.biz .page-customers .cu-cmp { border: 1px solid var(--cu-line); border-radius: var(--cu-r-md); background: var(--cu-line-soft); display: flex; flex-direction: column; gap: 1px; }
+.biz .page-customers .cu-cmp-row { display: grid; grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1fr); gap: 1px; }
+.biz .page-customers .cu-lb, .biz .page-customers .cu-cl { padding: 6px 10px; min-width: 0; background: #fff; font-size: 12px; line-height: 1.6; }
+.biz .page-customers .cu-lb { display: flex; align-items: center; gap: 6px; background: var(--cu-wash); color: var(--cu-ink-3); font-size: 11px; font-weight: 600; }
+.biz .page-customers .cu-cl { color: var(--cu-ink); word-break: break-all; }
+.biz .page-customers .cu-cl.is-dim { color: var(--cu-ink-4); font-size: 11.5px; }
+.biz .page-customers .cu-cl.is-diff { background: #fffaf0; color: #8a5a12; font-weight: 600; }
+.biz .page-customers .cu-cl.is-same { background: #f6fbf8; }
+.biz .page-customers .cu-lb.is-diff { background: #fff6e8; color: var(--cu-amber); }
+.biz .page-customers .cu-lb.is-same { background: #f2f9f5; color: var(--cu-green); }
+.biz .page-customers .cu-tagd { padding: 0 6px; border: 1px solid transparent; border-radius: 999px; font-size: 9.5px; font-weight: 700; white-space: nowrap; }
+.biz .page-customers .cu-tagd.is-d { background: var(--cu-amber-wash); color: var(--cu-amber); border-color: var(--cu-amber-line); }
+.biz .page-customers .cu-tagd.is-s { background: var(--cu-green-wash); color: var(--cu-green); border-color: var(--cu-green-line); }
+.biz .page-customers .cu-dw-ft { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--cu-line-soft); background: rgba(255, 255, 255, .96); }
+.biz .page-customers .cu-note { flex: 1; min-width: 0; color: var(--cu-ink-4); font-size: 11px; line-height: 1.5; }
+
+/* ── 9. the toast — a LIGHT card, never a black pill (⚖ R13) ─────────────── */
+.biz .page-customers .cu-toast {
+  position: fixed; left: 50%; bottom: 22px; z-index: 90; max-width: min(460px, calc(100vw - 32px));
+  padding: 9px 18px; border: 1px solid var(--cu-line); border-radius: 999px;
+  background: #fff; box-shadow: var(--cu-shadow-3);
+  color: var(--cu-ink-2); font-size: 12.5px; line-height: 1.5;
+  opacity: 0; transform: translate(-50%, 10px); pointer-events: none;
+  transition: opacity 180ms ease-out, transform 260ms var(--cu-ease);
+}
+.biz .page-customers .cu-toast.is-on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+/* ── 10. the guided tour's four layers ───────────────────────────────────── */
+/* `cu-spot-*` rather than the board's `.spot-*`: 今日の運営 owns bare
+   `.biz .spot-*` rules, and App Router leaves its sheet in the document after a
+   soft-nav, so a shared name would be two rooms' overlays fighting over one
+   paint. z-index sits ABOVE the drawer, because the drawer is one of the things
+   the walk explains. */
+.biz .page-customers .cu-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s var(--cu-ease), left .24s var(--cu-ease), width .24s var(--cu-ease), height .24s var(--cu-ease);
+}
+.biz .page-customers .cu-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .page-customers .cu-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .page-customers .cu-spot-card {
+  position: fixed; z-index: 72; width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--cu-line); border-radius: 12px; background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  color: var(--cu-ink-2); font-size: 12.5px; line-height: 1.65;
+}
+.biz .page-customers .cu-spot-card b { display: block; margin-bottom: 2px; color: var(--cu-ink); font-size: 13.5px; }
+.biz .page-customers .cu-spot-text { display: block; }
+.biz .page-customers .cu-spot-hint { margin-top: 6px; color: var(--cu-ink-4); font-size: 11px; }
+.biz .page-customers .cu-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--cu-line-soft); }
+.biz .page-customers .cu-spot-count { color: var(--cu-ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .page-customers .cu-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--cu-line); border-radius: 7px; background: #fff; color: var(--cu-ink-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.biz .page-customers .cu-spot-foot button:hover { background: #f4f4f5; }
+.biz .page-customers .cu-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .page-customers .cu-spot-foot .cu-spot-done { margin-left: auto; }
+
+/* ── 11. the create dialog — a BUILT SURFACE, never regressed ────────────── */
 .biz .page-customers dialog {
   /* ⚖ Liam flag 32 — same fix, same cause as `.biz-dialog` in today.css:
      Tailwind's preflight zeroes the margin on every element, <dialog> included,
@@ -244,59 +581,179 @@
   width: min(700px, calc(100vw - 40px));
   max-height: calc(100vh - 40px);
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--cu-line);
   border-radius: 12px;
   background: #fff;
-  color: var(--ink);
-  box-shadow: 0 20px 55px rgba(24, 24, 27, .18);
+  color: var(--cu-ink);
+  box-shadow: var(--cu-shadow-4);
 }
 .biz .page-customers dialog::backdrop { background: rgba(24, 24, 27, .46); }
-.biz .page-customers .dialog-head {
-  min-height: 66px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line-2);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.biz .page-customers .dialog-head h2 { margin: 0; font-size: 20px; }
-.biz .page-customers .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
-.biz .page-customers .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-2); }
+.biz .page-customers .dialog-head { min-height: 60px; padding: 12px 16px; border-bottom: 1px solid var(--cu-line-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.biz .page-customers .dialog-head h2 { margin: 0; font-size: 18px; }
+.biz .page-customers .dialog-head p { margin: 3px 0 0; color: var(--cu-ink-3); font-size: 12px; }
+.biz .page-customers .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm); background: #fff; color: var(--cu-ink-2); }
 .biz .page-customers .dialog-body { padding: 16px; }
-.biz .merge-proof { margin-top: 12px; padding: 11px 12px; border-left: 3px solid var(--amber); background: var(--amber-soft); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
-.biz .consent-form { display: grid; gap: 13px; }
-.biz .consent-field { display: grid; gap: 6px; font-size: 13px; font-weight: 800; }
-.biz .consent-field input, .biz .consent-field select { min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.biz .consent-field input[aria-invalid="true"], .biz .consent-field select[aria-invalid="true"] { border-color: var(--red); }
-.biz .page-customers .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--line-2); display: flex; justify-content: flex-end; gap: 8px; background: #fafafb; }
+.biz .page-customers .merge-proof { margin-top: 12px; padding: 11px 12px; border-left: 3px solid var(--cu-amber); background: var(--cu-amber-wash); color: var(--cu-ink-3); font-size: 12px; line-height: 1.55; }
+.biz .page-customers .consent-form { display: grid; gap: 13px; }
+.biz .page-customers .consent-field { display: grid; gap: 6px; font-size: 12.5px; font-weight: 700; }
+.biz .page-customers .consent-field input, .biz .page-customers .consent-field select { min-height: 42px; padding: 8px 10px; border: 1px solid var(--cu-line); border-radius: var(--cu-r-sm); background: #fff; }
+.biz .page-customers .consent-field input[aria-invalid="true"], .biz .page-customers .consent-field select[aria-invalid="true"] { border-color: var(--cu-red); }
+.biz .page-customers .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--cu-line-soft); display: flex; justify-content: flex-end; gap: 8px; background: var(--cu-wash); }
 
-.biz .page-customers .toast {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 50;
-  max-width: 430px;
-  padding: 12px 15px;
-  border-radius: 8px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--green);
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.45;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(8px);
-  transition: opacity .16s ease, transform .16s ease;
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE LADDER — every COLUMN decision on the room's own page width.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ≥1800 of PAGE: the strip has room for its own sentence. */
+@container cupage (min-width: 1536px) {
+  .biz .page-customers .cu-hint { display: inline; }
 }
-.biz .page-customers .toast.show { opacity: 1; transform: translateY(0); }
+/* ≥1600 of viewport in the mock = 1336 of page: the pills can carry a reason. */
+@container cupage (min-width: 1336px) {
+  .biz .page-customers .cu-dpill-m { display: inline; }
+}
+
+/* ── page ≤1015 (mock's ≤1279 viewport): the side surfaces give way first ── */
+@container cupage (max-width: 1015px) {
+  .biz .page-customers { --cu-insp: clamp(292px, 24vw, 348px); }
+  .biz .page-customers .cu-drawer { width: 100%; }
+}
+
+/* ── page ≤855 (mock's ≤1119): the inspector drops BELOW the list ────────── */
+@container cupage (max-width: 855px) {
+  .biz .page-customers .cu-list { --fx-cols: var(--fx-narrow); }
+  .biz .page-customers .workspace { grid-template-columns: minmax(0, 1fr); }
+  .biz .page-customers .cu-insp { position: static; }
+  .biz .page-customers .cu-tstrip { flex-wrap: wrap; row-gap: 7px; }
+  .biz .page-customers .cu-eyebrow { display: none; }
+}
+
+/* ── page ≤759 (mock's ≤1023): the subtitle leaves; its full text is in the
+      tour, which is where a sentence a reader can dismiss belongs ─────────── */
+@container cupage (max-width: 759px) {
+  .biz .page-customers .cu-subtitle { display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WHAT BELONGS TO THE DEVICE — the page's outer padding, the ≥44px touch floor,
+   and the phone band's own composition. Below a 1024 viewport the shell's rail
+   is one number, so these two bands ARE page ≤635 and page ≤375 exactly.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 1400px) {
+  .biz .page.page-customers { padding-left: 32px; padding-right: 32px; }
+}
 
 @media (max-width: 1320px) {
   .biz .page.page-customers { padding-left: 20px; padding-right: 20px; }
-  .biz .page-customers .workspace { grid-template-columns: minmax(520px, 1fr) 366px; gap: 10px; }
-  /* 1180 の内寸(518px)に4列＋隙間＋余白が入るところまで下限を下げてある。
-     下限は「名前が nowrap で収まる幅」から決めている（顧客 140 = 印38 + 間10 + 氏名）。 */
-  .biz #customerPanel { --fx-cols: var(--fx-narrow); }
-  .biz .page-customers .summary-stat { padding-left: 8px; padding-right: 8px; }
+}
+
+/* The shell's topbar tightens to a 56px floor at ≤743, so the sticky list header
+   parks under the bar it actually has. */
+@media (max-width: 743px) {
+  .biz .page.page-customers { --cu-topbar: 56px; }
+}
+
+/* ── page ≤635 · LIST IS THE PAGE (viewport ≤711, rail forced to 76) ─────── */
+@media (max-width: 711px) {
+  /* ⚠ THE CONTAINMENT IS LIFTED HERE, AND IT HAS TO BE. `container-type:
+     inline-size` implies `contain: layout`, which makes this box the containing
+     block for every `position: fixed` descendant — and the inspector's sheet is
+     one. No container query is left to answer in this band, so nothing is lost. */
+  .biz .page-customers .cu-view { container-type: normal; }
+
+  .biz .page.page-customers { padding: 12px 12px 32px; }
+  .biz .page-customers .cu-view { gap: 8px; }
+  .biz .page-customers .cu-eyebrow, .biz .page-customers .cu-subtitle { display: none; }
+
+  /* the tiles become a chip strip — the band's ONE horizontal panner besides the
+     compare table, and the PAGE never pans (⚖ ALL-SCREEN) */
+  .biz .page-customers .cu-tiles { display: flex; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; gap: 7px; }
+  .biz .page-customers .cu-tiles::-webkit-scrollbar { height: 0; }
+  .biz .page-customers .cu-tile { flex: 0 0 auto; flex-direction: row; align-items: baseline; gap: 6px; min-height: 44px; padding: 6px 14px; border-radius: 999px; }
+  .biz .page-customers .cu-tile-thumb { border-radius: 999px; }
+  .biz .page-customers .cu-tile-k { font-size: 11.5px; }
+  .biz .page-customers .cu-tile-v { font-size: 15px; }
+
+  /* the candidates stack, and gain the room to say WHY */
+  .biz .page-customers .cu-triage { padding: 8px 11px; }
+  .biz .page-customers .cu-tstrip .cu-sp { display: none; }
+  .biz .page-customers .cu-dpills { flex-direction: column; width: 100%; gap: 6px; }
+  .biz .page-customers .cu-dpill { width: 100%; min-height: 44px; padding: 5px 5px 5px 11px; }
+  .biz .page-customers .cu-dpill-n { font-size: 12.5px; }
+  .biz .page-customers .cu-dpill-m { display: inline; }
+  .biz .page-customers .cu-go { min-height: 30px; display: inline-flex; align-items: center; margin-left: auto; }
+
+  /* the row becomes a two-row card: the name line stays, 回数券・残高 folds under */
+  .biz .page-customers .cu-thead { display: none; }
+  .biz .page-customers .workspace { grid-template-columns: minmax(0, 1fr); }
+  .biz .page-customers .cu-list { --fx-cols: var(--fx-narrow); }
+  .biz .page-customers .cu-row {
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto;
+    gap: 2px 8px; min-height: 62px; padding: 8px 11px;
+  }
+  .biz .page-customers .cu-cname { grid-column: 1; grid-row: 1; }
+  .biz .page-customers .cu-cstate { grid-column: 2; grid-row: 1; align-self: center; }
+  .biz .page-customers .cu-cnext { grid-column: 1; grid-row: 2; display: flex; align-items: baseline; gap: 6px; min-width: 0; padding-left: 32px; }
+  .biz .page-customers .cu-chold { grid-column: 2; grid-row: 2; display: flex; align-items: baseline; gap: 7px; justify-self: end; }
+  .biz .page-customers .cu-cnum, .biz .page-customers .cu-ccons { display: none; }
+  .biz .page-customers .cu-pill.is-simple { max-width: none; white-space: nowrap; }
+
+  /* the inspector becomes a full-page sheet on its own spring */
+  .biz .page-customers .cu-insp {
+    position: fixed; inset: 0; z-index: 66; margin: 0;
+    border: 0; border-radius: 0; box-shadow: var(--cu-shadow-4);
+    transform: translateY(100%); will-change: transform; pointer-events: none;
+  }
+  .biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; }
+  .biz .page-customers .cu-insp-hd { padding: 12px 52px 10px 13px; }
+  .biz .page-customers .cu-insp-close { display: grid; place-items: center; width: 44px; height: 44px; top: 8px; right: 8px; }
+
+  /* the compare drawer becomes a full-page sheet, its two columns STACKED, and
+     every value names the record it belongs to */
+  .biz .page-customers .cu-scrim { inset: 0; z-index: 60; }
+  .biz .page-customers .cu-drawer { top: 0; inset: 0; width: 100%; z-index: 80; border-left: 0; }
+  .biz .page-customers .cu-dw-hd { padding: 11px 13px 9px; }
+  .biz .page-customers .cu-dw-warn { margin: 9px 13px 0; }
+  .biz .page-customers .cu-dw-body { padding: 10px 13px 14px; }
+  .biz .page-customers .cu-cmp-heads { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .biz .page-customers .cu-cmp-spacer { display: none; }
+  .biz .page-customers .cu-cmp-row { grid-template-columns: minmax(0, 1fr); }
+  .biz .page-customers .cu-cl::before { content: attr(data-who); display: block; color: var(--cu-ink-4); font-size: 9.5px; font-weight: 700; letter-spacing: .02em; margin-bottom: 1px; }
+  .biz .page-customers .cu-dw-ft { flex-wrap: wrap; row-gap: 8px; padding: 10px 13px; }
+  .biz .page-customers .cu-note { flex: 1 0 100%; }
+  .biz .page-customers .cu-dw-ft .cu-btn { flex: 1 1 auto; justify-content: center; min-height: 44px; }
+
+  .biz .page-customers .cu-toast { left: 12px; right: 12px; max-width: none; transform: translate(0, 10px); border-radius: 14px; }
+  .biz .page-customers .cu-toast.is-on { transform: translate(0, 0); }
+
+  /* the ≥44px touch floor, on every pressable this band renders */
+  .biz .page-customers .cu-btn, .biz .page-customers .cu-qbtn,
+  .biz .page-customers .cu-dw-close, .biz .page-customers .cu-own-toggle,
+  .biz .page-customers .cu-fn-bar, .biz .page-customers .cu-dupebox-act,
+  .biz .page-customers .cu-party-row, .biz .page-customers .cu-spot-foot button { min-height: 44px; }
+  .biz .page-customers .cu-help { width: 44px; height: 44px; flex: 0 0 44px; }
+  .biz .page-customers .cu-linklike { min-height: 44px; display: inline-flex; align-items: center; }
+  .biz .page-customers .cu-searchbox { height: 44px; }
+  .biz .page-customers .cu-cols-opt { min-height: 44px; }
+}
+
+/* ── page ≤375 (mock's ≤639): the menu name leaves the row, and it survives in
+      the sheet; the head's actions take a line of their own ───────────────── */
+@media (max-width: 451px) {
+  .biz .page-customers .cu-cnext .cu-b { display: none; }
+  .biz .page-customers .cu-cnext.is-none .cu-b { display: block; }
+  .biz .page-customers .cu-dpill-m { display: none; }
+  .biz .page-customers .cu-titlerow .cu-sp { flex: 1 0 100%; height: 0; min-width: 0; }
+  .biz .page-customers .cu-r1 .cu-sp { flex: 1 0 100%; height: 0; min-width: 0; }
+}
+
+/* ── reduced motion: state still changes, it simply stops moving ─────────── */
+@media (prefers-reduced-motion: reduce) {
+  .biz .page-customers [data-press], .biz .page-customers [data-press].is-pressed { transition: opacity 120ms linear; transform: none; }
+  .biz .page-customers .cu-tile:hover, .biz .page-customers .cu-dpill:hover { transform: none; }
+  .biz .page-customers .cu-rows.is-swap, .biz .page-customers .cu-insp-body { animation: none; }
+  .biz .page-customers .cu-cv, .biz .page-customers .cu-spot-hole { transition: none; }
+  .biz .page-customers .cu-scrim, .biz .page-customers .cu-toast { transition: opacity 120ms linear; }
+  .biz .page-customers .cu-toast { transform: translate(-50%, 0); }
 }
