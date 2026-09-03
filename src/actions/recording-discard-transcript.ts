@@ -38,7 +38,6 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
-import { sweepStagedDiscardAudio } from '@/lib/recording/staged-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
@@ -140,8 +139,10 @@ async function recordsWriteGate(): Promise<DiscardTranscriptWrite | null> {
  * An unreadable session row propagates rather than answering "no consent": a
  * probe that cannot read is not an answer, and the caller is owed the retry.
  */
-async function consentAllows(synqed: Core, recordingSessionId: string): Promise<boolean> {
-  const recording = await synqed.recordings.get(recordingSessionId)
+async function consentAllows(
+  synqed: Core,
+  recording: { customer_id?: string | null } | null,
+): Promise<boolean> {
   const customerId = recording?.customer_id ?? null
   if (!customerId) return false
   const { consent } = await synqed.customers.getConsent(customerId)
@@ -266,7 +267,10 @@ export async function persistDiscardTranscriptWithClient(
     if (await alreadyLanded(synqed, input.recordingSessionId)) return { ok: true }
     // Same gate as the transcribe twin: the doctrine question is whether the
     // customer's words may be KEPT, not merely whether transcribing costs money.
-    if (!(await consentAllows(synqed, input.recordingSessionId))) return { skipped: 'consent' }
+    // The row is read HERE and handed in, exactly as the twin does it — the
+    // customer is the row's, never the caller's.
+    const recording = await synqed.recordings.get(input.recordingSessionId)
+    if (!(await consentAllows(synqed, recording))) return { skipped: 'consent' }
     await writeTranscript(synqed, input.recordingSessionId, text, input.durationSeconds)
     return { ok: true }
   } catch (err) {
@@ -293,9 +297,11 @@ export async function persistDiscardTranscript(input: {
 
 /**
  * The `recorder` origin (and every retry of it): 使用 was never tapped, so no
- * transcript exists yet. The staged take is transcribed through the EXISTING
- * internals the worker uses — same org settings, same diarization assembly —
- * and the staged object is deleted afterwards, read-then-delete like the worker.
+ * transcript exists yet. The take's FINALIZED object is transcribed through the
+ * EXISTING internals the worker uses — same org settings, same diarization
+ * assembly — and ⚖ it is left exactly where it is (PR4): a discarded
+ * recording's audio is kept in full (⚖ 8/20 discard doctrine), only its words
+ * are collected here.
  *
  * Below the accidental-tap floor this is never called at all (⚖ spend gate);
  * that decision lives at the call site, with the floor constant, and the server
@@ -318,92 +324,98 @@ export async function transcribeAndPersistDiscardWithClient(
     // Tenant fence on a CLIENT-SUPPLIED key — the same invariant
     // enqueueRecordingJob enforces. The service-role client below bypasses RLS,
     // so this is the only thing standing between a caller and another tenant's
-    // audio. AHEAD of the janitor below on purpose: a foreign key is the one
-    // exit that must never touch the object it names.
+    // audio. FIRST on purpose: a foreign key is the one exit that must never
+    // reach the object it names, not even to read it.
     if (!isOwnRecordingKey(input.audioPath, actor.businessId)) return { error: 'forbidden' }
 
     const supabase = createServiceClient()
-    try {
-      if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
-        return { error: 'not_discarded' }
-      }
-
-      // `||` short-circuits on purpose: consent is not re-asked once the words
-      // have landed.
-      const landed = await alreadyLanded(synqed, input.recordingSessionId)
-      if (landed || !(await consentAllows(synqed, input.recordingSessionId))) {
-        return landed ? { ok: true } : { skipped: 'consent' }
-      }
-
-      const { data: signed, error: signErr } = await supabase.storage
-        .from('recordings')
-        .createSignedUrl(input.audioPath, 3600)
-      if (signErr || !signed?.signedUrl) return { error: 'failed' }
-
-      // The SAME org-derived options the worker resolves per job
-      // (process-recording.ts:96-137) — this is that transcription, not a new one.
-      const org = await synqed.orgSettings.get().catch(() => null)
-      const settings = (org?.settings ?? null) as Parameters<typeof loadStaffReferenceForStaff>[0]
-      const mode = speakerIdMode()
-      // Voice reference = the DISCARDING staffer's own enrollment clip (#401) —
-      // they are the recorder. The id arrives on the actor (cookie session on
-      // web, Bearer `sub` on the facade); the map lookup is the tenant-explicit
-      // twin, so neither door has to reach for a cookie to know its business.
-      const selfStaffId = actor.staffId
-      const staffId = selfStaffId
-        ? await resolveSynqedStaffIdForBusiness(selfStaffId, actor.businessId).catch(
-            () => selfStaffId,
-          )
-        : null
-      const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
-      const transcription = (await runTranscription({
-        audio: { url: signed.signedUrl },
-        locale: input.locale || 'ja',
-        diarize: settings?.speaker_diarization !== false,
-        reference,
-        mode,
-        businessType: settings?.business_type ?? null,
-      })) as {
-        transcript?: string
-        paragraphs?: never[]
-        words?: never[]
-        confidence?: number
-        speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
-      }
-
-      // Same Stage-0 diarization assembly as the worker: labeled text when
-      // attribution succeeds, flat transcript on any failure.
-      const sid = transcription.speakerId
-      const staffHint =
-        sid && sid.mode === 'enforce'
-          ? { speaker: sid.staffSpeakerIndex as number, confidence: sid.confidence as number }
-          : null
-      const diarized = buildDiarizedTranscript(
-        transcription.paragraphs ?? [],
-        transcription.words ?? [],
-        transcription.confidence ?? 0,
-        staffHint,
-      )
-      const text = (diarized ? toSpeakerText(diarized) : (transcription.transcript ?? '')).trim()
-
-      if (text) await writeTranscript(synqed, input.recordingSessionId, text, input.durationSeconds)
-      // Silence is an honest answer — A2-4 renders "no words" rather than a lie.
-      return text ? { ok: true } : { skipped: 'empty' }
-    } finally {
-      // ONE janitor, on EVERY exit past the tenant fence — refusal, failure and
-      // success alike. The client uploads before it calls, so an exit that left
-      // the object behind orphaned a DISCARDED recording's audio in the bucket
-      // (≤25 h, until the flat-key cleanup cron) and the next sweep uploaded
-      // another. Read-then-delete stays the worker's posture: a failed write
-      // does not need this object back — the sweep re-stages from the take that
-      // is still in the store.
-      // Extracted to lib/recording/staged-audio.ts (fix round 3) so the facade
-      // route can sweep its OWN pre-body refusals through the same fenced
-      // implementation. It swallows its own failures for the reason this
-      // `finally` always did: the outcome the caller reads must reflect the
-      // WRITE, never the janitor.
-      await sweepStagedDiscardAudio(actor.businessId, input.audioPath)
+    if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
+      return { error: 'not_discarded' }
     }
+
+    // Consent is not re-asked once the words have landed, and the row below is
+    // not read for a call that has nothing left to do.
+    if (await alreadyLanded(synqed, input.recordingSessionId)) return { ok: true }
+
+    // ⚖ THE AUDIO KEY COMES OFF THE ROW (capture pipeline PR4 fix round 1). The
+    // object is PERMANENT now — nothing sweeps it after this call — so a
+    // client-named path is a standing lever: any records.write holder could
+    // name a colleague's finished take and have it transcribed onto a session
+    // that really was discarded, and the words would land as that session's.
+    // `audio_storage_path` is the record-time fact the mint reserved and
+    // finalize proved, exactly as the customer above is read off the row rather
+    // than off the caller. The client's claim stands in ONLY for a row that
+    // carries no pointer (a session minted before the reservation existed), and
+    // the tenant fence at the top of this function is the belt under both.
+    // An unreadable row throws into the catch below rather than answering.
+    const recording = await synqed.recordings.get(input.recordingSessionId)
+    const pointer = recording?.audio_storage_path ?? null
+    if (pointer && !isOwnRecordingKey(pointer, actor.businessId)) return { error: 'forbidden' }
+    const audioPath = pointer ?? input.audioPath
+
+    if (!(await consentAllows(synqed, recording))) return { skipped: 'consent' }
+
+    const { data: signed, error: signErr } = await supabase.storage
+      .from('recordings')
+      .createSignedUrl(audioPath, 3600)
+    if (signErr || !signed?.signedUrl) return { error: 'failed' }
+
+    // The SAME org-derived options the worker resolves per job
+    // (process-recording.ts:96-137) — this is that transcription, not a new one.
+    const org = await synqed.orgSettings.get().catch(() => null)
+    const settings = (org?.settings ?? null) as Parameters<typeof loadStaffReferenceForStaff>[0]
+    const mode = speakerIdMode()
+    // Voice reference = the DISCARDING staffer's own enrollment clip (#401) —
+    // they are the recorder. The id arrives on the actor (cookie session on
+    // web, Bearer `sub` on the facade); the map lookup is the tenant-explicit
+    // twin, so neither door has to reach for a cookie to know its business.
+    const selfStaffId = actor.staffId
+    const staffId = selfStaffId
+      ? await resolveSynqedStaffIdForBusiness(selfStaffId, actor.businessId).catch(
+          () => selfStaffId,
+        )
+      : null
+    const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
+    const transcription = (await runTranscription({
+      audio: { url: signed.signedUrl },
+      locale: input.locale || 'ja',
+      diarize: settings?.speaker_diarization !== false,
+      reference,
+      mode,
+      businessType: settings?.business_type ?? null,
+    })) as {
+      transcript?: string
+      paragraphs?: never[]
+      words?: never[]
+      confidence?: number
+      speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+    }
+
+    // Same Stage-0 diarization assembly as the worker: labeled text when
+    // attribution succeeds, flat transcript on any failure.
+    const sid = transcription.speakerId
+    const staffHint =
+      sid && sid.mode === 'enforce'
+        ? { speaker: sid.staffSpeakerIndex as number, confidence: sid.confidence as number }
+        : null
+    const diarized = buildDiarizedTranscript(
+      transcription.paragraphs ?? [],
+      transcription.words ?? [],
+      transcription.confidence ?? 0,
+      staffHint,
+    )
+    const text = (diarized ? toSpeakerText(diarized) : (transcription.transcript ?? '')).trim()
+
+    if (text) await writeTranscript(synqed, input.recordingSessionId, text, input.durationSeconds)
+    // Silence is an honest answer — A2-4 renders "no words" rather than a lie.
+    //
+    // ⚖ AND NOTHING IS SWEPT (capture pipeline PR4). A `finally` here used to
+    // delete the object on EVERY exit past the tenant fence, back when the
+    // client staged a throwaway copy before every call. The audio it now reads
+    // is the take's own FINALIZED object — the discarded recording itself, kept
+    // in full (⚖ 8/20 discard doctrine) — so there is nothing to sweep and
+    // nothing this may destroy.
+    return text ? { ok: true } : { skipped: 'empty' }
   } catch (err) {
     console.warn('[discard-transcript] transcribe failed:', err)
     return { error: 'failed' }

@@ -1,6 +1,7 @@
 import { Entry } from '@/types/ai'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { readTakeSecureMeta } from '@/lib/karute/take-store'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -86,6 +87,12 @@ export type PipelineContext = {
 
 export async function runAIPipeline(
   audioBlob: Blob,
+  /** The persisted take this audio belongs to (lib/karute/take-store), or null
+   *  when the store never held it. ⚖ capture pipeline PR4: the take carries the
+   *  finalized key its whole self was PUT to at stop, and THAT object is what
+   *  this transcribes — read here rather than passed in, so every caller gets
+   *  the same answer and none of them has to remember to ask. */
+  takeId: string | null,
   locale: string,
   onProgress: (step: PipelineStep) => void,
   ctx: PipelineContext = {},
@@ -98,7 +105,11 @@ export async function runAIPipeline(
   // + /api/app/v1/ai (no supabase-js in the bundle). The GlobalRecorder /
   // globalPipeline / draft singletons are unchanged — the seam is HERE only.
   const recordingPort = getRecordingPipelinePort()
-  const { body: transcribeBody, cleanup } = await recordingPort.prepareTranscription(audioBlob)
+  const finalizedPath = takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null
+  const { body: transcribeBody } = await recordingPort.prepareTranscription(
+    audioBlob,
+    finalizedPath,
+  )
 
   const transcribeRes = await fetchWithRetry(() =>
     getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
@@ -110,9 +121,8 @@ export async function runAIPipeline(
     throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // Clean up storage after transcription (web removes the object; thin is a
-  // no-op — the facade transcribe route deletes it server-side).
-  cleanup()
+  // ⚖ NOTHING IS CLEANED UP (capture pipeline PR4): the object this just read is
+  // the take's finalized audio, and audio is never deleted.
 
   const transcribeData = await transcribeRes.json()
   const transcript: string = transcribeData.transcript

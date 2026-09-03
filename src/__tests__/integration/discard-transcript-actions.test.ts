@@ -45,7 +45,11 @@ const segmentSets: { text: string; start_time: number; end_time: number; segment
 let consentByCustomer: Record<string, { policy_version: string } | null> = {}
 /** The session row. `customer_id` is the record-time binding the consent gate
  *  reads; a client-named customer must never be able to steer it. */
-let recordingRow: { duration_seconds: number | null; customer_id: string | null } | null = null
+let recordingRow: {
+  duration_seconds: number | null
+  customer_id: string | null
+  audio_storage_path?: string | null
+} | null = null
 /** Set to make recordingDiscards.list IGNORE the session filter — a core-side
  *  regression the fake would otherwise hide from the fence. */
 let listIgnoresSessionFilter = false
@@ -136,11 +140,10 @@ jest.mock('@/lib/ai/transcribe', () => ({
   loadStaffReferenceForStaff: jest.fn(async () => null),
 }))
 
-/** `removeThrows` is the janitor failing: storage cleanup must never decide the
- *  outcome the caller reads, or a dead sweep re-runs a transcription that
- *  already landed. */
+/** ⚖ capture pipeline PR4: `removed` must stay EMPTY on every path — the
+ *  storage double is here to prove a delete that no longer exists never comes
+ *  back, not to exercise one. */
 const removed: string[] = []
-let removeThrows = false
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
@@ -150,7 +153,6 @@ jest.mock('@/lib/supabase/service', () => ({
           error: null,
         }),
         remove: async (paths: string[]) => {
-          if (removeThrows) throw new Error('storage unreachable')
           removed.push(...paths)
           return { error: null }
         },
@@ -198,7 +200,6 @@ beforeEach(() => {
   segmentSets.length = 0
   upsertSeen.length = 0
   removed.length = 0
-  removeThrows = false
   listIgnoresSessionFilter = false
   // The session is bound to cust-1 at record time, and cust-1 consented.
   recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
@@ -216,8 +217,10 @@ describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
-    // The staged audio is still swept — a refusal must not leave litter.
-    expect(removed).toEqual([OWN_PATH])
+    // ⚖ capture pipeline PR4: the audio is the take's own FINALIZED object, so
+    // a refusal removes NOTHING — there is no throwaway copy any more, and the
+    // recording it just refused to write words for must survive the refusal.
+    expect(removed).toEqual([])
   })
 
   it('no consent row at all: skipped, and ZERO transcription calls', async () => {
@@ -301,6 +304,40 @@ describe('the tenant fence on a client-supplied storage key', () => {
     }
     expect(mockRunTranscription).not.toHaveBeenCalled()
   })
+
+  // ⚖ AND THE KEY ITSELF COMES OFF THE ROW (capture pipeline PR4 fix round 1).
+  // The object is PERMANENT now — nothing sweeps it after this call — so a
+  // client-named path inside the caller's own tenant is a standing lever: name
+  // a colleague's finished take and its words land on a session that really was
+  // discarded. `audio_storage_path` is the record-time fact the mint reserved,
+  // exactly as the customer is read off the row rather than off the caller.
+  const OTHER_TAKE = 'app_business-1_99999999-8888-7777-6666-555555555555.webm'
+
+  it('the ROW’s pointer wins over the caller’s claim', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+    await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+    )
+  })
+
+  it('a row with NO pointer still honours the claim — legacy rows keep working', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ ok: true })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+    )
+  })
+
+  it('a row pointing OUT of this tenant is refused, never signed', async () => {
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-1',
+      audio_storage_path: FOREIGN_PATH,
+    }
+    await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
 })
 
 // ── 3. Only for an already-reasoned discard ──────────────────────────────
@@ -341,21 +378,22 @@ describe('words are persisted ONLY onto an already-discarded session', () => {
     expect(segmentSets).toEqual([])
   })
 
-  it('a refusal past the tenant fence still sweeps the object the client staged', async () => {
-    // The client uploads BEFORE it calls, so every exit past the fence owns the
-    // cleanup — otherwise a discarded recording's audio sits in the bucket and
-    // the next sweep uploads another one.
+  it('⚖ a refusal past the tenant fence deletes NOTHING (PR4)', async () => {
+    // It used to sweep here, because the client staged a throwaway copy before
+    // every call. The path is the take's FINALIZED object now — the discarded
+    // recording itself, kept in full — so a refusal that destroyed it would be
+    // the loss this whole lane exists to end.
     ledger.length = 0
     await expect(staged()).resolves.toEqual({ error: 'not_discarded' })
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 
-  it('a transcription that THROWS still sweeps it, and still reports the failure', async () => {
+  it('⚖ a transcription that THROWS reports the failure and still keeps the audio', async () => {
     mockRunTranscription.mockImplementationOnce(async () => {
       throw new Error('deepgram unreachable')
     })
     await expect(staged()).resolves.toEqual({ error: 'failed' })
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 })
 
@@ -412,7 +450,7 @@ describe('records.write is required, and a denial is TERMINAL', () => {
 // ── 4. The happy path + idempotency ──────────────────────────────────────
 
 describe('what actually lands', () => {
-  it('ONE segment carrying the whole text, and the staged audio is dropped after', async () => {
+  it('ONE segment carrying the whole text, and the audio survives it', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets).toEqual([
       [
@@ -424,7 +462,7 @@ describe('what actually lands', () => {
         },
       ],
     ])
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
     expect(upsertSeen).toEqual([{ id: SESSION, options: { replace: true } }])
   })
 
@@ -432,7 +470,7 @@ describe('what actually lands', () => {
     mockRunTranscription.mockImplementationOnce(async () => ({ transcript: '   ' }))
     await expect(staged()).resolves.toEqual({ skipped: 'empty' })
     expect(segmentSets).toEqual([])
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 
   it('the review path writes the words it was handed, without transcribing anything', async () => {
@@ -453,14 +491,14 @@ describe('what actually lands', () => {
 const LANDED = 'こんにちは、本日はありがとうございます'
 
 describe('a transcript that already landed is never replaced', () => {
-  it('a retry of the staged persist keeps the first text, sweeps its own audio, spends nothing', async () => {
+  it('a retry of the staged persist keeps the first text and spends nothing', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets).toHaveLength(1)
     expect(segmentSets[0][0].text).toBe(LANDED)
     expect(upsertSeen).toHaveLength(1)
-    // The retry staged a fresh object of its own — nothing else collects it.
-    expect(removed).toEqual([OWN_PATH, OWN_PATH])
+    // Both runs read the SAME finalized object, and neither removes it.
+    expect(removed).toEqual([])
     // The probe sits ahead of the transcription, so the retry costs nothing.
     expect(mockRunTranscription).toHaveBeenCalledTimes(1)
   })
@@ -480,21 +518,24 @@ describe('a transcript that already landed is never replaced', () => {
   })
 })
 
-// ── 6. The sweep never decides the outcome ───────────────────────────────
+// ── 6. ⚖ There is no sweep to fail (capture pipeline PR4) ────────────────
+// This section used to prove that a DEAD janitor could not change the answer
+// the caller reads. The janitor is gone, so the stronger statement is the one
+// worth pinning: across every exit this door has, nothing is ever removed.
 
-describe('a failed staged-audio sweep does not fail the persist', () => {
-  it('the words landed, so the answer is ok and the caller drops its take', async () => {
-    removeThrows = true
+describe('no exit from this door deletes recording audio', () => {
+  it('the happy path: the words land and the audio stays', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets[0][0].text).toBe(LANDED)
+    expect(removed).toEqual([])
   })
 
-  it('a consent refusal stays a settled skip, never a retryable error', async () => {
+  it('a consent refusal stays a settled skip, and still deletes nothing', async () => {
     consentByCustomer = {}
-    removeThrows = true
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
+    expect(removed).toEqual([])
   })
 })
 

@@ -52,11 +52,12 @@ describe('the flag flip — the fix itself', () => {
     expect(viteRecordingPort.supportsDiscardTranscript).toBe(true)
   })
 
-  it('and still stages audio through the tenant-scoped upload-url facade', () => {
-    // The collection leg the flag turns on: stageForJob is what
-    // runDiscardTranscript hands the staged path from, and its key shape is
-    // what the route's tenant fence re-proves.
-    expect(typeof viteRecordingPort.stageForJob).toBe('function')
+  it('and stages NOTHING — the words come off the take’s finalized object', () => {
+    // ⚖ capture pipeline PR4: runDiscardTranscript hands the route the take's
+    // own finalized key (take-store's finalizedPath), so the staging door the
+    // collection leg used to lean on is gone from the port entirely — and with
+    // it the janitor that deleted a discarded recording's audio.
+    expect('stageForJob' in viteRecordingPort).toBe(false)
   })
 })
 

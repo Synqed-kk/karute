@@ -3,14 +3,16 @@
  *
  * A2-2 client half — lib/recording/discard-transcript.ts.
  *
- * The register exists for ONE reason: a discarded take's audio must outlive the
- * discard just long enough for its words to land, and not one moment longer.
- * So the properties here are all about WHEN the audio dies:
+ * ⚖ WHAT THIS FILE PINS CHANGED IN PR4. It used to be about WHEN the audio
+ * dies: a settled answer deleted the take, an unsettled one kept it. Audio is
+ * never deleted now (design v2 item 10), so the register's job is narrower and
+ * the properties are about the SETTLE MARK instead:
  *
- *   - a settled answer (written, or deliberately not kept) deletes it;
- *   - anything unsettled keeps it, stamped, for the next mount's sweep;
- *   - a world with nowhere to persist keeps nothing back at all, so the phone
- *     never accumulates audio waiting for a collection that cannot happen.
+ *   - a settled answer (written, or deliberately not kept) MARKS the take done,
+ *     which is what stops the mount sweep re-reading it forever;
+ *   - anything unsettled leaves the mark off, so the next sweep retries;
+ *   - a take with no finalized object yet is left entirely alone — nothing here
+ *     can create one, and nothing here may destroy the only copy while waiting.
  */
 const mockPersistDiscardTranscript = jest.fn(async () => ({ ok: true }) as unknown)
 const mockTranscribeAndPersistDiscard = jest.fn(async () => ({ ok: true }) as unknown)
@@ -20,27 +22,27 @@ jest.mock('@/actions/recording-discard-transcript', () => ({
     mockTranscribeAndPersistDiscard(...(a as [])),
 }))
 
-const mockDeleteTake = jest.fn(async (_takeId: string) => {})
+const mockMarkDone = jest.fn(async (_takeId: string) => {})
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
-const mockLoadTakeBlob = jest.fn(async (_takeId: string): Promise<Blob | null> => new Blob(['audio']))
+const mockReadSecureMeta = jest.fn(
+  async (_takeId: string): Promise<{ finalizedPath?: string } | null> => ({
+    finalizedPath: 'app_business-1_take-1.webm',
+  }),
+)
 const mockListPending = jest.fn(
   async (): Promise<{ takeId: string; discardPending: unknown }[]> => [],
 )
 jest.mock('@/lib/karute/take-store', () => ({
-  deleteTake: (takeId: string) => mockDeleteTake(takeId),
+  markDiscardTranscriptDone: (takeId: string) => mockMarkDone(takeId),
   stampDiscardPending: (takeId: string, pending: unknown) =>
     mockStampDiscardPending(takeId, pending),
-  loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
+  readTakeSecureMeta: (takeId: string) => mockReadSecureMeta(takeId),
   listPendingDiscardTakes: () => mockListPending(),
 }))
 
-const mockStageForJob = jest.fn(async (_blob: Blob) => ({ path: 'app_business-1_staged.webm' }))
 let mockSupported = true
 jest.mock('@/lib/ports/recording-port', () => ({
-  getRecordingPipelinePort: () => ({
-    supportsDiscardTranscript: mockSupported,
-    stageForJob: (blob: Blob) => mockStageForJob(blob),
-  }),
+  getRecordingPipelinePort: () => ({ supportsDiscardTranscript: mockSupported }),
 }))
 
 import {
@@ -62,7 +64,9 @@ beforeEach(() => {
   mockSupported = true
   mockPersistDiscardTranscript.mockImplementation(async () => ({ ok: true }))
   mockTranscribeAndPersistDiscard.mockImplementation(async () => ({ ok: true }))
-  mockLoadTakeBlob.mockImplementation(async () => new Blob(['audio']))
+  mockReadSecureMeta.mockImplementation(async () => ({
+    finalizedPath: 'app_business-1_take-1.webm',
+  }))
   mockListPending.mockImplementation(async () => [])
 })
 
@@ -143,44 +147,47 @@ describe('the review path (words already in hand)', () => {
 })
 
 describe('the audio path', () => {
-  it('stages the take, transcribes it onto the discarded session, then drops the audio', async () => {
+  it('⚖ transcribes the take’s FINALIZED object and stages nothing', async () => {
     await runDiscardTranscript('take-1', PENDING)
-    expect(mockStageForJob).toHaveBeenCalledTimes(1)
     expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith({
       recordingSessionId: 'sess-1',
-      audioPath: 'app_business-1_staged.webm',
+      audioPath: 'app_business-1_take-1.webm',
       durationSeconds: 62,
       locale: 'ja',
     })
-    expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
   })
 
   it('a deliberate skip settles it — the reason-only row IS the outcome there', async () => {
     mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ skipped: 'consent' }))
     await runDiscardTranscript('take-1', PENDING)
-    expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
   })
 
-  it('a failure KEEPS the take — the words are still owed', async () => {
+  it('a failure leaves the mark OFF — the words are still owed', async () => {
     mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ error: 'failed' }))
     await runDiscardTranscript('take-1', PENDING)
-    expect(mockDeleteTake).not.toHaveBeenCalled()
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 
   it('a TERMINAL refusal settles it — no retry can ever change the answer', async () => {
     // `not_discarded` (no reasoned discard on that session — the words have no
     // home) and `forbidden` (the caller lacks the capability, or the key is not
-    // this tenant's) cannot become true on a later mount. Kept, they re-staged
-    // the whole audio on every record-page mount for seven days.
+    // this tenant's) cannot become true on a later mount. Unmarked, they made
+    // the sweep re-read the whole take off disk on every record-page mount for
+    // seven days.
     for (const error of ['not_discarded', 'forbidden'] as const) {
       jest.clearAllMocks()
+      mockReadSecureMeta.mockImplementation(async () => ({
+        finalizedPath: 'app_business-1_take-1.webm',
+      }))
       mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ error }))
       await runDiscardTranscript('take-1', PENDING)
-      expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+      expect(mockMarkDone).toHaveBeenCalledWith('take-1')
     }
   })
 
-  it('a take already in flight is not staged a second time', async () => {
+  it('a take already in flight is not transcribed a second time', async () => {
     // The sweep fires on EVERY record-page mount and the discard arm kicks its
     // own run: navigating away and back inside a long transcription used to pay
     // Deepgram twice for the same audio.
@@ -191,32 +198,39 @@ describe('the audio path', () => {
     const first = runDiscardTranscript('take-1', PENDING)
     for (let i = 0; i < 8; i++) await Promise.resolve()
     await runDiscardTranscript('take-1', PENDING)
-    expect(mockStageForJob).toHaveBeenCalledTimes(1)
     expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(1)
 
     release()
     await first
     // …and the guard is released with the run, so a later retry still works.
     await runDiscardTranscript('take-1', PENDING)
-    expect(mockStageForJob).toHaveBeenCalledTimes(2)
+    expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(2)
   })
 
-  it('audio that is gone (or belongs to another signed-in staffer) is left alone', async () => {
-    mockLoadTakeBlob.mockImplementationOnce(async () => null)
+  it('a take that is gone (or belongs to another signed-in staffer) is left alone', async () => {
+    mockReadSecureMeta.mockImplementationOnce(async () => null)
     await runDiscardTranscript('take-1', PENDING)
-    // Nothing staged, nothing transcribed — and NOT deleted: on a shared device
-    // this is the other staffer's take, and their own sweep can still finish it.
-    expect(mockStageForJob).not.toHaveBeenCalled()
+    // Nothing transcribed and NOT marked: on a shared device this is the other
+    // staffer's take, and their own sweep can still finish it.
     expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
-    expect(mockDeleteTake).not.toHaveBeenCalled()
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 
-  it('a staging failure never throws at the caller (it is a fire-and-forget kick)', async () => {
-    mockStageForJob.mockImplementationOnce(async () => {
-      throw new Error('upload failed')
+  it('⚖ a take not secured YET is left alone too — never marked, never destroyed', async () => {
+    // An offline stop: the record page's mount retry secures it, and the next
+    // sweep finishes this. Marking it done here would lose the words forever.
+    mockReadSecureMeta.mockImplementationOnce(async () => ({}))
+    await runDiscardTranscript('take-1', PENDING)
+    expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+    expect(mockMarkDone).not.toHaveBeenCalled()
+  })
+
+  it('a transport throw never escapes at the caller (it is a fire-and-forget kick)', async () => {
+    mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => {
+      throw new Error('offline')
     })
     await expect(runDiscardTranscript('take-1', PENDING)).resolves.toBeUndefined()
-    expect(mockDeleteTake).not.toHaveBeenCalled()
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 })
 
@@ -228,6 +242,6 @@ describe('the mount sweep', () => {
     ])
     await sweepDiscardTranscripts()
     expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(2)
-    expect(mockDeleteTake.mock.calls.map((c) => c[0])).toEqual(['take-1', 'take-2'])
+    expect(mockMarkDone.mock.calls.map((c) => c[0])).toEqual(['take-1', 'take-2'])
   })
 })

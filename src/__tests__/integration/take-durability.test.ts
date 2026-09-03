@@ -305,7 +305,9 @@ Object.defineProperty(navigator, 'mediaDevices', {
 
 import { globalRecorder } from '@/lib/global-recorder'
 import {
+  appendTakeSegment,
   clearOwnTakes,
+  deleteTake,
   getRecoverableTake,
   listOwnTakes,
   listOwnStoppedUnsecuredTakeIds,
@@ -641,7 +643,7 @@ describe('take durability — owner gate (store layer)', () => {
     mockUid = 'staff-B'
     await stampTakeDuration(takeId, 999)
     await markTakeSecureError(takeId, 'forbidden')
-    await markTakeFinalized(takeId)
+    await markTakeFinalized(takeId, 'app_biz_theirs.webm')
     // …the session stamp included (fix round 8): it was the one write here that
     // never carried the gate, and it is the one that decides which core row a
     // take's audio finalizes against — pointed at a colleague's mint, the audio
@@ -682,6 +684,30 @@ describe('take durability — owner gate (store layer)', () => {
     expect(segments().size).toBe(0)
   })
 
+  // ⚖ PR4 RIDER — THE LAST UNGATED WRITE. appendTakeSegment is the capture hot
+  // loop, and fix round 10 deferred its gate on cost; the cost turned out to be
+  // a localStorage read (supabase-js getSession) every ~5 s. Without it, a
+  // shared salon device that signs one staffer out MID-RECORDING keeps
+  // appending that audio to the outgoing staffer's take.
+  it('appendTakeSegment is owner-gated: a mid-flush user switch appends nothing', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(segments().size).toBe(1)
+
+    // The next shift signs in while the recorder is still flushing.
+    mockUid = 'staff-B'
+    expect(await appendTakeSegment(takeId, 1, new Blob(['bbb']))).toBe(false)
+    mockUid = null
+    expect(await appendTakeSegment(takeId, 2, new Blob(['ccc']))).toBe(false)
+    expect(segments().size).toBe(1)
+
+    // …and the gate is what refused, not a broken store: the owner still writes.
+    mockUid = 'staff-A'
+    expect(await appendTakeSegment(takeId, 1, new Blob(['bbb']))).toBe(true)
+    expect(segments().size).toBe(2)
+  })
+
   it('a freshly-flushed take (possibly live in another tab) is not offered until the grace passes', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
@@ -703,10 +729,18 @@ describe('take durability — owner gate (store layer)', () => {
 })
 
 describe('take durability — deletion lifecycle', () => {
+  // ⚖ NOTHING DELETES AUDIO THE SERVER DOES NOT HAVE (capture pipeline PR4).
+  // deleteTake refuses a take with no `finalizedAt`, so every deletion below
+  // now secures its take first — that is the state a real take is in by the
+  // time any of these run, because secureTake fires at stop. The guard itself
+  // gets its own describe at the bottom of this section.
+  const FINALIZED = 'app_biz_take.webm'
+
   it('discard() deletes the persisted take; keepTake (pipeline handoff) retains it', async () => {
-    await startAndSettle()
+    const takeId1 = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
+    await markTakeFinalized(takeId1, FINALIZED)
     globalRecorder.discard()
     await drain()
     expect(takes().size).toBe(0)
@@ -729,15 +763,17 @@ describe('take durability — deletion lifecycle', () => {
     await jest.advanceTimersByTimeAsync(5_000)
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await markTakeFinalized(takeIdB, FINALIZED)
     const keyB = JSON.stringify(takeIdB)
     takes().set(keyB, { ...takes().get(keyB)!, ownerUid: 'staff-B' })
 
     // Staff A records, then logs out.
-    await startAndSettle()
+    const takeIdA = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await markTakeFinalized(takeIdA, FINALIZED)
     await clearOwnTakes()
     await drain()
 
@@ -750,11 +786,12 @@ describe('take durability — deletion lifecycle', () => {
   })
 
   it('wipeSessionVault({uid}) deletes that uid\'s takes end-to-end through the REAL chain, with the session store already nulled (T4, F3 real chain)', async () => {
-    await startAndSettle()
+    const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await markTakeFinalized(takeId, FINALIZED)
     expect(takes().size).toBe(1)
 
     // Simulates thin/auth/session.ts's SIGNED_OUT listener AFTER
@@ -771,11 +808,12 @@ describe('take durability — deletion lifecycle', () => {
   })
 
   it('packet 13: the uid captured pre-purge by client-session.ts\'s signOut() (session.user.id) still threads through the REAL chain, same as T4', async () => {
-    await startAndSettle()
+    const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await markTakeFinalized(takeId, FINALIZED)
     expect(takes().size).toBe(1)
 
     // createMobileAuth.signOut() now captures the outgoing uid from the live
@@ -793,11 +831,12 @@ describe('take durability — deletion lifecycle', () => {
   })
 
   it('clearOwnTakes(explicitUid) deletes that uid\'s takes even when the session-derived uid would resolve null (F3: server-driven sign-out ordering)', async () => {
-    await startAndSettle()
+    const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await markTakeFinalized(takeId, FINALIZED)
     expect(takes().size).toBe(1)
 
     // Simulates thin/auth/session.ts's SIGNED_OUT listener: by the time the
@@ -849,6 +888,7 @@ describe('take durability — deletion lifecycle', () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
+    await markTakeFinalized(takeId, FINALIZED)
     // Age the take past the TTL directly in the store.
     const key = JSON.stringify(takeId)
     const meta = takes().get(key)!
@@ -858,6 +898,140 @@ describe('take durability — deletion lifecycle', () => {
     await drain()
     expect(takes().size).toBe(0)
     expect(segments().size).toBe(0)
+  })
+
+  // ⚖ AND A REFUSED PRUNE IS NEVER A SILENT ONE (capture pipeline PR4 fix
+  // round 1). The refusal above is right; hiding what it refused was not. An
+  // expired unsecured take is excluded from the drain (stopped-only) and read
+  // out of every recovery surface through this one function, so a `continue`
+  // here made it immortal AND invisible — tens of megabytes per take, and no
+  // screen anywhere saying so.
+  describe('an expired take the server never received is SHOWN, not swept away', () => {
+    /** Age the take past the 7-day TTL, in the store, without touching it. */
+    function age(takeId: string) {
+      const key = JSON.stringify(takeId)
+      const meta = takes().get(key)!
+      const past = Date.now() - 8 * 24 * 60 * 60 * 1000
+      takes().set(key, { ...meta, startedAt: past, updatedAt: past })
+    }
+
+    async function expiredUnsecuredTake() {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      age(takeId)
+      return takeId
+    }
+
+    it('it is LISTED (flagged) and its audio is still there', async () => {
+      const takeId = await expiredUnsecuredTake()
+
+      const listed = await listOwnTakes()
+      expect(listed.map((t) => t.takeId)).toEqual([takeId])
+      expect(listed[0].expiredUnsecured).toBe(true)
+      await drain()
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+    })
+
+    it('but the recovery BANNER still does not offer it — 録音履歴 is its surface', async () => {
+      await expiredUnsecuredTake()
+      expect(await getRecoverableTake([])).toBeNull()
+    })
+
+    it('a SECURED take at the same age still expires — the flag is not a reprieve', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      await markTakeFinalized(takeId, FINALIZED)
+      age(takeId)
+
+      const listed = await listOwnTakes()
+      expect(listed).toHaveLength(0)
+      await drain()
+      expect(takes().size).toBe(0)
+    })
+
+    it('a HUMAN can delete it — and nothing automatic can', async () => {
+      const takeId = await expiredUnsecuredTake()
+
+      // Every automatic caller: the save, the TTL prune, the logout wipe.
+      await deleteTake(takeId)
+      await clearOwnTakes()
+      await drain()
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+
+      // The inbox row a staff member settled themselves. Device bytes only.
+      await deleteTake(takeId, { humanResolved: true })
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+  })
+
+  // ⚖ THE GUARD ITSELF (capture pipeline PR4, design v2 item 8). ONE check
+  // inside deleteTake covers all twelve call sites — the save, both discard
+  // arms, the inbox, the TTL prune and the logout wipe — so no caller can be
+  // the one that forgets. What it asks is the only question that matters: does
+  // the SERVER have this audio?
+  describe('deleteTake refuses a take the server does not have', () => {
+    it('an UNFINALIZED take survives the delete, segments and all', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      expect(takes().size).toBe(1)
+
+      await deleteTake(takeId)
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+    })
+
+    it('and the SAME call succeeds the moment it is finalized', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+
+      await deleteTake(takeId)
+      expect(takes().size).toBe(1)
+      await markTakeFinalized(takeId, FINALIZED)
+      await deleteTake(takeId)
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    // ⚖ REBASE ONTO PR3's FINAL TIP: the door answers BEFORE the guard. PR4
+    // wrote this case against a deleteTake that opened its transaction first,
+    // so a take whose meta was already gone fell straight through to the
+    // orphan sweep. PR3 fix round 14 (AA3) put the store's owner gate on the
+    // door ahead of everything — and a row that is not there has no owner to
+    // match, so the gate fails closed and this call now does nothing at all.
+    // That gate is the base's and it stands: it is what stops a stale take id
+    // held across a shared device's logout/login swap from deleting the
+    // colleague who is now signed in. The orphan rows are collected by the two
+    // sweeps that go straight to deleteTakeRows, not by this door.
+    it('a take whose META is already gone is refused at the OWNER gate — this door sweeps nothing', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      takes().delete(JSON.stringify(takeId))
+      expect(segments().size).toBe(1)
+
+      await deleteTake(takeId)
+      expect(segments().size).toBe(1)
+      // …and the human door cannot force it either: the gate is above the guard.
+      await deleteTake(takeId, { humanResolved: true })
+      expect(segments().size).toBe(1)
+    })
   })
 })
 
@@ -1112,12 +1286,30 @@ describe('take durability — the discard-transcript register (A2-2)', () => {
   it('a registered take still expires on the normal TTL — a never-collected discard cannot linger', async () => {
     const takeId = await recoverableTake()
     await stampDiscardPending(takeId, PENDING)
+    // ⚖ capture pipeline PR4: the TTL asks, deleteTake decides — and it only
+    // says yes once the server has this audio. A secured take expires exactly
+    // as it always did.
+    await markTakeFinalized(takeId, 'app_biz_take.webm')
     expect(takes().size).toBe(1)
 
     await jest.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1000 + 1)
     await listOwnTakes() // the read-time prune
     await drain()
     expect(takes().size).toBe(0)
+  })
+
+  it('⚖ an UNSECURED registered take is NOT pruned by the TTL — the ceiling, pinned', async () => {
+    // The named cost of the guard (design v2 item 8): a take the server never
+    // received outlives its TTL rather than being destroyed. It stays out of
+    // every recovery offer (discardPending), so what it costs is store space,
+    // not a wrong offer — and PR5's drain is what turns it into a secured one.
+    const takeId = await recoverableTake()
+    await stampDiscardPending(takeId, PENDING)
+
+    await jest.advanceTimersByTimeAsync(7 * 24 * 60 * 60 * 1000 + 1)
+    await listOwnTakes()
+    await drain()
+    expect(takes().size).toBe(1)
   })
 
   it('stamping a take that is already gone reports false — the caller must not hold audio back', async () => {
@@ -2203,7 +2395,7 @@ describe('secure at stop', () => {
     await drain()
     await passGrace()
 
-    await markTakeFinalized(takeId)
+    await markTakeFinalized(takeId, `app_biz_${takeId}.webm`)
     // The recovery read carries it, so a surface can tell "already on the
     // server" from "still device-only" without a second store read.
     expect((await getRecoverableTake([]))?.finalizedAt).toEqual(expect.any(Number))

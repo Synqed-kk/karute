@@ -21,8 +21,18 @@ jest.mock('@/lib/ai-pipeline', () => ({
 }))
 
 const deleteTake = jest.fn()
+/** ⚖ capture pipeline PR4: the job's audio_path is the take's OWN finalized
+ *  key, read off the take meta. `null` here is a take that is not secured yet —
+ *  the pre-enqueue failure that used to be a staging error. */
+const readTakeSecureMeta = jest.fn(
+  async (_takeId: string): Promise<{ finalizedPath?: string } | null> => ({
+    finalizedPath: 'app_biz-1_take-1.webm',
+  }),
+)
 jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: (...a: unknown[]) => (deleteTake as (...a: unknown[]) => unknown)(...a),
+  readTakeSecureMeta: (...a: unknown[]) =>
+    (readTakeSecureMeta as (...a: unknown[]) => unknown)(...a),
 }))
 
 type EnqueueResult = { ok: true; jobId: string; status: string } | { error: string }
@@ -36,7 +46,6 @@ type JobStatusResult =
     }
   | { error: string; notFound?: boolean }
 
-const stageForJob = jest.fn(async (_blob: Blob): Promise<{ path: string }> => ({ path: 'staged.webm' }))
 const enqueueJob = jest.fn(
   async (_input: unknown): Promise<EnqueueResult> => ({ ok: true, jobId: 'job-1', status: 'QUEUED' }),
 )
@@ -55,7 +64,6 @@ jest.mock('@/lib/ports/recording-port', () => ({
     get supportsServerJob() {
       return portSupportsServerJob.current
     },
-    stageForJob: (...a: unknown[]) => (stageForJob as (...a: unknown[]) => unknown)(...a),
     enqueueJob: (...a: unknown[]) => (enqueueJob as (...a: unknown[]) => unknown)(...a),
     jobStatus: (...a: unknown[]) => (jobStatus as (...a: unknown[]) => unknown)(...a),
   }),
@@ -84,7 +92,7 @@ beforeEach(() => {
   mockDeferreds.length = 0
   jest.clearAllMocks()
   portSupportsServerJob.current = true
-  stageForJob.mockResolvedValue({ path: 'staged.webm' })
+  readTakeSecureMeta.mockResolvedValue({ finalizedPath: 'app_biz-1_take-1.webm' })
   enqueueJob.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   jobStatus.mockResolvedValue({
     status: 'QUEUED',
@@ -100,25 +108,28 @@ afterEach(() => {
 })
 
 describe('globalPipeline server-path eligibility (packet 22)', () => {
-  it('eligible context → stages + enqueues, never calls runAIPipeline', async () => {
+  it('eligible context → enqueues the take’s FINALIZED key, never calls runAIPipeline', async () => {
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
-    expect(stageForJob).toHaveBeenCalledTimes(1)
+    expect(readTakeSecureMeta).toHaveBeenCalledWith('take-1')
     expect(enqueueJob).toHaveBeenCalledTimes(1)
+    expect(
+      (enqueueJob.mock.calls[0][0] as { audioPath: string }).audioPath,
+    ).toBe('app_biz-1_take-1.webm')
     expect(mockDeferreds).toHaveLength(0)
   })
 
   it('walk-in (no appointmentCustomerId) → in-tab path, no staging', async () => {
     globalPipeline.start(new Blob(['a']), { ...eligibleCtx, appointmentCustomerId: undefined })
     await tick(0)
-    expect(stageForJob).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(mockDeferreds).toHaveLength(1)
   })
 
   it('no outcome/outcomeSkipped → in-tab path, no staging', async () => {
     globalPipeline.start(new Blob(['a']), { ...eligibleCtx, outcome: undefined })
     await tick(0)
-    expect(stageForJob).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(mockDeferreds).toHaveLength(1)
   })
 
@@ -137,7 +148,6 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
       autoFinish: true,
     })
     await tick(0)
-    expect(stageForJob).toHaveBeenCalledTimes(1)
     expect(enqueueJob).toHaveBeenCalledTimes(1)
     expect(mockDeferreds).toHaveLength(0)
     const body = enqueueJob.mock.calls[0][0] as Record<string, unknown>
@@ -147,7 +157,7 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     expect(body).toEqual({
       recordingSessionId: 'sess-1',
       customerId: 'cust-1',
-      audioPath: 'staged.webm',
+      audioPath: 'app_biz-1_take-1.webm',
       appointmentId: undefined,
       locale: 'ja',
       durationSeconds: undefined,
@@ -158,7 +168,7 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
   it('no recordingSessionId (e.g. take-recovery accept) → in-tab path, no staging', async () => {
     globalPipeline.start(new Blob(['a']), { ...eligibleCtx, recordingSessionId: undefined })
     await tick(0)
-    expect(stageForJob).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(mockDeferreds).toHaveLength(1)
   })
 
@@ -166,15 +176,15 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     portSupportsServerJob.current = false
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
-    expect(stageForJob).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(enqueueJob).not.toHaveBeenCalled()
     expect(mockDeferreds).toHaveLength(1)
   })
 })
 
 describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
-  it('stageForJob throws → falls back to the in-tab path with the SAME blob/context', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+  it('an UNFINALIZED take → falls back to the in-tab path with the SAME blob/context', async () => {
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockResolvedValueOnce({ error: 'recording job not found', notFound: true }) // ghost probe: no job
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
@@ -186,8 +196,8 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('stageForJob throws while OFFLINE (probe dark) → immediate error with the take KEPT — never a blind fallback, never a 90s hold', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+  it('an UNFINALIZED take while OFFLINE (probe dark) → immediate error with the take KEPT — never a blind fallback, never a 90s hold', async () => {
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockRejectedValueOnce(new Error('network down')) // dark — NOT a definitive answer
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
@@ -199,8 +209,8 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('stageForJob throws + probe answers with server TROUBLE (5xx, not notFound) → error, never a fallback on trouble', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+  it('an UNFINALIZED take + probe answers with server TROUBLE (5xx, not notFound) → error, never a fallback on trouble', async () => {
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockResolvedValueOnce({ error: 'Job status failed (500)' }) // resolved but NOT definitive absence
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
@@ -210,8 +220,8 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('stageForJob throws but a PRIOR attempt left a live ghost job → polls it, never in-tab', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('storage 500'))
+  it('an UNFINALIZED take but a PRIOR attempt left a live ghost job → polls it, never in-tab', async () => {
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus
       .mockResolvedValueOnce({ status: 'RUNNING', karuteRecordId: null, attempts: 1, maxAttempts: 3, lastError: null })
       .mockResolvedValueOnce({ status: 'DONE', karuteRecordId: 'record-g', attempts: 1, maxAttempts: 3, lastError: null })
@@ -332,7 +342,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
 
     // Retry while STILL offline: stage fails, probe dark = no answer → error
     // in one round-trip. In-tab must never start on a guess.
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     globalPipeline.retry()
     await tick(0)
     expect(mockDeferreds).toHaveLength(0) // no blind fallback
@@ -352,7 +362,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
 
     // Network back: the retry's stage still fails, but the probe now finds
     // the ghost committed by attempt 1 — poll it, never in-tab.
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus
       .mockResolvedValueOnce({ status: 'RUNNING', karuteRecordId: null, attempts: 1, maxAttempts: 3, lastError: null })
       .mockResolvedValueOnce({ status: 'DONE', karuteRecordId: 'record-gh', attempts: 1, maxAttempts: 3, lastError: null })
@@ -367,7 +377,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
 
   it('stage-failure with a DEFINITIVELY dead ghost (FAILED) → in-tab fallback; a later dark stage-failure still errors', async () => {
     // The dead ghost permits the fallback (definitive answer).
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockResolvedValueOnce({ status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'boom' })
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
@@ -379,7 +389,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     mockDeferreds[0].reject(new Error('transcribe failed'))
     await tick(0)
     expect(globalPipeline.state).toBe('error')
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockRejectedValueOnce(new Error('network down'))
     globalPipeline.retry()
     await tick(0)
@@ -389,7 +399,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
   })
 
   it('stage-failure ghost probe finds a FAILED (dead) job → immediate in-tab fallback', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockResolvedValueOnce({ status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'boom' })
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
@@ -411,7 +421,6 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     jobStatus.mockResolvedValue({ status: 'QUEUED', karuteRecordId: null, attempts: 0, maxAttempts: 3, lastError: null })
     globalPipeline.retry()
     await tick(0)
-    expect(stageForJob).toHaveBeenCalledTimes(2)
     expect(enqueueJob).toHaveBeenCalledTimes(2) // idempotent server-side: a ghost job is returned unchanged
     expect(mockDeferreds).toHaveLength(0) // never in-tab
     expect(globalPipeline.state).toBe('processing')
@@ -571,7 +580,7 @@ describe('globalPipeline serverOwned = "a live server job DEFINITIVELY exists" (
   // claimed was safe. These pin the flag to the definitive answer, never the
   // attempt.
   it('t1: the staging window is NOT ownership — nothing has reached core yet', async () => {
-    stageForJob.mockImplementationOnce(() => new Promise<{ path: string }>(() => {})) // never settles
+    readTakeSecureMeta.mockImplementationOnce(() => new Promise(() => {})) // never settles
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
     expect(enqueueJob).not.toHaveBeenCalled()
@@ -580,7 +589,7 @@ describe('globalPipeline serverOwned = "a live server job DEFINITIVELY exists" (
   })
 
   it('t1b: staging FAILED with the probe dark → error, and still not owned (the take exists only here)', async () => {
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    readTakeSecureMeta.mockResolvedValueOnce({}) // not secured yet
     jobStatus.mockRejectedValueOnce(new Error('network down')) // no definitive answer
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)

@@ -371,7 +371,11 @@ export async function secureTake(
     // `already: true` rides the ok arm on purpose — an exact retry and a take a
     // job already finished are both settled successes, not failures to re-run.
     // Nothing is stamped here: the session was settled before the mint, above.
-    if ('ok' in result) await markTakeFinalized(takeId)
+    // The KEY goes on the take with the mark (PR4): the object this leg just
+    // proved is the one the pipeline transcribes and the one the core job's
+    // audio_path names, and `minted.path` is the SERVER's composed key — the
+    // client never assembles a tenant key of its own.
+    if ('ok' in result) await markTakeFinalized(takeId, minted.path)
     else await markTakeSecureError(takeId, result.error)
   } catch (err) {
     // A dead socket, or a door that threw instead of answering. The take keeps

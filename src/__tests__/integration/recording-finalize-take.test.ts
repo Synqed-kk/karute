@@ -207,42 +207,44 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
         row_take_id: OLD_TAKE,
         bytes: 1024,
         ext: 'webm',
-        // Fix round 9 (O2): same size_verified flag emitFinalized carries —
-        // the default `info` mock answers a real size, so this byte match was
-        // actually proved, not just unlisted.
-        size_verified: true,
+        // ⚖ PR4 rider: FALSE, always, on this branch. The superseded row's key
+        // is CLIENT-NAMED and this row does not point at it, so finalize never
+        // asks storage about it (see the next test) — and a row that cannot
+        // prove the bytes says so, exactly as emitFinalized does when the
+        // listing carries no size. Was `true` until 2026-09-04, back when the
+        // probe ran here and handed callers an existence oracle.
+        size_verified: false,
       })
     },
   )
 
-  // FIX ROUND 7 (J4). capture_unlinked used to be filed BEFORE the object was
-  // ever looked up, and its detail is the CLIENT's take id and byte count — so
-  // any caller who guessed a superseded row's id could write an audit row about
-  // audio that does not exist. The byte check comes first now: a superseded row
-  // answers object_missing / size_mismatch like any other take, and files
-  // nothing.
-  it('a superseded row whose object is NOT THERE — object_missing, and no unlinked row', async () => {
+  // ⚖ PR4 RIDER — NO EXISTENCE ORACLE FOR A CALLER-NAMED KEY. Fix round 7 (J4)
+  // moved the probe AHEAD of capture_unlinked so an unlinked row could never
+  // describe audio that was not there. The price was an oracle: `key` is
+  // composed from the CLIENT's takeId, the row does not point at it, and the
+  // object_missing / superseded split told any caller holding one job-owned row
+  // of their own whether a colleague's take existed. So the probe is now
+  // reached ONLY where the row's own pointer IS the key. These three pin that:
+  // whatever storage would have said, it is never asked, and the answer is the
+  // same one every time.
+  it.each([
+    ['not there', { data: null, error: { message: 'Object not found', status: 404 } }],
+    ['the wrong size', { data: { size: 999 }, error: null }],
+    ['unanswerable', { data: null, error: { message: 'boom', status: 500 } }],
+  ])('a superseded row whose object is %s — superseded, and storage is never asked', async (_label, storage) => {
     get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    info.mockResolvedValue(storage)
     const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'object_missing' })
-    expectNoWrites()
-  })
-
-  it('a superseded row whose object is the WRONG SIZE — size_mismatch, and no unlinked row', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: { size: 999 }, error: null })
-    const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'size_mismatch' })
-    expectNoWrites()
-  })
-
-  it('a superseded row storage cannot answer for — failed, and no unlinked row', async () => {
-    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
-    info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
-    const res = await finalizeTakeWithClient(synqed, actor(), input)
-    expect(res).toEqual({ error: 'failed' })
-    expectNoWrites()
+    expect(res).toEqual({ error: 'superseded' })
+    expect(info).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    // The unlinked row is still filed — it is the only thread back to an object
+    // this row moved on from — and it says the bytes are unproved.
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    const [event] = auditFn.mock.calls[0] as [Record<string, unknown>]
+    expect(event).toMatchObject({ action: 'recording.capture_unlinked' })
+    expect((event.detail as Record<string, unknown>).size_verified).toBe(false)
   })
 })
 

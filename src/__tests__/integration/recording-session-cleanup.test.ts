@@ -15,6 +15,13 @@ jest.mock('next/cache', () => ({
 }))
 const auditSpy = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditSpy(e) }))
+/** Storage's own answer about the reserved key. The cleanup asks it because the
+ *  POINTER stopped being an answer: since PR2 fix round 10 a session is BORN
+ *  RESERVED, so every recorder-made row carries a key before a byte exists. */
+const mockObjectExists = jest.fn(async (_key: string): Promise<boolean | 'unknown'> => false)
+jest.mock('@/lib/recording/mint-take-url', () => ({
+  objectExists: (key: string) => mockObjectExists(key),
+}))
 
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
 
@@ -27,14 +34,25 @@ type Row = {
   customer_id: string | null
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** Optional so the "a row with no status at all" case below is expressible —
+   *  it is the same unknown as a status past RECORDING, and kept for it. */
+  status?: string
 }
+/** ⚖ capture pipeline PR4: the ONLY removable row is one that points at no
+ *  audio. `audio_storage_path` is the single way back to a take's finalized
+ *  object — core has no lookup by key — so removing a row that carries one
+ *  would leave the recording in the bucket with nothing naming it. */
 const MY_ROW: Row = {
   id: 'sess-1',
   staff_id: ME,
   customer_id: 'cust-1',
-  audio_storage_path: 'app_business-1_take-1.webm',
+  audio_storage_path: null,
   duration_seconds: 137,
+  status: 'RECORDING',
 }
+/** BORN RESERVED (PR2 fix round 10): the ordinary shape of a row a recorder
+ *  made — a key on it, still RECORDING, and no bytes anywhere. */
+const ROW_WITH_AUDIO: Row = { ...MY_ROW, audio_storage_path: 'app_business-1_take-1.webm' }
 
 const get = jest.fn(async (_id: string): Promise<Row> => MY_ROW)
 const del = jest.fn(async (_id: string): Promise<void> => {})
@@ -56,6 +74,7 @@ beforeEach(() => {
   getByRecordingSession.mockImplementation(async () => {
     throw notFound()
   })
+  mockObjectExists.mockImplementation(async () => false)
 })
 
 describe('deleteRecordingSessionWithClient — ownership', () => {
@@ -81,8 +100,72 @@ describe('deleteRecordingSessionWithClient — ownership', () => {
     // Deliberately widened (recording-labels fix): duration_seconds rides
     // along ids-and-flags-safe — it feeds the 監査ログ subtitle since the
     // session row itself is hard-deleted at cleanup time.
-    expect(detail).toEqual({ customer_id: 'cust-1', had_audio_path: true, duration_seconds: 137 })
-    expect(JSON.stringify(detail)).not.toContain('app_business-1_take-1.webm')
+    expect(detail).toEqual({ customer_id: 'cust-1', had_audio_path: false, duration_seconds: 137 })
+    expect(JSON.stringify(detail)).not.toContain('app_business-1')
+  })
+
+  it('⚖ a row whose reserved object HOLDS BYTES is refused — the pointer is the only way back', async () => {
+    get.mockResolvedValue(ROW_WITH_AUDIO)
+    mockObjectExists.mockResolvedValue(true)
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'has_audio',
+    })
+    expect(mockObjectExists).toHaveBeenCalledWith('app_business-1_take-1.webm')
+    expect(del).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE POINTER ALONE IS NOT AN ANSWER (PR4 fix round 1). Every row a
+  // current recorder makes is BORN with its key, before one byte exists —
+  // refusing on the pointer refused every row and made this whole cleanup a
+  // silent no-op for the SYSTEM/abandoned paths it exists to serve.
+  it('a BORN-RESERVED row with no bytes on storage is still removable', async () => {
+    get.mockResolvedValue(ROW_WITH_AUDIO)
+    mockObjectExists.mockResolvedValue(false)
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      ok: true,
+    })
+    expect(del).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('a status past RECORDING is refused without even asking storage', async () => {
+    get.mockResolvedValue({ ...ROW_WITH_AUDIO, status: 'UPLOADING' })
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'has_audio',
+    })
+    expect(mockObjectExists).not.toHaveBeenCalled()
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('a row with NO status is the same unknown — kept', async () => {
+    get.mockResolvedValue({ ...MY_ROW, status: undefined })
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'has_audio',
+    })
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('a storage probe that cannot answer keeps the row — never a delete on an unknown', async () => {
+    get.mockResolvedValue(ROW_WITH_AUDIO)
+    mockObjectExists.mockResolvedValue('unknown')
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'read_failed',
+    })
+    expect(del).not.toHaveBeenCalled()
+
+    mockObjectExists.mockRejectedValue(new Error('storage down'))
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'read_failed',
+    })
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('the audio gate runs BEFORE the delete and after the record probe — one refusal, nothing touched', async () => {
+    get.mockResolvedValue(ROW_WITH_AUDIO)
+    mockObjectExists.mockResolvedValue(true)
+    await deleteRecordingSessionWithClient(client, actor, 'sess-1')
+    expect(getByRecordingSession).toHaveBeenCalledWith('sess-1')
+    expect(del).not.toHaveBeenCalled()
   })
 
   it('a row with no duration on record stamps duration_seconds: null, never undefined', async () => {

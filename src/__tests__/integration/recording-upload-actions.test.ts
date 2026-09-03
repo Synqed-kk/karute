@@ -5,8 +5,11 @@
  *      the pipeline/cleanup/worker all assume;
  *   2. the tenant fence — a path belonging to another business is refused
  *      BEFORE the service-role client (which has no RLS) ever touches it;
- *   3. removeRecordingObject never throws, whatever goes wrong.
+ *   3. the delete action that used to sit beside them is GONE (capture
+ *      pipeline PR4 — audio is never deleted).
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 const can = jest.fn(async (_c: string) => true)
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
@@ -95,11 +98,7 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-import {
-  mintRecordingUploadUrl,
-  mintRecordingReadUrl,
-  removeRecordingObject,
-} from '@/actions/recording-upload'
+import { mintRecordingUploadUrl, mintRecordingReadUrl } from '@/actions/recording-upload'
 import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
@@ -185,7 +184,7 @@ const BIZ_UUID = 'c47a1f2e-6b90-4d3a-8e15-9f0c2a7d4b61'
 
 beforeEach(() => {
   jest.clearAllMocks()
-  // removeRecordingObject warns on every refusal by design — keep the run readable.
+  // The mint warns on every refusal by design — keep the run readable.
   jest.spyOn(console, 'warn').mockImplementation(() => {})
   can.mockImplementation(async () => true)
   requireCapability.mockImplementation(async () => {})
@@ -300,11 +299,28 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
   it.each([
     ['a container we do not store', 'audio/aac'],
     ['a video container', 'video/mp4'],
-    ['an empty mime', ''],
   ])('refuses %s — bad_mime, nothing is signed and nothing is bound', async (_label, mimeType) => {
     await expect(mintRecordingUploadUrl({ ...NAMED, mimeType })).resolves.toEqual({
       error: 'bad_mime',
     })
+    expectNoBinding()
+  })
+
+  // ⚖ PR4 RIDER — mimeType joined the FIELD-PAIR RULE. An empty container on a
+  // named take is now refused one fence earlier, by the schema, as bad_input:
+  // it used to reach composeTakeKey and answer bad_mime, but the real fault is
+  // the half-body. Without the rule the field is simply OPTIONAL, and a phone
+  // that negotiated audio/mp4 and forgot to send it would silently get a
+  // `.webm` key — the wrong extension on the object the whole pipeline reads.
+  it.each([
+    ['an empty mime', ''],
+    ['no mime at all', undefined],
+  ])('refuses a named take with %s — bad_input, nothing signed or bound', async (_label, mimeType) => {
+    await expect(
+      mintRecordingUploadUrl({ ...NAMED, mimeType: mimeType as string }),
+    ).resolves.toEqual({ error: 'bad_input' })
+    expect(get).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
     expectNoBinding()
   })
 
@@ -686,6 +702,21 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     expectNoBinding()
   })
 
+  // ⚖ PR4 RIDER — THE POINTER IS ASKED BEFORE STORAGE. `key` is composed from
+  // the CLIENT's takeId, so probing it on a row that points somewhere else told
+  // the caller whether an object they merely NAMED exists: an oracle over a
+  // colleague's takes, reachable by anyone holding one row of their own. The
+  // refusal is the same either way — `exists` and `reserved_elsewhere` are both
+  // TERMINAL — so only the oracle was lost.
+  it('⚖ a row bound elsewhere is refused WITHOUT asking storage — no existence oracle', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: OTHER_KEY }))
+    // Storage would have said "yes, that object is there" — it is never asked.
+    info.mockResolvedValue({ data: { size: 4096 }, error: null })
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
   it('refuses a key whose object ALREADY EXISTS on a row that reserved nothing — exists', async () => {
     info.mockResolvedValue({ data: { size: 4096 }, error: null })
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'exists' })
@@ -694,6 +725,17 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
 
   it('fails CLOSED when storage cannot say whether the object exists', async () => {
     info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'upstream' })
+    expectNoBinding()
+  })
+
+  // ⚖ PR4 RIDER — NEVER THROWS (parity with finalizeTake). A rejected server
+  // action reaches the recorder unnamed, and secureTake's catch marks the take
+  // `failed`, which 要対応 reads as TERMINAL: one flaky identity read at stop
+  // would strand a take whose retry would have worked. 'upstream' is this
+  // union's one retryable code.
+  it('⚖ an identity lookup that THROWS settles as upstream, never a rejection', async () => {
+    getBusinessId.mockRejectedValue(new Error('roster read exploded'))
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'upstream' })
     expectNoBinding()
   })
@@ -785,35 +827,25 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
   })
 })
 
-describe('removeRecordingObject — same fence, and it never throws', () => {
-  it('deletes a path under the caller’s own prefix', async () => {
-    await expect(removeRecordingObject(OWN)).resolves.toEqual({ ok: true })
-    expect(removeObj).toHaveBeenCalledWith([OWN])
+// ⚖ THE DELETE ACTION IS GONE, NOT REFUSED (capture pipeline PR4). What used to
+// live here was a whole suite proving removeRecordingObject's fence held —
+// a client-invokable server action whose entire job was erasing a recording
+// object by name. The fence is not the answer any more; not having the door is.
+describe('removeRecordingObject is REMOVED', () => {
+  it('the module exports no delete action', async () => {
+    const mod = (await import('@/actions/recording-upload')) as Record<string, unknown>
+    expect(Object.keys(mod).sort()).toEqual(['mintRecordingReadUrl', 'mintRecordingUploadUrl'])
   })
 
-  it.each(REFUSED)('refuses %s — nothing is deleted', async (_label, path) => {
-    await expect(removeRecordingObject(path)).resolves.toEqual({ error: 'failed' })
-    expect(removeObj).not.toHaveBeenCalled()
-  })
-
-  it('refuses a string-shaped non-string before it calls a method on it', async () => {
-    await expect(removeRecordingObject(IMPOSTOR)).resolves.toEqual({ error: 'failed' })
-    expect(removeObj).not.toHaveBeenCalled()
-  })
-
-  it('a denied capability returns the error arm, never a throw into the recording UX', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(removeRecordingObject(OWN)).resolves.toEqual({
-      error: 'failed',
-    })
-    // The fence's first act is asking who the caller is — never asked = never ran.
-    expect(getBusinessId).not.toHaveBeenCalled()
-    expect(removeObj).not.toHaveBeenCalled()
-  })
-
-  it('a storage error returns the error arm', async () => {
-    removeObj.mockResolvedValue({ error: { message: 'gone' } })
-    await expect(removeRecordingObject(OWN)).resolves.toEqual({ error: 'gone' })
+  it('and no CODE in the file reaches for a storage remove', () => {
+    // Comment lines are stripped first: the header explains what was deleted
+    // and why, and naming the door in prose is not the door.
+    const code = readFileSync(join(process.cwd(), 'src/actions/recording-upload.ts'), 'utf8')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n')
+    expect(code).not.toContain('.remove(')
+    expect(code).not.toContain('removeRecordingObject')
   })
 })
 

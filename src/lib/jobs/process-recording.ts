@@ -44,9 +44,9 @@ export interface RecordingJobPayload {
   duration_seconds?: number
   /** Coaching label chosen at stop (packet 22 B4) — written via the SAME
    *  best-effort upsert the interactive save uses (setKaruteOutcomeWithClient),
-   *  but a failure here THROWS (unlike the interactive save's swallow):
-   *  the audio is deleted right after this function returns, so a silently
-   *  lost label has no retry path. Absent = no outcome to write. */
+   *  but a failure here THROWS (unlike the interactive save's swallow): a
+   *  silently lost label has no retry path of its own, and failing the whole
+   *  job is what gets one. Absent = no outcome to write. */
   outcome?: SessionOutcome
 }
 
@@ -67,11 +67,12 @@ async function processJob(job: RecordingJob): Promise<string> {
   const synqed = coreClient(job.business_id)
 
   // Tenancy gate at the chokepoint EVERY arm routes through — the last line
-  // before a service-role read + delete of the object (no RLS on that client).
+  // before a service-role read of the object (no RLS on that client; PR4 left
+  // this worker no delete at all).
   // A job's audio MUST live under this job's own tenant prefix; anything else
   // — a cross-tenant `app_${other}_*` key OR a non-tenant-scoped `rec_*` key
-  // whose owner can't be verified — is refused before it can be read or
-  // deleted. This is why the ONLY audio the worker will touch is a
+  // whose owner can't be verified — is refused before it can be read.
+  // This is why the ONLY audio the worker will touch is a
   // `app_${businessId}_*` object the upload-url facade minted for THIS tenant;
   // both the facade route and the web action enforce the same shape up front,
   // and this is the invariant that holds even if a future caller forgets to.
@@ -164,10 +165,10 @@ async function processJob(job: RecordingJob): Promise<string> {
   })
 
   // Coaching label (packet 22 B4) — same idempotent upsert the interactive
-  // save uses. UNLIKE that call site, a write failure here THROWS: the audio
-  // is deleted right after this function returns, so there is no later
-  // opportunity to retry just the outcome — failing the whole job lets core's
-  // requeue converge on the SAME record (the upsert above is idempotent too).
+  // save uses. UNLIKE that call site, a write failure here THROWS: there is no
+  // later opportunity to retry just the outcome — failing the whole job lets
+  // core's requeue converge on the SAME record (the upsert above is idempotent
+  // too, and PR4 leaves the audio in place for that re-run).
   if (payload.outcome) {
     const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
       karuteRecordId: record,
@@ -223,12 +224,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     source: 'system',
   })
 
-  // 5. Audio lifecycle: job complete → delete, exactly like the interactive
-  // flow. Best-effort — a leftover object is only REPORTED by the daily sweep
-  // (audio is never deleted, 2026-09-03); the retention round removes this
-  // delete entirely.
-  await supabase.storage.from('recordings').remove([payload.audio_path]).catch(() => {})
-
+  // 5. ⚖ THE AUDIO STAYS (capture pipeline PR4). A completed job used to delete
+  // the object it had just transcribed. `audio_path` is the take's FINALIZED
+  // key now — the recording itself, the evidence behind the karute this job
+  // just wrote — so nothing here removes it, and the daily sweep only reports.
   return record
 }
 

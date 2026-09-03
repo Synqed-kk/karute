@@ -81,6 +81,15 @@ export const SessionMintSchema = z
 // the caller unable to name the row it had just made. A session with no take id
 // is a row the mint would silently ignore. Both are bad_input, and the rule
 // lives HERE because this schema is the one parse both doors run.
+//
+// mimeType JOINS THE RULE (capture pipeline PR4, packet rider): it is the third
+// field of the same one act, and SessionMintSchema above has always paired it.
+// A named take with no container falls back to `.webm` inside composeTakeKey,
+// so a phone that negotiated audio/mp4 and forgot to say so would have its take
+// keyed `.webm` — the wrong extension on the object the whole pipeline now
+// reads, and a mismatch the finalize (which composes the key from the SAME pair
+// it was given) cannot see. Refusing the half-body is one 400 at the door
+// instead. A container with no take id names nothing, exactly as before.
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
@@ -91,6 +100,10 @@ export const UploadUrlMintSchema = z
   .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
     message: 'takeId and recordingSessionId must be sent together',
     path: ['recordingSessionId'],
+  })
+  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType), {
+    message: 'takeId and mimeType must be sent together',
+    path: ['mimeType'],
   })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".

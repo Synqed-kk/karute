@@ -357,6 +357,60 @@ describe('録音履歴 — walk-ins and orphan takes', () => {
     expect(rows[0].recordingSessionId).toBeNull()
   })
 
+  // ⚖ EXPIRED, UNSECURED, STILL ON THE DEVICE (capture pipeline PR4 fix round
+  // 1). The take store refuses to prune audio the server never received, so
+  // these takes outlive the 7-day window — and the server read is bounded by
+  // that same window, so no session row comes back to carry them. Without a row
+  // of their own they are invisible everywhere, which is how tens of megabytes
+  // per take end up parked on a salon phone with nothing on any screen saying
+  // so. 復元可能, in the vocabulary the card already speaks, offering 保存する.
+  it('an expired UNSECURED take gets a row of its own, however old it is', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-stranded',
+          recordingSessionId: 's-gone',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+          expiredUnsecured: true,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('take:t-stranded')
+    expect(rows[0].state).toBe('recoverable')
+    expect(rows[0].reason).toBe('localAudio')
+    expect(rows[0].takeId).toBe('t-stranded')
+    expect(needsAttention(rows[0])).toBe(true)
+  })
+
+  it('…and an ordinary take that old is still dropped — the flag is the exemption', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-old',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(0)
+  })
+
+  // One row per session, always. The two windows are the same constant today,
+  // so this cannot happen — but if they ever drift the session's own row wins
+  // and the stranded take stands down rather than doubling it.
+  it('a stranded take never doubles a session row that DID come back', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', expiredUnsecured: true })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('session:s1')
+  })
+
   it('MULTI-TAKE: two independent takes are two rows — not just the newest', () => {
     // The pre-F1 banner offered only the newest recoverable take; every older
     // one sat un-offered until the TTL swept it. That is the loss this row set

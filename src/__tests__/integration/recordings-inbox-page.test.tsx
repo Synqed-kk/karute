@@ -100,11 +100,19 @@ type StoredTake = {
   updatedAt: number
   outcome?: unknown
   outcomeSkipped?: boolean
+  /** Set = the server has this take's audio. Absent on every take below, which
+   *  is what a 確認待ち take IS: one this device never settled. */
+  finalizedAt?: number
 }
 /** The device's IndexedDB, in a variable. deleteTake really removes from it, so
- *  a re-fold after 確認する sees the world the app actually left behind. */
+ *  a re-fold after 確認する sees the world the app actually left behind — and
+ *  it carries the REAL guard (capture pipeline PR4): audio the server does not
+ *  have is removed only when a HUMAN resolved the row. A fake that removed
+ *  unconditionally would go green on a call site that had lost the flag. */
 let stored: StoredTake[] = []
-const mockDeleteTake = jest.fn(async (takeId: string) => {
+const mockDeleteTake = jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+  const held = stored.find((t) => t.takeId === takeId)
+  if (held && !held.finalizedAt && !opts?.humanResolved) return
   stored = stored.filter((t) => t.takeId !== takeId)
 })
 jest.mock('@/lib/karute/take-store', () => ({
@@ -114,7 +122,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: (id: string) => mockDeleteTake(id),
+  deleteTake: (id: string, opts?: { humanResolved?: boolean }) => mockDeleteTake(id, opts),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
@@ -379,7 +387,10 @@ describe('録音履歴 — 確認待ち decays once the staffer looks', () => {
     })
     await flush(20)
 
-    expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+    // ⚖ THE ONE HUMAN-RESOLVED DELETE (PR4 fix round 1). A 確認待ち take is by
+    // definition one this device never secured, so without the flag the guard
+    // refuses it and the 要対応 badge can never be cleared by anyone.
+    expect(mockDeleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
     expect(mockPush).toHaveBeenCalledWith('/karute/rec-1')
     // …and the re-fold that follows the settle shows the row as plain 保存済み,
     // with the 要対応 chip gone.

@@ -227,21 +227,32 @@ async function planReservation(
   const denied = assertRecorderOwnsRow(row, actor)
   if (denied) return denied
 
+  const pointer = row.audio_storage_path
+
+  // ⚖ THE POINTER IS ASKED FIRST (packet rider, from the PR2/PR3 review loops).
+  // Bound to another take already. Never repointed here: the displaced object
+  // would keep its bytes and lose its only row. Answered BEFORE storage is
+  // touched, because `key` is composed from the CLIENT's takeId and a row whose
+  // pointer is something else never reserved it — probing it would tell the
+  // caller whether an object they merely NAMED exists, an oracle over a
+  // colleague's takes (the same one finalize's superseded branch just lost).
+  // The refusal is identical either way: `exists` and `reserved_elsewhere` are
+  // both TERMINAL for the client — start a new session — so nothing but the
+  // oracle is lost by settling it here.
+  if (pointer !== null && pointer !== key) return { error: 'reserved_elsewhere' }
+
   // BYTES BEFORE THE BINDING = somebody else's take. The only caller allowed to
   // meet an existing object here is the one whose own row already reserved this
-  // exact key (the legitimate retry: the PUT landed, the answer was lost).
+  // exact key (the legitimate retry: the PUT landed, the answer was lost) — and
+  // by the line above, this row's pointer is now either null or exactly `key`.
   const exists = await objectExists(key)
   if (exists === 'unknown') return { error: 'upstream' }
-  const pointer = row.audio_storage_path
-  if (exists && pointer !== key) return { error: 'exists' }
+  if (exists && pointer === null) return { error: 'exists' }
 
   // LEGACY ONLY (fix round 10): a row minted before sessions were born reserved.
   // Every row this app version creates for a client-named take already carries
   // its key, and lands on the retry exit below instead.
   if (pointer === null) return { kind: 'update', row }
-  // Bound to another take already. Never repointed here: the displaced object
-  // would keep its bytes and lose its only row.
-  if (pointer !== key) return { error: 'reserved_elsewhere' }
   // ALREADY OURS. Either the ordinary path now (the row was BORN with this key,
   // fix round 10) or the legitimate retry (the PUT landed, the answer was lost):
   // the binding is already exactly what this call would write, so commit writes
@@ -394,7 +405,18 @@ export async function mintTakeUploadUrl(
 
   const businessId = actor.businessId
   const takeId = input.takeId ?? crypto.randomUUID()
-  const mimeType = input.mimeType ?? DEFAULT_MIME
+  // ⚖ A CLIENT-NAMED TAKE BRINGS ITS OWN CONTAINER (fix round 1, rider 3's
+  // second half). The schema's field-pair rule says so for both doors, and this
+  // is where that rule is CASHED: `?? DEFAULT_MIME` applied to a take the
+  // CLIENT named would compose `.webm` onto audio that is not webm — the wrong
+  // extension on the one object the whole pipeline now reads, and invisible to
+  // finalize, which composes from the same pair and would agree with it. Only
+  // the SERVER-named take (no takeId, so no mimeType either) keeps the default.
+  // Re-narrowed here because a zod refine is invisible to the compiler, and a
+  // fence that leans on a schema clause it cannot see is one edit away from
+  // being gone.
+  const mimeType = input.mimeType ?? (input.takeId ? null : DEFAULT_MIME)
+  if (mimeType === null) return { error: 'bad_input' }
   let composed: { key: string; ext: string; contentType: string } | null
   try {
     // Separate refusals so the caller can say WHICH field it rejected — a

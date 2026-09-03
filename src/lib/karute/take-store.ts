@@ -214,6 +214,13 @@ export type TakeMeta = {
    *  long enough to be transcribed onto the discarded session; it is deleted the
    *  moment that lands. */
   discardPending?: DiscardPending
+  /** Capture pipeline PR4: the words of that discard have LANDED (or were
+   *  deliberately not kept). The take used to be deleted at that moment; audio
+   *  is never deleted now, so the settle needs a mark of its own or the sweep
+   *  would re-read a whole take off disk on every record-page mount forever.
+   *  `discardPending` deliberately STAYS — it is the recovery exclusion that
+   *  keeps a deliberately-discarded recording from being offered back. */
+  discardTranscriptDoneAt?: number
   /** Capture pipeline PR3: the whole take is on the server under its finalized
    *  key AND its core row carries the pointer (lib/recording/secure-take.ts).
    *  THE STOP CONDITION PR5's launch drain reads: a take with segments and NO
@@ -221,6 +228,14 @@ export type TakeMeta = {
    *  row. Absent on every take stamped before this field existed — read as "not
    *  secured", which is the honest answer for them. */
   finalizedAt?: number
+  /** Capture pipeline PR4: the finalized KEY the mint composed for this take —
+   *  the object the whole pipeline now reads (transcription, the core job's
+   *  audio_path). Written beside finalizedAt at secure time because the client
+   *  must never compose a tenant key itself: this is the server's own answer,
+   *  carried back from the mint. Absent on a take secured before this field
+   *  existed — read as "no pointer of my own", which sends that take down the
+   *  in-tab fallback leg instead of naming an object nobody proved. */
+  finalizedPath?: string
    /** Why the last secure attempt did not finish — the finalize door's own code
    *  ('object_missing' | 'size_mismatch' | 'failed' | …), 'session' for a take
    *  that could not get a row at all, 'upload_<status>' for a refused PUT,
@@ -306,7 +321,16 @@ export type DiscardPending = {
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
-export type RecoverableTake = Omit<TakeMeta, 'ownerUid' | 'lastSeq'>
+export type RecoverableTake = Omit<TakeMeta, 'ownerUid' | 'lastSeq'> & {
+  /** Capture pipeline PR4 fix round 1: this take is PAST the TTL and the
+   *  server still does not have it, so the prune refused it (the never-delete
+   *  guard in deleteTakeRows). NOT a stored field — derived by listOwnTakes,
+   *  the one place that owns TAKE_TTL_MS — and the reason 録音履歴 shows the
+   *  row at all: an expired unsecured take is outside the inbox's own 7-day
+   *  window, so without this the fold would drop the one row a human can act
+   *  on. */
+  expiredUnsecured?: boolean
+}
 
 type SegmentRow = { takeId: string; seq: number; blob: Blob }
 
@@ -396,15 +420,23 @@ export async function createTake(
  * false on failure OR when the meta row is gone (logged out / discarded
  * mid-flight) — the recorder then disables persistence for this take.
  *
- * ⚖ NO OWNER GATE, AND NOT THIS ROUND (fix round 10, P3 — deferred to PR5).
- * Every other write in this file resolves the signed-in uid before it touches
- * the row; this one does not, so a shared salon device that signed one staffer
- * out mid-flush could in principle append to a colleague's row. It is
- * PRE-EXISTING and it is the capture HOT LOOP — every ~5 s for the length of a
- * recording — and a session read per segment is a cost capture must never pay
- * for a hazard the recorder's own take id already fences in practice. Closing
- * it needs the uid resolved ONCE at start() and carried, which is a capture-path
- * change and belongs with PR5's drain, not beside a race fix.
+ * ⚖ OWNER-GATED AT LAST (capture pipeline PR4, packet rider). This was the ONE
+ * ungated write left in the file — a shared salon device that signed one
+ * staffer out mid-flush could append a colleague's audio onto their row — and
+ * fix round 10 deferred it on COST: a session read every ~5 s, for the length
+ * of a recording, on the capture hot loop.
+ *
+ * The cost was measured before it was paid, and it is not one: `currentUserId`
+ * resolves through supabase-js `auth.getSession()`, which reads the persisted
+ * session out of localStorage and parses it — no network call unless the token
+ * has expired, and that refresh is on the auth client's own schedule whether
+ * this runs or not. Sub-millisecond against a 5 s interval. The uid is resolved
+ * BEFORE the transaction (an await inside one closes it), exactly as
+ * patchTakeMeta does it, so the gate costs no second IndexedDB read either.
+ *
+ * A refusal reads as "the meta row is gone" to the caller — the recorder
+ * disables persistence for this take — which is the honest outcome: for THIS
+ * signed-in staffer, that take is not theirs to write.
  *
  * ⚖ AND THE STOP STAMP RIDES THE TAIL (fix round 18, AG1). `stampDurationMs`
  * folds the duration stamp into the TAKES put this transaction was already
@@ -413,7 +445,8 @@ export async function createTake(
  * `durationMs`, which isStoppedTake refuses on BOTH arms for ever: the audio is
  * whole on disk and no drain will ever take it. One transaction removes the
  * shape rather than guarding it: the tail bytes and the fact that the take is
- * complete land together or not at all.
+ * complete land together or not at all. The gate above is what round 18 named
+ * as the fold's one cost — a stamp riding an ungated write — and it is paid.
  */
 export async function appendTakeSegment(
   takeId: string,
@@ -424,9 +457,11 @@ export async function appendTakeSegment(
   try {
     const db = await openDb()
     if (!db) return false
+    const uid = await currentUserId()
+    if (!uid) return false
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta) return false
+    if (!meta || meta.ownerUid !== uid) return false
     await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
     await req(
       tx.objectStore(TAKES).put(
@@ -531,9 +566,25 @@ async function patchTakeMeta(
 }
 
 /** Capture pipeline PR3: this take's audio is on the server and its core row
- *  points at it. Clears any earlier failure — a success is the last word. */
-export async function markTakeFinalized(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { finalizedAt: Date.now(), secureError: undefined })
+ *  points at it. Clears any earlier failure — a success is the last word.
+ *
+ *  PR4: it carries the KEY now. That object is what the pipeline transcribes
+ *  and what the core job's audio_path names, so the take has to remember where
+ *  it is — and the value is the MINT's own composed key, never one this device
+ *  assembled from a tenant id it should not be composing with. */
+export async function markTakeFinalized(takeId: string, finalizedPath: string): Promise<void> {
+  await patchTakeMeta(takeId, {
+    finalizedAt: Date.now(),
+    finalizedPath,
+    secureError: undefined,
+  })
+}
+
+/** Capture pipeline PR4: this take's discard transcript is SETTLED — the words
+ *  landed, or were deliberately not kept. The sweep's stop condition, in place
+ *  of the deleteTake that used to be it. */
+export async function markDiscardTranscriptDone(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { discardTranscriptDoneAt: Date.now() })
 }
 
 /** Capture pipeline PR3: the last secure attempt did not finish. Records WHY
@@ -647,6 +698,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'recordingSessionId'
   | 'target'
   | 'finalizedAt'
+  | 'finalizedPath'
   | 'secureError'
   | 'durationMs'
   | 'startBoundAttempted'
@@ -664,6 +716,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     recordingSessionId: meta.recordingSessionId,
     target: meta.target,
     finalizedAt: meta.finalizedAt,
+    finalizedPath: meta.finalizedPath,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
     startBoundAttempted: meta.startBoundAttempted,
@@ -742,7 +795,11 @@ export async function listPendingDiscardTakes(): Promise<
       db.transaction(TAKES).objectStore(TAKES).getAll(),
     )) as TakeMeta[]
     return metas
-      .filter((m) => m.ownerUid === uid && m.discardPending)
+      // `discardTranscriptDoneAt` is the settle (PR4). Before it, the take was
+      // DELETED once the words landed and its absence was the stop condition;
+      // audio is never deleted now, so the mark is what stops the sweep from
+      // re-reading a whole take off disk on every record-page mount.
+      .filter((m) => m.ownerUid === uid && m.discardPending && !m.discardTranscriptDoneAt)
       .map((m) => ({ takeId: m.takeId, discardPending: m.discardPending as DiscardPending }))
   } catch (err) {
     console.error('[take-store] listPendingDiscardTakes failed:', err)
@@ -776,10 +833,26 @@ export async function readTakeOutcome(takeId: string): Promise<
  *  logout/login swap a shared salon device does all day. Without the gate such
  *  a stale id would delete the take of the colleague who is now signed in, and
  *  the store's own doctrine is that another owner's take is hidden but never
- *  touched (their TTL, or their own logout, collects it). */
-export async function deleteTake(takeId: string): Promise<void> {
+ *  touched (their TTL, or their own logout, collects it).
+ *
+ * ⚖ THE ONE WAY PAST THE NEVER-DELETE GUARD IS A HUMAN (capture pipeline PR4
+ * fix round 1). `humanResolved` is the 録音履歴 row a staff member is looking at
+ * and has just settled themselves — the karute record exists on the server,
+ * they tapped 確認する, and all that is left on the device is bytes nothing is
+ * waiting for. Only the inbox passes it; every AUTOMATIC path (the save, the
+ * TTL prune, the logout wipe, a pipeline reset) keeps the refusal below, which
+ * is what makes "nothing destroys audio the server does not have" a rule rather
+ * than a default. Without it the refusal had no exit at all: a 確認待ち row
+ * whose take was never secured could not be cleared by anyone, which is the
+ * unclearable 要対応 badge this family has already been burned by once
+ * (session-cleanup.ts's header). It is passed straight through to the rows
+ * below, where the one guard lives. */
+export async function deleteTake(
+  takeId: string,
+  opts?: { humanResolved?: boolean },
+): Promise<void> {
   if (!(await readOwnTakeMeta(takeId))) return
-  await deleteTakeRows(takeId)
+  await deleteTakeRows(takeId, opts)
 }
 
 /** The rows themselves, no owner question asked — for THIS file's two sweeps,
@@ -788,12 +861,44 @@ export async function deleteTake(takeId: string): Promise<void> {
  *  for them), and clearOwnTakes matches `ownerUid` itself, against a uid that
  *  may be EXPLICIT precisely because the session is already gone — the logout
  *  wipe, where currentUserId() answers null and the gate would leave the
- *  leaving staffer's audio sitting on the device. */
-async function deleteTakeRows(takeId: string): Promise<void> {
+ *  leaving staffer's audio sitting on the device.
+ *
+ * ⚖ NOTHING DELETES AUDIO THE SERVER DOES NOT HAVE (capture pipeline PR4, v2
+ * item 8). ONE guard, HERE, because this is the only door: every destroying
+ * path in the app routes through this function — deleteTake above with its
+ * twelve call sites (the save, the below-floor discard, the reasoned discard,
+ * the inbox), plus the TTL prune and the logout wipe that come straight here —
+ * and each of them used to be free to destroy the only copy of a recording. A
+ * take with no `finalizedAt` is audio that exists NOWHERE ELSE, so it is
+ * refused and kept; the record page's mount retry (and PR5's launch drain) is
+ * what turns it into a finalized one, and then the same call succeeds. The one
+ * exception is a human who settled the row themselves — see `humanResolved` on
+ * the door above.
+ *
+ * Silent by contract, like every other failure in this file: the callers are
+ * `void deleteTake(...)` fire-and-forget, and a refusal is not an error — it is
+ * the take waiting for its moment.
+ *
+ * A take whose META is already GONE still has its orphan segments swept HERE:
+ * there is no audio to protect, only orphan rows to clear. (Through the door
+ * above it does not get that far — round 14's owner gate cannot answer for a
+ * row that is not there, and fails closed. The sweeps are where such rows are
+ * collected.)
+ *
+ * It removes IndexedDB rows and NOTHING else — no server object has ever been
+ * reachable from this function — and it files no audit row: there is no action
+ * for a device-local take in the registry (docs/AUDIT_ACTIONS.md), and this
+ * module is 'use client' with a no-network, never-block-capture contract. */
+async function deleteTakeRows(
+  takeId: string,
+  opts?: { humanResolved?: boolean },
+): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (meta && !meta.finalizedAt && !opts?.humanResolved) return
     await req(tx.objectStore(TAKES).delete(takeId))
     // ponytail: full getAll + filter — rows are few and blobs are lazy
     // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
@@ -812,7 +917,12 @@ async function deleteTakeRows(takeId: string): Promise<void> {
  *  takes are preserved: they are already invisible to everyone else (owner
  *  gate on every read path), and destroying them here would let staff B's
  *  logout erase staff A's crash-recovery audio — the exact loss this store
- *  exists to prevent. Their cleanup is the 24 h TTL. Unlike the draft
+ *  exists to prevent. Their cleanup is the 24 h TTL.
+ *
+ *  PR4: this prunes FINALIZED takes only, because the never-delete guard in
+ *  deleteTakeRows (which this sweep calls directly) refuses the rest.
+ *  Logging out with audio the server never received no longer destroys it —
+ *  the staffer signs back in and the drain finishes it. Unlike the draft
  *  (one shared key, wipe-all is the only option), takes carry ownerUid.
  *
  *  `explicitUid` (F3, packet 12 fix batch) overrides the currentUserId()
@@ -844,7 +954,9 @@ export async function clearOwnTakes(explicitUid?: string): Promise<void> {
  * EVERY recoverable take for the SIGNED-IN user, newest first. Owner gate at
  * the store layer: another user's takes are hidden (never deleted — their
  * rightful owner can still recover them; TTL cleans up). Expired takes (any
- * owner) are deleted in passing, like loadDraft's stale-draft sweep. Takes
+ * owner) are deleted in passing, like loadDraft's stale-draft sweep — unless
+ * the never-delete guard refuses them, in which case they are RETURNED, flagged
+ * `expiredUnsecured`, instead of vanishing (see the branch below). Takes
  * with no persisted segments (crash before the first flush) are skipped, so
  * every row this returns HAS audio. `excludeTakeIds` filters the live
  * recorder/pipeline take so an in-progress session is never offered as its own
@@ -871,10 +983,24 @@ export async function listOwnTakes(
     const out: RecoverableTake[] = []
     for (const m of metas) {
       const lastActivity = m.updatedAt ?? m.startedAt
-      if (now - lastActivity > TAKE_TTL_MS) {
+      // PR4: the TTL asks; the never-delete guard decides. A FINALIZED take
+      // expires exactly as it always did — the server has it. The sweep goes
+      // through deleteTakeRows (fix round 14, AA3): this prune drops expired
+      // takes of EVERY owner, which the door's owner gate cannot answer for.
+      const expired = now - lastActivity > TAKE_TTL_MS
+      if (expired && m.finalizedAt) {
         void deleteTakeRows(m.takeId)
         continue
       }
+      // ⚖ AND A REFUSED PRUNE IS NEVER A SILENT ONE (fix round 1). An expired
+      // UNFINALIZED take is audio that exists nowhere else, so the guard keeps
+      // it — and this used to `continue` on top of that, which made it immortal
+      // AND invisible: the drain skips it (stopped-only), every recovery
+      // surface reads this function, and nothing on any screen said tens of
+      // megabytes were sitting there. It falls through instead, carrying the
+      // flag, and 録音履歴 renders it as a 要対応 row (lib/recordings/inbox.ts)
+      // — the one place a human can finish it (保存する) or, once its record
+      // exists, settle it (確認する → deleteTake's humanResolved door).
       if (m.ownerUid !== uid || exclude.has(m.takeId)) continue
       // A2-2 — THE recovery exclusion. A take that has already been discarded
       // with a written reason is kept ONLY so its words can be transcribed onto
@@ -909,6 +1035,9 @@ export async function listOwnTakes(
         // them away.
         tailIncomplete: m.tailIncomplete,
         stopPendingAt: m.stopPendingAt,
+        // Only ever true past the TTL with no finalizedAt — the branch above
+        // returned every other expired take to the prune.
+        expiredUnsecured: expired || undefined,
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)
@@ -921,11 +1050,17 @@ export async function listOwnTakes(
 
 /** The newest recoverable take for the signed-in user, or null — the recovery
  *  banner's single offer. Same gates as listOwnTakes above (it IS listOwnTakes;
- *  one prune path, one owner gate, no second copy of the rules to drift). */
+ *  one prune path, one owner gate, no second copy of the rules to drift).
+ *
+ *  MINUS the expired ones (fix round 1). The banner is the ⚖ 8/20 last-resort
+ *  residue for the crash that just happened; a week-old take arriving there as
+ *  「復元しますか」 is a different question, and 録音履歴 — which lists every
+ *  take with its age and its state — is where it belongs. Nothing is hidden:
+ *  the row is in the inbox, counted in 要対応. */
 export async function getRecoverableTake(
   excludeTakeIds: ReadonlyArray<string | null | undefined> = [],
 ): Promise<RecoverableTake | null> {
-  return (await listOwnTakes(excludeTakeIds))[0] ?? null
+  return (await listOwnTakes(excludeTakeIds)).find((t) => !t.expiredUnsecured) ?? null
 }
 
 /** ⚖ IS THIS TAKE FINISHED? — the one rule the drain's worklist and secureTake

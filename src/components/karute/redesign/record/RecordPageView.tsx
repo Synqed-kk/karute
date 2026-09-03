@@ -1080,8 +1080,13 @@ export function RecordPageView({
   // keeps its other call sites (the recordings action + the facade route).
 
   /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
-   *  is owed to the discard record — the persist run deletes it, not this. Every
-   *  other discard still takes the audio with it, exactly as before. */
+   *  is owed to the discard record, so this arm hands no take id on to be
+   *  cleared — the persist run settles it (markDiscardTranscriptDone).
+   *
+   *  ⚖ AND NO DISCARD DESTROYS AUDIO THE SERVER DOES NOT HAVE (capture pipeline
+   *  PR4). The other arms still call deleteTake, but deleteTake now refuses an
+   *  unfinalized take, so "the discard takes the audio with it" is true only
+   *  once the take is safely on the server. */
   function proceedDiscard(keepTake = false) {
     toastDroppedErrorPhotos()
     // A2-1: NO session cleanup here any more. The reason row keys on this
@@ -1843,7 +1848,16 @@ export function RecordPageView({
   function handleInboxOpenRecord(row: InboxRow) {
     if (!row.karuteRecordId) return
     if (row.state === 'awaiting-check' && row.takeId) {
-      void deleteTake(row.takeId).then(() => loadInbox())
+      // ⚖ THE ONE HUMAN-RESOLVED DELETE (capture pipeline PR4 fix round 1).
+      // Every automatic caller of deleteTake is refused for a take the server
+      // never received; this one is a staff member, on this row, with the
+      // karute record already on the server, tapping 確認する. Without the flag
+      // the row could not be settled at all — 確認待ち is BY DEFINITION a take
+      // this device never secured, so the refusal turned every one of them into
+      // a 要対応 badge nobody could clear. Device bytes only: deleteTake reaches
+      // IndexedDB and nothing else, and no server object is touched here or
+      // anywhere downstream of it.
+      void deleteTake(row.takeId, { humanResolved: true }).then(() => loadInbox())
     }
     router.push(`/karute/${row.karuteRecordId}` as Parameters<typeof router.push>[0])
   }

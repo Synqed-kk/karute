@@ -5,24 +5,24 @@
 // Two origins, two costs:
 //   - `review`: the take was already transcribed in-tab, so the words are in
 //     hand and persisting them costs NOTHING extra.
-//   - `recorder`: 使用 was never tapped, so the audio has to be staged and
+//   - `recorder`: 使用 was never tapped, so the take's finalized audio has to be
 //     transcribed once. Only above the accidental-tap floor (⚖ spend gate) —
 //     the caller checks that before it stamps.
 //
-// DURABILITY. The take is stamped `discardPending` in take-store BEFORE
-// anything can delete it, and it is deleted only once the words have landed (or
-// were deliberately not kept). A crash in between leaves a stamped take that
-// the next record-page mount finishes. The stamp is also what keeps a discarded
-// take out of every recovery offer — see listOwnTakes.
+// DURABILITY. The take is stamped `discardPending` in take-store, and marked
+// DONE only once the words have landed (or were deliberately not kept) — it is
+// never deleted (PR4: audio is never deleted). A crash in between leaves a
+// stamped take that the next record-page mount finishes. The stamp is also what
+// keeps a discarded take out of every recovery offer — see listOwnTakes.
 // The anchor's span, honestly: it starts at the STAMP, not at the discard. A
 // crash between core accepting the discard and the stamp being written leaves a
 // discarded session whose take is still offered as recovery — pre-existing
 // shape (the same gap sat before proceedDiscard's deleteTake), not closed here.
 
 import {
-  deleteTake,
-  loadTakeBlob,
   listPendingDiscardTakes,
+  markDiscardTranscriptDone,
+  readTakeSecureMeta,
   stampDiscardPending,
   type DiscardPending,
 } from '@/lib/karute/take-store'
@@ -45,9 +45,9 @@ function transcriptActions() {
 /** Only `failed` is worth another attempt. `not_discarded` (there is no reasoned
  *  discard on that session — the words have no home) and `forbidden` (the caller
  *  lacks records.write, or the key is not this tenant's) cannot become true on a
- *  later mount, and treating them as retryable re-staged the WHOLE audio on
+ *  later mount, and treating them as retryable re-read the WHOLE audio on
  *  every record-page mount for the take-store's seven days. Settle them like a
- *  skip: the take goes. */
+ *  skip: the take is MARKED done (PR4 — it is no longer deleted). */
 function retryable(res: object): boolean {
   return 'error' in res && (res as { error: string }).error === 'failed'
 }
@@ -93,9 +93,19 @@ export async function persistReviewDiscardTranscript(
 }
 
 /**
- * Finish ONE stamped take: stage its audio, transcribe it onto the discarded
- * session, then drop the audio. A settled answer (written, or deliberately not
- * kept) deletes the take; anything else leaves it stamped for the next sweep.
+ * Finish ONE stamped take: transcribe its audio onto the discarded session.
+ *
+ * ⚖ THE AUDIO IS THE TAKE'S OWN FINALIZED OBJECT (capture pipeline PR4). It was
+ * PUT there at stop, so this stages nothing and — the change that matters —
+ * drops nothing: a discarded recording's audio is kept in full (⚖ 8/20 discard
+ * doctrine), and only its words are collected here. A settled answer (written,
+ * or deliberately not kept) MARKS the take done; anything else leaves it
+ * stamped for the next sweep.
+ *
+ * A take with no finalized object yet (an offline stop) is left exactly as it
+ * is: the record page's mount retry secures it, and the next sweep finishes
+ * this. Nothing here can create the object, and nothing here should destroy the
+ * only copy while waiting.
  */
 export async function runDiscardTranscript(
   takeId: string,
@@ -104,12 +114,11 @@ export async function runDiscardTranscript(
   if (inFlight.has(takeId)) return
   inFlight.add(takeId)
   try {
-    // null = the audio is gone, or belongs to a DIFFERENT signed-in user. Leave
-    // the stamp either way: the rightful owner's own sweep can still finish it,
-    // and take-store's TTL is the backstop for one nobody ever will.
-    const blob = await loadTakeBlob(takeId)
-    if (!blob) return
-    const { path } = await getRecordingPipelinePort().stageForJob(blob)
+    // null = the take is gone, or belongs to a DIFFERENT signed-in user (the
+    // store's owner gate). Leave the stamp either way: the rightful owner's own
+    // sweep can still finish it.
+    const path = (await readTakeSecureMeta(takeId))?.finalizedPath
+    if (!path) return
     const { transcribeAndPersistDiscard } = await transcriptActions()
     const res = await transcribeAndPersistDiscard({
       recordingSessionId: pending.recordingSessionId,
@@ -118,7 +127,7 @@ export async function runDiscardTranscript(
       locale: pending.locale,
     })
     if (retryable(res)) return
-    await deleteTake(takeId)
+    await markDiscardTranscriptDone(takeId)
   } catch (err) {
     console.warn('[discard-transcript] persist run failed:', err)
   } finally {
