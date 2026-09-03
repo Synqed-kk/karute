@@ -2144,7 +2144,12 @@ describe('⚖ the sibling-sheet fence', () => {
     // carry a copy of the rule in its own sheet, which is exactly that reach
     // however carefully it was scoped.
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    // ⚠ RE-DERIVED, NOT LOOSENED (AI相談's round, 2026-09-03): a room joining
+    // this SHELL-owned line is MEANT to trip every neighbour's pin — that is the
+    // whole point of pinning the literal — so the list grows here in the same
+    // pass that adds `.page.pg-ask-ai` to the shell. What this pin is FOR is
+    // untouched: the floor is lifted by the shell, and never by a route sheet.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }')
     expect(ROOM_CSS).not.toMatch(/\.biz \.app:has/)
     // …and the room's sheet reaches OUTSIDE its own subtree nowhere at all:
     // every selector it states is scoped by `pg-recording`.

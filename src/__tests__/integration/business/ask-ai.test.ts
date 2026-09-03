@@ -921,10 +921,16 @@ describe('the shell one-liners', () => {
     expect(i18n.askAi.loading).toBe('読み込み中…')
   })
 
-  it('録音 and コーチング and 設定 stay 準備中 — this room flips ONE line', () => {
-    expect(SIDEBAR).toContain("{ key: 'recording', segment: null, label: '録音', mini: '録音', live: false }")
+  it('コーチング stays 準備中 — this room flips ONE line, and 録音/設定 were flipped by THEIR rounds', () => {
+    // ⚠ RE-DERIVED AT THE MAIN-MOVED FOLD (#823 録音, #812 設定): both rooms are
+    // LIVE in the rail now, so a pin still asserting they are 準備中 would be
+    // this suite claiming a fact about the family that stopped being true. What
+    // the pin is actually FOR survives unchanged — this room flips exactly one
+    // line, and the one room still unbuilt is still greyed rather than trimmed
+    // (⚖ NAV LAW). The cross-check below is what proves the direction.
     expect(SIDEBAR).toContain("{ key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false }")
-    expect(SIDEBAR).toContain("{ key: 'settings', segment: null, label: '設定', mini: '設定', live: false }")
+    expect(SIDEBAR).toContain("{ key: 'recording', segment: 'recording', label: '録音', mini: '録音', live: true }")
+    expect(SIDEBAR).toContain("{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }")
   })
 
   it('⚖ EVERY DOOR THIS ROOM OFFERS IS OPEN IN THE RAIL ITSELF — cross-checked, never self-asserted', () => {
@@ -1001,7 +1007,13 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   })
 
   it('the neighbours are all here — read from disk, never restated', () => {
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today'])
+    // ⚠ RE-DERIVED AT THE MAIN-MOVED FOLD: `recording` (#823) and `settings`
+    // (#812) shipped their own sheets while this branch was out, and a new
+    // neighbour is MEANT to fail here once — the collision list below is
+    // re-derived against both in the same pass rather than the bleed being
+    // found in a browser. Both scope every rule under their own `.pg-` class,
+    // so neither adds a collision.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
