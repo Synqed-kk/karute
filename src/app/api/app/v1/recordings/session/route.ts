@@ -24,7 +24,7 @@ import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/custome
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
-} from '@/actions/recordings'
+} from '@/lib/recording/session-mint'
 import { SessionMintSchema } from '@/lib/app-api/record-schemas'
 
 export const runtime = 'nodejs'
@@ -41,6 +41,11 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // The server cannot prove that and does not pretend to — a second start with
   // the same take composes the same storage key, and core's unique index is
   // what actually refuses the duplicate reservation.
+  // PR3 is the client work that makes the above true — deriving the header
+  // value FROM takeId (never a fresh random string per attempt) is what turns
+  // a lost-response retry into one act. This route does not and cannot check
+  // that relationship; presence/format is the whole gate, same as before a
+  // take pair ever existed in this body.
   requireIdempotencyKey(ctx.req)
 
   // An empty/absent body is valid (walk-in with no ids yet) — but a non-empty
@@ -86,6 +91,19 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // blind. Checked OUTSIDE the try: an AppApiError thrown inside it would be
   // swallowed by the fail-open catch above and answered as a 200.
   if (result && 'error' in result) {
+    // Storage failed to say whether the key is free (fix round 11) — a real
+    // upstream outage, never the client's fault, and never folded into the
+    // generic 400 below.
+    if (result.error === 'upstream') {
+      throw new AppApiError('upstream_unavailable', 'could not verify the take key is free')
+    }
+    // The composed key is already SPOKEN FOR (fix round 11, fresh-eyes #7 P2)
+    // — never a legitimate retry on a session this door is about to CREATE, so
+    // this is the mint's own 'exists' verdict, one door earlier: 409, the
+    // client's "start a new take", same posture as the upload mint's twin.
+    if (result.error === 'exists') {
+      throw new AppApiError('conflict', result.error)
+    }
     throw new AppApiError('validation', result.error)
   }
   return ok(ctx, { id: result?.id ?? null })

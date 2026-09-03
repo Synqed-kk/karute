@@ -43,9 +43,11 @@ const fakeClient = {
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
-// Service-role storage (upload-url).
+// Service-role storage (upload-url). `info` is the session mint's own exists
+// fence too (fix round 11) — default not-found, the key is free.
 const createSignedUploadUrl = jest.fn(async (path: string) => ({ data: { signedUrl: 'https://x/upload', token: 'tok-1', path }, error: null }))
-jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUploadUrl }) } }) }))
+const info = jest.fn(async (_key: string) => ({ data: null as { size?: number } | null, error: { message: 'Object not found', status: 404 } as { message: string; status?: number } | null }))
+jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUploadUrl, info }) } }) }))
 
 import { GET as consentGET } from '@/app/api/app/v1/customers/[id]/consent/route'
 import { POST as grantPOST } from '@/app/api/app/v1/customers/[id]/consent/grant/route'

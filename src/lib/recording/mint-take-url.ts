@@ -175,8 +175,14 @@ function auditTakeNamed(
  * key). Storage failing to ANSWER is not "free": we fail CLOSED with the
  * caller's retryable error rather than reserve a key that may already hold
  * somebody else's audio.
+ *
+ * EXPORTED (fix round 11, fresh-eyes #7 P2): the session-start reservation
+ * (session-mint.ts) runs this SAME check before its own create — a
+ * hard-deleted sibling row's object staying on storage while its row is gone
+ * is exactly the gap a second, independent "does this exist" spelling would
+ * eventually drift from. One home, both callers.
  */
-async function objectExists(key: string): Promise<boolean | 'unknown'> {
+export async function objectExists(key: string): Promise<boolean | 'unknown'> {
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage.from('recordings').info(key)
   if (error) return isStorageNotFound(error) ? false : 'unknown'

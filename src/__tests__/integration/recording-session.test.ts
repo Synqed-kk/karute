@@ -35,7 +35,30 @@ jest.mock('@/lib/synqed/client', () => ({
   })),
 }))
 
-import { startRecordingSession, startRecordingSessionWithClient } from '@/actions/recordings'
+// storage-js's single-object probe (fix round 11): the session-start
+// reservation shares the mint's objectExists fence (mint-take-url.ts). Default:
+// the key is FREE — the bucket has never held this take, every ordinary first
+// mint. Mirrors recording-upload-actions.test.ts's own mock exactly, so the
+// same fence answers the same way in both places it now runs.
+const notFoundError = { message: 'Object not found', status: 404 }
+const info = jest.fn(
+  async (
+    _key: string,
+  ): Promise<{
+    data: { size?: number } | null
+    error: { message: string; status?: number } | null
+  }> => ({ data: null, error: notFoundError }),
+)
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({ storage: { from: (_bucket: string) => ({ info }) } }),
+}))
+// objectExists's own module reaches for the audit emitter transitively
+// (mint-take-url.ts's other exports) — never called from this door, but
+// mocked anyway so importing the module never touches next/server's `after`.
+jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
+
+import { startRecordingSession } from '@/actions/recordings'
+import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -48,6 +71,7 @@ beforeEach(() => {
     customer_id: 'cust-1',
     staff_id: 'staff-from-appt',
   }))
+  info.mockResolvedValue({ data: null, error: notFoundError })
 })
 
 describe('startRecordingSession', () => {
@@ -207,5 +231,35 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
   it('refuses BEFORE resolving staff — a refused key costs no appointment read', async () => {
     await core({ takeId: TAKE, mimeType: 'audio/aiff', selfStaffId: null, appointmentId: 'appt-1' })
     expect(apptGet).not.toHaveBeenCalled()
+  })
+
+  // ── THE EXISTS FENCE (fix round 11, fresh-eyes #7 P2) ─────────────────────
+  // The mint has always refused a key whose object already exists; this door
+  // never did. Drop the objectExists check from startRecordingSessionWithClient
+  // and this test goes red: the row is created pointing at bytes this fresh
+  // row never wrote.
+  it('refuses a key whose object ALREADY EXISTS — exists, and nothing is created', async () => {
+    info.mockResolvedValueOnce({ data: { size: 2048 }, error: null })
+    expect(await core({ takeId: TAKE, mimeType: 'audio/webm' })).toEqual({ error: 'exists' })
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('fails CLOSED when storage cannot say whether the object exists — upstream, retryable', async () => {
+    info.mockResolvedValueOnce({ data: null, error: { message: 'boom', status: 500 } })
+    expect(await core({ takeId: TAKE, mimeType: 'audio/webm' })).toEqual({ error: 'upstream' })
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses the exists fence BEFORE resolving staff — costs no appointment read either', async () => {
+    info.mockResolvedValueOnce({ data: { size: 2048 }, error: null })
+    await core({ takeId: TAKE, mimeType: 'audio/webm', selfStaffId: null, appointmentId: 'appt-1' })
+    expect(apptGet).not.toHaveBeenCalled()
+  })
+
+  it('the web door stays fail-OPEN on an exists refusal too — null, never a throw', async () => {
+    info.mockResolvedValueOnce({ data: { size: 2048 }, error: null })
+    const res = await startRecordingSession({ customerId: 'cust-1', takeId: TAKE, mimeType: 'audio/webm' })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 })

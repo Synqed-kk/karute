@@ -2462,7 +2462,7 @@
           "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
           "session_cleanup": "Recording discarded",
-          "take_named": "Recording upload URL issued",
+          "take_named": "Recording upload address issued (existing session)",
           "transcribe": "Transcribed recording"
         }
       },

@@ -261,3 +261,21 @@
   already registers for this file. The endpoint's coverage therefore goes from "something
   downstream eventually files a row" to "this endpoint's own write files its own row" ·
   Liam (⚖ 8/17 ids-only doc law, packet PACKET-PR2-FIX-ROUND-7.md, karute-field-issues lane)
+- 2026-09-03 · SDK_WRITE_ALLOWLIST:src/lib/recording/session-mint.ts::recordings.create · a
+  FILE MOVE of the src/actions/recordings.ts entry above (fresh-eyes #7 fix
+  round 11), not a new write. startRecordingSessionWithClient came out of
+  src/actions/recordings.ts because that file carries 'use server': every
+  top-level export of such a file is a client-invokable server action, so this
+  function was reachable directly with a caller-supplied businessId — the
+  exact escape mint-take-url.ts's own header warns against, since businessId
+  decides the composed key's tenant prefix. The new home carries no
+  'use server', same rule as mint-take-url.ts / discard.ts /
+  session-cleanup.ts / staged-audio.ts. The recordings.create call itself is
+  STRICTLY NARROWER than what it replaced, never wider: the SAME fresh-eyes
+  round adds an objectExists(key) fence before it, so a row born reserved can
+  no longer be created pointing at bytes this caller's row never wrote (a
+  hard-deleted sibling row's finalized object staying on storage was the gap —
+  session-cleanup deletes the row, never the object). The old entry
+  (src/actions/recordings.ts::recordings.create) is pruned rather than left
+  dead — that call site no longer exists · Liam (fresh-eyes round #7, packet
+  PACKET-PR2-FIX-ROUND-11.md, karute-field-issues lane)
