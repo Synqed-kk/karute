@@ -668,14 +668,16 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@container'))
     expect(desk).toMatch(/\.ak-rail-hd \{[^}]*align-items: center/)
     expect(desk).toMatch(/\.ak-rail-cnt \{[^}]*white-space: nowrap/)
-    // ⚠ RE-PINNED AT F-A2: the head renders in two spellings now — a button at
-    // phone and a plain row at the desk — so the SHAPE is pinned in both rather
-    // than by one indentation. In each, the count follows a flexible spacer, on
-    // one centred row.
-    for (const half of [
-      SRC_CODE.slice(SRC_CODE.indexOf('{railCollapsible ? ('), SRC_CODE.indexOf('<div className="ak-rail-hd">')),
-      SRC_CODE.slice(SRC_CODE.indexOf('<div className="ak-rail-hd">')),
-    ]) {
+    // ⚠ RE-PINNED AT F-A2, AND IT READS THE HEADS THEMSELVES. The head renders
+    // in two spellings now — a button at phone, a plain row at the desk — so
+    // this walks every `ak-rail-hd` it finds rather than slicing on the
+    // conditional's own text. A pin that depends on HOW the branch is written
+    // reddens whenever the branch is re-spelled, which makes it a second,
+    // accidental catcher for somebody else's mutant (the M58 lesson).
+    const heads = [...SRC_CODE.matchAll(/className="ak-rail-hd"/g)].map((m) => m.index ?? 0)
+    expect(heads).toHaveLength(2)
+    for (const at of heads) {
+      const half = SRC_CODE.slice(at)
       const upto = half.slice(0, half.indexOf('ak-rail-cnt') + 12)
       expect(upto.indexOf('ak-rail-ttl')).toBeLessThan(upto.indexOf('ak-sp'))
       expect(upto.indexOf('ak-sp')).toBeLessThan(upto.indexOf('ak-rail-cnt'))
