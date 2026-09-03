@@ -400,6 +400,30 @@ describe('the fixture data door', () => {
         // the mask as a parameter, so the gate has exactly one home. The screen
         // gains no OTHER dependency: this is a wiring round.
         './fallback-cells',
+        // ⚖ R5 POST-MERGE — the committed world's held-mask call, lifted out of
+        // the memo body into a function the suite can call
+        // (POSTMERGE-CHECK-88b7726c.md findings 1-2: a text pin on the inline
+        // body let two severe mutants through). A caller-side wrapper over
+        // `./reserved-mask`, not a fifth module: it adds no derivation of its
+        // own. It IS a new direct import for this screen — one line, this line
+        // — and that is the honest accounting; what it is not is a new MODULE
+        // in the graph, because everything it reaches (`./reserved-mask`,
+        // `./capacity-ledger`, `@/business/lib/today-board`) is already on this
+        // list or already reached through it.
+        //
+        // ⚖ ROUND 1 — and the wrapper builds the committed book itself now,
+        // through the screen's `bedViewsFor`, which is R3's ONE DOOR into the
+        // capacity book.
+        // ⚖ ROUND 2 — AND THE TRAFFIC STILL RUNS ONE WAY ONLY. Round 1 reached
+        // that door by IMPORTING it from this screen, which made the two files
+        // import each other; it ran (the door is a hoisted declaration, called
+        // a render later) but a cycle on a law-bearing seam is a trap for the
+        // next edit. The screen hands the door over as a parameter instead, so
+        // this entry stays what it says it is: one arrow, this screen → the
+        // wrapper, with no arrow back. selling-engine-doors.test.ts §1 pins
+        // that held-committed.ts names neither this file nor the book's own
+        // producer, and held-committed.ts is where the reasoning lives in full.
+        './held-committed',
         './reserved-mask',
         './selling-engine-gate',
         './today-interactions',
