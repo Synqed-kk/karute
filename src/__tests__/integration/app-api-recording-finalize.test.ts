@@ -31,7 +31,7 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
-const createSignedUploadUrl = jest.fn(async (p: string, _o?: { upsert?: boolean }) => ({
+const createSignedUploadUrl = jest.fn(async (p: string) => ({
   data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
   error: null as { message: string } | null,
 }))
@@ -107,7 +107,10 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   it('a named take + container composes the tenant-prefixed key', async () => {
     const res = await mintPOST(jreq(auth, { takeId: TAKE, mimeType: 'audio/mp4' }), noRoute)
     expect(await res.json()).toMatchObject({ path: KEY, contentType: 'audio/mp4' })
-    expect(createSignedUploadUrl).toHaveBeenCalledWith(KEY, { upsert: true })
+    // Signed with NO options (fix round 3): the facade door mints the same way
+    // the web door does, so neither can hand out a URL that overwrites a
+    // finalized take. Exact arity is the pin against upsert returning.
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(KEY)
   })
 
   it.each([

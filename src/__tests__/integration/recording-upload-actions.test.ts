@@ -24,7 +24,7 @@ jest.mock('@/lib/staff', () => ({
 const auditFn = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 
-const createSignedUploadUrl = jest.fn(async (p: string, _opts?: { upsert?: boolean }) => ({
+const createSignedUploadUrl = jest.fn(async (p: string) => ({
   data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
   error: null as { message: string } | null,
 }))
@@ -110,7 +110,7 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
-  createSignedUploadUrl.mockImplementation(async (p: string, _opts?: { upsert?: boolean }) => ({
+  createSignedUploadUrl.mockImplementation(async (p: string) => ({
     data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
     error: null,
   }))
@@ -132,9 +132,10 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
     )
     // Flat key — /api/cleanup lists the bucket ROOT non-recursively.
     expect(res.path).not.toContain('/')
-    // upsert rides every mint now (a re-upload of the same take is a retry,
-    // never a second object); for a fresh server-named uuid it changes nothing.
-    expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path, { upsert: true })
+    // Fix round 3: the key is signed with NO options — no upsert. A second PUT
+    // to a key that already holds bytes must be refused by storage, so the
+    // exact-arity assertion is the pin that an upsert flag can never come back.
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path)
     expect(res.url).toBe(`https://proj.supabase.co/upload/${res.path}?token=t`)
     expect(res.token).toBe('tok-1')
   })
@@ -160,18 +161,20 @@ describe('mintRecordingUploadUrl — the key shape the whole pipeline assumes', 
 // The mint now accepts a CLIENT-NAMED take (capture pipeline PR2). Everything
 // below is the fence that makes accepting it safe.
 describe('mintRecordingUploadUrl(input) — the client names the take, the server fences it', () => {
-  it('absent input is byte-identical to before: server uuid, .webm, no upsert change in shape', async () => {
+  it('absent input is byte-identical to before: server uuid, .webm', async () => {
     getBusinessId.mockResolvedValue(BIZ_UUID)
     const res = await mintRecordingUploadUrl()
     expect(res.path).toMatch(new RegExp(`^app_${BIZ_UUID}_[0-9a-f-]{36}\\.webm$`))
     expect(res.contentType).toBe('audio/webm')
   })
 
-  it('a named take composes the SAME key the grammar accepts, and signs with upsert', async () => {
+  it('a named take composes the SAME key the grammar accepts, and signs it WITHOUT upsert', async () => {
     const res = await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/webm' })
     expect(res.path).toBe(OWN)
-    // upsert: a re-upload of the SAME take must land on the same key, not 409.
-    expect(createSignedUploadUrl).toHaveBeenCalledWith(OWN, { upsert: true })
+    // The device names this key, so upsert here would let one staffer overwrite
+    // another's finalized audio. A re-upload gets 409, which the client reads
+    // as "already there" and finalizes.
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(OWN)
   })
 
   it('a fake returning a different path must not leak through — the fenced key wins', async () => {
@@ -231,9 +234,10 @@ describe('mintRecordingUploadUrl(input) — the client names the take, the serve
   })
 })
 
-// Fix round 2, B4. `upsert: true` on a key the DEVICE named can displace an
-// object a finalized row already points at, so the naming claim leaves a trail.
-// A server-named uuid claims nothing and files nothing, exactly as before.
+// Fix round 2, B4 (detail shape re-cut in fix round 3). A key the DEVICE named
+// is a name the caller may not own — storage now refuses the overwrite, and this
+// row is who reached for the name. A server-named uuid claims nothing and files
+// nothing, exactly as before.
 describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row', () => {
   it('files one ids-only row for a named take', async () => {
     await mintRecordingUploadUrl({ takeId: UUID, mimeType: 'audio/mp4' })
@@ -249,7 +253,8 @@ describe('mintRecordingUploadUrl — the client-named take leaves ONE audit row'
       source: 'web',
     })
     // ⚖ 8/17 doc law — ids, numbers and flags only; no key, no path, no URL.
-    expect(event.detail).toEqual({ take_id: UUID, ext: 'mp4', upsert: true })
+    // No `upsert` field: the mint no longer has the flag to report.
+    expect(event.detail).toEqual({ take_id: UUID, ext: 'mp4' })
     expect(JSON.stringify(event.detail)).not.toContain(OWN)
   })
 

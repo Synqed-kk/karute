@@ -61,7 +61,7 @@ function auditTakeNamed(actor: MintTakeActor, takeId: string, ext: string): void
     actorType: 'staff',
     businessId: actor.businessId,
     severity: 'info',
-    detail: { take_id: takeId, ext, upsert: true },
+    detail: { take_id: takeId, ext },
     requestId: actor.requestId,
     source: actor.source,
   })
@@ -70,9 +70,19 @@ function auditTakeNamed(actor: MintTakeActor, takeId: string, ext: string): void
 /**
  * Mint a signed UPLOAD url for ONE finalized-take key.
  *
- * `upsert: true` (⚖ v2 item 4): a take that is re-uploaded after a kill must
- * land on the same key rather than 409 — the key IS the take's identity, so a
- * second PUT of the same take is a retry, never a different object.
+ * NO `upsert` (supersedes ⚖ v2 item 4, which asked for it). The key IS the
+ * take's identity, so a second PUT to a key that already holds bytes must be
+ * REFUSED by storage, never accepted: with upsert on a name the DEVICE chose,
+ * a same-tenant staffer who names another recorder's take id overwrites that
+ * take's finalized audio, and an audit row does not undo an overwrite.
+ *
+ * The legitimate retry (the PUT landed, the finalize call was lost) still
+ * works: 409 is the client's SUCCESS signal — "the object is already there" —
+ * and it proceeds to finalize, which verifies size and ownership.
+ *
+ * Known ceiling: a FIRST upload that landed with the WRONG bytes cannot be
+ * replaced under this key. Finalize refuses on the size mismatch and the take
+ * surfaces as 要対応 (R10) for a human. That is the price of immutable evidence.
  */
 export async function mintTakeUploadUrl(
   actor: MintTakeActor,
@@ -90,14 +100,15 @@ export async function mintTakeUploadUrl(
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage
     .from('recordings')
-    .createSignedUploadUrl(composed.key, { upsert: true })
+    .createSignedUploadUrl(composed.key)
 
   if (error || !data?.signedUrl) return { error: 'upstream' }
 
-  // A CLIENT-NAMED key is the only mint that can displace an object a finalize
-  // already pointed a core row at (upsert on a name the device chose), so the
-  // claim on that take id is the fact worth keeping. A server-named take is a
-  // fresh uuid nobody could have claimed before it — no row, as before.
+  // A CLIENT-NAMED key is the only mint where the caller can name a take it may
+  // not own, so the CLAIM on that take id is the fact worth keeping (storage
+  // refuses the overwrite; this row says who reached for the name). A
+  // server-named take is a fresh uuid nobody could have claimed before it — no
+  // row, as before.
   if (input.takeId) auditTakeNamed(actor, takeId, composed.ext)
   return {
     // The FENCED value, never the upstream echo — `data.path` is Supabase's

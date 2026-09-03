@@ -785,8 +785,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
   // The mint's OWN row (capture pipeline PR2 fix round 2) is
   // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
-  // only — the case where `upsert: true` can displace an object a finalized
-  // row already points at. The generic hook would instead emit for every mint,
+  // only — the case where the caller names a take it may not own (storage
+  // refuses the overwrite; the row records who reached for the name). The
+  // generic hook would instead emit for every mint,
   // including the server-named uuid that claims nothing. coveredBy still cites
   // the interactive choke point above, which is the flow this endpoint feeds;
   // the take_named row is the naming claim, not the flow.
