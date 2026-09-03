@@ -1,295 +1,710 @@
-/* 売上分析 screen CSS — LIFTED from fable-store-sales-analytics.html (its own
-   <style>, the page half: lines 228-406). Scoped under `.biz` for the same
-   reason business-shell.css is: canon owns a document, this owns a route
-   segment. Class names, sizes and colours are canon's.
+/* 売上分析 — the room's sheet, rebuilt on the ACCEPTED DESKTOP MOCK
+   (s10-mock-wave-20260902/analytics/ANALYTICS-MOCK-v1.html). The mock is the
+   spec for layout, hierarchy, copy and motion; every truth the room already
+   proved is kept.
 
-   AND SCOPED AGAIN, under `.pg-analytics`. App Router keeps a segment's sheet
-   in the document after a client-side navigation and the last sheet inserted
-   wins the cascade, so a route sheet that states a bare family-shared selector
-   (`.panel`, `.page`, `.panel-head`, `.subtitle`, `.attention`) goes on
-   restyling whichever room the reader walks into next — measured, not
-   theorised: 顧客 reached from here rendered with this sheet's `.panel` margin.
-   Every rule below is therefore under `.pg-analytics`, a class only this
-   screen's root div carries (AnalyticsScreen `ROOT`). Nothing this sheet says
-   can reach another room, and nothing it says depends on winning by insertion
-   order. The other direction — another room's bare `.page` reaching THIS root
-   — is the same defect in every route sheet in the family and belongs to the
-   family-wide scoping sweep, not here.
+   THE SHAPE, IN THE ORDER THE PAGE READS:
+     · ONE compact title row — eyebrow · 売上分析 · the ? · month nav · the
+       range strip · the refused export (Liam F-1, 「kill the dead space」);
+     · the DECISION HEADER — five labelled tiles, which replace the old target
+       strip, the amber attention strip and the 内訳 panel all at once;
+     · tabs (推移 / ランキング / 日報) with a sliding underline;
+     · the chart that answers, with the 目標 line and the hatched partial month;
+     · the tightened table with its 前月比 ticks and pinned 統計 row;
+     · 売上の内訳 with interactive mix bars and the 回数券 chips;
+     · the 設定元 disclosure, which opens DOWNWARD, in flow.
 
-   WHAT IS NOT HERE, because the shell sheet already owns it: the token block
-   (--viz-new / --comp-gold live there beside every other canon token), the
-   sidebar and topbar, `.btn`, `.pill`, and the 注意ストリップ primitive
-   (`.attn` / `.attn-icon`, fable-shared.css §5).
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
-   THREE DELIBERATE CHANGES, everything else is faithful:
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-analytics`, and the screen puts that class on exactly one node — so
+   nothing here can restyle 今日の運営 / 顧客 / 予約一覧 / 録音 / スタッフ・シフト
+   / 受信トレイ / 売上・レジ / カルテ / 設定 after a client-side navigation
+   leaves this sheet in the document.
 
-   1. `.page-content` → `.page`. The family's screens all root on `.page` and
-      each route sheet states its own padding; canon's 20/28/60 is kept, only
-      the class name follows the family (and the rule addresses the scope class,
-      per the note above).
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-analytics` does nothing about that: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on names the old
+   canon markup used — `.panel`, `.panel-head`, `.legend`, `.metric`, `.cell`,
+   `.spot-card`, `.spot-foot`, `.segmented`, `.section-head`.
 
-   2. `.period-nav button` → `.period-nav .period-step`. The month nav is a
-      LINK here (`?month=`, the board's `?day=` pattern), not a button, so the
-      rule addresses the class instead of the element. Same geometry, same
-      disabled treatment.
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED (the 録音 room's shape):
+   every element this room owns carries an `an-` name that exists nowhere else
+   in the family, so there is no rule to collide with — a fence that cannot rot
+   as the neighbours grow. `page` and `h1` are the only shell names this sheet
+   states, and both are fenced below at four levels (a sibling's own
+   `.biz .page.page-customers h1` ties at four, and a tie is decided by whichever
+   sheet App Router happened to insert last). The room's suite DERIVES the
+   collision list from the sibling route sheets and this screen's own markup,
+   freshly, on every run.
 
-   3. `.viz-tooltip` gets a FIXED box and its position is clamped in JS
-      (analytics.ts `clampTooltipLeft` / `clampTooltipTop`). Canon centres the
-      card on its bar and pins it 8px above the bar's top, which puts it
-      outside the panel at the first month and above the panel at the tallest
-      bar — and `.panel { overflow: hidden }` clips both. The popup law says it
-      fits whole; a fixed box is what lets the clamp be arithmetic instead of a
-      measurement pass. WIDTH AND HEIGHT MUST MATCH `TOOLTIP_W` / `TOOLTIP_H`
-      in AnalyticsScreen.tsx. */
+   ⚖ FOCUS IS THE SHELL'S, AND IT IS ALREADY RIGHT (`business-shell.css:107`).
+   Restating it here would be a second home for one verdict, so it is
+   deliberately NOT carried — and no container this room owns uses
+   `overflow: hidden`, so the ring's paint outside a control is never clipped.
 
-.biz .pg-analytics { padding: 20px 28px 60px; }
-.biz .pg-analytics .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 14px; }
-.biz .pg-analytics h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .pg-analytics .subtitle { margin: 5px 0 0; max-width: 46em; color: var(--muted); font-size: 14px; line-height: 1.55; }
-.biz .pg-analytics .head-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-/* canon: the date line sits ABOVE h1, the family's context-line position. */
-.biz .pg-analytics .dateline-note { margin: 0 0 4px; color: var(--quiet); font-size: 12px; }
-.biz .pg-analytics .footnote { margin-top: 4px; padding: 0 2px; color: var(--quiet); font-size: 12px; }
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): the page scrolls and NOTHING ELSE
+   does. There is no `max-height`, no `overflow-y` and no `overscroll-behavior`
+   anywhere in this sheet — the mock's own `.scrollarea` is MOCK-ONLY (⚖-ADJ E).
+   Three containers own a HORIZONTAL axis and only that: the tile strip and the
+   chart strip below the phone rung, and the two side tables' `.an-table-scroll`.
 
-.biz .pg-analytics .period-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.biz .pg-analytics .period-nav { display: flex; align-items: center; border: 1px solid var(--control); border-radius: 8px; background: #fff; overflow: hidden; }
-.biz .pg-analytics .period-nav .period-step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  min-width: 36px;
-  padding: 0 10px;
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
-.biz .pg-analytics .period-nav .period-step:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
-.biz .pg-analytics .period-nav .period-step[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
-.biz .pg-analytics .period-nav .label {
-  min-width: 108px;
-  padding: 0 4px;
-  text-align: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink);
-  border-left: 1px solid var(--section);
-  border-right: 1px solid var(--section);
-}
+   ⚖ THE LADDER IS KEYED TO THE **PAGE**, NOT TO THE VIEWPORT (⚖-ADJ H). The
+   shell's rail is 264px at ≥1024 with the sidebar open and 76px everywhere
+   else, so the page a room is given FALLS by 188px as the viewport crosses
+   1024. Every column decision below is a `@container` query against `.an-view`,
+   which IS the page's content box — so a layout can never be chosen from a
+   width the layout does not have, and a page that grows can never lose a
+   column. What is left on `@media` is what genuinely belongs to the viewport:
+   the page's outer padding, the ≥44px touch floor and the shell's topbar
+   height. The mock's `≤1279 / ≤1149 / ≤899` VIEWPORT bands are its design
+   intent; the container numbers below are that intent measured on this shell
+   (the mock's own content widths at those viewports were 1035 / 905 / 880, and
+   the third is lowered to 799 so an iPad-portrait page keeps a real table).
 
-.biz .pg-analytics .seg { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-.biz .pg-analytics .seg button {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--control);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink-3);
+   ⚠ CONTAINMENT IS SAFE ON `.an-view`, AND IT WAS CHECKED. `container-type:
+   inline-size` implies `contain: layout`, which makes an element the containing
+   block for `position: fixed` descendants — which would pin the tour spotlight
+   to this box instead of the viewport. The four tour layers are SIBLINGS of
+   `.an-view`, at the room root. Nothing inside paints outside its box either.
+
+   ⚖ R13 + the one-way accent law: no interactive element is ever black or
+   dark-filled; a pressed control is a light accent WASH. Pink is the chart's
+   新規 series colour and the mix bar's second slot — a DATA colour, never a
+   pressable. */
+
+/* ── the fence: the two shell names this room states ───────────────────────── */
+.biz .page.pg-analytics { padding: 14px 24px 40px; }
+.biz .page.pg-analytics h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; white-space: nowrap; }
+
+/* ── the tokens, the mock's own families ──────────────────────────────────── */
+.biz .page.pg-analytics {
+  /* ⚖ ONE BLUE, AND IT IS #2563eb (R13, CLAUDE.md + globals.css --primary). The
+     shell's `--indigo` is a DIFFERENT blue and this room never spends it. */
+  --an-blue: #2563eb;
+  --an-blue-ink: #1d4ed8;
+  --an-blue-wash: #eef3ff;
+  --an-blue-wash-2: #e3ecff;
+  --an-blue-line: #d3e0fd;
+
+  /* the chart's 新規 series, and the mix bar's second slot. DATA ONLY. */
+  --an-pink: #ec5f92;
+  --an-hatch-b: #dbe6ff;
+  --an-hatch-p: #fbe1ec;
+
+  --an-green: #15803d;
+  --an-green-wash: #eaf7ef;
+  --an-green-line: #c7e9d5;
+
+  --an-amber: #b45309;
+  --an-amber-wash: #fdf5e6;
+  --an-amber-line: #f0dcb4;
+  --an-amber-solid: #f0a020;
+
+  --an-red: #dc2626;
+  --an-red-wash: #fdeceb;
+  --an-red-line: #f6ccc9;
+
+  --an-ink: #111827;
+  --an-ink-2: #374151;
+  --an-ink-3: #6b7280;
+  --an-ink-4: #9ca3af;
+
+  --an-line: #e8eaee;
+  --an-line-soft: #f0f1f4;
+  --an-wash: #f7f8fa;
+  --an-grid: #eef0f3;
+  --an-axis: #d6d9df;
+  --an-seg-rest: #eceef2;
+  --an-partial-wash: #fdfaf3;
+  --an-partial-hover: #fbf5e9;
+  --an-tot-bg: #f2f5fb;
+
+  --an-r-lg: 14px;
+  --an-r-md: 10px;
+  --an-r-sm: 8px;
+  --an-shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .03);
+  --an-shadow-2: 0 4px 14px rgba(16, 24, 40, .07), 0 1px 3px rgba(16, 24, 40, .04);
+  --an-shadow-3: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
+  --an-ease: cubic-bezier(.22, .9, .24, 1);
+
+  /* ⚖ THE ULTRA-WIDE LAW (⚖-ADJ G, and the mock's own number). ONE width token,
+     repeated on every card as the backstop: past 1416 the extra width becomes
+     SYMMETRIC PAGE PADDING rather than a stretched card. The 録音 room's 1400 is
+     a family-sweep reconcile item, named in the report and NOT touched here. */
+  --an-maxw: 1416px;
+  /* the shell's own sticky topbar, which the table head has to clear */
+  --an-topbar: 62px;
+
   font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.55;
+  color: var(--an-ink);
 }
-.biz .pg-analytics .seg button:hover:not([aria-disabled="true"]) { background: #f4f4f5; }
+
+.biz .pg-analytics .an-view {
+  width: 100%;
+  max-width: var(--an-maxw);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  container-type: inline-size;
+  container-name: anpage;
+}
+
+.biz .pg-analytics .an-card {
+  width: 100%;
+  max-width: var(--an-maxw);
+  margin-inline: auto;
+  background: #fff;
+  border: 1px solid var(--an-line);
+  border-radius: var(--an-r-lg);
+  box-shadow: var(--an-shadow-1);
+  margin-bottom: 9px;
+}
+.biz .pg-analytics .an-sp { flex: 1; min-width: 6px; }
+
+/* ── press states (pointer-down, 100ms ease-out) ──────────────────────────── */
+.biz .pg-analytics [data-press] { transition: transform 100ms ease-out; }
+.biz .pg-analytics [data-press].is-pressed { transform: scale(.97); }
+
+/* ── ONE COMPACT TITLE ROW (Liam F-1) ─────────────────────────────────────── */
+.biz .pg-analytics .an-head { width: 100%; }
+.biz .pg-analytics .an-titlerow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 6px; }
+.biz .pg-analytics .an-eyebrow { font-size: 11.5px; color: var(--an-ink-4); white-space: nowrap; }
+/* A hairline circle, never a filled one (⚖ R13). `[aria-expanded="true"]` means
+   the GUIDED TOUR is running, which is why the mark stays lit for the walk. */
+.biz .pg-analytics .an-help {
+  flex: 0 0 22px; width: 22px; height: 22px; padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--an-line); border-radius: 50%; background: #fff;
+  color: var(--an-ink-3); font: inherit; font-size: 12px; font-weight: 700; line-height: 1;
+}
+.biz .pg-analytics .an-help:hover,
+.biz .pg-analytics .an-help[aria-expanded="true"] { border-color: var(--an-blue-line); color: var(--an-blue); background: var(--an-blue-wash); }
+
+.biz .pg-analytics .an-mnav { display: flex; align-items: center; gap: 2px; border: 1px solid var(--an-line); border-radius: var(--an-r-md); background: #fff; padding: 2px; }
+.biz .pg-analytics .an-arw {
+  width: 30px; min-height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: none; border-radius: var(--an-r-sm);
+  color: var(--an-ink-3); font: inherit; font-size: 12px; text-decoration: none;
+}
+.biz .pg-analytics .an-arw:hover:not([aria-disabled="true"]) { background: var(--an-wash); color: var(--an-ink-2); }
+.biz .pg-analytics .an-arw[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.biz .pg-analytics .an-mv { font-size: 13px; font-weight: 700; padding: 0 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* the range segmented control — the thumb is a SPRING, and it never travels to
+   a refused option (registry ③): 月間 is the only scope this world can serve */
+.biz .pg-analytics .an-seg { position: relative; display: inline-flex; gap: 2px; background: var(--an-wash); border: 1px solid var(--an-line); border-radius: 999px; padding: 3px; }
+.biz .pg-analytics .an-seg-thumb {
+  position: absolute; top: 3px; left: 0; height: calc(100% - 6px); width: 100px; border-radius: 999px;
+  background: #fff; box-shadow: var(--an-shadow-1); border: 1px solid var(--an-blue-line);
+  transform-origin: left center; will-change: transform; pointer-events: none;
+}
+.biz .pg-analytics .an-seg-btn {
+  position: relative; z-index: 1; padding: 5px 12px; min-height: 26px; border: 0; background: none;
+  border-radius: 999px; font: inherit; font-size: 12px; color: var(--an-ink-3); white-space: nowrap;
+  transition: color 180ms ease-out;
+}
+.biz .pg-analytics .an-seg-btn.is-on { color: var(--an-blue-ink); font-weight: 700; }
 /* A scope this world cannot serve: visibly refused, reason on the control,
    still reachable by keyboard (aria-disabled, never the `disabled` attribute,
    which would put the reason out of a keyboard's reach). */
-.biz .pg-analytics .seg button[aria-disabled="true"] { opacity: .48; cursor: not-allowed; }
-/* R13: a pressed control is an accent WASH, never a filled dark chip. */
-.biz .pg-analytics .seg button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
+.biz .pg-analytics .an-seg-btn[aria-disabled="true"] { opacity: .48; cursor: not-allowed; }
 
-/* ── #1 target/pace strip ─────────────────────────────────────── */
-.biz .pg-analytics .target-strip { border: 1px solid var(--card); border-radius: 10px; background: #fff; padding: 12px 14px; margin-bottom: 14px; }
-.biz .pg-analytics .target-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.biz .pg-analytics .target-figures { font-size: 14px; color: var(--ink-2); }
-.biz .pg-analytics .target-figures b { color: var(--ink); font-weight: 700; }
-.biz .pg-analytics .target-pace { font-size: 13px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
-.biz .pg-analytics .target-bar { margin-top: 8px; height: 8px; border-radius: 999px; background: var(--section); overflow: hidden; }
-/* A translucent tint, not the solid --commit-bg indigo: R13 reserves the solid
-   accent fill for commit actions, and a progress bar is not one. */
-.biz .pg-analytics .target-bar-fill { height: 100%; border-radius: 999px; background: rgba(63, 91, 232, .35); }
-.biz .pg-analytics .target-trace { margin: 7px 0 0; color: var(--quiet); font-size: 11.5px; }
-
-/* ── #2 attention strip + 内訳 ─────────────────────────────────── */
-/* The text rules stay INSIDE .attention-body on purpose: a broad
-   `.attention span` rule is what once stole the badge's own display and put
-   canon's 「!」 outside its circle. */
-.biz .pg-analytics .attention { margin-bottom: 16px; flex-wrap: wrap; }
-.biz .pg-analytics .attention-body { flex: 1; min-width: 260px; }
-/* THE HEADING FOLLOWS THE MONTH'S STATE. Canon writes this line in --orange
-   while the month is still running (its one visual "careful, this is partial"
-   cue) and the room had flattened both states to indigo. The tone class is
-   decided on the server from `selected.partial`; the strip's ground, rule and
-   badge come from the shared `.attn` primitive's own amber/indigo variables. */
-.biz .pg-analytics .attention-body strong { display: block; font-size: 14px; color: var(--indigo); }
-.biz .pg-analytics .attention.amber .attention-body strong { color: var(--orange); }
-.biz .pg-analytics .attention-body span { display: block; margin-top: 2px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
-.biz .pg-analytics .attention-body .attention-compare { color: var(--muted); font-size: 12.5px; }
-.biz .pg-analytics .attention.expanded { border-radius: 10px 10px 0 0; }
-.biz .pg-analytics .btn-why {
-  margin-left: auto;
-  min-height: 34px;
-  padding: 0 12px;
-  /* canon's peach border on the amber strip, the indigo one when finished —
-     both read straight off the primitive's tone, so the button can never
-     disagree with the strip it sits in. */
-  border: 1px solid var(--attn-line);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--indigo);
-  font-size: 12.5px;
-  font-weight: 700;
-  white-space: nowrap;
+.biz .pg-analytics .an-btn-out {
+  border: 1px solid var(--an-line); border-radius: var(--an-r-sm); padding: 6px 12px; min-height: 30px;
+  font: inherit; font-size: 12.5px; background: var(--an-wash); color: var(--an-ink-4); white-space: nowrap;
 }
-.biz .pg-analytics .btn-why:hover { background: var(--attn-wash); }
-.biz .pg-analytics .why-panel { margin: -1px 0 16px; padding: 12px 14px; border: 1px solid var(--proof-border); border-radius: 0 0 10px 10px; background: var(--proof); display: grid; gap: 7px; }
-.biz .pg-analytics .why-row { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
-.biz .pg-analytics .why-row::before { content: ""; width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--indigo); }
 
-/* ── tabs + panels ────────────────────────────────────────────── */
-.biz .pg-analytics .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--section); margin-bottom: 16px; }
-.biz .pg-analytics .tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 14px;
-  margin-bottom: -1px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 14.5px;
-  font-weight: 700;
+/* ═══ ROW 1 — THE DECISION HEADER ═════════════════════════════════════════════
+   ⚠ THE F-4 LAYER FIX, PORTED AS A RULE. `.an-tile:hover` adds a transform,
+   which makes each tile its OWN stacking context — and that traps the 計算式
+   popover's z-index inside the tile, so the tabs and the chart (both later in
+   the DOM) paint straight over an open popover. Raising the WHOLE ROW fixes
+   every tile popover at once instead of chasing one magic number. 25 sits above
+   the chart and its tooltip (20) and below the tour's own layers (69-72). */
+.biz .pg-analytics .an-kpirow {
+  position: relative; z-index: 25;
+  width: 100%; max-width: var(--an-maxw); margin-inline: auto;
+  display: grid; gap: 9px;
+  grid-template-columns: 1.22fr .94fr .70fr 1.12fr 1.18fr;
 }
-.biz .pg-analytics .tab:hover { color: var(--ink); }
-/* R13: the selected tab is accent TEXT + an accent rule, never a filled tab. */
-.biz .pg-analytics .tab[aria-selected="true"] { color: var(--indigo); border-bottom-color: var(--indigo); }
-
-.biz .pg-analytics .panel { border: 1px solid var(--card); border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 14px; }
-.biz .pg-analytics .panel-head { min-height: 60px; padding: 10px 14px; border-bottom: 1px solid var(--section); display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fafafb; flex-wrap: wrap; }
-.biz .pg-analytics .panel-head strong { display: block; font-size: 15px; }
-.biz .pg-analytics .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-.biz .pg-analytics .panel-foot { padding: 10px 14px; border-top: 1px solid var(--section); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
-
-.biz .pg-analytics .permission { margin: 14px 16px 0; padding: 11px 12px; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.6; }
-.biz .pg-analytics .permission strong { color: var(--indigo); }
-.biz .pg-analytics .store-rank-note { margin: 12px 16px 16px; padding: 11px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.biz .pg-analytics .rank-empty { margin: 16px; color: var(--muted); font-size: 13px; line-height: 1.6; }
-
-/* ── the 推移 chart ───────────────────────────────────────────── */
-.biz .pg-analytics .viz-legend { display: flex; gap: 16px; padding: 0 16px; margin-bottom: 6px; }
-.biz .pg-analytics .viz-legend-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
-.biz .pg-analytics .viz-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
-.biz .pg-analytics .chart-wrap { position: relative; padding: 4px 16px 0; }
-.biz .pg-analytics .chart-wrap svg { width: 100%; height: auto; display: block; }
-.biz .pg-analytics .bar { cursor: pointer; }
-.biz .pg-analytics .bar:hover, .biz .pg-analytics .bar:focus { filter: brightness(1.08); outline: none; }
-.biz .pg-analytics .bar:focus-visible { outline: 3px solid var(--indigo); outline-offset: 2px; }
-.biz .pg-analytics .viz-tooltip {
-  position: absolute;
-  z-index: 5;
-  /* FIXED box — see the header note 3. Must match TOOLTIP_W / TOOLTIP_H. */
-  width: 210px;
-  height: 84px;
-  padding: 9px 11px;
-  border: 1px solid var(--control);
-  border-radius: 9px;
-  background: #fff;
-  box-shadow: 0 10px 26px rgba(24, 24, 27, .14);
-  font-size: 12px;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-100%);
-  transition: opacity .1s ease;
+.biz .pg-analytics .an-tile {
+  background: #fff; border: 1px solid var(--an-line); border-radius: var(--an-r-lg); box-shadow: var(--an-shadow-1);
+  padding: 9px 13px 10px; display: flex; flex-direction: column; gap: 1px; text-align: left; min-width: 0;
+  transition: box-shadow 180ms ease-out, transform 160ms var(--an-ease), border-color 180ms ease-out;
 }
-.biz .pg-analytics .viz-tooltip.show { opacity: 1; }
-.biz .pg-analytics .viz-tooltip .tt-month { color: var(--muted); font-size: 11px; margin-bottom: 5px; white-space: nowrap; }
-.biz .pg-analytics .viz-tooltip .tt-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-.biz .pg-analytics .viz-tooltip .tt-key { width: 10px; height: 2px; flex: 0 0 10px; border-radius: 1px; }
-.biz .pg-analytics .viz-tooltip .tt-name { color: var(--ink-3); flex: 1; white-space: nowrap; }
-.biz .pg-analytics .viz-tooltip .tt-val { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-analytics .an-tile:hover { box-shadow: var(--an-shadow-2); transform: translateY(-1px); }
+.biz .pg-analytics .an-tl { font-size: 11px; color: var(--an-ink-3); font-weight: 700; letter-spacing: .01em; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; word-break: auto-phrase; }
+/* the scope always takes its own line, so all five headline numbers share one
+   baseline instead of stepping up and down with how the label happened to wrap */
+.biz .pg-analytics .an-scope { font-weight: 500; color: var(--an-ink-4); font-size: 10.5px; flex: 1 1 100%; }
+.biz .pg-analytics .an-tv { font-size: 23px; font-weight: 700; letter-spacing: -.02em; line-height: 1.28; font-variant-numeric: tabular-nums; }
+.biz .pg-analytics .an-tv.is-sm { font-size: 20px; }
+.biz .pg-analytics .an-tile-goal .an-tv { font-size: 20px; }
+.biz .pg-analytics .an-tf { font-size: 10.5px; color: var(--an-ink-4); line-height: 1.5; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; word-break: auto-phrase; }
+.biz .pg-analytics .an-tlink { color: var(--an-blue-ink); font-weight: 700; text-decoration: none; }
+.biz .pg-analytics .an-tlink:hover { text-decoration: underline; }
+.biz .pg-analytics .an-cmp {
+  font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 1px 9px; white-space: nowrap;
+  border: 1px solid var(--an-red-line); background: var(--an-red-wash); color: var(--an-red);
+}
+.biz .pg-analytics .an-cmp.is-up { border-color: var(--an-green-line); background: var(--an-green-wash); color: var(--an-green); }
+.biz .pg-analytics .an-cmp.is-gap { border-color: var(--an-amber-line); background: var(--an-amber-wash); color: var(--an-amber); }
+/* R13: a progress bar is not a commit action, so the fill is a translucent
+   accent gradient rather than the solid accent. */
+.biz .pg-analytics .an-goalbar { height: 5px; border-radius: 999px; background: var(--an-seg-rest); overflow: hidden; margin: 5px 0 4px; }
+.biz .pg-analytics .an-goalbar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #93b4fb, var(--an-blue)); transition: width 620ms var(--an-ease); }
 
-.biz .pg-analytics .reading { margin: 10px 16px 4px; padding: 10px 11px; border-left: 3px solid var(--indigo); background: var(--proof); border-radius: 0 8px 8px 0; color: var(--ink-3); font-size: 13px; line-height: 1.6; }
+/* ── the 着地見込み tile's 計算式 popover ─────────────────────────────────── */
+.biz .pg-analytics .an-tile-land { position: relative; }
+.biz .pg-analytics .an-whybtn {
+  font-size: 10.5px; font-weight: 700; color: var(--an-blue-ink); background: var(--an-blue-wash);
+  border: 1px solid var(--an-blue-line); border-radius: 999px; padding: 2px 9px; min-height: 22px;
+  white-space: nowrap; font-family: inherit; transition: background 160ms ease-out;
+}
+.biz .pg-analytics .an-whybtn:hover { background: var(--an-blue-wash-2); }
+.biz .pg-analytics .an-calcpop {
+  position: absolute; z-index: 35; top: calc(100% + 6px); right: 0; width: 312px;
+  background: #fff; border: 1px solid var(--an-line); border-radius: var(--an-r-lg); box-shadow: var(--an-shadow-3);
+  padding: 11px 13px; text-align: left;
+  opacity: 0; transform: translateY(-5px) scale(.985); pointer-events: none;
+  transition: opacity 160ms ease-out, transform 200ms var(--an-ease);
+}
+.biz .pg-analytics .an-calcpop h5 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--an-ink); }
+.biz .pg-analytics .an-ln { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; color: var(--an-ink-2); line-height: 1.65; padding: 2px 0; border-top: 1px solid var(--an-line-soft); flex-wrap: wrap; }
+.biz .pg-analytics .an-ln:first-of-type { border-top: 0; }
+.biz .pg-analytics .an-lk { flex: 1 1 auto; min-width: 0; color: var(--an-ink-3); }
+.biz .pg-analytics .an-lv { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-analytics .an-ln.is-res .an-lv { color: var(--an-amber); }
+.biz .pg-analytics .an-nb { margin: 7px 0 0; font-size: 11px; color: var(--an-ink-3); line-height: 1.6; }
+.biz .pg-analytics .an-nb + .an-nb { margin-top: 5px; color: var(--an-ink-4); }
+@media (hover: hover) {
+  .biz .pg-analytics .an-tile-land:hover .an-calcpop { opacity: 1; transform: none; pointer-events: auto; }
+}
+.biz .pg-analytics .an-tile-land.is-open .an-calcpop { opacity: 1; transform: none; pointer-events: auto; }
 
-/* ── tables ───────────────────────────────────────────────────── */
-.biz .pg-analytics .table-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
-.biz .pg-analytics .metrics-table, .biz .pg-analytics .rank-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
-.biz .pg-analytics .metrics-table th, .biz .pg-analytics .rank-table th { padding: 9px 10px; border-bottom: 1px solid var(--section); color: var(--quiet); font-size: 11.5px; font-weight: 700; text-align: right; white-space: nowrap; position: sticky; top: 0; background: #fff; }
-.biz .pg-analytics .metrics-table th:first-child, .biz .pg-analytics .rank-table th:nth-child(-n+2) { text-align: left; }
-.biz .pg-analytics .metrics-table td, .biz .pg-analytics .rank-table td { padding: 10px; border-bottom: 1px solid var(--row); color: var(--ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.biz .pg-analytics .metrics-table td:first-child, .biz .pg-analytics .rank-table td:nth-child(-n+2) { text-align: left; }
-.biz .pg-analytics .metrics-table tbody tr:last-child td, .biz .pg-analytics .rank-table tbody tr:last-child td { border-bottom: 0; }
-/* Canon deviation (overturnable, P2): canon prints this row in the accent
-   (fable-store-sales-analytics.html:304-305); here the accent is reserved
-   for selected/actionable state, worn by tr.selected-row right below. */
-.biz .pg-analytics .metrics-table tr.stat-row td { background: #fafbff; color: var(--ink-2); font-weight: 700; border-top: 1px solid var(--proof-border); }
-/* The month the period nav is standing on. The family's SELECTED treatment —
-   a light accent wash (R13: selected is a wash, never a dark fill; and a row
-   is not a control, so it never takes the solid accent). It has to be legible
-   as selected against BOTH the white rows and the 統計 row's #fafbff, which
-   the earlier --proof wash was not: at 2% off white the nav's effect on this
-   table was invisible. */
-.biz .pg-analytics .metrics-table tr.selected-row td { background: var(--select-bg); }
-.biz .pg-analytics .metrics-table tr.board-row td { background: #fafafb; }
-.biz .pg-analytics .quiet-row td { padding: 9px 10px; border-bottom: 1px solid var(--row); background: #fafafb; color: var(--quiet); font-size: 12px; text-align: center; font-weight: 500; }
-.biz .pg-analytics .quiet-row td:first-child { text-align: left; }
-.biz .pg-analytics .month-tag { font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--section); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+/* ── tabs ─────────────────────────────────────────────────────────────────── */
+.biz .pg-analytics .an-tabs { position: relative; display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--an-line); padding: 0 2px; width: 100%; max-width: var(--an-maxw); margin-inline: auto; }
+.biz .pg-analytics .an-tab { padding: 10px 14px; min-height: 44px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--an-ink-3); border-radius: var(--an-r-sm) var(--an-r-sm) 0 0; transition: color 180ms ease-out, background 160ms ease-out; }
+.biz .pg-analytics .an-tab:hover { background: var(--an-wash); }
+/* R13: the selected tab is accent TEXT plus an accent rule, never a filled tab. */
+.biz .pg-analytics .an-tab.is-on { color: var(--an-blue); font-weight: 700; }
+.biz .pg-analytics .an-tab-line { position: absolute; bottom: -1px; left: 0; height: 2px; width: 100px; background: var(--an-blue); border-radius: 2px 2px 0 0; transform-origin: left center; will-change: transform; pointer-events: none; }
+.biz .pg-analytics .an-brk { font-size: 12px; font-weight: 700; color: var(--an-blue-ink); background: var(--an-blue-wash); border: 1px solid var(--an-blue-line); border-radius: 999px; padding: 5px 13px; min-height: 30px; font-family: inherit; white-space: nowrap; margin-bottom: 5px; }
+.biz .pg-analytics .an-brk:hover { background: var(--an-blue-wash-2); }
 
-.biz .pg-analytics .rank-table th:nth-child(-n+4), .biz .pg-analytics .rank-table td:nth-child(-n+4) { position: sticky; background: #fff; }
-.biz .pg-analytics .rank-table th:nth-child(1), .biz .pg-analytics .rank-table td:nth-child(1) { left: 0; min-width: 40px; }
-.biz .pg-analytics .rank-table th:nth-child(2), .biz .pg-analytics .rank-table td:nth-child(2) { left: 40px; min-width: 96px; z-index: 2; }
-.biz .pg-analytics .rank-cell { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 800; background: var(--section); color: var(--ink-3); }
-.biz .pg-analytics .rank-cell.r1 { background: var(--indigo-soft); color: var(--indigo); }
-.biz .pg-analytics .month-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 800; margin-right: 4px; background: var(--section); color: var(--ink-3); vertical-align: 1px; }
-.biz .pg-analytics .month-badge.b1 { background: var(--indigo-soft); color: var(--indigo); }
-.biz .pg-analytics .month-badge.b2 { background: var(--row); color: var(--ink-3); }
-.biz .pg-analytics .month-badge.b3 { background: #fafafb; color: var(--muted); border: 1px solid var(--row); }
-.biz .pg-analytics .gap-leader { color: var(--muted); font-weight: 600; }
+/* ── the chart that answers ───────────────────────────────────────────────── */
+.biz .pg-analytics .an-chart-hd { display: flex; align-items: center; gap: 10px; padding: 10px 14px 6px; flex-wrap: wrap; }
+.biz .pg-analytics .an-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .pg-analytics .an-sub { font-size: 11.5px; color: var(--an-ink-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.biz .pg-analytics .an-lg { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--an-ink-2); white-space: nowrap; }
+.biz .pg-analytics .an-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
+.biz .pg-analytics .an-sw.is-b { background: var(--an-blue); }
+.biz .pg-analytics .an-sw.is-p { background: var(--an-pink); }
+.biz .pg-analytics .an-sw.is-g { width: 14px; height: 0; border-top: 2px dashed var(--an-ink-4); border-radius: 0; }
+.biz .pg-analytics .an-sw.is-h { background: repeating-linear-gradient(45deg, var(--an-hatch-b) 0 3px, var(--an-blue) 3px 5px); }
+.biz .pg-analytics .an-scrollhint { display: none; font-size: 10.5px; color: var(--an-ink-3); white-space: nowrap; border: 1px solid var(--an-line); border-radius: 999px; padding: 1px 9px; }
 
-/* ── #3 staff own-lane preview ────────────────────────────────── */
-.biz .pg-analytics .own-lane-card { margin: 14px 16px 16px; padding: 14px; border: 1px solid var(--card); border-radius: 10px; background: #fafafb; }
-.biz .pg-analytics .own-lane-card > strong { display: block; font-size: 14px; }
-.biz .pg-analytics .own-lane-sub { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
-.biz .pg-analytics .own-lane-stats { display: flex; gap: 26px; margin-top: 12px; flex-wrap: wrap; }
-.biz .pg-analytics .own-lane-stat span { display: block; color: var(--muted); font-size: 12px; }
-.biz .pg-analytics .own-lane-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--ink); }
-.biz .pg-analytics .own-lane-stat i { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--green-soft); color: var(--green-dark); font-size: 10.5px; font-weight: 700; font-style: normal; vertical-align: 2px; }
-.biz .pg-analytics .own-lane-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--section); color: var(--quiet); font-size: 12px; }
+.biz .pg-analytics .an-chart-body { padding: 0 12px 2px; }
+.biz .pg-analytics .an-chart-plot { position: relative; }
+.biz .pg-analytics .an-chart { display: block; width: 100%; height: auto; }
+.biz .pg-analytics .an-bar { transition: opacity 180ms ease-out; }
+.biz .pg-analytics .an-cross { pointer-events: none; }
+/* ⚖-ADJ C — ONE REAL LINK PER MONTH COLUMN. The overlay lives inside the plot
+   box, so its percentages are the SVG's own coordinates at every width. */
+.biz .pg-analytics .an-chart-hits { position: absolute; inset: 0; }
+.biz .pg-analytics .an-hit { position: absolute; top: 0; display: block; background: transparent; transition: background 160ms ease-out; }
+.biz .pg-analytics .an-hit:hover, .biz .pg-analytics .an-hit.is-on { background: rgba(37, 99, 235, .045); }
 
-/* ── #4 composition ───────────────────────────────────────────── */
-.biz .pg-analytics .comp-body { padding: 16px 16px 4px; display: grid; gap: 20px; }
-.biz .pg-analytics .comp-label { margin-bottom: 7px; font-size: 12.5px; font-weight: 700; color: var(--ink-3); }
-.biz .pg-analytics .comp-bar { display: flex; height: 30px; border-radius: 7px; overflow: hidden; background: var(--section); }
-.biz .pg-analytics .comp-seg { display: flex; align-items: center; justify-content: center; min-width: 2px; border-right: 2px solid #fff; font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; }
-.biz .pg-analytics .comp-seg:last-child { border-right: 0; }
-.biz .pg-analytics .comp-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 9px; }
-.biz .pg-analytics .comp-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
-.biz .pg-analytics .comp-swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
-.biz .pg-analytics .comp-empty { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
-.biz .pg-analytics .comp-liability { margin: 4px 16px 16px; padding: 10px 12px; border: 1px solid var(--card); border-radius: 9px; background: #fafafb; color: var(--ink-3); font-size: 12.5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-analytics .an-tip {
+  position: absolute; z-index: 20;
+  /* FIXED box — the clamp is arithmetic rather than a measurement pass. WIDTH
+     AND HEIGHT MUST MATCH `TOOLTIP_W` / `TOOLTIP_H` in AnalyticsScreen.tsx. */
+  width: 210px; height: 96px;
+  background: #fff; border: 1px solid var(--an-line);
+  border-radius: var(--an-r-md); box-shadow: var(--an-shadow-3); padding: 8px 11px; pointer-events: none;
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 140ms ease-out, transform 180ms var(--an-ease);
+}
+.biz .pg-analytics .an-tip.is-on { opacity: 1; transform: none; }
+.biz .pg-analytics .an-tip-mix { top: -104px; height: auto; min-height: 0; width: 210px; }
+.biz .pg-analytics .an-tip-m { font-size: 12px; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-analytics .an-tip-r { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--an-ink-2); line-height: 1.7; }
+.biz .pg-analytics .an-tip-k { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 9px; }
+.biz .pg-analytics .an-tip-n { flex: 1; white-space: nowrap; }
+.biz .pg-analytics .an-tip-v { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz .pg-analytics .an-tip-note { font-size: 10.5px; color: var(--an-amber); margin-top: 4px; line-height: 1.35; }
+.biz .pg-analytics .an-tip-go { font-size: 10.5px; color: var(--an-ink-4); margin-top: 4px; }
 
-/* ── the boundary (denied) presentation ───────────────────────── */
+.biz .pg-analytics .an-decide {
+  margin: 2px 12px 12px; border-left: 3px solid var(--an-blue); background: var(--an-blue-wash);
+  border-radius: 0 var(--an-r-sm) var(--an-r-sm) 0; padding: 8px 12px; font-size: 12.5px; color: var(--an-ink-2);
+  line-height: 1.7; display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; row-gap: 5px;
+}
+.biz .pg-analytics .an-readmore { font-size: 11.5px; color: var(--an-blue-ink); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; border: 0; background: none; font-family: inherit; min-height: 24px; }
+.biz .pg-analytics .an-cv { display: inline-flex; transition: transform 240ms var(--an-ease); }
+.biz .pg-analytics .an-readmore.is-open .an-cv { transform: rotate(180deg); }
+.biz .pg-analytics .an-collapse { height: 0; overflow: hidden; }
+.biz .pg-analytics .an-collapse-in { opacity: 0; transform: translateY(-3px); transition: opacity 170ms ease-out, transform 200ms var(--an-ease); }
+.biz .pg-analytics .an-collapse-in.is-in { opacity: 1; transform: none; }
+.biz .pg-analytics .an-longprose { margin: 0; font-size: 12px; color: var(--an-ink-3); line-height: 1.8; padding: 0 12px 10px; }
+
+/* ── the table, tightened ─────────────────────────────────────────────────── */
+.biz .pg-analytics .an-tb-hd { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px 7px; flex-wrap: wrap; }
+.biz .pg-analytics .an-leg { font-size: 11px; color: var(--an-ink-4); }
+.biz .pg-analytics .an-tapmore { display: none; }
+.biz .pg-analytics .an-tbl { padding: 0 6px; }
+/* ⚠ A REAL `<table>` WEARING THE MOCK'S GRID. `display` on a table element
+   drops its implicit ARIA table semantics, so every row group, row and cell
+   carries its role EXPLICITLY — the reader keeps a table, the layout gets the
+   mock's columns, and the shed mechanism works because a cell is a grid item. */
+.biz .pg-analytics .an-table { display: block; width: 100%; border-collapse: collapse; }
+.biz .pg-analytics .an-table thead, .biz .pg-analytics .an-table tbody, .biz .pg-analytics .an-table tfoot { display: block; }
+.biz .pg-analytics .an-trow {
+  display: grid;
+  grid-template-columns: 104px repeat(4, minmax(94px, 1fr)) 62px 62px 82px;
+  gap: 9px; align-items: center; padding: 0 8px;
+}
+.biz .pg-analytics .an-trow > th, .biz .pg-analytics .an-trow > td { min-width: 0; }
+.biz .pg-analytics .an-thead {
+  position: sticky; top: var(--an-topbar); z-index: 3;
+  background: rgba(247, 248, 250, .97); border-bottom: 1px solid var(--an-line-soft);
+  border-radius: var(--an-r-sm) var(--an-r-sm) 0 0;
+}
+.biz .pg-analytics .an-trow-head { min-height: 28px; font-size: 11px; color: var(--an-ink-3); font-weight: 700; }
+.biz .pg-analytics .an-trow-head > th { text-align: left; font-weight: 700; padding: 0; }
+.biz .pg-analytics .an-trow-head > th.an-rt { text-align: right; }
+.biz .pg-analytics .an-tnote > td { display: block; font-size: 11.5px; color: var(--an-ink-4); padding: 7px 14px; border-bottom: 1px solid var(--an-line-soft); background: var(--an-wash); }
+.biz .pg-analytics .an-trow-body {
+  min-height: 44px; padding-top: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--an-line-soft); cursor: pointer;
+  transition: background 150ms ease-out, box-shadow 150ms ease-out;
+}
+.biz .pg-analytics .an-trow-body:hover { background: var(--an-wash); }
+.biz .pg-analytics .an-trow-body.is-partial { background: var(--an-partial-wash); }
+.biz .pg-analytics .an-trow-body.is-partial:hover { background: var(--an-partial-hover); }
+/* THE MONTH BEING VIEWED. The family's SELECTED treatment — a light accent wash
+   (⚖ R13: selected is a wash, never a dark fill; a row is not a control, so it
+   never takes the solid accent). It has to read as selected against BOTH the
+   white rows and the partial month's own cream. */
+.biz .pg-analytics .an-trow-body.is-sel { background: var(--select-bg); box-shadow: inset 3px 0 0 var(--an-blue); }
+.biz .pg-analytics .an-trow-body.is-pulse { animation: an-pulserow 720ms ease-out; }
+@keyframes an-pulserow { from { background: var(--an-blue-wash-2); } to { background: var(--select-bg); } }
+.biz .pg-analytics .an-mo { font-size: 12.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; text-align: left; padding: 0; }
+.biz .pg-analytics .an-asof { display: block; font-size: 10px; color: var(--an-ink-4); font-weight: 500; }
+.biz .pg-analytics .an-pill-part { font-size: 10px; font-weight: 700; color: var(--an-amber); background: var(--an-amber-wash); border: 1px solid var(--an-amber-line); border-radius: 999px; padding: 0 7px; margin-left: 5px; white-space: nowrap; }
+.biz .pg-analytics .an-cell { text-align: right; min-width: 0; padding: 0; }
+.biz .pg-analytics .an-v { display: block; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--an-ink-2); white-space: nowrap; letter-spacing: -.01em; }
+.biz .pg-analytics .an-d { display: block; font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.35; }
+.biz .pg-analytics .an-d.is-up { color: var(--an-green); }
+.biz .pg-analytics .an-d.is-down { color: var(--an-red); }
+.biz .pg-analytics .an-d.is-flat, .biz .pg-analytics .an-d.is-na { color: var(--an-ink-4); }
+
+/* ⚖-ADJ D — THE SHED CELLS. `always` leaves the grid at every width and lives
+   in the row's own detail line; the row that is being VIEWED opens itself at
+   desk widths, so the four extra metrics are readable without a tap, and any
+   row opens on a tap at any width. A shed cell is never removed from the DOM. */
+.biz .pg-analytics .an-trow > .an-always { display: none; }
+.biz .pg-analytics .an-trow-body.is-open > .an-always,
+.biz .pg-analytics .an-trow-tot.is-open > .an-always { display: flex; }
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-always,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2 {
+  grid-column: 1 / -1; text-align: left; align-items: baseline; gap: 8px; flex-wrap: nowrap;
+  border-top: 1px dashed var(--an-blue-line); margin-top: 3px; padding-top: 3px;
+}
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-always::before,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1::before,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2::before {
+  content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto;
+}
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-always .an-v,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1 .an-v,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2 .an-v { margin-left: auto; }
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-always .an-d,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1 .an-d,
+.biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2 .an-d { display: inline-block; margin-left: 8px; }
+
+/* ⚖ THE 統計 ROW STICKS TO THE VIEWPORT, not to an inner scroller — there is
+   none. It un-sticks on its own when the table scrolls past, because a sticky
+   element never leaves its own containing block. */
+.biz .pg-analytics .an-ttot {
+  position: sticky; bottom: 0; z-index: 2; padding: 5px 0 7px;
+  background: var(--an-tot-bg); border-top: 1px solid var(--an-blue-line);
+  border-radius: 0 0 var(--an-r-sm) var(--an-r-sm);
+  box-shadow: 0 -6px 14px rgba(16, 24, 40, .07);
+}
+.biz .pg-analytics .an-lb { display: block; font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); line-height: 1.4; padding: 0 8px 2px; text-align: left; }
+.biz .pg-analytics .an-trow-tot .an-v { font-size: 11.5px; font-weight: 700; color: var(--an-ink); }
+.biz .pg-analytics .an-k { font-size: 10px; font-weight: 600; color: var(--an-ink-4); margin-right: 3px; }
+
+/* ── 売上の内訳 ───────────────────────────────────────────────────────────── */
+.biz .pg-analytics .an-mix-hd { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px 4px; flex-wrap: wrap; row-gap: 2px; }
+.biz .pg-analytics .an-mixblock { padding: 6px 14px 2px; position: relative; }
+.biz .pg-analytics .an-mix-k { font-size: 11px; color: var(--an-ink-3); font-weight: 700; margin-bottom: 5px; display: block; }
+.biz .pg-analytics .an-mix-empty { margin: 0 0 6px; color: var(--an-ink-4); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-analytics .an-stack { display: flex; height: 26px; border-radius: var(--an-r-sm); overflow: hidden; border: 1px solid var(--an-line-soft); }
+.biz .pg-analytics .an-seg-p { display: flex; align-items: center; justify-content: center; font: inherit; font-size: 11.5px; font-weight: 700; border: 0; min-width: 0; transition: opacity 180ms ease-out; }
+.biz .pg-analytics .an-mixblock.is-dim .an-seg-p:not(.is-on) { opacity: .3; }
+.biz .pg-analytics .an-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.biz .pg-analytics .an-chip-l {
+  display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 11.5px; color: var(--an-ink-2);
+  border: 1px solid var(--an-line); background: #fff; border-radius: 999px; padding: 4px 11px 4px 8px; min-height: 28px;
+  transition: background 160ms ease-out, border-color 160ms ease-out, transform 100ms ease-out, box-shadow 160ms ease-out;
+}
+.biz .pg-analytics .an-chip-l:hover { background: var(--an-wash); box-shadow: var(--an-shadow-1); }
+/* R13: pressed is a light accent wash, never a filled chip. */
+.biz .pg-analytics .an-chip-l.is-on { background: var(--an-blue-wash); border-color: var(--an-blue-line); color: var(--an-blue-ink); font-weight: 600; }
+.biz .pg-analytics .an-tickets { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px 12px; }
+.biz .pg-analytics .an-stat-chip { border: 1px solid var(--an-line); background: var(--an-wash); border-radius: var(--an-r-md); padding: 5px 12px; min-width: 0; }
+.biz .pg-analytics .an-stat-chip .an-k { display: block; font-size: 10.5px; color: var(--an-ink-4); font-weight: 700; line-height: 1.4; margin: 0; }
+.biz .pg-analytics .an-stat-chip .an-v { display: inline; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--an-ink); }
+.biz .pg-analytics .an-u { font-size: 11px; color: var(--an-ink-3); font-weight: 600; margin-left: 5px; }
+
+/* ── ランキング / 日報 — kept exactly as they work (⚖-ADJ B), re-skinned ──── */
+.biz .pg-analytics .an-panel-head { min-height: 56px; padding: 10px 14px; border-bottom: 1px solid var(--an-line-soft); display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--an-wash); flex-wrap: wrap; border-radius: var(--an-r-lg) var(--an-r-lg) 0 0; }
+.biz .pg-analytics .an-panel-head strong { display: block; font-size: 14px; }
+.biz .pg-analytics .an-panel-head span { display: block; margin-top: 2px; color: var(--an-ink-4); font-size: 12px; }
+.biz .pg-analytics .an-panel-foot { padding: 10px 14px; border-top: 1px solid var(--an-line-soft); background: var(--an-wash); color: var(--an-ink-4); font-size: 12px; line-height: 1.55; border-radius: 0 0 var(--an-r-lg) var(--an-r-lg); }
+.biz .pg-analytics .an-metric-seg { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+.biz .pg-analytics .an-metric-seg button { min-height: 34px; padding: 0 12px; border: 1px solid var(--an-line); border-radius: var(--an-r-sm); background: #fff; color: var(--an-ink-3); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.biz .pg-analytics .an-metric-seg button:hover { background: var(--an-wash); }
+.biz .pg-analytics .an-metric-seg button[aria-pressed="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
+.biz .pg-analytics .an-permission { margin: 14px 14px 0; padding: 11px 12px; border: 1px solid var(--an-blue-line); border-radius: 9px; background: var(--an-blue-wash); color: var(--an-ink-3); font-size: 12px; line-height: 1.6; }
+.biz .pg-analytics .an-permission strong { color: var(--an-blue-ink); }
+.biz .pg-analytics .an-store-rank-note { margin: 12px 14px 14px; padding: 11px 12px; border: 1px solid var(--an-line); border-radius: 9px; background: var(--an-wash); color: var(--an-ink-4); font-size: 12px; line-height: 1.6; }
+.biz .pg-analytics .an-rank-empty { margin: 14px; color: var(--an-ink-4); font-size: 13px; line-height: 1.6; }
+/* A surface's OWN container may pan horizontally (⚖ PAGE-SCROLL) — these two
+   tables are wide by nature and their sticky name columns are the roster law. */
+.biz .pg-analytics .an-table-scroll { overflow-x: auto; }
+.biz .pg-analytics .an-rank-table, .biz .pg-analytics .an-daily-table { width: 100%; min-width: 1120px; border-collapse: collapse; }
+.biz .pg-analytics .an-rank-table th, .biz .pg-analytics .an-daily-table th { padding: 9px 10px; border-bottom: 1px solid var(--an-line-soft); color: var(--an-ink-4); font-size: 11.5px; font-weight: 700; text-align: right; white-space: nowrap; background: #fff; }
+.biz .pg-analytics .an-rank-table td, .biz .pg-analytics .an-daily-table td { padding: 10px; border-bottom: 1px solid var(--an-line-soft); color: var(--an-ink-2); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-analytics .an-daily-table th:first-child, .biz .pg-analytics .an-daily-table td:first-child { text-align: left; }
+.biz .pg-analytics .an-rank-table th:nth-child(-n+2), .biz .pg-analytics .an-rank-table td:nth-child(-n+2) { text-align: left; }
+.biz .pg-analytics .an-rank-table th:nth-child(-n+4), .biz .pg-analytics .an-rank-table td:nth-child(-n+4) { position: sticky; background: #fff; }
+.biz .pg-analytics .an-rank-table th:nth-child(1), .biz .pg-analytics .an-rank-table td:nth-child(1) { left: 0; min-width: 40px; }
+.biz .pg-analytics .an-rank-table th:nth-child(2), .biz .pg-analytics .an-rank-table td:nth-child(2) { left: 40px; min-width: 96px; z-index: 2; }
+.biz .pg-analytics .an-rank-cell { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 800; background: var(--an-seg-rest); color: var(--an-ink-3); }
+.biz .pg-analytics .an-rank-cell.is-r1 { background: var(--an-blue-wash); color: var(--an-blue-ink); }
+.biz .pg-analytics .an-month-badge { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; font-size: 9.5px; font-weight: 800; margin-right: 4px; background: var(--an-seg-rest); color: var(--an-ink-3); vertical-align: 1px; }
+.biz .pg-analytics .an-month-badge.is-b1 { background: var(--an-blue-wash); color: var(--an-blue-ink); }
+.biz .pg-analytics .an-month-badge.is-b2 { background: var(--an-line-soft); color: var(--an-ink-3); }
+.biz .pg-analytics .an-month-badge.is-b3 { background: #fff; color: var(--an-ink-4); border: 1px solid var(--an-line); }
+.biz .pg-analytics .an-gap-leader { color: var(--an-ink-4); font-weight: 600; }
+.biz .pg-analytics .an-month-tag { font-size: 10.5px; font-weight: 700; color: var(--an-ink-4); background: var(--an-seg-rest); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+.biz .pg-analytics .an-quiet-row td { padding: 9px 10px; background: var(--an-wash); color: var(--an-ink-4); font-size: 12px; text-align: center; font-weight: 500; }
+.biz .pg-analytics .an-quiet-row td:first-child { text-align: left; }
+.biz .pg-analytics .an-board-row td { background: var(--an-wash); }
+.biz .pg-analytics .an-own-lane { margin: 14px; padding: 14px; border: 1px solid var(--an-line); border-radius: var(--an-r-md); background: var(--an-wash); }
+.biz .pg-analytics .an-own-lane > strong { display: block; font-size: 14px; }
+.biz .pg-analytics .an-own-lane-sub { margin: 3px 0 0; color: var(--an-ink-4); font-size: 12px; line-height: 1.55; }
+.biz .pg-analytics .an-own-lane-stats { display: flex; gap: 26px; margin-top: 12px; flex-wrap: wrap; }
+.biz .pg-analytics .an-own-lane-stat span { display: block; color: var(--an-ink-4); font-size: 12px; }
+.biz .pg-analytics .an-own-lane-stat b { display: block; margin-top: 3px; font-size: 18px; font-variant-numeric: tabular-nums; color: var(--an-ink); }
+.biz .pg-analytics .an-own-lane-stat i { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--an-green-wash); color: var(--an-green); font-size: 10.5px; font-weight: 700; font-style: normal; vertical-align: 2px; }
+.biz .pg-analytics .an-own-lane-note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--an-line-soft); color: var(--an-ink-4); font-size: 12px; }
+
+/* ── ⚖-ADJ F · the provenance disclosure, opening DOWNWARD in flow ────────── */
+.biz .pg-analytics .an-footnote { width: 100%; max-width: var(--an-maxw); margin-inline: auto; }
+.biz .pg-analytics .an-fn-bar {
+  width: 100%; display: flex; align-items: center; gap: 9px; border: 1px solid var(--an-line); background: #fff;
+  border-radius: var(--an-r-md); padding: 9px 12px; min-height: 38px; font: inherit; font-size: 12px;
+  color: var(--an-ink-3); box-shadow: var(--an-shadow-1); text-align: left;
+}
+.biz .pg-analytics .an-fn-bar:hover { background: var(--an-wash); }
+.biz .pg-analytics .an-fn-i { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--an-line); font-size: 10px; font-weight: 700; }
+.biz .pg-analytics .an-footnote.is-open .an-fn-bar .an-cv { transform: rotate(180deg); }
+.biz .pg-analytics .an-fn-body { border: 1px solid var(--an-line); border-top: 0; border-radius: 0 0 var(--an-r-md) var(--an-r-md); background: #fff; padding: 14px 16px; }
+.biz .pg-analytics .an-fn-body h4 { margin: 0 0 3px; font-size: 13.5px; }
+.biz .pg-analytics .an-lead { font-size: 12px; color: var(--an-ink-4); margin: 0 0 10px; }
+.biz .pg-analytics .an-prov { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 7px 16px; font-size: 12.5px; }
+.biz .pg-analytics .an-prov-k { color: var(--an-ink-2); font-weight: 600; }
+.biz .pg-analytics .an-prov-v { color: var(--an-ink-4); line-height: 1.6; }
+.biz .pg-analytics .an-unconn-t { margin: 14px 0 6px; font-size: 12.5px; color: var(--an-ink-3); }
+.biz .pg-analytics .an-samplenote { margin-top: 12px; border: 1px dashed var(--an-line); border-radius: var(--an-r-md); padding: 9px 12px; font-size: 12px; color: var(--an-ink-4); background: var(--an-wash); }
+
+/* ── the boundary (denied) presentation ───────────────────────────────────── */
 .biz .pg-analytics #boundaryPanel { max-width: 46em; }
-.biz .pg-analytics #boundaryPanel h1 { margin: 0 0 8px; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .pg-analytics #boundaryPanel .subtitle { margin-bottom: 16px; }
-.biz .pg-analytics .boundary-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--control);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
+.biz .pg-analytics #boundaryPanel h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.3; white-space: normal; }
+.biz .pg-analytics .an-denied { margin: 0 0 16px; max-width: 46em; color: var(--an-ink-4); font-size: 14px; line-height: 1.55; }
+.biz .pg-analytics .an-boundary-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--an-line); border-radius: var(--an-r-sm); background: #fff;
+  color: var(--an-ink-2); font-size: 13px; font-weight: 700; text-decoration: none;
 }
-.biz .pg-analytics .boundary-link:hover { background: #f4f4f5; }
+.biz .pg-analytics .an-boundary-link:hover { background: var(--an-wash); }
 
-@media (max-width: 1320px) {
-  .biz .pg-analytics { padding-left: 18px; padding-right: 18px; }
+/* ── the guided tour's four layers ────────────────────────────────────────── */
+/* z-indexes are the family's own, so two rooms' overlays never fight over one
+   paint. NO SCROLLER, NO HEIGHT CAP anywhere here (⚖ page-scroll). */
+.biz .pg-analytics .an-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s var(--an-ease), left .24s var(--an-ease), width .24s var(--an-ease), height .24s var(--an-ease);
+}
+.biz .pg-analytics .an-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-analytics .an-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-analytics .an-spot-card {
+  position: fixed; z-index: 72; width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px; border: 1.5px solid var(--an-line); border-radius: 12px; background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3); font-size: 12.5px; line-height: 1.65; color: var(--an-ink-2);
+}
+.biz .pg-analytics .an-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--an-ink); }
+.biz .pg-analytics .an-spot-text { display: block; }
+.biz .pg-analytics .an-spot-hint { margin-top: 6px; color: var(--an-ink-4); font-size: 11px; }
+.biz .pg-analytics .an-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--an-line-soft); }
+.biz .pg-analytics .an-spot-count { color: var(--an-ink-4); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-analytics .an-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--an-line); border-radius: 7px; background: #fff; color: var(--an-ink-2); font: inherit; font-size: 12px; font-weight: 600; }
+.biz .pg-analytics .an-spot-foot button:hover { background: var(--an-wash); }
+.biz .pg-analytics .an-spot-foot button:disabled { opacity: .4; }
+.biz .pg-analytics .an-spot-done { margin-left: auto; }
+
+/* ═══ THE CONTAINER LADDER — ⚖-ADJ H, keyed to the PAGE ═══════════════════════
+   RUNG 1 (≤1035 of page): the mock's ≤1279 band. The eyebrow takes its own
+   line, the five tiles become 3 + 2 with the landing tile spanning the spare
+   column, and 既存数 sheds into the row's detail line. */
+@container anpage (max-width: 1035px) {
+  .biz .pg-analytics .an-eyebrow { order: -1; flex: 1 1 100%; }
+  .biz .pg-analytics .an-kpirow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-analytics .an-tile-land { grid-column: span 2; }
+  .biz .pg-analytics .an-calcpop { width: 296px; }
+  .biz .pg-analytics .an-leg { flex: 1 1 100%; }
+  .biz .pg-analytics .an-trow { grid-template-columns: 98px repeat(4, minmax(74px, 1fr)) 58px 76px; gap: 8px; }
+  .biz .pg-analytics .an-trow > .an-sh1 { display: none; }
+  .biz .pg-analytics .an-trow-body.is-open > .an-sh1 { display: flex; }
+}
+
+/* RUNG 2 (≤905 of page): the mock's ≤1149 band — 新規数 sheds too. */
+@container anpage (max-width: 905px) {
+  .biz .pg-analytics .an-trow { grid-template-columns: 96px repeat(4, minmax(70px, 1fr)) 74px; gap: 8px; }
+  .biz .pg-analytics .an-trow > .an-sh2 { display: none; }
+  .biz .pg-analytics .an-trow-body.is-open > .an-sh2 { display: flex; }
+}
+
+/* RUNG 3 (≤799 of page): the mock's ≤899 phone band. The month list IS the page
+   (⚖ Business phone law): the tiles become a chip strip that pans in its own
+   container, the chart gets its own horizontal strip rather than 12 unreadable
+   months, and every table row becomes a month card that opens on a tap. */
+@container anpage (max-width: 799px) {
+  .biz .pg-analytics .an-titlerow { row-gap: 5px; }
+  .biz .pg-analytics .an-titlerow .an-sp { display: none; }
+  .biz .pg-analytics .an-mnav { order: 2; }
+  .biz .pg-analytics .an-btn-out { order: 3; }
+  .biz .pg-analytics .an-seg { order: 4; flex: 1 1 100%; display: flex; overflow-x: auto; scrollbar-width: none; }
+  .biz .pg-analytics .an-seg-btn { flex: 0 0 auto; }
+
+  /* the tile strip — a CONTENT strip that pans, never the page */
+  .biz .pg-analytics .an-kpirow { display: flex; grid-template-columns: none; gap: 8px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; padding-bottom: 2px; }
+  /* 184px keeps a slice of the next tile visible even at 440 — without the peek
+     the strip reads as「there are only two numbers」and 着地見込み is never found */
+  .biz .pg-analytics .an-tile { flex: 0 0 184px; scroll-snap-align: start; padding: 8px 11px 9px; }
+  .biz .pg-analytics .an-tile:hover { transform: none; box-shadow: var(--an-shadow-1); }
+  .biz .pg-analytics .an-tv { font-size: 21px; }
+  .biz .pg-analytics .an-tile-goal { flex: 0 0 232px; }
+  .biz .pg-analytics .an-tile-land { flex: 0 0 248px; grid-column: auto; }
+  .biz .pg-analytics .an-scrollhint { display: inline-block; }
+  /* the formula becomes an IN-TILE expander — an absolute popover would be
+     clipped by the strip's own scroller */
+  .biz .pg-analytics .an-calcpop { position: static; width: auto; margin-top: 7px; display: none; box-shadow: none; border-radius: var(--an-r-sm); padding: 9px 10px; opacity: 1; transform: none; pointer-events: auto; }
+  .biz .pg-analytics .an-tile-land.is-open .an-calcpop { display: block; }
+
+  /* the chart keeps its legibility by taking its own horizontal strip rather
+     than shrinking 12 months into 5px labels */
+  .biz .pg-analytics .an-chart-body { overflow-x: auto; padding: 0 10px 4px; }
+  .biz .pg-analytics .an-chart-plot { min-width: 860px; }
+  .biz .pg-analytics .an-chart-hd { padding: 9px 11px 5px; }
+  .biz .pg-analytics .an-sub { flex: 1 1 100%; white-space: normal; }
+  .biz .pg-analytics .an-decide { margin: 2px 10px 10px; }
+  .biz .pg-analytics .an-decide .an-sp { display: none; }
+  .biz .pg-analytics .an-longprose { padding: 0 10px 10px; }
+
+  /* the table becomes month cards */
+  .biz .pg-analytics .an-tb-hd { padding: 9px 11px 6px; }
+  .biz .pg-analytics .an-tapmore { display: inline; }
+  .biz .pg-analytics .an-thead { display: none; }
+  .biz .pg-analytics .an-tbl { padding: 0; }
+  .biz .pg-analytics .an-tnote > td { padding: 6px 11px; }
+  .biz .pg-analytics .an-trow-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 10px;
+    min-height: 0; margin: 7px 10px; padding: 8px 11px 9px;
+    border: 1px solid var(--an-line-soft); border-radius: var(--an-r-md); background: #fff;
+  }
+  .biz .pg-analytics .an-trow-body.is-sel { border-color: var(--an-blue-line); }
+  .biz .pg-analytics .an-mo { grid-column: 1 / -1; font-size: 13.5px; white-space: normal; }
+  .biz .pg-analytics .an-asof { display: inline; margin-left: 6px; }
+  .biz .pg-analytics .an-cell { text-align: left; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+  .biz .pg-analytics .an-cell::before { content: attr(data-k); flex: 0 0 100%; font-size: 10px; font-weight: 700; color: var(--an-ink-4); line-height: 1.35; }
+  /* collapsed card = 月 + 総合 + 新規 + the ticks; a tap opens the whole row */
+  .biz .pg-analytics .an-trow-body > .an-cell:nth-child(n+4) { display: none; }
+  .biz .pg-analytics .an-trow-body.is-open > .an-cell:nth-child(n+4) {
+    display: flex; grid-column: 1 / -1; flex-wrap: nowrap; gap: 8px;
+    border-top: 1px dashed var(--an-line-soft); margin-top: 2px; padding-top: 3px;
+  }
+  .biz .pg-analytics .an-trow-body.is-open > .an-cell:nth-child(n+4)::before { flex: 0 0 auto; font-size: 10.5px; color: var(--an-ink-3); }
+  .biz .pg-analytics .an-trow-body.is-open > .an-cell:nth-child(n+4) .an-v { margin-left: auto; }
+
+  /* the 統計 row stops eating the viewport and becomes a labelled chip list */
+  .biz .pg-analytics .an-ttot { position: static; padding: 7px 0 9px; }
+  .biz .pg-analytics .an-lb { padding: 0 11px 3px; }
+  .biz .pg-analytics .an-trow-tot { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 0 11px; }
+  .biz .pg-analytics .an-trow-tot > td:first-child { display: none; }
+  .biz .pg-analytics .an-trow-tot > .an-cell { text-align: left; display: block; }
+  .biz .pg-analytics .an-trow-tot > .an-cell::before { content: attr(data-k); display: block; font-size: 9.5px; font-weight: 700; color: var(--an-ink-4); line-height: 1.35; }
+  .biz .pg-analytics .an-trow-tot > .an-always { display: block; }
+
+  /* the mix bars keep their labels; the legend chips stack full width */
+  .biz .pg-analytics .an-mix-hd { padding: 9px 11px 4px; }
+  .biz .pg-analytics .an-mixblock { padding: 6px 10px 2px; }
+  .biz .pg-analytics .an-stack { height: 26px; }
+  .biz .pg-analytics .an-chips { flex-direction: column; align-items: stretch; gap: 5px; }
+  .biz .pg-analytics .an-chip-l { justify-content: flex-start; border-radius: var(--an-r-sm); padding: 7px 11px; min-height: 44px; }
+  .biz .pg-analytics .an-tickets { flex-direction: column; padding: 10px 10px 12px; }
+  .biz .pg-analytics .an-stat-chip { width: 100%; }
+  .biz .pg-analytics .an-prov { grid-template-columns: minmax(0, 1fr); gap: 1px 0; }
+  .biz .pg-analytics .an-prov-k { margin-top: 8px; }
+}
+
+/* ⚖ ALL-SCREEN ADAPTIVITY — what genuinely belongs to the VIEWPORT. */
+/* ≥1400: big external displays. The 1416 cap turns the extra width into
+   symmetric page margins rather than a stretched card. */
+@media (min-width: 1400px) {
+  .biz .page.pg-analytics { padding-left: 32px; padding-right: 32px; }
+}
+@media (max-width: 1279px) {
+  .biz .page.pg-analytics { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-width: 743px) {
+  .biz .page.pg-analytics { padding: 10px 12px 32px; }
+  /* the shell's topbar wraps at this width, so the sticky table head has more
+     to clear — measured in the room's probe, not guessed. */
+  .biz .page.pg-analytics { --an-topbar: 88px; }
+  /* ⚖ the ≥44px touch floor on every pressable this room owns */
+  .biz .pg-analytics .an-arw { min-height: 44px; width: 44px; }
+  .biz .pg-analytics .an-help { width: 44px; height: 44px; flex-basis: 44px; font-size: 15px; }
+  .biz .pg-analytics .an-seg-btn { min-height: 44px; padding: 0 14px; }
+  .biz .pg-analytics .an-btn-out { min-height: 44px; }
+  .biz .pg-analytics .an-brk { min-height: 44px; }
+  .biz .pg-analytics .an-whybtn { min-height: 44px; padding: 0 12px; }
+  .biz .pg-analytics .an-readmore { min-height: 44px; }
+  .biz .pg-analytics .an-fn-bar { min-height: 44px; }
+  .biz .pg-analytics .an-seg-p { min-height: 44px; }
+  .biz .pg-analytics .an-stack { height: 44px; }
+  .biz .pg-analytics .an-metric-seg button { min-height: 44px; }
+  .biz .pg-analytics .an-spot-foot button { min-height: 44px; }
+}
+
+/* ── reduced motion: state still changes, it simply stops moving ──────────── */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-analytics * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+  .biz .pg-analytics [data-press], .biz .pg-analytics [data-press].is-pressed { transition: opacity 120ms linear; transform: none !important; }
+  .biz .pg-analytics .an-tile:hover, .biz .pg-analytics .an-chip-l:hover { transform: none; }
+  .biz .pg-analytics .an-calcpop, .biz .pg-analytics .an-tip { transition: opacity 120ms linear; transform: none; }
+  .biz .pg-analytics .an-tip.is-on { transform: none; }
+  .biz .pg-analytics .an-goalbar i { transition: none; }
+  .biz .pg-analytics .an-collapse-in { transition: opacity 120ms linear; transform: none; }
+  .biz .pg-analytics .an-cv, .biz .pg-analytics .an-spot-hole { transition: none; }
+  .biz .pg-analytics .an-bar { transition: none !important; transform: none !important; }
+  .biz .pg-analytics .an-trow-body.is-pulse { animation: none; }
 }
