@@ -61,9 +61,8 @@ import {
   spanText,
   type ReservationFilters,
 } from '@/business/lib/reservations'
-import ReservationsPage, {
-  reservationsScreen,
-} from '@/app/[locale]/(business)/business/reservations/page'
+import ReservationsPage from '@/app/[locale]/(business)/business/reservations/page'
+import { reservationsPropsFor } from '@/app/[locale]/(business)/business/reservations/reservations-props'
 import { listStoreOptions } from '@/business/lib/data'
 import {
   ReservationsScreen,
@@ -125,9 +124,7 @@ const load = async (store?: string) =>
  *  deleted: reconnect restores the lens for a viewAll-capable actor, and until
  *  then this is what proves the cross-store payload still holds. */
 const loadAll = async () =>
-  screenProps(
-    await reservationsScreen('ja', { viewAll: true }, false, undefined, await listStoreOptions()),
-  )!
+  reservationsPropsFor('ja', { viewAll: true }, false, undefined, await listStoreOptions())
 
 /** The decorated rows the screen itself works from. */
 const decorated = (p: ReservationsProps) => p.rows.map((r) => decorate(r, p.boardNow, p.closeMinute))

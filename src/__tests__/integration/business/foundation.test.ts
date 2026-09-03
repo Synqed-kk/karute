@@ -458,10 +458,18 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
+      // ⚖ THE ROOM-3 F1 LAW, NOW ON THIS ROOM TOO (V2). Everything between the
+      // admission gate and the render moved to `reservations-props.ts`, so the
+      // evidence harness renders the SAME assembly the route does. The page
+      // keeps four imports: the screen, its props, its sheet and the gate.
       'src/app/[locale]/(business)/business/reservations/page.tsx': [
         './ReservationsScreen',
+        './reservations-props',
         './reservations.css',
         '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/reservations/reservations-props.ts': [
+        './ReservationsScreen',
         '@/business/lib/clock',
         '@/business/lib/data',
         '@/business/lib/reservations',
