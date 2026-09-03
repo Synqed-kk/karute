@@ -19,8 +19,10 @@
  *    synqed staff id resolved at enqueue (actions/recording-jobs.ts →
  *    lib/jobs/process-recording.ts). Filtering by either one would make every
  *    record written by the OTHER path invisible, and a saved session would then
- *    render as 失敗. Only records whose session is in MY set are ever read, so
- *    the wider list leaks nothing.
+ *    render as 失敗. The list itself is fetched UNSCOPED (every staffer's
+ *    records in the window) for exactly that reason; only records whose
+ *    session is in MY set are ever ATTACHED to a row, so the wider list is
+ *    read into this function but never ships to the client.
  *  - `Recording.status` is never read — the app sets it once at create and
  *    never advances it, so it says nothing about the pipeline.
  *  - recordingJobs has no bulk list, so job state is an N+1 over the RESIDUE

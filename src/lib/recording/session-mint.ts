@@ -82,6 +82,22 @@ export type StartRecordingSessionResult =
  * with a FRESH take id, never the same one — a new take id is free, and it is
  * the client that owns the take store. Nothing server-side can recover the
  * first row, because core exposes no lookup by audio_storage_path.
+ *
+ * NEVER AN ORACLE, NEVER UNFINALIZABLE (fix round 12, fresh-eyes #8, P3). Two
+ * findings closed with one fix: refuse a take-carrying start outright when
+ * the CALLER's own identity (input.selfStaffId) does not resolve, before
+ * either the appointment-staff fallback or the exists probe below ever runs.
+ * Without it: (1) the fallback would mint a row stamped with the
+ * APPOINTMENT's staff_id, not the id assertRecorderOwnsRow checks against the
+ * caller who actually finalizes — a reservation nobody but an owner could
+ * ever complete; (2) the exists probe used to run before this door knew
+ * whether it even had an identity to attribute a row to, so a caller who
+ * could never end up with a row still learned whether a given take id's key
+ * already held bytes — an EXISTENCE ORACLE open to anyone who can reach this
+ * door. Both close the same way: input.selfStaffId is required up front for
+ * a take-carrying start, and the exists probe now runs only once staffId is
+ * resolved. The absent-take path is untouched — it has always allowed the
+ * fallback and mints nothing that needs finalizing.
  */
 export async function startRecordingSessionWithClient(
   synqed: Pick<SynqedClient, 'appointments' | 'recordings'>,
@@ -100,9 +116,11 @@ export async function startRecordingSessionWithClient(
     mimeType?: string | null
   },
 ): Promise<StartRecordingSessionResult> {
-  // THE RESERVATION, composed BEFORE anything is created: a key this server
-  // would refuse must never leave a row behind for the client to inherit.
-  let reservation: { audio_storage_path: string; status: 'UPLOADING' } | undefined
+  // THE FENCES, composed BEFORE anything is created: a key this server would
+  // refuse must never leave a row behind for the client to inherit, and a
+  // malformed take pair is refused on its own terms — no staff lookup, no
+  // storage probe.
+  let composed: ReturnType<typeof composeTakeKey> = null
   if (input.takeId != null || input.mimeType != null) {
     // THE FIELD-PAIR RULE, for BOTH doors. The facade's zod refine says the same
     // thing, but the web action is a 'use server' export that runs no schema at
@@ -118,8 +136,27 @@ export async function startRecordingSessionWithClient(
     // are validated inside it first): it is deliberately not caught, because
     // both doors already swallow a throw to their fail-open null, which leaves
     // no row and no reservation — the safe side.
-    const composed = composeTakeKey(input.businessId, input.takeId, input.mimeType)
+    composed = composeTakeKey(input.businessId, input.takeId, input.mimeType)
     if (composed === null) return { error: 'bad_input' }
+    // FIX ROUND 12 (fresh-eyes #8, P3) — see the header. Refused here, before
+    // either the appointment fallback or the exists probe below ever run.
+    if (!input.selfStaffId) return { error: 'bad_input' }
+  }
+
+  let staffId: string | null = input.selfStaffId
+  if (!staffId && input.appointmentId) {
+    const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
+    staffId = appt?.staff_id ?? null
+  }
+  if (!staffId) return null
+
+  // THE RESERVATION. staffId is guaranteed non-null here (a take-carrying
+  // start already required input.selfStaffId above), so the exists probe
+  // below — moved AFTER staff resolution, fix round 12 — now only ever runs
+  // for a call that is actually going to mint, never as an existence oracle
+  // for a caller who was never getting a row either way.
+  let reservation: { audio_storage_path: string; status: 'UPLOADING' } | undefined
+  if (composed) {
     // THE FENCE the mint has and this door didn't (fix round 11, fresh-eyes #7
     // P2): refuse BEFORE any row is created, exactly like the mint's own
     // planReservation. `exists` here can only mean the key is spoken for by
@@ -133,13 +170,6 @@ export async function startRecordingSessionWithClient(
     // preserve a status for, the row is one call old.
     reservation = { audio_storage_path: composed.key, status: 'UPLOADING' }
   }
-
-  let staffId: string | null = input.selfStaffId
-  if (!staffId && input.appointmentId) {
-    const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-    staffId = appt?.staff_id ?? null
-  }
-  if (!staffId) return null
 
   // No store_id: saveKaruteRecord's create() call doesn't send one either.
   // The spread is EMPTY on the absent-take path — the payload is the same three

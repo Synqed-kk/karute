@@ -37,7 +37,7 @@ const createSignedUploadUrl = jest.fn(async (p: string) => ({
 }))
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
-  error: null as { message: string } | null,
+  error: null as { message: string; status?: number } | null,
 }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
@@ -335,7 +335,7 @@ describe('POST recordings/finalize', () => {
   })
 
   it('a missing object rides out in the 2xx body — the drain retries it', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found' } })
+    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ error: 'object_missing' })

@@ -26,14 +26,16 @@ export function statusOf(err: unknown): number | undefined {
 }
 
 /** Storage's "no such object" — for the mint, the key is free; for finalize,
- *  the ordinary "the PUT has not landed yet" case. storage-js answers a missing
- *  key with 404; the message text is the fallback for the shapes that carry no
- *  status. A storage failure that is NOT this must never be read as "no object"
- *  — see both call sites, which treat the difference as the whole question. */
+ *  the ordinary "the PUT has not landed yet" case. storage-js answers a
+ *  missing key with 404, and 404 ALONE (fix round 12, fresh-eyes #8, P3): a
+ *  message regex used to stand in for the status, and "not found" also
+ *  matches storage's own "Bucket not found" — a bucket-config problem, not a
+ *  missing object — which would have been read as the ordinary retryable
+ *  case instead of the operational failure it actually is. A storage failure
+ *  that is NOT a 404 must never be read as "no object" — see both call
+ *  sites, which treat the difference as the whole question. */
 export function isStorageNotFound(error: unknown): boolean {
-  if (statusOf(error) === 404) return true
-  const message = (error as { message?: unknown } | null)?.message
-  return typeof message === 'string' && /not found/i.test(message)
+  return statusOf(error) === 404
 }
 
 /** Statuses the JOB PIPELINE owns. NEITHER door writes `status` on one of

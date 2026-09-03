@@ -201,13 +201,13 @@ export async function finalizeTakeWithClient(
     // handed is now unreferenced, and that must be TRACEABLE rather than a
     // silent {ok, already} nobody would ever look at again.
     let superseded = false
-    // The reservation is this call's own — but "already finalized" is not
-    // decided here (fix round 9, Greptile): a pre-PR2 COMPLETED row can carry a
+    // The reservation is this call's own — but "already finalized" is largely
+    // NOT decided here (fix round 9, Greptile): a pre-PR2 row can carry a
     // duration with its pointer set and STILL have no object behind it (a mint
     // whose PUT never landed), and answering `already: true` for that says
-    // "safe" about audio that is not in the bucket. The object check below
-    // is the actual proof; this only decides whether THIS row's reservation is
-    // exact, missing, or moved on.
+    // "safe" about audio that is not in the bucket. The object check below is
+    // the proof for every status but one (fix round 12, just below): this
+    // only decides whether THIS row's reservation is exact, missing, or moved on.
     const alreadyFinalized = pointer === key && finalizedBefore(row)
     if (pointer !== key) {
       if (pointer === null || !isJobOwnedStatus(row.status)) {
@@ -216,6 +216,20 @@ export async function finalizeTakeWithClient(
         return { error: 'not_reserved' }
       }
       superseded = true
+    }
+
+    // FIX ROUND 12 (fresh-eyes #8, P2 — the round 9 / round 11 reconciliation).
+    // COMPLETED is the one status the WORKER owns end to end, and until PR4 it
+    // DELETES the object right after transcription (process-recording.ts) — a
+    // missing object on a COMPLETED row is that deletion doing its job, never
+    // a lost PUT. Answering object_missing here would have the client retry
+    // forever on audio that already transcribed safely, so COMPLETED is the
+    // one terminal state allowed to settle as `already: true` before the
+    // object is even looked up. Every other status — including PROCESSING and
+    // FAILED, which the worker has not finished with — still proves the
+    // object first below (round 9's rule, unchanged).
+    if (alreadyFinalized && row.status === 'COMPLETED') {
+      return { ok: true, recordingSessionId: row.id, already: true }
     }
 
     const verdict = await objectVerdict(key, input.byteLength)

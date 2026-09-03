@@ -276,7 +276,7 @@ describe('finalizeTakeWithClient — the schema is the web door’s parse', () =
 
 describe('finalizeTakeWithClient — the object must be there, at the size claimed', () => {
   it('refuses when storage has no such object — zero core writes, zero audit rows', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found' } })
+    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
@@ -291,19 +291,22 @@ describe('finalizeTakeWithClient — the object must be there, at the size claim
 
   // Fix round 2, B5: storage answering "no" and storage not answering at all
   // are different facts. Only the first may settle the take.
-  it.each([
-    ['a 404 status', { message: 'nope', status: 404 }],
-    ['a not-found message', { message: 'Object not found' }],
-  ])('%s is a genuine miss — object_missing, the drain retries', async (_label, error) => {
-    info.mockResolvedValue({ data: null, error })
+  it('a 404 status is a genuine miss — object_missing, the drain retries', async () => {
+    info.mockResolvedValue({ data: null, error: { message: 'nope', status: 404 } })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
   })
 
+  // FIX ROUND 12 (fresh-eyes #8, P3): the message regex is GONE — status 404
+  // alone is a miss. A message-only "not found" no longer counts, and neither
+  // does storage's own "Bucket not found" (a bucket-config problem the old
+  // regex silently swallowed as an ordinary "the PUT hasn't landed" retry).
   it.each([
     ['a storage 500', { message: 'internal error', status: 500 }],
     ['an unrecognizable failure', { message: 'boom' }],
+    ['a not-found MESSAGE with no status', { message: 'Object not found' }],
+    ['a "Bucket not found" message — a config problem, never a miss', { message: 'Bucket not found' }],
   ])('%s is UNKNOWN, never a miss — failed, and nothing is written', async (_label, error) => {
     info.mockResolvedValue({ data: null, error })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
@@ -408,14 +411,31 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
     expectNoWrites()
   })
 
-  // FIX ROUND 9 (fresh-eyes #6, O1). A row that LOOKS finalized (pointer ===
-  // key, a duration set, status left the RECORDING state) is not "already
-  // safe" if the object it claims never landed — a pre-PR2 COMPLETED row, or a
-  // mint whose PUT never happened. `already: true` must never answer before
-  // the object is actually checked: a bucket with nothing in it is
-  // object_missing for an exact retry exactly like it is for anyone else.
-  it('a COMPLETED row that LOOKS finalized but has NO object — object_missing, zero writes', async () => {
+  // FIX ROUND 9 (fresh-eyes #6, O1) established that a row LOOKING finalized
+  // (pointer === key, a duration set, status left RECORDING) is not "already
+  // safe" until the object is actually proved — a pre-PR2 row, or a mint whose
+  // PUT never landed, can carry a duration with nothing in the bucket behind
+  // it.
+  //
+  // FIX ROUND 12 (fresh-eyes #8, P2) narrows that to every status EXCEPT
+  // COMPLETED: the worker owns COMPLETED end to end and, until PR4, deletes
+  // the object right after transcription (process-recording.ts) — a missing
+  // object there is the finished job's own doing, not a lost PUT, so
+  // answering object_missing would have the client retry forever on audio
+  // that already transcribed safely.
+  it('a COMPLETED row that LOOKS finalized with NO object — already, never object_missing', async () => {
     get.mockResolvedValue(row({ status: 'COMPLETED', duration_seconds: 55 }))
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ ok: true, recordingSessionId: SESSION, already: true })
+    expect(info).not.toHaveBeenCalled()
+    expectNoWrites()
+  })
+
+  // Round 9's rule still holds for every OTHER status — only the worker-owned
+  // terminal state may skip the object proof.
+  it('an UPLOADING row that LOOKS finalized but has NO object — still object_missing', async () => {
+    get.mockResolvedValue(row({ status: 'UPLOADING', duration_seconds: 55 }))
     info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })

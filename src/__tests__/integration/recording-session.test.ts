@@ -250,10 +250,29 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
-  it('refuses the exists fence BEFORE resolving staff — costs no appointment read either', async () => {
-    info.mockResolvedValueOnce({ data: { size: 2048 }, error: null })
-    await core({ takeId: TAKE, mimeType: 'audio/webm', selfStaffId: null, appointmentId: 'appt-1' })
+  // ── NEVER AN ORACLE, NEVER UNFINALIZABLE (fix round 12, fresh-eyes #8, P3) ─
+  // A take-carrying start with no resolvable caller identity (selfStaffId)
+  // used to fall straight through to the appointment-staff fallback — born
+  // holding a reservation nobody but an owner could ever finalize — and the
+  // exists probe ran BEFORE that fallback even had a chance to fail, so a
+  // caller who could never end up with a row still learned whether a given
+  // take id's key already held bytes. Both are refused outright now.
+  it('refuses a take pair with no resolvable caller identity — bad_input, no appointment fallback', async () => {
+    const res = await core({ takeId: TAKE, mimeType: 'audio/webm', selfStaffId: null, appointmentId: 'appt-1' })
+    expect(res).toEqual({ error: 'bad_input' })
     expect(apptGet).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  // Drop the selfStaffId check ahead of the exists probe and this goes red:
+  // `info` gets called and the caller learns 'exists' despite never being
+  // able to get a row either way — the existence oracle this round closes.
+  it('never probes storage for that same caller — no existence oracle, and no appointment fallback', async () => {
+    info.mockResolvedValueOnce({ data: { size: 2048 }, error: null })
+    const res = await core({ takeId: TAKE, mimeType: 'audio/webm', selfStaffId: null, appointmentId: null })
+    expect(res).toEqual({ error: 'bad_input' })
+    expect(info).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it('the web door stays fail-OPEN on an exists refusal too — null, never a throw', async () => {
