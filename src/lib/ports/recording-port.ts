@@ -15,6 +15,26 @@ import type {
   FinalizeTakeInput,
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
+import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+
+/**
+ * What a port answers a mint with. The SUCCESS arm is the shared core's own
+ * (src/lib/recording/mint-take-url.ts), so `recordingSessionId` — the row the
+ * mint just reserved this key on — can never drift between the two doors.
+ *
+ * The ERROR arm is deliberately WIDER than the core's closed union: the thin
+ * arm also answers `mint_<status>` for a non-2xx whose body named no code at
+ * all (a proxy page, an auth blip). Every code here reaches the take meta
+ * verbatim, and TERMINAL_SECURE_ERRORS (take-store) is the one place that says
+ * which of them can never turn into a yes.
+ *
+ * `token` is dropped on the way through, as it always was: it already rides
+ * inside `url`, and a port caller that reached for it would be assembling a
+ * signed request the doors are there to assemble.
+ */
+export type MintTakeUrlPortResult =
+  | Omit<Extract<MintTakeUrlResult, { path: string }>, 'token'>
+  | { error: string }
 
 export interface RecordingPipelinePort {
   /** AI route base — web '/api/ai', thin '/api/app/v1/ai'. */
@@ -69,16 +89,25 @@ export interface RecordingPipelinePort {
    *
    * `contentType` is the SERVER's, composed from the closed MIME map beside the
    * key's extension — the PUT sends it back verbatim, so the object's label and
-   * its name can never disagree. Throws on a refusal (a container this server
-   * will not store, storage down): the caller treats that as "not secured yet".
-   * An arm that KNOWS why (the thin arm has the HTTP status) puts a
-   * `secureError` code on the thrown error, so the take meta records the
-   * reason instead of a blanket 'network'.
+   * its name can never disagree.
+   *
+   * `recordingSessionId` is the row the mint must RESERVE this key on (PR2 fix
+   * round 4 — the mint binds, finalize verifies). Null when the start-mint
+   * never landed: the mint then creates the row itself, and either way the
+   * reply names the row the take is now bound to.
+   *
+   * NEVER THROWS ON A REFUSAL — the same contract finalizeTake below carries,
+   * and for the same reason: `exists` and `reserved_elsewhere` are answers the
+   * caller must branch on ("this take is spoken for, start a new one"), and a
+   * throw flattens them into one unusable failure. Both arms name their refusal
+   * in the result, so the take meta records a reason instead of a blanket
+   * 'network'.
    */
   mintTakeUrl(
     takeId: string,
     mimeType: string,
-  ): Promise<{ path: string; url: string; contentType: string }>
+    recordingSessionId: string | null,
+  ): Promise<MintTakeUrlPortResult>
   /**
    * "This take is complete" — the finalize door (web action / facade twin),
    * which writes audio_storage_path + duration onto the core row.
@@ -166,11 +195,12 @@ export const webRecordingPort: RecordingPipelinePort = {
     // NO cleanup — the worker deletes the object on success.
     return { path }
   },
-  async mintTakeUrl(takeId, mimeType) {
+  async mintTakeUrl(takeId, mimeType, recordingSessionId) {
     const { mintRecordingUploadUrl } = await uploadActions()
-    // The action throws its refusals; secureTake reads a throw as "not secured
-    // yet", which is the same verdict the facade twin's non-2xx gets.
-    return mintRecordingUploadUrl({ takeId, mimeType })
+    // The action already answers with the shared core's result UNION (PR2 fix
+    // round 4), which IS this port's shape — so the refusals reach secureTake
+    // named, with nothing in between to flatten them.
+    return mintRecordingUploadUrl({ takeId, mimeType, recordingSessionId })
   },
   async finalizeTake(input) {
     // Lazy, same reason as enqueueJob below — this module's import graph

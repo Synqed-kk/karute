@@ -8,8 +8,10 @@
  * already lost:
  *   · both go through apiFetch, so the Bearer and the store lens are assembled
  *     once in facade-fetch.ts and never spelled at a call site;
- *   · the mint body carries the take id AND the container (a `.webm` name on
- *     iOS mp4 bytes is the live mislabelling bug);
+ *   · the mint body carries the take id, the container (a `.webm` name on iOS
+ *     mp4 bytes is the live mislabelling bug) AND the row to reserve the key on;
+ *   · a refused mint comes back NAMED, never thrown — WHICH refusal decides
+ *     whether the phone ever re-uploads this take at all;
  *   · finalize FAILS SETTLED, never thrown — and a facade error body parses
  *     perfectly, so `!res.ok` has to be half the guard (the discard port's
  *     lesson, thin-recording-discard-port.test.ts).
@@ -36,6 +38,11 @@ function port(res: (path: string, init?: RequestInit) => Promise<Response>) {
 
 /** The REAL wire shape of a facade failure: an error body that parses. */
 const errorBody = (code: string) => JSON.stringify({ error: { code, message: code } })
+/** The upload-url route's own failures, verbatim (…/upload-url/route.ts): the
+ *  two client-fixable families carry the mint's CODE as the message, the rest
+ *  carry a sentence and are recognised by their classification. */
+const facadeError = (code: string, message: string) =>
+  JSON.stringify({ error: { code, message } })
 
 describe('thin recording port — mintTakeUrl', () => {
   it('POSTs the take id and container to the shared upload-url door', async () => {
@@ -47,17 +54,25 @@ describe('thin recording port — mintTakeUrl', () => {
           path: 'app_biz-1_11111111-2222-4333-8444-555555555555.mp4',
           url: 'https://proj.supabase.co/upload/x?token=up',
           contentType: 'audio/mp4',
+          recordingSessionId: FINALIZE.recordingSessionId,
         }),
         { status: 200 },
       )
     })
 
     await expect(
-      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/mp4;codecs=mp4a.40.2'),
+      viteRecordingPort.mintTakeUrl(
+        FINALIZE.takeId,
+        'audio/mp4;codecs=mp4a.40.2',
+        FINALIZE.recordingSessionId,
+      ),
     ).resolves.toEqual({
       path: 'app_biz-1_11111111-2222-4333-8444-555555555555.mp4',
       url: 'https://proj.supabase.co/upload/x?token=up',
       contentType: 'audio/mp4',
+      // The row the mint just RESERVED this key on — secure-take stamps it on
+      // the take before it sends a single byte.
+      recordingSessionId: FINALIZE.recordingSessionId,
     })
 
     expect(apiFetch).toHaveBeenCalledTimes(1)
@@ -70,20 +85,70 @@ describe('thin recording port — mintTakeUrl', () => {
     expect(JSON.parse(init?.body as string)).toEqual({
       takeId: FINALIZE.takeId,
       mimeType: 'audio/mp4;codecs=mp4a.40.2',
+      recordingSessionId: FINALIZE.recordingSessionId,
     })
   })
 
-  it('a refused mint throws, and the throw CARRIES the status — not a blanket network failure', async () => {
-    port(async () => new Response(errorBody('validation'), { status: 400 }))
-    // secure-take reads this code onto the take meta. Without it a 403 (wrong
-    // tenant, permanently) and a 502 (storage down, try later) both land as
-    // 'network' and the phone re-uploads the whole take forever.
-    await expect(
-      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/aiff'),
-    ).rejects.toMatchObject({
-      message: 'Upload URL failed (400)',
-      secureError: 'mint_400',
+  // A take whose start-mint never landed sends null, which is what asks the
+  // mint to CREATE the row. Dropping the key entirely would mean the same thing
+  // to the schema, but the phone must not rely on an absent field to say it.
+  it('a take with no session sends null — the shape that asks the mint to create the row', async () => {
+    let seen: RequestInit | undefined
+    port(async (_path: string, init?: RequestInit) => {
+      seen = init
+      return new Response(
+        JSON.stringify({ path: 'p', url: 'u', contentType: 'audio/webm', recordingSessionId: 'rs-new' }),
+        { status: 200 },
+      )
     })
+
+    await expect(
+      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/webm', null),
+    ).resolves.toMatchObject({ recordingSessionId: 'rs-new' })
+    expect(JSON.parse(seen?.body as string).recordingSessionId).toBeNull()
+  })
+
+  // WHICH refusal is the whole question: `exists` and `reserved_elsewhere` are
+  // TERMINAL (this take is spoken for — re-uploading it forever changes
+  // nothing), while a 502 is the moment passing. The STATUS alone cannot tell
+  // the first two apart — they are both 409 — so the body has to be read.
+  it.each([
+    // The route answers these with the mint's own code AS the message.
+    [409, 'exists', facadeError('conflict', 'exists')],
+    [409, 'reserved_elsewhere', facadeError('conflict', 'reserved_elsewhere')],
+    [400, 'bad_mime', facadeError('validation', 'bad_mime')],
+    [400, 'bad_take_id', facadeError('validation', 'bad_take_id')],
+    // …and these with a sentence, so the classification carries the code.
+    [403, 'forbidden', facadeError('forbidden', 'that recording session is not yours to record onto')],
+    [404, 'not_found', facadeError('not_found', 'no such recording session')],
+    [502, 'upstream', facadeError('upstream_unavailable', 'could not mint an upload URL')],
+  ])('HTTP %i → the mint code %s', async (status, code, body) => {
+    port(async () => new Response(body as string, { status }))
+    await expect(
+      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/mp4', FINALIZE.recordingSessionId),
+    ).resolves.toEqual({ error: code })
+  })
+
+  // Anything the body does NOT name falls back to the status — retryable, which
+  // is the safe default: a token blip must never mark a take permanently lost.
+  it.each([
+    [401, 'mint_401', errorBody('unauthenticated')],
+    [400, 'mint_400', errorBody('validation')],
+    [500, 'mint_500', '<html>gateway</html>'],
+  ])('HTTP %i with a body naming nothing we know → %s', async (status, code, body) => {
+    port(async () => new Response(body as string, { status }))
+    await expect(
+      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/aiff', null),
+    ).resolves.toEqual({ error: code })
+  })
+
+  // The finalize twin's lesson, on this door too: an unreadable 2xx is a
+  // refusal, never an assumed success — a URL nobody can PUT to is not a mint.
+  it('an unreadable 2xx body is a refusal, not an assumed success', async () => {
+    port(async () => new Response('<html>gateway</html>', { status: 200 }))
+    await expect(
+      viteRecordingPort.mintTakeUrl(FINALIZE.takeId, 'audio/webm', null),
+    ).resolves.toEqual({ error: 'mint_200' })
   })
 })
 

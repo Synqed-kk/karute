@@ -11,13 +11,30 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-type MintInput = { takeId?: string | null; mimeType?: string | null } | undefined
-const mintRecordingUploadUrl = jest.fn(async (_input?: MintInput) => ({
+type MintInput =
+  | { takeId?: string | null; mimeType?: string | null; recordingSessionId?: string | null }
+  | undefined
+type MintReply =
+  | {
+      path: string
+      url: string
+      token: string
+      contentType: string
+      recordingSessionId: string | null
+    }
+  | { error: string }
+const MINTED = {
   path: 'app_biz-1_uuid-1.webm',
   url: 'https://proj.supabase.co/storage/v1/object/upload/sign/recordings/app_biz-1_uuid-1.webm?token=up',
   token: 'up',
   contentType: 'audio/webm',
-}))
+  // The row the mint RESERVED this key on — echoing the caller's own back is
+  // what the door does when the client named one (mint-take-url.ts).
+  recordingSessionId: 'rs-1',
+}
+const mintRecordingUploadUrl = jest.fn(
+  async (_input?: MintInput): Promise<MintReply> => MINTED,
+)
 const mintRecordingReadUrl = jest.fn(async (p: string) => ({
   url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
 }))
@@ -46,12 +63,7 @@ const fetchMock = jest.fn(async () => ({ ok: true, status: 200 }) as unknown as 
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mintRecordingUploadUrl.mockImplementation(async () => ({
-    path: 'app_biz-1_uuid-1.webm',
-    url: 'https://proj.supabase.co/storage/v1/object/upload/sign/recordings/app_biz-1_uuid-1.webm?token=up',
-    token: 'up',
-    contentType: 'audio/webm',
-  }))
+  mintRecordingUploadUrl.mockImplementation(async () => MINTED)
   mintRecordingReadUrl.mockImplementation(async (p: string) => ({
     url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
   }))
@@ -94,6 +106,7 @@ describe('webRecordingPort.prepareTranscription', () => {
         url: 'https://up/',
         token: 'up',
         contentType: 'audio/webm',
+        recordingSessionId: 'rs-1',
       }
     })
     fetchMock.mockImplementation(async () => {
@@ -178,16 +191,32 @@ describe('the browser-direct uploader is gone', () => {
 // shared server bodies, and that the finalize twin's REFUSALS come back settled
 // rather than thrown.
 describe('webRecordingPort.mintTakeUrl', () => {
-  it('names the take and its container — the mint composes the key, not the client', async () => {
+  it('names the take, its container AND the row to reserve — the mint composes the key', async () => {
     await expect(
-      webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/mp4'),
+      webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/mp4', 'rs-1'),
     ).resolves.toEqual(
-      expect.objectContaining({ path: 'app_biz-1_uuid-1.webm', contentType: 'audio/webm' }),
+      expect.objectContaining({
+        path: 'app_biz-1_uuid-1.webm',
+        contentType: 'audio/webm',
+        recordingSessionId: 'rs-1',
+      }),
     )
     expect(mintRecordingUploadUrl).toHaveBeenCalledWith({
       takeId: 'take-uuid-1',
       mimeType: 'audio/mp4',
+      recordingSessionId: 'rs-1',
     })
+  })
+
+  // The action answers with the shared core's result UNION now (PR2 fix round
+  // 4), and this port passes it through UNCHANGED. Flattening a refusal into a
+  // throw here would cost the client the one thing it needs: `exists` means
+  // this take is permanently spoken for, `upstream` means try again later.
+  it('a refusal comes back NAMED, never thrown — the same shape the finalize leg gives', async () => {
+    mintRecordingUploadUrl.mockImplementation(async () => ({ error: 'reserved_elsewhere' }))
+    await expect(
+      webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm', 'rs-1'),
+    ).resolves.toEqual({ error: 'reserved_elsewhere' })
   })
 
   it("hands back the SERVER's contentType — an iOS take is audio/mp4, never the .webm default", async () => {
@@ -203,17 +232,18 @@ describe('webRecordingPort.mintTakeUrl', () => {
         url: `https://proj.supabase.co/upload/app_biz-1_uuid-1.${ext}?token=up`,
         token: 'up',
         contentType,
+        recordingSessionId: input?.recordingSessionId ?? 'rs-minted',
       }
     })
 
-    const mp4 = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/mp4;codecs=mp4a')
-    expect(mp4.contentType).toBe('audio/mp4')
-    expect(mp4.path).toBe('app_biz-1_uuid-1.mp4')
+    const mp4 = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/mp4;codecs=mp4a', 'rs-1')
+    expect(mp4).toMatchObject({ contentType: 'audio/mp4', path: 'app_biz-1_uuid-1.mp4' })
     // Same door, same take, a webm recorder — a different answer. That is what
     // makes the line above evidence rather than an echo.
-    const webm = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm;codecs=opus')
-    expect(webm.contentType).toBe('audio/webm')
-    expect(webm.path).toBe('app_biz-1_uuid-1.webm')
+    const webm = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm;codecs=opus', null)
+    expect(webm).toMatchObject({ contentType: 'audio/webm', path: 'app_biz-1_uuid-1.webm' })
+    // A take with no row of its own gets the one the mint CREATED.
+    expect(webm).toMatchObject({ recordingSessionId: 'rs-minted' })
   })
 })
 
@@ -243,6 +273,7 @@ describe('webRecordingPort.finalizeTake', () => {
         mimeType: 'audio/webm',
         durationSeconds: 42,
         byteLength: 1234,
+        recordingSessionId: 'rs-1',
       }),
     ).resolves.toEqual({ error: 'object_missing' })
   })

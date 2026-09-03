@@ -11,6 +11,14 @@
 // marked. Nothing here deletes, and the staged upload + job path are untouched
 // (two copies briefly, by design).
 //
+// WHAT CHANGED AGAIN (fix round 4). The MINT binds now: it reserves this
+// take's key on the recorder's own row before it signs anything, and answers
+// with the row it bound. So the session id is settled BEFORE the PUT — stamped
+// here the moment the mint replies, because a kill between the PUT and the
+// finalize must not leave uploaded audio with no way back to its row. And the
+// mint's refusals are ANSWERS now, not throws: `exists` / `reserved_elsewhere`
+// mean this take is spoken for and no retry helps.
+//
 // IT IS A HINT, NEVER A GUARANTEE (⚖ v2 item 2). Phase `recorded` renders
 // before this is called and never waits on it; an offline stop simply records
 // its failure on the take meta and the record page's mount retry — PR5's launch
@@ -30,17 +38,6 @@ import {
 /** Takes stamped before the recorder persisted its negotiated container. The
  *  same default the mint applies server-side with no client input. */
 const DEFAULT_MIME = 'audio/webm'
-
-/** A refusal a port could NAME, riding on the throw. Duck-typed like
- *  finalize-take's own statusOf — structural, so it survives the two module
- *  instances (thin bundle / next) this code runs in. */
-function namedCode(err: unknown): string | undefined {
-  const code =
-    err && typeof err === 'object' && 'secureError' in err
-      ? (err as { secureError?: unknown }).secureError
-      : undefined
-  return typeof code === 'string' ? code : undefined
-}
 
 /** One attempt per take at a time. The stop path and the mount retry can both
  *  name the same take (a stop that failed offline, recovered on the next
@@ -79,7 +76,35 @@ export async function secureTake(
     if (!blob || blob.size === 0) return
 
     const mimeType = meta.mimeType || DEFAULT_MIME
-    const minted = await port.mintTakeUrl(takeId, mimeType)
+    // The row the mint must RESERVE this key on. Null when the start-mint never
+    // landed — the mint then creates the row itself and answers with its id.
+    const minted = await port.mintTakeUrl(takeId, mimeType, meta.recordingSessionId)
+    // A refusal is a settled ANSWER now, the same as finalize's. Recorded
+    // verbatim: TERMINAL_SECURE_ERRORS is the one place that judges which of
+    // them can ever turn into a yes.
+    if ('error' in minted) {
+      await markTakeSecureError(takeId, minted.error)
+      return
+    }
+
+    // THE SESSION IS SETTLED BEFORE THE BYTES. The server has already written
+    // this key onto the row, so the device's copy of that fact must survive a
+    // kill between the PUT and the finalize — a retry that arrives with no
+    // session id could not name the row its own audio is already bound to.
+    //
+    // Only when the take carries none: a take that already has a session is the
+    // row its discard and its karute write against, and re-pointing it from a
+    // reply would orphan them.
+    const recordingSessionId = meta.recordingSessionId ?? minted.recordingSessionId
+    if (!recordingSessionId) {
+      // A CLIENT-NAMED mint always answers with a row (mint-take-url.ts), so a
+      // null here is a door that named the take itself — nothing this leg can
+      // finalize against, and no retry changes which door answered.
+      await markTakeSecureError(takeId, 'no_session')
+      return
+    }
+    if (!meta.recordingSessionId) await stampTakeSession(takeId, recordingSessionId)
+
     const put = await fetch(minted.url, {
       method: 'PUT',
       // The SERVER's content type for the key it composed, never our own guess:
@@ -117,34 +142,21 @@ export async function secureTake(
           ? Math.max(0, meta.durationMs / 1000)
           : Math.max(0, (meta.updatedAt - meta.startedAt) / 1000)),
       byteLength: blob.size,
-      recordingSessionId: meta.recordingSessionId,
+      // REQUIRED by the door now — proved non-null above, stamped on the take.
+      recordingSessionId,
     })
     // `already: true` rides the ok arm on purpose — an exact retry and a take a
     // job already finished are both settled successes, not failures to re-run.
-    if ('ok' in result) {
-      // The session this take's audio now points at. When the start-mint failed
-      // the take carries none, so the door MINTED the row itself and this is an
-      // id the device has never seen — and the recorder's own mint retry would
-      // otherwise mint a SECOND row later, leaving the audio pointer on one and
-      // the karute on the other. Stamped before the finalize mark so the two
-      // facts can never be read apart; same field the mint stamps, no second
-      // source of truth.
-      //
-      // ONLY when the take has none. A take that already carries a session is
-      // the row its discard/karute writes key on — re-pointing it here from a
-      // reply would orphan them.
-      if (!meta.recordingSessionId && result.recordingSessionId) {
-        await stampTakeSession(takeId, result.recordingSessionId)
-      }
-      await markTakeFinalized(takeId)
-    } else await markTakeSecureError(takeId, result.error)
+    // Nothing is stamped here: the session was settled at the mint, above.
+    if ('ok' in result) await markTakeFinalized(takeId)
+    else await markTakeSecureError(takeId, result.error)
   } catch (err) {
-    // A thrown mint or a dead socket. The take keeps its audio and stays
-    // un-finalized, which is exactly what the retry looks for. A port that
-    // NAMED its refusal (the thin mint's HTTP status) keeps that name — 'network'
-    // is for the throws nobody could classify.
+    // A dead socket, or a door that threw instead of answering. The take keeps
+    // its audio and stays un-finalized, which is exactly what the retry looks
+    // for. Both doors NAME their refusals in their result now, so what reaches
+    // here is only what nobody could classify.
     console.warn('[secure-take] failed:', err)
-    await markTakeSecureError(takeId, namedCode(err) ?? 'network')
+    await markTakeSecureError(takeId, 'network')
   } finally {
     inFlight.delete(takeId)
   }

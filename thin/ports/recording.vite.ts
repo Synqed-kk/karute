@@ -5,7 +5,10 @@
 // (the server verifies the tenant prefix + deletes the object after — so there is
 // no client-side cleanup).
 
-import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
+import type {
+  MintTakeUrlPortResult,
+  RecordingPipelinePort,
+} from '@/lib/ports/recording-port'
 import { getDataPort } from '@/lib/ports/data-port'
 import type {
   EnqueueRecordingJobInput,
@@ -15,6 +18,44 @@ import type {
   FinalizeTakeInput,
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
+
+/** The mint's OWN refusal codes — the closed set the shared core answers with
+ *  (src/lib/recording/mint-take-url.ts). An ALLOWLIST, because the value read
+ *  below is a facade MESSAGE: only these may become a `secureError`, so a
+ *  sentence from some other guard can never be mistaken for a code the take
+ *  store judges as terminal. */
+const MINT_ERROR_CODES = new Set([
+  'bad_mime',
+  'bad_take_id',
+  'exists',
+  'reserved_elsewhere',
+  'forbidden',
+  'not_found',
+  'upstream',
+])
+
+/** Facade classification → the mint code it carries, for the refusals the route
+ *  spells out for a human instead of echoing the code (…/upload-url/route.ts). */
+const FACADE_CODE_TO_MINT: Record<string, string> = {
+  forbidden: 'forbidden',
+  tenant_forbidden: 'forbidden',
+  not_found: 'not_found',
+  upstream_unavailable: 'upstream',
+}
+
+/** WHICH refusal, from the facade's error body — `{ error: { code, message } }`.
+ *  The status alone cannot tell `exists` from `reserved_elsewhere` (both 409),
+ *  and those two are TERMINAL while a 502 is not: a phone that only saw the
+ *  number would re-upload a whole take that is permanently spoken for.
+ *  `mint_<status>` remains the fallback for a body that names nothing we know
+ *  (a proxy page, an auth blip) — retryable, which is the safe default. */
+function mintErrorCode(body: unknown, status: number): string {
+  const err = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error
+  const message = typeof err?.message === 'string' ? err.message : ''
+  if (MINT_ERROR_CODES.has(message)) return message
+  const code = typeof err?.code === 'string' ? err.code : ''
+  return FACADE_CODE_TO_MINT[code] ?? `mint_${status}`
+}
 
 export const viteRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/app/v1/ai',
@@ -68,22 +109,20 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // apiFetch discipline as stageForJob above (Bearer + the store lens are
   // assembled in facade-fetch.ts, never spelled here), plus a JSON body: the
   // device NAMES the take and the container it recorded.
-  async mintTakeUrl(takeId: string, mimeType: string) {
+  async mintTakeUrl(takeId: string, mimeType: string, recordingSessionId: string | null) {
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ takeId, mimeType }),
+      // recordingSessionId is the row the mint RESERVES this key on — sent even
+      // when null, which is the shape that asks the mint to create the row.
+      body: JSON.stringify({ takeId, mimeType, recordingSessionId }),
     })
-    // The status is the whole diagnosis — a 403 (wrong tenant) and a 502
-    // (storage down) are the same word to a caller that only sees a throw, and
-    // the take meta would record both as 'network'. Named here so secure-take
-    // writes `mint_<status>` instead.
-    if (!res.ok) {
-      throw Object.assign(new Error(`Upload URL failed (${res.status})`), {
-        secureError: `mint_${res.status}`,
-      })
-    }
-    return (await res.json()) as { path: string; url: string; contentType: string }
+    const body = (await res.json().catch(() => null)) as MintTakeUrlPortResult | null
+    // A refusal comes back NAMED, never thrown (the port contract) — and an
+    // unreadable 2xx body is a refusal too, not an assumed success: the same
+    // guard finalizeTake below carries, for the same reason.
+    if (!res.ok || !body) return { error: mintErrorCode(body, res.status) }
+    return body
   },
   async finalizeTake(input: FinalizeTakeInput) {
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/finalize', {

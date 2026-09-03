@@ -70,6 +70,27 @@ export const TERMINAL_SECURE_ERRORS = new Set([
   // The device could not mint a uuid, so composeTakeKey will refuse this take
   // id for as long as it exists (global-recorder stamps it at create).
   'no_uuid',
+  // ── The BINDING refusals (capture pipeline PR2 fix round 4) ──────────────
+  // The mint reserves a take's key on the recorder's own row before a byte can
+  // exist, and finalize accepts nothing else. Every refusal below is a
+  // statement about THAT binding, and a binding does not change because time
+  // passed — re-uploading the whole take can only produce the same answer.
+  //
+  // The object is already on storage and no row of this caller's reserved it;
+  // or the row is bound to a DIFFERENT take. Both mean this take is spoken for.
+  'exists',
+  'reserved_elsewhere',
+  // Finalize's twins: the row never reserved this key, or a job has moved the
+  // row on to other audio and this object is now unreferenced.
+  'not_reserved',
+  'superseded',
+  // A take id or container this server will not store — the recorder must
+  // renegotiate, and a retry sends the identical rejected value.
+  'bad_take_id',
+  'bad_mime',
+  // The mint answered with no row at all (a door that named the take itself),
+  // so there is nothing this take could ever be finalized against.
+  'no_session',
 ])
 
 export type TakeMeta = {
