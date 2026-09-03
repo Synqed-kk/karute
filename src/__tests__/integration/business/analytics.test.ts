@@ -1088,9 +1088,14 @@ describe('analytics.css', () => {
     // MOCK-ONLY (⚖-ADJ E): a nested scroller here would strand the sticky
     // 統計 row and hide rows inside a box.
     const body = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(body).not.toMatch(/overflow-y\s*:/)
     expect(body).not.toMatch(/max-height\s*:/)
     expect(body).not.toMatch(/overscroll-behavior/)
+    // ⚠ THE ONE `overflow-y` IN THE SHEET EXISTS TO REMOVE A SCROLLER, not to
+    // add one: `overflow-x: auto` alone computes `overflow-y: auto`, which made
+    // the chart strip a nested vertical scroller (found by the probe, not
+    // theorised). It is `hidden`, and it is the only one.
+    const overflowY = [...body.matchAll(/overflow-y\s*:\s*([a-z]+)/g)].map((m) => m[1])
+    expect(overflowY).toEqual(['hidden'])
     // the horizontal panners are named, and they are the only ones
     const panners = [...body.matchAll(/([^{}]+)\{[^}]*overflow-x\s*:\s*auto/g)].map((m) => m[1].trim())
     expect(panners.length).toBeGreaterThan(0)
