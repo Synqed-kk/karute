@@ -631,6 +631,59 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // 録音. The room's own RECORDING plane plus the derivations that BORROW
+      // every other fact it shows: the booking's date/store/customer/staff/menu,
+      // the roster's names through the card↔profile bridge, and — through that
+      // SAME booking — whether the カルテ room's plane holds a record for the
+      // session. The plane imports the world's store constant and nothing else;
+      // the screen imports its own types and the shared tour engine, and reaches
+      // into `src/lib/recording/*`, `src/lib/recordings/*` and `src/lib/karute/*`
+      // NOWHERE — the phone's contracts are mirrored by shape in `recording.ts`,
+      // each with a file:line cite, because Business territory may not import
+      // phone runtime.
+      // ⚠ THE ONE-IMPORT PLANE IS THE FENCE, MADE MACHINE-READABLE. A recording
+      // plane that imported the world could restate a fact the world already
+      // states — a customer's name, a store, a date — and that is the W7 breach
+      // class this room is pinned against. It imports the STORE ID only (an
+      // unbound walk-in take has no booking to read one through), so it can
+      // otherwise only ADD: an appointment id, and what the session itself
+      // produced.
+      'src/business/lib/fixtures-recording.ts': ['./fixtures'],
+      'src/business/lib/recording.ts': ['./clock', './fixtures', './fixtures-karute', './fixtures-recording'],
+      'src/app/[locale]/(business)/business/recording/page.tsx': [
+        './RecordingScreen',
+        './recording-props',
+        './recording.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/recording/recording-props.ts': [
+        './RecordingScreen',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-karute',
+        '@/business/lib/fixtures-recording',
+        // ⚠ THE カルテ ROOM'S OWN CATEGORY VOCABULARY, BORROWED RATHER THAN
+        // FORKED (v5, the 前回の施術メモ block). The briefing prints last
+        // session's entries under the labels that room already ships; a copy of
+        // those strings in the recording room would be a second home for one
+        // vocabulary, and the two would drift the first time one is edited.
+        '@/business/lib/karute',
+        '@/business/lib/recording',
+        '@/business/lib/today-board',
+      ],
+      'src/app/[locale]/(business)/business/recording/RecordingScreen.tsx': [
+        '@/business/lib/guide',
+        '@/business/lib/recording',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY (v5). It is the accepted
+        // mock's own `makeSpring`, ported rather than re-invented, and it is
+        // PURE — no React, no DOM — so a second easing written by hand beside it
+        // would be a second motion language on one page.
+        '@/business/lib/spring',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/recording/loading.tsx': ['@/business/i18n'],
     }
     for (const [file, expected] of Object.entries(INVENTORY)) {
       const src = readFileSync(join(process.cwd(), file), 'utf8')

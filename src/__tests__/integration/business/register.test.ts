@@ -2345,13 +2345,14 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
   }
 
   it('the neighbours are all here — the list is read from disk, never restated', () => {
-    // `karute` joined the family in room 5 (2026-08-30). The list is READ from
-    // disk and this line is the pin on what was read — a new neighbour is meant
-    // to fail here once, so the room that added it re-derives the collision list
-    // below in the same pass rather than discovering the bleed in a browser.
-    // `settings` joined in the 予約と確保 round (⚖ Liam 9/1); its sheet states
-    // every rule under `.pg-settings`, so the collision list below is unchanged.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'reservations', 'settings', 'shifts', 'today'])
+    // `karute` joined the family in room 5 (2026-08-30), `recording` in room 6
+    // (2026-08-31) and `settings` in the 予約と確保 round (⚖ Liam 9/1). The list
+    // is READ from disk and this line is the pin on what was read — a new
+    // neighbour is meant to fail here once, so the room that added it re-derives
+    // the collision list below in the same pass rather than discovering the bleed
+    // in a browser. `settings` states every rule under `.pg-settings`, so it adds
+    // nothing to the collision list.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'recording', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

@@ -1281,7 +1281,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute) { min-width: 0; }')
+    // ⚠ ONE ROOM PER LINE, ADDED THE ROUND ITS PROOF LANDS — the list grows, and
+    // this pin is about THIS room's membership in it. 録音 joined 2026-08-31.
+    expect(shell).toMatch(/\.biz \.app:has\((?=[^)]*\.page\.pg-karute)[^)]*\) \{ min-width: 0; \}/)
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1329,12 +1331,15 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
   }
 
-  it('the neighbours are all here — EIGHT sheets, read from disk, never restated', () => {
-    // `settings` joined the family in the 予約と確保 round (⚖ Liam 9/1). The list
-    // is READ from disk and this line is the pin on what was read; the new room
-    // states every rule under `.pg-settings`, so the collision list below is
-    // unchanged and this room's fence needs nothing new.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'register', 'reservations', 'settings', 'shifts', 'today'])
+  it('the neighbours are all here — NINE sheets, read from disk, never restated', () => {
+    // `recording` joined the family in room 6 (2026-08-31) and `settings` in the
+    // 予約と確保 round (⚖ Liam 9/1). The list is READ from disk and this line is
+    // the pin on what was read — a new neighbour is MEANT to fail here once, so
+    // the room that added it re-derives the collision list below in the same pass
+    // rather than discovering the bleed in a browser (the 売上・レジ room states
+    // the rule in its own words). `settings` states every rule under
+    // `.pg-settings`, so it adds nothing to the collision list.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

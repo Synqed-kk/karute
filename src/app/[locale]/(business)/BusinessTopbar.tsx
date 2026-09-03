@@ -69,6 +69,7 @@ const CRUMB: Record<string, string> = {
   analytics: '売上分析',
   shifts: 'スタッフ・シフト',
   karute: 'カルテ',
+  recording: '録音',
   settings: '予約と確保',
 }
 
