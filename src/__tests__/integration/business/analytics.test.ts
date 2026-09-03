@@ -57,6 +57,7 @@ import {
 import {
   avgNewTicket,
   decideLine,
+  deltaTone,
   landingEstimate,
   landingGap,
   monthDelta,
@@ -513,6 +514,41 @@ describe('a month in progress is never shown as a finished one', () => {
       expect(p.attention!.comparison).toContain('6月')
       const june = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 2)!
       expect(p.attention!.comparison).toContain(june.total.toLocaleString('ja-JP'))
+    })
+
+    /**
+     * ⚖ THE SAME PREDICATE DECIDES THE CHIP, THE FOOTER AND THE DECIDE LINE
+     * (L1 B1-2 · B1-7 · L2 B2-1). The chip used to carry the literal
+     * 「同経過日数比」 on every month, so a finished month printed it directly
+     * above its own footer saying 「前月（7月全体）と比較」 — one number under
+     * two contradictory descriptions, and the one the manager reads was the
+     * false one. Three month states, because a fix keyed on `partial` alone
+     * would pass two of them.
+     */
+    it('the chip, the footer and the decide line name ONE comparison, in all three month states', async () => {
+      const spanWord = numberEntry('spanCompare').label
+      const wholeWord = numberEntry('monthDelta').label
+
+      // (1) a month IN PROGRESS — equal elapsed days
+      const now = await room({ store: STORE_A })
+      expect(now.tiles![0].chip!.text.startsWith(spanWord)).toBe(true)
+      expect(now.tiles![0].foot).toContain('1日〜')
+      expect(now.trend!.decide).toContain('同じ経過日数で')
+
+      // (2) a FINISHED month against a WHOLE previous month — 前月比, and no
+      //     elapsed-day claim anywhere on the decision header
+      const whole = await room({ store: STORE_A, month: '-1' })
+      expect(whole.tiles![0].chip!.text.startsWith(wholeWord)).toBe(true)
+      expect(whole.tiles![0].chip!.text).not.toContain(spanWord)
+      expect(whole.tiles![0].foot).toContain('全体')
+      expect(whole.trend!.decide).not.toContain('同じ経過日数')
+      expect(whole.trend!.decide).toContain('前月と比べて')
+
+      // (3) a finished month whose comparand was TRUNCATED — still equal-span
+      const cut = await room({ store: STORE_A, month: '-2' })
+      expect(cut.tiles![0].chip!.text.startsWith(spanWord)).toBe(true)
+      expect(cut.tiles![0].foot).toContain('1日〜')
+      expect(cut.trend!.decide).toContain('同じ経過日数で')
     })
 
     it('a finished month whose comparand was TRUNCATED keeps the equal-span sentence', async () => {
@@ -1214,6 +1250,31 @@ describe('analytics.css', () => {
     )
   })
 
+  it('every chip tone the tiles can carry has its own look — and the flat one is grey, not green', () => {
+    // ⚖ L2 B2-7: `.an-cmp`'s DEFAULT is the red 「down」 look, so a tone with no
+    // rule of its own silently inherits it — which is how `flat` was painted
+    // green (the old mapping sent 0 to `up`). The tone union is read off the
+    // screen's own type, so a tone added there without a look here goes red.
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    const tones = screen
+      .match(/chip: \{ text: string; tone: ([^}]*) \} \| null/)![1]
+      .split('|')
+      .map((t) => t.trim().replace(/'/g, ''))
+    expect(tones).toEqual(['up', 'down', 'gap', 'neutral'])
+    const bg = (sel: string) =>
+      (CSS.match(new RegExp(`${sel}\\s*\\{([^}]*)\\}`))?.[1].match(/background:\s*([^;]+);/)?.[1] ?? '').trim()
+    const looks = new Map<string, string>([['down', bg('\\.an-cmp')]])
+    for (const tone of tones.filter((t) => t !== 'down')) looks.set(tone, bg(`\\.an-cmp\\.is-${tone}`))
+    for (const [tone, look] of looks) expect(look === '' ? tone : look).not.toBe(tone)
+    expect(new Set(looks.values()).size).toBe(tones.length)
+    // grey, and it is the neutral family — never the green one
+    expect(looks.get('neutral')).toBe('var(--an-wash)')
+    expect(looks.get('neutral')).not.toBe(looks.get('up'))
+  })
+
   it('the shell lifts its 1180 floor for this room — the ONE named shared-seam line', () => {
     // ⚖ ALL-SCREEN cannot hold behind the shell's min-width floor, and no route
     // sheet may reach up and lift its own (the shell's rule says so). The
@@ -1299,6 +1360,23 @@ describe('the Number Dictionary', () => {
     expect(monthDelta(null, 100, 'count')).toEqual({ kind: 'na', text: '—' })
   })
 
+  /**
+   * ⚖ ONE PERCENTAGE-CHANGE IMPLEMENTATION (L2 B2-7 · B2-8). The room used to
+   * carry a second, private helper beside `monthDelta` that spelled the same
+   * idea differently (`+/−/±` against `▲/▼`), disagreed about a zero baseline,
+   * and painted an exactly LEVEL month green. The tone belongs beside the
+   * arithmetic, so both live here and the chip reads them.
+   */
+  it('a delta wears the tone its own kind earns — and a flat month is NEUTRAL, never green', () => {
+    expect(deltaTone('up')).toBe('up')
+    expect(deltaTone('down')).toBe('down')
+    expect(deltaTone('flat')).toBe('neutral')
+    expect(deltaTone('na')).toBe('neutral')
+    // the kind a level month reaches, and the text it prints
+    expect(monthDelta(100, 100, 'yen')).toEqual({ kind: 'flat', text: '±0' })
+    expect(deltaTone(monthDelta(100, 100, 'yen').kind)).toBe('neutral')
+  })
+
   it('the decide line has an honest sentence for every clause that can be missing', () => {
     const base = {
       monthCount: 12,
@@ -1307,13 +1385,14 @@ describe('the Number Dictionary', () => {
       lastRank: 1,
       currentShort: '9月',
       currentTotal: 113499,
-      spanDeltaText: '−26.8%',
+      spanDeltaText: '▼26.8%',
       spanDeltaSign: -1,
+      wholeMonths: false,
     }
-    expect(decideLine(base)).toBe('直近の完了月8月は ¥1,650,000 で12か月の最高。9月は同じ経過日数で −26.8% と出遅れています。')
+    expect(decideLine(base)).toBe('直近の完了月8月は ¥1,650,000 で12か月の最高。9月は同じ経過日数で ▼26.8% と出遅れています。')
     expect(decideLine({ ...base, lastRank: 3 })).toContain('12か月の3番目')
-    expect(decideLine({ ...base, spanDeltaSign: 1, spanDeltaText: '+4.2%' })).toContain('上回っています')
-    expect(decideLine({ ...base, spanDeltaSign: 0, spanDeltaText: '±0.0%' })).toContain('同じ水準です')
+    expect(decideLine({ ...base, spanDeltaSign: 1, spanDeltaText: '▲4.2%' })).toContain('上回っています')
+    expect(decideLine({ ...base, spanDeltaSign: 0, spanDeltaText: '±0' })).toContain('同じ水準です')
     expect(decideLine({ ...base, currentTotal: 0 })).toContain('9月はまだ実績がありません')
     expect(decideLine({ ...base, spanDeltaText: null, spanDeltaSign: null })).toContain('比較していません')
     expect(decideLine({ ...base, lastShort: null, lastTotalText: null, lastRank: null })).toContain('完了した月がまだない')
@@ -1321,6 +1400,36 @@ describe('the Number Dictionary', () => {
       expect(line).not.toContain('NaN')
       expect(line).not.toContain('undefined')
     }
+  })
+
+  /**
+   * ⚖ ONE PREDICATE, THREE SENTENCES (L1 B1-2 · B1-7 · L2 B2-1). The elapsed-day
+   * wording is a CLAIM about which comparison was made, and it was being said
+   * unconditionally — on the chip as a literal, and in the decide line for a
+   * whole month against a whole month. `wholeMonths` is the one input that
+   * decides it, and the same value decides the chip's label and the footer.
+   */
+  it('the decide line says 「同じ経過日数で」 only where that is the comparison it made', () => {
+    const base = {
+      monthCount: 12,
+      lastShort: '8月',
+      lastTotalText: '¥1,650,000',
+      lastRank: 2,
+      currentShort: '8月',
+      currentTotal: 1_650_000,
+      spanDeltaText: '▲3.1%',
+      spanDeltaSign: 1,
+      wholeMonths: true,
+    }
+    // whole against whole: the elapsed-day claim is dropped…
+    expect(decideLine(base)).toBe('直近の完了月8月は ¥1,650,000 で12か月の2番目。前月と比べて ▲3.1% と上回っています。')
+    expect(decideLine(base)).not.toContain('同じ経過日数')
+    // …and the month is not set beside ITSELF (the head already named it)
+    expect(decideLine(base).match(/8月/g)).toHaveLength(1)
+    // a truncated comparand is still an equal-span comparison, and says so
+    expect(decideLine({ ...base, wholeMonths: false })).toContain('同じ経過日数で')
+    // a different month being viewed keeps its own subject
+    expect(decideLine({ ...base, currentShort: '6月' })).toContain('6月は前月と比べて')
   })
 })
 
@@ -1398,7 +1507,11 @@ describe('the decision tiles', () => {
     expect(land.label).toContain('確定')
     expect(land.scope).toBe('確定・月全体')
     expect(land.calc).toBeNull()
-    expect(land.chip!.text).toContain('目標との差')
+    // ⚖-ADJ A AMENDED (fix round 1): one quantity, one name. The chip reads the
+    // 着地GAP entry's own word on a finished month too — the tile label
+    // 着地（確定） has already said the month is over.
+    expect(land.chip!.text).toContain(numberEntry('landingGap').label)
+    expect(land.chip!.text).not.toContain('目標との差')
     // the value is the month's own total, not a projection of it
     expect(yenNumber(land.value)).toBe(yenNumber(p.target!.actual))
     // …and no VISIBLE string on the row calls a finished month an estimate.
@@ -1407,6 +1520,35 @@ describe('the decision tiles', () => {
     const printed = p.tiles!.flatMap((t) => [t.prefix, t.label, t.suffix, t.scope, t.value, t.foot ?? '', t.chip?.text ?? ''])
     expect(printed.filter((x) => x.includes('推計'))).toEqual([])
     expect(land.guide!.text).toContain('推計ではなく実際の')
+  })
+
+  /**
+   * ⚖ ONE IMPLEMENTATION, PROVED ON THE PAGE. The chip's percentage is the
+   * difference of the two figures the tile itself prints — its value and the
+   * comparand quoted in its own footer — recomputed here through `monthDelta`.
+   * A second helper anywhere in the chain shows up as a different string.
+   */
+  it("tile 1's chip is the difference of the two numbers tile 1 prints", async () => {
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const tile = p.tiles![0]
+      const comparand = yenNumber(tile.foot!.match(/¥[\d,]+/)![0])
+      expect(tile.chip!.text.endsWith(monthDelta(yenNumber(tile.value), comparand, 'yen').text)).toBe(true)
+    }
+  })
+
+  it('a month exactly LEVEL with the one before it prints ±0, in grey, and reads 同じ水準', async () => {
+    // The world is one real ledger row copied across every month, so a finished
+    // month against a whole previous month lands exactly level.
+    const p = await propsWorld({ store: STORE_A, month: '-1', world: { levelMonths: true } })
+    const chip = p.tiles![0].chip!
+    expect(chip.text).toBe(`${numberEntry('monthDelta').label} ±0`)
+    expect(chip.tone).toBe('neutral')
+    expect(chip.tone).not.toBe('up')
+    expect(p.trend!.decide).toContain('同じ水準です')
+    // …and the tick under a level table cell agrees with the chip
+    const rows = p.trend!.rows.filter((r) => !r.partial)
+    expect(rows.slice(1).every((r) => r.ticks[0].kind === 'flat' && r.ticks[0].text === '±0')).toBe(true)
   })
 
   it('the ONE truth for 目標: the room reads the plane and links to the room that owns it', async () => {

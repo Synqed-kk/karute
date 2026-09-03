@@ -83,7 +83,9 @@ export interface TileProps {
   scope: string
   value: string
   small: boolean
-  chip: { text: string; tone: 'up' | 'down' | 'gap' } | null
+  /** `neutral` is the grey a FLAT comparison wears — a month exactly level
+   *  with its comparand did not go up (L2 B2-7). */
+  chip: { text: string; tone: 'up' | 'down' | 'gap' | 'neutral' } | null
   foot: string | null
   link: { href: string; label: string } | null
   /** 0–100 for the goal bar, `null` when the tile has no bar. */

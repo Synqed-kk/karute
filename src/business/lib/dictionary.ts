@@ -479,6 +479,14 @@ export function monthDelta(
   return { kind: diff > 0 ? 'up' : 'down', text: `${arrow}${size}` }
 }
 
+/** The TONE a delta wears on a chip — and the reason it lives here rather than
+ *  beside the chip: `flat` and `na` are NEUTRAL. A month exactly level with its
+ *  comparand did not go up, and neither did a month with no comparand at all, so
+ *  a green 「±0」 is the sheet congratulating nobody (L2 B2-7). */
+export function deltaTone(kind: DeltaKind): 'up' | 'down' | 'neutral' {
+  return kind === 'up' ? 'up' : kind === 'down' ? 'down' : 'neutral'
+}
+
 export interface DecideInput {
   /** How many months the chart is showing. */
   monthCount: number
@@ -494,6 +502,12 @@ export interface DecideInput {
   spanDeltaText: string | null
   /** −1 behind, 0 level, +1 ahead. */
   spanDeltaSign: number | null
+  /** ⚠ THE ONE PREDICATE THAT DECIDES EVERY 「同じ経過日数」 WORD ON THE PAGE.
+   *  True only when the month being viewed is FINISHED and the previous month
+   *  was read whole — the same value the tile's chip and its footer read, so
+   *  the three cannot describe one comparison three different ways (L1 B1-2 /
+   *  B1-7, L2 B2-1). */
+  wholeMonths: boolean
 }
 
 /**
@@ -518,5 +532,13 @@ export function decideLine(input: DecideInput): string {
   }
   const verdict =
     input.spanDeltaSign > 0 ? '上回っています' : input.spanDeltaSign < 0 ? '出遅れています' : '同じ水準です'
-  return `${head}${currentShort}は同じ経過日数で ${input.spanDeltaText} と${verdict}。`
+  /** The month being VIEWED is the month the head just named — saying its name
+   *  a second time sets a month beside itself (L1 B1-7). */
+  const subject = currentShort === lastShort ? '' : `${currentShort}は`
+  /** ⚠ 「同じ経過日数で」 IS SAID ONLY WHERE IT IS TRUE. On a finished month read
+   *  against a whole previous month the comparison really is month against
+   *  month, and the elapsed-day wording would be describing a comparison this
+   *  sentence did not make. */
+  const how = input.wholeMonths ? '前月と比べて' : '同じ経過日数で'
+  return `${head}${subject}${how} ${input.spanDeltaText} と${verdict}。`
 }

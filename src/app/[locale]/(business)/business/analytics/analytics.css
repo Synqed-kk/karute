@@ -252,6 +252,8 @@
 }
 .biz .pg-analytics .an-cmp.is-up { border-color: var(--an-green-line); background: var(--an-green-wash); color: var(--an-green); }
 .biz .pg-analytics .an-cmp.is-gap { border-color: var(--an-amber-line); background: var(--an-amber-wash); color: var(--an-amber); }
+/* a month exactly LEVEL with its comparand: grey, because it did not move. */
+.biz .pg-analytics .an-cmp.is-neutral { border-color: var(--an-line); background: var(--an-wash); color: var(--an-ink-3); }
 /* R13: a progress bar is not a commit action, so the fill is a translucent
    accent gradient rather than the solid accent. */
 .biz .pg-analytics .an-goalbar { height: 5px; border-radius: 999px; background: var(--an-seg-rest); overflow: hidden; margin: 5px 0 4px; }

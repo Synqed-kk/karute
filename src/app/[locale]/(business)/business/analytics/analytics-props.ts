@@ -67,6 +67,7 @@ import {
 import {
   avgNewTicket,
   decideLine,
+  deltaTone,
   landingEstimate,
   landingGap,
   monthDelta,
@@ -100,15 +101,6 @@ const yen1 = (n: number) => {
     minimumFractionDigits: whole ? 0 : 1,
     maximumFractionDigits: 1,
   })}`
-}
-
-/** 「+12.4%」 / 「−3.1%」 / 「±0%」 — signed, one decimal, and honest about a
- *  zero baseline (a percentage change from nothing is not a number). */
-function deltaLabel(current: number, prior: number): string | null {
-  if (prior <= 0) return null
-  const pct = ((current - prior) / prior) * 100
-  const sign = pct > 0 ? '+' : pct < 0 ? '−' : '±'
-  return `${sign}${Math.abs(pct).toFixed(1)}%`
 }
 
 /**
@@ -165,6 +157,12 @@ export interface AnalyticsPropsInput {
      *  derivations run over it (`ticketLiability` included), so the absence of
      *  the chips is a property of the data rather than a class toggle. */
     noTickets?: boolean
+    /** A STORE THAT TOOK THE SAME MONEY TWELVE MONTHS RUNNING — the only honest
+     *  way to picture an exactly FLAT comparison, which the demo plane holds no
+     *  two months of. It is one real ledger row copied across every month, so
+     *  the flatness is a property of the data and every field stays internally
+     *  possible; `monthDelta` then computes `±0` from figures, not from a flag. */
+    levelMonths?: boolean
   }
 }
 
@@ -226,9 +224,19 @@ export async function analyticsProps({
   const customers = world?.noTickets
     ? customerPlane.map((c) => ({ ...c, ticket_balance: null }))
     : customerPlane
-  const ledgerPlane = world?.noTickets
+  const ledgerBase = world?.noTickets
     ? planes.ledger.map((r) => ({ ...r, consumed: 0 }))
     : planes.ledger
+  /** ⚠ ONE REAL ROW, COPIED ACROSS EVERY MONTH — not a `flat: true` flag. Each
+   *  store's own `months_ago: 1` row becomes all twelve of its months, so a
+   *  finished month read against a whole previous month lands EXACTLY level and
+   *  `monthDelta` reaches `±0` through the arithmetic. */
+  const ledgerPlane = world?.levelMonths
+    ? ledgerBase.map((r) => {
+        const base = ledgerBase.find((x) => x.store_id === r.store_id && x.months_ago === 1)
+        return base ? { ...base, months_ago: r.months_ago } : r
+      })
+    : ledgerBase
   const target = world?.target ?? planes.target
 
   // The ledger, newest-first per store, merged when the lens spans stores.
@@ -308,11 +316,23 @@ export async function analyticsProps({
     ? spanFigures(priorCoords, monthFigures(priorRow), planes.dowWeight, spanDays)
     : null
   const priorLabelShort = fmtMonthShort.format(monthAt(priorCoords.y, priorCoords.m))
-  const spanDelta = prior ? deltaLabel(shown.total, prior.figures.total) : null
+  /** ⚖ ONE PERCENTAGE-CHANGE IMPLEMENTATION (L2 B2-8). This used to run through
+   *  a second, private `deltaLabel` that spelled the same idea differently
+   *  (`+/−/±` against `▲/▼`) and disagreed about a zero baseline — so the
+   *  dictionary's 「the ONE place it is computed」 was not true. `spanCompare` is
+   *  a money comparison, so it reads in percent, from `monthDelta`. */
+  const spanCmp = prior
+    ? monthDelta(shown.total, prior.figures.total, 'yen')
+    : ({ kind: 'na', text: '—' } as const)
+  const spanDelta = spanCmp.kind === 'na' ? null : spanCmp.text
   const spanDeltaSign =
-    prior && prior.figures.total > 0 ? Math.sign(shown.total - prior.figures.total) : null
+    spanCmp.kind === 'na' ? null : spanCmp.kind === 'up' ? 1 : spanCmp.kind === 'down' ? -1 : 0
   // WHICH SENTENCE IS TRUE HERE — whole-to-whole only when the month being
-  // viewed is FINISHED and the previous month was not clamped.
+  // viewed is FINISHED and the previous month was not clamped. ⚠ THIS ONE
+  // PREDICATE DECIDES EVERY 「同じ経過日数」 WORD: the comparison sentence, the
+  // tile's footer, the tile's CHIP LABEL and the decide line all read it, so
+  // the decision header cannot state one number under three descriptions
+  // (L1 B1-2 · L2 B2-1).
   const wholeMonths = !selected.partial && prior !== null && prior.span === priorCoords.daysInMonth
   const comparison = !priorRow
     ? `${LEDGER_MONTHS}か月より前の実績がないため、前月と並べていません。`
@@ -389,6 +409,7 @@ export async function analyticsProps({
     currentTotal: shown.total,
     spanDeltaText: spanDelta,
     spanDeltaSign,
+    wholeMonths,
   })
 
   // ── 売上の内訳 ────────────────────────────────────────────────────────────
@@ -443,6 +464,7 @@ export async function analyticsProps({
   const mineWeights = mix.map((m) => m.total)
   const mineNow = mineIndex >= 0 ? distributeInt(shown.total, mineWeights)[mineIndex] : null
   const minePrior = mineIndex >= 0 && prior ? distributeInt(prior.figures.total, mineWeights)[mineIndex] : null
+  const mineCmp = monthDelta(mineNow, minePrior, 'yen')
   const bestRepeat = Math.max(...months.map((m) => m.row?.repeat_rate ?? 0))
   const selectedRepeat = selectedRow?.repeat_rate ?? 0
   const ownLane =
@@ -455,10 +477,10 @@ export async function analyticsProps({
             {
               label: `前月同期間（${priorLabelShort}1日〜${prior?.span ?? 0}日）`,
               value: minePrior === null || minePrior <= 0 ? '実績なし' : yen(minePrior),
-              chip: minePrior !== null && minePrior > 0 ? deltaLabel(mineNow, minePrior) : null,
+              chip: mineCmp.kind === 'na' ? null : mineCmp.text,
             },
             {
-              label: 'リピート率（店舗全体）',
+              label: `${numberEntry('repeatRate').label}（店舗全体）`,
               value: pct1(selectedRepeat),
               chip: selectedRepeat > 0 && selectedRepeat >= bestRepeat ? '店舗の自己ベスト' : null,
             },
@@ -557,7 +579,6 @@ export async function analyticsProps({
     ? `${numberEntry('landing').label} ${yen(landing)} は推計です。${spanWord}の${numberEntry('total').label} ${yen(shown.total)} ÷ ${selectedCoords.elapsedDays}日 ＝ ${yen1(shown.total / Math.max(1, selectedCoords.elapsedDays))}、× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）で出しています。${target > 0 ? `目標 ${yen(target)} との差が ${numberEntry('landingGap').label} ${yen(gap)} です。「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。` : '目標が未設定のため、着地GAPは出せません。'}`
     : `${selected.short}はもう終わった月なので、ここは推計ではなく実際の${numberEntry('total').label} ${yen(shown.total)} です。${target > 0 ? `目標 ${yen(target)} との差は ${yen(gap)} でした。` : '目標が未設定のため、差は出せません。'}`
 
-  const chipTone = (n: number) => (n >= 0 ? ('up' as const) : ('down' as const))
   const totalEntry = numberEntry('total')
   const nwEntry = numberEntry('nw')
   const newCountEntry = numberEntry('newCount')
@@ -573,7 +594,16 @@ export async function analyticsProps({
       scope: selected.partial ? `${spanWord}の合計` : `${selected.short}全体`,
       value: yen(shown.total),
       small: false,
-      chip: spanDelta === null ? null : { text: `同経過日数比 ${spanDelta}`, tone: chipTone(spanDeltaSign ?? 0) },
+      // ⚠ THE CHIP NAMES THE COMPARISON THE TILE ACTUALLY MADE. It used to
+      // carry the literal 「同経過日数比」 on every month — including a finished
+      // one, directly above its own footer saying 「前月（7月全体）と比較」 (L1
+      // B1-2 · L2 B2-1). `wholeMonths` picks the entry, and the entry supplies
+      // the word: 前月同経過日数比 on a partial or truncated comparison, 前月比
+      // on a whole month against a whole month.
+      chip:
+        spanDelta === null
+          ? null
+          : { text: `${numberEntry(wholeMonths ? 'monthDelta' : 'spanCompare').label} ${spanDelta}`, tone: deltaTone(spanCmp.kind) },
       foot: compareFoot,
       link: null,
       bar: null,
@@ -649,12 +679,14 @@ export async function analyticsProps({
       scope: selected.partial ? `推計・暦日${selectedCoords.daysInMonth}日ベース` : '確定・月全体',
       value: yen(landing),
       small: false,
+      // ⚖-ADJ A, AMENDED (Fable, fix round 1): the finished month's chip reads
+      // the 着地GAP entry's own word too. One quantity, one name — and the tile
+      // label 着地（確定） has already said the month is over, so a second word
+      // for the same subtraction bought nothing.
       chip:
         target > 0
           ? {
-              text: selected.partial
-                ? `${numberEntry('landingGap').label} ${yen(gap)}`
-                : `目標との差 ${gap >= 0 ? `+${yen(gap)}` : yen(gap)}`,
+              text: `${numberEntry('landingGap').label} ${gap > 0 ? `+${yen(gap)}` : yen(gap)}`,
               tone: gap >= 0 ? ('up' as const) : ('gap' as const),
             }
           : null,
