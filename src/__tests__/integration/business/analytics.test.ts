@@ -1788,6 +1788,84 @@ describe('the words the page states are true of the figures beside them', () => 
     ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
   }))
 
+  /**
+   * §F — THE SCAN `dictionary.ts` PROMISES, AND IT EXISTS NOW. Its header used
+   * to claim 「the room's suite scans the source for literal labels」 while no
+   * such scan existed anywhere (L1 B1-5) — a claim in shipped code that no test
+   * backed. Two shapes are the defect, and the header now names them both:
+   *
+   *  1. a literal whose WHOLE content is a metric label — the chart legend's
+   *     `総合売上` and the hover card's `新規売上`, typed into the screen;
+   *  2. a literal that WELDS a label to a value — the tile chip's
+   *     「同経過日数比 ${x}」, which is how the wrong word survived a rebuild.
+   *
+   * A label inside a prose SENTENCE is deliberately not caught: the dictionary's
+   * own `counts`/`formula` text is made of the same words, and 「総合売上は…から
+   * …まで伸びています」 is a sentence, not a label. Both shapes are red-proven.
+   */
+  it('§F — no metric label is spelled as a literal in the room, in either shape', () => {
+    const LABELS = PLANE_NUMBERS.map((n) => n.label)
+    expect(LABELS).toHaveLength(22)
+
+    /** Every string / template literal, and every JSX text node, in one file. */
+    const literalsOf = (code: string) => {
+      const out: string[] = []
+      for (const m of code.matchAll(/'([^'\n]*)'|"([^"\n]*)"|`((?:[^`\\]|\\.)*)`/g)) {
+        out.push(m[1] ?? m[2] ?? m[3])
+      }
+      // JSX text: what sits between a `>` and the next `<` on one line
+      for (const m of code.matchAll(/>([^<>{}\n]+)</g)) out.push(m[1])
+      return out
+    }
+    /** A template's fixed text, with its holes taken out. */
+    const bare = (lit: string) => lit.replace(/\$\{[^}]*\}/g, ' ').trim()
+
+    const offences: string[] = []
+    for (const { name, code } of ROOM_SRC) {
+      for (const lit of literalsOf(code)) {
+        const text = bare(lit)
+        for (const label of LABELS) {
+          // shape 1 — the literal IS the label
+          if (text === label) offences.push(`${name}: bare label 「${lit}」`)
+          // shape 2 — the label, then a value
+          else if (new RegExp(`^${label}[ 　]? `).test(text)) offences.push(`${name}: label welded to a value 「${lit}」`)
+        }
+      }
+    }
+    expect(offences).toEqual([])
+    // …and the scan is not vacuous: it really does see both shapes.
+    const plant = (code: string) => {
+      const found: string[] = []
+      for (const lit of literalsOf(code)) {
+        const text = bare(lit)
+        for (const label of LABELS) {
+          if (text === label || new RegExp(`^${label}[ 　]? `).test(text)) found.push(lit)
+        }
+      }
+      return found
+    }
+    expect(plant('<span className="an-sw is-b" />総合売上</span>')).toEqual(['総合売上'])
+    expect(plant('chip: { text: `前月比 ${spanDelta}` }')).toEqual(['前月比 ${spanDelta}'])
+    expect(plant('reading: `総合売上は${a}から${b}まで伸びています。`')).toEqual([])
+    // ⚠ AND THE BOUNDARY, STATED HONESTLY. The word 「同経過日数比」 that shipped
+    // on tile 1 was not any entry's label — it was INVENTED — so no scan over
+    // the registry's words could ever have caught it. What catches that shape
+    // is the pin below: a chip has to OPEN with a word the dictionary owns.
+    expect(plant('chip: { text: `同経過日数比 ${spanDelta}` }')).toEqual([])
+  })
+
+  it('§F — every chip on a tile opens with a word the dictionary owns, never an invented one', async () => {
+    const LABELS = PLANE_NUMBERS.map((n) => n.label)
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const chips = p.tiles!.map((t) => t.chip).filter((c) => c !== null)
+      expect(chips.length).toBeGreaterThan(0)
+      for (const chip of chips) {
+        expect([chip!.text, LABELS.some((l) => chip!.text.startsWith(`${l} `))]).toEqual([chip!.text, true])
+      }
+    }
+  })
+
   it('§D — the 回数券 balance is stamped with TODAY, whatever month is being viewed', async () => {
     const restore = pin('2026-09-03T04:00:00.000Z')
     try {

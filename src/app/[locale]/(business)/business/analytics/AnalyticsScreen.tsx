@@ -145,6 +145,12 @@ export interface AnalyticsProps {
     }>
     gridLabels: string[]
     targetLabel: string | null
+    /** ⚖ THE TWO SERIES' OWN DICTIONARY WORDS. The legend and the hover card
+     *  spelled them as literals, which is the second home for a word that
+     *  `dictionary.ts` exists to prevent (L1 B1-5 · L2 B2-5) — and the screen
+     *  may not import the registry, so the words arrive as props like every
+     *  other word on the page. */
+    seriesLabels: { total: string; nw: string }
     barLabels: string[]
     labelValues: string[]
     reading: string
@@ -855,8 +861,8 @@ export function AnalyticsScreen(props: AnalyticsProps) {
               <span className="an-sub">{trend.chartSub}</span>
               <span className="an-scrollhint">← 横にスクロールで{LEDGER_MONTHS}か月ぶん →</span>
               <span className="an-sp" />
-              <span className="an-lg"><span className="an-sw is-b" />総合売上</span>
-              <span className="an-lg"><span className="an-sw is-p" />新規売上</span>
+              <span className="an-lg"><span className="an-sw is-b" />{trend.seriesLabels.total}</span>
+              <span className="an-lg"><span className="an-sw is-p" />{trend.seriesLabels.nw}</span>
               {trend.targetLabel && <span className="an-lg"><span className="an-sw is-g" />{trend.targetLabel}</span>}
               <span className="an-lg"><span className="an-sw is-h" />月の途中</span>
             </div>
@@ -867,7 +873,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                   className="an-chart"
                   viewBox={`0 0 ${CHART.w} ${CHART.h}`}
                   role="img"
-                  aria-label={`月次の総合売上と新規売上の推移（棒グラフ、${trend.chartMonths.length}か月ぶん）`}
+                  aria-label={`月次の${trend.seriesLabels.total}と${trend.seriesLabels.nw}の推移（棒グラフ、${trend.chartMonths.length}か月ぶん）`}
                 >
                   <defs>
                     {/* the month in progress is HATCHED, never solid — one look
@@ -1002,12 +1008,12 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                       <div className="an-tip-m">{`${hovered.label}${hovered.asOf}`}</div>
                       <div className="an-tip-r">
                         <span className="an-tip-k" style={{ background: 'var(--an-blue)' }} />
-                        <span className="an-tip-n">総合売上</span>
+                        <span className="an-tip-n">{trend.seriesLabels.total}</span>
                         <span className="an-tip-v">{hovered.total}</span>
                       </div>
                       <div className="an-tip-r">
                         <span className="an-tip-k" style={{ background: 'var(--an-pink)' }} />
-                        <span className="an-tip-n">新規売上</span>
+                        <span className="an-tip-n">{trend.seriesLabels.nw}</span>
                         <span className="an-tip-v">{hovered.nw}</span>
                       </div>
                       <div className={hovered.partial ? 'an-tip-note' : 'an-tip-go'}>{hovered.note}</div>

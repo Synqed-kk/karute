@@ -16,7 +16,15 @@
 // sentence all name the same number, so they all READ THE SAME ENTRY. A screen
 // that spells 「新規売上」 as a literal is a second home for one word, and the
 // day someone renames it the two disagree — which is exactly the disease this
-// layer exists to end. The room's suite scans the source for literal labels.
+// layer exists to end.
+//
+// THE ROOM'S SUITE SCANS THE ROOM'S SOURCE FOR THE TWO SHAPES THAT DEFECT TAKES,
+// and it is worth stating exactly which two, because the earlier wording here
+// claimed a scan that did not exist at all (L1 B1-5): a literal whose WHOLE
+// content is a label (the chart legend's 「総合売上」), and a literal that welds a
+// label to a value (the tile chip's 「同経過日数比 ${x}」). A label inside a
+// PROSE sentence is not caught and is not the defect — the sentences in this
+// file are made of the same words.
 //
 // ⚖⚖ STORE-FIRST (Liam 9/2). Not one company-finance number lives here. Every
 // entry is a STORE's own operating number; royalties, P&L and 本部 rollups are

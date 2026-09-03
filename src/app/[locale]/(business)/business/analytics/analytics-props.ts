@@ -579,8 +579,8 @@ export async function analyticsProps({
    *  estimate is the one number on the row that is not a measurement, so it
    *  earns its own explanation (the mock's own bold sentence). */
   const landingGuide = selected.partial
-    ? `${numberEntry('landing').label} ${yen(landing)} は推計です。${spanWord}の${numberEntry('total').label} ${yen(shown.total)} ÷ ${selectedCoords.elapsedDays}日 ＝ ${yen1(shown.total / Math.max(1, selectedCoords.elapsedDays))}、× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）で出しています。${target > 0 ? `目標 ${yen(target)} との差が ${numberEntry('landingGap').label} ${yen(gap)} です。「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。` : '目標が未設定のため、着地GAPは出せません。'}`
-    : `${selected.short}はもう終わった月なので、ここは推計ではなく実際の${numberEntry('total').label} ${yen(shown.total)} です。${target > 0 ? `目標 ${yen(target)} との差は ${yen(gap)} でした。` : '目標が未設定のため、差は出せません。'}`
+    ? `${numberEntry('landing').label} ${yen(landing)} は推計です。${spanWord}の${numberEntry('total').label} ${yen(shown.total)} ÷ ${selectedCoords.elapsedDays}日 ＝ ${yen1(shown.total / Math.max(1, selectedCoords.elapsedDays))}、× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）で出しています。${target > 0 ? `${numberEntry('target').label} ${yen(target)} との差が ${numberEntry('landingGap').label} ${yen(gap)} です。「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。` : '目標が未設定のため、着地GAPは出せません。'}`
+    : `${selected.short}はもう終わった月なので、ここは推計ではなく実際の${numberEntry('total').label} ${yen(shown.total)} です。${target > 0 ? `${numberEntry('target').label} ${yen(target)} との差は ${yen(gap)} でした。` : '目標が未設定のため、差は出せません。'}`
 
   const totalEntry = numberEntry('total')
   const nwEntry = numberEntry('nw')
@@ -701,7 +701,7 @@ export async function analyticsProps({
       guide: { title: landingEntry.label, text: landingGuide },
       calc: selected.partial
         ? {
-            title: '着地見込みの出し方（推計）',
+            title: `${numberEntry('landing').label}の出し方（推計）`,
             lines: [
               { k: `${spanWord}の${totalEntry.label}`, v: yen(shown.total), result: false },
               { k: `÷ ${selectedCoords.elapsedDays}日 ＝ 1日あたり`, v: yen1(shown.total / Math.max(1, selectedCoords.elapsedDays)), result: false },
@@ -713,8 +713,8 @@ export async function analyticsProps({
             notes: [
               `${selectedCoords.elapsedDays}日分のペースをそのまま月末まで延ばした推計です。実績ではありません。`,
               target > 0
-                ? `※ 目標進捗の「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。`
-                : '※ 目標が未設定のため、着地GAPは出せません。',
+                ? `※ ${numberEntry('targetProgress').label}の「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。`
+                : `※ 目標が未設定のため、${numberEntry('landingGap').label}は出せません。`,
             ],
           }
         : null,
@@ -785,7 +785,7 @@ export async function analyticsProps({
     // head's tour text, the figures line is tiles 1-3, the 平均単価 row is tile
     // 3's footer, and the 目標 trace is tile 4's real link (§2.10 K).
     trend: {
-      chartSub: `${months[0].label}〜${currentMonth.label}（直近${LEDGER_MONTHS}か月）・総合売上と新規売上の比較`,
+      chartSub: `${months[0].label}〜${currentMonth.label}（直近${LEDGER_MONTHS}か月）・${totalEntry.label}と${nwEntry.label}の比較`,
       chart,
       chartMonths: months.map((m) => ({
         label: m.label,
@@ -804,6 +804,7 @@ export async function analyticsProps({
       })),
       gridLabels: chart.gridLines.map((g) => manYen(g.value)),
       targetLabel: target > 0 ? `${numberEntry('target').label} ${yen(target)}` : null,
+      seriesLabels: { total: totalEntry.label, nw: nwEntry.label },
       barLabels: chart.bars.map((b) => {
         const m = months[b.monthIndex]
         const e = numberEntry(b.series === 'total' ? 'total' : 'nw')
@@ -813,7 +814,7 @@ export async function analyticsProps({
       reading,
       decide,
       tableSub: `${lensLabel}・全指標`,
-      tableLegend: `前月比：▲ 増えた / ▼ 減った（同じ列の前の月との差）・${currentMonth.short}は月の途中のため前月と並べていません`,
+      tableLegend: `${numberEntry('monthDelta').label}：▲ 増えた / ▼ 減った（同じ列の前の月との差）・${currentMonth.short}は月の途中のため前月と並べていません`,
       emptyBefore: `${months[0].label}より前のデータはありません`,
       metrics: TABLE_METRICS.map((c) => ({ ...c, head: numberEntry(c.id).label })),
       rows: tableRows,
@@ -885,10 +886,10 @@ export async function analyticsProps({
     },
     guides: {
       head: `${SUBTITLE}。${stateHeadline}。${comparison}`,
-      kpis: `いちばん上の5つが、この月の判断に使う数字です。左から 総合売上・新規売上・新規数・目標進捗・着地見込み。${selected.partial ? '月の途中は、経過した日ぶんだけを合計しています。' : 'この月はもう終わっているので、どれも確定した数字です。'}`,
+      kpis: `いちばん上の5つが、この月の判断に使う数字です。左から ${tiles.map((t) => t.label).join('・')}。${selected.partial ? '月の途中は、経過した日ぶんだけを合計しています。' : 'この月はもう終わっているので、どれも確定した数字です。'}`,
       landing: landingGuide,
       tabs: '推移・ランキング・日報 の3つを切り替えます。右の「内訳を見る」を押すと、推移の中の 売上の内訳 まで一気に移動します。',
-      chart: `直近${LEDGER_MONTHS}か月の 総合売上（青）と 新規売上（ピンク）です。${target > 0 ? '点線が月間売上目標。' : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
+      chart: `直近${LEDGER_MONTHS}か月の ${totalEntry.label}（青）と ${nwEntry.label}（ピンク）です。${target > 0 ? `点線が${numberEntry('target').label}。` : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
       decide: 'グラフから読み取れることを1文にしています。数字を自分で見比べなくても、いまの立ち位置がわかります。',
       table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押すと、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は${LEDGER_MONTHS}か月の合計と平均です。`,
       mix: 'この月の売上を メニュー別 と 予約経路別 に分けたものです。色の帯か、下のボタンを押すと、その1つだけを強調します。',
