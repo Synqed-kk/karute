@@ -1131,6 +1131,89 @@ describe('analytics.css', () => {
     expect(selected).toBe('var(--select-bg)')
   })
 
+  /**
+   * ⚠ THE BLOCKER'S PIN (L4 B4-1) AND THE 統計 ROW'S (L1 B1-1), AS ONE
+   * STRUCTURAL PROPERTY. A shed class is a THREE-PART bargain that has to be
+   * struck in ONE place: the rung that HIDES the column is the rung that
+   * restacks it into the open row's detail line, and the same rung is where the
+   * 統計 row's total takes its own labelled line. The V2 tip struck the first
+   * part inside `@container` and the second outside it, so opening a row at a
+   * desk width ripped two LIVE columns (既存数, 新規数) out of the grid — and
+   * never struck the third at all, so 4–6 totals were invisible above the
+   * phone rung while a phone printed all eleven.
+   *
+   * Written as a BLOCK WALK rather than a selector grep on purpose: what makes
+   * the defect impossible is co-location, and a grep for the rules cannot see
+   * which `@container` they are in. The mutant is「lift one restack out of its
+   * container query」and this is what turns it red.
+   */
+  it('a shed column is hidden, restacked and totalled by the SAME rung — never one without the others', () => {
+    /** The sheet as `@`-blocks: `''` is the top level, otherwise the prelude. */
+    const blocksOf = (src: string) => {
+      const body = src.replace(/\/\*[\s\S]*?\*\//g, '')
+      const out: Record<string, string> = { '': '' }
+      let head = ''
+      let depth = 0
+      let cond = ''
+      let start = -1
+      for (let i = 0; i < body.length; i += 1) {
+        const c = body[i]
+        if (c === '{') {
+          depth += 1
+          if (depth === 1 && head.trim().startsWith('@')) {
+            cond = head.trim().replace(/\s+/g, ' ')
+            start = i + 1
+          } else if (depth === 1) {
+            out[''] += `${head.trim()} {`
+          }
+          head = ''
+          continue
+        }
+        if (c === '}') {
+          depth -= 1
+          if (depth === 0 && start >= 0) {
+            out[cond] = (out[cond] ?? '') + body.slice(start, i)
+            cond = ''
+            start = -1
+          }
+          head = ''
+          continue
+        }
+        if (depth === 0) head += c
+        else if (start < 0) out[''] += c
+      }
+      return out
+    }
+    const blocks = blocksOf(CSS)
+    // The top level plus the three container rungs, and nothing else invented.
+    expect(Object.keys(blocks)).toContain('@container anpage (max-width: 1035px)')
+    expect(Object.keys(blocks)).toContain('@container anpage (max-width: 905px)')
+
+    for (const cls of ['an-always', 'an-sh1', 'an-sh2']) {
+      // where the COLUMN is hidden
+      const hiding = Object.entries(blocks).filter(([, b]) =>
+        new RegExp(`\\.an-trow > \\.${cls}\\s*\\{[^}]*display:\\s*none`).test(b),
+      )
+      expect(hiding).toHaveLength(1)
+      const [rung, block] = hiding[0]
+      // …restacks the open row's cell, in the SAME block
+      expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}\\s*\\{[^}]*grid-column:\\s*1 / -1`))
+      expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
+      // …and gives the 統計 row's total its own labelled line, in the same block
+      // (the `always` totals ride the ≥800 block, which is the same rung: the
+      // four are shed at every width and the phone rung has its own chip list).
+      const totalIn = cls === 'an-always' ? blocks['@container anpage (min-width: 800px)'] : block
+      expect(totalIn).toMatch(new RegExp(`\\.an-trow-tot > \\.an-cell\\.${cls}\\s*\\{[^}]*grid-column:\\s*1 / -1`))
+      expect(totalIn).toMatch(new RegExp(`\\.an-trow-tot > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
+      expect(rung).toBe(cls === 'an-always' ? '' : rung)
+    }
+    // …and the cells that STAY are locked to the first line, so a restacked
+    // cell can never drag the ones after it into column 1 (次回予約率's defect).
+    expect(blocks['@container anpage (min-width: 800px)']).toMatch(
+      /\.an-trow > td:not\(\.an-always\):not\(\.an-sh1\):not\(\.an-sh2\)\s*\{[^}]*grid-row:\s*1/,
+    )
+  })
+
   it('the shell lifts its 1180 floor for this room — the ONE named shared-seam line', () => {
     // ⚖ ALL-SCREEN cannot hold behind the shell's min-width floor, and no route
     // sheet may reach up and lift its own (the shell's rule says so). The

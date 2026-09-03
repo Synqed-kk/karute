@@ -429,7 +429,8 @@
    card: a two-column grid whose month cell owns the first line by itself. */
 .biz .pg-analytics .an-trow > .an-always { display: none; }
 @container anpage (min-width: 800px) {
-  .biz .pg-analytics .an-trow-body > td:not(.an-always):not(.an-sh1):not(.an-sh2) { grid-row: 1; }
+  /* `td` and not `th`, so the head row (all `th`) keeps its own single line. */
+  .biz .pg-analytics .an-trow > td:not(.an-always):not(.an-sh1):not(.an-sh2) { grid-row: 1; }
 }
 .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-always {
   display: flex;
@@ -453,6 +454,21 @@
   .biz .pg-analytics .an-trow-body.is-sel > .an-cell.an-always::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
   .biz .pg-analytics .an-trow-body.is-sel > .an-cell.an-always .an-v { margin-left: auto; }
   .biz .pg-analytics .an-trow-body.is-sel > .an-cell.an-always .an-d { display: inline-block; margin-left: 8px; }
+
+  /* ⚖-ADJ D + ⚖ DESKTOP-SUPERIOR — THE 統計 ROW STATES ALL ELEVEN, AT EVERY
+     RUNG. The row is not `.an-trow-body`, is not selectable and is not
+     openable, so the shed rule alone left it printing seven totals at a desk,
+     six at 1024 and five at 900 — while a PHONE printed all eleven (L1 B1-1).
+     A total is not something a reader should have to find a gesture for, so
+     the shed totals take the open row's own detail grammar (label left, 合計 /
+     平均 kicker and value right) as extra lines of the same row: nothing to
+     open, nothing missing. */
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-always {
+    display: flex; grid-column: 1 / -1; text-align: left; align-items: baseline; gap: 8px; flex-wrap: nowrap;
+    border-top: 1px dashed var(--an-blue-line); margin-top: 3px; padding-top: 3px;
+  }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-always::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-always .an-v { margin-left: auto; }
 }
 
 /* ⚖ THE 統計 ROW STICKS TO THE VIEWPORT, not to an inner scroller — there is
@@ -611,6 +627,13 @@
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1 .an-v { margin-left: auto; }
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh1 .an-d { display: inline-block; margin-left: 8px; }
+  /* …and its TOTAL takes the same extra line, so the 統計 row never loses one. */
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh1 {
+    display: flex; grid-column: 1 / -1; text-align: left; align-items: baseline; gap: 8px; flex-wrap: nowrap;
+    border-top: 1px dashed var(--an-blue-line); margin-top: 3px; padding-top: 3px;
+  }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh1::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh1 .an-v { margin-left: auto; }
 }
 
 /* RUNG 2 (≤905 of page): the mock's ≤1149 band — 新規数 sheds too. */
@@ -626,6 +649,13 @@
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2 .an-v { margin-left: auto; }
   .biz .pg-analytics .an-trow-body.is-open > .an-cell.an-sh2 .an-d { display: inline-block; margin-left: 8px; }
+  /* …and its TOTAL takes the same extra line, so the 統計 row never loses one. */
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh2 {
+    display: flex; grid-column: 1 / -1; text-align: left; align-items: baseline; gap: 8px; flex-wrap: nowrap;
+    border-top: 1px dashed var(--an-blue-line); margin-top: 3px; padding-top: 3px;
+  }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh2::before { content: attr(data-k); font-size: 10.5px; font-weight: 700; color: var(--an-ink-3); flex: 0 0 auto; }
+  .biz .pg-analytics .an-trow-tot > .an-cell.an-sh2 .an-v { margin-left: auto; }
 }
 
 /* RUNG 3 (≤799 of page): the mock's ≤899 phone band. The month list IS the page
