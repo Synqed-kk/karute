@@ -14,7 +14,7 @@ import {
   deleteTake,
   getRecoverableTake,
   listOwnTakes,
-  listOwnUnsecuredTakeIds,
+  listOwnStoppedUnsecuredTakeIds,
   loadTakeBlob,
   readTakeOutcome,
   stampDiscardPending,
@@ -720,11 +720,19 @@ export function RecordPageView({
     // without this line its audio waits for a cold relaunch. Free when there is
     // nothing owed: secureTake returns on finalizedAt, on a terminal code, and
     // on its own in-flight guard.
+    // ⚖ `recorded` and nothing else: a take still recording (or paused) must
+    // never be finalized — its remaining audio could not land afterwards.
+    // isActiveTake below is the same rule read from the recorder itself.
+    const isActive = (id: string) => globalRecorder.isActiveTake(id)
     if (globalRecorder.state === 'recorded' && globalRecorder.takeId) {
-      void secureTake(getRecordingPipelinePort(), globalRecorder.takeId)
+      void secureTake(getRecordingPipelinePort(), globalRecorder.takeId, undefined, isActive)
     }
     // Capture pipeline PR3 — the retry for every stop the network missed, on
-    // its OWN read (listOwnUnsecuredTakeIds), never the recovery one below.
+    // its OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one
+    // below. STOPPED takes only: a take whose recorder never stopped may still
+    // be running (this tab remounting, another same-origin tab), and sealing
+    // its finalized key early would truncate it forever. Those wait for PR5's
+    // launch drain, where the single-webview shell proves nothing is live.
     // getRecoverableTake waits out a 20 s grace, so a failed stop-time upload
     // plus a reload inside those 20 s used to leave a fresh page with no
     // recorder take and a recovery read that hid it — the audio then stayed
@@ -735,7 +743,8 @@ export function RecordPageView({
     // guard and finalizedAt make the repeats free) and records its own outcome.
     void (async () => {
       const port = getRecordingPipelinePort()
-      for (const id of await listOwnUnsecuredTakeIds()) void secureTake(port, id)
+      for (const id of await listOwnStoppedUnsecuredTakeIds())
+        void secureTake(port, id, undefined, isActive)
     })()
     void Promise.all([
       loadDraft(),

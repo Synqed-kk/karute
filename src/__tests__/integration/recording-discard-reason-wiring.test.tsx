@@ -116,7 +116,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
   listOwnTakes: jest.fn(async () => []),
-  listOwnUnsecuredTakeIds: jest.fn(async () => []),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => mockRecoverableTake),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   // The logout-wipe test runs the REAL wipeSessionVault through this module.

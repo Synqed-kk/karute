@@ -59,7 +59,7 @@ const ACTIVE_GRACE_MS = 20_000
  *  human. What stops is the automatic re-PUT.
  *
  *  It lives HERE, beside the `secureError` field it judges, because both of its
- *  readers need it — secure-take's own guard and listOwnUnsecuredTakeIds below.
+ *  readers need it — secure-take's own guard and the drain read below.
  *  (Importing it the other way round would make this module and secure-take a
  *  cycle.) One home, one list. */
 export const TERMINAL_SECURE_ERRORS = new Set([
@@ -621,8 +621,22 @@ export async function getRecoverableTake(
   return (await listOwnTakes(excludeTakeIds))[0] ?? null
 }
 
-/** Every take of the SIGNED-IN user whose audio the SERVER DOES NOT HAVE — the
- *  launch drain's worklist (capture pipeline PR5, in miniature).
+/** Every take of the SIGNED-IN user that is KNOWN STOPPED and whose audio the
+ *  SERVER DOES NOT HAVE — the record page's mount drain worklist.
+ *
+ *  ⚖ STOPPED ONLY (capture pipeline PR3 fix round 5). A finalized key is
+ *  IMMUTABLE: securing a take whose recorder is still running would upload the
+ *  segments flushed so far, finalize them, and leave the rest of the recording
+ *  with nowhere to land — permanently truncated audio, in exchange for saving a
+ *  few seconds. So the drain reads a POSITIVE fact rather than a heuristic:
+ *  `durationMs` is written by stampTakeDuration at onstop, so its presence means
+ *  a recorder actually stopped this take. No age or grace window can substitute
+ *  — a PAUSED take flushes nothing and looks stale within seconds.
+ *
+ *  Which leaves unstopped takes (a kill mid-recording) to PR5: the native shell
+ *  is a single webview, so at APP LAUNCH no recorder can be live and that drain
+ *  may take them; the web multi-tab case gets a heartbeat there. Until then
+ *  their audio stays on the device, plainly un-finalized — 要対応, not lost.
  *
  *  Deliberately NOT listOwnTakes. That read is the recovery OFFER, and its 20 s
  *  ACTIVE_GRACE_MS hides a take flushed moments ago (it might be live in another
@@ -631,14 +645,14 @@ export async function getRecoverableTake(
  *  fresh page with no recorder take and a recovery read that hid the take — so
  *  the audio stayed device-only for the whole page lifetime.
  *
- *  BYTES ARE NEVER GATED. No grace, no discardPending filter (a discarded take
- *  still owes its words), no consent or binding filter — those decide what is
- *  SHOWN and what is KEPT, never whether the recording reaches the server.
- *  Exactly three facts exclude a take: it is already finalized, its last refusal
- *  can never turn into a yes (TERMINAL_SECURE_ERRORS), or nothing has been
- *  flushed to disk yet (lastSeq < 0 — there is literally nothing to send).
+ *  BYTES ARE NEVER GATED ON WHAT A SURFACE MAY SHOW. No grace, no discardPending
+ *  filter (a discarded take still owes its words), no consent or binding filter
+ *  — those decide what is SHOWN and what is KEPT. Exactly four facts exclude a
+ *  take: no recorder stopped it (above), it is already finalized, its last
+ *  refusal can never turn into a yes (TERMINAL_SECURE_ERRORS), or nothing has
+ *  been flushed to disk yet (lastSeq < 0 — there is literally nothing to send).
  *  Owner-gated like every other read here. */
-export async function listOwnUnsecuredTakeIds(): Promise<string[]> {
+export async function listOwnStoppedUnsecuredTakeIds(): Promise<string[]> {
   try {
     const db = await openDb()
     if (!db) return []
@@ -651,13 +665,15 @@ export async function listOwnUnsecuredTakeIds(): Promise<string[]> {
       .filter(
         (m) =>
           m.ownerUid === uid &&
+          // The stop stamp — the only proof this take is complete.
+          m.durationMs !== undefined &&
           !m.finalizedAt &&
           !(m.secureError && TERMINAL_SECURE_ERRORS.has(m.secureError)) &&
           m.lastSeq >= 0,
       )
       .map((m) => m.takeId)
   } catch (err) {
-    console.error('[take-store] listOwnUnsecuredTakeIds failed:', err)
+    console.error('[take-store] listOwnStoppedUnsecuredTakeIds failed:', err)
     return []
   }
 }

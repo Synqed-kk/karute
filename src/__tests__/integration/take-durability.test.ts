@@ -180,7 +180,7 @@ import {
   clearOwnTakes,
   getRecoverableTake,
   listOwnTakes,
-  listOwnUnsecuredTakeIds,
+  listOwnStoppedUnsecuredTakeIds,
   listPendingDiscardTakes,
   loadTakeBlob,
   markTakeFinalized,
@@ -188,6 +188,7 @@ import {
   readTakeOutcome,
   readTakeSecureMeta,
   stampDiscardPending,
+  stampTakeDuration,
   stampTakeOutcome,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
@@ -836,6 +837,16 @@ describe('secure at stop', () => {
     return takeId
   }
 
+  /** The same take after a recorder STOPPED it — the shape the mount drain
+   *  exists for (a stop whose upload died). `keptTake` deliberately leaves no
+   *  stop stamp, because "never stopped" is now its own case, so the stamp
+   *  onstop would have written is added here instead. */
+  async function stoppedOwedTake(): Promise<string> {
+    const takeId = await keptTake()
+    await stampTakeDuration(takeId, 5_000)
+    return takeId
+  }
+
   const metaOf = (takeId: string) =>
     takes().get(JSON.stringify(takeId)) as {
       finalizedAt?: number
@@ -1116,7 +1127,7 @@ describe('secure at stop', () => {
     // The audio is untouched — nothing here deletes — but the drain is done
     // asking for it.
     expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
-    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
   })
 
   // Impossible against the real door (a client-named mint always reserves a
@@ -1132,7 +1143,7 @@ describe('secure at stop', () => {
     expect(order).toEqual(['mint'])
     expect(metaOf(takeId).secureError).toBe('no_session')
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
-    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
   })
 
   // ── Refusals that can never turn into a yes ───────────────────────────────
@@ -1271,7 +1282,11 @@ describe('secure at stop', () => {
   // the audio stayed on the device for the whole page lifetime (the effect runs
   // once).
   const mountDrain = async () => {
-    for (const id of await listOwnUnsecuredTakeIds()) await secureTake(port(), id)
+    // The component's own two arguments: no recorder duration (this leg has no
+    // recorder) and the singleton's live-take probe.
+    const isActive = (id: string) => globalRecorder.isActiveTake(id)
+    for (const id of await listOwnStoppedUnsecuredTakeIds())
+      await secureTake(port(), id, undefined, isActive)
   }
 
   it('a reload INSIDE the 20 s grace still secures the take the recovery read hides', async () => {
@@ -1289,7 +1304,7 @@ describe('secure at stop', () => {
     // The offer read says there is nothing (and the fresh recorder has no take
     // of its own), which is exactly why the drain must not ask it.
     expect(await getRecoverableTake([])).toBeNull()
-    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
 
     putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
       order.push('put')
@@ -1302,43 +1317,105 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
+  // ── ⚖ STOPPED ONLY (fix round 5) ─────────────────────────────────────────
+  // The drain used to name any un-finalized take with bytes on disk. That
+  // included takes STILL RECORDING — this tab remounting, another same-origin
+  // tab, a paused session — and a finalized key is IMMUTABLE: sealing the
+  // segments flushed so far means the rest of the recording can never land.
+  // No age or grace window can stand in for the stop, either: a paused take
+  // flushes nothing, so it looks stale within seconds. Only the stop stamp
+  // (stampTakeDuration, written at onstop) proves a take is complete.
+  it('the drain is STOPPED-ONLY: a stale unstopped take is skipped, a fresh stopped one is taken', async () => {
+    const running = await keptTake() // no onstop, so no stop stamp
+    expect(metaOf(running).durationMs).toBeUndefined()
+    await jest.advanceTimersByTimeAsync(60_000) // a minute of silence proves nothing
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
+
+    // A take a recorder DID stop, flushed seconds ago: no grace to wait out.
+    const stopped = await stoppedOwedTake()
+    expect(Date.now() - metaOf(stopped).updatedAt).toBeLessThan(20_000)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([stopped])
+
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(stopped).finalizedAt).toEqual(expect.any(Number))
+    // The unstopped one is untouched — still on the device, still un-finalized,
+    // and NOT marked failed: it is unfinished, not broken. It waits for PR5's
+    // launch drain, where the single-webview shell proves nothing is live.
+    expect(metaOf(running).finalizedAt).toBeUndefined()
+    expect(metaOf(running).secureError).toBeUndefined()
+  })
+
+  // The belt behind that filter. The store answers from a stamp on disk; only
+  // the recorder can answer for the take it is holding right now, so secureTake
+  // asks it directly and refuses regardless of what the worklist said.
+  it("the recorder's own LIVE take is refused even when the worklist names it", async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.pause()
+    await drain()
+    // Forced INTO the worklist, so the belt is what stops this and not the
+    // filter in front of it.
+    await stampTakeDuration(takeId, 5_000)
+    expect(globalRecorder.state).toBe('paused')
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
+
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    // No mark: a take that is simply not finished has not failed at anything.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+
+    // …and the moment it really stops, the whole leg runs.
+    globalRecorder.stop()
+    await drain(200)
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
   it('the drain names only takes the server LACKS — secured, terminally refused and segment-less takes are out', async () => {
-    const secured = await keptTake()
+    // All four are STOPPED takes, so each is excluded (or kept) for the reason
+    // this test names rather than for want of a stop stamp.
+    const secured = await stoppedOwedTake()
     await secureTake(port(), secured)
     expect(metaOf(secured).finalizedAt).toEqual(expect.any(Number))
 
-    const refused = await keptTake()
+    const refused = await stoppedOwedTake()
     await markTakeSecureError(refused, 'forbidden') // can never turn into a yes
 
     const empty = await startAndSettle() // a kill before the first flush
     globalRecorder.discard({ keepTake: true })
     await drain()
+    await stampTakeDuration(empty, 5_000)
 
-    const owed = await keptTake()
+    const owed = await stoppedOwedTake()
     await markTakeSecureError(owed, 'busy') // retryable — the moment passed
 
     expect(takes().size).toBe(4)
-    expect(await listOwnUnsecuredTakeIds()).toEqual([owed])
-    expect(await listOwnUnsecuredTakeIds()).not.toContain(empty)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([owed])
+    expect(await listOwnStoppedUnsecuredTakeIds()).not.toContain(empty)
   })
 
   it("another staff member's owed take is invisible to this device's drain", async () => {
-    const takeId = await keptTake()
-    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+    const takeId = await stoppedOwedTake()
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
 
     mockUid = 'staff-B'
-    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
     mockUid = null
-    expect(await listOwnUnsecuredTakeIds()).toEqual([])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
     mockUid = 'staff-A'
-    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId])
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
   })
 
   // Bytes are never gated on what a surface may SHOW: a discarded take still
   // owes its words to the discard record, so its audio must still reach the
   // server. (The offer read excludes it — that is a different question.)
   it('a discarded take still owes its bytes — the drain names it', async () => {
-    const takeId = await keptTake()
+    const takeId = await stoppedOwedTake()
     await stampDiscardPending(takeId, {
       recordingSessionId: 'rs-1',
       durationSeconds: 60,
@@ -1347,6 +1424,6 @@ describe('secure at stop', () => {
     })
     await passGrace()
     expect(await getRecoverableTake([])).toBeNull() // never re-offered
-    expect(await listOwnUnsecuredTakeIds()).toEqual([takeId]) // still sent
+    expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId]) // still sent
   })
 })

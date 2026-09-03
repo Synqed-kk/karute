@@ -135,7 +135,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   // Capture pipeline PR3 fix round 3 — the mount DRAIN's own read. Separate
   // from the offer below on purpose: the offer hides a take flushed inside the
   // 20 s grace, and audio the server lacks must not be hidden by that.
-  listOwnUnsecuredTakeIds: jest.fn(async () => unsecuredTakeIds),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => unsecuredTakeIds),
   getRecoverableTake: jest.fn(async () => (offerTake ? (takeOverride ?? TAKE) : null)),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
@@ -2072,7 +2072,27 @@ describe('the mount retry secures a take the stop could not', () => {
   it('every take the server lacks is secured once, through the arm\'s own port', async () => {
     await renderPage()
     expect(mockSecureTake).toHaveBeenCalledTimes(1)
-    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-1')
+    // No recorder duration on this leg, and the singleton's own live-take probe
+    // (fix round 5 — ⚖ never finalize a take that is still recording).
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
+    // And it IS the recorder's answer, not a stand-in that always says no.
+    const isActive = (mockSecureTake.mock.calls[0] as unknown[])[3] as (
+      id: string,
+    ) => boolean
+    globalRecorder.state = 'recording'
+    globalRecorder.takeId = 'take-1'
+    try {
+      expect(isActive('take-1')).toBe(true)
+      expect(isActive('take-2')).toBe(false)
+    } finally {
+      globalRecorder.state = 'idle'
+      globalRecorder.takeId = null
+    }
   })
 
   // Fix round 3 — THE reason the drain has its own store read. The recovery
@@ -2089,6 +2109,8 @@ describe('the mount retry secures a take the stop could not', () => {
     expect(mockSecureTake).toHaveBeenCalledWith(
       expect.anything(),
       'take-hidden-by-the-grace',
+      undefined,
+      expect.any(Function),
     )
   })
 
@@ -2096,7 +2118,12 @@ describe('the mount retry secures a take the stop could not', () => {
     unsecuredTakeIds = ['take-1', 'take-2']
     await renderPage()
     expect(mockSecureTake).toHaveBeenCalledTimes(2)
-    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-2')
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-2',
+      undefined,
+      expect.any(Function),
+    )
   })
 
   // The finalized/terminal exclusions now live in the store read (one home for
@@ -2121,7 +2148,12 @@ describe('the mount retry secures a take the stop could not', () => {
     try {
       await renderPage()
       expect(mockSecureTake).toHaveBeenCalledTimes(1)
-      expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-live-1')
+      expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-live-1',
+      undefined,
+      expect.any(Function),
+    )
     } finally {
       globalRecorder.state = 'idle'
       globalRecorder.takeId = null
@@ -2157,6 +2189,11 @@ describe('the mount retry secures a take the stop could not', () => {
     await renderPage()
     // The banner shows the draft (recoveredTake is nulled) — the audio is
     // secured all the same.
-    expect(mockSecureTake).toHaveBeenCalledWith(expect.anything(), 'take-1')
+    expect(mockSecureTake).toHaveBeenCalledWith(
+      expect.anything(),
+      'take-1',
+      undefined,
+      expect.any(Function),
+    )
   })
 })

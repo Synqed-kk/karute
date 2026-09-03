@@ -103,7 +103,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: jest.fn(),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
-  listOwnUnsecuredTakeIds: jest.fn(async () => []),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(),
 }))

@@ -378,7 +378,12 @@ class GlobalRecorder {
           // back instead of guessing from the flush window. After the flush so
           // it cannot race the tail segment's own write to the same row.
           await stampTakeDuration(takeId, durationMs)
-          await secureTake(getRecordingPipelinePort(), takeId, durationMs / 1000)
+          await secureTake(
+            getRecordingPipelinePort(),
+            takeId,
+            durationMs / 1000,
+            (id) => this.isActiveTake(id),
+          )
         })
       }
     }
@@ -505,6 +510,20 @@ class GlobalRecorder {
       setTimeout(() => resolve(null), opts?.timeoutMs ?? MINT_AWAIT_MS),
     )
     return Promise.race([promise, timeout])
+  }
+
+  /** Is this take the one being CAPTURED right now? Capture pipeline PR3 fix
+   *  round 5: securing a live take would seal the segments flushed so far under
+   *  its IMMUTABLE finalized key, so the rest of the recording could never land.
+   *  `recorded` is deliberately NOT active — its bytes are complete, and that
+   *  state is exactly when the stop path secures it. Passed to secureTake by
+   *  the callers that live in this singleton's runtime; the store's own drain
+   *  filter (listOwnStoppedUnsecuredTakeIds) is the other half. */
+  isActiveTake(takeId: string): boolean {
+    return (
+      this.takeId === takeId &&
+      (this.state === 'recording' || this.state === 'paused')
+    )
   }
 
   stop() {

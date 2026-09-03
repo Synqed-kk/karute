@@ -53,12 +53,28 @@ const inFlight = new Set<string>()
  *   (it subtracts paused time, and iOS fMP4 reports duration 0 — ⚖ v2 item 13).
  *   Omitted (the retry path, which has no recorder), the value the recorder
  *   STAMPED at stop stands in, and only failing that the take's flush window.
+ * @param isActive answers "is this take the one you are CAPTURING right now?"
+ *   — passed by callers that share a runtime with the recorder singleton
+ *   (globalRecorder.isActiveTake). A caller with no recorder at all (PR5's
+ *   launch drain in the native shell, where the single webview has just
+ *   started) passes nothing rather than inventing a `() => false` that would
+ *   read like a check it never made.
  */
 export async function secureTake(
   port: RecordingPipelinePort,
   takeId: string,
   durationSeconds?: number,
+  isActive?: (takeId: string) => boolean,
 ): Promise<void> {
+  // ⚖ NEVER FINALIZE A LIVE TAKE (fix round 5) — the belt behind the drain's
+  // stopped-only filter. Finalizing a take that is still recording (or paused
+  // mid-session) would seal the segments flushed so far under the IMMUTABLE
+  // finalized key, so the rest of the recording could never land. The drain
+  // reads the stop stamp off disk; this reads the recorder itself, which is the
+  // only thing that can answer for a take whose stamp is somehow already there.
+  // Return, mark NOTHING: there is no failure here, just a take that is not
+  // ready — the stop path will call this again in a moment.
+  if (isActive?.(takeId)) return
   if (inFlight.has(takeId)) return
   inFlight.add(takeId)
   try {
