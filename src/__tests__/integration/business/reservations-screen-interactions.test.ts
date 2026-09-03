@@ -752,7 +752,11 @@ describe('⚖ the page owns vertical scrolling', () => {
   })
 
   it('the column head and the day headers hang off the MEASURED topbar, never a typed number', () => {
-    expect(CSS).toContain('top: var(--rv-topbar)')
+    // the .rv-thead rule itself, not just the token anywhere in the sheet — a
+    // hardcoded 62px elsewhere (e.g. the phone .rv-dayhd override) must not
+    // hide a typed number sneaking into THIS rule (M40)
+    const thead = CSS.slice(CSS.indexOf('.biz .pg-reservations .rv-thead {'))
+    expect(thead.slice(0, thead.indexOf('}'))).toContain('top: var(--rv-topbar);')
     expect(CSS).toContain('top: calc(var(--rv-topbar) + 26px)')
     expect(SCREEN_CODE).toContain("root.style.setProperty('--rv-topbar'")
     expect(SCREEN_CODE).toContain('new ResizeObserver(apply)')
@@ -832,5 +836,12 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     expect(SCREEN_CODE.split('changeCommit').length - 1).toBe(1)
     expect(SCREEN_CODE).toContain('setSendRefused(true)')
     expect(SCREEN_CODE).toContain('disabled={!picked || !pickReason}')
+  })
+
+  it('⚖-ADJ G · 正本 reads SYNQED for a Reserve row — D5 settled, the mock’s own inference refuted', () => {
+    // the inspector's 正本 line has exactly two arms: 外部予約元, else SYNQED —
+    // a Reserve row is NOT external, so it must fall to the SYNQED arm, never
+    // a third 'Reserve' arm (the mock's own inference, refuted by the data door)
+    expect(SCREEN_CODE).toContain("{row.sourceGroup === 'external' ? '外部予約元' : 'SYNQED'}")
   })
 })
