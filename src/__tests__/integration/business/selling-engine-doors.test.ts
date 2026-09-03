@@ -106,14 +106,32 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  walked through both helpers untouched: the anchor saw a real line, and the
  *  blanker only ever looked at what a line STARTS with. The verdict door came
  *  back green at 530 suites with the feature dark — the round's own headline
- *  mutant, alive again. So `codeOnly` strips whole block comments FIRST (an
- *  unterminated one runs to the end of the input, which is what a SLICE of a
- *  file can hand it), and the old rule for comment-continuation lines goes with
- *  them: once the blocks are gone no continuation line is left to blank, and
- *  `//` is the only comment shape a line can still begin with. Relied on only
- *  because neither comment delimiter occurs OUTSIDE a comment in any of the
- *  three pinned product files — checked first, because one sitting inside a
- *  string literal could open or close a comment that is not one.
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
  *
  *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
  *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
@@ -135,7 +153,7 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  filter — and then it INFLATES the count, which is red the other way
  *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
 const pinnedLines = (src: string, line: string) =>
   (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0

@@ -141,14 +141,32 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  walked through both helpers untouched: the anchor saw a real line, and the
  *  blanker only ever looked at what a line STARTS with. The verdict door came
  *  back green at 530 suites with the feature dark — the round's own headline
- *  mutant, alive again. So `codeOnly` strips whole block comments FIRST (an
- *  unterminated one runs to the end of the input, which is what a SLICE of a
- *  file can hand it), and the old rule for comment-continuation lines goes with
- *  them: once the blocks are gone no continuation line is left to blank, and
- *  `//` is the only comment shape a line can still begin with. Relied on only
- *  because neither comment delimiter occurs OUTSIDE a comment in any of the
- *  three pinned product files — checked first, because one sitting inside a
- *  string literal could open or close a comment that is not one.
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
  *
  *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
  *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
@@ -170,7 +188,7 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  filter — and then it INFLATES the count, which is red the other way
  *  round. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '').replace(/^[ \t]*\/\/.*$/gm, '')
+const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
 const pinnedLines = (src: string, line: string) =>
   (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -1370,6 +1388,132 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+
+  /** ⚖ BREAKER-827 §DELTA 2 D4 (BLOCKER) — EVERY PIN ABOVE ASKS WHERE A LINE IS.
+   *  NONE OF THEM ASKS WHAT THE WRAPPER HANDS BACK.
+   *
+   *  The breaker left both door lines byte-identical, in their own call slices,
+   *  counted once file-wide — and added ONE line inside `bedDoorFor`:
+   *
+   *      (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
+   *        askerId === null ? undefined :
+   *        bedDoor(lanes === boardLanes ? ledger : bedViewsFor(…), lanes, askerId),
+   *
+   *  `bedDoorFor(null)` and `bedDoorFor(null, lanes)` then both return
+   *  `undefined`, so `railCtx` drops `protectedWindowFeasible` on BOTH sides and
+   *  the guard falls back to the raw pocket-minute enumeration everywhere. 530
+   *  suites / 8,212 green, `tsc` exit 0, every pin above still true — and 90
+   *  fixture cells moved at the shipped dials (rail 5 + verdict 5 at now=804,
+   *  12 + 12 at now=null): R7's whole change AND #800's rail change, both dark,
+   *  without touching a pinned character.
+   *
+   *  So the three places where those two answers are DECIDED are pinned as
+   *  whole slices: the wrapper, and each door's input literal, are EXACTLY the
+   *  lines below in exactly this order. This is selling-engine-flip.test.ts's
+   *  shape (grep it for FORWARDED) applied to a screen wrapper — an explicit
+   *  array compared with `toEqual`, so an added line, a removed line, a changed
+   *  line and a re-ordered line are one red that PRINTS the whole slice.
+   *
+   *  ⚠ AND THE EQUALITY IS THE BAN LIST. There is no separate list of
+   *  forbidden tokens because there is no room left for one: the arrays hold
+   *  every non-blank line the slice's CODE has, so once they are removed the
+   *  remainder of the slice is whitespace and comments and nothing else. A
+   *  hoisted ternary, a spread, a computed key, a second statement — each is a
+   *  line that is not in the array, or a line in the array that changed.
+   *  `?`, `null` and `undefined` need no ban of their own: the ⚖ 39 hatch
+   *  ternary and both door ternaries are pinned as the exact text they are.
+   *
+   *  ⚖ D6 (§DELTA 2) RIDES IN THE SAME PIN. `...{ protectedWindowFeasible:
+   *  undefined },` written under the verdict's door line left 486 green and was
+   *  caught by `tsc` alone (TS2783 — the type-checker doing armour's job). It is
+   *  a fifteenth line in the verdict array now, so it is a test red too.
+   *
+   *  ⚠ WHAT THIS STILL DOES NOT REACH is a decision taken OUTSIDE these three
+   *  slices — a lookup elsewhere on the screen that drops what a door returned,
+   *  or a rewiring at the renderer. No suite renders `TodayScreen`, so that is
+   *  the ⚖ renderer-fence question already on Liam's desk, and it is the
+   *  recorded CEILING of this family rather than the next round of text. */
+  it('the two guard doors and the wrapper they go through are EXACTLY these lines', () => {
+    /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
+     *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
+     *  blanked, so a decoy has to be real code to appear at all. `ok` is
+     *  asserted before the text is read: a slice that came back empty because an
+     *  anchor moved would make the equality below vacuous. */
+    const sliceLines = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      expect({ open, ok: s.ok }).toEqual({ open, ok: true })
+      const code = codeOnly(s.text)
+      return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
+    }
+
+    // 1 · THE WRAPPER — three lines: the hook, the arrow with its asker and its
+    // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
+    // nowhere to be.
+    expect(
+      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, props.rooms, ledger, ledgerFrame, handId],').lines,
+    ).toEqual([
+      'const bedDoorFor = useCallback(',
+      '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+    ])
+
+    // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
+    const rail = sliceLines(
+      '? guardRailsFor(boardLanes, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],',
+    )
+    expect(rail.lines).toEqual([
+      '? guardRailsFor(boardLanes, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur: railDur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId: handId,',
+      'placementFeasible: bedDoorFor(handId),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      '})',
+      ': [],',
+    ])
+
+    // 3 · THE VERDICT'S INPUT — the same shape, with the caller's own duration,
+    // the caller's own exclusion and the board it was handed.
+    const verdict = sliceLines(
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],',
+    )
+    expect(verdict.lines).toEqual([
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId,',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+      '})',
+      ': null,',
+    ])
+
+    // …and the KEY COUNT beside each array, the flip precedent's second half.
+    // The arrays read whole LINES; this reads `\w+:`-spelled keys, so the two
+    // disagree the moment a key is written in a shape a line has to be read to
+    // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
+    // which is why the number is smaller than the array — both are measured.
+    for (const [where, code, want] of [
+      ['rail', rail.code, 10],
+      ['verdict', verdict.code, 8],
+    ] as const) {
+      expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
+    }
   })
 
   /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
