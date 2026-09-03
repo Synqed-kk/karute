@@ -41,7 +41,7 @@
 // the take in `inFlight` for the whole page lifetime: the stop path was gone,
 // every mount retry hit the guard and returned, and the sequential drain below
 // never reached its second take. So the PUT carries a deadline (its own size
-// at ~50 KB/s, floor 60 s — a 2 h take on slow cellular must still be allowed
+// at ~10 KB/s, floor 60 s — a 2 h take on slow cellular must still be allowed
 // to finish), and the phone's three doors carry a 30 s one of their own
 // (thin/ports/recording.vite.ts). A deadline lands as a RETRYABLE code and the
 // loop moves on. The web arm's doors are server actions — no signal reaches
@@ -88,7 +88,7 @@ const DEFAULT_MIME = 'audio/webm'
  *  WebView shell, which is where staff actually record, cannot have two. */
 const inFlight = new Set<string>()
 
-/** The PUT's deadline, in ms: this take's own bytes at ~50 KB/s, never under a
+/** The PUT's deadline, in ms: this take's own bytes at ~10 KB/s, never under a
  *  minute. A FLAT timeout cannot work here — a take is the whole recording, so
  *  the same number that mercy-kills a stalled 2 MB upload would cut a 90-minute
  *  one off mid-flight on salon wifi. Generous by design: this exists to release

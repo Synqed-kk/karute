@@ -47,6 +47,66 @@ const TAKE_TTL_MS = 7 * 24 * 60 * 60 * 1000
  *  offering — and letting a save delete — another tab's in-progress audio. */
 const ACTIVE_GRACE_MS = 20_000
 
+/** ⚖ THE CROSS-TAB LIVENESS SIGNAL (fix round 14) — one localStorage key per
+ *  live take, re-stamped every ~5 s by the recorder holding it (global-recorder
+ *  writes it on the flush timer it already runs; nothing here schedules
+ *  anything). IndexedDB is shared between same-origin tabs but says nothing
+ *  about who is RECORDING; `isActive` can only answer for the singleton in the
+ *  caller's own runtime. localStorage is the one store every tab writes and
+ *  every tab reads synchronously, which is what isStoppedTake needs.
+ *
+ *  A PAUSED take is exactly the case it exists for: it flushes nothing, so it
+ *  looks stale within seconds, and on the web it may be paused in the tab next
+ *  door. The heartbeat keeps beating while paused, so "quiet" and "gone" stop
+ *  being the same reading. Removed at stop/discard, so a finished take stops
+ *  claiming to be alive. */
+const HEARTBEAT_KEY_PREFIX = 'karute.takeHeartbeat.'
+
+/** Stamp this take as still held by a live recorder. Best-effort like every
+ *  other write in this file: Safari private mode throws on setItem, and a
+ *  recording must never notice. */
+export function writeTakeHeartbeat(takeId: string): void {
+  try {
+    localStorage.setItem(HEARTBEAT_KEY_PREFIX + takeId, String(Date.now()))
+  } catch (err) {
+    console.error('[take-store] writeTakeHeartbeat failed:', err)
+  }
+}
+
+/** …and the recorder let go of it (stop, discard, the next take). Leaving the
+ *  key would make a finished take claim a recorder for a whole grace window. */
+export function clearTakeHeartbeat(takeId: string): void {
+  try {
+    localStorage.removeItem(HEARTBEAT_KEY_PREFIX + takeId)
+  } catch (err) {
+    console.error('[take-store] clearTakeHeartbeat failed:', err)
+  }
+}
+
+/** Might a recorder in ANOTHER TAB still be holding this take? A fresh
+ *  heartbeat says yes.
+ *
+ *  Also yes when the store cannot be read at all. A localStorage that throws
+ *  for this tab threw for the writer too (same browser, same private-mode
+ *  setting), so "no key" there is the absence of the whole mechanism rather
+ *  than evidence of a stopped take — and reading it as evidence would seal a
+ *  take another tab is still recording under an IMMUTABLE key. With no signal
+ *  either way the web falls back to round 5's stopped-only rule, which is the
+ *  behaviour it had before this existed. A key present but unreadable as a
+ *  number was not written by the recorder and is treated as no key. */
+function takeMayBeLiveElsewhere(takeId: string): boolean {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(HEARTBEAT_KEY_PREFIX + takeId)
+  } catch (err) {
+    console.error('[take-store] heartbeat read failed:', err)
+    return true
+  }
+  if (!raw) return false
+  const beatAt = Number(raw)
+  return Number.isFinite(beatAt) && Date.now() - beatAt < ACTIVE_GRACE_MS
+}
+
 /** How long the drain leaves a take alone after a failed secure attempt (fix
  *  round 7). Retryable failures are moments in time — an offline stop, a 502 —
  *  and the record page's drain runs on every mount, so without a floor a
@@ -541,7 +601,13 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
  *
  *  Best-effort, no-throw, no-op-if-gone — same contract as stampTakeSession.
  *  B-5: only SUPPLIED fields are written, so a later partial stamp can never
- *  blank an answer already stored. */
+ *  blank an answer already stored.
+ *
+ *  Through patchTakeMeta since fix round 14 (AA3), which is where this file's
+ *  owner gate lives: a shared salon device signs one staffer out and the next
+ *  one in, and this carries a take id from wherever its caller got it — so
+ *  without the gate a stale answer could stamp a colleague's recording as
+ *  resolved and skip the popup on a session that never got one. */
 export async function stampTakeOutcome(
   takeId: string,
   outcome: SessionOutcome | undefined,
@@ -550,24 +616,12 @@ export async function stampTakeOutcome(
   /** null CLEARS it (the leg finished); undefined leaves it alone. */
   outcomeNewPack?: TakeMeta['outcomeNewPack'],
 ): Promise<void> {
-  try {
-    const db = await openDb()
-    if (!db) return
-    const tx = db.transaction(TAKES, 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta) return
-    await req(
-      tx.objectStore(TAKES).put({
-        ...meta,
-        ...(outcome === undefined ? {} : { outcome }),
-        ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
-        ...(outcomeLegs === undefined ? {} : { outcomeLegs }),
-        ...(outcomeNewPack === undefined ? {} : { outcomeNewPack }),
-      }),
-    )
-  } catch (err) {
-    console.error('[take-store] stampTakeOutcome failed:', err)
-  }
+  await patchTakeMeta(takeId, {
+    ...(outcome === undefined ? {} : { outcome }),
+    ...(outcomeSkipped === undefined ? {} : { outcomeSkipped }),
+    ...(outcomeLegs === undefined ? {} : { outcomeLegs }),
+    ...(outcomeNewPack === undefined ? {} : { outcomeNewPack }),
+  })
 }
 
 /** A2-2: mark a take as "discarded, words still owed". Written BEFORE anything
@@ -575,23 +629,15 @@ export async function stampTakeOutcome(
  *  transcript landing still leaves a take the sweep can finish.
  *  Best-effort, no-throw, no-op-if-gone — same contract as stampTakeSession.
  *  Returns false when nothing was stamped: the caller must then let the take be
- *  deleted as it always was, rather than keeping audio nothing will collect. */
+ *  deleted as it always was, rather than keeping audio nothing will collect.
+ *  Owner-gated through patchTakeMeta since fix round 14 (AA3) — a false from
+ *  the gate is the same answer as a false from a missing row, and the caller
+ *  already knows what to do with it. */
 export async function stampDiscardPending(
   takeId: string,
   discardPending: DiscardPending,
 ): Promise<boolean> {
-  try {
-    const db = await openDb()
-    if (!db) return false
-    const tx = db.transaction(TAKES, 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta) return false
-    await req(tx.objectStore(TAKES).put({ ...meta, discardPending }))
-    return true
-  } catch (err) {
-    console.error('[take-store] stampDiscardPending failed:', err)
-    return false
-  }
+  return patchTakeMeta(takeId, { discardPending })
 }
 
 /** A2-2: every take of the SIGNED-IN user whose discard still owes its words.
@@ -635,8 +681,28 @@ export async function readTakeOutcome(takeId: string): Promise<
 }
 
 /** Remove a take (meta + all segments). Called on successful karute save,
- *  explicit discard, and TTL expiry. */
+ *  explicit discard, and TTL expiry.
+ *
+ *  OWNER-GATED at the door since fix round 14 (AA3). This is the one call in
+ *  the file that DESTROYS audio, and it carries a take id from wherever its
+ *  caller got it — a pipeline context or a banner snapshot held across the
+ *  logout/login swap a shared salon device does all day. Without the gate such
+ *  a stale id would delete the take of the colleague who is now signed in, and
+ *  the store's own doctrine is that another owner's take is hidden but never
+ *  touched (their TTL, or their own logout, collects it). */
 export async function deleteTake(takeId: string): Promise<void> {
+  if (!(await readOwnTakeMeta(takeId))) return
+  await deleteTakeRows(takeId)
+}
+
+/** The rows themselves, no owner question asked — for THIS file's two sweeps,
+ *  which have already settled ownership in ways the gate above cannot: the TTL
+ *  prune in listOwnTakes drops EXPIRED takes of every owner (nobody is coming
+ *  for them), and clearOwnTakes matches `ownerUid` itself, against a uid that
+ *  may be EXPLICIT precisely because the session is already gone — the logout
+ *  wipe, where currentUserId() answers null and the gate would leave the
+ *  leaving staffer's audio sitting on the device. */
+async function deleteTakeRows(takeId: string): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
@@ -650,7 +716,7 @@ export async function deleteTake(takeId: string): Promise<void> {
       if (s.takeId === takeId) await req(tx.objectStore(SEGMENTS).delete([s.takeId, s.seq]))
     }
   } catch (err) {
-    console.error('[take-store] deleteTake failed:', err)
+    console.error('[take-store] deleteTakeRows failed:', err)
   }
 }
 
@@ -680,7 +746,7 @@ export async function clearOwnTakes(explicitUid?: string): Promise<void> {
       db.transaction(TAKES).objectStore(TAKES).getAll(),
     )) as TakeMeta[]
     for (const m of metas) {
-      if (m.ownerUid === uid) await deleteTake(m.takeId)
+      if (m.ownerUid === uid) await deleteTakeRows(m.takeId)
     }
   } catch (err) {
     console.error('[take-store] clearOwnTakes failed:', err)
@@ -719,7 +785,7 @@ export async function listOwnTakes(
     for (const m of metas) {
       const lastActivity = m.updatedAt ?? m.startedAt
       if (now - lastActivity > TAKE_TTL_MS) {
-        void deleteTake(m.takeId)
+        void deleteTakeRows(m.takeId)
         continue
       }
       if (m.ownerUid !== uid || exclude.has(m.takeId)) continue
@@ -788,10 +854,20 @@ export async function getRecoverableTake(
  *  · has been quiet longer than ACTIVE_GRACE_MS
  *  is a stopped take whose stamp failed. Its bytes may go.
  *
- *  ⚖ THE WEB KEEPS ROUND 5'S RULE, unchanged: another same-origin tab can be
- *  recording this very take, `isActive` cannot see into it, and a finalized key
- *  is IMMUTABLE — sealing it there would truncate the recording forever. So off
- *  the shell the answer is the stamp or nothing.
+ *  ⚖ AND THE WEB ASKS THE OTHER TABS (fix round 14). Round 5's hazard is real —
+ *  another same-origin tab can be recording this very take, `isActive` cannot
+ *  see into it, and a finalized key is IMMUTABLE, so sealing it there would
+ *  truncate that recording forever. But "quiet" was never the same fact as
+ *  "gone", and until now the web had no way to tell them apart, which left the
+ *  failed-stamp case above device-only on every browser. The heartbeat above is
+ *  that way: a live recorder re-stamps its take's key every ~5 s, paused or
+ *  not, so on the web the same four facts plus a heartbeat that is absent or
+ *  older than the grace mean no recorder anywhere is holding this take. A tab
+ *  that is merely PAUSED keeps beating and keeps its take.
+ *
+ *  The native shell does not need it (round 13's reading stands on its own: one
+ *  WebView, so a page that is loading is proof enough), and must not depend on
+ *  it — a take recorded by an older bundle has no key at all.
  *
  *  `isActive` comes from the caller because the recorder is a module singleton
  *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
@@ -803,10 +879,11 @@ export function isStoppedTake(
   isActive?: (takeId: string) => boolean,
 ): boolean {
   if (meta.durationMs !== undefined) return true
-  if (!isNativeShell()) return false
   if (meta.lastSeq < 0) return false
   if (isActive?.(takeId)) return false
-  return Date.now() - meta.updatedAt >= ACTIVE_GRACE_MS
+  if (Date.now() - meta.updatedAt < ACTIVE_GRACE_MS) return false
+  if (isNativeShell()) return true
+  return !takeMayBeLiveElsewhere(takeId)
 }
 
 /** Every take of the SIGNED-IN user that is KNOWN STOPPED and whose audio the
@@ -816,13 +893,10 @@ export function isStoppedTake(
  *  IMMUTABLE: securing a take whose recorder is still running would upload the
  *  segments flushed so far, finalize them, and leave the rest of the recording
  *  with nowhere to land — permanently truncated audio, in exchange for saving a
- *  few seconds. "Stopped" is isStoppedTake above: the stop stamp on the web,
- *  and on the single-WebView shell that stamp OR a take no recorder can be
- *  holding (fix round 13 — a stamp that lost its write must not lose the take).
- *
- *  Which leaves the web's unstopped takes (a kill mid-recording) to PR5, whose
- *  launch drain gets the multi-tab heartbeat. Until then their audio stays on
- *  the device, plainly un-finalized — 要対応, not lost.
+ *  few seconds. "Stopped" is isStoppedTake above: the stop stamp, or a take no
+ *  recorder can be holding — read from the single WebView on the shell (fix
+ *  round 13) and from the cross-tab heartbeat on the web (fix round 14), so a
+ *  stamp that lost its write no longer loses the take on either arm.
  *
  *  Deliberately NOT listOwnTakes. That read is the recovery OFFER, and its 20 s
  *  ACTIVE_GRACE_MS hides a take flushed moments ago (it might be live in another

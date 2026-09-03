@@ -344,6 +344,16 @@ const asNativeShell = () => {
   }
 }
 
+const heartbeatKey = (takeId: string) => `karute.takeHeartbeat.${takeId}`
+const heartbeatOf = (takeId: string) => localStorage.getItem(heartbeatKey(takeId))
+
+/** ANOTHER TAB is holding this take — the key its recorder re-stamps every
+ *  ~5 s (fix round 14). Written directly because that is literally what the
+ *  other tab's recorder does; this runtime's singleton has let the take go,
+ *  and `isActive` cannot see across the gap. */
+const beatFromAnotherTab = (takeId: string) =>
+  localStorage.setItem(heartbeatKey(takeId), String(Date.now()))
+
 beforeEach(async () => {
   // The IDB shim resolves via queueMicrotask — modern fake timers fake it by
   // default, which would deadlock every store call.
@@ -382,6 +392,7 @@ beforeEach(async () => {
   slowSegmentWrites = false
   failNextDurationStamps = 0
   delete (window as unknown as { Capacitor?: unknown }).Capacitor
+  localStorage.clear()
   globalRecorder.discard()
   await drain()
   fakeDb.stores.get('takes')?.data.clear()
@@ -909,9 +920,11 @@ describe('take durability — outcome survives the crash (R-B3)', () => {
   it('stays best-effort: a failing write never throws at the caller', async () => {
     const takeId = await quietTake()
     failWrites = true
-    await expect(
-      stampTakeOutcome(takeId, { status: 'pending' }),
-    ).resolves.toBeUndefined()
+    // Through patchTakeMeta since fix round 14 (AA3, for its owner gate), so a
+    // thrown write now costs the two shared backoffs before it gives up.
+    const stamped = stampTakeOutcome(takeId, { status: 'pending' })
+    await jest.advanceTimersByTimeAsync(200)
+    await expect(stamped).resolves.toBeUndefined()
     failWrites = false
   })
 })
@@ -1072,6 +1085,7 @@ describe('secure at stop', () => {
     expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     // The tail flush landed BEFORE the read-back: the uploaded object carries
     // the final 'TAIL' chunk, not just the 5 s segment.
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(putBodies[0].size).toBe('aaa'.length + 'TAIL'.length)
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
@@ -2122,13 +2136,16 @@ describe('secure at stop', () => {
   // included takes STILL RECORDING — this tab remounting, another same-origin
   // tab, a paused session — and a finalized key is IMMUTABLE: sealing the
   // segments flushed so far means the rest of the recording can never land.
-  // No age or grace window can stand in for the stop, either: a paused take
-  // flushes nothing, so it looks stale within seconds. Only the stop stamp
-  // (stampTakeDuration, written at onstop) proves a take is complete.
-  it('the drain is STOPPED-ONLY: a stale unstopped take is skipped, a fresh stopped one is taken', async () => {
+  // No age or grace window can stand in for the stop: a paused take flushes
+  // nothing, so it looks stale within seconds. The stop stamp
+  // (stampTakeDuration, written at onstop) proves a take is complete — and
+  // since fix round 14 a take that is still BEATING proves the opposite just as
+  // positively, which is what keeps the live one below out of the worklist.
+  it('the drain is STOPPED-ONLY: a live unstopped take is skipped, a fresh stopped one is taken', async () => {
     const running = await keptTake() // no onstop, so no stop stamp
     expect(metaOf(running).durationMs).toBeUndefined()
     await jest.advanceTimersByTimeAsync(60_000) // a minute of silence proves nothing
+    beatFromAnotherTab(running) // …because the recorder holding it is elsewhere
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
 
     // A take a recorder DID stop, flushed seconds ago: no grace to wait out.
@@ -2202,13 +2219,18 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
-  // ⚖ AND THE WEB KEEPS ROUND 5'S RULE. The same take, the same silence, on the
-  // open web — where ANOTHER SAME-ORIGIN TAB can be recording it and isActive
-  // cannot see into that tab at all. A finalized key is immutable, so sealing
-  // it here would truncate that recording forever. Stopped-only, unchanged.
-  it('the WEB never drains an unstamped take, however quiet — another tab may be recording it', async () => {
+  // ── ⚖ AND THE WEB ASKS THE OTHER TABS (fix round 14) ─────────────────────
+  // Round 5's hazard is real: ANOTHER SAME-ORIGIN TAB can be recording this
+  // take, isActive cannot see into it, and a finalized key is immutable — so
+  // sealing it here would truncate that recording forever. But "quiet" was
+  // never the same fact as "gone", and reading them as one left the failed
+  // stamp above device-only on every browser. A live recorder now re-stamps a
+  // localStorage heartbeat every ~5 s, paused or not, so the two can be told
+  // apart. A take that is beating stays exactly as untouchable as before.
+  it('the WEB never drains a take another tab is still holding — a fresh heartbeat is a live recorder', async () => {
     const takeId = await keptTake()
-    await jest.advanceTimersByTimeAsync(60_000) // three graces of silence
+    await jest.advanceTimersByTimeAsync(60_000) // three graces of silence…
+    beatFromAnotherTab(takeId) // …and a recorder next door that just checked in
 
     expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
     order.length = 0
@@ -2218,10 +2240,166 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).secureError).toBeUndefined()
 
     // The belt refuses it too, not just the worklist: a caller that named this
-    // take directly gets the same answer on the web.
+    // take directly gets the same answer.
     await secureTake(port(), takeId, undefined, isActive)
     expect(order).toEqual([])
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
+  })
+
+  // …and the other half of the same rule, which is the fix itself: nothing
+  // beating for a quiet unstamped take means no recorder anywhere is holding
+  // it. Both shapes of "nothing" count — a heartbeat that has gone stale (the
+  // tab was killed mid-take) and a take that never had one (recorded by a
+  // bundle older than this round, or in a browser whose storage refused).
+  it('…and takes it once nothing is beating for it — the stop stamp the web used to lose', async () => {
+    const stale = await keptTake()
+    beatFromAnotherTab(stale) // that tab then went away and never came back
+    const never = await keptTake() // an older bundle's take: no key was written
+    await jest.advanceTimersByTimeAsync(60_000)
+
+    expect(heartbeatOf(never)).toBeNull()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([
+      stale,
+      never,
+    ])
+
+    order.length = 0
+    await mountDrain()
+    expect(metaOf(stale).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(never).finalizedAt).toEqual(expect.any(Number))
+    // Same flush-window fallback as the native arm — nobody stamped these.
+    expect(lastFinalized().durationSeconds).toBeCloseTo(5, 1)
+  })
+
+  // The signal itself, at the recorder end: it rides the flush timer that was
+  // already there (no third timer), it keeps beating through a PAUSE — the
+  // case that has no other tell, since a paused take flushes nothing — and it
+  // is gone the moment the recorder is.
+  it('a live take beats every 5 s, PAUSED included, and stops beating at the stop', async () => {
+    const takeId = await startAndSettle()
+    expect(heartbeatOf(takeId)).toBeNull() // nothing yet — the take is one tick old
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(Number(heartbeatOf(takeId))).toBe(Date.now())
+
+    globalRecorder.pause()
+    await drain()
+    const quietSince = metaOf(takeId).updatedAt
+    await jest.advanceTimersByTimeAsync(20_000)
+
+    // On disk this take has been silent for a full grace…
+    expect(metaOf(takeId).updatedAt).toBe(quietSince)
+    expect(Date.now() - quietSince).toBeGreaterThanOrEqual(20_000)
+    // …and it is still plainly alive. The probe lies (this is what the OTHER
+    // tab's drain sees — no singleton of its own to ask), so the heartbeat is
+    // the only thing standing between a paused session and an immutable key.
+    expect(Number(heartbeatOf(takeId))).toBe(Date.now())
+    expect(await listOwnStoppedUnsecuredTakeIds(false, () => false)).toEqual([])
+
+    globalRecorder.stop()
+    await drain(200)
+    expect(heartbeatOf(takeId)).toBeNull()
+  })
+
+  // Safari private mode throws on both ends of localStorage. Capture must not
+  // notice (the durability invariant), and the drain must not read a store it
+  // cannot open as proof of anything: with no signal available the web falls
+  // back to round 5's stopped-only rule, exactly as before this existed.
+  it('a localStorage that throws never touches capture — and the web simply refuses to guess', async () => {
+    const setItem = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('QuotaExceededError')
+      })
+    const getItem = jest
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementation(() => {
+        throw new Error('SecurityError')
+      })
+    try {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+
+      expect(setItem).toHaveBeenCalled() // it tried, and it threw
+      expect(globalRecorder.state).toBe('recording') // and capture never knew
+      expect(segments().size).toBe(1)
+
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      await jest.advanceTimersByTimeAsync(60_000)
+      expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    } finally {
+      setItem.mockRestore()
+      getItem.mockRestore()
+    }
+  })
+
+  // ── ⚖ A STOP IS NOT FINISHED UNTIL ITS TAIL IS ON DISK (fix round 14, AA1) ─
+  // The window between onstop and the end of the stop leg reads, to every rule
+  // above, as a stopped take free to seal: no stamp yet (it comes after the
+  // tail flush), the heartbeat already removed, state 'recorded' — and a slow
+  // IndexedDB write holds it open while `updatedAt` ages past the grace. A
+  // drain in that window would upload only the COMMITTED segments under the
+  // IMMUTABLE key, and the tail could then never land: truncated, forever.
+  it('a stop whose tail is still being written is untouchable — the drain would seal it short', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // one segment committed
+    // A long quiet stretch: no chunks, so the empty flushes write nothing and
+    // `updatedAt` stops moving — the take is already stale when the stop comes.
+    // (The tail chunk itself arrives from the recorder AT the stop, as a real
+    // MediaRecorder emits it, and its write is the slow one below.)
+    await jest.advanceTimersByTimeAsync(60_000)
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    await drain(200)
+
+    // Every fact the drain reads says "stopped, seal it".
+    expect(globalRecorder.state).toBe('recorded')
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(Date.now() - metaOf(takeId).updatedAt).toBeGreaterThan(20_000)
+    expect(heartbeatOf(takeId)).toBeNull()
+    // The recorder is the one thing that knows better — on BOTH arms.
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+
+    order.length = 0
+    await mountDrain()
+    expect(order).toEqual([]) // nothing uploaded short
+
+    // The leg finishes: the tail lands and the take goes up WHOLE.
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    expect(putBodies[0].size).toBe('aaa'.length + 'TAIL'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    // …and the hold is released with it.
+    expect(globalRecorder.isActiveTake(takeId)).toBe(false)
+  })
+
+  // The other exit of that leg: the tail was SKIPPED (the next customer's
+  // recording started first), nothing is stamped and nothing is sealed — the
+  // hold must still be released, or the take would be invisible to every drain
+  // for the rest of the page's life.
+  it('…and a skipped tail releases the hold too, unstamped and unsealed', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    pushChunk('bbb')
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    void globalRecorder.start({ target: TARGET }) // the next customer
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect(globalRecorder.isActiveTake(takeId)).toBe(false)
   })
 
   // The belt behind that filter. The store answers from a stamp on disk; only

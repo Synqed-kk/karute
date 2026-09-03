@@ -7,12 +7,14 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
 import {
   appendTakeSegment,
+  clearTakeHeartbeat,
   createTake,
   deleteTake,
   markTakeStartBoundAttempted,
   readTakeSecureMeta,
   stampTakeDuration,
   stampTakeSession,
+  writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
 
 /**
@@ -125,6 +127,18 @@ class GlobalRecorder {
   private persistedChunkCount = 0
   private persistTimer: ReturnType<typeof setInterval> | null = null
   private persistQueue: Promise<void> = Promise.resolve()
+  /** Takes this recorder STOPPED but has not finished securing (fix round 14,
+   *  AA1). Between onstop and the end of that leg every drain rule reads the
+   *  take as free to seal — it is unstamped (the stamp comes after the tail
+   *  flush), its heartbeat is already removed, `state` is 'recorded', and a
+   *  slow IndexedDB write can push the last flush past ACTIVE_GRACE_MS while
+   *  the tail is still being written. Sealing there would upload only the
+   *  COMMITTED segments under the IMMUTABLE finalized key and the tail could
+   *  never land: truncated audio, permanently. So isActiveTake answers for
+   *  these too — until the tail IS on disk and the row is stamped, which is
+   *  where the leg releases the hold (everything after that point may take the
+   *  take, and takes it whole). */
+  private securingTakeIds = new Set<string>()
   private startTime = 0
   private pausedDuration = 0
   private pauseStart = 0
@@ -211,7 +225,22 @@ class GlobalRecorder {
 
   private armTakePersistence() {
     this.clearTakePersistence()
-    this.persistTimer = setInterval(() => this.flushTake(), TAKE_FLUSH_MS)
+    this.persistTimer = setInterval(() => {
+      // ⚖ THE CROSS-TAB LIVENESS SIGNAL (fix round 14), riding the flush timer
+      // rather than a third one of its own. On the web the drain cannot see
+      // into another tab, so a take that is merely PAUSED there — flushing
+      // nothing, stale within seconds — was indistinguishable from a stopped
+      // one whose stop stamp was lost. This says "a recorder still has it",
+      // every 5 s, for as long as this timer lives: start() arms it and only
+      // the stop and discard paths clear it, which is exactly the
+      // recording-or-paused window. The state check is the belt for that.
+      if (
+        this.takeId &&
+        (this.state === 'recording' || this.state === 'paused')
+      )
+        writeTakeHeartbeat(this.takeId)
+      this.flushTake()
+    }, TAKE_FLUSH_MS)
     document.addEventListener('visibilitychange', this.handleVisibilityHidden)
   }
 
@@ -439,6 +468,11 @@ class GlobalRecorder {
   }
 
   async start(opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) {
+    // The take this recorder was holding is over the moment the next one
+    // begins — its liveness key must not outlive it (fix round 14). Normally
+    // already removed by the stop or discard that got here; this is the belt
+    // for the paths that reach start() with a take still named.
+    if (this.takeId) clearTakeHeartbeat(this.takeId)
     this.error = null
     this.result = null
     this.chunks = []
@@ -526,6 +560,17 @@ class GlobalRecorder {
       // until the karute record is saved / discarded / TTL / logout.
       this.clearTakePersistence()
       const takeId = this.takeId
+      if (takeId) {
+        // This recorder has let the take go, so the liveness signal goes with
+        // it — a stopped take must stop claiming another tab might be holding
+        // it (fix round 14).
+        clearTakeHeartbeat(takeId)
+        // …which is precisely why the drain must be held off by something
+        // else until this leg settles: the stamp is not written yet and the
+        // tail flush below has not landed. BEFORE flushTake(), so no drain can
+        // read the gap. (AA1 — see securingTakeIds.)
+        this.securingTakeIds.add(takeId)
+      }
       const flushed = this.flushTake()
       this.notify()
       // ⚖ THE AUDIO BECOMES SAFE HERE, not at 録音を使用 (design R4, v2 items
@@ -537,38 +582,54 @@ class GlobalRecorder {
       // mount retry, and for PR5's launch drain after that.
       if (takeId) {
         void flushed.then(async (flushedWholeTake) => {
-          // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7). The staffer who stops
-          // and immediately starts the next recording — or discards — clears
-          // the chunks out from under the queued tail flush, so what is on disk
-          // may be short of what this recorder captured. Stamping the duration
-          // and securing it would seal that short blob under the IMMUTABLE
-          // finalized key: the rest of the recording could never land. Leave
-          // the take unstamped instead; nothing here deletes, the mount drain
-          // reads the stamp so it will not touch it, and PR5's launch drain
-          // decides what an unstamped take deserves.
-          if (!flushedWholeTake) return
-          // The measurement is stamped BEFORE the upload, and it is the only
-          // paused-aware one anyone will ever have for this take: if this stop
-          // cannot reach the server, the mount retry (and PR5's drain) reads it
-          // back instead of guessing from the flush window. After the flush so
-          // it cannot race the tail segment's own write to the same row.
-          await stampTakeDuration(takeId, durationMs)
-          // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
-          // The belt in front of the first-write-wins braces above: wait for
-          // the start-mint to settle (it stamps the take before it resolves),
-          // so the common case never races at all and the take is secured
-          // against the row it was born with. Bounded at 10 s and the UI is
-          // already past — `recorded` was set and notify() ran before this
-          // whole leg was even queued, un-awaited — so nothing on screen waits
-          // for it. A mint still out after that is one secureTake mints past:
-          // it takes the session door itself, and the late reply adopts.
-          await this.awaitRecordingSessionId(SECURE_MINT_AWAIT_MS)
-          await secureTake(
-            getRecordingPipelinePort(),
-            takeId,
-            durationMs / 1000,
-            (id) => this.isActiveTake(id),
-          )
+          try {
+            // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7). The staffer who
+            // stops and immediately starts the next recording — or discards —
+            // clears the chunks out from under the queued tail flush, so what is
+            // on disk may be short of what this recorder captured. Stamping the
+            // duration and securing it would seal that short blob under the
+            // IMMUTABLE finalized key: the rest of the recording could never
+            // land. Leave the take unstamped instead; nothing here deletes, the
+            // mount drain reads the stamp so it will not touch it, and PR5's
+            // launch drain decides what an unstamped take deserves.
+            if (!flushedWholeTake) return
+            // The measurement is stamped BEFORE the upload, and it is the only
+            // paused-aware one anyone will ever have for this take: if this stop
+            // cannot reach the server, the mount retry (and PR5's drain) reads
+            // it back instead of guessing from the flush window. After the flush
+            // so it cannot race the tail segment's own write to the same row.
+            await stampTakeDuration(takeId, durationMs)
+            // THE HOLD ENDS HERE (AA1): the tail is on disk and the row is
+            // stamped, so there is no short blob left for anyone to seal — and
+            // it must end BEFORE the call below, because secureTake asks
+            // isActive first and would otherwise refuse the one caller holding
+            // the live measurement. A drain that takes the take from here on
+            // takes it WHOLE; `inFlight` inside secureTake keeps the two from
+            // overlapping in this runtime.
+            this.securingTakeIds.delete(takeId)
+            // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
+            // The belt in front of the first-write-wins braces above: wait for
+            // the start-mint to settle (it stamps the take before it resolves),
+            // so the common case never races at all and the take is secured
+            // against the row it was born with. Bounded at 10 s and the UI is
+            // already past — `recorded` was set and notify() ran before this
+            // whole leg was even queued, un-awaited — so nothing on screen waits
+            // for it. A mint still out after that is one secureTake mints past:
+            // it takes the session door itself, and the late reply adopts.
+            await this.awaitRecordingSessionId(SECURE_MINT_AWAIT_MS)
+            await secureTake(
+              getRecordingPipelinePort(),
+              takeId,
+              durationMs / 1000,
+              (id) => this.isActiveTake(id),
+            )
+          } finally {
+            // Every OTHER exit of the leg — the skipped-tail return above, and
+            // anything that throws on the way. A `finally` rather than a delete
+            // per branch: a branch that forgot would strand the take, invisible
+            // to every drain for the rest of the page's life.
+            this.securingTakeIds.delete(takeId)
+          }
         })
       }
     }
@@ -778,11 +839,20 @@ class GlobalRecorder {
    *  `recorded` is deliberately NOT active — its bytes are complete, and that
    *  state is exactly when the stop path secures it. Passed to secureTake by
    *  the callers that live in this singleton's runtime; the store's own drain
-   *  filter (listOwnStoppedUnsecuredTakeIds) is the other half. */
+   *  filter (listOwnStoppedUnsecuredTakeIds) is the other half.
+   *
+   *  …EXCEPT WHILE THE STOP LEG IS STILL RUNNING (fix round 14, AA1). "Its
+   *  bytes are complete" is true of the recorder, not yet of the disk: the tail
+   *  flush is queued behind an IndexedDB write that can take seconds, and only
+   *  when it lands is there a whole take to seal. Until then the take is held
+   *  in `securingTakeIds` and answers active here. */
   isActiveTake(takeId: string): boolean {
     return (
-      this.takeId === takeId &&
-      (this.state === 'recording' || this.state === 'paused')
+      // Still being secured by the stop leg counts as active: its bytes are
+      // not all on disk yet, so nothing else may seal it (AA1).
+      this.securingTakeIds.has(takeId) ||
+      (this.takeId === takeId &&
+        (this.state === 'recording' || this.state === 'paused'))
     )
   }
 
@@ -824,6 +894,9 @@ class GlobalRecorder {
   discard(opts?: { keepTake?: boolean }) {
     this.clearRunawayGuard()
     this.clearTakePersistence()
+    // No recorder holds this take any more, whether its audio is kept or not
+    // (fix round 14) — the same removal the stop path does.
+    if (this.takeId) clearTakeHeartbeat(this.takeId)
     if (this.takeId && !opts?.keepTake) void deleteTake(this.takeId)
     this.takeId = null
     this.persistDisabled = false
