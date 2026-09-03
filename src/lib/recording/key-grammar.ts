@@ -39,13 +39,22 @@ const UUID_LENGTH = 36
  * The CLOSED container map — the one place a recorder MIME becomes a key
  * extension. iOS negotiates audio/mp4 and Chrome audio/webm, and today both
  * land under a hardcoded `.webm`, which is the live mislabelling bug.
+ *
+ * NULL PROTOTYPE, because the lookup key is a REQUEST BODY. On a plain object
+ * literal `'constructor' in MIME_TO_EXT` is true and `MIME_TO_EXT.constructor`
+ * is a FUNCTION — so mimeType "constructor" or "__proto__" (the two
+ * Object.prototype members that survive normalizeAudioMime's toLowerCase)
+ * walked straight past the closed-set check and composed a key whose extension
+ * was that function's source text. Object.create(null) means there are no
+ * inherited members to find at all, whichever way and whatever case the map is
+ * read in — the casing must never be what saves this.
  */
-const MIME_TO_EXT: Record<string, string> = {
+const MIME_TO_EXT: Record<string, string> = Object.assign(Object.create(null), {
   'audio/webm': 'webm',
   'audio/mp4': 'mp4',
   'audio/ogg': 'ogg',
   'audio/wav': 'wav',
-}
+})
 /** Closed set, DERIVED from the map above so a container the mint composes and
  *  the grammar refuses cannot exist. */
 const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
@@ -128,7 +137,11 @@ export function isOwnRecordingKey(key: unknown, businessId: string): key is stri
 export function normalizeAudioMime(mimeType: unknown): string | null {
   if (typeof mimeType !== 'string') return null
   const base = mimeType.split(';')[0].trim().toLowerCase()
-  return base in MIME_TO_EXT ? base : null
+  // `Object.hasOwn`, never `in`: `in` walks the prototype chain, so a caller
+  // naming an Object.prototype member would be told it is a container we
+  // store. Belt AND braces with the null prototype above — the same pairing
+  // src/business/lib/karute.ts uses on its own closed table.
+  return Object.hasOwn(MIME_TO_EXT, base) ? base : null
 }
 
 /** The key extension for a recorder MIME, from that same closed map. */

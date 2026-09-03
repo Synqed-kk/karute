@@ -36,6 +36,18 @@
 // it. The BINDING-BEFORE-BYTES invariant is unchanged: the caller still never
 // sees a URL before its row is reserved, because the function does not return
 // until both have succeeded.
+//
+// WHAT CHANGED AGAIN (fix round 7) — THIS MINT NEVER CREATES A ROW. It used to
+// mint one when a client-named take arrived with no session id. That branch is
+// gone, deleted rather than flagged off: a LOST RESPONSE after a successful
+// create left the client holding no session id, so its only possible retry was
+// a second nameless mint — which core's own unique key rightly refuses (409 →
+// reserved_elsewhere, TERMINAL), stranding the take behind an orphan row the
+// caller could not even name. Row minting now has exactly ONE home,
+// startRecordingSession (src/actions/recordings.ts), whose retry is safe
+// because it is the client's own first step and carries no key. So a
+// CLIENT-NAMED mint REQUIRES a recordingSessionId — bad_input without one —
+// and this file only ever READS a row and UPDATES the one it was given.
 
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
@@ -61,9 +73,6 @@ export interface MintTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key carries. */
   businessId: string
-  /** Store for a row this mint CREATES. Same source recording-jobs.ts's payload
-   *  uses (resolveStoreScope on web, resolveStoreForRequest on the facade). */
-  storeId: string | null
   /** Holds `recordings.viewAll` (owner-only). Lets a manager reserve a take on
    *  another staffer's session; everyone else is own-session only. */
   canViewAll: boolean
@@ -76,9 +85,10 @@ export interface MintTakeUrlInput {
   takeId?: string | null
   /** The recorder's negotiated MIME. Absent → audio/webm, as before. */
   mimeType?: string | null
-  /** The session minted at record-start, when there is one. Absent on a
-   *  client-named mint → this mint creates the row and returns its id, so the
-   *  take is bound to a row either way. */
+  /** The row this take's key is reserved on — REQUIRED whenever `takeId` is
+   *  present (fix round 7; the schema's own field-pair rule). The client gets
+   *  it from startRecordingSession, the ONE door that mints rows. Absent with
+   *  no takeId → a server-named take, which reserves nothing. */
   recordingSessionId?: string | null
 }
 
@@ -158,10 +168,7 @@ async function objectExists(key: string): Promise<boolean | 'unknown'> {
   return Boolean(data)
 }
 
-type ReservationPlan =
-  | { kind: 'create'; staffId: string }
-  | { kind: 'update'; row: Recording }
-  | { kind: 'retry'; row: Recording }
+type ReservationPlan = { kind: 'update'; row: Recording } | { kind: 'retry'; row: Recording }
 
 /**
  * The FENCES and the exists check — everything that can refuse a client-named
@@ -183,39 +190,30 @@ type ReservationPlan =
 async function planReservation(
   synqed: Core,
   actor: MintTakeActor,
-  input: MintTakeUrlInput,
+  recordingSessionId: string,
   key: string,
 ): Promise<ReservationPlan | { error: MintErrorCode }> {
   // A row is attributed to a staffer. No identity, nothing to bind to.
   if (!actor.staffId) return { error: 'forbidden' }
 
-  let row: Recording | null = null
-  if (input.recordingSessionId) {
-    try {
-      row = await synqed.recordings.get(input.recordingSessionId)
-    } catch (err) {
-      if (statusOf(err) === 404) return { error: 'not_found' }
-      throw err
-    }
-    const denied = assertRecorderOwnsRow(row, actor)
-    if (denied) return denied
+  let row: Recording
+  try {
+    row = await synqed.recordings.get(recordingSessionId)
+  } catch (err) {
+    if (statusOf(err) === 404) return { error: 'not_found' }
+    throw err
   }
+  const denied = assertRecorderOwnsRow(row, actor)
+  if (denied) return denied
 
   // BYTES BEFORE THE BINDING = somebody else's take. The only caller allowed to
   // meet an existing object here is the one whose own row already reserved this
   // exact key (the legitimate retry: the PUT landed, the answer was lost).
   const exists = await objectExists(key)
   if (exists === 'unknown') return { error: 'upstream' }
-  const ownsTheObject = row !== null && row.audio_storage_path === key
-  if (exists && !ownsTheObject) return { error: 'exists' }
-
-  if (row === null) {
-    // No session row — a walk-in, or a record-start mint that never landed.
-    // ONE place mints rows now (finalize's own mint branch is gone), so a take
-    // carries its recorder and its store from its very first byte.
-    return { kind: 'create', staffId: actor.staffId }
-  }
   const pointer = row.audio_storage_path
+  if (exists && pointer !== key) return { error: 'exists' }
+
   if (pointer === null) return { kind: 'update', row }
   // Bound to another take already. Never repointed here: the displaced object
   // would keep its bytes and lose its only row.
@@ -231,6 +229,15 @@ async function planReservation(
  * caller's retry to collide with. A reservation failure AFTER a successful
  * sign (a race lost here) returns the error and the now-unused signed URL
  * just expires — nobody was ever handed it.
+ *
+ * IT RE-READS THE ROW FIRST (fix round 7). planReservation's read happened
+ * before the sign, and a signing round trip is plenty of time for a concurrent
+ * mint on the SAME row to reserve a DIFFERENT key. Writing this key from that
+ * stale read would silently repoint the row and orphan the other take's object,
+ * so the pointer is re-asserted here — still null for an update, still exactly
+ * this key for a retry — and anything else is `reserved_elsewhere`. Core's
+ * unique index catches the two-rows-one-key race; this catches the
+ * one-row-two-keys race, which no index can see.
  */
 async function commitReservation(
   synqed: Core,
@@ -240,45 +247,40 @@ async function commitReservation(
   takeId: string,
   ext: string,
 ): Promise<{ recordingSessionId: string } | { error: MintErrorCode }> {
+  let row: Recording
+  try {
+    row = await synqed.recordings.get(plan.row.id)
+  } catch (err) {
+    // The row went away between the plan and the commit (a 破棄 cleanup).
+    if (statusOf(err) === 404) return { error: 'not_found' }
+    throw err
+  }
+  // The pointer this call planned against, re-proved on the fresh row: null for
+  // the reservation, this key for the retry that finds its own binding.
+  const expected = plan.kind === 'retry' ? key : null
+  if (row.audio_storage_path !== expected) return { error: 'reserved_elsewhere' }
+
   if (plan.kind === 'retry') {
     // Nothing to write — and (fix round 6, I3) nothing to audit either: the
     // binding this call would have made already exists, so there is no write
     // for a row to attest to.
-    return { recordingSessionId: plan.row.id }
+    return { recordingSessionId: row.id }
   }
 
-  if (plan.kind === 'create') {
-    let minted: Recording
-    try {
-      minted = await synqed.recordings.create({
-        staff_id: plan.staffId,
-        store_id: actor.storeId,
-        customer_id: null,
-        audio_storage_path: key,
-        status: 'UPLOADING',
-      })
-    } catch (err) {
-      // The core UNIQUE index is the belt this app-side check is only the
-      // seatbelt for (Anthony addendum): two rows racing to reserve the same
-      // key collapse to one winner, and the loser's 409 is a real answer —
-      // TERMINAL for the client — never the catch-all 'upstream'.
-      if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
-      throw err
-    }
-    return auditTakeNamed(actor, takeId, ext, minted.id)
-  }
-
-  // plan.kind === 'update' — the reservation itself. Status stays the job's
-  // when a job owns the row: UPLOADING over PROCESSING/COMPLETED would put a
-  // live or finished take back into 要対応 for a key nobody has uploaded yet.
-  const { row } = plan
+  // The reservation itself. Status stays the job's when a job owns the row:
+  // UPLOADING over PROCESSING/COMPLETED would put a live or finished take back
+  // into 要対応 for a key nobody has uploaded yet. The status is read off the
+  // RE-READ row too — it is the fresher truth about who owns this row now.
   const write = isJobOwnedStatus(row.status)
     ? { audio_storage_path: key }
     : { audio_storage_path: key, status: 'UPLOADING' as const }
   try {
     await synqed.recordings.update(row.id, write)
   } catch (err) {
-    // Same race, the other row already held: a second reservation cannot win.
+    // The core UNIQUE index is the belt this app-side check is only the
+    // seatbelt for (Anthony addendum): two rows racing to reserve the same
+    // key collapse to one winner, and the loser's 409 is a real answer —
+    // TERMINAL for the client — never the catch-all 'upstream'.
     if (statusOf(err) === 409) return { error: 'reserved_elsewhere' }
     throw err
   }
@@ -344,32 +346,46 @@ export async function mintTakeUploadUrl(
   const businessId = actor.businessId
   const takeId = input.takeId ?? crypto.randomUUID()
   const mimeType = input.mimeType ?? DEFAULT_MIME
-  // Separate refusals so the caller can say WHICH field it rejected — a client
-  // that sent a container we do not store must be able to renegotiate.
-  if (composeTakeKey(businessId, takeId, DEFAULT_MIME) === null) return { error: 'bad_take_id' }
-  const composed = composeTakeKey(businessId, takeId, mimeType)
+  let composed: { key: string; ext: string; contentType: string } | null
+  try {
+    // Separate refusals so the caller can say WHICH field it rejected — a
+    // client that sent a container we do not store must be able to renegotiate.
+    if (composeTakeKey(businessId, takeId, DEFAULT_MIME) === null) return { error: 'bad_take_id' }
+    composed = composeTakeKey(businessId, takeId, mimeType)
+  } catch (err) {
+    // composeTakeKey THROWS when its own output fails the grammar — a DRIFT
+    // bug between composer and parser, never caller input (both fields are
+    // validated above it). It is still reached from a request body, so it is
+    // caught at the choke point both doors share: a settled retryable answer
+    // beats a 500 out of a 'use server' export, which is what a caller saw
+    // before this round.
+    console.warn('[mint-take-url] key composition failed its own grammar:', err)
+    return { error: 'upstream' }
+  }
   if (composed === null) return { error: 'bad_mime' }
 
   // A SERVER-NAMED take: a fresh uuid nobody could have claimed, bound to no
   // row and claiming nothing. Signed and returned exactly as before this round.
   if (!input.takeId) {
-    // A session id with no take id names a row this mint would then silently
-    // ignore — never a no-op the caller cannot see: it must resend both or
-    // neither.
-    if (input.recordingSessionId) return { error: 'bad_input' }
     const signed = await signUpload(composed)
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: null }
   }
 
-  // A CLIENT-NAMED take: the fences and the exists check run first (nothing
-  // is signed for a key already known to be unreservable), THEN it is signed,
-  // THEN — only once signing has actually worked — the binding is written
-  // (fix round 6, I1). See the file header for why this order, not
-  // reserve-then-sign.
+  // A CLIENT-NAMED take names its row. The schema's field-pair rule already
+  // guarantees it; re-narrowed here because a zod refine is invisible to the
+  // compiler, and a fence that leans on a schema clause it cannot see is one
+  // edit away from being gone.
+  const recordingSessionId = input.recordingSessionId
+  if (!recordingSessionId) return { error: 'bad_input' }
+
+  // The fences and the exists check run first (nothing is signed for a key
+  // already known to be unreservable), THEN it is signed, THEN — only once
+  // signing has actually worked — the binding is written (fix round 6, I1).
+  // See the file header for why this order, not reserve-then-sign.
   let plan: ReservationPlan | { error: MintErrorCode }
   try {
-    plan = await planReservation(synqed, actor, input, composed.key)
+    plan = await planReservation(synqed, actor, recordingSessionId, composed.key)
   } catch (err) {
     // Core did not answer. Retryable, and no URL is handed out meanwhile.
     console.warn('[mint-take-url] reservation planning failed:', err)

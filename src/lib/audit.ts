@@ -788,10 +788,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // only — the case where the caller names a take it may not own (storage
   // refuses the overwrite; the row records who reached for the name). The
   // generic hook would instead emit for every mint,
-  // including the server-named uuid that claims nothing. coveredBy still cites
-  // the interactive choke point above, which is the flow this endpoint feeds;
-  // the take_named row is the naming claim, not the flow.
-  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // including the server-named uuid that claims nothing.
+  // coveredBy REPOINTED (fix round 7, ledgered): it used to cite the
+  // interactive karute save at the far end of the flow this endpoint feeds,
+  // which is a different act entirely and could be true of any recording
+  // route. This endpoint's own write is the RESERVATION, and the emit that
+  // dominates it is auditTakeNamed — cite the writer, not the destination.
+  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
   // with machine-readable coveredBy" — C2 formalizes what the comments above

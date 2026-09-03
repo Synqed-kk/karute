@@ -19,7 +19,9 @@ jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
 const info = jest.fn(
   async (
     _key: string,
-  ): Promise<{ data: { size?: number } | null; error: { message: string } | null }> => ({
+    // `status` matters: storage saying "no such object" and storage failing to
+    // ANSWER are different facts, and only the first settles a take.
+  ): Promise<{ data: { size?: number } | null; error: { message: string; status?: number } | null }> => ({
     data: { size: 1024 },
     error: null,
   }),
@@ -208,6 +210,36 @@ describe('finalizeTakeWithClient — only the row that RESERVED the key may fina
       })
     },
   )
+
+  // FIX ROUND 7 (J4). capture_unlinked used to be filed BEFORE the object was
+  // ever looked up, and its detail is the CLIENT's take id and byte count — so
+  // any caller who guessed a superseded row's id could write an audit row about
+  // audio that does not exist. The byte check comes first now: a superseded row
+  // answers object_missing / size_mismatch like any other take, and files
+  // nothing.
+  it('a superseded row whose object is NOT THERE — object_missing, and no unlinked row', async () => {
+    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'object_missing' })
+    expectNoWrites()
+  })
+
+  it('a superseded row whose object is the WRONG SIZE — size_mismatch, and no unlinked row', async () => {
+    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
+    info.mockResolvedValue({ data: { size: 999 }, error: null })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'size_mismatch' })
+    expectNoWrites()
+  })
+
+  it('a superseded row storage cannot answer for — failed, and no unlinked row', async () => {
+    get.mockResolvedValue(row({ status: 'PROCESSING', audio_storage_path: OLD_KEY, duration_seconds: 30 }))
+    info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
+    const res = await finalizeTakeWithClient(synqed, actor(), input)
+    expect(res).toEqual({ error: 'failed' })
+    expectNoWrites()
+  })
 })
 
 // Fix round 2, B1: the shared body parses FIRST, so the WEB door — a server
@@ -295,6 +327,28 @@ describe('finalizeTakeWithClient — the fences', () => {
     expect(info).not.toHaveBeenCalled()
     expectNoWrites()
   })
+
+  // FIX ROUND 7 (J1). The closed MIME map used to be read with `in`, which
+  // walks the prototype chain: each name below is an Object.prototype member,
+  // so the map said "yes, a container we store" and composeTakeKey read a
+  // FUNCTION as the key's extension. The composed key then failed its own
+  // grammar and THREW — a 500 out of this door, from a request body. Null
+  // prototype + Object.hasOwn, and the compose now sits inside the try, so
+  // even a genuine drift is a settled answer.
+  // `constructor` and `__proto__` are the two that BITE: normalizeAudioMime
+  // lowercases before the lookup, so `toString`/`hasOwnProperty` miss the
+  // prototype by their capitals and are refused by the closed set either way.
+  // They are in the table anyway — the fence must not depend on casing luck.
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'refuses the prototype key %s as a container — bad_input, never a throw',
+    async (mimeType) => {
+      const res = await finalizeTakeWithClient(synqed, actor(), { ...input, mimeType })
+      expect(res).toEqual({ error: 'bad_input' })
+      expect(info).not.toHaveBeenCalled()
+      expect(get).not.toHaveBeenCalled()
+      expectNoWrites()
+    },
+  )
 
   it('refuses with no staff identity — nothing is attributable', async () => {
     const res = await finalizeTakeWithClient(synqed, actor({ staffId: null }), input)

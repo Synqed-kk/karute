@@ -2,7 +2,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
@@ -96,8 +96,14 @@ export async function startRecordingSessionWithClient(
  */
 export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTakeResult> {
   try {
-    // Same gate as the mint and the session start — recording = records.write.
-    await requireCapability('records.write')
+    // Same gate as the mint and the session start — recording = records.write —
+    // but asked with can(), not requireCapability(): this action answers in a
+    // result UNION, and a denied capability is TERMINAL. Folded into the catch
+    // below it became 'failed', which the client reads as RETRYABLE and would
+    // loop on forever against a permission it will never gain. Same reason
+    // createAppointment (src/actions/appointments.ts) uses can(). A THROW from
+    // here is still infrastructure, and still maps to the retryable 'failed'.
+    if (!(await can('records.write'))) return { error: 'forbidden' }
     const [businessId, staffId, capabilities] = await Promise.all([
       getBusinessId(),
       getCurrentUserStaffId(),

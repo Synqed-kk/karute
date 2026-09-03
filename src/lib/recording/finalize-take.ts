@@ -136,8 +136,9 @@ function finalizedBefore(row: Recording): boolean {
  * container and re-parsed against the grammar (composeTakeKey) BEFORE the
  * service-role storage client is touched; the row's OWNERSHIP and its
  * RESERVATION are both proved before the object is even looked up, so an
- * unauthorized caller never learns whether a key exists. Nothing here deletes,
- * and nothing here mints.
+ * unauthorized caller never learns whether a key exists. The BYTE check comes
+ * before any audit row too (fix round 7) — no branch files a record of audio
+ * the bucket does not hold. Nothing here deletes, and nothing here mints.
  *
  * PROCESSING is deliberately never WRITTEN: that status means "a job is
  * running" and belongs to enqueue (PR3/PR4). Finalize says UPLOADING — the
@@ -161,11 +162,16 @@ export async function finalizeTakeWithClient(
   // the key work because it costs nothing and settles the caller.
   if (!actor.staffId) return { error: 'forbidden' }
 
-  const composed = composeTakeKey(actor.businessId, input.takeId, input.mimeType)
-  if (composed === null) return { error: 'bad_input' }
-  const key = composed.key
-
   try {
+    // INSIDE the try (fix round 7): composeTakeKey throws when its own output
+    // fails the grammar — a drift bug between composer and parser, never caller
+    // input. It is reached from a request body all the same, and outside the
+    // try that throw escaped this function as a 500 on both doors instead of
+    // the settled { error } this door promises never to break.
+    const composed = composeTakeKey(actor.businessId, input.takeId, input.mimeType)
+    if (composed === null) return { error: 'bad_input' }
+    const key = composed.key
+
     let row: Recording
     try {
       row = await synqed.recordings.get(input.recordingSessionId)
@@ -182,6 +188,11 @@ export async function finalizeTakeWithClient(
     // row does not already hold is a key the mint never bound to it, and no
     // amount of ownership on the ROW makes a colleague's OBJECT this take's.
     const pointer = row.audio_storage_path
+    // A job already claimed OTHER audio for this row. Cannot happen while every
+    // key is reserved at its mint — but if it ever does, the object we were
+    // handed is now unreferenced, and that must be TRACEABLE rather than a
+    // silent {ok, already} nobody would ever look at again.
+    let superseded = false
     if (pointer === key) {
       // The reservation is this call's own. If the finalize already ran, this
       // is an exact retry: nothing to write, and no second audit row for one act.
@@ -191,20 +202,7 @@ export async function finalizeTakeWithClient(
       // row (or never minted at all), and no retry changes that.
       return { error: 'not_reserved' }
     } else {
-      // A job already claimed OTHER audio for this row. Cannot happen while
-      // every key is reserved at its mint — but if it ever does, the object we
-      // were handed is now unreferenced, and that must be TRACEABLE rather than
-      // a silent {ok, already} nobody would ever look at again. Its OWN action
-      // (fix round 6, I2): nothing was saved here, so this must never file
-      // under capture_finalized ("audio saved") — that name is reserved for a
-      // call that actually wrote a pointer or a duration.
-      return emitCaptureUnlinked(
-        actor,
-        row.id,
-        input,
-        composed.ext,
-        parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
-      )
+      superseded = true
     }
 
     const verdict = await objectVerdict(key, input.byteLength)
@@ -214,6 +212,24 @@ export async function finalizeTakeWithClient(
     if (verdict === 'size_mismatch') return { error: 'size_mismatch' }
     // Storage could not answer. Retryable, and nothing is written meanwhile.
     if (verdict === 'unknown') return { error: 'failed' }
+
+    if (superseded) {
+      // Filed AFTER the byte check (fix round 7), never before it: the detail
+      // carries the CLIENT's claimed take id and byte count, and an unlinked
+      // row for an object that is not even there would be a client-written
+      // record of a non-event. A superseded row whose object is missing or the
+      // wrong size answers object_missing / size_mismatch above, like any other
+      // take. Its OWN action (fix round 6, I2): nothing was saved here, so this
+      // must never file under capture_finalized ("audio saved") — that name is
+      // reserved for a call that actually wrote a pointer or a duration.
+      return emitCaptureUnlinked(
+        actor,
+        row.id,
+        input,
+        composed.ext,
+        parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
+      )
+    }
 
     const durationSeconds = Math.floor(input.durationSeconds)
     // The POINTER is not written here — the mint wrote it and the comparison
@@ -301,6 +317,11 @@ function emitFinalized(
  * must never file under that name. This traces the only thing that DID
  * happen: the object this call was handed is now unreferenced, and
  * `row_take_id` is the one thread back to the take the row points at instead.
+ *
+ * Reached only AFTER objectVerdict has proved the object is really there at the
+ * claimed size (fix round 7): `bytes` here is the CALLER's number, and an
+ * unlinked row for an object that never existed would be a client-authored
+ * record of nothing.
  *
  * ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No `duration_seconds`: this
  * call wrote no duration, so stating one here would claim a measurement that

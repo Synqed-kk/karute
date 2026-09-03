@@ -17,7 +17,6 @@
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
@@ -69,6 +68,10 @@ async function requireOwnPath(path: string): Promise<void> {
  * its own output, and RESERVES the key on the caller's own recording row before
  * it signs anything (see mintTakeUploadUrl).
  *
+ * NO STORE any more (fix round 7): the mint never creates a row, so it has none
+ * to place — startRecordingSession is the one door that mints, and it is where
+ * a take's store comes from. Same deletion finalizeTake took in fix round 4.
+ *
  * Returns the result UNION rather than throwing (fix round 4), the same shape
  * finalizeTake gives: `exists` and `reserved_elsewhere` are answers the client
  * must branch on — "this take is spoken for, start a new one" — and a throw
@@ -81,11 +84,10 @@ export async function mintRecordingUploadUrl(
   // The cookie session is the ONLY source of every one of these: a caller names
   // neither its tenant, nor itself, nor its reach. staffId owns any row the
   // mint reserves, and is what the take_named row is attributed to.
-  const [businessId, staffId, capabilities, scope] = await Promise.all([
+  const [businessId, staffId, capabilities] = await Promise.all([
     getBusinessId(),
     getCurrentUserStaffId(),
     getMyCapabilities(),
-    resolveStoreScope(),
   ])
 
   return await mintTakeUploadUrl(
@@ -93,7 +95,6 @@ export async function mintRecordingUploadUrl(
     {
       staffId,
       businessId,
-      storeId: scope.storeId,
       canViewAll: capabilities.has('recordings.viewAll'),
       source: 'web',
     },

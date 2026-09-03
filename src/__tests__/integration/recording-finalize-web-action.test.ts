@@ -10,9 +10,11 @@
  *      — business, staff and reach, never from the argument (no STORE any more:
  *      fix round 4 moved row-minting to the mint, so finalize has none to pick).
  */
+const can = jest.fn(async (_c: string) => true)
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
 jest.mock('@/lib/auth/require-permission', () => ({
+  can: (c: string) => can(c),
   requireCapability: (c: string) => requireCapability(c),
   getMyCapabilities: () => getMyCapabilities(),
 }))
@@ -65,6 +67,7 @@ function actorPassed(): Record<string, unknown> {
 beforeEach(() => {
   jest.clearAllMocks()
   jest.spyOn(console, 'warn').mockImplementation(() => {})
+  can.mockImplementation(async () => true)
   requireCapability.mockImplementation(async () => {})
   getMyCapabilities.mockImplementation(async () => new Set(['records.write']))
   getBusinessId.mockImplementation(async () => 'biz-1')
@@ -75,7 +78,7 @@ beforeEach(() => {
 
 describe('finalizeTake (web action) — it never throws', () => {
   it.each([
-    ['the capability gate throws', () => requireCapability.mockRejectedValue(new Error('forbidden'))],
+    ['the capability lookup throws (core 503)', () => can.mockRejectedValue(new Error('503'))],
     ['identity resolution fails (core 503)', () => getBusinessId.mockRejectedValue(new Error('503'))],
     ['the shared body throws', () => finalizeTakeWithClient.mockRejectedValue(new Error('boom'))],
   ])('%s → a settled { error: failed }, never a rejection', async (_label, arrange) => {
@@ -90,10 +93,14 @@ describe('finalizeTake (web action) — it never throws', () => {
 })
 
 describe('finalizeTake (web action) — the gate', () => {
-  it('gates on records.write, and a denial reaches core with nothing', async () => {
-    requireCapability.mockRejectedValue(new Error('forbidden'))
-    await expect(finalizeTake(input)).resolves.toEqual({ error: 'failed' })
-    expect(requireCapability).toHaveBeenCalledWith('records.write')
+  // FIX ROUND 7 (J5). A denial used to fall into the catch-all and come back as
+  // 'failed', which this action's own contract marks RETRYABLE — a client would
+  // loop forever on a permission it will never gain. 'forbidden' is terminal,
+  // and it is the same code the shared body already answers a foreign row with.
+  it('a denied capability is TERMINAL — forbidden, and core is never reached', async () => {
+    can.mockResolvedValue(false)
+    await expect(finalizeTake(input)).resolves.toEqual({ error: 'forbidden' })
+    expect(can).toHaveBeenCalledWith('records.write')
     expect(newSynqedClient).not.toHaveBeenCalled()
     expect(finalizeTakeWithClient).not.toHaveBeenCalled()
   })

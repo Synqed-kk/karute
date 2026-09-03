@@ -15,18 +15,22 @@
 // RESERVES the take's key on the caller's own recording row (audio_storage_path
 // + UPLOADING) before it signs anything, because the signed URL is the only way
 // bytes can exist and the binding has to come first. So for THAT body — and
-// only that one — this door resolves the same roster identity and store clamp
-// the finalize twin does, and can answer 403/404/409 for a session that is not
-// the caller's to record onto. A server-named mint reserves nothing and is
-// unchanged, down to the core reads it does not make. No Idempotency-Key still:
-// the dedupe is SERVER-derived (the row's own pointer, read before write).
+// only that one — this door resolves the same roster identity the finalize twin
+// does, and can answer 403/404/409 for a session that is not the caller's to
+// record onto. A server-named mint reserves nothing and is unchanged, down to
+// the core reads it does not make. No Idempotency-Key still: the dedupe is
+// SERVER-derived (the row's own pointer, read before write).
+//
+// FIX ROUND 7. The mint no longer CREATES rows, so a client-named body must
+// carry the recordingSessionId of the row startRecordingSession already minted
+// (the schema's field-pair rule — 400 without it), and this door has no store
+// to clamp: nothing it calls places a row any more.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
@@ -55,8 +59,7 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
 
   // ONLY a CLIENT-NAMED take reserves a row, so only it pays for an identity.
   // A server-named mint stays byte-identical to before this round: no roster
-  // read, no assignment lookup, and therefore none of their failure modes on
-  // the hot record-start path.
+  // read, and therefore none of its failure modes on the hot record-start path.
   const named = Boolean(parsed.data.takeId)
 
   // ROSTER GATE — the same half a capability check cannot carry that the
@@ -71,17 +74,6 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
     throw new AppApiError('forbidden', 'no acting staff identity for this user; nothing was written')
   }
 
-  // Store scope: the Bearer twin of the action's resolveStoreScope() (cookie-
-  // only, unreachable here). Decides only which store a RESERVED row lands in.
-  const clamp = named
-    ? await resolveStoreForRequest({
-        synqed,
-        authUserId: ctx.identity.authUserId,
-        capabilities: ctx.identity.capabilities,
-        requestedStoreId: ctx.req.headers.get('store-id'),
-      })
-    : { storeId: null }
-
   // The actor comes from the VERIFIED Bearer identity, never the body — the
   // shared core composes the tenant prefix from its businessId and re-parses
   // its own key, and attributes both the reservation and the take_named row to
@@ -93,7 +85,6 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
     {
       staffId,
       businessId: ctx.identity.businessId,
-      storeId: clamp.storeId,
       canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
       source: 'facade',
       requestId: ctx.meta.requestId,

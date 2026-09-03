@@ -173,8 +173,9 @@ export const AUDITED_CORES: {
   // .test.ts pins it directly instead.
   // commitReservation joins it because IT is the write: fix round 6 split the
   // old reserveTakeForRecorder into a read-only planReservation (the fences +
-  // exists check, never a write) and commitReservation (recordings
-  // .create/.update, run only after a successful sign), and every one of
+  // exists check, never a write) and commitReservation (recordings.update,
+  // run only after a successful sign — fix round 7 deleted the .create half
+  // with the mint's row-creating branch), and every one of
   // commitReservation's success paths that actually writes leaves through
   // auditTakeNamed — the retry path writes and audits nothing, by design (I3).
   { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'commitReservation'] },

@@ -35,15 +35,23 @@ export const SessionMintSchema = z
   .strict()
 
 // ── Upload-url mint (capture pipeline PR2) ──────────────────────────────────
-// ALL THREE fields optional: an absent body is the server-named take this route
-// has always minted. The caps here only BOUND the strings — the real validation
-// is server-side (composeTakeKey: the uuid grammar and the closed MIME map), so
-// a well-formed-but-wrong value is refused by the fence, not by zod.
+// ALL THREE fields optional at the FIELD level: an absent body is the
+// server-named take this route has always minted. The caps here only BOUND the
+// strings — the real validation is server-side (composeTakeKey: the uuid
+// grammar and the closed MIME map), so a well-formed-but-wrong value is refused
+// by the fence, not by zod.
 //
 // recordingSessionId (fix round 4) is the row the mint RESERVES this take's key
 // on. It is a uuid for the same reason the finalize schema's is: it rides into a
 // core URL PATH unencoded (the SDK's recordings.get), so a free string there is
 // a request-forgery surface.
+//
+// THE FIELD-PAIR RULE (fix round 7): takeId and recordingSessionId arrive
+// together or not at all. A take id with no session is a mint that used to
+// CREATE a row — the branch fix round 7 deleted, because a lost response left
+// the caller unable to name the row it had just made. A session with no take id
+// is a row the mint would silently ignore. Both are bad_input, and the rule
+// lives HERE because this schema is the one parse both doors run.
 const MAX_MIME_CHARS = 100
 export const UploadUrlMintSchema = z
   .object({
@@ -52,6 +60,10 @@ export const UploadUrlMintSchema = z
     recordingSessionId: z.string().uuid().nullish(),
   })
   .strict()
+  .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
+    message: 'takeId and recordingSessionId must be sent together',
+    path: ['recordingSessionId'],
+  })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
 // takeId + mimeType compose the SAME key the mint composed (never a path from

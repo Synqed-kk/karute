@@ -249,3 +249,15 @@
   and the new customer.deletion.cancel key is a LIVE FACADE_AUDIT_MAP mutation
   row emitting privacy.customer_delete_canceled · Liam (same ruling and packet
   as the entry above)
+- 2026-09-03 · map:recordings.uploadUrl · Capture pipeline PR2 fix round 7 (J6). The row
+  stays a deliberate skip; only its coveredBy citation moves, from
+  `src/actions/karute.ts#createOrUpdateKaruteRecord` to
+  `src/lib/recording/mint-take-url.ts#auditTakeNamed`. STRICTLY MORE HONEST, not weaker:
+  the old citation named the karute save at the far end of a flow this endpoint merely
+  feeds — an act performed by a different door, on a different day, that would be equally
+  true of half the recording routes. What this endpoint actually WRITES is the take's
+  reservation on its recording row, and the emit that dominates every writing path of
+  that write is auditTakeNamed (recording.take_named), the same symbol AUDITED_CORES
+  already registers for this file. The endpoint's coverage therefore goes from "something
+  downstream eventually files a row" to "this endpoint's own write files its own row" ·
+  Liam (⚖ 8/17 ids-only doc law, packet PACKET-PR2-FIX-ROUND-7.md, karute-field-issues lane)

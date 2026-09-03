@@ -102,8 +102,9 @@ const finalizeBody = {
   byteLength: 1024,
   recordingSessionId: SESSION,
 }
-/** A client-named mint body. The mint RESERVES this key before it signs. */
-const mintBody = { takeId: TAKE, mimeType: 'audio/mp4' }
+/** A client-named mint body. The mint RESERVES this key before it signs, on the
+ *  row the body names — REQUIRED as of fix round 7: the mint creates none. */
+const mintBody = { takeId: TAKE, mimeType: 'audio/mp4', recordingSessionId: SESSION }
 /** storage-js's "no such object" — a free key, which is every first mint. */
 const objectFree = { data: null, error: { message: 'Object not found', status: 404 } }
 
@@ -132,6 +133,7 @@ describe('POST recordings/upload-url — the fenced mint', () => {
 
   it('a named take + container composes the tenant-prefixed key, and BINDS it', async () => {
     info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue(ROW)
     const res = await mintPOST(jreq(auth, mintBody), noRoute)
     const body = await res.json()
     expect(body).toMatchObject({ path: KEY, contentType: 'audio/mp4' })
@@ -139,18 +141,13 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     // the web door does, so neither can hand out a URL that overwrites a
     // finalized take. Exact arity is the pin against upsert returning.
     expect(createSignedUploadUrl).toHaveBeenCalledWith(KEY)
-    // Fix round 4: with no session named, the MINT creates the row and hands
-    // its id back for the client to stamp on the take.
-    expect(recordingsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'auth-user-1', audio_storage_path: KEY, status: 'UPLOADING' }),
-    )
-    expect(body.recordingSessionId).toBe('sess-new')
+    expect(body.recordingSessionId).toBe(SESSION)
   })
 
-  it('reserves on the caller’s named session instead of creating one', async () => {
+  it('reserves on the caller’s named session, and never creates one', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockResolvedValue(ROW)
-    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(200)
     expect(recordingsUpdate).toHaveBeenCalledWith(SESSION, {
       audio_storage_path: KEY,
@@ -160,10 +157,22 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect((await res.json()).recordingSessionId).toBe(SESSION)
   })
 
+  // FIX ROUND 7 (J2). The mint's row-creating branch is gone — a lost response
+  // after that create left the client unable to name the row it had just made,
+  // so its retry could only collide with it. startRecordingSession is the one
+  // door that mints rows, and its retry is safe because it carries no key.
+  it('a named take with NO recordingSessionId → 400, nothing bound', async () => {
+    const res = await mintPOST(jreq(auth, { takeId: TAKE, mimeType: 'audio/mp4' }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
   it('another staffer’s session → a real 403, and nothing is signed', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
-    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(403)
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
     expect(recordingsUpdate).not.toHaveBeenCalled()
@@ -172,13 +181,14 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   it('a session id core does not know → 404, nothing bound', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
-    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(404)
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
   it('an object that ALREADY EXISTS with no reservation of the caller’s → 409', async () => {
-    // info's default: the bucket HAS this key.
+    // info's default: the bucket HAS this key. The row reserved nothing.
+    recordingsGet.mockResolvedValue(ROW)
     const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(409)
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
@@ -188,7 +198,7 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   it('a row already bound to a different take → 409', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: 'app_business-1_other.mp4' })
-    const res = await mintPOST(jreq(auth, { ...mintBody, recordingSessionId: SESSION }), noRoute)
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
     expect(res.status).toBe(409)
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
@@ -213,10 +223,14 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   })
 
   it.each([
-    ['a foreign key smuggled as a take id', { takeId: `../app_business-2_${TAKE}`, mimeType: 'audio/webm' }],
-    ['a container we do not store', { takeId: TAKE, mimeType: 'audio/aac' }],
-    ['an unknown key (strict schema)', { takeId: TAKE, path: 'x.webm' }],
-    ['a non-string take id', { takeId: 7 }],
+    ['a foreign key smuggled as a take id', { ...mintBody, takeId: `../app_business-2_${TAKE}` }],
+    ['a container we do not store', { ...mintBody, mimeType: 'audio/aac' }],
+    // Fix round 7 (J1): an Object.prototype member is not a container we store.
+    // Read with `in` it was, and the composed key threw on its own grammar — a
+    // 500 out of this door, from a request body.
+    ['a prototype key as the container', { ...mintBody, mimeType: 'constructor' }],
+    ['an unknown key (strict schema)', { ...mintBody, path: 'x.webm' }],
+    ['a non-string take id', { ...mintBody, takeId: 7 }],
   ])('refuses %s → 400, nothing signed', async (_label, body) => {
     const res = await mintPOST(jreq(auth, body), noRoute)
     expect(res.status).toBe(400)
