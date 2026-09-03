@@ -253,6 +253,13 @@ export function sourceOf(source: string, pending: boolean): { label: string; gro
   return { label: base, group: 'store', ref }
 }
 
+/** 正本 — who holds the booking's record of truth. ⚖-ADJ G / D5: Reserve and SYNQED are two
+ *  doors onto ONE database, so only an 外部予約元 booking is owned somewhere else. ONE home:
+ *  the inspector's 正本 line and the 記録 dialog's 正本・受付元 both read this. */
+export function genuineOf(group: 'reserve' | 'store' | 'external'): 'SYNQED' | '外部予約元' {
+  return group === 'external' ? '外部予約元' : 'SYNQED'
+}
+
 /** 価格条件 (M-49). Strongest-first, the same precedence the board's カテゴリー
  *  uses (VIP over 回数券 over everything), so one customer is not a VIP on one
  *  screen and a 回数券 holder on the other. */
@@ -426,3 +433,13 @@ export function safeSlotsFor<T extends Pick<FixtureSellSlot, 'start' | 'end'>>(
 ): T[] {
   return slots.filter((s) => s.end - s.start >= durationMinutes)
 }
+
+/**
+ * F-6 (fix round 1, LENS-3) — the phone/one-column sheet's own modal
+ * hardening, mirroring `RecordingScreen.tsx`'s `Overlay` (:2259-2340)
+ * IN-ROOM: a shared overlay primitive is a family-sweep item, not this round.
+ * `SCRIM_SETTLE_MS` is the platform's own double-click interval (the same
+ * value `recording.ts` carries), so a double-tap on the row that opened the
+ * sheet cannot land on the scrim and close what it just opened.
+ */
+export const SCRIM_SETTLE_MS = 500
