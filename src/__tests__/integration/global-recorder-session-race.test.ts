@@ -28,6 +28,14 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+/** A resolved mint no longer finishes in one microtask (fix round 10): it
+ *  STAMPS the take before it settles, and adopts whatever is already there when
+ *  the store refuses the write — a store round trip either way, even here where
+ *  there is no IndexedDB at all and every call answers "layer disabled". */
+const settle = async () => {
+  for (let i = 0; i < 25; i++) await Promise.resolve()
+}
+
 const TARGET_A = { customerId: 'cust-A', customerName: 'A', karuteNumber: null, appointmentId: null }
 const TARGET_B = { customerId: 'cust-B', customerName: 'B', karuteNumber: null, appointmentId: null }
 
@@ -45,7 +53,7 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     globalRecorder.discard()
     slow.resolve({ id: 'session-A' })
     await slow.promise
-    await Promise.resolve()
+    await settle()
 
     expect(globalRecorder.recordingSessionId).toBeNull()
   })
@@ -63,7 +71,7 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     // A's mint resolves late — must NOT overwrite B's id.
     slowA.resolve({ id: 'session-A' })
     await slowA.promise
-    await Promise.resolve()
+    await settle()
 
     expect(globalRecorder.recordingSessionId).toBe('session-B')
     expect(await globalRecorder.awaitRecordingSessionId()).toBe('session-B')
@@ -94,7 +102,7 @@ describe('GlobalRecorder — recording-session mint staleness guard', () => {
     // The one mint everybody was waiting on still lands, on the live generation.
     slow.resolve({ id: 'session-A' })
     await slow.promise
-    await Promise.resolve()
+    await settle()
     expect(globalRecorder.recordingSessionId).toBe('session-A')
   })
 

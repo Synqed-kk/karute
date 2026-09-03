@@ -78,7 +78,13 @@ const inFlight = new Set<string>()
  *  one off mid-flight on salon wifi. Generous by design: this exists to release
  *  a socket that will never answer, not to police slow ones. */
 const PUT_FLOOR_MS = 60_000
-const PUT_BYTES_PER_MS = 50 // ≈50 KB/s
+// ≈10 KB/s — an 80 kbps floor, not a target (fix round 10, P2). 50 assumed
+// 400 kbps upstream, which a phone on salon wifi or a weak cell does not have:
+// a take that could not sustain it was aborted, marked retryable, and re-PUT
+// FROM ZERO on the next mount, forever. The ceiling this buys is the largest
+// take the recorder can produce — 2 h at 48 kbps ≈ 43 MB — finishing in ~72
+// min; the 60 s floor still mercy-kills a stalled small one.
+const PUT_BYTES_PER_MS = 10
 const putDeadlineMs = (bytes: number) =>
   Math.max(PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
 
@@ -204,7 +210,17 @@ export async function secureTake(
       // THE SESSION IS SETTLED BEFORE THE BYTES, and before the mint that binds
       // them: a kill anywhere after this must not leave audio (or a reserved
       // key) whose retry cannot name the row it belongs to.
-      await stampTakeSession(takeId, recordingSessionId)
+      //
+      // ⚖ AND THE FIRST STAMP WINS (fix round 10). The read above and this
+      // write straddle a network create, and a start-mint reply can land in
+      // between — so the take may already carry a row by now. That one is the
+      // take's: the karute and the discard are written against what the take
+      // says. Ours becomes the orphan and this leg follows the stamp, because
+      // uploading to a key reserved on a row nothing points at is the strand
+      // this round exists to close.
+      if (!(await stampTakeSession(takeId, recordingSessionId)))
+        recordingSessionId =
+          (await readTakeSecureMeta(takeId))?.recordingSessionId ?? recordingSessionId
     }
 
     // The row the mint RESERVES this key on — never null now, and never

@@ -463,4 +463,38 @@ describe('thin actions port — the recorder start-mint reserves at create too',
     await startRecordingSession({ customerId: 'cust-1', takeId: FINALIZE.takeId })
     expect(JSON.parse(seen?.body as string)).toEqual({ customerId: 'cust-1' })
   })
+
+  // ⚖ AND IT DOES NOT WAIT FOREVER (fix round 10, P1). A phone that walks out
+  // of signal STALLS its requests rather than failing them, and this door had
+  // no deadline on either attempt: the reply could land minutes later, after
+  // the stop had already secured the take against a row of its own. The take's
+  // store refuses that late stamp now; this releases the socket that carried it.
+  it('a door that never answers is abandoned at its deadline — null, and the socket is aborted', async () => {
+    jest.useFakeTimers()
+    try {
+      let aborted = false
+      port(
+        (_path: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              aborted = true
+              reject(new Error('AbortError'))
+            })
+          }),
+      )
+
+      const pending = startRecordingSession({
+        customerId: 'cust-1',
+        takeId: FINALIZE.takeId,
+        mimeType: FINALIZE.mimeType,
+      })
+      await jest.advanceTimersByTimeAsync(10_000)
+
+      // Fail-OPEN, like every other failure here: capture never blocks on it.
+      await expect(pending).resolves.toBeNull()
+      expect(aborted).toBe(true)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })

@@ -67,6 +67,17 @@ const TAKE_FLUSH_MS = 5_000
 // fact rather than two literals that can drift apart.
 const MINT_AWAIT_MS = 1_500
 
+// How long the STOP path waits for that mint before it secures the take anyway
+// (fix round 10, P1). Longer than the save-time wait on purpose: this is the
+// one moment where waiting COSTS nothing visible — `recorded` has already
+// rendered and the card is on screen — and buys everything, because a mint
+// that lands before secureTake reads the take makes the whole late-reply race
+// unreachable rather than merely survivable. The phone's own door aborts at
+// the same 10 s (thin/ports/actions.vite.ts), so on that arm this deadline and
+// the socket's expire together; the web arm is a server action with no signal
+// to give, and this race IS its bound.
+const SECURE_MINT_AWAIT_MS = 10_000
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const formats = [
@@ -342,15 +353,25 @@ class GlobalRecorder {
       //
       // A stale generation spends nothing: its row would belong to a take the
       // user has already discarded or replaced.
-      .then((res) =>
-        res || !input.reserve || gen !== this.recordingSessionGen
-          ? res
-          : startRecordingSession({
-              customerId: input.customerId,
-              appointmentId: input.appointmentId,
-            }),
-      )
-      .then((res) => {
+      .then(async (res) => {
+        if (res || !input.reserve || gen !== this.recordingSessionGen) return res
+        // ⚖ NEVER STEP BACK ONTO A TAKE THAT ALREADY HAS ITS ROW (fix round
+        // 10). A bound create that fails SLOWLY can find the stop path already
+        // finished: secureTake minted this take's row through the session door
+        // and stamped it. An argument-less create here would make a second row
+        // for one take — an orphan nothing ever points at, one per slow
+        // start-mint. The stamp is the answer, so take it and mint nothing.
+        const stampTakeId = input.stampTakeId ?? this.takeId
+        const stamped = stampTakeId
+          ? (await readTakeSecureMeta(stampTakeId))?.recordingSessionId
+          : null
+        if (stamped) return { id: stamped }
+        return startRecordingSession({
+          customerId: input.customerId,
+          appointmentId: input.appointmentId,
+        })
+      })
+      .then(async (res) => {
       // Stale mint (user discarded / started a new recording while this was
       // in flight): drop it — its row belongs to a different take/customer.
       // The flag is NOT cleared here: it belongs to whichever mint owns the
@@ -358,13 +379,28 @@ class GlobalRecorder {
       if (gen !== this.recordingSessionGen) return null
       // Settled (this call swallows every failure to null, so it never rejects).
       this.recordingSessionMintInFlight = false
-      this.recordingSessionId = res?.id ?? null
       // Stamp the persisted take so a crash-recovered save still dedupes.
       // (If the meta row isn't written yet, createTake's callback re-stamps.)
+      //
+      // ⚖ FIRST WRITE WINS, AND A LATE REPLY ADOPTS (fix round 10, P1). The
+      // store refuses this write when the take already carries a row — the one
+      // secureTake minted and finalized the audio against while this call was
+      // still out. Re-pointing the take at THIS row would strand the karute
+      // beside audio that is on the other one, so the take keeps what it has
+      // and the recorder takes it too: this field is what the save reads, and
+      // it must name the row the audio is on. AWAITED, not fired off, because
+      // awaitRecordingSessionId resolves with this promise — an id read before
+      // the adoption settled would be the wrong one.
       const stampTakeId = input.stampTakeId ?? this.takeId
-      if (stampTakeId && this.recordingSessionId) {
-        void stampTakeSession(stampTakeId, this.recordingSessionId)
-      }
+      const minted = res?.id ?? null
+      const id =
+        stampTakeId && minted && !(await stampTakeSession(stampTakeId, minted))
+          ? ((await readTakeSecureMeta(stampTakeId))?.recordingSessionId ?? minted)
+          : minted
+      // Re-read after the store round trip: a discard (or a new start) while it
+      // ran means this id belongs to a recording that is no longer here.
+      if (gen !== this.recordingSessionGen) return null
+      this.recordingSessionId = id
       this.notify()
       return this.recordingSessionId
     })
@@ -483,6 +519,16 @@ class GlobalRecorder {
           // back instead of guessing from the flush window. After the flush so
           // it cannot race the tail segment's own write to the same row.
           await stampTakeDuration(takeId, durationMs)
+          // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
+          // The belt in front of the first-write-wins braces above: wait for
+          // the start-mint to settle (it stamps the take before it resolves),
+          // so the common case never races at all and the take is secured
+          // against the row it was born with. Bounded at 10 s and the UI is
+          // already past — `recorded` was set and notify() ran before this
+          // whole leg was even queued, un-awaited — so nothing on screen waits
+          // for it. A mint still out after that is one secureTake mints past:
+          // it takes the session door itself, and the late reply adopts.
+          await this.awaitRecordingSessionId(SECURE_MINT_AWAIT_MS)
           await secureTake(
             getRecordingPipelinePort(),
             takeId,

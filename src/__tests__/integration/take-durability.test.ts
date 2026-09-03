@@ -1432,6 +1432,116 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 
+  // ── ⚖ ONE SESSION ID PER TAKE, whoever answers first (fix round 10, P1) ──
+  // The start-mint is a network call with no answer time anyone controls, and
+  // until now nothing stopped a LATE reply from re-pointing a take the stop had
+  // already secured against another row: the audio finalizes on one row and the
+  // karute is read beside another (or the late row's key is refused and the
+  // audio never leaves the device). Both are silent, and neither is undoable.
+
+  /** A start-mint the test resolves by hand — "still in flight" is the whole
+   *  scenario, so it cannot be a mock that answers on its own. */
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    const promise = new Promise<T>((r) => (resolve = r))
+    return { promise, resolve }
+  }
+
+  // The common case, and the belt in front of everything below: the stop WAITS
+  // for the mint (bounded, and behind a card that is already on screen), so the
+  // take is secured against the row it was born with and no race happens at all.
+  it('the stop waits for an in-flight start-mint, then secures the take against THAT row', async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    // The card is up (item 2 is untouched) and NOTHING is on the wire yet.
+    expect(globalRecorder.state).toBe('recorded')
+    await drain(200)
+    expect(order).toEqual([])
+
+    // The mint lands two seconds later, well inside the stop's window.
+    await jest.advanceTimersByTimeAsync(2_000)
+    slow.resolve({ id: 'rs-start' })
+    await drain(200)
+
+    // No session door at all: the take already had its row, so the leg is the
+    // three calls a take with a session makes.
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).recordingSessionId).toBe('rs-start')
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingSessionId: 'rs-start' }),
+    )
+    expect(globalRecorder.recordingSessionId).toBe('rs-start')
+  })
+
+  // …and when it does NOT come back in time, the two rows exist at once. THE
+  // FIRST STAMP IS THE TAKE'S: the audio is on it, so the late reply is
+  // refused and the recorder ADOPTS what the take says.
+  it('a start-mint that answers after the stop is dropped — one id end to end', async () => {
+    const late = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(late.promise)
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    await drain(200)
+    expect(order).toEqual([])
+    // The stop gives up on the mint after 10 s (SECURE_MINT_AWAIT_MS) and
+    // secures the take through the session door, which mints a row of its own.
+    await jest.advanceTimersByTimeAsync(10_000)
+    await drain(200)
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+
+    // NOW the start-mint answers, with a different row.
+    late.resolve({ id: 'rs-late' })
+    await drain(200)
+
+    // The row the audio is on IS the row the karute will name. (Drop
+    // first-write-wins and the take says 'rs-late' while the object sits under
+    // MINTED_SESSION's key — the strand this round closes.)
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingSessionId: MINTED_SESSION }),
+    )
+    // The recorder adopted it — this field is what the karute save attaches.
+    expect(globalRecorder.recordingSessionId).toBe(MINTED_SESSION)
+    expect(await globalRecorder.awaitRecordingSessionId()).toBe(MINTED_SESSION)
+    // Nothing else was sent: the late row is not re-minted, re-bound or re-PUT.
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+  })
+
+  // The other way a late reply arrives: it FAILS. Its step back is an
+  // argument-less create, and firing that onto a take the stop already gave a
+  // row would leave core a second row for one take — an orphan nothing points
+  // at, one per slow start-mint.
+  it('a start that fails LATE mints no step-back row when the take already has one', async () => {
+    const late = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(late.promise)
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(10_000)
+    await drain(200)
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+
+    mockStartRecordingSession.mockClear()
+    late.resolve(null)
+    await drain(200)
+
+    expect(mockStartRecordingSession).not.toHaveBeenCalled()
+    expect(metaOf(takeId).recordingSessionId).toBe(MINTED_SESSION)
+    // …and the recorder still ends up naming the take's row, not null.
+    expect(globalRecorder.recordingSessionId).toBe(MINTED_SESSION)
+  })
+
   // The drain minted the row, so the RECORDER's own field is still null — and
   // awaitRecordingSessionId reads that field first, against a mint promise that
   // settled null and will never resolve again. Without this the save that

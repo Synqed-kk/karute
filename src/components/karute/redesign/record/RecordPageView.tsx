@@ -107,6 +107,22 @@ import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
 import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
 
+/** ONE mount drain at a time, ACROSS MOUNTS (capture pipeline PR3 fix round 10,
+ *  P3). The loop below is sequential inside a single mount — a take is a whole
+ *  recording, tens of megabytes, and three PUTs at once on salon wifi starve
+ *  each other until they all time out. But "one in flight" was per MOUNT: a
+ *  staffer bouncing between 記録 and this page (or React remounting under
+ *  StrictMode) ran a second whole drain beside the first, which is the exact
+ *  starvation the loop exists to prevent. Module-level because the two runs
+ *  share no object — the same reason secure-take's own in-flight set is.
+ *
+ *  ponytail: a boolean that DROPS the second run, not a queue that defers it —
+ *  the running drain is already working the same worklist, and a take stopped
+ *  since waits for the next mount (or its own stop path, which secures it
+ *  directly). Upgrade path if a drain ever runs long enough for that wait to
+ *  matter: chain instead of drop. */
+let mountDrainRunning = false
+
 export interface RecordPageNextAppointment {
   id: string
   customerName: string
@@ -740,10 +756,17 @@ export function RecordPageView({
     // its own here: it is already on this worklist (onstop stamps the duration
     // the list reads), and starting it outside the loop put two whole takes on
     // the wire at once — the exact starvation this is sequential to prevent.
+    // …and ONE drain across mounts, not one per mount — see mountDrainRunning.
     void (async () => {
-      const port = getRecordingPipelinePort()
-      for (const id of await listOwnStoppedUnsecuredTakeIds())
-        await secureTake(port, id, undefined, isActive)
+      if (mountDrainRunning) return
+      mountDrainRunning = true
+      try {
+        const port = getRecordingPipelinePort()
+        for (const id of await listOwnStoppedUnsecuredTakeIds())
+          await secureTake(port, id, undefined, isActive)
+      } finally {
+        mountDrainRunning = false
+      }
     })()
     void Promise.all([
       loadDraft(),

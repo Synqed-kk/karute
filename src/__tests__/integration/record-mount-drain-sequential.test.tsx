@@ -125,7 +125,18 @@ beforeEach(() => {
   mostAtOnce = 0
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // The drain lock is MODULE-level since fix round 10 (one drain at a time
+  // across MOUNTS, not per mount), so a run still on the wire when a test ends
+  // would silently no-op the next test's mount. Let it finish — `live` is the
+  // slot itself, and it only reads 0 between takes for a microtask.
+  for (let i = 0; i < 200 && live > 0; i++)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   globalRecorder.state = 'idle'
   globalRecorder.takeId = null
 })
@@ -146,5 +157,26 @@ describe('record page mount drain', () => {
     expect(mostAtOnce).toBe(1)
     // …and the worklist itself, in order, once each.
     expect(secured).toEqual(['take-own', 'take-older'])
+  })
+
+  // ⚖ AND ONE DRAIN ACROSS MOUNTS (fix round 10, P3). "One in flight" was per
+  // MOUNT: a staffer bouncing between 記録 and this page — or React remounting
+  // it — ran a whole second drain beside the first, which puts two takes on the
+  // wire at once. Exactly the starvation the sequential loop exists to prevent,
+  // reintroduced by the mount it lives in.
+  it('a second mount never starts a drain beside the running one', async () => {
+    const first = render(<RecordPageView {...baseProps} />)
+    const second = render(<RecordPageView {...baseProps} />)
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+
+    expect(mostAtOnce).toBe(1)
+    // The worklist is drained ONCE, not once per mount.
+    expect(secured).toEqual(['take-own', 'take-older'])
+
+    first.unmount()
+    second.unmount()
   })
 })

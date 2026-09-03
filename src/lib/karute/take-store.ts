@@ -282,6 +282,16 @@ export async function createTake(
  * Append one flushed segment (~5 s of audio) and bump the meta row. Returns
  * false on failure OR when the meta row is gone (logged out / discarded
  * mid-flight) — the recorder then disables persistence for this take.
+ *
+ * ⚖ NO OWNER GATE, AND NOT THIS ROUND (fix round 10, P3 — deferred to PR5).
+ * Every other write in this file resolves the signed-in uid before it touches
+ * the row; this one does not, so a shared salon device that signed one staffer
+ * out mid-flush could in principle append to a colleague's row. It is
+ * PRE-EXISTING and it is the capture HOT LOOP — every ~5 s for the length of a
+ * recording — and a session read per segment is a cost capture must never pay
+ * for a hazard the recorder's own take id already fences in practice. Closing
+ * it needs the uid resolved ONCE at start() and carried, which is a capture-path
+ * change and belongs with PR5's drain, not beside a race fix.
  */
 export async function appendTakeSegment(
   takeId: string,
@@ -306,7 +316,20 @@ export async function appendTakeSegment(
 }
 
 /** Stamp the server-minted recording_sessions id once the mint resolves.
- *  Best-effort; no-op if the take is gone.
+ *  Best-effort; no-op if the take is gone. Answers whether it WROTE.
+ *
+ *  ⚖ FIRST WRITE WINS (fix round 10, P1). Two routes can hand a take a row —
+ *  the recorder's start-mint and secure-take's own session call — and the mint
+ *  is a network call with no answer time anyone controls. A start-mint reply
+ *  that comes back LATE therefore used to land on a take the stop had already
+ *  finalized against the OTHER row: the audio sits on one row and the karute is
+ *  read beside another, or the late row's key is refused and the audio never
+ *  leaves the device. Neither is recoverable, and both are silent.
+ *
+ *  So the FIRST id a take is given is the take's, for good. The `when` hook
+ *  below reads the row inside the write transaction, so there is no window
+ *  between the check and the refusal — and the answer lets a caller whose
+ *  write lost ADOPT the id that won instead of carrying its own orphan on.
  *
  *  OWNER-GATED like every other write here (fix round 8 — it was the one stamp
  *  that never was, though the shared body below already claimed it). This one
@@ -318,8 +341,8 @@ export async function appendTakeSegment(
 export async function stampTakeSession(
   takeId: string,
   recordingSessionId: string,
-): Promise<void> {
-  await patchTakeMeta(takeId, { recordingSessionId })
+): Promise<boolean> {
+  return patchTakeMeta(takeId, { recordingSessionId }, (meta) => !meta.recordingSessionId)
 }
 
 /** Merge fields into a take's meta row — the body stampTakeSession above and
@@ -328,7 +351,10 @@ export async function stampTakeSession(
  *
  *  `when` is read on the row this transaction just fetched, so a caller can
  *  refuse to write against a state it must not overwrite without opening a
- *  read-then-write window of its own.
+ *  read-then-write window of its own. Answers whether the row was WRITTEN —
+ *  false covers every reason it was not (no store, signed out, gone, another
+ *  staffer's, refused by `when`), which is all a caller needs to know that the
+ *  value it holds is not the one on the take.
  *
  *  OWNER-GATED like every read in this file (fix round 7). A shared salon
  *  device signs one staffer out and the next one in, and these stamps carry a
@@ -341,19 +367,21 @@ async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const db = await openDb()
-    if (!db) return
+    if (!db) return false
     const uid = await currentUserId()
-    if (!uid) return
+    if (!uid) return false
     const tx = db.transaction(TAKES, 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta || meta.ownerUid !== uid) return
-    if (when && !when(meta)) return
+    if (!meta || meta.ownerUid !== uid) return false
+    if (when && !when(meta)) return false
     await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
+    return true
   } catch (err) {
     console.error('[take-store] patchTakeMeta failed:', err)
+    return false
   }
 }
 
