@@ -247,7 +247,8 @@ export interface AskAiProps {
 /** ONE SUGGESTION, and it leads with the to-do (§2.5). Collapsed it is a
  *  category word, the job, one grey line and the two actions; the paragraph and
  *  its 根拠 open in place. It is a component of its own because each card owns a
- *  collapse spring and a dismissal spring, and a hook cannot live in a loop. */
+ *  collapse spring and a dismissal spring, and a hook cannot live in a loop —
+ *  which is also what lets TWO cards be leaving at the same time (F-A1). */
 function SugCard({
   card, reduced, collapsing, onDismiss, onCollapsed,
 }: {
@@ -270,7 +271,14 @@ function SugCard({
    *  ⚠ WHICH AXIS IS ASKED OF THE LAYOUT, not of a media query. Below the
    *  two-column band the rail is a horizontal strip and a card occupies WIDTH;
    *  reading the list's own computed direction means the ladder and this
-   *  animation can never disagree about which one the card is standing in. */
+   *  animation can never disagree about which one the card is standing in.
+   *
+   *  ⚠ AND THE FLAG IS THIS CARD'S OWN (F-A1). While `collapsing` was ONE id, a
+   *  second 却下 mid-flight re-rendered the FIRST card with `collapsing=false`:
+   *  its cleanup stopped the spring before `onRest` could fire and the effect
+   *  body stripped its inline height, so the card snapped back to full size and
+   *  never entered `dismissed` — a gesture ENDING that tore nothing down (⚖ §A-9).
+   *  The parent now keeps a LIST, so each card's spring runs to its own rest. */
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
@@ -278,8 +286,14 @@ function SugCard({
       el.style.removeProperty('height')
       el.style.removeProperty('width')
       el.style.removeProperty('opacity')
+      // ⚖ F-A3 — THE CLIP IS BORROWED, NOT OWNED. `overflow: hidden` exists only
+      // so a size can animate to zero; left on permanently it cut the card's own
+      // hover shadow on three sides at the desk. It is put on for the collapse
+      // and taken off with the inline styles.
+      el.classList.remove('ak-leaving')
       return
     }
+    el.classList.add('ak-leaving')
     const list = el.parentElement
     const row = list !== null && getComputedStyle(list).flexDirection === 'row'
     const prop = row ? 'width' : 'height'
@@ -370,7 +384,7 @@ export function AskAiScreen(props: AskAiProps) {
   const [dismissed, setDismissed] = useState<string[]>([])
   /** …and the card whose collapse is still RUNNING. It is not dismissed yet — an
    *  undo pressed mid-flight has to be able to catch it. */
-  const [collapsing, setCollapsing] = useState<string | null>(null)
+  const [collapsing, setCollapsing] = useState<string[]>([])
   /** ⚖ HOW MUCH OF THE FEED IS OPEN — browsing state, exactly like the dismissed
    *  list, and it resets with the store for the same reason. The カルテ room's own
    *  さらに表示 walk: a step count, never a page number. */
@@ -565,19 +579,25 @@ export function AskAiScreen(props: AskAiProps) {
   }
 
   /** 却下 — the spring starts, the toast offers the undo, and the id joins
-   *  `dismissed` only when the card has actually left. */
+   *  `dismissed` only when the card has actually left.
+   *
+   *  ⚠ A LIST, NOT ONE ID (F-A1). Two cards can be mid-flight at once, and each
+   *  runs to its own rest. The TOAST still carries only the latest undo, which
+   *  is the accepted mock's own behaviour — one bar, one 元に戻す — so a reader
+   *  who dismisses two in a row can undo the second and re-open the page for the
+   *  first (which is what 「保存されません」 already promises them). */
   const dismiss = (id: string) => {
-    setCollapsing(id)
+    setCollapsing((was) => (was.includes(id) ? was : [...was, id]))
     showToast(props.dismissToast, id)
   }
   const onCollapsed = useCallback((id: string) => {
     setDismissed((was) => (was.includes(id) ? was : [...was, id]))
-    setCollapsing((c) => (c === id ? null : c))
+    setCollapsing((was) => was.filter((x) => x !== id))
   }, [])
   /** 元に戻す — it catches the card whether the collapse is still running or the
    *  id has already landed in `dismissed`, because both are the same request. */
   const undo = (id: string) => {
-    setCollapsing((c) => (c === id ? null : c))
+    setCollapsing((was) => was.filter((x) => x !== id))
     setDismissed((was) => was.filter((x) => x !== id))
     hideToast()
   }
@@ -1034,18 +1054,35 @@ export function AskAiScreen(props: AskAiProps) {
                 data-guide-title="AIが提案する次のアクション"
                 data-guide="記録や予約の変化からAIが提案した、次にやることが並ぶところです。1件ずつ「何をするか」が見出しになっていて、押すと詳しい理由と根拠が開きます。ボタンを押すとその作業をする画面へ移動します。急ぎの目印は、記録そのものに期限や未対応があるときだけ付きます。却下はこの画面の中だけの操作で、保存はされません。"
               >
-                <button
-                  className="ak-rail-hd"
-                  type="button"
-                  data-press
-                  aria-expanded={railCollapsible ? railOpen : undefined}
-                  onClick={() => { if (railCollapsible) setRailOpen((was) => !was) }}
-                >
-                  <span className="ak-rail-ttl">AIが提案する次のアクション</span>
-                  <span className="ak-sp" />
-                  <span className="ak-rail-cnt">提案 <b>{visible.length}</b>件</span>
-                  {railCollapsible && <span className={`ak-rail-cv${railOpen ? ' ak-on' : ''}`}><Chevron /></span>}
-                </button>
+                {/* ⚖ F-A2 — A PRESSABLE ONLY WHERE IT PRESSES SOMETHING (⚖ §A-2).
+                    This head used to be a `<button data-press>` at every width:
+                    at the desk its handler was a no-op, the sheet said
+                    `cursor: default`, and the press scale fired anyway — a
+                    control that answers a finger with nothing. It is a plain
+                    row at the desk and the 提案 bar's own toggle at phone.
+                    ⚠ SSR AND THE FIRST CLIENT RENDER BOTH SEE `pageWidth === 0`,
+                    so both produce the row and there is no hydration mismatch;
+                    the swap happens after the layout measurement. */}
+                {railCollapsible ? (
+                  <button
+                    className="ak-rail-hd"
+                    type="button"
+                    data-press
+                    aria-expanded={railOpen}
+                    onClick={() => setRailOpen((was) => !was)}
+                  >
+                    <span className="ak-rail-ttl">AIが提案する次のアクション</span>
+                    <span className="ak-sp" />
+                    <span className="ak-rail-cnt">提案 <b>{visible.length}</b>件</span>
+                    <span className={`ak-rail-cv${railOpen ? ' ak-on' : ''}`}><Chevron /></span>
+                  </button>
+                ) : (
+                  <div className="ak-rail-hd">
+                    <span className="ak-rail-ttl">AIが提案する次のアクション</span>
+                    <span className="ak-sp" />
+                    <span className="ak-rail-cnt">提案 <b>{visible.length}</b>件</span>
+                  </div>
+                )}
                 <div className="ak-rail-body" ref={railRef}>
                   <div>
                     {visible.length === 0 ? (
@@ -1060,7 +1097,7 @@ export function AskAiScreen(props: AskAiProps) {
                             key={c.id}
                             card={c}
                             reduced={reduced}
-                            collapsing={collapsing === c.id}
+                            collapsing={collapsing.includes(c.id)}
                             onDismiss={dismiss}
                             onCollapsed={onCollapsed}
                           />

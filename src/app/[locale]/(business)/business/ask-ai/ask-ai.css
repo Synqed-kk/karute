@@ -466,11 +466,18 @@
    page grows and the 6-window plus さらに表示 keep the rail short, which is the
    ⚖ page-scroll ruling and the ANY-ROSTER-SIZE answer in one mechanism. This
    wrapper exists only so the phone band has something to spring. */
-.biz .pg-ask-ai .ak-rail-body { overflow: hidden; }
+/* ⚖ F-A3 — NOTHING CLIPS AT THE DESK, AND THAT IS WHY THERE IS NO RULE HERE.
+   This wrapper carried `overflow: hidden` at every width, purely so the phone
+   band could spring its height — and at the desk it cut every card's own hover
+   shadow (14px of blur) on three sides. The clip lives in the phone band now,
+   which is the only band that animates the height. */
 .biz .pg-ask-ai .ak-rail-list { display: flex; flex-direction: column; padding: 8px 10px 10px; }
 
 /* ── every card LEADS WITH THE TO-DO ───────────────────────────────────────── */
-.biz .pg-ask-ai .ak-sug { overflow: hidden; }
+/* …and a CARD clips only while it is LEAVING (F-A3). The screen adds
+   `ak-leaving` for the length of the 却下 collapse and takes it off with the
+   inline styles, so the resting card paints its hover lift whole. */
+.biz .pg-ask-ai .ak-sug.ak-leaving { overflow: hidden; }
 .biz .pg-ask-ai .ak-sug-in {
   display: flex; flex-direction: column; gap: 3px; min-width: 0;
   border: 1px solid var(--line); border-left: 3px solid var(--ak-cat-rule); border-radius: var(--ak-r-md);
@@ -709,8 +716,10 @@
   /* ⚠ THE RESTING STATE IS THE SHEET'S, so the bar is closed on the first
      painted frame rather than closing itself 340ms after the reader arrives
      (measured defect, probe D12). The screen takes the height over only once
-     the page has been measured, and its first run JUMPS. */
-  .biz .pg-ask-ai .ak-rail-body { height: 0; }
+     the page has been measured, and its first run JUMPS. This is also the ONLY
+     band where the body's height is animated, so it is the only band that
+     clips (F-A3). */
+  .biz .pg-ask-ai .ak-rail-body { overflow: hidden; height: 0; }
   .biz .pg-ask-ai .ak-sug { width: calc(100cqi - 68px); max-width: 300px; }
   /* the hint row keeps EVERY chip and becomes one swipeable strip — a horizontal
      pan in its own container, with no height of its own */

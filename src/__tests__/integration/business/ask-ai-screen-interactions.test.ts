@@ -304,12 +304,80 @@ describe('the room’s controls — every one has a visible effect', () => {
     // 元に戻す catches the card in EITHER state — still collapsing, or already
     // dismissed — because both are one request from the reader.
     expect(SRC_CODE).toContain('const undo = (id: string) => {')
-    expect(SRC_CODE).toContain('setCollapsing((c) => (c === id ? null : c))')
+    // ⚠ RE-PINNED AT F-A1: `collapsing` is a LIST now, so undo removes its own id
+    // from it rather than clearing the one slot (which is what let a second 却下
+    // cancel the first card's flight).
+    expect(SRC_CODE).toContain('setCollapsing((was) => was.filter((x) => x !== id))')
     expect(SRC_CODE).toContain('setDismissed((was) => was.filter((x) => x !== id))')
     expect(SRC_CODE).toContain('onClick={() => undo(toast.undoId!)}')
     // …and the count above the list is the VISIBLE count, so a dismissal moves
     // the number a reader is looking at (one call, rendered twice — ⚖ A8).
     expect(SRC_CODE).toContain('提案 <b>{visible.length}</b>件')
+  })
+
+  it('⚖ F-A1 — TWO 却下 IN FLIGHT AT ONCE, and neither dismissal is lost', () => {
+    // THE BUG THIS PIN EXISTS FOR (Fable line audit, tip e76f1cdcb): `collapsing`
+    // was ONE id. A second 却下 while the first card's spring was still running
+    // re-rendered the FIRST card with `collapsing=false` — its effect cleanup
+    // stopped the spring before `onRest` could fire and the effect body stripped
+    // its inline height, so the card snapped back to full size and never entered
+    // `dismissed`. A gesture ENDING that tore nothing down (⚖ §A-9), and the
+    // reader was left with a card they had already dismissed.
+    expect(SRC_CODE).toContain('const [collapsing, setCollapsing] = useState<string[]>([])')
+    // dismiss APPENDS…
+    expect(SRC_CODE).toContain('setCollapsing((was) => (was.includes(id) ? was : [...was, id]))')
+    // …each card reads its OWN flag out of the list…
+    expect(SRC_CODE).toContain('collapsing={collapsing.includes(c.id)}')
+    // …and both endings remove only their own id, so one card's rest can never
+    // cancel another's flight.
+    expect(SRC_CODE).toContain('setCollapsing((was) => was.filter((x) => x !== id))')
+    expect(SRC_CODE).not.toMatch(/setCollapsing\(\(c\) => \(c === id \? null : c\)\)/)
+    expect(SRC_CODE).not.toMatch(/useState<string \| null>\(null\)[\s\S]{0,40}collapsing/)
+    // …and `onCollapsed` still appends to `dismissed` exactly once per id, which
+    // is what makes N−2 the honest count after two presses.
+    const onCollapsed = SRC_CODE.slice(SRC_CODE.indexOf('const onCollapsed'), SRC_CODE.indexOf('const undo'))
+    expect(onCollapsed).toContain('setDismissed((was) => (was.includes(id) ? was : [...was, id]))')
+    expect(onCollapsed).toContain('setCollapsing((was) => was.filter((x) => x !== id))')
+  })
+
+  it('⚖ F-A2 — the rail head is a PRESSABLE only where it presses something', () => {
+    // ⚖ §A-2, the dead-lever class. The head was a `<button data-press>` at every
+    // width: at the desk its handler was a no-op, the sheet said `cursor: default`
+    // and the press scale fired anyway — a control that answers a finger with
+    // nothing. It is a plain row at the desk and the 提案 bar's toggle at phone.
+    expect(SRC_CODE).toContain('{railCollapsible ? (')
+    expect(SRC_CODE).toContain('<div className="ak-rail-hd">')
+    // the BUTTON spelling exists only inside the collapsible branch, and it is
+    // the one that carries the press state and the expanded flag
+    const branch = SRC_CODE.slice(SRC_CODE.indexOf('{railCollapsible ? ('), SRC_CODE.indexOf('<div className="ak-rail-hd">'))
+    expect(branch).toContain('aria-expanded={railOpen}')
+    expect(branch).toContain('data-press')
+    expect(branch).toContain('onClick={() => setRailOpen((was) => !was)}')
+    // …and the no-op spelling is gone in both of its halves
+    expect(SRC_CODE).not.toContain('aria-expanded={railCollapsible ? railOpen : undefined}')
+    expect(SRC_CODE).not.toContain('onClick={() => { if (railCollapsible) setRailOpen((was) => !was) }}')
+    // the chevron only renders where there is something to turn
+    expect(branch).toContain('ak-rail-cv')
+    const plain = SRC_CODE.slice(SRC_CODE.indexOf('<div className="ak-rail-hd">'))
+    expect(plain.slice(0, plain.indexOf('</div>'))).not.toContain('ak-rail-cv')
+  })
+
+  it('⚖ F-A3 — NOTHING CLIPS AT THE DESK: a card’s hover lift paints whole', () => {
+    // Both clips existed only to animate a size to zero, and both were on at
+    // every width — so every card's own `:hover` shadow (14px of blur) was cut on
+    // three sides, and a focus ring at a card's edge could be cut with it.
+    const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@container'))
+    expect(desk).not.toMatch(/\.ak-sug \{[^}]*overflow/)
+    expect(desk).not.toMatch(/\.ak-rail-body[^{]*\{[^}]*overflow/)
+    // the card clips ONLY while it is leaving…
+    expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-sug.ak-leaving { overflow: hidden; }')
+    expect(SRC_CODE).toContain("el.classList.add('ak-leaving')")
+    expect(SRC_CODE).toContain("el.classList.remove('ak-leaving')")
+    // …and the rail body clips only in the ONE band that springs its height.
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    expect(phoneBand.slice(0, phoneBand.indexOf('@media'))).toContain('.ak-rail-body { overflow: hidden; height: 0; }')
+    // …and the hover lift the clip was eating is still there to paint.
+    expect(desk).toMatch(/\.ak-sug-in:hover \{[^}]*box-shadow: var\(--ak-shadow-2\)/)
   })
 
   it('⚖ THE FEED IS WINDOWED, and the head’s count is still the TOTAL', () => {
@@ -600,7 +668,18 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@container'))
     expect(desk).toMatch(/\.ak-rail-hd \{[^}]*align-items: center/)
     expect(desk).toMatch(/\.ak-rail-cnt \{[^}]*white-space: nowrap/)
-    expect(SRC_CODE).toContain('<span className="ak-sp" />\n                  <span className="ak-rail-cnt">')
+    // ⚠ RE-PINNED AT F-A2: the head renders in two spellings now — a button at
+    // phone and a plain row at the desk — so the SHAPE is pinned in both rather
+    // than by one indentation. In each, the count follows a flexible spacer, on
+    // one centred row.
+    for (const half of [
+      SRC_CODE.slice(SRC_CODE.indexOf('{railCollapsible ? ('), SRC_CODE.indexOf('<div className="ak-rail-hd">')),
+      SRC_CODE.slice(SRC_CODE.indexOf('<div className="ak-rail-hd">')),
+    ]) {
+      const upto = half.slice(0, half.indexOf('ak-rail-cnt') + 12)
+      expect(upto.indexOf('ak-rail-ttl')).toBeLessThan(upto.indexOf('ak-sp'))
+      expect(upto.indexOf('ak-sp')).toBeLessThan(upto.indexOf('ak-rail-cnt'))
+    }
     // …and at the touch band the whole head is a ≥44px target, because there it
     // is the control that opens the 提案 bar.
     const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
