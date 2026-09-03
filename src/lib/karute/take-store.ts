@@ -254,6 +254,24 @@ export type TakeMeta = {
    *  would finalize twenty minutes too long. Absent = no recorder ever stamped
    *  it (a pre-PR3 take, or a kill before stop) → that window stands in. */
   durationMs?: number
+  /** ⚖ THE TAIL NEVER LANDED (fix round 16). The stop's final flush reported
+   *  SKIPPED: the staffer stopped and immediately started the next recording
+   *  (or discarded), so the chunks were cleared out from under the queued
+   *  write and what is on disk is SHORT of what the recorder captured.
+   *
+   *  Round 7 left such a take merely unstamped, and that was enough while
+   *  "unstamped" meant "no drain will touch it". Rounds 13/14 changed exactly
+   *  that — an unstamped, quiet take with no beat is now drainable on both
+   *  arms — so the absence of a stamp is no longer a defence and the missing
+   *  tail has to be written down as the POSITIVE fact it is. Read by
+   *  isStoppedTake (and secure-take's belt): a take with this flag is never
+   *  sealed automatically, because sealing the prefix under the IMMUTABLE
+   *  finalized key would leave the rest of the recording nowhere to land.
+   *
+   *  It is not an error and it is not a failure — nothing marks, nothing
+   *  deletes, the audio stays on the device and the take stays plainly
+   *  un-finalized, which is what surfaces it as 要対応 for a human. */
+  tailIncomplete?: boolean
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -504,6 +522,14 @@ export async function markTakeStartBoundAttempted(takeId: string): Promise<void>
   await patchTakeMeta(takeId, { startBoundAttempted: true })
 }
 
+/** Capture pipeline PR3 fix round 16: this take's final flush was SKIPPED, so
+ *  the disk copy is short of what the recorder captured. Written by the stop
+ *  leg BEFORE it releases its hold — see `tailIncomplete` above for why the
+ *  missing stamp stopped being enough. */
+export async function markTakeTailIncomplete(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { tailIncomplete: true })
+}
+
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
  *  stamped at stop so a LATER attempt (the record page's mount retry, PR5's
  *  drain) finalizes the same number the stop would have. Without it those
@@ -570,6 +596,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'updatedAt'
   | 'lastSeq'
   | 'heartbeatAt'
+  | 'tailIncomplete'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -585,6 +612,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     updatedAt: meta.updatedAt,
     lastSeq: meta.lastSeq,
     heartbeatAt: meta.heartbeatAt,
+    tailIncomplete: meta.tailIncomplete,
   }
 }
 
@@ -871,15 +899,28 @@ export async function getRecoverableTake(
  *  WebView, so a page that is loading is proof enough), and must not depend on
  *  it — a take recorded by an older bundle carries no beat at all.
  *
+ *  ⚖ AND A TAKE WHOSE TAIL NEVER LANDED IS NEVER "STOPPED" (fix round 16),
+ *  on EITHER arm and ahead of every rule below — the stamp included, since a
+ *  take that lost its tail is exactly a take no recorder stamped. "Finished"
+ *  here has only ever meant one thing: the disk holds the WHOLE recording, so
+ *  sealing it under the immutable key cannot orphan anything. A skipped tail
+ *  says in so many words that it does not. Round 7 answered this with silence
+ *  (leave it unstamped, no drain reads it), and rounds 13/14 then taught both
+ *  drains to read unstamped takes — so the fact is written down now.
+ *
  *  `isActive` comes from the caller because the recorder is a module singleton
  *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
  *  recorder in its runtime at all (PR5's launch drain) passes nothing rather
  *  than inventing a check it never made — at launch there is nothing to ask. */
 export function isStoppedTake(
   takeId: string,
-  meta: Pick<TakeMeta, 'durationMs' | 'lastSeq' | 'updatedAt' | 'heartbeatAt'>,
+  meta: Pick<
+    TakeMeta,
+    'durationMs' | 'lastSeq' | 'updatedAt' | 'heartbeatAt' | 'tailIncomplete'
+  >,
   isActive?: (takeId: string) => boolean,
 ): boolean {
+  if (meta.tailIncomplete) return false
   if (meta.durationMs !== undefined) return true
   if (meta.lastSeq < 0) return false
   if (isActive?.(takeId)) return false

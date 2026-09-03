@@ -143,6 +143,7 @@ async function readLocalTakes() {
     customerName: t.target?.customerName ?? null,
     startedAt: t.startedAt,
     updatedAt: t.updatedAt,
+    tailIncomplete: t.tailIncomplete,
   }))
 }
 

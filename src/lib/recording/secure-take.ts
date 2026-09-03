@@ -171,6 +171,17 @@ export async function secureTake(
     // Gone, another staffer's, or already secured — all three mean there is
     // nothing to do, and the finalizedAt read is what makes a second call free.
     if (!meta || meta.finalizedAt) return
+    // ⚖ A TAKE WHOSE TAIL NEVER LANDED IS NOT ONE TO SEAL (fix round 16). The
+    // stop's final flush was skipped — the next customer's recording cleared
+    // the chunks out from under it — so the disk copy is SHORT of what that
+    // recorder captured, and the finalized key is immutable: the rest could
+    // never land. isStoppedTake reads the same flag for the drain's worklist;
+    // this is the belt for a caller that names the take directly (the stop
+    // path carries its own duration and would otherwise walk straight past
+    // that rule). Mark NOTHING — the take has not FAILED at anything, it is
+    // simply not whole, and that is a truth for a human to act on, not an
+    // error to retry against.
+    if (meta.tailIncomplete) return
     // ⚖ NO STOP STAMP, NO SECURING (fix round 6) — the belt's second half.
     // isActive above can only answer for the take the recorder in THIS runtime
     // is holding; a stop that happened off-page (the staffer navigates to 記録

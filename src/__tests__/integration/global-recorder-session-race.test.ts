@@ -91,6 +91,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // refuses — the recorder must not notice either way.
   writeTakeHeartbeat: async () => {},
   clearTakeHeartbeat: async () => {},
+  // …and the skipped-tail mark (fix round 16). Absent, the stop leg's write
+  // would throw into the persist queue's own catch and vanish — a silent
+  // no-op that reads exactly like a passing test.
+  markTakeTailIncomplete: async () => {},
   readTakeSecureMeta: async (takeId: string) =>
     mockTakeSessions.has(takeId)
       ? { takeId, recordingSessionId: mockTakeSessions.get(takeId) }

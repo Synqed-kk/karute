@@ -70,6 +70,16 @@ export type InboxReason =
   | 'emptyTranscript'
   | 'genericFailure'
   | 'localAudio'
+  /** …and the SAME device audio when the stop could not finish writing it
+   *  (capture pipeline PR3 fix round 16). The take's final flush was skipped —
+   *  the next customer's recording cleared the chunks out from under it — so
+   *  what is on disk is SHORT of what the recorder captured. No drain will ever
+   *  seal it (isStoppedTake refuses the flag, secureTake refuses it again), and
+   *  that refusal is precisely why the row has to SAY so: it is 復元可能 and
+   *  counted in 要対応 like any other unsaved take, but the audio it offers ends
+   *  partway, and a staff member deciding what to do with it deserves to know
+   *  that before they press 保存する rather than after. */
+  | 'tailIncomplete'
 
 /** The statuses this build knows how to read. Anything else on the wire is
  *  narrowed to "unknown, still in flight" — see `jobStatus` below. */
@@ -135,6 +145,11 @@ export interface InboxLocalTake {
   customerName: string | null
   startedAt: number
   updatedAt: number
+  /** The stop's final flush was SKIPPED, so this take's disk copy is short of
+   *  what its recorder captured (take-store's `tailIncomplete`). Optional
+   *  because every take written before fix round 16 carries no such field, and
+   *  absent means the honest thing: nothing says this take lost its tail. */
+  tailIncomplete?: boolean
 }
 
 export interface InboxRow {
@@ -304,7 +319,7 @@ export function deriveInboxRows(input: {
     // No job row at all — the enqueue never landed, or this device's run died
     // before one existed.
     if (take) {
-      rows.push({ ...base, state: 'recoverable', reason: 'localAudio' })
+      rows.push({ ...base, state: 'recoverable', reason: recoverableReason(take) })
       continue
     }
     // ponytail: `now` is the CLIENT's clock and `startedAt` is the SERVER's
@@ -327,7 +342,7 @@ export function deriveInboxRows(input: {
     rows.push({
       key: `take:${t.takeId}`,
       state: 'recoverable',
-      reason: 'localAudio',
+      reason: recoverableReason(t),
       recordingSessionId: null,
       takeId: t.takeId,
       karuteRecordId: null,
@@ -341,6 +356,15 @@ export function deriveInboxRows(input: {
 
   rows.sort((a, b) => b.startedAt - a.startedAt)
   return rows
+}
+
+/** Why a 復元可能 row is 復元可能 — device audio, and whether the stop managed
+ *  to finish writing it (fix round 16). Only the two take-only branches ask:
+ *  the failed/DONE branches carry the SERVER's reason, which is the more
+ *  specific fact about what went wrong and must not be overwritten by a
+ *  device-side one. */
+function recoverableReason(take: InboxLocalTake): InboxReason {
+  return take.tailIncomplete ? 'tailIncomplete' : 'localAudio'
 }
 
 /** Rough length from the take's own stamps — the same estimate the recovery

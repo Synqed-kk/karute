@@ -1071,6 +1071,7 @@ describe('secure at stop', () => {
       recordingSessionId?: string | null
       durationMs?: number
       startBoundAttempted?: boolean
+      tailIncomplete?: boolean
       startedAt: number
       updatedAt: number
     }
@@ -2425,17 +2426,30 @@ describe('secure at stop', () => {
     // …and the hold is released with it — and the beat with the hold.
     expect(globalRecorder.isActiveTake(takeId)).toBe(false)
     expect(heartbeatOf(takeId)).toBeUndefined()
+    // THE CONTROL for the test below: a tail that LANDED writes no flag. The
+    // mark has to mean something, and it means nothing if a normal stop wears
+    // it too.
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
   })
 
   // The other exit of that leg: the tail was SKIPPED (the next customer's
   // recording started first), nothing is stamped and nothing is sealed — the
   // hold must still be released, or the take would be invisible to every drain
   // for the rest of the page's life.
-  it('…and a skipped tail releases the hold too, unstamped and unsealed', async () => {
+  //
+  // ⚖ AND THE MISSING TAIL IS WRITTEN DOWN (fix round 16, AC1/AC3). Round 7
+  // answered this case with SILENCE: leave the take unstamped, and no drain
+  // reads an unstamped take. Rounds 13/14 then taught BOTH drains to read
+  // exactly that shape — unstamped, quiet, nothing beating for it — so the
+  // absence of a stamp stopped being a defence, and the moment the hold is
+  // released the drain seals the committed PREFIX under the immutable key with
+  // the rest of the recording nowhere to land. The fact is a fact now.
+  it('…and a skipped tail releases the hold, marked tailIncomplete and sealed by NOBODY', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
-    await jest.advanceTimersByTimeAsync(5_000)
-    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000) // 3 bytes committed
+    // …and the recorder's own tail chunk ('TAIL', 4 more) arrives at the stop
+    // below, so the whole recording is 7 bytes and the disk holds 3 of them.
 
     slowSegmentWrites = true
     globalRecorder.stop()
@@ -2447,15 +2461,55 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).durationMs).toBeUndefined()
     expect(metaOf(takeId).finalizedAt).toBeUndefined()
     expect(globalRecorder.isActiveTake(takeId)).toBe(false)
+    // The positive fact, on the row — and NOT an error: nothing failed here.
+    expect(metaOf(takeId).tailIncomplete).toBe(true)
+    expect(metaOf(takeId).secureError).toBeUndefined()
+
+    // Now make every OTHER fact say "seal it": the hold is gone, the beat was
+    // cleared with it, and the take goes quiet past the grace. Round 13/14's
+    // rules would take it on both arms; the flag is the only thing left.
+    expect(heartbeatOf(takeId)).toBeUndefined()
+    await passGrace()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+    // …and the tab next door, which has no hold of ours to consult.
+    expect(await listOwnStoppedUnsecuredTakeIds(false, () => false)).toEqual([])
+
+    order.length = 0
+    await mountDrain()
+    // Drop the flag check in isStoppedTake and this is where the committed
+    // 3 of 7 bytes go up under the immutable finalized key.
+    expect(putBodies.map((b) => b.size)).toEqual([])
+    expect(order).toEqual([])
+
+    // The belt, for the caller that names the take directly instead of taking
+    // it off a worklist — the stop path carries its own measurement and would
+    // otherwise walk straight past the drain's rule.
+    await secureTake(port(), takeId, 5, isActive)
+    expect(order).toEqual([])
+    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    // Nothing deleted: the 3 bytes that did land are still on the device, for
+    // a human to decide about.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
   })
 
-  // ── ⚖ AND A HOLD IS NOT FOREVER (fix round 15) ───────────────────────────
+  // ── ⚖ AND THE HOLD LASTS UNTIL THE LEG LETS GO (fix round 16, AD1) ───────
   // The `finally` above covers every exit of the leg — but only legs that
   // EXIT. A store request that neither succeeds nor errors leaves the leg
-  // suspended forever, and the hold with it: the take would answer "active" on
-  // this device for the rest of the page's life, invisible to every drain, its
-  // audio never leaving the phone. So the hold expires on its own.
-  it('a stop leg that HANGS stops pinning its take after two minutes', async () => {
+  // suspended, and the hold with it. Round 15 answered that with a two-minute
+  // deadline; the deadline was 120_000 and the beat's own stale window is
+  // 120_000, so at the two-minute mark BOTH defences fell in the same instant
+  // and a drain inside that window sealed the committed prefix under the
+  // immutable key while the tail was still unwritten.
+  //
+  // The two outcomes are not comparable. A pinned take keeps its audio on the
+  // device until the next launch drain — an upload delayed. A sealed one loses
+  // the rest of the recording forever. So the hold has no deadline: it lasts
+  // until the leg lets go, and the Set dies with the page.
+  it('a stop leg that HANGS keeps its take — no deadline, and no drain takes it', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
@@ -2470,10 +2524,23 @@ describe('secure at stop', () => {
     await jest.advanceTimersByTimeAsync(60_000)
     expect(globalRecorder.isActiveTake(takeId)).toBe(true)
 
-    await jest.advanceTimersByTimeAsync(60_000)
-    expect(globalRecorder.isActiveTake(takeId)).toBe(false)
+    // FIVE MINUTES, two and a half times the window round 15 let go at.
+    await jest.advanceTimersByTimeAsync(4 * 60_000)
+    expect(globalRecorder.isActiveTake(takeId)).toBe(true)
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
 
-    // …and nothing was lost by letting go: the store answers at last, the leg
+    order.length = 0
+    await mountDrain()
+    // Re-add round 15's deadline and this is where the committed 3 of the
+    // take's 7 bytes are sealed under the immutable finalized key — the tail
+    // that is still queued behind the hung write would have nowhere to land.
+    expect(putBodies.map((b) => b.size)).toEqual([])
+    expect(order).toEqual([])
+
+    // …and nothing is lost by holding on: the store answers at last, the leg
     // runs the rest of the way and the take goes up WHOLE.
     order.length = 0
     releaseHungWrites()

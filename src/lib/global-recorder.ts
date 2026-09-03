@@ -11,6 +11,7 @@ import {
   createTake,
   deleteTake,
   markTakeStartBoundAttempted,
+  markTakeTailIncomplete,
   readTakeSecureMeta,
   stampTakeDuration,
   stampTakeSession,
@@ -63,17 +64,6 @@ const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording ti
 // capture: any failure disables the layer for this take and recording
 // continues memory-only exactly as before.
 const TAKE_FLUSH_MS = 5_000
-
-/** ⚖ AND A HOLD IS NOT FOREVER (fix round 15). The stop leg's hold on a take
- *  (securingTakeIds) is released by a `finally` that covers every exit — but
- *  "every exit" only covers legs that EXIT. An await that never settles (a
- *  store request that neither succeeds nor errors, a fetch a device never
- *  answers) would pin the take as active for the rest of the page's life:
- *  invisible to every drain on this device, its audio never leaving it. Two
- *  minutes, the same window one heartbeat speaks for — by then the take is
- *  either stamped (isStoppedTake answers on the stamp alone) or genuinely
- *  stuck, and a stuck leg must not outrank a working drain. */
-const SECURING_HOLD_MAX_MS = 120_000
 
 // How long any caller waits on the session-id mint before giving up. Shared by
 // awaitRecordingSessionId and the retry below so "bounded the same way" is a
@@ -151,9 +141,29 @@ class GlobalRecorder {
    *  where the leg releases the hold (everything after that point may take the
    *  take, and takes it whole).
    *
-   *  Each entry carries WHEN the hold was taken, and isActiveTake stops
-   *  honouring one past SECURING_HOLD_MAX_MS — see that constant. */
-  private securingTakeIds = new Map<string, number>()
+   *  ⚖ AND THE HOLD LASTS UNTIL THE LEG LETS GO (fix round 16). Round 15 gave
+   *  it a two-minute deadline so a leg that never exits could not pin a take
+   *  for the page's life — but that deadline expired in LOCKSTEP with the
+   *  heartbeat's own 120 s window, so at the two-minute mark both defences
+   *  fell in the same instant and the take became drainable while its tail was
+   *  still unwritten: the prefix sealed under the immutable key. The two
+   *  outcomes are not comparable — a pinned take keeps its audio on the device
+   *  until the next launch drain, a sealed one loses the rest of the recording
+   *  forever — so the hold has no deadline, and the Set dies with the page. */
+  private securingTakeIds = new Set<string>()
+  /** Keeps the cross-tab beat alive for every take this leg is holding (fix
+   *  round 16). The flush timer that normally writes it is cleared at the top
+   *  of onstop, so without this the beat written there is the LAST one and a
+   *  hold outliving HEARTBEAT_STALE_MS leaves the tab next door reading a
+   *  stale beat on a take whose tail is still unwritten.
+   *
+   *  ponytail: same ~5 s cadence and the same persist queue as the live beat —
+   *  the ceiling that buys is a store request that never answers, which blocks
+   *  the queue and every beat behind it. That case needs nothing else: a
+   *  never-settling readwrite transaction on the take row blocks every OTHER
+   *  tab's read of the same store too (IndexedDB serializes overlapping
+   *  scopes), so no drain anywhere has a worklist to seal from. */
+  private securingBeatTimer: ReturnType<typeof setInterval> | null = null
   private startTime = 0
   private pausedDuration = 0
   private pauseStart = 0
@@ -269,19 +279,54 @@ class GlobalRecorder {
     }
   }
 
-  /** The beat, QUEUED rather than fired beside the flush (fix round 15). Both
-   *  write the same take row — the beat via patchTakeMeta, the flush via
-   *  appendTakeSegment — and this file already has exactly one place where its
-   *  store writes are kept in order. Two read-modify-writes racing the same row
-   *  would trade a `lastSeq` for a `heartbeatAt` or the other way round, and a
-   *  take whose lastSeq went backwards is a take with no bytes as far as every
-   *  drain is concerned. Never rejects (patchTakeMeta swallows its own errors),
-   *  and the catch is the belt: a rejected queue would make the NEXT flush
-   *  disable persistence for this take. */
+  /** The beat, QUEUED rather than fired beside the flush (fix round 15) — see
+   *  queueTakeWrite below for why the two must never interleave. */
   private queueHeartbeat(takeId: string) {
-    this.persistQueue = this.persistQueue
-      .then(() => writeTakeHeartbeat(takeId))
-      .catch(() => {})
+    void this.queueTakeWrite(() => writeTakeHeartbeat(takeId))
+  }
+
+  /** …and its CLEAR rides the same queue (fix round 16, AD2). Fired straight
+   *  at the store it could run BEFORE a beat already queued behind a flush,
+   *  and the beat would then land last — resurrecting a two-minute claim on a
+   *  take no recorder is holding any more. */
+  private queueClearHeartbeat(takeId: string) {
+    void this.queueTakeWrite(() => clearTakeHeartbeat(takeId))
+  }
+
+  /** Any take-row write that must not interleave with the segment flush,
+   *  returning the tail so a caller can wait for it. Every write here is a
+   *  read-modify-write of the SAME row the flush bumps (`lastSeq`,
+   *  `updatedAt`), and real IndexedDB serializes overlapping transactions
+   *  where the tests' shim does not — a lost `lastSeq` is a take with no bytes
+   *  as far as every drain is concerned. One queue, one order, both places.
+   *  Never rejects (the store swallows its own errors); the catch is the belt,
+   *  since a rejected queue would make the NEXT flush disable persistence. */
+  private queueTakeWrite(write: () => Promise<void>): Promise<void> {
+    const done = this.persistQueue.then(write).catch(() => {})
+    this.persistQueue = done
+    return done
+  }
+
+  /** Hold this take against every drain in THIS runtime, and keep it beating
+   *  for the tabs next door, until the stop leg lets go (fix round 16). */
+  private holdTakeForSecuring(takeId: string) {
+    this.securingTakeIds.add(takeId)
+    this.queueHeartbeat(takeId)
+    // Re-armed rather than left alone when one is already running: one stop
+    // leg at a time in practice, and re-arming can never strand an interval.
+    if (this.securingBeatTimer) clearInterval(this.securingBeatTimer)
+    this.securingBeatTimer = setInterval(() => {
+      for (const id of this.securingTakeIds) this.queueHeartbeat(id)
+    }, TAKE_FLUSH_MS)
+  }
+
+  /** The tail is on disk (or was skipped and written down as such): nothing
+   *  short is left for anyone to seal, so the hold goes and the beat with it. */
+  private releaseTakeSecuringHold(takeId: string) {
+    this.securingTakeIds.delete(takeId)
+    if (this.securingTakeIds.size > 0 || !this.securingBeatTimer) return
+    clearInterval(this.securingBeatTimer)
+    this.securingBeatTimer = null
   }
 
   /** Flush chunks not yet on disk as one segment. Serialized via the queue;
@@ -502,7 +547,8 @@ class GlobalRecorder {
     // begins — its liveness key must not outlive it (fix round 14). Normally
     // already removed by the stop or discard that got here; this is the belt
     // for the paths that reach start() with a take still named.
-    if (this.takeId) void clearTakeHeartbeat(this.takeId)
+    const previousTakeId = this.takeId
+    if (previousTakeId) this.queueClearHeartbeat(previousTakeId)
     this.error = null
     this.result = null
     this.chunks = []
@@ -591,20 +637,19 @@ class GlobalRecorder {
       this.clearTakePersistence()
       const takeId = this.takeId
       if (takeId) {
-        // ⚖ ONE FRESH BEAT, NOT A CLEAR (fix round 15). Round 14 removed the
-        // liveness signal here, at the TOP of the leg — and everything below
-        // it is precisely the window in which the take on disk may still be
-        // SHORT: the stamp is not written yet and the tail flush has not
-        // landed. `securingTakeIds` holds this runtime off, but it cannot
-        // speak to ANOTHER TAB, whose drain would then read an unstamped,
-        // quiet, unbeating take as free to seal — under the immutable key,
-        // with the tail still queued behind it. So the take beats once more
-        // here and the beat is cleared in the `finally` below, where the hold
-        // releases and there is no short blob left for anyone to seal.
-        this.queueHeartbeat(takeId)
-        // The same window, for callers that DO share this runtime. BEFORE
-        // flushTake(), so no drain can read the gap. (AA1 — securingTakeIds.)
-        this.securingTakeIds.set(takeId, Date.now())
+        // ⚖ ONE FRESH BEAT, NOT A CLEAR (fix round 15), AND IT KEEPS BEATING
+        // (round 16). Round 14 removed the liveness signal here, at the TOP of
+        // the leg — and everything below it is precisely the window in which
+        // the take on disk may still be SHORT: the stamp is not written yet
+        // and the tail flush has not landed. `securingTakeIds` holds this
+        // runtime off, but it cannot speak to ANOTHER TAB, whose drain would
+        // then read an unstamped, quiet, unbeating take as free to seal —
+        // under the immutable key, with the tail still queued behind it. So
+        // the hold beats for the take until the `finally` below releases it,
+        // which is where the beat is cleared and where there is no short blob
+        // left for anyone to seal. Taken BEFORE flushTake(), so no drain in
+        // this runtime can read the gap either. (AA1 — securingTakeIds.)
+        this.holdTakeForSecuring(takeId)
       }
       const flushed = this.flushTake()
       this.notify()
@@ -627,7 +672,21 @@ class GlobalRecorder {
             // land. Leave the take unstamped instead; nothing here deletes, the
             // mount drain reads the stamp so it will not touch it, and PR5's
             // launch drain decides what an unstamped take deserves.
-            if (!flushedWholeTake) return
+            // ⚖ …AND IT SAYS SO ON THE ROW (fix round 16). Unstamped was the
+            // whole defence in round 7, and rounds 13/14 dismantled it:
+            // an unstamped take that has gone quiet with nothing beating for
+            // it is now drainable on BOTH arms, so the drain would seal this
+            // prefix under the immutable key the moment the hold below is
+            // released. The missing tail is therefore written down as a fact
+            // of its own — no mark, no error, nothing deleted; the audio stays
+            // on the device and the take stays plainly un-finalized, which is
+            // what surfaces it as 要対応 for a human to decide about.
+            // Queued (and awaited) so it cannot race the row's other writers,
+            // and BEFORE the `finally` lets go of the hold.
+            if (!flushedWholeTake) {
+              await this.queueTakeWrite(() => markTakeTailIncomplete(takeId))
+              return
+            }
             // The measurement is stamped BEFORE the upload, and it is the only
             // paused-aware one anyone will ever have for this take: if this stop
             // cannot reach the server, the mount retry (and PR5's drain) reads
@@ -641,7 +700,7 @@ class GlobalRecorder {
             // the live measurement. A drain that takes the take from here on
             // takes it WHOLE; `inFlight` inside secureTake keeps the two from
             // overlapping in this runtime.
-            this.securingTakeIds.delete(takeId)
+            this.releaseTakeSecuringHold(takeId)
             // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
             // The belt in front of the first-write-wins braces above: wait for
             // the start-mint to settle (it stamps the take before it resolves),
@@ -663,11 +722,11 @@ class GlobalRecorder {
             // anything that throws on the way. A `finally` rather than a delete
             // per branch: a branch that forgot would strand the take, invisible
             // to every drain for the rest of the page's life.
-            this.securingTakeIds.delete(takeId)
+            this.releaseTakeSecuringHold(takeId)
             // …and THE BEAT ENDS WITH THE HOLD (round 15), for the same reason
             // and at the same instant: this is the point past which no tab —
             // this one or the one next door — can seal anything short.
-            void clearTakeHeartbeat(takeId)
+            this.queueClearHeartbeat(takeId)
           }
         })
       }
@@ -884,15 +943,13 @@ class GlobalRecorder {
    *  bytes are complete" is true of the recorder, not yet of the disk: the tail
    *  flush is queued behind an IndexedDB write that can take seconds, and only
    *  when it lands is there a whole take to seal. Until then the take is held
-   *  in `securingTakeIds` and answers active here — for at most
-   *  SECURING_HOLD_MAX_MS, so a leg that hangs cannot pin it forever. */
+   *  in `securingTakeIds` and answers active here, until that leg lets go —
+   *  see the field for why round 16 took its deadline away. */
   isActiveTake(takeId: string): boolean {
-    const heldSince = this.securingTakeIds.get(takeId)
     return (
       // Still being secured by the stop leg counts as active: its bytes are
-      // not all on disk yet, so nothing else may seal it (AA1) — but only for
-      // as long as a stop leg can plausibly still be running (round 15).
-      (heldSince !== undefined && Date.now() - heldSince < SECURING_HOLD_MAX_MS) ||
+      // not all on disk yet, so nothing else may seal it (AA1).
+      this.securingTakeIds.has(takeId) ||
       (this.takeId === takeId &&
         (this.state === 'recording' || this.state === 'paused'))
     )
@@ -938,7 +995,7 @@ class GlobalRecorder {
     this.clearTakePersistence()
     // No recorder holds this take any more, whether its audio is kept or not
     // (fix round 14) — the same removal the stop path does.
-    if (this.takeId) void clearTakeHeartbeat(this.takeId)
+    if (this.takeId) this.queueClearHeartbeat(this.takeId)
     if (this.takeId && !opts?.keepTake) void deleteTake(this.takeId)
     this.takeId = null
     this.persistDisabled = false
