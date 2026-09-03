@@ -1217,6 +1217,15 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC).toContain('excludeId: handId,')
     expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
     expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
+    // ⚖ R7 (SPEC §3.1) — BOTH DOORS, BOTH CALLBACKS, ONE BOOK. `placementFeasible`
+    // above answers 「can the card being placed occupy this span」; this one
+    // answers 「does the real world publish a protected window starting here」.
+    // The rail was handed it at E3a and the verdict was not, so the strip's marks
+    // were bed-honest and the word under the cursor was not — two readings of one
+    // board, measured disagreeing on 1,625 of 7,956 cells (PROBE-R7 §P1). Pinned
+    // as the pair, because the failure this catches is exactly half a world.
+    expect(SRC).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
+    expect(SRC).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,')
     // The book is built ONCE per frame, in a memo — never inside a predicate,
     // a pointer frame or a drag handler.
     expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
@@ -1231,6 +1240,21 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+
+  /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
+   *
+   *  `pendingChecks` was a plain per-render expression over `checksFor`, which
+   *  runs canon's `computeChecks` over every span on the staff and bed lanes —
+   *  on a screen that re-renders per pointer frame. The memo changes no answer:
+   *  its inputs ARE the expression's, which is the only thing that can go wrong
+   *  here and the reason the dependency list is pinned beside the body (a dep
+   *  dropped from THIS memo is a confirm surface answering about last frame's
+   *  board, which is the ⚖ FIX-4(f) failure one memo over). */
+  it('the hold bar’s checks are memoised, on exactly the inputs the expression had', () => {
+    expect(SRC).toContain(
+      'const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])',
+    )
   })
 
   /** ⚖ FIX-4(e) — THE ONE-DOOR INVARIANT, IN R3's SHAPE.
@@ -4106,6 +4130,49 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setAdded('))
   })
 
+  /** ⚖ 51 (R7) — AND IT CARRIES THE CUSTOMER'S CATEGORY, for the same reason and
+   *  over the same four hops.
+   *
+   *  The 配置モード landing hardcoded `vip: false`, so a VIP's 次回予約 placed from
+   *  the board was solved onto whatever bed `privateIsLastResort` reached first,
+   *  with no word said — the silent path ⚖ 51 exists to prevent, on the one
+   *  gesture that never had a card to read the category off. The truth was one
+   *  hop away the whole time: `page.tsx`'s `inStore` IS a booking row, and a
+   *  booking row carries `category`. It was being dropped on the way into props.
+   *
+   *  Pinned as the WHOLE CHAIN rather than at the landing alone: a category that
+   *  arrives at the intent and is not read, or is read from an intent nothing
+   *  fills, is the same silence with a longer path to it.
+   *
+   *  ⚠ AND THE SOLVE ASKS IT TOO. `placeNextVisit` calls `solveBed` with its own
+   *  `vip` argument, which was also a hardcoded `false`. Fixing the verdict alone
+   *  would have made the word and the release disagree BY CONSTRUCTION — the
+   *  verdict solving the 個室 and the placement putting the VIP somewhere else —
+   *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
+   *  one field, and both are pinned here so neither can drift back alone. */
+  it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
+    const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+    // 1 · the intent's own field, and the type it is…
+    expect(EDITS).toContain('  category: BookingCategory')
+    expect(EDITS).toContain("import type { BoardItem, BookingCategory } from '@/business/lib/today-board'")
+    // 2 · …the prop it is filled from…
+    expect(SRC).toContain('inStore: { name: string; bookingId: string; category: BookingCategory } | null')
+    // 3 · …the one line in page.tsx that stopped dropping it…
+    expect(PROPS).toContain('inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,')
+    // 4 · …and the arming that carries it onto the armed mode.
+    const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
+    expect(armed).toContain('category: props.inStore.category,')
+    // 5 · the landing asks the room floor as a VIP…
+    expect(SRC).toContain("vip: placing.category === 'vip',")
+    // 6 · …and so does the placement that follows it. One field, two readers.
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    expect(place_).toContain("solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))")
+    // …and the hardcode is gone from both, in the spelling it had.
+    expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
+    expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
+  })
+
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
     // No free room: 配置モード SURVIVES, so the operator can try another slot
@@ -4684,9 +4751,16 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // seed the carried room through `seedBed`, because `sidesAt` reads the
       // board as it stands and that board is the STAGED one once a change is
       // open. The other two are first landings and are byte-untouched.
+      // RENEGOTIATED ONE LAST TIME (⚖ 51, R7): and 次回予約 joins its three
+      // siblings. It was the only landing whose `vip` was a hardcoded `false` —
+      // not by ruling but because it is the one gesture with no card on the
+      // board to read a category off, and the ご来店中 customer's own category
+      // was being dropped between page.tsx and the props. It rides the intent
+      // now (`PlacingIntent.category`), so all four landings ask the allocator
+      // the same question out of the same field.
       "solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
       "solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-      'solveBed(lane.key, null, null, false, place(start, end, hours))',
+      "solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     ]) {
       expect(SRC).toContain(call)
@@ -4911,6 +4985,40 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(verdict(board(), off, cellOf('safe', '')).kind).toBe('clean')
     // …and a regular booking on a standard bed never sees the sentence.
     expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  /** ⚖ 51 (R7) — THE SAME FLOOR ON THE SOLVED PATH, which is the shape 配置モード
+   *  asks in: no room named, no booking yet (`solveRoom: true, id: null`).
+   *
+   *  Until R7 that question was asked with `vip: false` hardcoded, so the one
+   *  landing gesture with no card to read a category off walked past the floor
+   *  every other gesture obeys. Now it carries the ご来店中 customer's category
+   *  and the allocator answers it as a VIP.
+   *
+   *  ⚠ THE SENTENCE IS THE ALLOCATOR'S, NOT THE BED-ROW'S. On the explicit
+   *  bed-row path the 個室 rule speaks as 「VIP・個室クラスのご予約です…」 (the two
+   *  tests above), and that sentence is guarded by `!q.solveRoom` — it is
+   *  unreachable from here by construction. On the SOLVED path the rule is a
+   *  FILTER: no compatible room survives it, so the refusal is `fullRoomsRefusal`
+   *  with its `needsPrivate` branch, which names 個室 in the store's own 満室
+   *  grammar. Same floor, same ⚖ 51, one spelling per path — and both are the
+   *  existing shipped wording. No new operator-facing string exists in R7. */
+  it('⚖ 51 — the SOLVED landing, which is 配置モード’s own shape, asks the room floor as a VIP too', () => {
+    // A board whose only bed over the span is a standard one.
+    const standardOnly = board({ beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })] })
+    const placingShape = { solveRoom: true, id: null, bedLane: null }
+    const asVip = verdict(standardOnly, { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect(asVip.kind).toBe('blocked')
+    // ⚖ 73 — a room floor is a FACT about the rooms, so it is `hard-room` and
+    // carries no 「注意して配置」: there is no room for an escalation to buy.
+    expect(asVip.floor).toBe('hard-room')
+    expect(asVip.reason).toBe('16:00〜17:00に使える個室がありません')
+    // …and the identical question for a non-VIP lands, so the sentence is the
+    // floor doing its job and not 配置モード refusing everything.
+    expect(verdict(standardOnly, { ...placingShape, vip: false }, cellOf('safe', '')).kind).toBe('clean')
+    // …and with the 個室 on the board the VIP lands too — into it.
+    const withPrivate = verdict(board(), { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect({ kind: withPrivate.kind, bedLane: withPrivate.bedLane }).toEqual({ kind: 'clean', bedLane: 'bed-03' })
   })
 
   it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {

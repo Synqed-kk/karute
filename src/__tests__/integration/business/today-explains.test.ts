@@ -1482,11 +1482,17 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     expect(SRC).toContain(
       "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
     )
-    // ⛔ DELIBERATELY EXCLUDED. A 次回予約 placement and a shelf chip are FIRST
-    // landings: neither has a staged change of its own to have an origin from,
-    // and 配置モード's solve is asked with no room at all. Different semantics,
-    // and they stay byte-untouched.
-    expect(SRC).toContain('solveBed(lane.key, null, null, false, place(start, end, hours))')
+    // ⛔ DELIBERATELY EXCLUDED FROM THE SEED. A 次回予約 placement and a shelf chip
+    // are FIRST landings: neither has a staged change of its own to have an
+    // origin from, and 配置モード's solve is asked with no room at all. Different
+    // semantics, and the SEED argument stays untouched on both.
+    //
+    // ⚖ 51 (R7) — the VIP argument is a different question and it did move here.
+    // 配置モード's solve passed a hardcoded `false` while its three siblings all
+    // read the customer's category, so a VIP's 次回予約 was solved onto whatever
+    // bed came first. The category rides `PlacingIntent` now. The seed is still
+    // `null, null` — which is what this test is actually about.
+    expect(SRC).toContain("solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))")
     expect(SRC).toContain(
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     )

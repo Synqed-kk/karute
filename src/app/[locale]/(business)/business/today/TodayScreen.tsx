@@ -58,7 +58,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -422,7 +422,7 @@ export interface TodayProps {
     undelivered: number
   }
   myDay: { next: string; pending: string; pendingWarn: boolean; todayCount: string; shift: string; break: string } | null
-  inStore: { name: string; bookingId: string } | null
+  inStore: { name: string; bookingId: string; category: BookingCategory } | null
   incident: {
     staffName: string
     from: string
@@ -2050,6 +2050,17 @@ export function TodayScreen(props: TodayProps) {
             guard: props.guard.config,
             excludeId,
             placementFeasible: bedDoorFor(excludeId, lanes),
+            // ⚖ SPEC §3.1 — THE GATE HALF OF 「rail/gate verdicts read the same
+            // held set」. The rail got this door in E3a and the verdict did not,
+            // so the strip's marks were bed-honest while the word under the
+            // cursor, the drop verdict and the 「新規N分の空き」 sentence went on
+            // protecting windows no room in the store can host. Same door, same
+            // reasons as the rail's: a new client is never the card in hand, so
+            // the asker is `null` — the world, not the world-minus-hand — and
+            // `lanes` rides along for the reason `placementFeasible` above
+            // passes it, because the block advisor asks about a board it has
+            // already taken something out of.
+            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,
           })
         : null,
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],
@@ -2235,7 +2246,12 @@ export function TodayScreen(props: TodayProps) {
    *  the other store's board with this store's cards. One predicate now, so the
    *  two can never drift apart. */
   const pendingOffBoard = pending != null && !onShownBoard(pending, board)
-  const pendingChecks = pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
+  // ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole
+  // board, and they were recomputed on every render of a screen that re-renders
+  // per pointer frame. Nothing about the answer changes: the memo's inputs are
+  // exactly the expression's, so a frame that moved none of them reads the rows
+  // it already had.
+  const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])
   // ⚖ Liam flag 50(d) — an OVERRIDDEN landing confirms despite the one row it
   // overrode and nothing else. `overrideCaption` is `confirmCaption` with that
   // row lifted out of the gate; every other failing row still stops 確定, and
@@ -4810,6 +4826,12 @@ export function TodayScreen(props: TodayProps) {
       // the same two fields and is refused by the same rule.
       store: props.store,
       storeLabel: props.lensLabel,
+      // ⚖ 51 — and the customer's own category, because the landing below solves
+      // a room and the room floor is a rule about the treatment. It travels with
+      // the intent for the reason the store does: 配置モード outlives the day and
+      // the store switch, and a VIP who stopped being one on a day flip would be
+      // the floor going silent exactly where it matters.
+      category: props.inStore.category,
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
   }
@@ -4863,7 +4885,13 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours))
+    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID. The landing
+    // above now reads the customer's category off the intent; if this line kept
+    // its hardcoded `false` the two would disagree by construction — the word
+    // would solve the 個室 and the release would put the VIP in whatever bed
+    // `privateIsLastResort` reaches first. ⚖ 50's law is that the word and what
+    // the release DOES are one answer, so they read one field.
+    const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -5268,7 +5296,7 @@ export function TodayScreen(props: TodayProps) {
               // rider — and a 配置モード armed in another store is refused by the
               // same predicate the chip is, through the one verdict.
               askGuard(
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: false, foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
                 at,
                 // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
                 // sentence the operator walked past, and this callback dropped
