@@ -72,6 +72,7 @@ import {
   landingGap,
   monthDelta,
   numberEntry,
+  NUMBERS,
   SCOPE_WORD,
   targetProgress,
   targetRemaining,
@@ -214,6 +215,26 @@ export async function analyticsProps({
   const now = renderNow()
   const today = jstYmd(now)
   const todayKey = jstDayKey(now)
+
+  /**
+   * ⚖ §2.7 / §3 — THE PROVENANCE PANEL LISTS WHAT THIS RENDER PUT ON THE PAGE,
+   * and the only way that can be true is if the SURFACES REGISTER THEMSELVES as
+   * they are built. The list used to be hand-typed, so it was a claim about a
+   * page it had never read: 着地GAP was missing from it while the chip and the
+   * 計算式 both printed it, and in the target-0 world it named three sources for
+   * figures the page refuses to state (L2 B2-2 · B2-4). The suite could not see
+   * either, because it re-derived its expectation from the same typed list.
+   *
+   * `used` is the ONLY door to an entry's words, so a surface cannot print one
+   * without saying so. A number stated WITHOUT its own word (「残り23営業日」)
+   * registers at the surface that states it, in one named line.
+   */
+  const rendered = new Set<NumberId>()
+  const used = (id: NumberId) => {
+    rendered.add(id)
+    return numberEntry(id)
+  }
+  const word = (id: NumberId) => used(id).label
 
   const requested = Number.parseInt(month ?? '0', 10)
   const monthsAgo = Number.isFinite(requested) ? Math.max(0, Math.min(LEDGER_MONTHS - 1, -requested)) : 0
@@ -483,7 +504,7 @@ export async function analyticsProps({
               chip: mineCmp.kind === 'na' ? null : mineCmp.text,
             },
             {
-              label: `${numberEntry('repeatRate').label}（店舗全体）`,
+              label: `${word('repeatRate')}（店舗全体）`,
               value: pct1(selectedRepeat),
               chip: selectedRepeat > 0 && selectedRepeat >= bestRepeat ? '店舗の自己ベスト' : null,
             },
@@ -579,14 +600,34 @@ export async function analyticsProps({
    *  estimate is the one number on the row that is not a measurement, so it
    *  earns its own explanation (the mock's own bold sentence). */
   const landingGuide = selected.partial
-    ? `${numberEntry('landing').label} ${yen(landing)} は推計です。${spanWord}の${numberEntry('total').label} ${yen(shown.total)} ÷ ${selectedCoords.elapsedDays}日 ＝ ${yen1(shown.total / Math.max(1, selectedCoords.elapsedDays))}、× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）で出しています。${target > 0 ? `${numberEntry('target').label} ${yen(target)} との差が ${numberEntry('landingGap').label} ${yen(gap)} です。「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。` : '目標が未設定のため、着地GAPは出せません。'}`
-    : `${selected.short}はもう終わった月なので、ここは推計ではなく実際の${numberEntry('total').label} ${yen(shown.total)} です。${target > 0 ? `${numberEntry('target').label} ${yen(target)} との差は ${yen(gap)} でした。` : '目標が未設定のため、差は出せません。'}`
+    ? `${word('landing')} ${yen(landing)} は推計です。${spanWord}の${word('total')} ${yen(shown.total)} ÷ ${selectedCoords.elapsedDays}日 ＝ ${yen1(shown.total / Math.max(1, selectedCoords.elapsedDays))}、× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）で出しています。${target > 0 ? `${word('target')} ${yen(target)} との差が ${word('landingGap')} ${yen(gap)} です。「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。` : `目標が未設定のため、${numberEntry('landingGap').label}は出せません。`}`
+    : `${selected.short}はもう終わった月なので、ここは推計ではなく実際の${word('total')} ${yen(shown.total)} です。${target > 0 ? `${word('target')} ${yen(target)} との差は ${yen(gap)} でした。` : '目標が未設定のため、差は出せません。'}`
 
-  const totalEntry = numberEntry('total')
-  const nwEntry = numberEntry('nw')
-  const newCountEntry = numberEntry('newCount')
-  const progressEntry = numberEntry('targetProgress')
-  const landingEntry = numberEntry(selected.partial ? 'landing' : 'landingFinal')
+  const totalEntry = used('total')
+  const nwEntry = used('nw')
+  const newCountEntry = used('newCount')
+  const progressEntry = used('targetProgress')
+  // ⚠ ONLY the one this month HAS. `landing` on a finished month would put a
+  // 着地見込み row under a page that states no estimate (⚖ §J).
+  const landingEntry = used(selected.partial ? 'landing' : 'landingFinal')
+
+  /** Tile 4's footer, and the numbers it states — built before the tile so a
+   *  store with no dial registers NONE of them. */
+  let targetFoot: string | null = null
+  if (target > 0) {
+    const short =
+      remaining >= 0
+        ? `${word('targetRemaining')} ${yen(remaining)}`
+        : `目標を ${yen(-remaining)} 上回っています`
+    // stated without its own word, so it says so here
+    if (remaining < 0) rendered.add('targetRemaining')
+    if (selected.partial) {
+      rendered.add('remainingOpenDays') // 「残り23営業日」 — the figure, not the label
+      targetFoot = `残り${remainingOpenDays}営業日（営業日ベース）・${short}`
+    } else {
+      targetFoot = `営業${selectedCoords.openDays.length}日で終了・${short}`
+    }
+  }
 
   const tiles: TileProps[] = [
     {
@@ -606,7 +647,7 @@ export async function analyticsProps({
       chip:
         spanDelta === null
           ? null
-          : { text: `${numberEntry(wholeMonths ? 'monthDelta' : 'spanCompare').label} ${spanDelta}`, tone: deltaTone(spanCmp.kind) },
+          : { text: `${word(wholeMonths ? 'monthDelta' : 'spanCompare')} ${spanDelta}`, tone: deltaTone(spanCmp.kind) },
       foot: compareFoot,
       link: null,
       bar: null,
@@ -640,7 +681,7 @@ export async function analyticsProps({
       foot:
         averageNewTicket === null
           ? `${newCountEntry.counts}まだ新規のご来店がありません。`
-          : `${newCountEntry.counts}${numberEntry('avgNewTicket').label} ${yen(averageNewTicket)}`,
+          : `${newCountEntry.counts}${word('avgNewTicket')} ${yen(averageNewTicket)}`,
       link: null,
       bar: null,
       guide: null,
@@ -653,16 +694,11 @@ export async function analyticsProps({
       suffix: `（${periodWord}）`,
       // ⚠ A STORE WITH NO DIAL NEVER SEES A PERCENTAGE. 0% would be a verdict on
       // a target nobody set, and NaN% would be a bug wearing one.
-      scope: target > 0 ? `${numberEntry('target').label} ${yen(target)}` : '',
+      scope: target > 0 ? `${word('target')} ${yen(target)}` : '',
       value: target > 0 ? `${pace}%` : '目標が未設定です',
       small: target <= 0,
       chip: null,
-      foot:
-        target <= 0
-          ? null
-          : selected.partial
-            ? `残り${remainingOpenDays}営業日（営業日ベース）・${remaining >= 0 ? `${numberEntry('targetRemaining').label} ${yen(remaining)}` : `目標を ${yen(-remaining)} 上回っています`}`
-            : `営業${selectedCoords.openDays.length}日で終了・${remaining >= 0 ? `${numberEntry('targetRemaining').label} ${yen(remaining)}` : `目標を ${yen(-remaining)} 上回っています`}`,
+      foot: targetFoot,
       // ONE TRUTH FOR 目標 (§4): the room READS `planes.target` and points at
       // the room that owns it. Never a second field, never a hardcoded yen.
       link: { href: settingsHref, label: '設定で変更' },
@@ -689,7 +725,7 @@ export async function analyticsProps({
       chip:
         target > 0
           ? {
-              text: `${numberEntry('landingGap').label} ${gap > 0 ? `+${yen(gap)}` : yen(gap)}`,
+              text: `${word('landingGap')} ${gap > 0 ? `+${yen(gap)}` : yen(gap)}`,
               tone: gap >= 0 ? ('up' as const) : ('gap' as const),
             }
           : null,
@@ -701,19 +737,19 @@ export async function analyticsProps({
       guide: { title: landingEntry.label, text: landingGuide },
       calc: selected.partial
         ? {
-            title: `${numberEntry('landing').label}の出し方（推計）`,
+            title: `${word('landing')}の出し方（推計）`,
             lines: [
-              { k: `${spanWord}の${totalEntry.label}`, v: yen(shown.total), result: false },
+              { k: `${spanWord}の${word('total')}`, v: yen(shown.total), result: false },
               { k: `÷ ${selectedCoords.elapsedDays}日 ＝ 1日あたり`, v: yen1(shown.total / Math.max(1, selectedCoords.elapsedDays)), result: false },
               { k: `× ${selectedCoords.daysInMonth}日（${selected.short}の暦日数）`, v: yen(landing), result: false },
               ...(target > 0
-                ? [{ k: `− ${numberEntry('target').label} ${yen(target)} ＝ ${numberEntry('landingGap').label}`, v: yen(gap), result: true }]
+                ? [{ k: `− ${word('target')} ${yen(target)} ＝ ${word('landingGap')}`, v: yen(gap), result: true }]
                 : []),
             ],
             notes: [
               `${selectedCoords.elapsedDays}日分のペースをそのまま月末まで延ばした推計です。実績ではありません。`,
               target > 0
-                ? `※ ${numberEntry('targetProgress').label}の「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。`
+                ? `※ ${word('targetProgress')}の「残り${remainingOpenDays}営業日」は営業日ベース、この推計は暦日ベースです。`
                 : `※ 目標が未設定のため、${numberEntry('landingGap').label}は出せません。`,
             ],
           }
@@ -721,36 +757,7 @@ export async function analyticsProps({
     },
   ]
 
-  // ── the provenance panel, GENERATED from the dictionary (§2.7) ────────────
-  /** Every dictionary number this render actually PUT ON THE PAGE. Hand-writing
-   *  the list is the defect the panel exists to prevent: a row nobody generated
-   *  is a claim about a number the page may not even be showing. */
-  const renderedIds: NumberId[] = [
-    ...tiles.map((t) => t.id),
-    'target',
-    'targetRemaining',
-    'remainingOpenDays',
-    'spanCompare',
-    'avgNewTicket',
-    ...TABLE_METRICS.map((c) => c.id),
-    'monthDelta',
-    ...(hasTicketSignal ? (['ticketOutstanding'] as NumberId[]) : []),
-  ]
-  const provRows = [...new Set(renderedIds)].map((id) => {
-    const e = numberEntry(id)
-    return {
-      id: e.id,
-      key: e.alias ? `${e.label}（集計表の「${e.alias}」）` : e.label,
-      value: `${e.counts}${e.formula}（${SCOPE_WORD[e.scope]}・出どころ：${e.owner}）`,
-    }
-  })
-  const unconnectedRows = UNCONNECTED_NUMBERS.map((e) => ({
-    id: e.id,
-    key: e.label,
-    value: `${e.counts}未接続：${e.needs}`,
-  }))
-
-  const props: AnalyticsProps = {
+  const rest: Omit<AnalyticsProps, 'provenance'> = {
     denied: null,
     dateline: `サンプルデータ ${spanWord}${asOf ? `（${selected.short}${today.d}日時点）` : ''}`,
     period: {
@@ -803,20 +810,20 @@ export async function analyticsProps({
           : '押すと下の表のその月へ移動します',
       })),
       gridLabels: chart.gridLines.map((g) => manYen(g.value)),
-      targetLabel: target > 0 ? `${numberEntry('target').label} ${yen(target)}` : null,
+      targetLabel: target > 0 ? `${word('target')} ${yen(target)}` : null,
       seriesLabels: { total: totalEntry.label, nw: nwEntry.label },
       barLabels: chart.bars.map((b) => {
         const m = months[b.monthIndex]
-        const e = numberEntry(b.series === 'total' ? 'total' : 'nw')
+        const e = used(b.series === 'total' ? 'total' : 'nw')
         return `${m.label} ${e.label} ${yen(b.series === 'total' ? m.shown.total : m.shown.nw)}`
       }),
       labelValues: chart.labels.map((l) => yen(l.value)),
       reading,
       decide,
       tableSub: `${lensLabel}・全指標`,
-      tableLegend: `${numberEntry('monthDelta').label}：▲ 増えた / ▼ 減った（同じ列の前の月との差）・${currentMonth.short}は月の途中のため前月と並べていません`,
+      tableLegend: `${word('monthDelta')}：▲ 増えた / ▼ 減った（同じ列の前の月との差）・${currentMonth.short}は月の途中のため前月と並べていません`,
       emptyBefore: `${months[0].label}より前のデータはありません`,
-      metrics: TABLE_METRICS.map((c) => ({ ...c, head: numberEntry(c.id).label })),
+      metrics: TABLE_METRICS.map((c) => ({ ...c, head: word(c.id) })),
       rows: tableRows,
       // one は, not two (L2 B2-11): 「…うち9月は9月1日〜3日は暫定値を含む」
       statLabel: `統計（${LEDGER_MONTHS}か月・${currentMonth.short}は1日〜${today.d}日の暫定値を含む）`,
@@ -835,12 +842,12 @@ export async function analyticsProps({
               // customers hold at this moment — so welding the SELECTED month's
               // name to today's day-of-month printed 「10月3日時点」 for a figure
               // measured on 9月3日: a date the figure was never read on.
-              key: `${numberEntry('ticketOutstanding').label}（${today.m}月${today.d}日時点）`,
+              key: `${word('ticketOutstanding')}（${today.m}月${today.d}日時点）`,
               value: yen(liability.amount),
               unit: `${liability.sessions}回分`,
             },
             {
-              key: `${numberEntry('consumed').label}（${spanWord}）`,
+              key: `${word('consumed')}（${spanWord}）`,
               value: yen(shown.consumed),
               unit: null,
             },
@@ -862,7 +869,7 @@ export async function analyticsProps({
     },
     daily: {
       sub: `${selected.label}${selected.partial ? `1日〜${today.d}日` : ''}・${lensLabel}`,
-      heads: ['日付', ...TABLE_METRICS.map((c) => numberEntry(c.id).label)],
+      heads: ['日付', ...TABLE_METRICS.map((c) => word(c.id))],
       rows: dailyRows,
       trailing: selected.partial ? '以降のデータはありません' : null,
       foot: '次回予約率・リピート率・稼働率・LTV・新規LTVは月次で更新される指標のため、日次では当月の値を据え置いて表示しています。',
@@ -870,26 +877,12 @@ export async function analyticsProps({
         ? '「本日」の行は 今日の運営 の当日実績をそのまま読み込んでいます。'
         : null,
     },
-    provenance: {
-      barLabel: 'この画面の値の設定元 ・ 見本データについて',
-      title: 'この画面の値の設定元',
-      // ⚖ §2.10 K — the trailing `<p class="footnote">`'s own sentence, in its
-      // new home: the panel's lead, where it covers the whole grid rather than
-      // being one hand-written row inside it.
-      lead: `この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。${SOURCE_NOTE}`,
-      rows: provRows,
-      monthRow: { key: `${selected.short}の扱い`, value: `${stateHeadline}。${comparison}` },
-      storeRow: { key: '対象の店舗', value: `${lensLabel}・全指標` },
-      unconnectedTitle: '未接続',
-      unconnected: unconnectedRows,
-      sample: SAMPLE_NOTE,
-    },
     guides: {
       head: `${SUBTITLE}。${stateHeadline}。${comparison}`,
       kpis: `いちばん上の5つが、この月の判断に使う数字です。左から ${tiles.map((t) => t.label).join('・')}。${selected.partial ? '月の途中は、経過した日ぶんだけを合計しています。' : 'この月はもう終わっているので、どれも確定した数字です。'}`,
       landing: landingGuide,
       tabs: '推移・ランキング・日報 の3つを切り替えます。右の「内訳を見る」を押すと、推移の中の 売上の内訳 まで一気に移動します。',
-      chart: `直近${LEDGER_MONTHS}か月の ${totalEntry.label}（青）と ${nwEntry.label}（ピンク）です。${target > 0 ? `点線が${numberEntry('target').label}。` : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
+      chart: `直近${LEDGER_MONTHS}か月の ${totalEntry.label}（青）と ${nwEntry.label}（ピンク）です。${target > 0 ? `点線が${word('target')}。` : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
       decide: 'グラフから読み取れることを1文にしています。数字を自分で見比べなくても、いまの立ち位置がわかります。',
       table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押すと、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は${LEDGER_MONTHS}か月の合計と平均です。`,
       mix: 'この月の売上を メニュー別 と 予約経路別 に分けたものです。色の帯か、下のボタンを押すと、その1つだけを強調します。',
@@ -900,5 +893,35 @@ export async function analyticsProps({
     },
   }
 
-  return { props, storeKey }
+  /**
+   * ⚖ §2.7 — BUILT LAST, BECAUSE IT IS THE LIST OF WHAT EVERYTHING ABOVE
+   * REGISTERED. Every surface that printed a dictionary number took its word
+   * through `used`, so this set is what the page is actually stating — in the
+   * dictionary's own order, which is also the order the reader met them in.
+   * Building it any earlier is how the old hand-typed list came to exist.
+   */
+  const provenance: AnalyticsProps['provenance'] = {
+    barLabel: 'この画面の値の設定元 ・ 見本データについて',
+    title: 'この画面の値の設定元',
+    // ⚖ §2.10 K — the trailing `<p class="footnote">`'s own sentence, in its new
+    // home: the panel's lead, where it covers the whole grid rather than being
+    // one hand-written row inside it.
+    lead: `この画面が出している値の出どころです。まだつないでいないものは「未接続」と書いています。${SOURCE_NOTE}`,
+    rows: NUMBERS.filter((e) => rendered.has(e.id)).map((e) => ({
+      id: e.id,
+      key: e.alias ? `${e.label}（集計表の「${e.alias}」）` : e.label,
+      value: `${e.counts}${e.formula}（${SCOPE_WORD[e.scope]}・出どころ：${e.owner}）`,
+    })),
+    monthRow: { key: `${selected.short}の扱い`, value: `${stateHeadline}。${comparison}` },
+    storeRow: { key: '対象の店舗', value: `${lensLabel}・全指標` },
+    unconnectedTitle: '未接続',
+    unconnected: UNCONNECTED_NUMBERS.map((e) => ({
+      id: e.id,
+      key: e.label,
+      value: `${e.counts}未接続：${e.needs}`,
+    })),
+    sample: SAMPLE_NOTE,
+  }
+
+  return { props: { ...rest, provenance }, storeKey }
 }

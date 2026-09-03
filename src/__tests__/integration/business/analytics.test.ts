@@ -1654,25 +1654,91 @@ describe('the 月次内訳 table', () => {
 })
 
 describe('the provenance panel', () => {
-  it('every row is GENERATED from the dictionary — a hand-written row cannot survive', async () => {
-    const p = await room({ store: STORE_A })
-    const rendered = new Set<NumberId>([
-      ...p.tiles!.map((t) => t.id),
-      ...p.trend!.metrics.map((c) => c.id),
-      'target', 'targetRemaining', 'remainingOpenDays', 'spanCompare', 'avgNewTicket', 'monthDelta',
-      'ticketOutstanding',
-    ])
-    expect(new Set(p.provenance!.rows.map((r) => r.id as NumberId))).toEqual(rendered)
-    for (const r of p.provenance!.rows) {
-      const e = numberEntry(r.id as NumberId)
-      expect(r.key).toContain(e.label)
-      expect(r.value).toContain(e.counts)
-      expect(r.value).toContain(e.formula)
-      expect(r.value).toContain(SCOPE_WORD[e.scope])
-      expect(r.value).toContain(e.owner)
+  /**
+   * §J — THE ROWS ARE DERIVED FROM WHAT RENDERED, and so is this expectation
+   * (L2 B2-2 · B2-4). The old pin re-derived its `rendered` set from the SAME
+   * hand-typed list the production code used, so it was a copy of the code
+   * rather than a statement of the rule — and both missed 着地GAP, a number the
+   * decision header prints twice.
+   *
+   * WHAT THIS COMPUTES INSTEAD: every dictionary word that actually appears in
+   * the props the screen renders. Longest-label-first with masking, because
+   * 「LTV」 lives inside 「新規LTV」. The provenance panel itself is out of the
+   * haystack (it is what is being checked), and so is any sentence saying a
+   * number CANNOT be produced — 「目標が未設定のため、着地GAPは出せません」 names
+   * 着地GAP in order to deny it, which is not the page stating it.
+   *
+   * ONE named exception, because it is stated WITHOUT its own word: 残り営業日
+   * reaches the page as 「残り23営業日」 inside tile 4's footer.
+   */
+  const renderedNumbers = (p: AnalyticsProps) => {
+    const surfaces = { ...p, provenance: undefined }
+    // one chunk per SENTENCE and per string value — a chunk that ran across a
+    // property boundary would drag one prop's 未設定 onto the next prop's word
+    const haystack = JSON.stringify(surfaces)
+      .split(/[。"]/)
+      .filter((s) => !s.includes('出せません') && !s.includes('未設定'))
+      .join('。')
+    let left = haystack
+    const found = new Set<NumberId>()
+    for (const e of [...PLANE_NUMBERS].sort((a, b) => b.label.length - a.label.length)) {
+      if (left.includes(e.label)) {
+        found.add(e.id)
+        left = left.split(e.label).join(' ')
+      }
+    }
+    if (/残り\d+営業日/.test(p.tiles![3].foot ?? '')) found.add('remainingOpenDays')
+    return found
+  }
+
+  it('every row is DERIVED from what the page rendered — the panel cannot list a number the page never states', async () => {
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const ids = p.provenance!.rows.map((r) => r.id as NumberId)
+      expect([month, new Set(ids)]).toEqual([month, renderedNumbers(p)])
+      // …in the DICTIONARY's own order, which is the order the reader met them
+      expect(ids).toEqual(PLANE_NUMBERS.filter((e) => ids.includes(e.id)).map((e) => e.id))
+      for (const r of p.provenance!.rows) {
+        const e = numberEntry(r.id as NumberId)
+        expect(r.key).toContain(e.label)
+        expect(r.value).toContain(e.counts)
+        expect(r.value).toContain(e.formula)
+        expect(r.value).toContain(SCOPE_WORD[e.scope])
+        expect(r.value).toContain(e.owner)
+      }
     }
     // the 集計表's own word for a number it calls something else
+    const p = await room({ store: STORE_A })
     expect(p.provenance!.rows.find((r) => r.id === 'collected')!.key).toContain('入金')
+    // 着地GAP is stated TWICE on the decision header — the chip and 計算式 line 4
+    expect(p.tiles![4].chip!.text).toContain(numberEntry('landingGap').label)
+    expect(p.provenance!.rows.map((r) => r.id)).toContain('landingGap')
+  })
+
+  it('§J — a world that states a number differently gets a different panel', async () => {
+    const ids = async (input: Parameters<typeof propsWorld>[0]) => {
+      const p = await propsWorld(input)
+      expect(new Set(p.provenance!.rows.map((r) => r.id as NumberId))).toEqual(renderedNumbers(p))
+      return p.provenance!.rows.map((r) => r.id)
+    }
+    // a store with no 目標 dial states none of the three target numbers, so the
+    // panel names none of their sources (L2 B2-4)
+    const noTarget = await ids({ store: STORE_A, world: { target: 0 } })
+    for (const gone of ['target', 'targetRemaining', 'remainingOpenDays', 'landingGap']) {
+      expect([gone, noTarget]).toEqual([gone, expect.not.arrayContaining([gone])])
+    }
+    // a FINISHED month has an actual, not an estimate — one row, not the other
+    const done = await ids({ store: STORE_A, month: '-1' })
+    expect(done).toContain('landingFinal')
+    expect(done).not.toContain('landing')
+    // …and the month in progress is the other way round
+    const now = await ids({ store: STORE_A })
+    expect(now).toContain('landing')
+    expect(now).not.toContain('landingFinal')
+    // no 回数券 signal, no 未消化残 row — while 消化売上 keeps its column and its row
+    const noTickets = await ids({ store: STORE_A, world: { noTickets: true } })
+    expect(noTickets).not.toContain('ticketOutstanding')
+    expect(noTickets).toContain('consumed')
   })
 
   /**
