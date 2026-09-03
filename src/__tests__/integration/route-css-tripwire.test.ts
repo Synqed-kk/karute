@@ -87,6 +87,47 @@ describe('the tripwire detects what it claims to detect', () => {
     ).toEqual([['.biz .workspace', ['today.css', 'recording.css']]])
   })
 
+  it('reads a quoted brace as CONTENT, so a `content: "{"` cannot blind the guard', () => {
+    // ⚠ Greptile on the flag-69 parser PR: `{` and `}` also appear inside
+    // STRINGS, and the walker counted them as structure. A single `content: "{"`
+    // in a keyframe stop left framesDepth permanently positive, so every rule
+    // after that block — the whole rest of the sheet — was skipped in silence.
+    // Silence is the failure mode this guard exists to prevent.
+    expect(
+      findCollisions([
+        sheet('today.css', '@keyframes a { 0% { content: "{"; opacity: 1; } }\n.biz .workspace { display: grid; }'),
+        sheet('recording.css', '.biz .workspace { display: flex; }'),
+      ]),
+    ).toEqual([['.biz .workspace', ['today.css', 'recording.css']]])
+  })
+
+  it('reads a quoted `}` as CONTENT, so it ends neither a rule nor a @keyframes block early', () => {
+    // The mirror of the above: a stray closing brace ends things too EARLY. In an
+    // attribute selector it splits the head, so the real selector is lost and a
+    // fragment is recorded in its place; inside @keyframes it drops the depth to
+    // zero and turns the remaining stops into "selectors" — the exact false
+    // collision the flag-69 fix removed, walked back in through a string.
+    expect(
+      findCollisions([
+        sheet('today.css', '.biz [data-guide="}"] .board { gap: 8px; }'),
+        sheet('reservations.css', '.biz [data-guide="}"] .board { gap: 12px; }'),
+      ]),
+    ).toEqual([['.biz [data-guide="}"] .board', ['today.css', 'reservations.css']]])
+    expect(
+      findCollisions([
+        sheet('today.css', '@keyframes a { 0% { content: "}"; } 50% { opacity: .5; } }'),
+        sheet('recording.css', '@keyframes b { 0% { opacity: 1; } 50% { opacity: .5; } }'),
+      ]),
+    ).toEqual([])
+    // Unquoted url(...) is the third place structure characters are content.
+    expect(
+      findCollisions([
+        sheet('today.css', '.biz .a { background: url(data:image/svg+xml,<svg><style>i{fill:red}</style></svg>); }\n.biz .board { gap: 8px; }'),
+        sheet('reservations.css', '.biz .board { gap: 12px; }'),
+      ]),
+    ).toEqual([['.biz .board', ['today.css', 'reservations.css']]])
+  })
+
   it('does not report an @media HEAD shared by two sheets as a collision', () => {
     // Every room has a 768px breakpoint. If the at-rule head were recorded as a
     // selector, that shared head would be a false collision in almost every PR
