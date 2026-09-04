@@ -43,9 +43,11 @@ function run(): void {
   drainedUid = uid
   void (async () => {
     try {
-      // The drain first: a stopped take is secured WHOLE, and the sweep's own
-      // staging is for a take that can never be sealed — asking in the other
-      // order would stage a copy of audio the drain was about to finalize.
+      // The drain FIRST because it is the bytes: whole takes, the larger and
+      // the more urgent upload, and the audio that exists nowhere but this
+      // device. The words sweep second because it READS the finalized key —
+      // which the drain may have just written — so this order saves the sweep
+      // a wait on every take secured in this very run.
       await drainOwedTakes((id) => globalRecorder.isActiveTake(id))
       // …and then the discard words a reload left owing, which on the phone had
       // the same single door as the drain: the record page's mount.

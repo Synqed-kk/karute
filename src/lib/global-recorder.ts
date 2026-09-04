@@ -950,7 +950,16 @@ class GlobalRecorder {
       // the singleton's copies of exactly those, and a leg reading them live
       // would find the take it is securing had no id. Same reset `discard()`
       // does, minus the delete.
-      if (p.abandoned) this.resetPublicState()
+      //
+      // …and it resets THIS take's singleton state, never the next one's (fix
+      // round 1). onstop is a queued task: a start() landing between `abandon()`
+      // and this line would otherwise have its fresh take id, persist object and
+      // state nulled by the previous take's reset. A BELT, not a defect —
+      // nothing today can put a start() in that gap, because no user action fits
+      // between a sign-out and the recorder's own stop event — and
+      // `this.persist === p` is the same identity test every other queued task
+      // in this file already uses to stay inside its own take.
+      if (p.abandoned && this.persist === p) this.resetPublicState()
     }
 
     this.recorder = recorder
@@ -1355,15 +1364,35 @@ class GlobalRecorder {
    * and the leg does not secure (the cookie is gone; the next sign-in's drain
    * does it).
    *
-   * With no live recorder — or with persistence disabled, where there is
-   * nothing on disk to keep — this is today's discard-and-reset with the take
-   * kept: `wipeSessionVault`'s own `clearOwnTakes` runs after it, and the
+   * ⚖ AND EVERY LIVE RECORDER GETS THAT STOP, PERSISTENCE DISABLED INCLUDED
+   * (fix round 1). The first spelling of this excused a take whose persistence
+   * had LATCHED DISABLED mid-recording — a segment write that lost after
+   * earlier flushes had landed — on the reasoning that there is nothing on
+   * disk to keep. That reasoning is false for exactly that take: its earlier
+   * segments ARE on disk, so skipping onstop left a row with bytes, no stamp,
+   * no `stopPendingAt` and no `tailIncomplete` — quiet and whole-looking,
+   * which is the shape the native rule reads as FINISHED and the drains seal
+   * under the immutable key. The ordinary 停止 already answers this
+   * correctly, and it answers it INSIDE onstop: the first act's ternary falls
+   * to `markTakeStopPending`, `flushTake` answers false, and the leg marks
+   * `tailIncomplete` — unsecurable, 要対応, never auto-sealed.
+   * There is no persistence state for which the real stop writes something
+   * less true than skipping it, so there is no condition left but "is a
+   * recorder running".
+   *
+   * With no live recorder at all (idle, or already `recorded` with its leg in
+   * flight) this is today's discard-and-reset with the take kept:
+   * `wipeSessionVault`'s own `clearOwnTakes` runs after it, and the
    * never-delete guard is what decides whether an unfinalized take goes.
    */
   abandon() {
     const p = this.persist
     p.abandoned = true
-    if (this.recorder && this.recorder.state !== 'inactive' && this.takeId && !p.disabled) {
+    // `this.takeId` is deliberately NOT asked here: start() sets the recorder
+    // and the take id in the same synchronous run, so a live recorder always
+    // has one — and a clause that can only ever be true is a clause that can
+    // only ever be got wrong.
+    if (this.recorder && this.recorder.state !== 'inactive') {
       this.stop()
       return
     }

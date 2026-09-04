@@ -4154,6 +4154,108 @@ describe('secure at stop', () => {
       await expect(globalRecorder.awaitTakeSecured(takeId)).resolves.toBeUndefined()
     })
 
+    // ⚖ …AND A TAKE WHOSE PERSISTENCE DIED MID-RECORDING GETS THE SAME REAL
+    // STOP (fix round 1, F1). Packet A excused this one — `!p.disabled` in
+    // `abandon()` — on the reasoning that there is nothing on disk to keep.
+    // False for exactly this take: its EARLIER segments are on disk, and
+    // skipping onstop leaves them on a row with no stamp, no `stopPendingAt`
+    // and no `tailIncomplete`. That row is quiet, has bytes, and looks whole —
+    // the shape the native rule reads as FINISHED, so the launch drain seals
+    // the committed prefix under the immutable key and the rest of the session
+    // has nowhere left to land. The real stop writes the truth instead.
+    it('a logout on a take whose persistence LATCHED DISABLED is still flagged, never sealable', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      expect(metaOf(takeId).lastSeq).toBe(1) // two flushes landed: bytes on disk
+
+      // …then a flush loses every try, and the recorder latches memory-only.
+      failNextSegmentWrites = 3
+      pushChunk('ccc')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+      await drain(200)
+      expect(metaOf(takeId).lastSeq).toBe(1) // …and the next flush writes nothing
+      pushChunk('ddd')
+      await jest.advanceTimersByTimeAsync(5_000)
+      await drain(200)
+      expect(metaOf(takeId).lastSeq).toBe(1) // p.disabled — memory-only from here
+
+      order.length = 0
+      await wipeSessionVault({ uid: 'staff-A' })
+      await drain(200)
+      await jest.advanceTimersByTimeAsync(0)
+      await drain(200)
+
+      // THE CONSEQUENCE FIRST, because it is the defect: no drain can take
+      // this take. Asked through the WORKLIST, not isStoppedTake directly —
+      // that is the read the launch drain actually makes — and on the NATIVE
+      // arm, which is the one it runs on and where an un-flagged quiet row
+      // with bytes reads as a finished recording.
+      const meta = (await readTakeSecureMeta(takeId))!
+      asNativeShell()
+      await passGrace()
+      expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+      delete (window as unknown as { Capacitor?: unknown }).Capacitor
+      // …and it is 要対応 for a human, which is the only honest answer.
+      expect(isUnsecurableTake(meta)).toBe(true)
+
+      // The two facts that buy that: the real stop ran, and it wrote BOTH —
+      // a stop that began…
+      expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
+      // …and a tail that never landed. No stamp, because nothing finished it.
+      expect(metaOf(takeId).tailIncomplete).toBe(true)
+      expect(metaOf(takeId).durationMs).toBeUndefined()
+
+      // Nothing was uploaded, and nothing was published.
+      expect(order).toEqual([])
+      expect(metaOf(takeId).finalizedAt).toBeUndefined()
+      expect(globalRecorder.state).toBe('idle')
+      // The bytes that DID land are still there.
+      expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'bbb'.length)
+    })
+
+    // ⚖ …AND THE ABANDONED RESET IS THIS TAKE'S, NEVER THE NEXT ONE'S (fix
+    // round 1, F2). A BELT, not a defect: onstop is a queued task, and nothing
+    // today can put a start() between `abandon()` and it — no user action fits
+    // between a sign-out and the recorder's own stop event. But if one ever
+    // did, the reset at the tail of onstop would null the FRESH take's id,
+    // persist object and state, and the new recording would be capturing into
+    // a singleton that says it is idle.
+    //
+    // The fake recorder fires onstop synchronously, so the gap is opened by
+    // deferring the old recorder's stop EVENT by hand — which is what a real
+    // MediaRecorder does anyway (onstop is a task, not a call).
+    it('the abandoned reset leaves a take started in the gap alone', async () => {
+      await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+
+      const oldRecorder = FakeMediaRecorder.last!
+      const oldOnstop = oldRecorder.onstop!
+      // The stop lands; its EVENT does not, yet.
+      oldRecorder.stop = () => {
+        oldRecorder.state = 'inactive'
+      }
+      globalRecorder.abandon()
+
+      // …and the next recording begins inside that gap.
+      const next = await startAndSettle()
+
+      oldOnstop() // now the old recorder's stop event arrives
+      await drain(200)
+
+      // Exactly the three fields `resetPublicState()` destroys. Drop the
+      // `this.persist === p` guard and all three are the idle recorder's.
+      expect(globalRecorder.takeId).toBe(next)
+      expect(globalRecorder.state).toBe('recording')
+      expect(globalRecorder.target).not.toBeNull()
+
+      await drain(400) // let the old leg let go of whatever it is holding
+    })
+
     it('a logout while IDLE is a reset, not a throw and not a delete', async () => {
       expect(globalRecorder.state).toBe('idle')
       expect(() => globalRecorder.abandon()).not.toThrow()
