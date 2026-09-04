@@ -10326,6 +10326,65 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "} from '@/business/lib/canon-logic/drag-rules'",
   ]
 
+  // ⚖ BREAKER-828 DELTA 6 K1 — THE FILTER ITSELF HAS NO SHADOW ARMOUR. Every
+  // other name item T1 rests on is declared-once-pinned — `computeChecks`,
+  // `priceFactSets`, `hasPriceFact` above, `hasPriceFor` below — except
+  // `withPriceFact`, the one function the whole item exists to prove runs. A
+  // local `const withPriceFact = (rows, p) => (p ? rows : rows)` declared one
+  // line above the pinned wrapper line makes the wrapper a no-op: 1925 + 1
+  // green, tsc exit 0, eslint exit 0 (one new `no-unused-vars` warning — the
+  // shadow makes the import dead; the tip already carries 229, so no gate
+  // fails). `withPriceFact`'s own numbers do not fit the priceFactSets/
+  // hasPriceFact loop below (its raw mentions read 2 today, not that loop's
+  // fixed 3 — no prose mention exists yet), so this is its own small block
+  // rather than a bent loop. A legitimate new use, even in a comment, must
+  // update it.
+  const WITHPRICEFACT_SRC: readonly string[] = [
+    "withPriceFact,",
+    "const checks = withPriceFact(",
+  ]
+
+  // ⚖ BREAKER-828 DELTA 6 K2 — THE IMPORT-DOOR BELTS ABOVE ARE PER FILE, AND
+  // THE FILE NEXT DOOR IS UNSEALED. `held-committed.ts` sits in this same
+  // folder, is already imported by the screen, and is NOT in
+  // `foundation.test.ts`'s sealed inventory — so it can take a new
+  // drag-rules import with nothing watching and re-export canon's function
+  // under another name, and the screen adds one specifier to a one-line
+  // import whose specifier list nothing above pins (only
+  // `./today-interactions` is pinned specifier-by-specifier). The screen's
+  // WHOLE import header, ordered, script-emitted off this tip (15 lines) —
+  // subsumes `C1`/`C2`/`B5`/`S2`/`E3` as a by-product (all five read 16
+  // lines and change the hash) and closes the unsealed-neighbour route on
+  // THIS screen. The general answer — the five `today/` modules joining
+  // foundation's sealed inventory — is a rider on `foundation.test.ts`
+  // (untouchable from this file). Any import added, removed or reworded —
+  // even a comment on the same line — moves this array and prints the diff.
+  const SRC_FROM_LINES: readonly string[] = [
+    "import Link from 'next/link'",
+    "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+    "} from '@/business/lib/canon-logic/pricing'",
+    "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
+    "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
+    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
+    // ⚖ two entries below are split with `+` at the SAME runtime value —
+    // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
+    // `from '…'` across every file in its own territory, this test file
+    // included, and reads a literal quoted string here as if it were a real
+    // import; resolved relative to THIS file's own path (not the screen's),
+    // `../../BusinessSessionEdits` lands one level outside territory. The
+    // split changes no character of the string these lines equal — verified
+    // by `toEqual` below — only how the source spells it.
+    "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
+    "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
+    "} from './today-interactions'",
+    "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
+    "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
+    "import { heldCommittedFor } from './held-committed'",
+    "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
+    "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+  ]
+
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
   const SETS_LINE =
     'const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])'
@@ -10509,12 +10568,29 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // eslint's `no-require-imports` error — both measured, not this pin's
       // job.
       expect(rawLineHits(src, /canon-logic\/drag-rules/g)).toEqual(where === 'checksFor (screen)' ? DRAGRULES_SRC : DRAGRULES_INT)
+      // ⚖ BREAKER-828 DELTA 6 K3 — THE CHEAP BELT AGAINST `eval`/`new
+      // Function`. `eval('compute' + 'Checks')` inside `checksFor` reaches
+      // the module's own `computeChecks` binding while the token
+      // `computeChecks` appears nowhere and no second import exists — every
+      // pin above is silent on it, and every column it moves is identical to
+      // CLEAN. This is a two-token denylist, not a general answer: it closes
+      // `eval(`/`new Function(` and nothing more. The real closer lives
+      // outside these files — eslint's `no-eval` / `no-implied-eval`, which
+      // this repo's config does not currently enable (measured; filed as a
+      // rider, not chased here).
+      expect({ where, evalOrFunction: (stripped(src).match(/\b(?:eval|Function)\s*\(/g) ?? []).length }).toEqual({ where, evalOrFunction: 0 })
       // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
       // no-op, are gone in every shape the breaker has used on this lane.
       for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
         expect({ where, dodge, at: codeOnly(src).indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
       }
     }
+    // ⚖ BREAKER-828 DELTA 6 K2 — the screen's whole import header, as an
+    // ordered exact-line array (see SRC_FROM_LINES above for the reason: the
+    // door found by the breaker is a file the belts above never watch,
+    // `held-committed.ts`, reached through an unpinned specifier on THIS
+    // line).
+    expect(SRC.split('\n').filter((l) => /\bfrom\s*['"]/.test(l)).map((l) => l.trim())).toEqual(SRC_FROM_LINES)
   })
 
   // (e) — AND EVERY LANDING THE SCREEN ASKS CARRIES THE FACT. `hasPrice` is a
@@ -10810,6 +10886,24 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       expect({ name, declaredThere: (INTCODE.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
         .toEqual({ name, declaredThere: 1 })
     }
+    // ⚖ BREAKER-828 DELTA 6 K1 — AND THE FILTER ITSELF, WHICH DOES NOT FIT
+    // THE LOOP ABOVE (its raw mentions read 2 today, not the loop's fixed 3
+    // — no prose mention exists yet). Every other name this item rests on is
+    // declared-once-pinned; `withPriceFact`, the one function the whole item
+    // exists to prove runs, was the one name that never got the treatment. A
+    // local shadow of the same name, declared one line above the pinned
+    // wrapper line, makes the wrapper a no-op with every other count and
+    // array in the file untouched — this is the belt for exactly that shape.
+    expect({ name: 'withPriceFact', wpfDeclared: (stripped(SRC).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfDeclared: 0 })
+    expect({ name: 'withPriceFact', wpfCode: (stripped(SRC).match(/\bwithPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfCode: 2 })
+    expect(rawLineHits(SRC, /\bwithPriceFact\b/g)).toEqual(WITHPRICEFACT_SRC)
+    // …and the same declared-once law on the OTHER door: `landingVerdict`'s
+    // call site has a unit that CALLS it (the test above), so that door is
+    // already closed by behaviour — this is the text belt beside it. The ONE
+    // declaration there is the export itself.
+    expect((stripped(INT).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length).toBe(1)
   })
 
   /** ⚖ FIX ROUND 2 (Greptile on #828) — THE FACT IS STAMPED WHERE IT IS KNOWN,
