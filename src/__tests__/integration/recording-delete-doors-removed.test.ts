@@ -119,6 +119,29 @@ describe('what REPLACED them', () => {
   // words are already settled. The question is now the whole of "does the
   // server have this?", in ONE spelling both readers share — so the pin moves
   // with it rather than pinning a rule that is no longer the rule.
+  // ⚖ NEITHER PORT MAY READ "ALREADY THERE" AS PROOF (fix round 2). A staged
+  // key is composable in advance, so an object meeting a staging PUT is not
+  // evidence the device wrote it — and with D11 releasing the device copy, a
+  // records.write holder who pre-filled that key could erase a recording
+  // through a staffer action, which ⚖ 9/3 forbids. The rule that replaced it is
+  // the mint's size answer, adopted only on an exact match. Pinned as a census
+  // because the failure mode is a two-line convenience quietly coming back.
+  it('the staging ports adopt on SIZE, never on a PUT saying "already there"', () => {
+    for (const rel of ['src/lib/ports/recording-port.ts', 'thin/ports/recording.vite.ts']) {
+      expect(code(rel)).not.toContain('putSaysAlreadyThere')
+      expect(code(rel)).toContain("throw new Error('staged copy mismatch')")
+    }
+    // …and the whole-take path keeps it, because finalize re-proves the size
+    // and the row's ownership there. Two paths, two different right answers.
+    expect(code('src/lib/recording/secure-take.ts')).toContain(
+      'if (!put.ok && !(await putSaysAlreadyThere(put))) {',
+    )
+    // The door answers existence BEFORE it signs — one probe, the shared one.
+    const mint = code('src/lib/recording/mint-take-url.ts')
+    expect(mint).toContain('const existing = await objectSize(composed.key)')
+    expect(mint).toContain("if (existing === 'unknown') return { error: 'upstream' }")
+  })
+
   it('deleteTake carries the one guard: the server does not hold it, no delete', () => {
     const src = code('src/lib/karute/take-store.ts')
     expect(src).toContain("if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return")

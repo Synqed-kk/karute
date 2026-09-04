@@ -112,14 +112,32 @@ import {
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 
-type MintedUrl = Extract<MintTakeUrlResult, { path: string }>
+/** The SIGNED success arm. The door's success side is two arms since fix round
+ *  2 — the other is "the object is already there, here is its size", which
+ *  signs nothing — so this extracts by `url`, the field only the signed one
+ *  has. (`{ path: string }` would match both, and every `.url` read below would
+ *  stop compiling for the right reason.) */
+type MintedUrl = Extract<MintTakeUrlResult, { url: string }>
+/** …and its twin: the arm that says the key is already taken. */
+type MintedExisting = Extract<MintTakeUrlResult, { existingSize: number | null }>
 
 /** The mint answers with a result UNION now (fix round 4). Every test that is
  *  about a SUCCESSFUL mint says so here, so a refusal can never read as a pass
- *  with undefined fields. */
+ *  with undefined fields — and since fix round 2 that includes the OTHER
+ *  success arm: a caller expecting a signed url must not silently pass on the
+ *  answer that signs nothing. */
 async function mintOk(input?: MintTakeUrlInput): Promise<MintedUrl> {
   const res = await mintRecordingUploadUrl(input)
   if ('error' in res) throw new Error(`expected a minted url, got ${res.error}`)
+  if (!('url' in res)) throw new Error('expected a SIGNED url, got the already-there answer')
+  return res
+}
+
+/** …and its twin, for the tests that are about the already-there answer. */
+async function mintExisting(input?: MintTakeUrlInput): Promise<MintedExisting> {
+  const res = await mintRecordingUploadUrl(input)
+  if ('error' in res) throw new Error(`expected an existing-copy answer, got ${res.error}`)
+  if (!('existingSize' in res)) throw new Error('expected the already-there answer, got a signed url')
   return res
 }
 
@@ -800,8 +818,11 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(create).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(auditFn).not.toHaveBeenCalled()
-    // …and no existence probe: a staged key is a fresh uuid nobody can have.
-    expect(info).not.toHaveBeenCalled()
+    // ⚖ …BUT THE KEY IS PROBED (fix round 2). "A staged key is a fresh uuid
+    // nobody can have" stopped being true the moment packet B made the slot the
+    // TAKE: the key is composable in advance, so the door has to look before it
+    // signs. One `info()` read, the same probe the take mint's own fence uses.
+    expect(info).toHaveBeenCalledWith(res.path)
   })
 
   it('refuses a COLLEAGUE’s session — the same staff rule the take mint applies', async () => {
@@ -938,6 +959,65 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
         mintRecordingUploadUrl({ ...NAMED, stagedFor: SESSION, stagedTake: UUID }),
       ).resolves.toEqual({ error: 'bad_input' })
       expect(get).not.toHaveBeenCalled()
+    })
+  })
+
+  // ⚖ THE DOOR ANSWERS EXISTENCE, AND SIGNS NOTHING OVER IT (fix round 2). The
+  // three pieces packet B shipped made one hole together: the key is composable
+  // in advance, a PUT meeting an object was read as SUCCESS, and D11 then let
+  // the device release its own audio. So a records.write holder could put any
+  // bytes at their OWN discarded session's staged key first and have the device
+  // adopt them — erasing a recording through a staffer action, which ⚖ 9/3
+  // forbids outright. The fix is here: the object is looked up BEFORE the sign,
+  // and the caller is told its SIZE instead of being handed a way to write.
+  describe('…and an object already at that key is answered, never signed over', () => {
+    it('an existing object: NO signing call, and the size comes back', async () => {
+      info.mockResolvedValue({ data: { size: 4096 }, error: null })
+      const res = await mintExisting({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      expect(res.existingSize).toBe(4096)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(res.contentType).toBe('audio/webm')
+      // Nothing to write with — not an empty string, ABSENT.
+      expect('url' in res).toBe(false)
+      expect('token' in res).toBe(false)
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+      expectNoBinding()
+    })
+
+    it('storage answering without a size says so — null, never a guess', async () => {
+      info.mockResolvedValue({ data: {}, error: null })
+      const res = await mintExisting({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.existingSize).toBeNull()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    it('an absent object is signed exactly as before', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.url).toBeTruthy()
+      expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path)
+    })
+
+    // Storage failing to ANSWER is not "the key is free": signing over it is
+    // exactly the act that could hand a caller somebody else's key.
+    it('storage that does not answer is upstream — retryable, and nothing signed', async () => {
+      info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
+      await expect(
+        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'upstream' })
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    // The fences still come FIRST: an unauthorized caller never learns whether
+    // a key exists, exactly as the take mint's own ordering guarantees.
+    it('a COLLEAGUE’s session is refused before the bucket is touched', async () => {
+      get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+      info.mockResolvedValue({ data: { size: 4096 }, error: null })
+      await expect(
+        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'forbidden' })
+      expect(info).not.toHaveBeenCalled()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
     })
   })
 })

@@ -175,6 +175,9 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   // staff rule decides it. Nothing is reserved and nothing is written.
   it('a stagedFor body signs a session-named key, and binds nothing', async () => {
     recordingsGet.mockResolvedValue(ROW)
+    // The key is FREE — this suite's default `info` answers "an object is
+    // there", which since fix round 2 is a different, un-signed answer.
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
     const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -182,10 +185,30 @@ describe('POST recordings/upload-url — the fenced mint', () => {
       new RegExp(`^stg/business-1_${SESSION}_[0-9a-f-]{36}\\.webm$`),
     )
     expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.url).toBeTruthy()
     expect(recordingsUpdate).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
-    // No reservation to probe for: the key is a fresh uuid nobody can hold.
-    expect(info).not.toHaveBeenCalled()
+    // ⚖ …BUT THE KEY IS PROBED FIRST (fix round 2). "A fresh uuid nobody can
+    // hold" stopped being true when the slot became the TAKE: the key is
+    // composable in advance, so the door looks before it signs, and an object
+    // already there is answered with its SIZE instead of a signed URL. One
+    // `info()` read, the shared one — and here it says the key is free, so this
+    // body is signed exactly as it always was.
+    expect(info).toHaveBeenCalledWith(body.path)
+  })
+
+  // …and when the object IS already there the door signs NOTHING and hands back
+  // the size, which is the only thing the device can check its own blob against.
+  it('…and an object already at that key comes back as a SIZE, never a URL', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    info.mockResolvedValue({ data: { size: 4096 }, error: null })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.existingSize).toBe(4096)
+    expect(body.url).toBeUndefined()
+    expect(body.token).toBeUndefined()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
   it('…on ANOTHER staffer’s session → 403, and nothing is signed', async () => {

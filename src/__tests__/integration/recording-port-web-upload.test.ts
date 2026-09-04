@@ -32,6 +32,15 @@ type MintReply =
       contentType: string
       recordingSessionId: string | null
     }
+  /** Fix round 2: the door found an object already at this key, so it signed
+   *  NOTHING and answered its size instead. No url, no token — absent, not
+   *  empty, so nothing here can be PUT against. */
+  | {
+      path: string
+      contentType: string
+      recordingSessionId: string | null
+      existingSize: number | null
+    }
   | { error: string }
 const MINTED = {
   path: 'app_biz-1_uuid-1.webm',
@@ -243,21 +252,73 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
     })
   })
 
-  // ⚖ "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). A staged key is
-  // deterministic now, so staging one take twice meets its own immutable copy.
-  // Read as a failure this threw, the words were never collected, and the whole
-  // blob was re-uploaded on every sweep for ever.
-  it('a PUT that says the copy is already there RESOLVES, and the words are read from it', async () => {
+  // ⚖ ONLY OUR OWN BYTE LENGTH IS ADOPTED (fix round 2). Packet B read a PUT's
+  // "already there" as a success — which, with a key that is composable in
+  // advance and D11 releasing the device copy, let a records.write holder put
+  // any bytes at their own discarded session's staged key first and have the
+  // device adopt them, then throw the real recording away. The door answers
+  // existence with a SIZE now, and only a match adopts.
+  describe('an object already at the staged key', () => {
+    /** The door's other success arm — it signs nothing. */
+    const existing = (size: number | null) => ({
+      path: 'stg/biz-1_rs-7_take-7.webm',
+      contentType: 'audio/webm',
+      recordingSessionId: 'rs-7',
+      existingSize: size,
+    })
+
+    it('OUR OWN size is adopted with NO upload — the lost-markTakeStaged retry', async () => {
+      const take = blob()
+      mintRecordingUploadUrl.mockImplementation(async () => existing(take.size))
+      const { path } = await webRecordingPort.prepareTranscription(take, null, {
+        stagedFor: 'rs-7',
+        stagedTake: 'take-7',
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(path).toBe('stg/biz-1_rs-7_take-7.webm')
+      expect(mintRecordingReadUrl).toHaveBeenCalledWith('stg/biz-1_rs-7_take-7.webm')
+    })
+
+    it('a DIFFERENT size is refused — nothing is adopted and nothing is uploaded', async () => {
+      mintRecordingUploadUrl.mockImplementation(async () => existing(blob().size + 1))
+      await expect(
+        webRecordingPort.prepareTranscription(blob(), null, {
+          stagedFor: 'rs-7',
+          stagedTake: 'take-7',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+    })
+
+    it('a size storage would not give proves nothing — refused too', async () => {
+      mintRecordingUploadUrl.mockImplementation(async () => existing(null))
+      await expect(
+        webRecordingPort.prepareTranscription(blob(), null, {
+          stagedFor: 'rs-7',
+          stagedTake: 'take-7',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
+  // …and on the SIGNED arm the 409 is a failure again: it is a race the mint
+  // did not see a moment ago, and the next mount's mint answers it with a size.
+  // (On the WHOLE-TAKE path it stays a success — finalize re-proves the size
+  // and the row's ownership there; a staged copy is row-less and has neither.)
+  it('a 409 on a SIGNED PUT is a failure — it is not proof the copy is ours', async () => {
     fetchMock.mockImplementation(
       async () =>
         new Response(JSON.stringify({ statusCode: '409', error: 'Duplicate' }), { status: 400 }),
     )
-    const { path } = await webRecordingPort.prepareTranscription(blob(), null, {
-      stagedFor: 'rs-7',
-      stagedTake: 'take-7',
-    })
-    expect(path).toBe('app_biz-1_uuid-1.webm')
-    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_uuid-1.webm')
+    await expect(
+      webRecordingPort.prepareTranscription(blob(), null, {
+        stagedFor: 'rs-7',
+        stagedTake: 'take-7',
+      }),
+    ).rejects.toThrow('Upload failed (400)')
+    expect(mintRecordingReadUrl).not.toHaveBeenCalled()
   })
 
   it('a rejected upload fails the take loudly (no silent empty transcript)', async () => {

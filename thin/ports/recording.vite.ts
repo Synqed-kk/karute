@@ -10,7 +10,6 @@ import type {
   RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { getDataPort } from '@/lib/ports/data-port'
-import { putSaysAlreadyThere } from '@/lib/recording/storage-put'
 import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
@@ -139,30 +138,46 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
     // The facade echoes the mint's WHOLE result (…/upload-url/route.ts's
     // `ok(ctx, minted)`), so contentType is the same closed-map answer that
-    // decided the key's extension — never this arm's own guess.
-    const { path, url, contentType } = (await res.json()) as {
+    // decided the key's extension — never this arm's own guess. `url` is absent
+    // and `existingSize` present on the door's OTHER success arm (fix round 2),
+    // which is why neither is destructured as a bare string.
+    const minted = (await res.json()) as {
       path: string
-      url: string
+      url?: string
       contentType: string
+      existingSize?: number | null
     }
+
+    // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
+    // nothing because the object is ALREADY at this key — and since packet B
+    // that key is composable in advance, so its mere existence says nothing
+    // about who wrote it. The only safe reading is "this is the copy we PUT,
+    // whose markTakeStaged was lost", and the one thing a caller who never held
+    // the recording cannot forge is its size. Anything else throws: the take
+    // stays unstaged, its discard stamp stands, and the next sweep asks the
+    // mint again — one small JSON call per mount, no upload, nothing released.
+    if ('existingSize' in minted && minted.existingSize !== undefined) {
+      if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
+      return { body: { path: minted.path }, path: minted.path }
+    }
+    if (!minted.url) throw new Error('Upload URL failed (no url)')
 
     // 2. PUT the blob directly to storage (the signed URL carries the token).
-    const put = await fetch(url, {
+    const put = await fetch(minted.url, {
       method: 'PUT',
-      headers: { 'content-type': contentType },
+      headers: { 'content-type': minted.contentType },
       body: blob,
     })
-    // ⚖ "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). A staged key
-    // is deterministic now, so staging one take twice lands on its own immutable
-    // copy — storage's refusal means the object this leg wanted exists. Read
-    // through the shared rule, which knows both shapes it arrives in (a plain
-    // 409, and Supabase's 400 with the real code demoted into the body).
-    if (!put.ok && !(await putSaysAlreadyThere(put))) {
-      throw new Error(`Upload failed (${put.status})`)
-    }
+    // EVERY refusal is a failure here, the 409 included (fix round 2). On the
+    // WHOLE-TAKE path "already there" is a success because finalize re-proves
+    // the object's size and its row's ownership afterwards; a staged copy is
+    // row-less and has no finalize, so the size match at the MINT is the only
+    // proof there is. A 409 reaching here is a race the mint did not see a
+    // moment ago — the next mount's mint answers it with a size.
+    if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
-    return { body: { path }, path }
+    return { body: { path: minted.path }, path: minted.path }
   },
   // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
   // backfill this answers exists for takes finalized by slice THREE's code and

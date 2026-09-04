@@ -113,11 +113,67 @@ describe('the flag flip — the fix itself', () => {
     expect(putInit.headers).toEqual({ 'content-type': 'audio/mp4' })
   })
 
-  // ⚖ "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). With a
-  // deterministic key the second staging of one take meets its own immutable
-  // copy — read as a failure it threw, the sweep never marked the take done,
-  // and the whole blob was re-PUT on every record-page mount for ever.
-  it('a PUT that says the copy is already there RESOLVES — it does not throw', async () => {
+  // ⚖ ONLY OUR OWN BYTE LENGTH IS ADOPTED (fix round 2). Packet B read a PUT's
+  // "already there" as a success — which, with a key that is composable in
+  // advance and D11 releasing the device copy, let a records.write holder put
+  // any bytes at their own discarded session's staged key first and have the
+  // phone adopt them, then throw the real recording away. The door answers
+  // existence with a SIZE now, and only a match adopts.
+  describe('an object already at the staged key', () => {
+    /** The facade echoing the door's OTHER success arm: no url, a size. */
+    const existing = (size: number | null) =>
+      json({
+        path: 'stg/business-1_rs-1_take-1.webm',
+        contentType: 'audio/webm',
+        recordingSessionId: 'rs-1',
+        existingSize: size,
+      })
+    const put = () => global.fetch as unknown as jest.Mock
+
+    it('OUR OWN size is adopted with NO upload — the lost-markTakeStaged retry', async () => {
+      port(async () => existing(1))
+      global.fetch = jest.fn() as unknown as typeof fetch
+
+      const { path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        stagedFor: 'rs-1',
+        stagedTake: 'take-1',
+      })
+      expect(path).toBe('stg/business-1_rs-1_take-1.webm')
+      expect(put()).not.toHaveBeenCalled()
+    })
+
+    it('a DIFFERENT size is refused — nothing adopted, nothing uploaded', async () => {
+      port(async () => existing(999))
+      global.fetch = jest.fn() as unknown as typeof fetch
+
+      await expect(
+        viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+          stagedFor: 'rs-1',
+          stagedTake: 'take-1',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(put()).not.toHaveBeenCalled()
+    })
+
+    it('a size storage would not give proves nothing — refused too', async () => {
+      port(async () => existing(null))
+      global.fetch = jest.fn() as unknown as typeof fetch
+
+      await expect(
+        viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+          stagedFor: 'rs-1',
+          stagedTake: 'take-1',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(put()).not.toHaveBeenCalled()
+    })
+  })
+
+  // …and on the SIGNED arm the 409 is a failure again: it is a race the mint
+  // did not see a moment ago, and the next mount's mint answers it with a size.
+  // (On the WHOLE-TAKE path it stays a success — finalize re-proves the size
+  // and the row's ownership there; a staged copy is row-less and has neither.)
+  it('a 409 on a SIGNED PUT is a failure — it is not proof the copy is ours', async () => {
     port(async () =>
       json({
         path: 'stg/business-1_rs-1_take-1.webm',
@@ -125,19 +181,20 @@ describe('the flag flip — the fix itself', () => {
         contentType: 'audio/webm',
       }),
     )
+    // The 400-with-409-in-the-body shape, which is the one Supabase's signed
+    // upload endpoint actually answers with.
     global.fetch = jest.fn(
       async () => new Response(JSON.stringify({ statusCode: '409', error: 'Duplicate' }), {
         status: 400,
       }),
     ) as unknown as typeof fetch
 
-    // The 400-with-409-in-the-body shape, which is the one Supabase's signed
-    // upload endpoint actually answers with.
-    const { path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
-      stagedFor: 'rs-1',
-      stagedTake: 'take-1',
-    })
-    expect(path).toBe('stg/business-1_rs-1_take-1.webm')
+    await expect(
+      viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        stagedFor: 'rs-1',
+        stagedTake: 'take-1',
+      }),
+    ).rejects.toThrow('Upload failed (400)')
   })
 
   it('a PUT that really failed still throws — a 403 is not "already there"', async () => {

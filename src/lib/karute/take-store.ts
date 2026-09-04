@@ -997,11 +997,15 @@ export async function settleTakeAfterSave(takeId: string): Promise<void> {
  *  THREE facts, and each one is a server-side act that has already happened:
  *   · `finalizedAt` — the whole take is at its finalized key. Unchanged, and by
  *     itself enough, exactly as before.
- *   · `stagedPath` under `stg/` — the staged PUT landed (or answered "already
- *     there", which means the same thing), and markTakeStaged wrote the key back.
- *     The prefix is the point: the transitional cohort carries round 4's
- *     take-shaped `app_…` staged key, which the transcribe door now refuses, so
- *     those copies prove nothing and are excluded.
+ *   · `stagedPath` under `stg/` — markTakeStaged wrote this key back, and the
+ *     port only ever hands it one it PUT ITSELF with a 2xx, or one whose object
+ *     already at that key matched its OWN blob's byte length at the mint (fix
+ *     round 2). That is what makes the fact trustworthy: the key is composable
+ *     in advance, so "an object exists there" says nothing on its own, and the
+ *     size is the one thing a caller who never held the recording cannot
+ *     produce. The prefix is the point too: the transitional cohort carries
+ *     round 4's take-shaped `app_…` staged key, which the transcribe door now
+ *     refuses, so those copies prove nothing and are excluded.
  *   · `discardTranscriptDoneAt` — the words question is SETTLED
  *     (markDiscardTranscriptDone), so nothing is still reading this blob.
  *   · and `isUnsecurableTake` — the take can never be sealed under its own key,

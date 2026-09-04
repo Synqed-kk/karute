@@ -79,6 +79,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // can EVER be sealed is the whole question the staging branch asks, and a
   // copy of it here would go green while take-store's own answer drifted.
   isUnsecurableTake: jest.requireActual('@/lib/karute/take-store').isUnsecurableTake,
+  // ⚖ …AND THE RELEASE RULE ITSELF (fix round 2). Whether the device may let go
+  // of a take is the consequence a failed staging must NOT reach, so the
+  // assertion below reads take-store's own answer rather than restating it.
+  serverHoldsTake: jest.requireActual('@/lib/karute/take-store').serverHoldsTake,
 }))
 
 let mockSupported = true
@@ -116,6 +120,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
   }),
 }))
 
+import { serverHoldsTake } from '@/lib/karute/take-store'
 import {
   discardTranscriptSupported,
   persistReviewDiscardTranscript,
@@ -468,6 +473,35 @@ describe('the audio path', () => {
     // session in its KEY the transcribe door had nothing to check a claim
     // against: any records.write holder could name a COLLEAGUE'S finished take
     // and have its words written onto an unrelated discarded session.
+    // ⚖ A STAGING THAT COULD NOT PROVE ITSELF SETTLES NOTHING (fix round 2). The
+    // port throws `staged copy mismatch` when the object already at the key is
+    // not this take's own byte length — an object a records.write holder could
+    // have put there first, since the key is composable in advance. What must
+    // follow is that NOTHING is written: no staged pointer, no done stamp, so
+    // serverHoldsTake stays false and D11 never releases the real recording.
+    // The next sweep asks the mint again.
+    it('a staged copy that is NOT ours settles nothing — the take is never released', async () => {
+      mockReadSecureMeta.mockImplementation(async () => ({ tailIncomplete: true }))
+      mockPrepareTranscription.mockImplementationOnce(async () => {
+        throw new Error('staged copy mismatch')
+      })
+
+      await runDiscardTranscript('take-1', PENDING)
+
+      expect(mockMarkTakeStaged).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      // …and the take the store still holds is one serverHoldsTake refuses:
+      // no finalized key, no staged pointer, so the never-delete guard and the
+      // TTL prune both keep it. This is the rule the throw exists to protect.
+      expect(
+        serverHoldsTake({ tailIncomplete: true, stagedPath: undefined, finalizedAt: undefined }),
+      ).toBe(false)
+      // The second sweep tries again — one JSON call per mount, no upload.
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).toHaveBeenCalledTimes(2)
+    })
+
     // ⚖ …AND FOR ITS TAKE (slice five packet B, D10). The take fills the key's
     // uuid slot, so the copy is composable from the core row alone — and a take
     // staged twice lands on the SAME object rather than minting a second one.

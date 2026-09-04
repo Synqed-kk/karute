@@ -16,7 +16,6 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
-import { putSaysAlreadyThere } from '@/lib/recording/storage-put'
 
 /**
  * What a port answers a mint with. The SUCCESS arm is the shared core's own
@@ -32,9 +31,16 @@ import { putSaysAlreadyThere } from '@/lib/recording/storage-put'
  * `token` is dropped on the way through, as it always was: it already rides
  * inside `url`, and a port caller that reached for it would be assembling a
  * signed request the doors are there to assemble.
+ *
+ * EXTRACTED BY `url`, NOT BY `path` (fix round 2). The core's success side is
+ * two arms now — the signed one and the "already there, here is its size" one
+ * the STAGED branch answers — and this door never sends `stagedFor`, so it can
+ * only ever see the signed arm. Naming `url` says that in the type: extracting
+ * by `path` would match both and `Omit` over a union collapses to their shared
+ * keys, quietly deleting `url` from this contract.
  */
 export type MintTakeUrlPortResult =
-  | Omit<Extract<MintTakeUrlResult, { path: string }>, 'token'>
+  | Omit<Extract<MintTakeUrlResult, { url: string }>, 'token'>
   | { error: string }
 
 export interface RecordingPipelinePort {
@@ -97,8 +103,14 @@ export interface RecordingPipelinePort {
    * carry: the container travels with it (`blob.type` is the take's own, so an
    * iOS copy is `.mp4` at last instead of the `.webm` every staged copy wore),
    * and the key is DETERMINISTIC, so a second staging of the same take meets its
-   * own copy. Storage refuses that PUT and the refusal is a SUCCESS — the copy
-   * is there, which is all this leg wanted (⚖ V2.1, storage-put.ts).
+   * own copy.
+   *
+   * ⚖ …AND A KEY THAT IS COMPOSABLE IN ADVANCE MAKES "SOMETHING IS THERE" WORTH
+   * NOTHING (fix round 2). The door answers existence BEFORE it signs anything,
+   * with the object's SIZE, and this leg adopts that object only when the size
+   * is its own blob's — the one fact a caller who never held the recording
+   * cannot produce. Any other answer throws and the take stays unstaged, which
+   * is what keeps ⚖ 9/3 true: no staffer action can erase a recording.
    */
   prepareTranscription(
     blob: Blob,
@@ -237,20 +249,22 @@ function uploadActions() {
  *  key says it is not. Until this round it was a hardcoded 'audio/webm' — the
  *  live mislabelling bug, on iOS mp4 bytes.
  *
- *  ⚖ AND "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). A staged key
- *  is deterministic now, so the second staging of one take meets its own,
- *  immutable copy; storage's refusal means the object this leg wanted exists.
- *  The shared reader in storage-put.ts knows both shapes that refusal arrives
- *  in — the plain 409 and Supabase's 400-with-409-in-the-body. */
+ *  ⚖ AND EVERY REFUSAL IS A FAILURE HERE, THE 409 INCLUDED (fix round 2). On
+ *  the WHOLE-TAKE path "already there" is a success, because finalize then
+ *  re-proves the object's size and its row's ownership before anything acts on
+ *  it. This path has no finalize: a staged copy is row-less, and its key is
+ *  composable in advance — so an object meeting our PUT is not evidence it is
+ *  ours. The mint answers existence BEFORE signing now, with the object's
+ *  size, and only a size match adopts it (see prepareTranscription). A 409
+ *  reaching here is a race the mint did not see a moment earlier; it throws,
+ *  the take stays unstaged, and the next sweep's mint answers it with a size. */
 async function putTake(url: string, blob: Blob, contentType: string): Promise<void> {
   const put = await fetch(url, {
     method: 'PUT',
     headers: { 'content-type': contentType },
     body: blob,
   })
-  if (!put.ok && !(await putSaysAlreadyThere(put))) {
-    throw new Error(`Upload failed (${put.status})`)
-  }
+  if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 }
 
 /** ⚖ NO WEB DOOR WAITS FOREVER EITHER (fix round 12, P3). The phone's three
@@ -322,11 +336,24 @@ export const webRecordingPort: RecordingPipelinePort = {
           : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
-      // The MINT's contentType on both arms — it is the server's own answer for
-      // the key it just composed, and for the unbound fallback that answer is
-      // the 'audio/webm' this line used to hardcode.
-      await putTake(minted.url, blob, minted.contentType)
-      path = minted.path
+      // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
+      // nothing because the object is already there; the ONLY reading of that
+      // which is safe is "this is the copy we PUT, whose markTakeStaged was
+      // lost" — and the one thing a caller who never held the recording cannot
+      // forge is its size. Anything else (a different length, or a storage
+      // answer carrying no length at all) throws: the take stays unstaged, its
+      // discard stamp stands, and the next sweep asks the mint again — one
+      // small JSON call per mount, no upload, and nothing released.
+      if ('existingSize' in minted) {
+        if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
+        path = minted.path
+      } else {
+        // The MINT's contentType — the server's own answer for the key it just
+        // composed, and for the unbound fallback that answer is the
+        // 'audio/webm' this line used to hardcode.
+        await putTake(minted.url, blob, minted.contentType)
+        path = minted.path
+      }
     }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
@@ -384,6 +411,13 @@ export const webRecordingPort: RecordingPipelinePort = {
       { error: 'upstream' as const },
     )
     if ('error' in minted) return minted
+    // The door's OTHER success arm — "the object is already there, here is its
+    // size" — belongs to the STAGED branch alone, and this call sends no
+    // `stagedFor`, so it is unreachable from here. Narrowed rather than cast
+    // (fix round 2): the compiler proving it stays unreachable is the point,
+    // and if the door ever did answer it, `upstream` leaves the take retryable
+    // instead of putting `undefined` on the wire as a URL.
+    if (!('url' in minted)) return { error: 'upstream' }
     // `token` is DROPPED here, not merely dropped from the type: it already
     // rides inside `url`, and handing a caller a credential the contract says
     // it never gets is how a second signed-request assembler is born.

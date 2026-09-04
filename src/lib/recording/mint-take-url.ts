@@ -132,6 +132,25 @@ export type MintTakeUrlResult =
        *  on the take and must send it back at finalize. */
       recordingSessionId: string | null
     }
+  /**
+   * ⚖ THE OBJECT IS ALREADY THERE, AND NOTHING IS SIGNED (fix round 2). Only
+   * the STAGED branch answers this: a staged key is composable in advance now
+   * (slice five packet B), so "an object exists at this key" stopped being
+   * proof that the device put it there. No `url` and no `token` — deliberately
+   * absent rather than empty strings, so a caller cannot PUT against this
+   * answer at all, and every consumer must NARROW before it reaches for one.
+   *
+   * `existingSize` is what the caller compares against its OWN blob: equal
+   * means this really is its own copy (the retry whose markTakeStaged was
+   * lost), and ONLY that adopts the key. `null` means storage answered without
+   * a size, which proves nothing and must never be adopted.
+   */
+  | {
+      path: string
+      contentType: string
+      recordingSessionId: string | null
+      existingSize: number | null
+    }
   | {
       error:
         | 'bad_input'
@@ -183,24 +202,44 @@ function auditTakeNamed(
 }
 
 /**
- * Does the bucket already hold this key?
+ * What the bucket holds at this key, and how big it is.
  *
  * `info()` is the same cheap single-object read finalize uses (one GET for one
- * key). Storage failing to ANSWER is not "free": we fail CLOSED with the
- * caller's retryable error rather than reserve a key that may already hold
- * somebody else's audio.
+ * key). Storage failing to ANSWER is not "free": every caller fails CLOSED on
+ * `'unknown'` rather than act on a key that may already hold somebody else's
+ * audio.
+ *
+ * THE SIZE IS THE NEW HALF (fix round 2). A staged key is composable in
+ * advance since slice five packet B, so "something exists here" no longer says
+ * the DEVICE put it there — only its byte length, compared against the blob
+ * the device still holds, can. `size: null` is storage answering without one:
+ * it proves nothing, and the caller must treat it as a mismatch.
+ *
+ * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
+ * size dropped, so the two questions can never drift into two probes.
+ */
+export async function objectSize(
+  key: string,
+): Promise<{ exists: true; size: number | null } | { exists: false } | 'unknown'> {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase.storage.from('recordings').info(key)
+  if (error) return isStorageNotFound(error) ? { exists: false } : 'unknown'
+  if (!data) return { exists: false }
+  return { exists: true, size: typeof data.size === 'number' ? data.size : null }
+}
+
+/**
+ * Does the bucket already hold this key?
  *
  * EXPORTED (fix round 11, fresh-eyes #7 P2): the session-start reservation
  * (session-mint.ts) runs this SAME check before its own create — a
  * hard-deleted sibling row's object staying on storage while its row is gone
  * is exactly the gap a second, independent "does this exist" spelling would
- * eventually drift from. One home, both callers.
+ * eventually drift from. One home, four callers.
  */
 export async function objectExists(key: string): Promise<boolean | 'unknown'> {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase.storage.from('recordings').info(key)
-  if (error) return isStorageNotFound(error) ? false : 'unknown'
-  return Boolean(data)
+  const answer = await objectSize(key)
+  return answer === 'unknown' ? 'unknown' : answer.exists
 }
 
 type ReservationPlan = { kind: 'update'; row: Recording } | { kind: 'retry'; row: Recording }
@@ -456,6 +495,31 @@ export async function mintTakeUploadUrl(
     // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
     // uppercase one still lands here and is refused by the case-exact grammar.
     if (composed === null) return { error: 'bad_input' }
+    // ⚖ EXISTENCE IS ANSWERED HERE, NOT AT THE PUT (fix round 2). Packet B made
+    // this key composable in advance, and the ports read a PUT's "already
+    // there" refusal as a SUCCESS — so a records.write holder could mint their
+    // OWN discarded session's staged key, PUT any bytes under it before the
+    // device staged, and the device would adopt those bytes as its copy, mark
+    // the take staged, and (D11) release the only real recording it had. The
+    // ⚖ 9/3 rule is that no staffer action can erase a recording.
+    //
+    // So the door refuses to SIGN over an object that is already there and
+    // answers its SIZE instead. The device adopts the key only when that size
+    // is its own blob's, which is the one thing a caller cannot forge without
+    // already holding the recording. Nothing is signed on this arm, so the
+    // answer hands out no way to write.
+    const existing = await objectSize(composed.key)
+    // Storage did not answer. Retryable, and nothing is signed meanwhile — the
+    // same posture the take mint's own exists check takes.
+    if (existing === 'unknown') return { error: 'upstream' }
+    if (existing.exists) {
+      return {
+        path: composed.key,
+        contentType: composed.contentType,
+        recordingSessionId: input.stagedFor,
+        existingSize: existing.size,
+      }
+    }
     const signed = await signUpload(composed)
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: input.stagedFor }
