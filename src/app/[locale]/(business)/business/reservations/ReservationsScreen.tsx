@@ -700,6 +700,14 @@ function Screen(props: ReservationsProps) {
    *  discarding it. Without this, a chip's own displayed count (which now
    *  reads the live period, G2(b)) would promise one number and a later
    *  chip's OWN full reset would reveal a different one. */
+  // ADDENDUM F-3 (Greptile round 2) — CHIPS NEVER TOUCH THE SEARCH. `viewFilters`
+  // always answers `search: ''`, so calling `setSearch(f.search)` here used to
+  // clear whatever the reader had just typed the moment they pressed a chip —
+  // a chip's own count (search-narrowed, G2(b)/A1) would then describe the
+  // list BEFORE the press while the press itself revealed every row matching
+  // chip + period, search dropped. Only クリア and the search box itself may
+  // change `search` now, so a chip's number always equals what its own press
+  // reveals under the SAME search.
   function applyView(view: SavedView, touchDate: boolean) {
     const f = viewFilters(view)
     setChip(view)
@@ -707,7 +715,6 @@ function Screen(props: ReservationsProps) {
     setSource(f.source)
     setStatus(f.status)
     setPrice(f.price)
-    setSearch(f.search)
     setSwap((n) => n + 1)
     // canon hands focus to the result count (:744) — the one thing on screen
     // that just changed meaning.

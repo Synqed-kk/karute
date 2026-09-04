@@ -1194,6 +1194,23 @@ describe('FINAL-FRESH F-2 · picker confirm end-time wraps past midnight — 24:
   })
 })
 
+// ═══ ADDENDUM F-3 (Greptile round 2) · pressing a chip never clears the
+// search — only クリア and the search box itself may change it ════════════
+
+describe('ADDENDUM F-3 · applyView leaves the search alone — chips press without wiping what was typed', () => {
+  it('applyView contains no setSearch( — the only remaining setSearch calls are クリア and the search input itself', () => {
+    const fn = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('function applyView(view: SavedView, touchDate: boolean)'),
+      SCREEN_CODE.indexOf('function openAccept()'),
+    )
+    expect(fn.length).toBeGreaterThan(50)
+    expect(fn).not.toContain('setSearch(')
+    // clearFilters (クリア) and the search box's own onChange still own it
+    expect(SCREEN_CODE).toContain('setSearch(\'\')')
+    expect(SCREEN_CODE).toContain('onChange={(e) => setSearch(e.target.value)}')
+  })
+})
+
 // ═══ GREPTILE ROUND 1 — G4 · the guided tour traps focus inside its overlay ══
 
 describe('G4 · the tour card is a real modal — inert `.rv-view`, Tab trap, existing Escape/focus-restore', () => {
