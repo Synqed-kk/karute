@@ -134,7 +134,7 @@
    panning, byte-for-byte what main ships today. Degrades to the status quo,
    never to a blank. (Business is the desktop web product; the iOS shell ships
    the Karute routes and never navigates here.) */
-.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }
+.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai, .page.pg-analytics) { min-width: 0; }
 
 .biz .main { min-width: 0; }
 /* ⚖ #20 = B. The topbar is the SETTINGS-family bar
