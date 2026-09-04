@@ -82,6 +82,15 @@ const MINT_AWAIT_MS = 1_500
 // to give, and this race IS its bound.
 export const SECURE_MINT_AWAIT_MS = 10_000
 
+// The BELT on awaitTakeSecured (fix round 2 of PR4): how long a reader will
+// wait on a stop leg that never exits before it goes on without it. Same figure
+// as take-store's HEARTBEAT_STALE_MS (120 s) and read the same way — a leg
+// quiet for two minutes is AD1's hung store, not a slow upload, and a pipeline
+// that waits on it for ever is a recording the staffer can never finish. Past
+// the belt the reader proceeds and the port's existing staging fallback does
+// exactly what it does today.
+const SECURE_SETTLE_BELT_MS = 120_000
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const formats = [
@@ -178,6 +187,21 @@ class GlobalRecorder {
    *  tab's read of the same store too (IndexedDB serializes overlapping
    *  scopes), so no drain anywhere has a worklist to seal from. */
   private securingBeatTimer: ReturnType<typeof setInterval> | null = null
+  /** The stop leg itself, per take, for the whole of its life — set in `onstop`
+   *  and dropped in the leg's own `finally` (fix round 2 of PR4).
+   *
+   *  ⚠ IT IS NOT `securingTakeIds`, and the difference is the entire point.
+   *  That hold answers "may anything else SEAL this take?", so it has to be
+   *  released BEFORE the leg calls secureTake — secureTake asks `isActive`
+   *  first and would otherwise refuse the one caller holding the live
+   *  measurement (see the release below). Which means the hold is already gone
+   *  for the whole of the PUT and the finalize: a reader that asked it "is the
+   *  stop still working on this take?" would be told no while 43 MB is in
+   *  flight, read `finalizedPath` as null, and stage a SECOND whole copy of
+   *  the same recording to a row-less key. The leg's own promise is the only
+   *  thing in this file that spans the upload, so it is what `awaitTakeSecured`
+   *  waits on. */
+  private stopLegs = new Map<string, Promise<void>>()
   private startTime = 0
   private pausedDuration = 0
   private pauseStart = 0
@@ -763,7 +787,13 @@ class GlobalRecorder {
       // this cannot finish is recorded on the take meta for the record page's
       // mount retry, and for PR5's launch drain after that.
       if (takeId) {
-        void flushed.then(async (flushedWholeTake) => {
+        // …AND THE LEG IS SOMETHING A READER CAN WAIT ON (fix round 2 of PR4).
+        // Registered here, synchronously inside onstop and before the callback
+        // can run, so there is no instant at which the stop is under way and
+        // the map says otherwise — which is exactly the instant the 自動
+        // pipeline starts in. Dropped in the `finally` below. See
+        // awaitTakeSecured for why `securingTakeIds` cannot answer this.
+        const leg = flushed.then(async (flushedWholeTake) => {
           try {
             // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7). The staffer who
             // stops and immediately starts the next recording — or discards —
@@ -840,8 +870,21 @@ class GlobalRecorder {
             // schedules its next drain on it, and the lock and the cooldown
             // make a needless run free.
             this.notify()
+            // …and the leg stops being something to wait on at the same
+            // instant, for the same reason: everything it had to say is on the
+            // row. Dropped INSIDE the leg rather than off its tail so the map
+            // can never outlive the work by a turn.
+            this.stopLegs.delete(takeId)
           }
         })
+        // What the map holds cannot REJECT. A reader only asked whether to
+        // wait, and must never be the thing that fails a recording — and
+        // attaching the handler here also keeps the leg itself handled, which
+        // the plain `void` this replaces never did.
+        this.stopLegs.set(
+          takeId,
+          leg.catch(() => {}),
+        )
       }
     }
 
@@ -1098,6 +1141,53 @@ class GlobalRecorder {
    *  notify that follows the release. */
   isSecuring(): boolean {
     return this.securingTakeIds.size > 0
+  }
+
+  /** "Is the STOP still deciding this take?" — awaited by both readers of
+   *  `finalizedPath` (global-pipeline's finalizedAudioPath, ai-pipeline's
+   *  in-tab leg) before they read it (fix round 2 of PR4).
+   *
+   *  THE BUG IT CLOSES. The 自動 pipeline starts at the stop INSTANT, while
+   *  the stop leg's PUT + finalize is still in flight — so `finalizedPath` read
+   *  null on every ordinary recording and the in-tab leg staged a second whole
+   *  copy of the same take to a server-named key nothing points at. Two uploads
+   *  of the same 43 MB and a permanent orphan object, per recording. The
+   *  fallback is meant for a take the store never held; this made it the
+   *  common case.
+   *
+   *  Resolves IMMEDIATELY when this runtime has no stop leg for the take —
+   *  another tab's take, the mount drain's, a take recorded before this bundle
+   *  loaded. Otherwise it waits for the leg the way anything waits for work
+   *  that is already running: on its promise. The leg awaits secureTake, and
+   *  secureTake awaits `markTakeFinalized` / `markTakeSecureError` before it
+   *  returns, so a resolved leg means the row's answer — the key, or a named
+   *  failure — is already on disk for the read that follows.
+   *
+   *  Never rejects: the leg's own promise cannot (its body is wrapped in
+   *  try/finally and everything inside secureTake is caught), and a reader that
+   *  merely wanted to know whether to wait must never be the thing that fails
+   *  a recording.
+   *
+   *  ponytail: the ceiling is a leg that never exits — a store that stopped
+   *  answering — and the belt is what buys that back, at the cost of one
+   *  needless staging upload two minutes later. The other known ceiling is
+   *  narrower: a leg that returned early because the mount drain already had
+   *  the take in `inFlight` resolves without a row answer, and the reader then
+   *  behaves exactly as it does today. */
+  async awaitTakeSecured(takeId: string): Promise<void> {
+    const leg = this.stopLegs.get(takeId)
+    if (!leg) return
+    let belt: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        leg,
+        new Promise<void>((resolve) => {
+          belt = setTimeout(resolve, SECURE_SETTLE_BELT_MS)
+        }),
+      ])
+    } finally {
+      clearTimeout(belt)
+    }
   }
 
   stop() {

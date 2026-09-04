@@ -29,7 +29,10 @@ const saveKaruteRecordInline = jest.fn(async (_input?: unknown) => ({ id: 'shoul
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecordInline: (...a: unknown[]) => saveKaruteRecordInline(...a),
 }))
-jest.mock('@/lib/karute/take-store', () => ({ deleteTake: jest.fn() }))
+// PR4 fix round 4: the settle door the save calls. Nothing in this suite is
+// about WHAT it may take (that is take-durability) — only that the arm reaches
+// it, so a plain spy is the whole fake it needs.
+jest.mock('@/lib/karute/take-store', () => ({ settleTakeAfterSave: jest.fn() }))
 
 import { toast } from 'sonner'
 import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'

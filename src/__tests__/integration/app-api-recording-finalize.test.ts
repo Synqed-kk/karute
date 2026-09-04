@@ -169,6 +169,39 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (fix round 7). The phone's
+  // discard staging posts `{ stagedFor }`, and that body NAMES a session — so
+  // it pays for the same roster identity a client-named take does, and the same
+  // staff rule decides it. Nothing is reserved and nothing is written.
+  it('a stagedFor body signs a session-named key, and binds nothing', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.path).toMatch(
+      new RegExp(`^stg/business-1_${SESSION}_[0-9a-f-]{36}\\.webm$`),
+    )
+    expect(body.recordingSessionId).toBe(SESSION)
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+    // No reservation to probe for: the key is a fresh uuid nobody can hold.
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('…on ANOTHER staffer’s session → 403, and nothing is signed', async () => {
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a body naming BOTH a take and a staged copy is a 400', async () => {
+    const res = await mintPOST(jreq(auth, { ...mintBody, stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
   it('another staffer’s session → a real 403, and nothing is signed', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })

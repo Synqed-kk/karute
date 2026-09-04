@@ -4,15 +4,22 @@
  * bucket's RLS started 403-ing it ("new row violates row-level security
  * policy") — every web take died at the upload. The web arm now goes through
  * the SAME server-minted signed-URL flow the thin arm has always used, so what
- * this file proves is the wiring: the blob goes to the MINTED url (never
- * supabase-js), the transcribe leg gets a SERVER-minted read url, and cleanup
- * is a server action.
+ * this file proves is the wiring: the transcribe leg gets a SERVER-minted read
+ * url over the take's FINALIZED key (capture pipeline PR4 — the happy path
+ * uploads nothing and deletes nothing), and the fallback for a take the store
+ * never held still PUTs its blob at the MINTED url, never supabase-js.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 type MintInput =
-  | { takeId?: string | null; mimeType?: string | null; recordingSessionId?: string | null }
+  | {
+      takeId?: string | null
+      mimeType?: string | null
+      recordingSessionId?: string | null
+      /** PR4 fix round 7: the session a STAGED copy is staged for. */
+      stagedFor?: string | null
+    }
   | undefined
 type MintReply =
   | {
@@ -38,11 +45,16 @@ const mintRecordingUploadUrl = jest.fn(
 const mintRecordingReadUrl = jest.fn(async (p: string) => ({
   url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
 }))
-const removeRecordingObject = jest.fn(async (_p: string) => ({ ok: true as const }))
+/** The backfill door (PR4 fix round 7) — a pure composition on the server, so
+ *  the key never leaves the tenant prefix to a device that should not compose
+ *  one. Null is its settled "cannot say". */
+const recordingFinalizedKey = jest.fn(
+  async (_i: { takeId: string; mimeType: string }) => 'app_biz-1_take-9.webm' as string | null,
+)
 jest.mock('@/actions/recording-upload', () => ({
   mintRecordingUploadUrl: (i?: MintInput) => mintRecordingUploadUrl(i),
   mintRecordingReadUrl: (p: string) => mintRecordingReadUrl(p),
-  removeRecordingObject: (p: string) => removeRecordingObject(p),
+  recordingFinalizedKey: (i: { takeId: string; mimeType: string }) => recordingFinalizedKey(i),
 }))
 
 // The finalize door's web twin. Mocked because @/actions/recordings reaches
@@ -73,18 +85,54 @@ beforeEach(() => {
   mintRecordingReadUrl.mockImplementation(async (p: string) => ({
     url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
   }))
-  removeRecordingObject.mockImplementation(async () => ({ ok: true as const }))
   startRecordingSessionAction.mockImplementation(async () => ({ id: 'rs-new' }))
+  recordingFinalizedKey.mockImplementation(async () => 'app_biz-1_take-9.webm')
   fetchMock.mockImplementation(async () => ({ ok: true, status: 200 }) as unknown as Response)
   global.fetch = fetchMock as unknown as typeof fetch
 })
 
 const blob = () => new Blob(['audio'], { type: 'audio/webm' })
 
-describe('webRecordingPort.prepareTranscription', () => {
+// ⚖ THE FINALIZED OBJECT IS THE OBJECT (capture pipeline PR4). The happy path
+// uploads nothing and deletes nothing; the staging leg survives only for a take
+// the store never held, and even that one no longer has a cleanup fn to call.
+describe('webRecordingPort.prepareTranscription — the finalized take', () => {
+  it('uploads NOTHING and signs the finalized key it was handed', async () => {
+    const { body } = await webRecordingPort.prepareTranscription(
+      blob(),
+      'app_biz-1_take-9.webm',
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mintRecordingUploadUrl).not.toHaveBeenCalled()
+    expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_take-9.webm')
+    expect(body).toEqual({
+      audioUrl:
+        'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_take-9.webm?token=read',
+    })
+  })
+
+  it('answers with no cleanup fn at all — there is nothing to delete', async () => {
+    const result = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
+    // The shape, not merely the absence of one name: NOTHING this answers with
+    // is callable, so no caller can be handed a delete by another spelling.
+    expect(Object.keys(result).sort()).toEqual(['body', 'path'])
+    expect(Object.values(result).some((v) => typeof v === 'function')).toBe(false)
+  })
+
+  // …and it SAYS which key the words came from (PR4 fix round 2). The discard's
+  // word-collection needs the staged key back for a take that can never be
+  // sealed under a finalized one, and a second spelling of this staging is the
+  // thing that must never exist.
+  it('answers the finalized key it was handed', async () => {
+    const { path } = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
+    expect(path).toBe('app_biz-1_take-9.webm')
+  })
+})
+
+describe('webRecordingPort.prepareTranscription — the fallback (no finalized object)', () => {
   it('PUTs the blob at the MINTED url — same request shape as the thin arm', async () => {
     const take = blob()
-    await webRecordingPort.prepareTranscription(take)
+    await webRecordingPort.prepareTranscription(take, null)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = (fetchMock as unknown as jest.Mock).mock.calls[0] as [string, RequestInit]
     expect(url).toBe(
@@ -96,12 +144,15 @@ describe('webRecordingPort.prepareTranscription', () => {
   })
 
   it('hands the transcribe leg the SERVER-minted read url for the path it just uploaded', async () => {
-    const { body } = await webRecordingPort.prepareTranscription(blob())
+    const { body, path } = await webRecordingPort.prepareTranscription(blob(), null)
     expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_uuid-1.webm')
     expect(body).toEqual({
       audioUrl:
         'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_uuid-1.webm?token=read',
     })
+    // …and it names the STAGED key it just wrote (PR4 fix round 2), which is
+    // what the discard's word-collection reads its words from.
+    expect(path).toBe('app_biz-1_uuid-1.webm')
   })
 
   it('mints, then uploads, then signs — never signs a path that was not written', async () => {
@@ -124,58 +175,57 @@ describe('webRecordingPort.prepareTranscription', () => {
       order.push('read')
       return { url: 'https://read/' }
     })
-    await webRecordingPort.prepareTranscription(blob())
+    await webRecordingPort.prepareTranscription(blob(), null)
     expect(order).toEqual(['mint', 'put', 'read'])
   })
 
-  it('cleanup deletes through the SERVER ACTION, with the uploaded path', async () => {
-    const { cleanup } = await webRecordingPort.prepareTranscription(blob())
-    expect(removeRecordingObject).not.toHaveBeenCalled()
-    cleanup()
-    expect(removeRecordingObject).toHaveBeenCalledWith('app_biz-1_uuid-1.webm')
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The in-tab
+  // fallback stays UNBOUND — nothing ever claims its path to a discard — and
+  // the discard's own collection names the session, which is what lets the
+  // transcribe door tell this session's staged audio from any key a caller
+  // could have typed.
+  it('the in-tab fallback names no session — byte-identical to before', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null)
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith(undefined)
   })
 
-  it('cleanup is fire-and-forget — a rejecting delete never escapes', async () => {
-    removeRecordingObject.mockRejectedValue(new Error('rpc down'))
-    // cleanup() is called and not awaited, so "it didn't throw" is free — the
-    // rejection would escape as an UNHANDLED one, which only the guard prevents.
-    const unhandled = jest.fn()
-    process.on('unhandledRejection', unhandled)
-    try {
-      const { cleanup } = await webRecordingPort.prepareTranscription(blob())
-      expect(() => cleanup()).not.toThrow()
-      // Node reports an unhandled rejection once the microtask queue has drained
-      // and the tick ends — take a full loop turn before reading the spy.
-      await Promise.resolve()
-      await Promise.resolve()
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(unhandled).not.toHaveBeenCalled()
-    } finally {
-      process.off('unhandledRejection', unhandled)
-    }
+  it('a copy staged FOR a discard carries that session to the mint', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, { stagedFor: 'rs-7' })
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({ stagedFor: 'rs-7' })
   })
 
   it('a rejected upload fails the take loudly (no silent empty transcript)', async () => {
     fetchMock.mockImplementation(async () => ({ ok: false, status: 403 }) as unknown as Response)
-    await expect(webRecordingPort.prepareTranscription(blob())).rejects.toThrow(
+    await expect(webRecordingPort.prepareTranscription(blob(), null)).rejects.toThrow(
       'Upload failed (403)',
     )
     expect(mintRecordingReadUrl).not.toHaveBeenCalled()
   })
 })
 
-describe('webRecordingPort.stageForJob', () => {
-  it('returns the TENANT-PREFIXED path the enqueue guard demands', async () => {
-    await expect(webRecordingPort.stageForJob(blob())).resolves.toEqual({
-      path: 'app_biz-1_uuid-1.webm',
+// ⚖ J2 (PR4 fix round 7): the key of a take finalized before the key was
+// stamped. Composed on the SERVER — the device must never assemble a tenant
+// key, which is the rule markTakeFinalized was written to.
+describe('webRecordingPort.finalizedKey', () => {
+  it('asks the composing action and answers its key verbatim', async () => {
+    await expect(webRecordingPort.finalizedKey('take-9', 'audio/mp4')).resolves.toBe(
+      'app_biz-1_take-9.webm',
+    )
+    expect(recordingFinalizedKey).toHaveBeenCalledWith({
+      takeId: 'take-9',
+      mimeType: 'audio/mp4',
     })
-    expect(mintRecordingReadUrl).not.toHaveBeenCalled()
-    expect(removeRecordingObject).not.toHaveBeenCalled()
   })
 
-  it('PUTs to the minted url and propagates an upload failure', async () => {
-    fetchMock.mockImplementation(async () => ({ ok: false, status: 500 }) as unknown as Response)
-    await expect(webRecordingPort.stageForJob(blob())).rejects.toThrow('Upload failed (500)')
+  it('a null from the action stays a null — the take keeps its un-finalized behaviour', async () => {
+    recordingFinalizedKey.mockImplementation(async () => null)
+    await expect(webRecordingPort.finalizedKey('take-9', 'audio/webm')).resolves.toBeNull()
+  })
+})
+
+describe('the delete doors are GONE, not refused (capture pipeline PR4)', () => {
+  it('the port exposes no stageForJob — the job reads the finalized object', () => {
+    expect('stageForJob' in webRecordingPort).toBe(false)
   })
 
   it('the server-job flag stays OFF — the flip is its own decision, not this hotfix', () => {

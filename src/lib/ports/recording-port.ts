@@ -41,13 +41,10 @@ export interface RecordingPipelinePort {
   aiBase: string
   /**
    * Whether this world may route the autosave cohort to the SERVER pipeline
-   * (packet 22 Stage 1). TRUE only where stageForJob writes a TENANT-SCOPED
-   * key the worker can prove ownership of — the thin arm (the upload-url facade
-   * mints `app_${businessId}_*`). The web arm is FALSE, but no longer for a
-   * key-shape reason: since the 2026-08-25 upload hotfix its stageForJob mints
-   * the SAME `app_${businessId}_*` key through mintRecordingUploadUrl, so the
-   * flip is now possible — it stays off pending its own decision + acceptance
-   * round, not because the path is unsafe.
+   * (packet 22 Stage 1). The key-shape question that used to gate it is gone
+   * (PR4): the job's audio_path is now the take's own finalized key, minted by
+   * the same fenced door on both arms. The web arm stays FALSE pending its own
+   * decision + acceptance round, not because the path is unsafe.
    */
   supportsServerJob: boolean
   /**
@@ -60,24 +57,60 @@ export interface RecordingPipelinePort {
    */
   supportsDiscardTranscript: boolean
   /**
-   * Upload the take and return the transcribe-leg request body + a cleanup fn.
-   * Both arms PUT the blob to a service-minted signed upload URL; they differ in
-   * what the transcribe leg is handed. Web mints a signed READ url server-side
-   * and passes it (`{ audioUrl }` — what /api/ai/transcribe's SSRF guard
-   * accepts) plus a cleanup that deletes the object through the server; thin
-   * passes the tenant-prefixed storage path (`{ path }`) and the facade deletes
-   * server-side, so its cleanup is a no-op.
+   * The transcribe leg's request body for this take.
+   *
+   * ⚖ THE FINALIZED OBJECT IS THE OBJECT (capture pipeline PR4). `finalizedPath`
+   * is the key secureTake already PUT this whole take to at stop, so the happy
+   * path uploads NOTHING here and deletes nothing: web mints a signed READ url
+   * over that key (`{ audioUrl }` — what /api/ai/transcribe's SSRF guard
+   * accepts), thin hands the facade the path itself (`{ path }`). There is no
+   * cleanup fn any more, because there is no second copy to clean up — and the
+   * finalized object is evidence, never a temporary.
+   *
+   * THE FALLBACK, and it is temporary: a take the store never held (IndexedDB
+   * unavailable, or a uid that would not resolve at create time) has no
+   * finalized object and nothing that can secure one, so `finalizedPath` is
+   * null and this leg stages THAT take's blob the way every take was staged
+   * before — one upload, server-named key, and NO delete. PR5's launch drain
+   * is what makes an un-finalized take rare enough to remove it.
+   *
+   * `path` is the key the transcription will actually be read from — the
+   * finalized one, or the staged one this just wrote (capture pipeline PR4 fix
+   * round 2). Answered rather than kept private because ONE other caller needs
+   * the same staging and must not grow a second spelling of it: the discard's
+   * word-collection, for a take that can never be sealed under a finalized key
+   * (lib/recording/discard-transcript.ts). Still NO delete on either arm — the
+   * staged object is evidence too.
+   *
+   * ⚖ AND A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). `stagedFor`
+   * is the recording session the staged copy's words are owed to, and the door
+   * puts it IN THE KEY (stg/<biz>_<session>_<uuid>) so the transcribe action can
+   * verify the claim instead of accepting any same-tenant key as that discard's
+   * audio. Passed by the discard's word-collection alone; the in-tab fallback
+   * above stays unbound, because nothing ever claims ITS path to a discard.
    */
   prepareTranscription(
     blob: Blob,
-  ): Promise<{ body: Record<string, unknown>; cleanup: () => void }>
+    finalizedPath: string | null,
+    opts?: { stagedFor?: string | null },
+  ): Promise<{ body: Record<string, unknown>; path: string }>
   /**
-   * Stage a take for the SERVER pipeline (packet 22 Stage 1): upload only —
-   * no signed URL, no cleanup fn. The worker deletes the object on success
-   * (process-recording.ts); on a failed/abandoned job it survives until the
-   * daily sweep. Returns the bucket path the job payload carries.
+   * The finalized KEY this take's audio was sealed under — composed, never
+   * looked up (capture pipeline PR4 fix round 7).
+   *
+   * WHY IT EXISTS. Slice three's markTakeFinalized wrote `finalizedAt` alone,
+   * and slice four's readers gate on `finalizedPath`: a WEB take finalized
+   * between those two deploys and still unprocessed reads as UNSECURED, so the
+   * in-tab leg stages a row-less duplicate of audio the server already holds and
+   * the discard sweep dead-ends on a take it can never find an object for. The
+   * key is DETERMINISTIC — the mint composed it from this take id and container
+   * and reserved exactly that on the row — so the server can answer it again
+   * from the same two inputs, with no DB read at all.
+   *
+   * `null` means "this world cannot say" and is a settled answer, never a
+   * failure: the caller keeps the un-finalized behaviour it already has.
    */
-  stageForJob(blob: Blob): Promise<{ path: string }>
+  finalizedKey(takeId: string, mimeType: string): Promise<string | null>
   /**
    * Mint the recording_sessions ROW for a take that has none (capture pipeline
    * PR3 fix round 6). The SAME door the recorder's own start-mint knocks on —
@@ -119,10 +152,10 @@ export interface RecordingPipelinePort {
   }): Promise<{ id: string } | null>
   /**
    * Mint the signed upload URL for THIS take's finalized key (capture pipeline
-   * PR3 — secure-take.ts). Unlike stageForJob's mint the key is CLIENT-NAMED:
-   * the device already owns the take id and the recorder already negotiated the
-   * container, so the same take always lands on the same object instead of
-   * duplicating. The mint does NOT sign for upsert (PR2 fix round 3), so a
+   * PR3 — secure-take.ts). The key is CLIENT-NAMED: the device already owns the
+   * take id and the recorder already negotiated the container, so the same take
+   * always lands on the same object instead of duplicating — which is what let
+   * PR4 delete the second, server-named staging upload entirely. The mint does NOT sign for upsert (PR2 fix round 3), so a
    * retry does not overwrite: storage refuses a second PUT (409 = already
    * there), which secure-take reads as "the object landed, finish the leg".
    *
@@ -232,39 +265,46 @@ function withDeadline<T>(work: Promise<T>, ms: number, onDeadline: T): Promise<T
 export const webRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/ai',
   // Web stays on the in-tab pipeline for Stage 1. The key shape is no longer
-  // the blocker — stageForJob now mints `app_${businessId}_*` like thin, so the
-  // flip to true is a separate decision, not a safety fix. See the flag doc.
+  // the blocker — since PR4 the job's audio_path is the take's own finalized
+  // key on BOTH arms, so the flip to true is a separate decision, not a safety
+  // fix. See the flag doc.
   supportsServerJob: false,
   supportsDiscardTranscript: true,
-  async prepareTranscription(blob) {
-    const { mintRecordingUploadUrl, mintRecordingReadUrl, removeRecordingObject } =
-      await uploadActions()
-    // The mint answers with a result union now (capture pipeline PR2 fix round
-    // 4). This leg still speaks in throws, so the refusals collapse into one
-    // here; PR3 is where the client learns to branch on them (a named take's
-    // `exists` / `reserved_elsewhere` are TERMINAL, never a retry).
-    const minted = await mintRecordingUploadUrl()
-    if ('error' in minted) throw new Error('could not mint an upload URL')
-    const { path, url } = minted
-    await putTake(url, blob)
+  async prepareTranscription(blob, finalizedPath, opts) {
+    const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
+    // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
+    // finalized key. The read url is minted server-side over that key through
+    // the unchanged tenant fence (mintRecordingReadUrl → requireOwnPath), and
+    // the object stays exactly where it is — nothing deletes recording audio.
+    let path = finalizedPath
+    if (!path) {
+      // The fallback, for a take the store never held (see the port's doc).
+      // Byte-for-byte the staging this arm always did, minus its delete —
+      // except that a copy staged FOR A DISCARD names its session, so the
+      // transcribe door can tell this session's own staged audio from any other
+      // key the caller could have typed.
+      const minted = await mintRecordingUploadUrl(
+        opts?.stagedFor ? { stagedFor: opts.stagedFor } : undefined,
+      )
+      if ('error' in minted) throw new Error('could not mint an upload URL')
+      await putTake(minted.url, blob)
+      path = minted.path
+    }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
-    return {
-      body: { audioUrl },
-      cleanup: () => {
-        void removeRecordingObject(path).catch(() => {})
-      },
-    }
+    return { body: { audioUrl }, path }
   },
-  async stageForJob(blob) {
-    const { mintRecordingUploadUrl } = await uploadActions()
-    const minted = await mintRecordingUploadUrl()
-    if ('error' in minted) throw new Error('could not mint an upload URL')
-    const { path, url } = minted
-    await putTake(url, blob)
-    // NO cleanup — the worker deletes the object on success.
-    return { path }
+  async finalizedKey(takeId, mimeType) {
+    const { recordingFinalizedKey } = await uploadActions()
+    // A deadline like every other door on this arm (see withDeadline's note):
+    // null is this one's own settled "cannot say", so a stall degrades to the
+    // un-finalized behaviour instead of holding the caller for the page's life.
+    return withDeadline(
+      recordingFinalizedKey({ takeId, mimeType }),
+      WEB_DOOR_DEADLINE_MS,
+      null,
+    )
   },
   async startSession({ customerId, appointmentId, takeId, mimeType }) {
     // The recorder's own start-mint door, reached exactly as it reaches it

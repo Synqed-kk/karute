@@ -67,7 +67,7 @@
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
-import { composeTakeKey } from '@/lib/recording/key-grammar'
+import { composeStagedKey, composeTakeKey } from '@/lib/recording/key-grammar'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
@@ -105,6 +105,13 @@ export interface MintTakeUrlInput {
    *  it from startRecordingSession, the ONE door that mints rows. Absent with
    *  no takeId → a server-named take, which reserves nothing. */
   recordingSessionId?: string | null
+  /** ⚖ STAGE A COPY FOR THIS SESSION (PR4 fix round 7). The discard's
+   *  word-collection stages the disk blob of a take that can never be sealed
+   *  under a finalized key, and the key it gets NAMES this session, so the
+   *  transcribe door can verify the claim instead of trusting it. Never
+   *  together with `takeId` (the schema refuses the pair): a staged copy is
+   *  not a take, reserves nothing and is bound to no row. */
+  stagedFor?: string | null
 }
 
 export type MintTakeUrlResult =
@@ -227,21 +234,32 @@ async function planReservation(
   const denied = assertRecorderOwnsRow(row, actor)
   if (denied) return denied
 
+  const pointer = row.audio_storage_path
+
+  // ⚖ THE POINTER IS ASKED FIRST (packet rider, from the PR2/PR3 review loops).
+  // Bound to another take already. Never repointed here: the displaced object
+  // would keep its bytes and lose its only row. Answered BEFORE storage is
+  // touched, because `key` is composed from the CLIENT's takeId and a row whose
+  // pointer is something else never reserved it — probing it would tell the
+  // caller whether an object they merely NAMED exists, an oracle over a
+  // colleague's takes (the same one finalize's superseded branch just lost).
+  // The refusal is identical either way: `exists` and `reserved_elsewhere` are
+  // both TERMINAL for the client — start a new session — so nothing but the
+  // oracle is lost by settling it here.
+  if (pointer !== null && pointer !== key) return { error: 'reserved_elsewhere' }
+
   // BYTES BEFORE THE BINDING = somebody else's take. The only caller allowed to
   // meet an existing object here is the one whose own row already reserved this
-  // exact key (the legitimate retry: the PUT landed, the answer was lost).
+  // exact key (the legitimate retry: the PUT landed, the answer was lost) — and
+  // by the line above, this row's pointer is now either null or exactly `key`.
   const exists = await objectExists(key)
   if (exists === 'unknown') return { error: 'upstream' }
-  const pointer = row.audio_storage_path
-  if (exists && pointer !== key) return { error: 'exists' }
+  if (exists && pointer === null) return { error: 'exists' }
 
   // LEGACY ONLY (fix round 10): a row minted before sessions were born reserved.
   // Every row this app version creates for a client-named take already carries
   // its key, and lands on the retry exit below instead.
   if (pointer === null) return { kind: 'update', row }
-  // Bound to another take already. Never repointed here: the displaced object
-  // would keep its bytes and lose its only row.
-  if (pointer !== key) return { error: 'reserved_elsewhere' }
   // ALREADY OURS. Either the ordinary path now (the row was BORN with this key,
   // fix round 10) or the legitimate retry (the PUT landed, the answer was lost):
   // the binding is already exactly what this call would write, so commit writes
@@ -393,8 +411,52 @@ export async function mintTakeUploadUrl(
   const input = parsed.data
 
   const businessId = actor.businessId
+
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). It is still
+  // ROW-LESS — nothing is reserved, nothing is written, nothing is audited —
+  // but it is no longer ANONYMOUS: the key carries the session, so the
+  // transcribe door can check the binding rather than accept any same-tenant
+  // key as that discard's audio. The row is read only to prove the caller may
+  // record onto it, with the SAME staff rule the take mint applies: the client
+  // is tenant-scoped, so another business's session simply is not found.
+  if (input.stagedFor) {
+    // Nothing to attribute a staging to — the take mint's own first refusal.
+    if (!actor.staffId) return { error: 'forbidden' }
+    let row: Recording
+    try {
+      row = await synqed.recordings.get(input.stagedFor)
+    } catch (err) {
+      if (statusOf(err) === 404) return { error: 'not_found' }
+      console.warn('[mint-take-url] staged session read failed:', err)
+      return { error: 'upstream' }
+    }
+    const denied = assertRecorderOwnsRow(row, actor)
+    if (denied) return denied
+    // DEFAULT_MIME, because a staged copy carries no client-named container:
+    // the schema pairs mimeType with takeId, which this body may not have, and
+    // both ports PUT this blob as audio/webm.
+    const composed = composeStagedKey(businessId, input.stagedFor, DEFAULT_MIME)
+    // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
+    // uppercase one still lands here and is refused by the case-exact grammar.
+    if (composed === null) return { error: 'bad_input' }
+    const signed = await signUpload(composed)
+    if ('error' in signed) return signed
+    return { ...signed, recordingSessionId: input.stagedFor }
+  }
+
   const takeId = input.takeId ?? crypto.randomUUID()
-  const mimeType = input.mimeType ?? DEFAULT_MIME
+  // ⚖ A CLIENT-NAMED TAKE BRINGS ITS OWN CONTAINER (fix round 1, rider 3's
+  // second half). The schema's field-pair rule says so for both doors, and this
+  // is where that rule is CASHED: `?? DEFAULT_MIME` applied to a take the
+  // CLIENT named would compose `.webm` onto audio that is not webm — the wrong
+  // extension on the one object the whole pipeline now reads, and invisible to
+  // finalize, which composes from the same pair and would agree with it. Only
+  // the SERVER-named take (no takeId, so no mimeType either) keeps the default.
+  // Re-narrowed here because a zod refine is invisible to the compiler, and a
+  // fence that leans on a schema clause it cannot see is one edit away from
+  // being gone.
+  const mimeType = input.mimeType ?? (input.takeId ? null : DEFAULT_MIME)
+  if (mimeType === null) return { error: 'bad_input' }
   let composed: { key: string; ext: string; contentType: string } | null
   try {
     // Separate refusals so the caller can say WHICH field it rejected — a

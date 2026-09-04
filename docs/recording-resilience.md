@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| **Status** | Plan — capture T0 shipped (#170, #171); capture T1–T4 + the server-side processing pipeline to build |
+| **Status** | Building — capture T0 shipped (#170, #171); T1 is the live capture-pipeline lane (see below); T2–T4 + the server-side processing pipeline to build |
 | **Audience** | Anthony + whoever owns the recording pipeline |
 | **Owners** | Liam (product) · Anthony (engineering) |
-| **Updated** | 2026-06-05 |
+| **Updated** | 2026-09-04 |
 
 ## Why this matters (the principle)
 
@@ -47,9 +47,29 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   **not** save a pocketed/locked phone (T4) and the 2h ceiling exists only because
   capture is still one blob (T1 removes it).
 
-### T1 — Local-first segmented capture (the real fix)
-Record in rolling ~10-min segments; **persist each locally as captured**
-(IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
+### T1 — Local-first segmented capture (the real fix) — in build
+**Where it actually stands (2026-09-04, capture-pipeline lane):**
+- **Local persistence is live.** Takes are held in IndexedDB as ~5 s segments
+  and survive a crash, a kill, and a dead battery (`lib/karute/take-store.ts`).
+- **The whole take is secured at STOP**, to its own server-composed key, and the
+  core row points at it (PR3, `lib/recording/secure-take.ts`). Transcription and
+  the server job both read *that* object — there is no second staging upload.
+- **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
+  destroy a recording is gone — the worker's post-transcription delete, the
+  facade transcribe route's `finally`, the web port's cleanup leg, the discard
+  janitor, the `removeRecordingObject` server action, and the hour-old bucket
+  sweep (which now only *reports*). `deleteTake` refuses a take the server has
+  not received, and session cleanup refuses a row that still points at audio.
+  Enforced in CI by `scripts/audit/check-audio-never-deleted.mjs`; the one
+  exemption is voice-enrolment revocation, fenced to its own key prefix.
+- **Still to come (PR5):** uploading segments *as they complete* rather than at
+  stop, the launch drain that finishes takes a dead device never sent, and the
+  daily assembler that rebuilds a take from segments for a device that never
+  returns. Until then the ceiling is honest: a take stopped offline stays on the
+  device until the record page can secure it.
+
+The design, in full: record in rolling segments; **persist each locally as
+captured** (IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
 most the last segment*, never the session, and no single blob is ever too big or
 too large for memory. On stop, transcribe segments and **stitch** into one
 transcript. This is Plaud's model in software (see below). Removes the length

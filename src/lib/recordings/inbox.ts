@@ -154,6 +154,12 @@ export interface InboxLocalTake {
    *  `stopPendingAt`, cleared by the duration stamp). Same fact for whoever
    *  reads the row as a lost tail: the recording has an end nobody wrote. */
   stopPendingAt?: number
+  /** Capture pipeline PR4 fix round 1: past the take TTL and the server still
+   *  does not have it, so the store's prune refused it (take-store.ts). Its
+   *  session is older than the window this fold and the server read both use,
+   *  so nothing else can represent it — the take carries its own row, exempt
+   *  from the floor. Absent on every ordinary take, which is what they are. */
+  expiredUnsecured?: boolean
 }
 
 export interface InboxRow {
@@ -220,7 +226,20 @@ export function deriveInboxRows(input: {
   // Newest take per session id; every other take stands on its own.
   const takeBySession = new Map<string, InboxLocalTake>()
   const orphanTakes: InboxLocalTake[] = []
+  /** ⚖ EXPIRED, UNSECURED, STILL ON THE DEVICE (PR4 fix round 1). These are the
+   *  takes the store's TTL prune REFUSED — audio the server never received, so
+   *  destroying it was never an option — and they are older than the window,
+   *  which means the server read (bounded by the same INBOX_WINDOW_MS) returned
+   *  no session for them and the loops below would drop them on the floor
+   *  check. They are exactly the rows a human has to see: kept forever,
+   *  invisible everywhere else. So they are pulled out here and given rows of
+   *  their own, age notwithstanding. */
+  const strandedTakes: InboxLocalTake[] = []
   for (const t of takes) {
+    if (t.expiredUnsecured) {
+      strandedTakes.push(t)
+      continue
+    }
     if (!t.recordingSessionId) {
       orphanTakes.push(t)
       continue
@@ -230,10 +249,15 @@ export function deriveInboxRows(input: {
   }
 
   const rows: InboxRow[] = []
+  /** Sessions that produced a row. Only the stranded loop reads it, and only to
+   *  stand down if the two windows ever drift apart far enough for a stranded
+   *  take's session to still be in this list — one row per session, always. */
+  const rendered = new Set<string>()
 
   for (const s of sessions) {
     const startedAt = Date.parse(s.createdAt)
     if (Number.isNaN(startedAt) || startedAt < floor) continue
+    rendered.add(s.recordingSessionId)
     const take = takeBySession.get(s.recordingSessionId) ?? null
     const base = {
       key: `session:${s.recordingSessionId}`,
@@ -337,6 +361,32 @@ export function deriveInboxRows(input: {
         ? { ...base, state: 'processing', reason: 'unsettled' }
         : { ...base, state: 'failed', reason: 'genericFailure' },
     )
+  }
+
+  // The stranded takes, in the SAME vocabulary as everything else: 復元可能,
+  // counted in 要対応, offering the one action that resolves it, 保存する. No
+  // 再試行 (there is no job to re-run) and no navigation (there is no record
+  // yet). The sub-line comes from `recoverableReason` like every other
+  // take-only row — a take that lost its tail (fix round 16) or whose stop
+  // never finished (round 17) is exactly the take that could never be secured
+  // and therefore the one most likely to strand here, so it says 「録音が途中で
+  // 終わっています」 rather than the plainer 「この端末に音声が残っています
+  // （未保存）」. No new strings either way.
+  for (const t of strandedTakes) {
+    if (t.recordingSessionId && rendered.has(t.recordingSessionId)) continue
+    rows.push({
+      key: `take:${t.takeId}`,
+      state: 'recoverable',
+      reason: recoverableReason(t),
+      recordingSessionId: t.recordingSessionId,
+      takeId: t.takeId,
+      karuteRecordId: null,
+      customerId: t.customerId,
+      customerName: t.customerName,
+      startedAt: t.startedAt,
+      durationSeconds: takeDuration(t),
+      canRetry: false,
+    })
   }
 
   // Takes whose session id never resolved (the mint failed, or predates it):

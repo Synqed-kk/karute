@@ -219,20 +219,35 @@ export async function finalizeTakeWithClient(
     }
 
     // FIX ROUND 12 (fresh-eyes #8, P2 — the round 9 / round 11 reconciliation).
-    // COMPLETED is the one status the WORKER owns end to end, and until PR4 it
-    // DELETES the object right after transcription (process-recording.ts) — a
-    // missing object on a COMPLETED row is that deletion doing its job, never
-    // a lost PUT. Answering object_missing here would have the client retry
+    // COMPLETED is the one status the WORKER owns end to end, and it USED to
+    // delete the object right after transcription (process-recording.ts) — a
+    // missing object on a COMPLETED row was that deletion doing its job, never
+    // a lost PUT. Answering object_missing there would have the client retry
     // forever on audio that already transcribed safely, so COMPLETED is the
     // one terminal state allowed to settle as `already: true` before the
     // object is even looked up. Every other status — including PROCESSING and
     // FAILED, which the worker has not finished with — still proves the
     // object first below (round 9's rule, unchanged).
+    //
+    // ⚖ PR4 MAKES THIS MOOT, AND IT IS KEPT ANYWAY (packet rider). Nothing
+    // deletes recording audio any more, so a COMPLETED row's object is there
+    // and the probe below would answer `ok` — the short-circuit now only saves
+    // that one storage call. Keeping it costs nothing and it is still the
+    // correct answer for every row COMPLETED by the OLD worker, whose object
+    // really is gone. NOT WIDENED: still COMPLETED, still exact-retry only.
     if (alreadyFinalized && row.status === 'COMPLETED') {
       return { ok: true, recordingSessionId: row.id, already: true }
     }
 
-    const verdict = await objectVerdict(key, input.byteLength)
+    // ⚖ NO OBJECT PROBE ON A CALLER-NAMED KEY (packet rider, from the PR2/PR3
+    // review loops). `key` is composed from the CLIENT's takeId, and a
+    // SUPERSEDED row does NOT point at it — so probing it would answer "does
+    // this object exist" for a key this row never reserved. Any staffer holding
+    // one job-owned row of their own could then walk take ids and read
+    // existence off the object_missing / capture_unlinked split: an oracle over
+    // a colleague's takes. So storage is asked ONLY where pointer === key, i.e.
+    // only about the object this row itself reserved.
+    const verdict = superseded ? null : await objectVerdict(key, input.byteLength)
     // The take says it is complete; the bucket says there is nothing there.
     // Refusing keeps a duration for a non-existent object off the core row —
     // true for an exact retry too: a row that LOOKS finalized with nothing in
@@ -249,27 +264,38 @@ export async function finalizeTakeWithClient(
     if (alreadyFinalized) return { ok: true, recordingSessionId: row.id, already: true }
 
     if (superseded) {
-      // Filed AFTER the byte check (fix round 7), never before it: the detail
-      // carries the CLIENT's claimed take id and byte count, and an unlinked
-      // row for an object that is not even there would be a client-written
-      // record of a non-event. A superseded row whose object is missing or the
-      // wrong size answers object_missing / size_mismatch above, like any other
-      // take. Its OWN action (fix round 6, I2): nothing was saved here, so this
-      // must never file under capture_finalized ("audio saved") — that name is
+      // The object we were handed is now unreferenced, and this row is the only
+      // thread back to it.
+      //
+      // WHAT IT CAN NO LONGER CLAIM: fix round 7 filed this AFTER the byte check
+      // so an unlinked row could never be "a client-written record of a
+      // non-event". That proof needed the probe the rider above just removed, so
+      // the row says what it actually knows — `size_verified: false`, the same
+      // honesty flag emitFinalized carries when the listing gives no size. What
+      // it does assert is exactly what happened: a finalize arrived for a take
+      // this row had moved on from. The audio's own proof is its finalize
+      // against the row that DOES hold it.
+      //
+      // Its OWN action (fix round 6, I2): nothing was saved here, so this must
+      // never file under capture_finalized ("audio saved") — that name is
       // reserved for a call that actually wrote a pointer or a duration.
       // NO DEDUPE here (fix round 8, accepted): unlike finalizedBefore's
       // `already` short-circuit above, a superseded row has no "already
       // reported" state to check, so every retry of a stale finalize files its
       // own capture_unlinked row. The bound on how many is the CLIENT's own
       // retry count, not a dedupe in this function.
+      // The grammar grew a third kind in fix round 7 (a STAGED copy, named for
+      // a session rather than a take), and that one has no take id to report.
+      // A row pointer is never one — the mint reserves take keys — so this
+      // reads exactly as it did; it just says so to the compiler.
+      const parsedPointer = parseRecordingKey(pointer, actor.businessId)
       return emitCaptureUnlinked(
         actor,
         row.id,
         input,
         composed.ext,
-        parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
-        // Honest about what was actually proved, same as emitFinalized below.
-        { size_verified: verdict === 'ok' },
+        parsedPointer && parsedPointer.kind !== 'staged' ? parsedPointer.takeId : null,
+        { size_verified: false },
       )
     }
 

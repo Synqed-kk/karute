@@ -143,6 +143,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: (...a: unknown[]) => mockDeleteTake(...a),
+  // PR4 fix round 4: the save's settle door. Same standing as deleteTake here —
+  // this suite is about the auto-finish notice, not about the audio.
+  settleTakeAfterSave: (...a: unknown[]) => mockDeleteTake(...a),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   readTakeOutcome: jest.fn(async () => null),

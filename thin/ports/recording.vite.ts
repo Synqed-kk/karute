@@ -2,8 +2,8 @@
 // supabase-js: the facade mints a service-role signed UPLOAD url
 // (POST /recordings/upload-url), the shell PUTs the blob straight to storage with
 // plain fetch, and transcription runs by PATH against the /api/app/v1/ai twin
-// (the server verifies the tenant prefix + deletes the object after — so there is
-// no client-side cleanup).
+// (the server verifies the tenant prefix; since PR4 it deletes nothing, and the
+// path it is handed is the take's own finalized object).
 
 import type {
   MintTakeUrlPortResult,
@@ -96,20 +96,33 @@ function mintErrorCode(body: unknown, status: number): string {
 
 export const viteRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/app/v1/ai',
-  // stageForJob uses the upload-url facade, which mints a tenant-scoped
-  // `app_${businessId}_*` key — so the worker can prove ownership. Server path ON.
+  // The job's audio_path is the take's own finalized key (PR4) — minted by the
+  // fenced take door, so the worker can prove ownership. Server path ON.
   supportsServerJob: true,
   // A2-2 discard transcripts, LIVE on the phone since PHONEWIRE-2C: the persist
   // actions have a facade door now (…/recordings/discards/transcript POST, wired
   // in actions.vite.ts), so the collection this flag guards can actually happen.
   // Flipping it is the whole fix — the record page's discard arm, take-store
   // stamp and collection sweep are SHARED code that was already correct and now
-  // simply runs. stageForJob above is the audio leg it uses.
+  // simply runs. Its audio leg is the take's own finalized object (PR4).
   supportsDiscardTranscript: true,
-  async prepareTranscription(blob) {
-    // 1. Service-minted signed upload URL (tenant-prefixed path).
+  async prepareTranscription(blob, finalizedPath, opts) {
+    // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
+    // finalized key, so the facade is simply handed that path — and it deletes
+    // nothing when it is done, because the finalized object is evidence.
+    if (finalizedPath) return { body: { path: finalizedPath }, path: finalizedPath }
+
+    // The fallback, for a take the store never held (see the port's doc):
+    // byte-for-byte the staging this arm always did.
+    // 1. Service-minted signed upload URL (tenant-prefixed path). The body is
+    //    new (fix round 7) and the door has always parsed one: `stagedFor` is
+    //    the session a DISCARD's staged copy is named for, and null — the
+    //    in-tab fallback's shape — is the server-named take this leg has always
+    //    minted.
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ stagedFor: opts?.stagedFor ?? null }),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
     const { path, url } = (await res.json()) as { path: string; url: string }
@@ -122,25 +135,17 @@ export const viteRecordingPort: RecordingPipelinePort = {
     })
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
-    // 3. Transcribe by PATH; the server deletes the object after — no cleanup here.
-    return { body: { path }, cleanup: () => {} }
+    // 3. Transcribe by PATH.
+    return { body: { path }, path }
   },
-  async stageForJob(blob) {
-    // Same upload-url facade PUT flow as prepareTranscription steps 1-2,
-    // minus the transcribe body — the worker deletes the object on success.
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
-      method: 'POST',
-    })
-    if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
-    const { path, url } = (await res.json()) as { path: string; url: string }
-
-    const put = await fetch(url, {
-      method: 'PUT',
-      headers: { 'content-type': 'audio/webm' },
-      body: blob,
-    })
-    if (!put.ok) throw new Error(`Upload failed (${put.status})`)
-    return { path }
+  // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
+  // backfill this answers exists for takes finalized by slice THREE's code and
+  // read by slice FOUR's — a window no phone release ever shipped: slice three
+  // never went out on its own here, so no phone take can carry `finalizedAt`
+  // without `finalizedPath`. Answering null keeps such a take on exactly the
+  // behaviour it has today rather than inventing a key this arm cannot prove.
+  async finalizedKey() {
+    return null
   },
   // Capture pipeline PR3 fix round 6 — the session door, the phone twin of the
   // web action (thin/ports/actions.vite.ts#facadeStartRecordingSession, which
@@ -199,7 +204,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     }
   },
   // Capture pipeline PR3 — the two doors secureTake knocks on. Same
-  // apiFetch discipline as stageForJob above (Bearer + the store lens are
+  // apiFetch discipline as the transcribe leg above (Bearer + the store lens are
   // assembled in facade-fetch.ts, never spelled here), plus a JSON body: the
   // device NAMES the take and the container it recorded.
   async mintTakeUrl(takeId: string, mimeType: string, recordingSessionId: string | null) {

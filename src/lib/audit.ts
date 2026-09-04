@@ -769,8 +769,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
-  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
-  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // viteRecordingPort.mintTakeUrl and prepareTranscription's un-finalized
+  // fallback both call the SAME upload-url facade endpoint before diverging —
+  // .stageForJob, the third caller, was deleted in PR4 — one leg reaches
   // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
   // other reaches processJob via enqueueJob). coveredBy keeps citing the
   // interactive choke point (the default/primary flow when no job is

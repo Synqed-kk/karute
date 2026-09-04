@@ -1367,9 +1367,9 @@ export const discardRecordingWithReason = async (
 // field bug being fixed here. No Idempotency-Key: the dedupe is server-derived.
 //
 // THE STATUS MAP IS THE CONTRACT. The relay retries ONLY `error: 'failed'` and
-// settles everything else, so a wrong mapping either deletes a take whose words
-// never landed or re-stages the whole audio on every record-page mount for the
-// take-store's seven days:
+// settles everything else, so a wrong mapping either settles a take whose words
+// never landed or re-transcribes the whole audio on every record-page mount for
+// the take-store's seven days:
 //   2xx  → the shared body's own answer, verbatim (ok / skipped / not_discarded)
 //   403  → 'forbidden', the terminal refusal the web action returns for a
 //          resolved identity without records.write, or for another tenant's key

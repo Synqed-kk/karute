@@ -204,6 +204,16 @@ jobs:
       - name: Route CSS collision guard
         run: node scripts/audit/check-route-css-collisions.mjs
 
+      - name: Audio-never-deleted guard selftest (fixture red→green)
+        # ⚖ audio is never deleted (capture pipeline PR4). The live run below
+        # scans a repo with exactly ONE (exempt, fenced) delete, so it exercises
+        # almost none of the rules — these fixtures pin every shape a re-added
+        # delete could arrive in, the split-chain one included.
+        run: node scripts/audit/check-audio-never-deleted.selftest.mjs
+
+      - name: Audio-never-deleted guard
+        run: node scripts/audit/check-audio-never-deleted.mjs
+
       - name: Business data-access guard selftest (fixture red→green)
         # The live run below scans real territory files, but they exercise
         # only some of the rules — these fixtures pin all of them, in both
