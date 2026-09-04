@@ -81,6 +81,7 @@ async function resolveExplicitAppointmentForClient(
     const rowStore = (a as { store_id?: string | null }).store_id ?? null
     if (!rowStore || !allowedStoreIds.includes(rowStore)) return null
   }
+  if (!a.staff_id || !a.customer_id) return null
 
   const staffList = await synqed.staff.list({ page_size: 200 })
   const profileByStaffId = new Map(

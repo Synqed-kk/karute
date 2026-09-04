@@ -59,7 +59,9 @@ export async function getAppointmentsByDateWithClient(
   const nameByStaffId = new Map(staffList.staff.map((s) => [s.id, s.name]))
 
   return list.appointments
-    .filter((a) => (includeCancelled ? true : !isTerminalStatus(a.status)))
+    .filter((a): a is typeof a & { staff_id: string; customer_id: string } =>
+      a.staff_id != null && a.customer_id != null &&
+      (includeCancelled ? true : !isTerminalStatus(a.status)))
     .map((a) => {
       const statusSetBy =
         (a as typeof a & { status_set_by?: string | null }).status_set_by ?? null

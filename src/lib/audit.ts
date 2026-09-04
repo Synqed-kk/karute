@@ -291,6 +291,7 @@ export type FacadeEndpointKey =
   | 'recordings.discards.list'
   | 'recordings.discards.transcript'
   | 'recordings.discards.transcript.write'
+  | 'recordings.finalize'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
@@ -760,6 +761,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // over the whole symbol, silently amnestying any SDK write a future edit
   // drops inside it. Every gate is green without one; do not add it back.
   'recordings.discard': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/discard.ts#discardRecordingWithClient' },
+  // Same doctrine as the receipt above: the ONE emit lives at the shared choke
+  // point, which alone knows whether this call actually WROTE anything. The
+  // generic hook would emit on every 2xx — including the soft refusals and the
+  // idempotent no-op this route deliberately returns in a 2xx body.
+  'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
@@ -777,7 +783,18 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
-  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // The mint's OWN row (capture pipeline PR2 fix round 2) is
+  // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
+  // only — the case where the caller names a take it may not own (storage
+  // refuses the overwrite; the row records who reached for the name). The
+  // generic hook would instead emit for every mint,
+  // including the server-named uuid that claims nothing.
+  // coveredBy REPOINTED (fix round 7, ledgered): it used to cite the
+  // interactive karute save at the far end of the flow this endpoint feeds,
+  // which is a different act entirely and could be true of any recording
+  // route. This endpoint's own write is the RESERVATION, and the emit that
+  // dominates it is auditTakeNamed — cite the writer, not the destination.
+  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
   // with machine-readable coveredBy" — C2 formalizes what the comments above

@@ -83,6 +83,8 @@ function menu(over: Partial<Menu> & Pick<Menu, 'id' | 'name'>): Menu {
     price_min_amount: null,
     currency: 'JPY',
     tax_included: true,
+    required_room_class: null,
+    required_qualification_id: null,
     nomination_allowed: true,
     online_visible: true,
     active: true,

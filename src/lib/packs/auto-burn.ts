@@ -353,7 +353,9 @@ export async function autoBurnForBusiness(
   // absurd would otherwise wedge the marker on that day forever. Fail-closed —
   // it stays unburned and stays visible in the summary.
   const cutoff = Date.now() - GRACE_MS
-  const candidates = completed.filter((a) => sessionEndMs(a) <= cutoff)
+  const candidates = completed.filter(
+    (a): a is typeof a & { customer_id: string } => a.customer_id != null && sessionEndMs(a) <= cutoff,
+  )
   s.skippedTooSoon = completed.length - candidates.length
   s.candidates = candidates.length
   if (candidates.length === 0) return s

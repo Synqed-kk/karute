@@ -19,6 +19,10 @@ const MAX_ENTRY_CONTENT_CHARS = 8_000
 const MAX_QUOTE_CHARS = 8_000
 const MAX_CATEGORY_CHARS = 40
 const MAX_STORAGE_PATH_CHARS = 300
+// Shared by every door that takes a recorder container (the session mint, the
+// upload-url mint, finalize) — it only BOUNDS the string; the real validation is
+// the closed MIME map in key-grammar.ts.
+const MAX_MIME_CHARS = 100
 
 // ── Consent grant (§Smaller pre-rulings) ────────────────────────────────────
 // method is a CLOSED enum; policy_version is SERVER-pinned (never accepted here).
@@ -27,10 +31,92 @@ export const ConsentGrantSchema = z
   .strict()
 
 // ── Recording-session mint (Decision 3) ─────────────────────────────────────
+// BORN RESERVED (capture pipeline PR2, fix round 10). The recorder knows its own
+// take id and the container it negotiated at start(), so the row that starts a
+// recording is created WITH audio_storage_path already set — one atomic create
+// instead of a create followed by the mint's update, which is the only place two
+// concurrent client-named mints on one unbound row could race.
+//
+// Both fields stay OPTIONAL at the field level: an absent pair is the walk-in
+// body this route has always minted, byte for byte. THE FIELD-PAIR RULE mirrors
+// UploadUrlMintSchema's below — a take id with no container has no extension to
+// compose, and a container with no take id names nothing — and it is re-checked
+// in the shared core (startRecordingSessionWithClient), because the WEB door
+// runs no zod at all. takeId is `.uuid()` for the same reason as the mint's: a
+// shape that fails zod is bad_input one fence earlier, and an uppercase uuid
+// that passes zod's case-INSENSITIVE check is still refused by the case-exact
+// grammar in composeTakeKey.
 export const SessionMintSchema = z
   .object({
     customerId: z.string().max(MAX_ID_CHARS).nullish(),
     appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
+    takeId: z.string().uuid().nullish(),
+    mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType), {
+    message: 'takeId and mimeType must be sent together',
+    path: ['mimeType'],
+  })
+
+// ── Upload-url mint (capture pipeline PR2) ──────────────────────────────────
+// ALL THREE fields optional at the FIELD level: an absent body is the
+// server-named take this route has always minted. mimeType's cap only BOUNDS
+// the string — the real validation is server-side (composeTakeKey: the closed
+// MIME map), so a well-formed-but-wrong container is refused by the fence, not
+// by zod. takeId is `.uuid()` (fix round 8, matching recordingSessionId below
+// and finalize's own): zod's shape check is case-INSENSITIVE, so an uppercase
+// uuid still reaches composeTakeKey and is refused there, bad_take_id, by the
+// grammar's case-exact TAKE_UUID — anything that fails zod's OWN shape is
+// bad_input, one fence earlier.
+//
+// recordingSessionId (fix round 4) is the row the mint RESERVES this take's key
+// on. It is a uuid for the same reason the finalize schema's is: it rides into a
+// core URL PATH unencoded (the SDK's recordings.get), so a free string there is
+// a request-forgery surface.
+//
+// THE FIELD-PAIR RULE (fix round 7): takeId and recordingSessionId arrive
+// together or not at all. A take id with no session is a mint that used to
+// CREATE a row — the branch fix round 7 deleted, because a lost response left
+// the caller unable to name the row it had just made. A session with no take id
+// is a row the mint would silently ignore. Both are bad_input, and the rule
+// lives HERE because this schema is the one parse both doors run.
+export const UploadUrlMintSchema = z
+  .object({
+    takeId: z.string().uuid().nullish(),
+    mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
+    recordingSessionId: z.string().uuid().nullish(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
+    message: 'takeId and recordingSessionId must be sent together',
+    path: ['recordingSessionId'],
+  })
+
+// ── Take finalize (capture pipeline PR2) — "this take is complete on storage".
+// takeId + mimeType compose the SAME key the mint composed (never a path from
+// the client). byteLength is checked against the object storage actually holds,
+// so a finalize cannot claim a take the bucket does not have.
+//
+// This schema is the WEB door's only validation too: finalizeTakeWithClient
+// parses with it on its first line, so both doors refuse the same bodies.
+// Both ids are uuids — a uuid IS the ceiling this file's .max() law asks for,
+// and recordingSessionId rides into a core URL PATH unencoded (the SDK's
+// recordings.get), so a free string there is a request-forgery surface.
+// recordingSessionId is REQUIRED as of fix round 4: the mint reserves the take's
+// key on that row before any byte can exist, so a finalize that cannot name its
+// row is a finalize for a take this server never bound.
+// The two numbers get ceilings for the same reason: durationSeconds is WRITTEN
+// onto the core row, and a take of zero bytes is not a take at all.
+const MAX_TAKE_SECONDS = 86_400 // 24h — no real take comes close.
+const MAX_TAKE_BYTES = 2 * 1024 * 1024 * 1024
+export const FinalizeTakeSchema = z
+  .object({
+    takeId: z.string().uuid(),
+    mimeType: z.string().max(MAX_MIME_CHARS),
+    durationSeconds: z.number().finite().min(0).max(MAX_TAKE_SECONDS),
+    byteLength: z.number().int().min(1).max(MAX_TAKE_BYTES),
+    recordingSessionId: z.string().uuid(),
   })
   .strict()
 

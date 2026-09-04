@@ -1,11 +1,16 @@
 'use server'
 
-import type { SynqedClient } from '@synqed-kk/client'
-import { getCurrentUserStaffId } from '@/lib/staff'
-import { requireCapability } from '@/lib/auth/require-permission'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
+import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
+import {
+  finalizeTakeWithClient,
+  type FinalizeTakeInput,
+  type FinalizeTakeResult,
+} from '@/lib/recording/finalize-take'
 
 /**
  * Mints a `recording_sessions` row (synqed-core, server-generated uuid) the
@@ -19,10 +24,18 @@ import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanu
  * (no staff identity, capability denied, SDK throw) returns null: the save
  * simply proceeds without recording_session_id, exactly like before this
  * feature existed (no dedupe for that save — accepted graceful degradation).
+ *
+ * BORN RESERVED (fix round 10). `takeId` + `mimeType` are OPTIONAL, and when
+ * they arrive the minted row already carries this take's storage key — see
+ * session-mint.ts (fix round 11: moved out of this 'use server' file, which
+ * would otherwise expose businessId to a client-invokable action) for why one
+ * atomic create replaces the mint's update.
  */
 export async function startRecordingSession(input: {
   customerId?: string | null
   appointmentId?: string | null
+  takeId?: string | null
+  mimeType?: string | null
 }): Promise<{ id: string } | null> {
   try {
     // Recording a session = records.write — same gate saveKaruteRecord uses
@@ -34,7 +47,26 @@ export async function startRecordingSession(input: {
     // Recorder-first attribution (the signed-in staff), appointment-staff
     // fallback only when the account has no staff identity of its own.
     const staffId = await getCurrentUserStaffId()
-    return await startRecordingSessionWithClient(synqed, { ...input, selfStaffId: staffId })
+    // The tenant prefix a client-named take's key carries — read off the COOKIE
+    // session, never off the argument (this is a 'use server' export, so the
+    // argument is caller-supplied JSON however it is typed, and businessId is
+    // the whole fence on a service-role storage key). Resolved ONLY when there
+    // is a key to compose, so a start with no take makes exactly the calls it
+    // made before this round.
+    const businessId = input.takeId ? await getBusinessId() : null
+    const res = await startRecordingSessionWithClient(synqed, {
+      ...input,
+      selfStaffId: staffId,
+      businessId,
+    })
+    // A take id or container this server will not store, a key already spoken
+    // for (`exists`), or storage failing to answer (`upstream`) — every
+    // refusal this core can produce is still a settled object, never a throw,
+    // and this door's contract stays fail-OPEN: null, exactly like every other
+    // failure here. The take keeps its id, the upload mint refuses it the same
+    // way (bad_take_id / bad_mime / exists), and capture is never blocked. The
+    // facade twin, which can answer in statuses, 400s/409s/502s instead.
+    return res && 'error' in res ? null : res
   } catch (err) {
     console.error('[startRecordingSession] failed:', err)
     return null
@@ -42,36 +74,49 @@ export async function startRecordingSession(input: {
 }
 
 /**
- * Recording-session mint core — EXPLICIT business-scoped client + a resolved
- * self staff id, no cookie (packet 08 §Build 3). Shared by the web action
- * (cookie → getCurrentUserStaffId) and the facade route (Bearer → selfStaffId).
- * Recorder-first attribution with the appointment-staff fallback; a null on any
- * unresolvable staff preserves the web action's fail-OPEN contract (capture
- * proceeds without dedupe — never blocked on the mint). Throws only on a genuine
- * SDK failure, which the callers swallow to null.
+ * Web door for "this take is complete" — the cookie twin of
+ * POST /api/app/v1/recordings/finalize. Both call the ONE choke point
+ * (lib/recording/finalize-take.ts), which owns the tenant fence, the ownership
+ * check, the idempotency and the single audit row.
+ *
+ * Every identity the core needs is resolved HERE, from the cookie session:
+ * a caller cannot name its own business, staff or reach. NO store: finalize
+ * never mints a row any more (the mint binds the take to one first), so it has
+ * no store to choose — see actions/recording-upload.ts#mintRecordingUploadUrl.
+ *
+ * NEVER THROWS. Finalize runs on the stop path, and a thrown finalize would
+ * put an error dialog between the staffer and a take whose audio is already
+ * on the server. Every failure is a settled `{ error }` the caller can retry.
  */
-export async function startRecordingSessionWithClient(
-  synqed: Pick<SynqedClient, 'appointments' | 'recordings'>,
-  input: {
-    customerId?: string | null
-    appointmentId?: string | null
-    selfStaffId: string | null
-  },
-): Promise<{ id: string } | null> {
-  let staffId: string | null = input.selfStaffId
-  if (!staffId && input.appointmentId) {
-    const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-    staffId = appt?.staff_id ?? null
+export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTakeResult> {
+  try {
+    // Same gate as the mint and the session start — recording = records.write —
+    // but asked with can(), not requireCapability(): this action answers in a
+    // result UNION, and a denied capability is TERMINAL. Folded into the catch
+    // below it became 'failed', which the client reads as RETRYABLE and would
+    // loop on forever against a permission it will never gain. Same reason
+    // createAppointment (src/actions/appointments.ts) uses can(). A THROW from
+    // here is still infrastructure, and still maps to the retryable 'failed'.
+    if (!(await can('records.write'))) return { error: 'forbidden' }
+    const [businessId, staffId, capabilities] = await Promise.all([
+      getBusinessId(),
+      getCurrentUserStaffId(),
+      getMyCapabilities(),
+    ])
+    return await finalizeTakeWithClient(
+      newSynqedClient(businessId),
+      {
+        staffId,
+        businessId,
+        canViewAll: capabilities.has('recordings.viewAll'),
+        source: 'web',
+      },
+      input,
+    )
+  } catch (err) {
+    console.warn('[finalizeTake] failed:', err)
+    return { error: 'failed' }
   }
-  if (!staffId) return null
-
-  // No store_id: saveKaruteRecord's create() call doesn't send one either.
-  const recording = await synqed.recordings.create({
-    staff_id: staffId,
-    customer_id: input.customerId ?? null,
-    appointment_id: input.appointmentId ?? null,
-  })
-  return { id: recording.id }
 }
 
 /**

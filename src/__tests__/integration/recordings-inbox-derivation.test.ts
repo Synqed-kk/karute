@@ -114,6 +114,49 @@ describe('録音履歴 — the five states', () => {
     expect(row.takeId).toBe('t1')
     expect(needsAttention(row)).toBe(true)
   })
+
+  // ⚖ …AND IT SAYS SO WHEN THE STOP COULD NOT FINISH WRITING IT (capture
+  // pipeline PR3 fix round 16, AC2). Such a take is refused by both drains and
+  // by secureTake's belt, so it will sit here until a human deals with it —
+  // which is exactly why the row must not tell them the ordinary story. Same
+  // state, same 要対応, one honest sub-line: what is on the device ends
+  // partway.
+  it('復元可能: …and a take whose stop could not write its tail says so', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('…and an ORPHAN take carrying the flag says the same thing', () => {
+    const [row] = fold([], [take({ takeId: 't1', tailIncomplete: true })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+  })
+
+  // …and so does a stop that never finished at all (fix round 17). Same news
+  // to the staffer — the recording has an end nobody managed to write — and
+  // nothing auto-seals either of them, so the row must say so on both.
+  it('復元可能: a take whose STOP never finished reads the same way', () => {
+    const [row] = fold([], [take({ takeId: 't1', stopPendingAt: 1_000 })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  // The SERVER's reason is the more specific fact about what went wrong, so a
+  // device-side flag never overwrites it.
+  it('a failed job keeps ITS reason even when the local take lost its tail', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('failed')
+    expect(row.reason).toBe('emptyTranscript')
+  })
 })
 
 // ── A2-3: the deliberate discard, rendered honestly ────────────────────────
@@ -427,6 +470,7 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.autoSaved',
     'reason.genericFailure',
     'reason.localAudio',
+    'reason.tailIncomplete',
     'action.open',
     'action.check',
     'action.retry',
@@ -456,6 +500,7 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'autoSaved',
       'genericFailure',
       'localAudio',
+      'tailIncomplete',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')

@@ -71,8 +71,11 @@ export const AUDIT_ACTIONS = [
   'privacy.customer_export',
   'privacy.voice_enroll',
   'privacy.voice_revoke',
+  'recording.capture_finalized',
+  'recording.capture_unlinked',
   'recording.discard',
   'recording.session_cleanup',
+  'recording.take_named',
   'recording.transcribe',
   'settings.menu_create',
   'settings.menu_reactivate',
@@ -155,6 +158,27 @@ export const AUDITED_CORES: {
   // (every refusal returns { error } before reaching it). INTERIM: P5's
   // kept-discard build deletes the module, and this entry goes with it.
   { file: 'src/lib/recording/session-cleanup.ts', symbols: ['deleteRecordingSessionWithClient'] },
+  // The take-finalize choke point (capture pipeline PR2) — its recordings
+  // .update write sits inside the same symbol as its emit (via emitFinalized,
+  // the emitSave call-through idiom), so no SDK_WRITE_ALLOWLIST row is needed.
+  // It no longer creates rows at all: fix round 4 moved the minting to
+  // mint-take-url.ts, where the take is bound before any byte exists.
+  { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
+  // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
+  // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a
+  // server-named take reserves nothing and files no row) and carries no
+  // audit() of its own, so CP7's registry-reality cross-check (exported
+  // symbols only) can never require this entry — recording-upload-actions
+  // .test.ts pins it directly instead.
+  // commitReservation joins it because IT is the write: fix round 6 split the
+  // old reserveTakeForRecorder into a read-only planReservation (the fences +
+  // exists check, never a write) and commitReservation (recordings.update,
+  // run only after a successful sign — fix round 7 deleted the .create half
+  // with the mint's row-creating branch), and every one of
+  // commitReservation's success paths that actually writes leaves through
+  // auditTakeNamed — the retry path writes and audits nothing, by design (I3).
+  { file: 'src/lib/recording/mint-take-url.ts', symbols: ['auditTakeNamed', 'commitReservation'] },
   // 自動消化 (packet 11) — the ONE auto-burn writer. The batch driver
   // autoBurnForBusiness is deliberately not listed: it performs no write of its
   // own and returns unemitted whenever there is nothing to burn.
@@ -492,12 +516,12 @@ export const SDK_WRITE_ALLOWLIST: {
     dated: '2026-08-25',
   },
   {
-    file: 'src/actions/recordings.ts',
+    file: 'src/lib/recording/session-mint.ts',
     call: 'recordings.create',
     symbols: ['startRecordingSessionWithClient'],
     justification:
-      "mints the recording_sessions id only — nothing auditable happens until the eventual save. Feeds EITHER downstream pipeline (verified, FIX ROUND 1 #17): the interactive save (createOrUpdateKaruteRecord) or the job pipeline (processJob) — see FACADE_AUDIT_MAP['recordings.session.mint'] skip row comment for the same ambiguity on its facade twin.",
-    dated: '2026-07-27',
+      "mints the recording_sessions id only — nothing auditable happens until the eventual save. Feeds EITHER downstream pipeline (verified, FIX ROUND 1 #17): the interactive save (createOrUpdateKaruteRecord) or the job pipeline (processJob) — see FACADE_AUDIT_MAP['recordings.session.mint'] skip row comment for the same ambiguity on its facade twin. STILL TRUE after capture-pipeline PR2 fix round 10, which made the create carry the take's audio_storage_path + UPLOADING when the recorder names its take (BORN RESERVED): that is the SAME reservation the mint used to write one call later as an UPDATE, moved earlier to delete the race window — not a new act. It stays unaudited here, deliberately and per the round's ruling: no audit row is added at session start (this file has never had one — FACADE_AUDIT_MAP['recordings.session.mint'] is a skip), so the STATED consequence is that a born-reserved take files no recording.take_named row BY DESIGN, because the mint it used to come from now finds its own key already on the row and writes nothing. The binding is no longer a separate act to receipt — it is part of the row this entry already covers — and the eventual save is still what audits the recording. MOVED (fix round 11, ledgered): a FILE MOVE of the entry above's neighbor, not a new write — startRecordingSessionWithClient came out of src/actions/recordings.ts (a 'use server' file, so every top-level export was a client-invokable action taking a caller-supplied businessId, the exact escape mint-take-url.ts's own header warns against) into this non-'use server' module, same reasoning as the staged-audio.ts precedent below. The call is byte-unchanged except for the fresh-eyes #7 P2 fix riding the same commit: an objectExists(key) fence now runs before this create whenever the row is born reserved, refusing `exists` rather than ever creating a row that points at bytes this caller's row never wrote — STRICTLY NARROWER than what it replaced, never wider.",
+    dated: '2026-09-03',
   },
   {
     file: 'src/actions/regenerate-karute.ts',

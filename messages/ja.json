@@ -753,7 +753,8 @@
         "unsettled": "まだ結果が届いていません",
         "autoSaved": "この録音は自動で保存されました（まだ確認されていません）",
         "genericFailure": "この録音は保存されませんでした",
-        "localAudio": "この端末に音声が残っています（未保存）"
+        "localAudio": "この端末に音声が残っています（未保存）",
+        "tailIncomplete": "録音が途中で終わっています（この端末に残っているところまで保存できます）"
       },
       "action": {
         "open": "開く",
@@ -2458,8 +2459,11 @@
           "suggested_message_view": "AI提案メッセージを閲覧"
         },
         "recording": {
+          "capture_finalized": "録音の音声を保存",
+          "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
           "session_cleanup": "録音を破棄",
+          "take_named": "録音のアップロード先を発行（既存セッション）",
           "transcribe": "録音を文字起こし"
         }
       },

@@ -6,13 +6,25 @@
 // (recordings.session.mint). Fail-OPEN contract (capture must NEVER block on
 // the mint): like the web action, a genuine SDK failure is swallowed to
 // { id: null } after logging — the mint core documents that callers swallow.
+//
+// FIX ROUND 10 — BORN RESERVED. The body may now carry { takeId, mimeType }, and
+// when it does the row is created WITH that take's storage key already on it
+// (see startRecordingSessionWithClient for why one atomic create replaces the
+// upload mint's update). That pair is the ONE thing here that is NOT fail-open:
+// a take id or container this server will not store is a client error with a
+// name, because a 200 {id:null} would tell the caller "carry on regardless"
+// about a key it has to fix first. The tenant prefix the key carries comes from
+// the VERIFIED Bearer identity, never from the body.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { startRecordingSessionWithClient } from '@/actions/recordings'
+import {
+  startRecordingSessionWithClient,
+  type StartRecordingSessionResult,
+} from '@/lib/recording/session-mint'
 import { SessionMintSchema } from '@/lib/app-api/record-schemas'
 
 export const runtime = 'nodejs'
@@ -20,6 +32,20 @@ export const runtime = 'nodejs'
 export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // Recording a session = records.write (only recorders stage a session).
   ensureCapability(ctx.identity.capabilities, 'records.write')
+  // UNCHANGED by fix round 10. Presence/format only: this route validates a
+  // bounded key and discards it — it forwards nothing to core, unlike the money
+  // paths that spend theirs (packs/redeem, cancel, no-show; see
+  // karute/manual/route.ts's note for the same posture spelled out). What the
+  // take pair adds is on the CLIENT's side: a retried start should carry the
+  // key derived from its own takeId, so the retry is one act to the caller too.
+  // The server cannot prove that and does not pretend to — a second start with
+  // the same take composes the same storage key, and core's unique index is
+  // what actually refuses the duplicate reservation.
+  // PR3 is the client work that makes the above true — deriving the header
+  // value FROM takeId (never a fresh random string per attempt) is what turns
+  // a lost-response retry into one act. This route does not and cannot check
+  // that relationship; presence/format is the whole gate, same as before a
+  // take pair ever existed in this body.
   requireIdempotencyKey(ctx.req)
 
   // An empty/absent body is valid (walk-in with no ids yet) — but a non-empty
@@ -46,15 +72,39 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
   // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
   // the client proceeds without dedupe, capture never blocks on the mint.
-  let result: { id: string } | null = null
+  let result: StartRecordingSessionResult = null
   try {
     result = await startRecordingSessionWithClient(synqed, {
       customerId: parsed.data.customerId ?? null,
       appointmentId: parsed.data.appointmentId ?? null,
       selfStaffId,
+      // The VERIFIED tenant, never a body field — it is the prefix the composed
+      // key carries, and therefore the whole fence on a service-role key.
+      businessId: ctx.identity.businessId,
+      takeId: parsed.data.takeId ?? null,
+      mimeType: parsed.data.mimeType ?? null,
     })
   } catch (err) {
     console.error('[recordings.session.mint] failed:', err)
+  }
+  // Named, so the recorder can renegotiate its container rather than retry
+  // blind. Checked OUTSIDE the try: an AppApiError thrown inside it would be
+  // swallowed by the fail-open catch above and answered as a 200.
+  if (result && 'error' in result) {
+    // Storage failed to say whether the key is free (fix round 11) — a real
+    // upstream outage, never the client's fault, and never folded into the
+    // generic 400 below.
+    if (result.error === 'upstream') {
+      throw new AppApiError('upstream_unavailable', 'could not verify the take key is free')
+    }
+    // The composed key is already SPOKEN FOR (fix round 11, fresh-eyes #7 P2)
+    // — never a legitimate retry on a session this door is about to CREATE, so
+    // this is the mint's own 'exists' verdict, one door earlier: 409, the
+    // client's "start a new take", same posture as the upload mint's twin.
+    if (result.error === 'exists') {
+      throw new AppApiError('conflict', result.error)
+    }
+    throw new AppApiError('validation', result.error)
   }
   return ok(ctx, { id: result?.id ?? null })
 })

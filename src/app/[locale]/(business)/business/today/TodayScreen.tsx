@@ -58,7 +58,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
-import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
@@ -268,6 +268,20 @@ export function bedDoor(
   }
 }
 
+/** ⚖ 51 / Greptile #827 — WHAT THE NEXT VISIT'S CATEGORY IS.
+ *
+ *  `BookingCategory` is a per-BOOKING word, not a customer's badge:
+ *  `bookingCategory` (today-board.ts) answers 'new' when the customer has no
+ *  completed visit BEFORE today, so 'new' is a fact about THIS visit and cannot
+ *  describe the one after it. A 次回予約 is by construction not a first visit —
+ *  once today is done the customer has been here — so the one word that must be
+ *  turned over on the way is 'new'. VIP and 回数券 are the customer's own traits
+ *  and ride along untouched, which is the half fix round 1 was right about.
+ *
+ *  Exported for the reason everything on this board's answer path is: an answer
+ *  the operator acts on has to be provable without a renderer. */
+export const nextVisitCategory = (today: BookingCategory): BookingCategory => (today === 'new' ? 'repeat' : today)
+
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
  *  see; a refusal is the only evidence that a thing did not happen, and it has
@@ -422,7 +436,7 @@ export interface TodayProps {
     undelivered: number
   }
   myDay: { next: string; pending: string; pendingWarn: boolean; todayCount: string; shift: string; break: string } | null
-  inStore: { name: string; bookingId: string } | null
+  inStore: { name: string; bookingId: string; category: BookingCategory } | null
   incident: {
     staffName: string
     from: string
@@ -1373,8 +1387,9 @@ export function TodayScreen(props: TodayProps) {
    *  discipline the capacity book itself is under — and every seam below takes
    *  the answer as a parameter.
    *
-   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and in
-   *  exactly one other place (the board world's, below). OFF ⇒ `undefined` ⇒
+   *  ⚖ E3a — `SELLING_ENGINE_LAW` is the ROUND GATE and it is read HERE and at
+   *  THREE other sites: the board world's mask memo (below), the rail's
+   *  protected door and (⚖ R7) the verdict's protected door. OFF ⇒ `undefined` ⇒
    *  every seam falls through to the code that shipped, which is what the
    *  gated-off parity proof asserts byte for byte. A guard-off STORE is a
    *  separate and independent no-op: `reservedMaskFor` returns empty before it
@@ -2050,6 +2065,17 @@ export function TodayScreen(props: TodayProps) {
             guard: props.guard.config,
             excludeId,
             placementFeasible: bedDoorFor(excludeId, lanes),
+            // ⚖ SPEC §3.1 — THE GATE HALF OF 「rail/gate verdicts read the same
+            // held set」. The rail got this door in E3a and the verdict did not,
+            // so the strip's marks were bed-honest while the word under the
+            // cursor, the drop verdict and the 「新規N分の空き」 sentence went on
+            // protecting windows no room in the store can host. Same door, same
+            // reasons as the rail's: a new client is never the card in hand, so
+            // the asker is `null` — the world, not the world-minus-hand — and
+            // `lanes` rides along for the reason `placementFeasible` above
+            // passes it, because the block advisor asks about a board it has
+            // already taken something out of.
+            protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,
           })
         : null,
     [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],
@@ -2235,7 +2261,23 @@ export function TodayScreen(props: TodayProps) {
    *  the other store's board with this store's cards. One predicate now, so the
    *  two can never drift apart. */
   const pendingOffBoard = pending != null && !onShownBoard(pending, board)
-  const pendingChecks = pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []
+  // ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole
+  // board, and the expression re-walked it on every render. The memo's inputs
+  // are exactly the expression's, so a render that moves NONE of them — a hover,
+  // a chip render, a popover opening (`pop`) — reads the rows it already had.
+  //
+  // ⚖ BREAKER-827 F7 — AND THE CLOCK IS NOT ONE OF THEM; this line used to say
+  // it was. A moved clock arrives as NEW PROPS, so `props.sell` is new, so
+  // `sellDrawn.cells` is new, so `checksFor` — a dep of this memo — is new, and
+  // the memo recomputes exactly like the expression did. What it saves is the
+  // render that moves no prop and no board state of its own.
+  //
+  // It does not save the DRAG, and the comment used to imply it did. The only
+  // card a gesture can start on while `pendingChecks` exists is the staged one
+  // (`onCardPointerDown` refuses every other), and dragging it rebuilds
+  // `boardLanes` — and therefore `checksFor`, a dep of this memo — per frame, so
+  // the memo recomputes there exactly like the expression did.
+  const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])
   // ⚖ Liam flag 50(d) — an OVERRIDDEN landing confirms despite the one row it
   // overrode and nothing else. `overrideCaption` is `confirmCaption` with that
   // row lifted out of the gate; every other failing row still stops 確定, and
@@ -4810,6 +4852,20 @@ export function TodayScreen(props: TodayProps) {
       // the same two fields and is refused by the same rule.
       store: props.store,
       storeLabel: props.lensLabel,
+      // ⚖ 51 — and the NEXT VISIT'S category (`nextVisitCategory`, top of this
+      // file), because the landing below solves a room and the room floor is a
+      // rule about the treatment. It travels with the intent for the reason the
+      // store does: 配置モード outlives the day and the store switch, and a VIP
+      // who stopped being one on a day flip would be the floor going silent
+      // exactly where it matters.
+      //
+      // ⚖ Greptile #827 — AND IT IS TURNED OVER HERE, at the one point the intent
+      // is armed, rather than at any of the readers. The card being armed is the
+      // visit AFTER this one, and 新規 is a fact about this one: copying it
+      // straight across would tag a first-timer's 次回予約 新規 and every
+      // 新規-reading surface would count it. One turn, one home, and every reader
+      // downstream keeps asking the one field it already asks.
+      category: nextVisitCategory(props.inStore.category),
     })
     show('配置モード: 置きたい空き枠をクリック（日付を移動してもそのまま）')
   }
@@ -4863,7 +4919,14 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    const partnerKey = solveBed(lane.key, null, null, false, place(start, end, hours))
+    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID. The landing
+    // above now reads the intent's category — the NEXT visit's, turned over by
+    // `nextVisitCategory` at the arming. If this line kept its hardcoded `false`
+    // the two would disagree by construction — the word would solve the 個室 and
+    // the release would put the VIP in whatever bed `privateIsLastResort` reaches
+    // first. ⚖ 50's law is that the word and what the release DOES are one
+    // answer, so they read one field.
+    const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -4884,7 +4947,11 @@ export function TodayScreen(props: TodayProps) {
     const face = {
       kind: 'booking' as const,
       state: 'hold' as const,
-      category: 'repeat' as const,
+      // ⚖ 51 — AND THE MINTED CARD CARRIES IT. Every later gesture asks the
+      // CARD, not the intent (`item?.category === 'vip'` at the verdict asks,
+      // `placePendingAt`, both `solveBed` releases, `bedDoor`'s subject path),
+      // so a hardcoded 'repeat' here made the VIP fix last exactly one press.
+      category: p.category,
       ...span,
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
@@ -5268,7 +5335,7 @@ export function TodayScreen(props: TodayProps) {
               // rider — and a 配置モード armed in another store is refused by the
               // same predicate the chip is, through the one verdict.
               askGuard(
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: false, foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
                 at,
                 // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
                 // sentence the operator walked past, and this callback dropped
