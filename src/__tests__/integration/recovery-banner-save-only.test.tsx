@@ -135,6 +135,11 @@ const mockStampTakeOutcome = jest.fn(async () => {})
  *  automatically (capture pipeline PR4), and the whole subject of fix round 2's
  *  D1: the stranded 復元可能 row a staffer saves must actually settle. */
 const mockStrandedTakeIds = new Set<string>()
+/** …and the subset the server can NEVER receive (a lost tail, a dead stop leg,
+ *  a terminal refusal). Fix round 4: only these may be settled by a save — a
+ *  take whose secure merely failed retryably is still owed its own finalized
+ *  key, and the drain is coming for it. */
+const mockUnsecurableTakeIds = new Set<string>()
 /** …and what the store would have left behind afterwards. */
 const mockDeletedTakeIds = new Set<string>()
 jest.mock('@/lib/karute/take-store', () => ({
@@ -150,6 +155,13 @@ jest.mock('@/lib/karute/take-store', () => ({
   // is exactly the bug fix round 2 closes for the SAVE path.
   deleteTake: jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
     if (mockStrandedTakeIds.has(takeId) && !opts?.humanResolved) return
+    mockDeletedTakeIds.add(takeId)
+  }),
+  // ⚖ THE DECISION ABOVE THE GUARD (fix round 4). The save no longer asserts
+  // the flag; it asks the store, and this stands in for that answer. The rule
+  // itself is pinned against the real store in take-durability.
+  settleTakeAfterSave: jest.fn(async (takeId: string) => {
+    if (mockStrandedTakeIds.has(takeId) && !mockUnsecurableTakeIds.has(takeId)) return
     mockDeletedTakeIds.add(takeId)
   }),
   stampTakeSession: jest.fn(),
@@ -252,6 +264,7 @@ afterEach(() => {
   mockDayFacts.mockReset()
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
   mockStrandedTakeIds.clear()
+  mockUnsecurableTakeIds.clear()
   mockDeletedTakeIds.clear()
   offerTake = true
   unsecuredTakeIds = ['take-1']
@@ -1372,13 +1385,15 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
       ],
     })
     const { clearDraft } = jest.requireMock('@/lib/karute/draft') as { clearDraft: jest.Mock }
-    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as {
-      deleteTake: jest.Mock
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
     }
     expect(clearDraft).toHaveBeenCalled()
-    // ⚖ THE SECOND HUMAN-RESOLVED EXIT (PR4 fix round 2). The record is on the
-    // server with this take's words; the staffer who owns the row asked for it.
-    expect(deleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
+    // ⚖ THE SECOND SETTLED EXIT (PR4 fix round 2, routed through the ONE rule
+    // since round 4). The record is on the server with this take's words; the
+    // staffer who owns the row asked for it — and what that may take of the
+    // AUDIO is the store's answer, not this call site's assertion.
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
   })
 
   // ⚖ …AND THAT FLAG IS WHAT MAKES THE ROW GO AWAY (PR4 fix round 2). The
@@ -1386,8 +1401,9 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
   // finalized key, so the never-delete guard refuses it — and without the flag
   // the save wrote the karute, the take survived, and the same 復元可能 row came
   // back on the very next fold, for ever.
-  it('⚖ a STRANDED take — one the server never received — is settled by the save', async () => {
+  it('⚖ a STRANDED take — one the server can never receive — is settled by the save', async () => {
     mockStrandedTakeIds.add('take-1')
+    mockUnsecurableTakeIds.add('take-1')
     grantConsent()
     offerTake = false
     offerDraft = { ...DRAFT }
@@ -1406,8 +1422,42 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
     })
     expect(mockSaveInline).toHaveBeenCalledTimes(1)
     // The row is gone from the device — the guard let this one through because
-    // a human settled it, and nothing on the SERVER was touched either way.
+    // a human settled a take nothing can ever seal, and nothing on the SERVER
+    // was touched either way.
     expect(mockDeletedTakeIds.has('take-1')).toBe(true)
+  })
+
+  // ⚖ …AND A TAKE THE DRAIN CAN STILL SEAL IS NOT THAT (fix round 4, F1). Its
+  // stop-time secure failed RETRYABLY, so the pipeline transcribed a row-less
+  // staged copy and this save wrote the karute from it — but the recording is
+  // still owed its OWN finalized key, and the only audio that can get there is
+  // the device copy. Round 3's constant deleted it.
+  it('⚖ …but a take whose secure merely failed RETRYABLY keeps its audio', async () => {
+    mockStrandedTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    const { settleTakeAfterSave } = jest.requireMock('@/lib/karute/take-store') as {
+      settleTakeAfterSave: jest.Mock
+    }
+    // The karute is written and the settle DID run — it simply did not take the
+    // audio, which is the drain's to finish.
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    expect(mockDeletedTakeIds.has('take-1')).toBe(false)
   })
 
   it('A-4: a retry after a FAILED save never mints a second pack sale', async () => {

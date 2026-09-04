@@ -7,7 +7,7 @@
 // HIDDEN ones a line-level regex would walk straight past.
 
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -254,8 +254,77 @@ write('thin/ports/real.ts', `export async function realDrop(c, k) { await c.stor
 assert.equal(scanAudioDeletes(root).length, 1, 'the same code in a SOURCE path is still caught')
 clear('thin')
 
-// 17. The REAL repo is green — one exempt, fenced delete and nothing else.
+// 17. RED — THE PROPERTY LIFT (fix round 4, F4). The same delete function,
+//     taken off the handle by NAMING it rather than destructuring it. Until
+//     round 4 this registered the local name as a bucket ALIAS, so the bare
+//     call that followed had no chain, no alias hit and no destructured
+//     binding — the scan reported ZERO findings for a working delete.
+write(
+  'src/lib/lifted-prop.ts',
+  `const del = supabase.storage.from('recordings').remove
+export async function propLift(key) {
+  await del([key])
+}
+`,
+)
+const propLift = scanAudioDeletes(root)
+assert.equal(propLift.length, 1, `a property-lifted remove must be caught, got ${JSON.stringify(propLift)}`)
+assert.equal(propLift[0].symbol, 'propLift')
+// …and the alias it is NOT: a handle bound the same way still resolves its
+// own `.remove(` through the chain, at the call site, under its own symbol.
+write(
+  'src/lib/lifted-prop.ts',
+  `const handle = supabase.storage.from('recordings')
+export async function stillAliased(key) {
+  await handle.remove([key])
+}
+`,
+)
+assert.equal(
+  scanAudioDeletes(root)[0]?.symbol,
+  'stillAliased',
+  'binding the HANDLE is still an alias, not a lifted delete',
+)
+clear('src/lib')
+
+// 18. RED — EMPTY THE BUCKET. The broadest delete there is, and it names no
+//     key at all, so every rule keyed on `remove` walked past it. Same
+//     treatment as `remove` everywhere: the call, the destructure, the lift.
+write(
+  'src/lib/empty.ts',
+  `export async function nuke(c) {
+  await c.storage.emptyBucket('recordings')
+}
+`,
+)
+const emptied = scanAudioDeletes(root)
+assert.equal(emptied.length, 1, `emptyBucket must be caught, got ${JSON.stringify(emptied)}`)
+assert.equal(emptied[0].symbol, 'nuke')
+// The file names no `remove` anywhere — the cheap pre-filter must not skip it.
+assert.ok(!readFileSync(join(root, 'src/lib/empty.ts'), 'utf8').includes('remove'))
+// …and lifted off the handle it is the same delete under a local name.
+write(
+  'src/lib/empty.ts',
+  `const { emptyBucket: wipe } = supabase.storage.from('recordings')
+export async function nukeLifted() {
+  await wipe()
+}
+`,
+)
+assert.equal(scanAudioDeletes(root)[0]?.symbol, 'nukeLifted', 'a lifted emptyBucket is the same delete')
+// GREEN — and it is still bucket-scoped: emptying `photos` is not this rule.
+write(
+  'src/lib/empty.ts',
+  `export async function nukePhotos(c) {
+  await c.storage.from('photos').emptyBucket()
+}
+`,
+)
+assert.deepEqual(scanAudioDeletes(root), [], 'emptying another bucket is not this rule')
+clear('src/lib')
+
+// 19. The REAL repo is green — one exempt, fenced delete and nothing else.
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanAudioDeletes(repo), [])
 
-console.log('✓ audio-never-deleted guard selftest: 17 cases green')
+console.log('✓ audio-never-deleted guard selftest: 19 cases green')

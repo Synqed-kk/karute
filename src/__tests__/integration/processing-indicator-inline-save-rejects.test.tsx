@@ -44,6 +44,12 @@ jest.mock('@/actions/karute', () => ({
 /** Takes the SERVER NEVER RECEIVED under a finalized key — the cohort
  *  deleteTake refuses to destroy automatically (capture pipeline PR4). */
 const strandedTakeIds = new Set<string>()
+/** …and the subset of those the server can never receive AT ALL (a lost tail, a
+ *  dead stop leg, a terminal refusal). Fix round 4: only THESE may be settled
+ *  by a save — a stranded take whose secure merely failed retryably is still
+ *  owed its own finalized key, and destroying it here would take the only copy
+ *  the drain could still seal. */
+const unsecurableTakeIds = new Set<string>()
 /** …and what the store would have left behind afterwards. */
 const deletedTakeIds = new Set<string>()
 /** ⚖ IT CARRIES THE REAL GUARD (fix round 3). A fake that removed
@@ -54,8 +60,14 @@ const deleteTake = jest.fn(async (takeId: string, opts?: { humanResolved?: boole
   if (strandedTakeIds.has(takeId) && !opts?.humanResolved) return
   deletedTakeIds.add(takeId)
 })
+/** …and the DECISION the real store makes above it (fix round 4). The rule
+ *  itself is pinned against the real IndexedDB in take-durability; what this
+ *  file owes is that the component calls this door and lives with its answer. */
+const settleTakeAfterSave = jest.fn(async (takeId: string) => {
+  await deleteTake(takeId, { humanResolved: unsecurableTakeIds.has(takeId) })
+})
 jest.mock('@/lib/karute/take-store', () => ({
-  deleteTake: (...a: unknown[]) => deleteTake(...(a as [string, { humanResolved?: boolean }?])),
+  settleTakeAfterSave: (...a: unknown[]) => settleTakeAfterSave(...(a as [string])),
 }))
 
 import { toast } from 'sonner'
@@ -89,6 +101,7 @@ beforeEach(() => {
   globalPipeline.reset()
   jest.clearAllMocks()
   strandedTakeIds.clear()
+  unsecurableTakeIds.clear()
   deletedTakeIds.clear()
 })
 
@@ -137,8 +150,9 @@ describe('ProcessingIndicator — a REJECTED inline save (Greptile #729)', () =>
 // that one shares a singleton across five renders; this one's registry is
 // fresh, so the pin means only what it says.
 describe('ProcessingIndicator — a take the server never finalized is settled by the save', () => {
-  it('the take rows are gone: the 復元可能 row cannot come back', async () => {
+  it('a take that can NEVER be sealed: the rows are gone, the 復元可能 row cannot come back', async () => {
     strandedTakeIds.add('take-1')
+    unsecurableTakeIds.add('take-1')
     stageInTabAutosave()
 
     render(<ProcessingIndicator />)
@@ -148,7 +162,25 @@ describe('ProcessingIndicator — a take the server never finalized is settled b
     // THE OUTCOME FIRST: the rows are actually gone, judged through the real
     // guard — not the argument that got them past it.
     expect(deletedTakeIds.has('take-1')).toBe(true)
-    expect(deleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
+  })
+
+  // ⚖ …AND THE COHORT ROUND 3 WAS WRONG ABOUT (fix round 4, F1). The stop-time
+  // secure failed RETRYABLY, so this take has no finalized key and the pipeline
+  // transcribed a ROW-LESS staged copy. The save is real and the karute is
+  // written — but the recording itself is still owed its own key, and the only
+  // audio that can get it there is on this device. The constant deleted it.
+  it('a take whose secure merely failed RETRYABLY SURVIVES the save', async () => {
+    strandedTakeIds.add('take-1')
+    stageInTabAutosave()
+
+    render(<ProcessingIndicator />)
+
+    await waitFor(() => expect(saveKaruteRecordInline).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1'))
+    // The settle ran and the guard refused it — the audio is still here for the
+    // drain, and the karute is on the server either way.
+    expect(deletedTakeIds.has('take-1')).toBe(false)
   })
 
   it('an ordinary finalized take is settled exactly as before', async () => {

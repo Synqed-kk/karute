@@ -26,6 +26,8 @@ const mockMarkDone = jest.fn(async (_takeId: string) => {})
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
 type SecureMeta = {
   finalizedPath?: string
+  /** PR4 fix round 4: where the FIRST staging put this take's audio. */
+  stagedPath?: string
   tailIncomplete?: boolean
   stopPendingAt?: number
   durationMs?: number
@@ -42,6 +44,7 @@ const mockListPending = jest.fn(
 const mockLoadTakeBlob = jest.fn(async (_takeId: string): Promise<Blob | null> =>
   new Blob(['audio']),
 )
+const mockMarkTakeStaged = jest.fn(async (_takeId: string, _stagedPath: string) => {})
 jest.mock('@/lib/karute/take-store', () => ({
   markDiscardTranscriptDone: (takeId: string) => mockMarkDone(takeId),
   stampDiscardPending: (takeId: string, pending: unknown) =>
@@ -49,6 +52,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: (takeId: string) => mockReadSecureMeta(takeId),
   listPendingDiscardTakes: () => mockListPending(),
   loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
+  markTakeStaged: (takeId: string, stagedPath: string) => mockMarkTakeStaged(takeId, stagedPath),
   // ⚖ THE REAL RULE, not a restatement of it (PR4 fix round 2). Whether a take
   // can EVER be sealed is the whole question the staging branch asks, and a
   // copy of it here would go green while take-store's own answer drifted.
@@ -94,6 +98,7 @@ beforeEach(() => {
   }))
   mockListPending.mockImplementation(async () => [])
   mockLoadTakeBlob.mockImplementation(async () => new Blob(['audio']))
+  mockMarkTakeStaged.mockImplementation(async () => {})
   mockPrepareTranscription.mockImplementation(async () => ({
     body: { path: 'app_biz-1_staged-1.webm' },
     path: 'app_biz-1_staged-1.webm',
@@ -107,11 +112,18 @@ describe('the world gate', () => {
     expect(discardTranscriptSupported()).toBe(false)
   })
 
-  it('unsupported: the review path persists nothing and lets the take go', async () => {
+  // ⚖ G6: it still persists nothing and still lets the take go — but it MARKS
+  // it on the way out, and deliberately does NOT settle it. The words were
+  // never looked for in a world with nowhere to persist, so closing the record
+  // would be a lie; the stamp keeps the take out of every recovery offer, and
+  // the sweep is a no-op here anyway (it reads the world gate first), so the
+  // words are still collectable if this world ever gains support.
+  it('unsupported: persists nothing, MARKS the take, and never claims the words are settled', async () => {
     mockSupported = false
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
     expect(mockPersistDiscardTranscript).not.toHaveBeenCalled()
-    expect(mockStampDiscardPending).not.toHaveBeenCalled()
+    expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 
   it('unsupported: the sweep does not even read the store', async () => {
@@ -131,19 +143,28 @@ describe('the review path (words already in hand)', () => {
       transcript: 'words',
       durationSeconds: 62,
     })
-    expect(mockStampDiscardPending).not.toHaveBeenCalled()
+    // ⚖ G6: "deletable" is not "deleted" — the never-delete guard refuses this
+    // take if the server never received it, so the mark has to be there or the
+    // banner re-offers the session the staffer just discarded. The words DID
+    // land, so it is settled in the same breath.
+    expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
   })
 
   it('a deliberate skip is settled too — no consent means no retry is owed', async () => {
     mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ skipped: 'consent' }))
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
-    expect(mockStampDiscardPending).not.toHaveBeenCalled()
+    expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
   })
 
   it('a FAILED write stamps the take instead, so the audio retry can run', async () => {
     mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ error: 'failed' }))
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(false)
     expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+    // …and NOT settled — the words are still owed, which is what its `false`
+    // holds the take back for (G6 leaves this path exactly as it was).
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 
   it('a TERMINAL refusal is settled here too — stamping would buy one wasted upload', async () => {
@@ -151,7 +172,10 @@ describe('the review path (words already in hand)', () => {
       jest.clearAllMocks()
       mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ error }))
       await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
-      expect(mockStampDiscardPending).not.toHaveBeenCalled()
+      // Marked and SETTLED: nothing can ever change these answers, so the words
+      // are as collected as they will ever be.
+      expect(mockStampDiscardPending).toHaveBeenCalledWith('take-1', PENDING)
+      expect(mockMarkDone).toHaveBeenCalledWith('take-1')
     }
   })
 
@@ -173,6 +197,20 @@ describe('the review path (words already in hand)', () => {
     mockPersistDiscardTranscript.mockImplementationOnce(async () => ({ error: 'failed' }))
     mockStampDiscardPending.mockImplementationOnce(async () => false)
     await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
+  })
+
+  it('⚖ G6: a stamp that could not be written is never marked DONE on top of nothing', async () => {
+    // The take is gone, or it is another staffer's. Settling a row that does
+    // not exist would be a claim about a record this device cannot see.
+    mockStampDiscardPending.mockImplementationOnce(async () => false)
+    await expect(persistReviewDiscardTranscript('take-1', PENDING, 'words')).resolves.toBe(true)
+    expect(mockMarkDone).not.toHaveBeenCalled()
+  })
+
+  it('⚖ G6: no take to mark is still fine — nothing is stamped and nothing is settled', async () => {
+    await expect(persistReviewDiscardTranscript(null, PENDING, 'words')).resolves.toBe(true)
+    expect(mockStampDiscardPending).not.toHaveBeenCalled()
+    expect(mockMarkDone).not.toHaveBeenCalled()
   })
 })
 
@@ -323,6 +361,66 @@ describe('the audio path', () => {
       expect(mockMarkDone).not.toHaveBeenCalled()
     })
 
+    // ⚖ …AND IT IS STAGED ONCE (fix round 4, F3). The staging is a WHOLE-TAKE
+    // upload and the sweep fires on every record-page mount, so a transcription
+    // that genuinely keeps answering `failed` re-uploaded tens of megabytes
+    // each time, for ever. The first copy's key is remembered on the take.
+    describe('⚖ the staged copy is staged once', () => {
+      /** A store that actually REMEMBERS the mark, so the second sweep reads
+       *  what the first one wrote — the whole property under test. */
+      const stagingStore = (start: SecureMeta) => {
+        let meta: SecureMeta = start
+        mockReadSecureMeta.mockImplementation(async () => meta)
+        mockMarkTakeStaged.mockImplementation(async (_takeId, stagedPath) => {
+          meta = { ...meta, stagedPath }
+        })
+        return () => meta
+      }
+
+      it('two sweeps with a failing transcription: ONE upload, and the second reads the same copy', async () => {
+        const metaNow = stagingStore({ tailIncomplete: true })
+        mockTranscribeAndPersistDiscard.mockImplementation(async () => ({ error: 'failed' }))
+
+        await runDiscardTranscript('take-1', PENDING)
+        await runDiscardTranscript('take-1', PENDING)
+
+        expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
+        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', 'app_biz-1_staged-1.webm')
+        expect(metaNow().stagedPath).toBe('app_biz-1_staged-1.webm')
+        // The retry itself is accepted and paid for — one API call per mount,
+        // no upload — and it names the copy that is already up there.
+        expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(2)
+        expect(mockTranscribeAndPersistDiscard).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ audioPath: 'app_biz-1_staged-1.webm' }),
+        )
+        // Still owed: nothing was settled by a failure.
+        expect(mockMarkDone).not.toHaveBeenCalled()
+      })
+
+      it('…and when the words finally land, that same copy settles the take', async () => {
+        stagingStore({ tailIncomplete: true })
+        mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({ error: 'failed' }))
+        await runDiscardTranscript('take-1', PENDING)
+        await runDiscardTranscript('take-1', PENDING)
+
+        expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
+        expect(mockLoadTakeBlob).toHaveBeenCalledTimes(1)
+        expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+      })
+
+      it('a FINALIZED key still wins over a staged one — it is what the pipeline reads', async () => {
+        mockReadSecureMeta.mockImplementationOnce(async () => ({
+          finalizedPath: 'app_business-1_take-1.webm',
+          stagedPath: 'app_biz-1_staged-1.webm',
+        }))
+        await runDiscardTranscript('take-1', PENDING)
+        expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
+          expect.objectContaining({ audioPath: 'app_business-1_take-1.webm' }),
+        )
+      })
+    })
+
     it('a failed staging upload leaves the stamp — the next sweep tries again', async () => {
       mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
       mockPrepareTranscription.mockImplementationOnce(async () => {
@@ -331,6 +429,8 @@ describe('the audio path', () => {
       await expect(runDiscardTranscript('take-1', PENDING)).resolves.toBeUndefined()
       expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
       expect(mockMarkDone).not.toHaveBeenCalled()
+      // …and nothing was remembered: there is no copy up there to reuse.
+      expect(mockMarkTakeStaged).not.toHaveBeenCalled()
     })
   })
 

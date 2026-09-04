@@ -24,6 +24,7 @@ import {
   listPendingDiscardTakes,
   loadTakeBlob,
   markDiscardTranscriptDone,
+  markTakeStaged,
   readTakeSecureMeta,
   stampDiscardPending,
   type DiscardPending,
@@ -70,13 +71,42 @@ const inFlight = new Set<string>()
  * words landed, or were deliberately not kept (no consent, nothing said). FALSE
  * means the write failed and the take has been stamped instead: keep it, the
  * sweep re-tries through the audio path.
+ *
+ * ⚖ EVERY ARM MARKS THE TAKE (fix round 4, G6). Until now only the FAILURE path
+ * stamped, and "may be deleted" was read as "will be deleted" — which stopped
+ * being true when the never-delete guard began refusing a take the server does
+ * not have. On this arm's MAIN path (the words are in hand by definition here,
+ * so the write usually succeeds) the caller then handed the take id to
+ * finishReviewDiscard, its deleteTake was refused, and the take survived with
+ * NO stamp: listOwnTakes' A2-2 exclusion never fired and the recovery banner
+ * re-offered a session the staffer had deliberately discarded.
+ *
+ * The mark is written on all three paths now; what differs is what it says is
+ * still OWED:
+ *   - the words LANDED (or were deliberately not kept — a consent skip, a
+ *     terminal refusal nothing can change): pending + DONE;
+ *   - a world with nowhere to persist: pending, NOT done. The words were never
+ *     looked for, so closing the record would be a lie — and the sweep is a
+ *     no-op there anyway (it reads discardTranscriptSupported first), so the
+ *     words are still collectable if that world ever gains support;
+ *   - a FAILED write: pending, not done — unchanged, and its `false` still
+ *     holds the take back for the audio retry.
+ * The caller's own deleteTake is unchanged either way: refused for an unsecured
+ * take (the mark is then what hides it), allowed for a finalized one.
  */
 export async function persistReviewDiscardTranscript(
   takeId: string | null | undefined,
   pending: DiscardPending,
   transcript: string,
 ): Promise<boolean> {
-  if (!discardTranscriptSupported()) return true
+  /** Mark it, settle it only if the words are actually settled, and let it go. */
+  const settle = async (done: boolean) => {
+    if (takeId && (await stampDiscardPending(takeId, pending)) && done) {
+      await markDiscardTranscriptDone(takeId)
+    }
+    return true
+  }
+  if (!discardTranscriptSupported()) return settle(false)
   try {
     const { persistDiscardTranscript } = await transcriptActions()
     const res = await persistDiscardTranscript({
@@ -86,7 +116,7 @@ export async function persistReviewDiscardTranscript(
     })
     // A terminal refusal is settled, exactly like a skip — keeping the take back
     // would only buy the audio path one wasted upload before it refuses too.
-    if (!retryable(res)) return true
+    if (!retryable(res)) return settle(true)
   } catch (err) {
     console.warn('[discard-transcript] review persist failed:', err)
   }
@@ -133,7 +163,14 @@ export async function runDiscardTranscript(
     // sweep can still finish it.
     const meta = await readTakeSecureMeta(takeId)
     if (!meta) return
-    let path = meta.finalizedPath
+    // ⚖ AND A STAGED COPY IS STAGED ONCE (fix round 4). The staging below is a
+    // whole-take upload, and the sweep fires on EVERY record-page mount: a
+    // transcription that genuinely keeps answering `failed` re-uploaded tens of
+    // megabytes each time, for ever. The key of the first copy is remembered on
+    // the take, so every later sweep re-reads THAT object — one API call per
+    // mount, no upload. `finalizedPath` still wins wherever both exist: it is
+    // the key the rest of the pipeline reads.
+    let path = meta.finalizedPath ?? meta.stagedPath
     if (!path) {
       // Merely not secured YET — an offline stop, a retryable refusal. The
       // mount retry is coming for it; leave the stamp and let the next sweep
@@ -148,6 +185,7 @@ export async function runDiscardTranscript(
       const blob = await loadTakeBlob(takeId)
       if (!blob || blob.size === 0) return
       path = (await getRecordingPipelinePort().prepareTranscription(blob, null)).path
+      await markTakeStaged(takeId, path)
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()
     const res = await transcribeAndPersistDiscard({

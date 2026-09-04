@@ -16,7 +16,9 @@ import {
   listOwnTakes,
   listOwnStoppedUnsecuredTakeIds,
   loadTakeBlob,
+  markDiscardTranscriptDone,
   readTakeOutcome,
+  settleTakeAfterSave,
   stampDiscardPending,
   stampTakeOutcome,
   type DiscardPending,
@@ -1303,6 +1305,36 @@ export function RecordPageView({
       // The review arm closes its own dialog, in its tail — see below. Every
       // other arm keeps the close-then-act order it always had.
       if (origin !== 'review') setDiscardReasonFor(null)
+      // ⚖ MARK, NEVER DELETE — for the two arms that owe NO WORDS (fix round 4,
+      // G5), the same shape G2 gave the below-floor recorder discard. Both of
+      // them end in `void deleteTake(takeId)`, which the never-delete guard
+      // refuses for a take the server does not have: the take then survived
+      // with nothing on it, listOwnTakes' A2-2 exclusion never fired, and the
+      // recovery banner offered the staffer back the recording they had just
+      // thrown away. The stamp is that exclusion; marking it done in the same
+      // breath is what keeps the mount sweep from ever transcribing a take
+      // whose words are settled by construction. The delete calls stay exactly
+      // as they are — refused for an unsecured take (the stamp is then what
+      // hides it), and for a finalized one the rows go with the stamp on them,
+      // which is the same answer.
+      // `sessionId` rather than the outer `let`: this closure would otherwise
+      // read it un-narrowed, and it is the id the RECEIPT above was filed
+      // against — the only one the words could ever have belonged to.
+      const sessionId = recordingSessionId
+      const markDiscardedNoWords = async (
+        takeId: string,
+        durationSeconds: number,
+        belowFloor?: true,
+      ) => {
+        const stamped = await stampDiscardPending(takeId, {
+          recordingSessionId: sessionId,
+          durationSeconds,
+          locale,
+          stampedAt: Date.now(),
+          belowFloor,
+        })
+        if (stamped) await markDiscardTranscriptDone(takeId)
+      }
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
       if (origin === 'review') {
@@ -1352,12 +1384,25 @@ export function RecordPageView({
         // it never wrote a draft — clearDraft() here could only destroy a
         // FOREIGN crash-surviving draft from an unrelated earlier session.
         // Inline cleanup, scoped to this run's own take only.
-        if (ctx?.takeId) void deleteTake(ctx.takeId)
+        //
+        // G5: no words are owed here — this origin IS the transcript already
+        // refused, so there is nothing a sweep could collect. Deliberately NOT
+        // marked `belowFloor`: such a take can be an hour long, and that field
+        // says what it says. The settle is `markDiscardTranscriptDone` itself.
+        if (ctx?.takeId) {
+          await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)
+          void deleteTake(ctx.takeId)
+        }
         setRecoveredTake((prev) => (prev && prev.takeId === ctx?.takeId ? null : prev))
         globalPipeline.reset()
       } else if (bannerSnap) {
         // ⚖ 8/26 rider case (b): idle cleanup only — no pipeline reset (nothing
         // is running); harmless if added, but pointless, so it stays out.
+        //
+        // G5: this offer is BELOW the floor by construction — onDiscard is
+        // wired only when `belowFloor` is true — so it is marked as such, and
+        // no words were ever owed for it.
+        await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)
         void deleteTake(bannerSnap.takeId)
         // SHOULD-FIX-3: keyed to the snapshot, not unconditional — a take
         // swap during the awaits above (handleInboxSaveTake promoting a
@@ -1375,11 +1420,11 @@ export function RecordPageView({
         // discarded take out of every recovery offer), then hold it back from
         // proceedDiscard until the persist run lands.
         //
-        // BELOW the floor nothing is kept and nothing is transcribed (⚖ spend
-        // gate): an accidental tap has no words worth a Deepgram call, and the
-        // take goes with the discard exactly as it always did. Same on the
-        // phone, which since PHONEWIRE-2C persists through the facade twin of
-        // these actions — the floor, not the world, is what decides here now.
+        // BELOW the floor nothing is transcribed (⚖ spend gate): an accidental
+        // tap has no words worth a Deepgram call. The take is still MARKED
+        // there — see the round-4 note below the payload. Same on the phone,
+        // which since PHONEWIRE-2C persists through the facade twin of these
+        // actions — the floor, not the world, is what decides here now.
         //
         // The stamp's span, honestly: it is written AFTER core accepted the
         // discard, so a crash in that window leaves the discard filed and the
@@ -1397,9 +1442,27 @@ export function RecordPageView({
           locale,
           stampedAt: Date.now(),
         }
+        // ⚖ AND BELOW THE FLOOR THE STAMP IS STILL OWED (fix round 4). Nothing
+        // is transcribed down there — an accidental tap has no words worth a
+        // Deepgram call — but the STAMP is not about words: it is the recovery
+        // exclusion (listOwnTakes' A2-2 filter). Since the never-delete guard
+        // began refusing an unsecured take, a below-floor discard left the take
+        // alive with NO stamp, and the recovery banner offered the staffer back
+        // the very recording they had just thrown away. So it goes through the
+        // SAME door the other two word-less arms use (markDiscardedNoWords
+        // above): marked `belowFloor`, settled in the same breath, because
+        // 「録音が10秒未満のため、文字起こしは行っていません」 is the ruled
+        // state, not a pending one. The audio itself stays (mark, never
+        // delete); proceedDiscard's own deleteTake below is unchanged —
+        // refused for an unsecured take, and for a finalized one the rows go
+        // with the stamp on them, which is the same answer.
+        const belowFloor = durationSeconds < BELOW_FLOOR_SEC
+        if (belowFloor && takeId) await markDiscardedNoWords(takeId, durationSeconds, true)
+        // ABOVE the floor the words ARE owed, so the stamp is a promise the
+        // persist run below has to keep — never settled here.
         const keepTake =
           takeId !== null &&
-          durationSeconds >= BELOW_FLOOR_SEC &&
+          !belowFloor &&
           discardTranscriptSupported() &&
           (await stampDiscardPending(takeId, pending))
         // The photos die HERE, past the gate — never before it. Still ahead of
@@ -1848,16 +1911,20 @@ export function RecordPageView({
   function handleInboxOpenRecord(row: InboxRow) {
     if (!row.karuteRecordId) return
     if (row.state === 'awaiting-check' && row.takeId) {
-      // ⚖ THE ONE HUMAN-RESOLVED DELETE (capture pipeline PR4 fix round 1).
-      // Every automatic caller of deleteTake is refused for a take the server
-      // never received; this one is a staff member, on this row, with the
-      // karute record already on the server, tapping 確認する. Without the flag
-      // the row could not be settled at all — 確認待ち is BY DEFINITION a take
-      // this device never secured, so the refusal turned every one of them into
-      // a 要対応 badge nobody could clear. Device bytes only: deleteTake reaches
-      // IndexedDB and nothing else, and no server object is touched here or
-      // anywhere downstream of it.
-      void deleteTake(row.takeId, { humanResolved: true }).then(() => loadInbox())
+      // ⚖ THE ONE HUMAN-RESOLVED DELETE (capture pipeline PR4 fix round 1),
+      // asked of the take rather than asserted since fix round 4. A staff
+      // member, on this row, with the karute record already on the server, is
+      // tapping 確認する — and settleTakeAfterSave decides what that may take:
+      // a finalized take goes as it always did, and a take that can NEVER be
+      // sealed goes too (without that, 確認待ち — BY DEFINITION a take this
+      // device never secured — was a 要対応 badge nobody could clear).
+      // A take whose secure merely failed RETRYABLY keeps its audio and its
+      // row: the drain will finalize it, and the next tap clears it. That is
+      // honest — the server does not have this recording yet — and the re-fold
+      // below shows the row still 確認待ち, not a settle that did not happen.
+      // Device bytes only: the settle reaches IndexedDB and nothing else, and
+      // no server object is touched here or anywhere downstream of it.
+      void settleTakeAfterSave(row.takeId).then(() => loadInbox())
     }
     router.push(`/karute/${row.karuteRecordId}` as Parameters<typeof router.push>[0])
   }
@@ -2579,16 +2646,17 @@ export function RecordPageView({
       }
       clearDraft()
       // ⚖ THE SECOND HUMAN-RESOLVED EXIT (capture pipeline PR4 fix round 2),
-      // beside 確認する on the inbox row. The only automatic-delete refusal this
-      // call can meet is a take the server never received under its FINALIZED
-      // key — and by the time we are here the record has landed on the server
-      // WITH that take's words, transcribed by the in-tab leg from this very
-      // blob, on a tap by the staffer who owns the row. Without the flag the
-      // expired/stranded cohort re-folds as 復元可能 for ever: the save writes
-      // the karute, the take survives, and the next fold offers the same row
-      // again. Device bytes only — deleteTake reaches IndexedDB and nothing
-      // else, and no server object is touched here or anywhere below it.
-      if (d.takeId) void deleteTake(d.takeId, { humanResolved: true })
+      // beside 確認する on the inbox row — one rule for both since fix round 4.
+      // By the time we are here the record has landed on the server WITH that
+      // take's words, transcribed by the in-tab leg from this very blob, on a
+      // tap by the staffer who owns the row; settleTakeAfterSave is what turns
+      // that into a decision about the AUDIO. Unsettled, the expired/stranded
+      // cohort re-folded as 復元可能 for ever — the save wrote the karute, the
+      // take survived, the next fold offered the same row again — and settling
+      // a merely-retryable take would throw away the only copy the drain can
+      // still seal. Device bytes only — it reaches IndexedDB and nothing else,
+      // and no server object is touched here or anywhere below it.
+      if (d.takeId) void settleTakeAfterSave(d.takeId)
       setRecoveredDraft(null)
       setRecoveredTake(null)
       // The draft's write is synchronous-to-completion, so its notice is armed

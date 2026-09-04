@@ -20,6 +20,9 @@
 //   bucket['remove']([key])                                    (element access)
 //   const { remove } = supabase.storage.from('recordings')
 //   await remove([key])                                        (destructured)
+//   const del = supabase.storage.from('recordings').remove
+//   await del([key])                                           (property lift)
+//   await supabase.storage.emptyBucket('recordings')           (the whole bucket)
 // It parses with the TypeScript AST rather than matching text, so a comment, a
 // string literal or a line break inside the chain changes nothing.
 //
@@ -61,6 +64,14 @@ const ROOTS = ['src', 'thin']
 
 /** The storage bucket this rule is about. */
 const BUCKET = 'recordings'
+
+/** The methods that DESTROY objects on a bucket handle (fix round 4). `remove`
+ *  takes a list of keys; `emptyBucket` takes the whole bucket and needs no key
+ *  at all — a spelling this guard used to walk straight past, which made the
+ *  broadest possible delete the one shape it could not see. Both are treated
+ *  identically everywhere below: the call, the destructure, and the property
+ *  lift. */
+const DELETE_METHODS = new Set(['remove', 'emptyBucket'])
 
 /** The ONE exempt call site, and the fence that earns it the exemption. Both
  *  halves are checked: the file+symbol names WHO may delete, the fence proves
@@ -235,32 +246,52 @@ function reachesBucket(chain, consts) {
  *  (`const bucket = supabase.storage.from('recordings')`); a `.remove(` on one
  *  of them is the same delete under a local name.
  *
- *  `removes` — the delete FUNCTION itself, lifted off the handle
- *  (`const { remove } = supabase.storage.from('recordings')`, rename included).
- *  Called as a bare `remove([key])` it has no chain left to walk, which is how
- *  it slipped past both this guard and the census (fix round 1, C1/F3). */
+ *  `removes` — the delete FUNCTION itself, lifted off the handle, either by
+ *  DESTRUCTURING (`const { remove } = supabase.storage.from('recordings')`,
+ *  rename included) or by naming the property
+ *  (`const del = supabase.storage.from('recordings').remove` — fix round 4,
+ *  F4: that one used to register as a bucket ALIAS, so the bare `del([key])`
+ *  that followed reported nothing at all). Called as a bare `remove([key])` it
+ *  has no chain left to walk, which is how it slipped past both this guard and
+ *  the census (fix round 1, C1/F3). */
 function storageBindings(sf, consts) {
   const aliases = new Set()
   const removes = new Set()
-  const fromBucket = (init) => {
+  /** The chain this initializer is, when it reaches the recordings bucket —
+   *  null otherwise. Returned rather than a boolean since fix round 4: WHICH
+   *  name the chain ends on is what separates a bucket handle from the delete
+   *  lifted off one. */
+  const bucketChain = (init) => {
     let expr = init
     if (ts.isAwaitExpression(expr)) expr = expr.expression
-    return (
-      (ts.isCallExpression(expr) ||
-        ts.isPropertyAccessExpression(expr) ||
-        ts.isElementAccessExpression(expr)) &&
-      reachesBucket(chainOf(expr), consts)
-    )
+    if (
+      !ts.isCallExpression(expr) &&
+      !ts.isPropertyAccessExpression(expr) &&
+      !ts.isElementAccessExpression(expr)
+    ) {
+      return null
+    }
+    const chain = chainOf(expr)
+    return reachesBucket(chain, consts) ? chain : null
   }
   const visit = (node) => {
-    if (ts.isVariableDeclaration(node) && node.initializer && fromBucket(node.initializer)) {
-      if (ts.isIdentifier(node.name)) aliases.add(node.name.text)
-      else if (ts.isObjectBindingPattern(node.name)) {
+    const chain =
+      ts.isVariableDeclaration(node) && node.initializer ? bucketChain(node.initializer) : null
+    if (chain) {
+      if (ts.isIdentifier(node.name)) {
+        // chainOf collects names outermost-first, so names[0] is the LAST
+        // property the chain touched: `.remove` there is the delete function
+        // itself under a local name, not a bucket handle (fix round 4, F4).
+        if (DELETE_METHODS.has(chain.names[0])) removes.add(node.name.text)
+        else aliases.add(node.name.text)
+      } else if (ts.isObjectBindingPattern(node.name)) {
         for (const el of node.name.elements) {
           const key = el.propertyName ?? el.name
           const name =
             ts.isIdentifier(key) || ts.isStringLiteralLike(key) ? key.text : null
-          if (name === 'remove' && ts.isIdentifier(el.name)) removes.add(el.name.text)
+          if (name && DELETE_METHODS.has(name) && ts.isIdentifier(el.name)) {
+            removes.add(el.name.text)
+          }
         }
       }
     }
@@ -348,8 +379,8 @@ export function scanAudioDeletes(rootDir) {
   for (const file of files) {
     const rel = relative(rootDir, file).split(sep).join('/')
     const source = readFileSync(file, 'utf8')
-    // Cheap pre-filter: a file with no `remove` at all cannot hold one.
-    if (!source.includes('remove')) continue
+    // Cheap pre-filter: a file that never names a delete method cannot hold one.
+    if (![...DELETE_METHODS].some((m) => source.includes(m))) continue
     const sf = parse(rel, source)
     const consts = stringConsts(sf)
     const { aliases, removes } = storageBindings(sf, consts)
@@ -359,7 +390,8 @@ export function scanAudioDeletes(rootDir) {
       if (ts.isCallExpression(node)) {
         // A destructured delete has no chain left — the name IS the finding.
         const bare = ts.isIdentifier(node.expression) && removes.has(node.expression.text)
-        const named = calleeName(node.expression) === 'remove'
+        const called = calleeName(node.expression)
+        const named = called !== null && DELETE_METHODS.has(called)
         const chain = named ? chainOf(node.expression) : null
         const hit =
           bare || (chain !== null && (reachesBucket(chain, consts) || (chain.root && aliases.has(chain.root))))

@@ -236,6 +236,15 @@ export type TakeMeta = {
    *  existed — read as "no pointer of my own", which sends that take down the
    *  in-tab fallback leg instead of naming an object nobody proved. */
   finalizedPath?: string
+  /** Capture pipeline PR4 fix round 4: where this take's audio was STAGED — the
+   *  row-less copy the discard's word-collection uploads for a take that can
+   *  never be sealed under a finalized key (lib/recording/discard-transcript).
+   *  Written right after the first successful staging, and read by the next
+   *  sweep instead of staging again: a transcription that keeps answering
+   *  `failed` re-uploaded the WHOLE take on every record-page mount, for ever.
+   *  Never a substitute for `finalizedPath` — that one wins wherever both
+   *  exist, because it is the key the whole pipeline reads. */
+  stagedPath?: string
    /** Why the last secure attempt did not finish — the finalize door's own code
    *  ('object_missing' | 'size_mismatch' | 'failed' | …), 'session' for a take
    *  that could not get a row at all, 'upload_<status>' for a refused PUT,
@@ -318,6 +327,12 @@ export type DiscardPending = {
   durationSeconds: number
   locale: string
   stampedAt: number
+  /** Capture pipeline PR4 fix round 4: this discard was BELOW the accidental-tap
+   *  floor, so no words were ever owed for it (⚖ spend gate) and the stamp
+   *  exists only to keep the recording the staffer threw away out of every
+   *  recovery offer. Stamped together with markDiscardTranscriptDone, so the
+   *  sweep never reads it either. */
+  belowFloor?: boolean
 }
 
 /** What the recovery banner needs — everything except the audio itself. */
@@ -596,6 +611,14 @@ export async function markDiscardTranscriptDone(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { discardTranscriptDoneAt: Date.now() })
 }
 
+/** Capture pipeline PR4 fix round 4: this take's audio has been STAGED, and
+ *  here is the key it went to. Written once, right after the first successful
+ *  staging, so a transcription that keeps failing re-reads that copy instead of
+ *  re-uploading the whole take on every record-page mount. */
+export async function markTakeStaged(takeId: string, stagedPath: string): Promise<void> {
+  await patchTakeMeta(takeId, { stagedPath })
+}
+
 /** Capture pipeline PR3: the last secure attempt did not finish. Records WHY
  *  and nothing else — the take stays un-finalized, which is the only fact the
  *  retry (and PR5's drain) reads.
@@ -708,6 +731,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'target'
   | 'finalizedAt'
   | 'finalizedPath'
+  | 'stagedPath'
   | 'secureError'
   | 'durationMs'
   | 'startBoundAttempted'
@@ -726,6 +750,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     target: meta.target,
     finalizedAt: meta.finalizedAt,
     finalizedPath: meta.finalizedPath,
+    stagedPath: meta.stagedPath,
     secureError: meta.secureError,
     durationMs: meta.durationMs,
     startBoundAttempted: meta.startBoundAttempted,
@@ -864,6 +889,37 @@ export async function deleteTake(
   await deleteTakeRows(takeId, opts)
 }
 
+/** ⚖ WHAT A SAVE MAY SETTLE — the rule, in ONE place, for all three exits
+ *  (capture pipeline PR4 fix round 4). Every settled save used to pass
+ *  `humanResolved: true` as a CONSTANT, and round 3's premise for that ("an
+ *  ordinary recording is finalized by then") is false for a real cohort: a take
+ *  whose stop-time secure failed RETRYABLY (upload_5xx, network, upstream —
+ *  none of them terminal) reaches the save with no finalized key at all. The
+ *  pipeline staged a ROW-LESS copy, the save succeeds from it, and the constant
+ *  then deleted the device copy — leaving the row's finalized key empty for
+ *  ever, the only audio an object nothing can look up, and the drain's retry
+ *  (which would have secured it under the take's OWN key) dead with the take.
+ *
+ *  The device copy may go after a save ONLY IF:
+ *    (a) the take is FINALIZED — the plain unflagged delete below succeeds by
+ *        itself, exactly as it always did; or
+ *    (b) the take can NEVER be secured (isUnsecurableTake) — its staged copy is
+ *        the best the server will ever hold, so nothing is waiting for these
+ *        bytes and the flag is the truth.
+ *  A RETRYABLE-unsecured take is KEPT: the drain finalizes it later, and the
+ *  24 h TTL prune (allowed the moment it is finalized) takes the device copy
+ *  then. On the inbox row that means 確認する leaves a retryable take's row
+ *  standing until the drain has been — and the next tap clears it. Honest: the
+ *  server does not have that audio yet, and the row says so.
+ *
+ *  So `humanResolved` asserts exactly this, at all three of its call sites: a
+ *  save or a tap settled this row, and the server can never hold this audio
+ *  under its own key — the staged copy it holds is all there will ever be. */
+export async function settleTakeAfterSave(takeId: string): Promise<void> {
+  const meta = await readTakeSecureMeta(takeId)
+  return deleteTake(takeId, { humanResolved: !!meta && isUnsecurableTake(meta) })
+}
+
 /** The rows themselves, no owner question asked — for THIS file's two sweeps,
  *  which have already settled ownership in ways the gate above cannot: the TTL
  *  prune in listOwnTakes drops EXPIRED takes of every owner (nobody is coming
@@ -883,9 +939,12 @@ export async function deleteTake(
  * what turns it into a finalized one, and then the same call succeeds. The one
  * exception is a human who settled the row themselves — see `humanResolved` on
  * the door above. What that flag ASSERTS, stated once for all three of its call
- * sites (fix round 3): the server holds this take's audio and this save is what
- * settled it — either under the take's own finalized key, or as the staged copy
- * the words were transcribed from — so the only copy is no longer this one.
+ * sites (fix round 4): a save or a tap settled this row, and the server can
+ * NEVER hold this audio under the take's own key — the staged copy it has is
+ * all there will ever be. No call site writes it as a constant any more; the
+ * one place that decides it is settleTakeAfterSave above, which reads the take
+ * rather than assuming it (fix round 3 assumed, and was wrong for the takes
+ * whose secure failed retryably).
  *
  * Silent by contract, like every other failure in this file: the callers are
  * `void deleteTake(...)` fire-and-forget, and a refusal is not an error — it is

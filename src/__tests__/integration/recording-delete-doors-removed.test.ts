@@ -14,8 +14,8 @@
  * and pins the SIX named doors by file and shape, so a reviewer reading the PR
  * can see the list and a future edit that restores one fails here first.
  */
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join, sep } from 'node:path'
 
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8')
 
@@ -29,6 +29,13 @@ const code = (rel: string) =>
       return !t.startsWith('//') && !t.startsWith('*') && !t.startsWith('/*')
     })
     .join('\n')
+
+/** EVERY non-test source file under src/ — the census's reach for a rule that
+ *  has to hold in the whole app, not only in the files this suite names. */
+const srcFiles = () =>
+  (readdirSync(join(process.cwd(), 'src'), { recursive: true, encoding: 'utf8' }) as string[])
+    .map((r) => `src/${r.split(sep).join('/')}`)
+    .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
 
 describe('the six doors that could delete a recording', () => {
   it('1. the worker no longer removes the object it just transcribed', () => {
@@ -84,27 +91,43 @@ describe('what REPLACED them', () => {
     expect(src).toContain("if (meta && !meta.finalizedAt && !opts?.humanResolved) return")
   })
 
-  // ⚖ ITS EXITS ARE SETTLED SAVES, AND THEY ARE COUNTED (fix rounds 1, 2 and
-  // 3). The guard needs a way out or a 確認待ち row whose take was never secured
-  // can be cleared by nobody — the unclearable 要対応 badge this family has
-  // already been burned by. The exit is an argument only a call site that KNOWS
-  // the server holds the audio passes, so a future caller has to WRITE it to get
-  // past the guard. THREE such call sites exist, each one downstream of a karute
-  // record that is already on the server carrying this take's own words:
+  // ⚖ ITS EXITS ARE SETTLED SAVES, AND ONE RULE DECIDES THEM (fix rounds 1, 2,
+  // 3 and 4). The guard needs a way out or a 確認待ち row whose take was never
+  // secured can be cleared by nobody — the unclearable 要対応 badge this family
+  // has already been burned by. THREE call sites reach it, each one downstream
+  // of a karute record already on the server carrying this take's own words:
   // 確認する on the inbox row (round 1), 保存する on the stranded/recovery row
-  // (round 2), and the in-tab autosave's settle (round 3), which is where the
-  // very same stranded take lands when it is offered as `kind: 'take'`.
-  it('…and its only exits are the three rows a save settled, nowhere else', () => {
+  // (round 2), and the in-tab autosave's settle (round 3).
+  //
+  // Round 4 takes the DECISION off all three. They used to write
+  // `humanResolved: true` as a constant, which was false for a take whose
+  // secure failed retryably — no finalized key, a row-less staged copy, and the
+  // constant destroying the only audio the drain could still seal. The flag is
+  // now computed in ONE place from the take itself, and no call site may write
+  // it: the census below is over the WHOLE of src/, not the three files here,
+  // because a fourth exit added tomorrow is exactly what this pins.
+  it('…and its three exits all route through the ONE rule — no call site writes the flag', () => {
     const store = code('src/lib/karute/take-store.ts')
     expect(store).toContain('opts?: { humanResolved?: boolean }')
+    // The rule: the take is READ, and only a take that can never be sealed
+    // (or a finalized one, which needs no flag at all) is settled.
+    expect(store).toContain('export async function settleTakeAfterSave(takeId: string)')
+    expect(store).toContain('const meta = await readTakeSecureMeta(takeId)')
+    expect(store).toContain(
+      'return deleteTake(takeId, { humanResolved: !!meta && isUnsecurableTake(meta) })',
+    )
+
     const view = code('src/components/karute/redesign/record/RecordPageView.tsx')
-    expect(view.match(/humanResolved: true/g)).toHaveLength(2)
-    expect(view).toContain('deleteTake(row.takeId, { humanResolved: true })')
-    expect(view).toContain('deleteTake(d.takeId, { humanResolved: true })')
+    expect(view).toContain('settleTakeAfterSave(row.takeId).then(() => loadInbox())')
+    expect(view).toContain('settleTakeAfterSave(d.takeId)')
     const indicator = code('src/components/recording/ProcessingIndicator.tsx')
-    expect(indicator.match(/humanResolved: true/g)).toHaveLength(1)
-    expect(indicator).toContain('deleteTake(ctx.takeId, { humanResolved: true })')
-    // No other module in the app may reach for it.
+    expect(indicator).toContain('settleTakeAfterSave(ctx.takeId)')
+
+    // ⚖ AND THE CONSTANT IS GONE FROM THE APP. Comments are stripped by
+    // `code`, so prose about the flag is not the flag.
+    const writers = srcFiles().filter((rel) => /humanResolved:\s*true/.test(code(rel)))
+    expect(writers).toEqual([])
+    // No other module may reach for the flag at all.
     for (const rel of ['src/lib/global-pipeline.ts', 'src/lib/recording/discard-transcript.ts']) {
       expect(code(rel)).not.toContain('humanResolved')
     }
@@ -210,6 +233,10 @@ describe('what REPLACED them', () => {
     const guard = read('scripts/audit/check-audio-never-deleted.mjs')
     expect(guard).toContain("file: 'src/actions/voice.ts'")
     expect(guard).toContain("symbol: 'revokeVoiceActionCore'")
+    // …and it sees the two shapes fix round 4 added: a delete lifted off the
+    // handle by NAME, and emptying the whole bucket. Both live in one list, so
+    // a third spelling is added in one place.
+    expect(guard).toContain("const DELETE_METHODS = new Set(['remove', 'emptyBucket'])")
     expect(existsSync(join(process.cwd(), 'scripts/audit/check-audio-never-deleted.selftest.mjs')))
       .toBe(true)
     // …and CI runs both, or the guard is a file nobody executes.

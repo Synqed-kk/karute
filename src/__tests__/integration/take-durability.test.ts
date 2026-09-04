@@ -314,12 +314,14 @@ import {
   listOwnStoppedUnsecuredTakeIds,
   listPendingDiscardTakes,
   loadTakeBlob,
+  markDiscardTranscriptDone,
   markTakeFinalized,
   markTakeSecureError,
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeOutcome,
   readTakeSecureMeta,
+  settleTakeAfterSave,
   stampDiscardPending,
   stampTakeDuration,
   stampTakeOutcome,
@@ -1339,6 +1341,64 @@ describe('take durability — the discard-transcript register (A2-2)', () => {
 
   it('stamping a take that is already gone reports false — the caller must not hold audio back', async () => {
     expect(await stampDiscardPending('take-that-never-existed', PENDING)).toBe(false)
+  })
+
+  // ⚖ A BELOW-FLOOR DISCARD IS MARKED TOO (PR4 fix round 4, F2). Under the
+  // accidental-tap floor no words are ever collected — and until round 4 no
+  // stamp was written either. That was fine while the discard's own delete took
+  // the take with it; since the never-delete guard began refusing an unsecured
+  // take, the take SURVIVED with nothing on it, and the A2-2 exclusion below
+  // never fired: the recovery banner offered the staffer back the very
+  // recording they had just thrown away.
+  //
+  // ⚖ G5 rides the same rule: the pipeline-error arm (the transcript already
+  // refused) and the banner's below-floor arm now write the SAME pair, so both
+  // of their stamp shapes are driven through the real store here — the one
+  // carrying `belowFloor` and the one that honestly does not.
+  const settledOnArrival: [string, Record<string, unknown>][] = [
+    ['a below-floor discard', { durationSeconds: 7, belowFloor: true }],
+    // G5's pipeline-error arm and G6's review arm write the SAME shape — a
+    // plain stamp, settled — for the same reason: no words are still owed.
+    ['a pipeline-error or review discard (no belowFloor — the take can be an hour long)', {}],
+  ]
+  for (const [name, extra] of settledOnArrival) {
+    it(`⚖ ${name}: not offered, not swept — and the audio is still there`, async () => {
+      const takeId = await recoverableTake()
+      // Before the stamp it IS offered — which is exactly the bug when the
+      // discard's own delete is refused and nothing else marks the take.
+      expect((await getRecoverableTake([]))?.takeId).toBe(takeId)
+
+      // Exactly what the record page writes: the stamp, and the settle in the
+      // same breath.
+      expect(await stampDiscardPending(takeId, { ...PENDING, ...extra })).toBe(true)
+      await markDiscardTranscriptDone(takeId)
+
+      expect(await getRecoverableTake([])).toBeNull()
+      expect(await listOwnTakes()).toEqual([])
+      // …and the mount sweep never reads it: there are no words owed here, so a
+      // take that is settled on arrival must never reach a transcription bill.
+      expect(await listPendingDiscardTakes()).toEqual([])
+      // Marked, never deleted — the audio is exactly where it was.
+      expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+    })
+  }
+
+  // ⚖ …AND A MARK THAT IS NOT A SETTLE (PR4 fix round 4, G6). The review arm in
+  // a world with nowhere to persist stamps WITHOUT marking done: the words were
+  // never looked for, so the take must leave every recovery offer and stay on
+  // the sweep's list. The two halves are different questions, and this is the
+  // one shape that tells them apart.
+  it('⚖ a mark WITHOUT a settle: hidden from every offer, still owed to the sweep', async () => {
+    const takeId = await recoverableTake()
+    expect(await stampDiscardPending(takeId, PENDING)).toBe(true)
+
+    // Hidden — the staffer discarded this session deliberately.
+    expect(await getRecoverableTake([])).toBeNull()
+    expect(await listOwnTakes()).toEqual([])
+    // …but NOT settled: the sweep still owes it its words, and will collect
+    // them the moment this world can persist them.
+    expect(await listPendingDiscardTakes()).toEqual([{ takeId, discardPending: PENDING }])
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
   })
 })
 
@@ -3874,6 +3934,76 @@ describe('secure at stop', () => {
       expect(isUnsecurableTake({ secureError: 'no_segments' })).toBe(false)
       // A stop that DID land its stamp is a finished take, not a dead leg.
       expect(isUnsecurableTake({ stopPendingAt: Date.now(), durationMs: 5_000 })).toBe(false)
+    })
+  })
+
+  // ── ⚖ settleTakeAfterSave — what a SAVE may take (PR4 fix round 4, F1) ────
+  // The three settled exits used to pass `humanResolved: true` as a CONSTANT,
+  // on the premise that a take reaching a successful save is finalized by then.
+  // These are the three cohorts that actually arrive there, and the middle one
+  // is the premise failing: a stop-time secure that failed RETRYABLY leaves a
+  // take with no finalized key, the pipeline stages a row-less copy, the save
+  // succeeds from it — and the constant then destroyed the only audio anything
+  // could still seal.
+  describe('⚖ what a save may settle', () => {
+    it('a RETRYABLY-unsecured take SURVIVES it — and the drain still seals it under its OWN key', async () => {
+      putMock.mockImplementation(async () => {
+        order.push('put')
+        return { ok: false, status: 503 } as unknown as Response
+      })
+      const takeId = await stoppedTake()
+      // The cohort, proven rather than assumed: refused, and refused in a way
+      // that can still become a yes.
+      expect(metaOf(takeId).finalizedAt).toBeUndefined()
+      expect(metaOf(takeId).secureError).toBe('upload_503')
+      expect(TERMINAL_SECURE_ERRORS.has('upload_503')).toBe(false)
+
+      await settleTakeAfterSave(takeId)
+
+      // Kept — the guard refused it, because the flag was never written. Both
+      // segments are still there (the 5 s flush and the stop's own tail).
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(2)
+      expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
+
+      // …and the drain that comes next finishes what the save could not: the
+      // whole recording, under the take's own finalized key.
+      putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+        order.push('put')
+        putBodies.push(init?.body as Blob)
+        return { ok: true, status: 200 } as unknown as Response
+      })
+      await secureTake(port(), takeId)
+      expect(metaOf(takeId).finalizedPath).toBe(`app_biz-1_${takeId}.webm`)
+      expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'TAIL'.length)
+
+      // Only NOW may the device copy go — and the very same call takes it.
+      await settleTakeAfterSave(takeId)
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    it('a take that can NEVER be sealed IS settled — its staged copy is all there will be', async () => {
+      const takeId = await stoppedOwedTake()
+      await markTakeSecureError(takeId, 'reserved_elsewhere')
+      expect(isUnsecurableTake(metaOf(takeId))).toBe(true)
+
+      await settleTakeAfterSave(takeId)
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    it('a FINALIZED take is settled exactly as it always was', async () => {
+      const takeId = await stoppedTake()
+      expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+      await settleTakeAfterSave(takeId)
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    it('a take that is already gone is a no-op, not a throw', async () => {
+      await expect(settleTakeAfterSave('take-that-never-existed')).resolves.toBeUndefined()
     })
   })
 })
