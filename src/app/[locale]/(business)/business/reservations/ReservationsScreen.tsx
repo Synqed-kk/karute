@@ -61,6 +61,7 @@ import {
   genuineOf,
   isQueued,
   matchesFilters,
+  overdueOf,
   primaryActionOf,
   safeSlotsFor,
   viewFilters,
@@ -208,7 +209,7 @@ export interface Decorated extends ReservationRow {
  *  against this one function rather than against three re-implementations. */
 export function decorate(row: ReservationRow, boardNow: number, closeMinute: number): Decorated {
   const deadlineMinute = deadlineOf(row.lifecycle, row, closeMinute)
-  const overdue = deadlineMinute !== null && deadlineMinute < boardNow
+  const overdue = overdueOf(deadlineMinute, boardNow)
   const allFlags = flagsOf(row.flags, row.reassigned, overdue)
   return {
     ...row,

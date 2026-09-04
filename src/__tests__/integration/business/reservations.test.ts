@@ -61,6 +61,7 @@ import {
   isQueued,
   lifecycleOf,
   matchesFilters,
+  overdueOf,
   safeSlotsFor,
   shiftWarningOf,
   sourceOf,
@@ -352,6 +353,16 @@ describe('要対応 is one predicate on four surfaces', () => {
       expect(isQueued(word, 14 * 60)).toBe(true)
       expect(isQueued(word, null)).toBe(false)
     }
+  })
+
+  // H1 (hardening round, BREAKER #1) — 期限超過 exported beside isQueued, unit-
+  // pinned directly rather than by an identifier-keyed regex over decorate's
+  // own source (renaming the client re-derivation used to defeat that regex).
+  it('overdueOf — the ONE 期限超過 predicate, no deadline never overdue, ties are NOT overdue', () => {
+    expect(overdueOf(null, 14 * 60)).toBe(false)
+    expect(overdueOf(12 * 60, 12 * 60 + 1)).toBe(true)
+    expect(overdueOf(12 * 60, 12 * 60)).toBe(false)
+    expect(overdueOf(12 * 60, 12 * 60 - 1)).toBe(false)
   })
 
   it('each queue card asks for exactly one decision, and every kind has a carrier', async () => {
@@ -727,6 +738,12 @@ describe('every chip’s number IS the number of rows its press reveals', () => 
     ['すべての店舗', () => loadAll()],
   ]
 
+  // R3 (hardening round, BREAKER #7) — this "both ways" check calls
+  // `chipCounts` and `matchesFilters` on both sides of the comparison, so a
+  // broken `matchesFilters` (e.g. its `attention` branch always returning
+  // true) moves both sides together and still agrees here. The REAL pin
+  // against that class of bug is the hardcoded-numbers test below (「銀座
+  // reads the world's own six numbers」) — accepted as-is, no new pin.
   it.each(lenses)('%s — all six chips agree with their own list, both ways', async (_name, get) => {
     const p = await get()
     const rows = decorated(p)

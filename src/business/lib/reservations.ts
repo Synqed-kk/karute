@@ -90,6 +90,12 @@ export function isQueued(lifecycle: Lifecycle, deadline: number | null): boolean
   return deadline !== null && OPEN_LIFECYCLE.includes(lifecycle)
 }
 
+/** 期限超過 — the ONE definition. `decorate` is its only caller: no second copy
+ *  of this fact anywhere else derives it from `deadlineMinute`/`boardNow` again. */
+export function overdueOf(deadlineMinute: number | null, boardNow: number): boolean {
+  return deadlineMinute !== null && deadlineMinute < boardNow
+}
+
 /** 状態フラグ (M-31): the stored half plus the two derived ones. 期限超過 comes
  *  from the clock and 担当変更あり from the booking's own `reassigned_from`, so
  *  neither can be stored stale. 期限超過 leads — it is the one that changes what
