@@ -1288,7 +1288,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // slip onto the floor exemption without a round that looked at it. The
     // regex form origin/main reached for asserts only カルテ's own membership,
     // which this literal already contains.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }')
+    // RE-DERIVED again on the stitched preview tree (2026-09-04): 売上分析,
+    // 予約一覧 and 顧客 each joined the shell-owned list in their own V2 round.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai, .page.pg-analytics, .page.pg-reservations, .page.page-customers) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
