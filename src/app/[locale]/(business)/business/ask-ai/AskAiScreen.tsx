@@ -286,14 +286,8 @@ function SugCard({
       el.style.removeProperty('height')
       el.style.removeProperty('width')
       el.style.removeProperty('opacity')
-      // ⚖ F-A3 — THE CLIP IS BORROWED, NOT OWNED. `overflow: hidden` exists only
-      // so a size can animate to zero; left on permanently it cut the card's own
-      // hover shadow on three sides at the desk. It is put on for the collapse
-      // and taken off with the inline styles.
-      el.classList.remove('ak-leaving')
       return
     }
-    el.classList.add('ak-leaving')
     const list = el.parentElement
     const row = list !== null && getComputedStyle(list).flexDirection === 'row'
     const prop = row ? 'width' : 'height'
@@ -316,7 +310,13 @@ function SugCard({
   const head = splitAtName(card.headline, card.evidenceName)
 
   return (
-    <div className="ak-sug" ref={wrapRef}>
+    // ⚖ F-A3 — THE CLIP IS BORROWED, NOT OWNED. `overflow: hidden` exists only so
+    // a size can animate to zero; left on permanently it cut the card's own hover
+    // shadow on three sides at the desk. R2-10: the class is DECLARED here rather
+    // than written onto the node by the effect — React owns this element's
+    // className, and two writers on one attribute is the disagreement waiting to
+    // happen.
+    <div className={`ak-sug${collapsing ? ' ak-leaving' : ''}`} ref={wrapRef}>
       <div className={`ak-sug-in${card.badge ? ' ak-attn' : ''}`} data-cat={card.category}>
         <div className="ak-sug-cat">
           <span className="ak-sug-ic">{CATEGORY_MARK[card.category] ?? <NeutralMark />}</span>
@@ -843,7 +843,7 @@ export function AskAiScreen(props: AskAiProps) {
                 className="ak-chat"
                 aria-label="会話"
                 data-guide-title="会話"
-                data-guide="質問と回答が並ぶところです。読みやすいように、この枠の中だけを上下に動かして過去のやりとりを見られます。回答には出典がつき、どのカルテ・どのお客様の記録から答えたのかを確認できます。うまく回答できなかったときは、その理由と「もう一度送る」がその場に出ます。"
+                data-guide="質問と回答が並ぶところです。やりとりはこの枠の中だけでスクロールするので、過去のやりとりを見ても画面は伸びません。回答には出典がつき、どのカルテ・どのお客様の記録から答えたのかを確認できます。うまく回答できなかったときは、その理由と「もう一度送る」がその場に出ます。"
               >
                 <div className="ak-chat-hd">
                   <span className="ak-chat-ic">
@@ -1083,7 +1083,15 @@ export function AskAiScreen(props: AskAiProps) {
                     <span className="ak-rail-cnt">提案 <b>{visible.length}</b>件</span>
                   </div>
                 )}
-                <div className="ak-rail-body" ref={railRef}>
+                {/* ⚖ R2-2 — A CLOSED BAR IS CLOSED TO THE KEYBOARD TOO. At the
+                    phone band this is a zero-height clip, and a clip hides
+                    nothing from Tab: nineteen doors, 却下 buttons and card
+                    openers stayed in the tab order behind a bar that reads as
+                    shut. `inert` is the platform's own answer — it takes the
+                    subtree out of the tab order, out of the a11y tree and out of
+                    hit-testing in one attribute, and at the desk `railBodyOpen`
+                    is always true so it is never set. */}
+                <div className="ak-rail-body" ref={railRef} inert={!railBodyOpen}>
                   <div>
                     {visible.length === 0 ? (
                       <div className="ak-empty">

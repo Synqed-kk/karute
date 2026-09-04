@@ -369,15 +369,34 @@ describe('the room’s controls — every one has a visible effect', () => {
     const desk = CSS_CODE.slice(0, CSS_CODE.indexOf('@container'))
     expect(desk).not.toMatch(/\.ak-sug \{[^}]*overflow/)
     expect(desk).not.toMatch(/\.ak-rail-body[^{]*\{[^}]*overflow/)
-    // the card clips ONLY while it is leaving…
+    // the card clips ONLY while it is leaving — and R2-10 made that DECLARATIVE,
+    // so the class is pinned where React writes it rather than in an effect.
     expect(CSS_CODE).toContain('.biz .pg-ask-ai .ak-sug.ak-leaving { overflow: hidden; }')
-    expect(SRC_CODE).toContain("el.classList.add('ak-leaving')")
-    expect(SRC_CODE).toContain("el.classList.remove('ak-leaving')")
+    expect(SRC_CODE).toContain("<div className={`ak-sug${collapsing ? ' ak-leaving' : ''}`} ref={wrapRef}>")
     // …and the rail body clips only in the ONE band that springs its height.
-    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (width < 600px)'))
     expect(phoneBand.slice(0, phoneBand.indexOf('@media'))).toContain('.ak-rail-body { overflow: hidden; height: 0; }')
     // …and the hover lift the clip was eating is still there to paint.
     expect(desk).toMatch(/\.ak-sug-in:hover \{[^}]*box-shadow: var\(--ak-shadow-2\)/)
+  })
+
+  it('⚖ R2-2 — a CLOSED 提案 bar is closed to the keyboard too', () => {
+    // A zero-height clip hides nothing from Tab: at phone the collapsed bar kept
+    // every door, every 却下 and every card opener in the tab order behind
+    // something that reads as shut. `inert` is the platform's own answer — tab
+    // order, a11y tree and hit-testing, one attribute — and at the desk
+    // `railBodyOpen` is always true, so it is never set there.
+    expect(SRC_CODE).toContain('<div className="ak-rail-body" ref={railRef} inert={!railBodyOpen}>')
+    expect(SRC_CODE).toContain('const railBodyOpen = !railCollapsible || railOpen')
+  })
+
+  it('⚖ R2-10 — the leaving class is DECLARED, not written onto a React node', () => {
+    // React owns this element's className; an effect writing to it as well is
+    // two writers on one attribute, and the disagreement only shows up under a
+    // re-render nobody was thinking about.
+    expect(SRC_CODE).toContain("<div className={`ak-sug${collapsing ? ' ak-leaving' : ''}`} ref={wrapRef}>")
+    expect(SRC_CODE).not.toContain("classList.add('ak-leaving')")
+    expect(SRC_CODE).not.toContain("classList.remove('ak-leaving')")
   })
 
   it('⚖ THE FEED IS WINDOWED, and the head’s count is still the TOTAL', () => {
@@ -403,7 +422,7 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(CSS_CODE).not.toMatch(/\.ak-more[^{]*\{[^}]*(overflow|max-height)/)
     // …and below the two-column band it rides the STRIP as its last item rather
     // than dropping out of the reader's reach under a sideways row.
-    expect(CSS_CODE).toMatch(/@container akpage \(max-width: 907px\)[\s\S]*?\.ak-more \{ flex: 0 0 auto/)
+    expect(CSS_CODE).toMatch(/@container akpage \(width < 908px\)[\s\S]*?\.ak-more \{ flex: 0 0 auto/)
   })
 
   it('⚖ F2-5 — the 設定する CTA answers in ITS OWN section, and the composer’s slot stays send-only', () => {
@@ -478,6 +497,11 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(SRC_CODE).not.toContain('却下は保存されない')
     // …and the feed's own tour sentence no longer promises cards while the
     // spotlight is sitting on an empty box.
+    // ⚖ R2-11 (blind lens L4) — the chat card's own sentence uses the 録音 room's
+    // idiom for the same fact, so the family says one thing one way.
+    const chatStep = DECLARATIONS.find((d) => d.title === '会話')!
+    expect(chatStep.text).toContain('やりとりはこの枠の中だけでスクロールするので、過去のやりとりを見ても画面は伸びません。')
+    expect(chatStep.text).not.toContain('読みやすいように、この枠の中だけを上下に動かして')
     const feedStep = DECLARATIONS.find((d) => d.title === 'AIが提案する次のアクション')!
     expect(feedStep.text).not.toContain('1件ごとに根拠が付いていて')
     expect(feedStep.text).toContain('並ぶところです')
@@ -538,7 +562,7 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(SRC_CODE).toMatch(/onClick=\{\(\) => takeTemplate\(t\)\}>\s*\{t\.title\}/)
     // …and at phone it is ONE swipeable strip: a horizontal pan in its own
     // container, with no height of its own (⚖ page-scroll).
-    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (width < 600px)'))
     expect(phoneBand).toMatch(/\.ak-hintrow \{ flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden/)
   })
 
@@ -610,10 +634,18 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     // FALLS BY 188px as the viewport crosses 1024. A rule that chose a column
     // count from a viewport width would be choosing it from the wrong number.
     expect(CSS_CODE).toContain('container-type: inline-size; container-name: akpage;')
+    // ⚠ RANGE SYNTAX, AND IT IS LOAD-BEARING (R2-3). `max-width: 907px` and the
+    // screen's own `< 600` were not the same question: a page 599.5px wide —
+    // which a fractional viewport or a zoom level produces every day — answered
+    // NO to the 599 query and YES to the comparison, so the bar rendered with
+    // no clip and no order flip. One threshold, one spelling, both homes.
     expect(containerBands).toEqual([
-      'akpage (max-width: 907px)',
-      'akpage (max-width: 599px)',
+      'akpage (width < 908px)',
+      'akpage (width < 600px)',
     ])
+    // …and the screen's own constant is the SAME number the sheet asks about.
+    expect(SRC_CODE).toContain('const PHONE_PAGE = 600')
+    expect(SRC_CODE).toContain('pageWidth > 0 && pageWidth < PHONE_PAGE')
     // …and what is left on @media is what genuinely belongs to the VIEWPORT:
     // the page's own outer padding, the ≥44px touch floor and reduced motion.
     expect(bands).toEqual([
@@ -629,7 +661,7 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
   })
 
   it('the two zones stack when the PAGE cannot hold them, consultation FIRST', () => {
-    expect(CSS_CODE).toMatch(/@container akpage \(max-width: 907px\) \{[\s\S]*?\.ak-workspace \{ grid-template-columns: minmax\(0, 1fr\)/)
+    expect(CSS_CODE).toMatch(/@container akpage \(width < 908px\) \{[\s\S]*?\.ak-workspace \{ grid-template-columns: minmax\(0, 1fr\)/)
     // ⚖-ADJ K — THE ONE `order` RULE IN THE SHEET, and it is inside the phone
     // band. A collapsed 44px 提案 bar is a HEADER, not a zone: the chat is still
     // the page under it, which is what the accepted 440 shot shows. The old pin
@@ -637,7 +669,7 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     // in exactly this band, so a second one still fails the round.
     const orders = [...CSS_CODE.matchAll(/[^;{}]*\border\s*:\s*-?\d[^;}]*/g)].map((m) => m[0].trim())
     expect(orders).toEqual(['order: -1'])
-    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (max-width: 599px)'))
+    const phoneBand = CSS_CODE.slice(CSS_CODE.indexOf('@container akpage (width < 600px)'))
     expect(phoneBand.slice(0, phoneBand.indexOf('@media'))).toContain('.ak-rail { order: -1; }')
     // …and above that band the DOM order is the stack order: the consultation is
     // the titular function and is written first, so nothing has to reorder it.
@@ -791,6 +823,28 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
     // …and the SCREEN has no fifth glyph either: a category the plane grows later
     // gets the neutral mark rather than borrowing one.
     expect(SRC_CODE).toContain('{CATEGORY_MARK[card.category] ?? <NeutralMark />}')
+  })
+
+  it('⚖ R2-8 — every saturated-accent NON-PRESSABLE is named at the rule', () => {
+    // The accepted mock puts accent ink on SEVEN small non-pressables — five
+    // labels and two inline tokens. No colour changes (the mock is the spec Liam
+    // accepted) — what changes is that the sheet's own exception paragraph names
+    // ALL of them,
+    // so the next reader finds the argument rather than an undocumented
+    // divergence from the one-way accent law.
+    const preface = CSS.slice(0, CSS.indexOf('*/', CSS.indexOf('THE ONE-WAY ACCENT LAW')))
+    for (const named of ['.ak-sug-w', '.ak-msg-a .ak-msg-lb', '.ak-cite-tag', '.ak-ev-k', '.ak-chat-ic', '.ak-nm', '.ak-msg-ctx']) {
+      expect({ named, argued: preface.includes(named) }).toEqual({ named, argued: true })
+    }
+    // …and the four really are the whole list: every rule in the sheet that puts
+    // the accent family on ink is one of them.
+    const inked = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*color: var\(--ak-accent(?:-hover)?\)[^}]*\}/g)]
+      .flatMap((m) => m[1].trim().split(',').map((x) => x.trim().split('\n').pop()!.trim()))
+    for (const sel of inked) {
+      const label = ['ak-sug-w', 'ak-msg-lb', 'ak-cite-tag', 'ak-ev-k', 'ak-chat-ic', 'ak-nm', 'ak-msg-ctx'].some((n) => sel.includes(n))
+      const pressable = ['ak-why', 'ak-help', 'ak-namechip', 'ak-hchip', 'ak-undo', 'ak-sug-cv'].some((n) => sel.includes(n))
+      expect({ sel, argued: label || pressable }).toEqual({ sel, argued: true })
+    }
   })
 
   it('WASH TIER ONLY — the tone is a rule, a wash and ONE label, and never touches a pressable', () => {

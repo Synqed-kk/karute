@@ -35,15 +35,36 @@
    and never mixes the two. It is spent SOLID on exactly two pressables: 送信 and
    a card's door.
 
-   ⚖ THE ONE-WAY ACCENT LAW, AND THE ONE PLACE IT IS ARGUED. Every non-pressable
-   here is neutral or a WASH — the trust chips, the urgency badge, the 未接続 note,
-   the evidence pills. The ONE exception is the CATEGORY WORD on a suggestion
-   card, which the accepted mock colours: it is a 10.5px/700 LABEL naming which
-   AI設定 switch produced the row, it sits on a non-pressable, its hue is the
-   card's own left rule at wash saturation, and it is never on anything a reader
-   can press. Ruled in the S15 packet §2.5 and stated here so it is argued at the
-   rule rather than discovered in a diff. The card's pressables (the door, 却下)
-   are untouched by any of it, so the accent still means「you can press this」.
+   ⚖ THE ONE-WAY ACCENT LAW, AND THE SEVEN PLACES THIS ROOM ARGUES AT IT. Every
+   non-pressable here is neutral or a WASH — the trust chips, the urgency badge,
+   the 未接続 note, the evidence pills' own bodies. SEVEN small things carry
+   saturated ink, all of them from the accepted mock, none of them inside
+   anything a reader can press. Two shapes, and each is a tier the law leaves
+   open:
+
+   LABELS — they name a thing, at 10.5–11px/700, and never report a verdict:
+     · `.ak-sug-w`   — the category WORD on a suggestion card, naming which AI設定
+                       switch produced the row; its hue is the card's own left
+                       rule (ruled in the S15 packet §2.5);
+     · `.ak-msg-a .ak-msg-lb` — 「AIの回答」, the shoulder that tells an answer from
+                       a question when neither carries a loud fill;
+     · `.ak-cite-tag` — 「カルテ K-0001」, the half of an evidence line that says
+                       WHICH record, inside a pill that is deliberately not a door;
+     · `.ak-ev-k`    — 「根拠」, the same job on a rail card;
+     · `.ak-chat-ic` — the 会話 head's own glyph, which is the family's TINTED
+                       SECTION-HEAD ICON (the 録音 room's `rc-sec-icon`, itself the
+                       カルテ room's) — an icon naming its section.
+
+   INLINE TOKENS — a customer or a slice of data, set as a chip INSIDE a
+   sentence, on the wash the law already allows (CLAUDE.md's approved icon-chip
+   treatment: a *-50/-100 tint with its own ink):
+     · `.ak-nm`      — a customer's name, wherever a sentence contains one;
+     · `.ak-msg-ctx` — 「…様のカルテ2件」, the slice a question carried its hint for.
+
+   All seven are stated here so they are argued at the rule rather than found in
+   a diff (R2-8; no colour changed — the mock is the spec Liam accepted). The
+   room's PRESSABLES (送信, a card's door, 却下, the chips, the ?) are untouched by
+   any of it, so a saturated FILL still means「you can press this」.
 
    ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
@@ -692,8 +713,15 @@
    it lives inside the phone band, so the 「consultation FIRST」 pin is re-pinned
    to allow exactly this one and nothing else. ══════════════════════════════ */
 
-/* ── page < 908: the rail goes UNDER the chat, as a horizontal strip ───────── */
-@container akpage (max-width: 907px) {
+/* ── page < 908: the rail goes UNDER the chat, as a horizontal strip ─────────
+   ⚠ RANGE SYNTAX, AND IT IS LOAD-BEARING (R2-3). `max-width: 907px` and the
+   screen's own `< 908` are not the same question: a page 907.5px wide — which a
+   fractional viewport or a zoom level produces every day — answers NO to both
+   the 907 query and the 908 comparison, so the band silently fell through. One
+   threshold, one spelling, both homes. Range syntax ships WITH container
+   queries (Safari 16 / Chrome 105), inside this bundle's own baseline — the same
+   argument the shell makes for `:has()`. */
+@container akpage (width < 908px) {
   .biz .pg-ask-ai .ak-workspace { grid-template-columns: minmax(0, 1fr); }
   /* the strip is its own HORIZONTAL panner — allowed by the ⚖ page-scroll
      ruling, which reserves the vertical axis for the page. It owns no height. */
@@ -710,7 +738,7 @@
 }
 
 /* ── page < 600: the phone — 提案 is a collapsed BAR above the chat ────────── */
-@container akpage (max-width: 599px) {
+@container akpage (width < 600px) {
   .biz .pg-ask-ai .ak-rail { order: -1; }
   .biz .pg-ask-ai .ak-rail-hd { cursor: pointer; min-height: 44px; }
   /* ⚠ THE RESTING STATE IS THE SHEET'S, so the bar is closed on the first

@@ -319,8 +319,18 @@ export const suggestions: FixtureSuggestion[] = [
     reason: '回数券の残りが少なくなっています',
     category: 'customer_follow',
     text: '回数券の残りが少なくなっているお客様です。次回のご来店時に更新のご案内をおすすめします。',
-    sourceRef: { collection: 'karuteRecords', id: 'K-0011' },
-    deepLink: 'karute',
+    // ⚖ R2-5 — FIXED AT THE DATA (the 8/9 demo-data law). This card used to point
+    // at K-0011, whose customer holds TWELVE tickets — the most of anybody in the
+    // world — under a sentence reading 「残りが少なくなっています」. The lens's other
+    // ticket holder has EIGHT, so `apt-34` (代官山, that customer's own booking)
+    // is the lowest balance this store can see, and the claim is true of it.
+    // ⚠ A BOOKING rather than a 顧客 row on purpose: a `customers` reference
+    // resolves under BOTH lenses for a customer who books in both stores, which
+    // would put one card in two stores' feeds. An appointment id is store-scoped
+    // by construction, so the feeds stay disjoint.
+    // ⚠ AND THE DOOR IS 顧客, because a 回数券 balance is the 顧客 room's own fact.
+    sourceRef: { collection: 'bookings', id: 'apt-34' },
+    deepLink: 'customers',
   },
   {
     id: 'sug-vip-next',

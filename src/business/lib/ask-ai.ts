@@ -191,27 +191,50 @@ function refInLens(ref: AskAiSourceRef, ix: AskAiIndex): boolean {
 const personOf = (id: string | null | undefined, ix: AskAiIndex): string | null =>
   id ? (ix.customer.get(id)?.name ?? null) : null
 
-/** ⚖ ONE RESOLVER FOR WHO A ROW IS ABOUT (S15). The headline's `{name}` slot,
- *  the 根拠 line's own name and an answer's name chips are three renderings of
- *  ONE question —「whose record is this?」 — so they read it from one place (⚖ A8).
+/** Who a row is ABOUT — the person, not their name. */
+export interface AskAiSubject {
+  id: string
+  name: string
+  /** 会員番号. Only ever printed to tell two same-named people apart (R2-6). */
+  memberNumber: string
+}
+
+/** ⚖ ONE RESOLVER FOR WHO A ROW IS ABOUT (S15, and R2-7 finished the job). The
+ *  headline's `{name}` slot, the 根拠 line's own name and an answer's name chips
+ *  are three renderings of ONE question —「whose record is this?」 — so they read
+ *  it from one place (⚖ A8). `evidenceLineOf` used to re-derive the person
+ *  beside this function rather than through it; it calls this now, so the two
+ *  cannot drift.
+ *
+ *  ⚠ IT RETURNS THE PERSON, NOT THE NAME. This world holds cus-01 and cus-09,
+ *  two different customers with the SAME name, on purpose — so anything that
+ *  identifies a person by their name is a bug waiting for that pair (R2-6).
+ *
  *  `null` when the reference does not resolve at all, which is the same answer
  *  `evidenceLineOf` gives, so a card can never carry a headline naming somebody
  *  its evidence line could not. */
-export function personForRef(ref: AskAiSourceRef, ix: AskAiIndex): string | null {
-  switch (ref.collection) {
-    case 'karuteRecords': {
-      const rec = ix.record.get(ref.id)
-      const appt = rec ? ix.appointment.get(rec.appointment_id) : undefined
-      return appt ? personOf(appt.customer_id, ix) : null
+export function subjectOf(ref: AskAiSourceRef, ix: AskAiIndex): AskAiSubject | null {
+  const id = (() => {
+    switch (ref.collection) {
+      case 'karuteRecords': {
+        const rec = ix.record.get(ref.id)
+        const appt = rec ? ix.appointment.get(rec.appointment_id) : undefined
+        return appt?.customer_id ?? null
+      }
+      case 'bookings':
+        return ix.appointment.get(ref.id)?.customer_id ?? null
+      case 'inbox':
+        return ix.thread.get(ref.id)?.customer_id ?? null
+      case 'customers':
+        return ref.id
     }
-    case 'bookings':
-      return personOf(ix.appointment.get(ref.id)?.customer_id, ix)
-    case 'inbox':
-      return personOf(ix.thread.get(ref.id)?.customer_id, ix)
-    case 'customers':
-      return personOf(ref.id, ix)
-  }
+  })()
+  const c = id ? ix.customer.get(id) : undefined
+  return c ? { id: c.id, name: c.name, memberNumber: c.member_number } : null
 }
+
+export const personForRef = (ref: AskAiSourceRef, ix: AskAiIndex): string | null =>
+  subjectOf(ref, ix)?.name ?? null
 
 const staffNameOf = (id: string | null, ix: AskAiIndex): string =>
   (id ? ix.staff.get(id)?.full_name : null) ?? '担当未定'
@@ -250,30 +273,29 @@ export function evidenceLineOf(ref: AskAiSourceRef, ix: AskAiIndex, badged = fal
       if (!rec) return null
       const appt = ix.appointment.get(rec.appointment_id)
       if (!appt) return null
-      const name = personOf(appt.customer_id, ix)
-      if (!name) return null
-      return `カルテ ${rec.id}・${name}様（担当 ${staffNameOf(appt.staff_id, ix)} / ${menuNameOf(appt.menu_id, ix)}）`
+      const who = subjectOf(ref, ix)
+      if (!who) return null
+      return `カルテ ${rec.id}・${who.name}様（担当 ${staffNameOf(appt.staff_id, ix)} / ${menuNameOf(appt.menu_id, ix)}）`
     }
     case 'bookings': {
       const appt = ix.appointment.get(ref.id)
       if (!appt) return null
-      const name = personOf(appt.customer_id, ix)
-      if (!name) return null
-      return `予約 ${appt.display_no}・${name}様（担当 ${staffNameOf(appt.staff_id, ix)} / ${menuNameOf(appt.menu_id, ix)}）`
+      const who = subjectOf(ref, ix)
+      if (!who) return null
+      return `予約 ${appt.display_no}・${who.name}様（担当 ${staffNameOf(appt.staff_id, ix)} / ${menuNameOf(appt.menu_id, ix)}）`
     }
     case 'inbox': {
       const t = ix.thread.get(ref.id)
       if (!t) return null
-      const name = personOf(t.customer_id, ix)
-      if (!name) return null
+      const who = subjectOf(ref, ix)
+      if (!who) return null
       const due = t.due === null || badged ? '' : ` / 回答期限 ${hhmm(t.due)}`
-      return `受信トレイ・${name}様（${t.subject}${due}）`
+      return `受信トレイ・${who.name}様（${t.subject}${due}）`
     }
     case 'customers': {
-      const name = personOf(ref.id, ix)
-      if (!name) return null
-      const c = ix.customer.get(ref.id)!
-      return `顧客 ${c.member_number}・${name}様`
+      const who = subjectOf(ref, ix)
+      if (!who) return null
+      return `顧客 ${who.memberNumber}・${who.name}様`
     }
   }
 }
@@ -318,13 +340,19 @@ export interface FeedCard {
 }
 
 /** Split a resolved line at a name the RESOLVER produced. Not a regex over free
- *  text: the needle is the same string the world handed back, so a customer
- *  called 「予約」 could not make this cut in the wrong place. Returns the whole
- *  line as `before` when there is no name to find, which is what a line about a
- *  record with no person would be. */
+ *  text: the needle is the same string the world handed back.
+ *
+ *  ⚠ AND THE SEARCH STARTS AFTER THE LINE'S OWN SEPARATOR (R2-1). The comment
+ *  above used to claim a customer called 「予約」 could not make this cut in the
+ *  wrong place, and it could: `予約 R-4826・…` begins with the tag, so a bare
+ *  `indexOf` finds 「予約」 — or a latin initial 「R」, or 「カルテ」 — inside the TAG
+ *  and paints the chip on the wrong substring. The human half of every resolved
+ *  line starts after its first 「・」, so that is where the search starts. A
+ *  headline carries no separator at all: `indexOf` returns −1, +1 is 0, and the
+ *  search is unchanged. */
 export function splitAtName(line: string, name: string | null): { before: string; name: string; after: string } {
   if (!name) return { before: line, name: '', after: '' }
-  const i = line.indexOf(name)
+  const i = line.indexOf(name, line.indexOf('・') + 1)
   if (i < 0) return { before: line, name: '', after: '' }
   return { before: line.slice(0, i), name, after: line.slice(i + name.length) }
 }
@@ -363,16 +391,21 @@ export function buildFeed(suggestions: FixtureSuggestion[], world: AskAiWorld): 
     if (evidence === null) continue
     const linkLabel = LIVE_SEGMENTS[s.deepLink]
     if (!linkLabel) continue
-    // ⚠ THE SLOT IS FILLED FROM THE SAME RESOLVER THE LINE ABOVE USED. A card
-    // whose subject does not resolve never gets here (`evidence === null` drops
-    // it), so this is never `null` in practice — and the fallback is the plane's
-    // own sentence rather than a literal `{name}` reaching a reader.
-    const person = personForRef(s.sourceRef, ix)
+    // ⚠ THE SLOT IS FILLED FROM THE SAME RESOLVER THE LINE ABOVE USED, and the
+    // card is dropped before this point when it does not resolve — `evidence`
+    // is `null` for exactly the references this returns `null` for, one
+    // function, one answer. R2-10: the 「このお客様」 fallback that used to sit
+    // here was therefore unreachable, and unreachable copy is copy nobody can
+    // check, so it is gone.
+    const person = personForRef(s.sourceRef, ix)!
     cards.push({
       id: s.id,
       category: s.category,
       categoryLabel: CATEGORY_LABEL[s.category],
-      headline: person ? s.headline.replace('{name}', person) : s.headline.replace('{name}様', 'このお客様'),
+      // ⚠ A FUNCTION REPLACER (R2-4). `String.replace` reads `$&`, `$'` and `$1`
+      // inside its REPLACEMENT — a customer whose name contains one would have
+      // their own name rewritten by the substitution meant to print it.
+      headline: s.headline.replace('{name}', () => person),
       reason: s.reason,
       text: s.text,
       badge,
@@ -419,7 +452,14 @@ export interface AnswerSource {
 /** A person an answer's 出典 rows are about, and the question a tap on their
  *  chip puts in the composer. */
 export interface AnswerPerson {
+  /** The CUSTOMER, not their name — this world holds two people who share one
+   *  (cus-01 / cus-09), on purpose (R2-6). */
+  id: string
   name: string
+  /** What the chip PRINTS. Normally 「name様」; when two people in ONE answer
+   *  share a name it carries their 会員番号 too, so the reader can tell which of
+   *  them the chip is about. */
+  label: string
   prompt: string
 }
 
@@ -490,8 +530,23 @@ export function buildConversation(turns: FixtureTurn[], world: AskAiWorld): Conv
       const line = evidenceLineOf(ref, ix)
       if (line === null) continue
       sources.push({ ref: `${ref.collection}:${ref.id}`, line })
-      const name = personForRef(ref, ix)
-      if (name && !people.some((p) => p.name === name)) people.push({ name, prompt: namePrompt(name) })
+      // ⚠ DISTINCT BY CUSTOMER, NOT BY NAME (R2-6). Deduping on the name folded
+      // two different people into one chip the moment an answer cited both
+      // 見本 あかり's — which is a chip that fills the composer with a question
+      // about the wrong customer.
+      const who = subjectOf(ref, ix)
+      if (who && !people.some((p) => p.id === who.id)) {
+        people.push({ id: who.id, name: who.name, label: '', prompt: namePrompt(who.name) })
+      }
+    }
+    // …and when two of THIS answer's people share a name, both chips carry the
+    // 会員番号 so the pair is tellable apart. Only then: a member number on every
+    // chip would be noise on the ninety-nine answers that cite one person each.
+    for (const p of people) {
+      const twin = people.some((o) => o.id !== p.id && o.name === p.name)
+      p.label = twin
+        ? `${p.name}様（${ix.customer.get(p.id)?.member_number ?? ''}）`
+        : `${p.name}様`
     }
     const contextLabel =
       t.contextRef && t.contextRef.collection === 'customers' && refInLens(t.contextRef, ix)

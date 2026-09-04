@@ -66,6 +66,7 @@ import {
   splitAtName,
   splitEvidence,
   splitLead,
+  subjectOf,
   buildConversation,
   buildFeed,
   buildSignals,
@@ -230,9 +231,116 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
     }
   })
 
-  it('⚖ S15 — splitAtName cuts on the RESOLVER’s string, never on a pattern', () => {
+  it('⚖ R2-4 — a customer whose NAME contains a replacement pattern is printed literally', () => {
+    // `String.replace` reads `$&`, `$\'`, `$\`` and `$1` inside its REPLACEMENT,
+    // so a string replacer rewrites the very name it was asked to print. A
+    // FUNCTION replacer is exempt by specification — one character of diff, and
+    // the only fix that does not need a sanitiser nobody would maintain.
+    const world = { ...WORLD_A, customers: WORLD_A.customers.map((c) => ({ ...c, name: "$& 様$'" })) }
+    const card = buildFeed(suggestionPlane, world)[0]
+    expect(card.headline).toContain("$& 様$'")
+    expect(card.headline).not.toContain('{name}')
+    // …and the name really is the literal one rather than the pattern's meaning:
+    // `$&` would have expanded to `{name}` and `$\'` to the rest of the headline.
+    expect(card.headline.startsWith("$& 様$'")).toBe(true)
+  })
+
+  it('⚖ R2-6 · R2-7 — ONE resolver, and it answers with the PERSON rather than the name', () => {
+    // This world holds cus-01 and cus-09, two DIFFERENT customers sharing one
+    // name, on purpose. Anything that identifies a person by their name folds
+    // them together — which is a chip that fills the composer with a question
+    // about somebody else.
+    const ix = askAiIndex(WORLD_A)
+    const one = subjectOf({ collection: 'customers', id: 'cus-01' }, ix)!
+    const two = subjectOf({ collection: 'customers', id: 'cus-09' }, ix)!
+    expect(one.name).toBe(two.name)
+    expect(one.id).not.toBe(two.id)
+    expect(one.memberNumber).not.toBe(two.memberNumber)
+    // R2-7: `evidenceLineOf` reads THIS resolver rather than re-deriving beside
+    // it — proven by the lines it produces being the resolver's own strings.
+    for (const ref of [
+      { collection: 'karuteRecords' as const, id: 'K-0001' },
+      { collection: 'bookings' as const, id: 'apt-26' },
+      { collection: 'inbox' as const, id: 'inb-change' },
+      { collection: 'customers' as const, id: 'cus-08' },
+    ]) {
+      const line = evidenceLineOf(ref, ix)!
+      const who = subjectOf(ref, ix)!
+      expect({ ref: ref.id, named: line.includes(`${who.name}様`) }).toEqual({ ref: ref.id, named: true })
+    }
+    expect(subjectOf({ collection: 'customers', id: 'cus-9999' }, ix)).toBeNull()
+  })
+
+  it('⚖ R2-6 — an answer citing BOTH 見本 あかり’s renders TWO chips, told apart by 会員番号', () => {
+    // The demo answer cites one person per row, so the same-name pair never
+    // meets on screen today — and a dedupe on the NAME is a bug that waits for
+    // the day it does. Both halves are pinned: two chips, and labels a reader
+    // can tell apart.
+    const both = buildConversation([{
+      id: 'x', role: 'assistant', text: 'テストです。',
+      sources: [
+        { collection: 'karuteRecords', id: 'K-0006' },  // cus-01 見本 あかり
+        { collection: 'karuteRecords', id: 'K-0009' },  // cus-09 見本 あかり
+      ],
+      contextRef: null,
+    }], WORLD_A)[0]
+    expect(both.sources).toHaveLength(2)
+    expect(both.people.map((p) => p.id)).toEqual(['cus-01', 'cus-09'])
+    expect(both.people.map((p) => p.name)).toEqual(['見本 あかり', '見本 あかり'])
+    expect(new Set(both.people.map((p) => p.label)).size).toBe(2)
+    for (const p of both.people) {
+      const number = customers.find((c) => c.id === p.id)!.member_number
+      expect({ id: p.id, label: p.label }).toEqual({ id: p.id, label: `${p.name}様（${number}）` })
+    }
+    // …and an answer whose people are all distinct carries NO member numbers —
+    // the suffix is for the collision, not a permanent tax on every chip.
+    const plain = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    expect(plain.people.map((p) => p.label)).toEqual(plain.people.map((p) => `${p.name}様`))
+    for (const p of plain.people) expect(p.label).not.toMatch(/（[A-Z]-\d+）/)
+  })
+
+  it('⚖ R2-5 — the 回数券 card names the LOWEST-balance ticket holder its own lens can see', () => {
+    // ⚖ the demo-data law (8/9): a card claiming 「残りが少なくなっています」 about
+    // the customer holding the MOST tickets is fixed at the DATA, not at the
+    // copy. The subject is compared against every OTHER ticket-holding customer
+    // the same lens can read.
+    const ticketsOf = (id: string) =>
+      (customers.find((c) => c.id === id) as unknown as { ticket_balance?: number } | undefined)?.ticket_balance
+    const card = buildFeed(suggestionPlane, WORLD_B).find((c) => c.id === 'sug-ticket')!
+    const subject = subjectOf(
+      suggestionPlane.find((s) => s.id === 'sug-ticket')!.sourceRef,
+      askAiIndex(WORLD_B),
+    )!
+    const mine = ticketsOf(subject.id)
+    expect(mine).toBeGreaterThan(0)
+    const rivals = [...new Set(WORLD_B.appointments.map((a) => a.customer_id).filter(Boolean))]
+      .filter((id) => id !== subject.id)
+      .map((id) => ({ id, tickets: ticketsOf(id as string) }))
+      .filter((r) => typeof r.tickets === 'number')
+    for (const r of rivals) {
+      expect({ id: r.id, lower: (r.tickets as number) >= (mine as number) }).toEqual({ id: r.id, lower: true })
+    }
+    expect(card.evidenceName).toBe(subject.name)
+  })
+
+  it('⚖ S15 · R2-1 — splitAtName cuts on the RESOLVER’s string, AFTER the line’s own separator', () => {
     const parts = splitAtName('カルテ K-0001・見本 いつき様（担当 見本 しろう）', '見本 いつき')
     expect(parts).toEqual({ before: 'カルテ K-0001・', name: '見本 いつき', after: '様（担当 見本 しろう）' })
+    // ⚠ THE TAG IS NOT SEARCHABLE (R2-1, blind lens L1-1). A bare `indexOf`
+    // finds the needle wherever it first appears — including inside 「予約 R-4826」
+    // — so a customer named 「予約」, 「カルテ」 or with a latin initial had their
+    // chip painted over the reference number. The human half of a resolved line
+    // starts after its first 「・」, and that is where the search starts.
+    expect(splitAtName('予約 R-4826・予約様（担当 見本 しろう）', '予約'))
+      .toEqual({ before: '予約 R-4826・', name: '予約', after: '様（担当 見本 しろう）' })
+    expect(splitAtName('カルテ K-0001・カルテ様（担当 見本 しろう）', 'カルテ'))
+      .toEqual({ before: 'カルテ K-0001・', name: 'カルテ', after: '様（担当 見本 しろう）' })
+    expect(splitAtName('予約 R-4826・R様（担当 見本 しろう）', 'R'))
+      .toEqual({ before: '予約 R-4826・', name: 'R', after: '様（担当 見本 しろう）' })
+    // …and a HEADLINE has no separator at all, so the search is unchanged there
+    // (`indexOf` −1, +1 = 0) — which is what keeps the rail card's own chip right.
+    expect(splitAtName('見本 いつき様に再来のご案内', '見本 いつき'))
+      .toEqual({ before: '', name: '見本 いつき', after: '様に再来のご案内' })
     // a line with no name to find keeps all of itself, rather than being cut in
     // a place a regex guessed at
     expect(splitAtName('受信トレイ・空き待ち', null)).toEqual({ before: '受信トレイ・空き待ち', name: '', after: '' })
