@@ -84,27 +84,28 @@ describe('what REPLACED them', () => {
     expect(src).toContain("if (meta && !meta.finalizedAt && !opts?.humanResolved) return")
   })
 
-  // ⚖ ITS EXITS ARE PEOPLE, AND THEY ARE COUNTED (fix rounds 1 and 2). The
-  // guard needs a way out or a 確認待ち row whose take was never secured can be
-  // cleared by nobody — the unclearable 要対応 badge this family has already
-  // been burned by. The exit is an argument only a human-driven call site
-  // passes, so a future automatic caller has to WRITE it to get past the guard.
-  // TWO such call sites exist, both in the record page, both on a staffer's own
-  // tap on a row whose karute record is already on the server: 確認する on the
-  // inbox row (round 1), and 保存する on the stranded/recovery row (round 2).
-  it('…and its only exits are the two rows a human settled, nowhere else', () => {
+  // ⚖ ITS EXITS ARE SETTLED SAVES, AND THEY ARE COUNTED (fix rounds 1, 2 and
+  // 3). The guard needs a way out or a 確認待ち row whose take was never secured
+  // can be cleared by nobody — the unclearable 要対応 badge this family has
+  // already been burned by. The exit is an argument only a call site that KNOWS
+  // the server holds the audio passes, so a future caller has to WRITE it to get
+  // past the guard. THREE such call sites exist, each one downstream of a karute
+  // record that is already on the server carrying this take's own words:
+  // 確認する on the inbox row (round 1), 保存する on the stranded/recovery row
+  // (round 2), and the in-tab autosave's settle (round 3), which is where the
+  // very same stranded take lands when it is offered as `kind: 'take'`.
+  it('…and its only exits are the three rows a save settled, nowhere else', () => {
     const store = code('src/lib/karute/take-store.ts')
     expect(store).toContain('opts?: { humanResolved?: boolean }')
     const view = code('src/components/karute/redesign/record/RecordPageView.tsx')
     expect(view.match(/humanResolved: true/g)).toHaveLength(2)
     expect(view).toContain('deleteTake(row.takeId, { humanResolved: true })')
     expect(view).toContain('deleteTake(d.takeId, { humanResolved: true })')
+    const indicator = code('src/components/recording/ProcessingIndicator.tsx')
+    expect(indicator.match(/humanResolved: true/g)).toHaveLength(1)
+    expect(indicator).toContain('deleteTake(ctx.takeId, { humanResolved: true })')
     // No other module in the app may reach for it.
-    for (const rel of [
-      'src/lib/global-pipeline.ts',
-      'src/lib/recording/discard-transcript.ts',
-      'src/components/recording/ProcessingIndicator.tsx',
-    ]) {
+    for (const rel of ['src/lib/global-pipeline.ts', 'src/lib/recording/discard-transcript.ts']) {
       expect(code(rel)).not.toContain('humanResolved')
     }
   })
@@ -136,11 +137,22 @@ describe('what REPLACED them', () => {
     expect(src).not.toContain('const mimeType = input.mimeType ?? DEFAULT_MIME')
   })
 
+  // Fix round 3 amends the second line only: the row's key still wins, but a
+  // RESERVATION whose object never landed is not a key — it is a promise the
+  // take could not keep, and the caller's staged copy is the only audio there
+  // is. Storage answers that, because no field on the row can (the mint writes
+  // the pointer and UPLOADING, finalize writes UPLOADING back, and the discard
+  // stamps the duration itself).
   it('the discard transcript reads the ROW’s key, not the caller’s claim', () => {
     const src = code('src/actions/recording-discard-transcript.ts')
     expect(src).toContain('const pointer = recording?.audio_storage_path ?? null')
-    expect(src).toContain('const audioPath = pointer ?? input.audioPath')
+    expect(src).toContain('let audioPath = pointer ?? input.audioPath')
+    expect(src).toContain(
+      "if (pointer && pointer !== input.audioPath && (await objectExists(pointer)) === false) {",
+    )
     expect(src).toContain('.createSignedUrl(audioPath, 3600)')
+    // ONE home for "does this object exist", shared with both mints.
+    expect(src).toContain("import { objectExists } from '@/lib/recording/mint-take-url'")
   })
 
   // ⚖ …AND THE SECOND UPLOAD OF THE SAME TAKE IS GONE TOO (fix round 2). Both

@@ -178,7 +178,23 @@ export function ProcessingIndicator() {
         // The record is saved — the persisted audio has served its purpose.
         // Unconditional (not runId-guarded): the take must be deleted
         // regardless of which run is now live, same as before this fix.
-        if (ctx.takeId) void deleteTake(ctx.takeId)
+        //
+        // ⚖ THE THIRD SETTLED EXIT (capture pipeline PR4 fix round 3), beside
+        // the record page's two taps. THIS LINE RUNS ONLY AFTER the record is
+        // on the server carrying the words the in-tab pipeline transcribed from
+        // a SERVER-SIDE copy of this very blob — the take's finalized key, or
+        // the staged path prepareTranscription answered for a take that has
+        // none. The server HAS this audio; the guard's refusal exists for audio
+        // the server never received, and that is never this take. Without the
+        // flag a stranded/expired take offered as `kind: 'take'` is refused
+        // here for ever: the karute is written, the take survives, the 復元可能
+        // row returns on the next fold, and each retap files ANOTHER karute.
+        // The 自動 path shares the line and is unaffected — an ordinary
+        // recording is finalized by then (fix round 2's wait) and deleted
+        // unflagged anyway; an unsecurable one now settles instead of becoming
+        // an immortal expiredUnsecured row after the TTL. Device bytes only:
+        // deleteTake reaches IndexedDB and nothing else.
+        if (ctx.takeId) void deleteTake(ctx.takeId, { humanResolved: true })
         const id = res.id
         // Same runId guard as the error branch above — a late success must
         // not toast (or offer a `/karute/${id}` action that pushState's the

@@ -144,14 +144,38 @@ jest.mock('@/lib/ai/transcribe', () => ({
  *  storage double is here to prove a delete that no longer exists never comes
  *  back, not to exercise one. */
 const removed: string[] = []
+/** WHAT THE BUCKET HOLDS (fix round 3). The transcribe door now asks storage
+ *  whether the ROW's reserved object is actually there before that pointer is
+ *  allowed to beat the caller's claim — `info()`, the same existence probe the
+ *  upload mint and the session mint share. Default: every key has bytes, so
+ *  every pin written before this round keeps meaning exactly what it meant. */
+const mockBucket = {
+  /** Keys storage answers 404 for — a reservation whose PUT never landed. */
+  missing: new Set<string>(),
+  /** Storage failing to ANSWER at all (a 500), which is not "no object". */
+  unreachable: false,
+  /** Every key the door actually probed — the door must not pay for a probe
+   *  it has nothing to decide with. */
+  probed: [] as string[],
+}
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
       from: () => ({
-        createSignedUrl: async (path: string) => ({
-          data: { signedUrl: `https://storage.test/${path}` },
-          error: null,
-        }),
+        info: async (path: string) => {
+          mockBucket.probed.push(path)
+          if (mockBucket.unreachable) return { data: null, error: { status: 500 } }
+          if (mockBucket.missing.has(path)) return { data: null, error: { status: 404 } }
+          return { data: { size: 1 }, error: null }
+        },
+        // Storage cannot sign what it does not hold — which is the whole
+        // shape of the bug fix round 3 closes: sign a reservation whose PUT
+        // never landed and the action answers `failed`, the client reads that
+        // as retryable, and every record-page mount re-stages the same audio.
+        createSignedUrl: async (path: string) =>
+          mockBucket.missing.has(path)
+            ? { data: null, error: { status: 404 } }
+            : { data: { signedUrl: `https://storage.test/${path}` }, error: null },
         remove: async (paths: string[]) => {
           removed.push(...paths)
           return { error: null }
@@ -200,6 +224,9 @@ beforeEach(() => {
   segmentSets.length = 0
   upsertSeen.length = 0
   removed.length = 0
+  mockBucket.missing.clear()
+  mockBucket.unreachable = false
+  mockBucket.probed.length = 0
   listIgnoresSessionFilter = false
   // The session is bound to cust-1 at record time, and cust-1 consented.
   recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
@@ -337,6 +364,75 @@ describe('the tenant fence on a client-supplied storage key', () => {
     }
     await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ error: 'forbidden' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND ONLY WHILE THE OBJECT IT NAMES IS REALLY THERE (fix round 3, F2).
+  // Every session is born reserved, so the pointer names the finalized key from
+  // the row's first instant — and for a take that can NEVER be sealed under it
+  // (a lost tail, a stop that never finished, a terminal refusal) that key holds
+  // nothing, while fix round 2 stages the take's own blob under a second key and
+  // sends that path here. Preferring the pointer there signed a key with no
+  // object: `failed`, retryable, re-staged on every record-page mount for ever,
+  // and the words never landed. The ROW cannot answer the question — the mint
+  // writes the key AND status UPLOADING, finalize writes the same status back,
+  // and the discard that must already exist stamped duration_seconds itself —
+  // so storage is asked, with the same probe the two mints share.
+  describe('a reservation whose object never landed does not beat the staged copy', () => {
+    const STAGED = 'app_business-1_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.webm'
+
+    it('the staged path is signed and transcribed when the reserved key is empty', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
+      )
+      // The row's own key is the only thing the door probed — never the
+      // caller's claim, which no caller may use this door to ask about.
+      expect(mockBucket.probed).toEqual([OWN_PATH])
+    })
+
+    it('…and a duration on the row does not make it finalized — the DISCARD wrote that', async () => {
+      // stampRecordingDuration (discard.ts) stamps duration_seconds after the
+      // receipt lands, which hasStaffDiscard above proves it did. A row-fact
+      // rule keyed on the duration would read this as "finalized" and throw the
+      // staged path away again.
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(segmentSets[0][0].text).toBe('こんにちは、本日はありがとうございます')
+    })
+
+    it('B5 stands: a FINISHED take\u2019s object is there, so its row still wins', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      )
+    })
+
+    it('storage that cannot ANSWER keeps the pointer — a probe that cannot read is not an answer', async () => {
+      recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.unreachable = true
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      )
+    })
+
+    it('the ordinary discard names the pointer itself and pays for NO probe', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ ok: true })
+      expect(mockBucket.probed).toEqual([])
+    })
+
+    it('a staged path outside the tenant is still refused before anything is read', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: FOREIGN_PATH })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockBucket.probed).toEqual([])
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
   })
 })
 

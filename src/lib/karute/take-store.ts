@@ -457,11 +457,20 @@ export async function appendTakeSegment(
   try {
     const db = await openDb()
     if (!db) return false
+    // ⚖ A TRANSIENT NULL SESSION MUST NEVER COST AUDIO (fix round 3). The uid
+    // is COMPARED, never required: `getSession()` answers null on a FAILED
+    // refresh too (auth-js 2.99.1), so a long recording that crosses its token
+    // expiry while the network is down used to fail this write, latch the
+    // recorder's `p.disabled`, go memory-only and be marked tailIncomplete at
+    // the stop — permanently unsecurable, for a blip. The gate is here for
+    // FOREIGN callers, and a known mismatch is still refused; the only caller
+    // is the recorder's own flush, with the take id it minted this session. The
+    // read paths are all gated on their own, so nothing a null-uid flush writes
+    // is ever visible to a colleague.
     const uid = await currentUserId()
-    if (!uid) return false
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta || meta.ownerUid !== uid) return false
+    if (!meta || (uid && meta.ownerUid !== uid)) return false
     await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
     await req(
       tx.objectStore(TAKES).put(
@@ -873,7 +882,10 @@ export async function deleteTake(
  * refused and kept; the record page's mount retry (and PR5's launch drain) is
  * what turns it into a finalized one, and then the same call succeeds. The one
  * exception is a human who settled the row themselves — see `humanResolved` on
- * the door above.
+ * the door above. What that flag ASSERTS, stated once for all three of its call
+ * sites (fix round 3): the server holds this take's audio and this save is what
+ * settled it — either under the take's own finalized key, or as the staged copy
+ * the words were transcribed from — so the only copy is no longer this one.
  *
  * Silent by contract, like every other failure in this file: the callers are
  * `void deleteTake(...)` fire-and-forget, and a refusal is not an error — it is

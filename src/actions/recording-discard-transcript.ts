@@ -38,6 +38,7 @@ import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { objectExists } from '@/lib/recording/mint-take-url'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
@@ -351,7 +352,39 @@ export async function transcribeAndPersistDiscardWithClient(
     const recording = await synqed.recordings.get(input.recordingSessionId)
     const pointer = recording?.audio_storage_path ?? null
     if (pointer && !isOwnRecordingKey(pointer, actor.businessId)) return { error: 'forbidden' }
-    const audioPath = pointer ?? input.audioPath
+    // ⚖ …AND ONLY WHILE THE OBJECT IT NAMES IS REALLY THERE (fix round 3).
+    // Every session is BORN RESERVED (session-mint.ts), so the pointer names
+    // this take's finalized key from the row's first instant — including for a
+    // take that can NEVER be sealed under it (a lost tail, a stop leg that died
+    // before it could stamp, a terminal refusal). That key holds no object, and
+    // fix round 2 stages such a take's own blob under a second key and sends
+    // THAT path here. Preferring the pointer threw it away: the signing below
+    // fails, `failed` is retryable, and every record-page mount re-staged a
+    // fresh whole-take copy of the same audio, for ever, while the words never
+    // landed.
+    //
+    // THE ROW CANNOT ANSWER THIS — verified, not assumed. The mint creates the
+    // row carrying the key AND status UPLOADING; finalize adds duration_seconds
+    // and writes the SAME UPLOADING back (finalize-take.ts), so no status
+    // flips; and the reasoned discard this action requires has itself already
+    // stamped duration_seconds on the row (discard.ts's stampRecordingDuration,
+    // fired after the receipt lands — which hasStaffDiscard above proves it
+    // did). Every row reaching this line therefore looks finalized whether or
+    // not it is. Storage is the only honest fact, asked with the ONE existence
+    // probe the upload mint and the session mint already share.
+    //
+    // Asked ONLY when the caller named a DIFFERENT key: the ordinary discard
+    // sends the finalized key itself, so there is nothing to decide and nothing
+    // to pay for. A probe that cannot READ is not an answer ('unknown'), so the
+    // pointer keeps winning — fail closed, exactly like the mint's own use of
+    // it. B5 is untouched: a colleague's FINISHED take has an object, so a row
+    // pointing at one still wins over any claim, and `input.audioPath` cleared
+    // the SAME isOwnRecordingKey fence at the top of this function before
+    // anything here read it.
+    let audioPath = pointer ?? input.audioPath
+    if (pointer && pointer !== input.audioPath && (await objectExists(pointer)) === false) {
+      audioPath = input.audioPath
+    }
 
     if (!(await consentAllows(synqed, recording))) return { skipped: 'consent' }
 

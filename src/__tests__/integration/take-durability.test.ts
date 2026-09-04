@@ -699,14 +699,38 @@ describe('take durability — owner gate (store layer)', () => {
     // The next shift signs in while the recorder is still flushing.
     mockUid = 'staff-B'
     expect(await appendTakeSegment(takeId, 1, new Blob(['bbb']))).toBe(false)
-    mockUid = null
-    expect(await appendTakeSegment(takeId, 2, new Blob(['ccc']))).toBe(false)
     expect(segments().size).toBe(1)
 
     // …and the gate is what refused, not a broken store: the owner still writes.
     mockUid = 'staff-A'
     expect(await appendTakeSegment(takeId, 1, new Blob(['bbb']))).toBe(true)
     expect(segments().size).toBe(2)
+  })
+
+  // ⚖ …BUT AN UNKNOWN UID IS NOT A FOREIGN ONE (fix round 3, F3). `getSession()`
+  // answers null on a FAILED REFRESH as well as on a sign-out (auth-js 2.99.1),
+  // so requiring a uid here made a token expiry crossed offline — an hour into a
+  // recording — refuse the write, which latches the recorder's `p.disabled`:
+  // memory-only from then on, and tailIncomplete at the stop. Permanently
+  // unsecurable audio, for a blip. The comparison is what the gate is FOR, and
+  // it still refuses a known mismatch above.
+  it('a uid that will not resolve is not a colleague — the audio still lands', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    expect(segments().size).toBe(1)
+
+    mockUid = null
+    expect(await appendTakeSegment(takeId, 1, new Blob(['bbb']))).toBe(true)
+    expect(segments().size).toBe(2)
+    // The row is still the owner's — nothing about it was rewritten.
+    expect((takes().get(JSON.stringify(takeId)) as { ownerUid: string }).ownerUid).toBe('staff-A')
+  })
+
+  it('…and a take that is not there is still refused, uid or no uid', async () => {
+    mockUid = null
+    expect(await appendTakeSegment('take-that-never-existed', 0, new Blob(['x']))).toBe(false)
+    expect(segments().size).toBe(0)
   })
 
   it('a freshly-flushed take (possibly live in another tab) is not offered until the grace passes', async () => {
@@ -1406,6 +1430,51 @@ describe('secure at stop', () => {
     // the final 'TAIL' chunk, not just the 5 s segment.
     expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
     expect(putBodies[0].size).toBe('aaa'.length + 'TAIL'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ⚖ A SESSION THAT ANSWERS NULL MID-RECORDING NEVER DISABLES CAPTURE (fix
+  // round 3, F3). The store gate used to REQUIRE a uid, and `getSession()`
+  // answers null on a failed refresh too — so a long take crossing its token
+  // expiry while the salon wifi was down failed one flush, latched
+  // `p.disabled`, and every later segment (the tail included) existed only in
+  // memory: at the stop the flush answers false, the leg takes its
+  // skipped-tail exit, and the row wears `tailIncomplete` — the mark that makes
+  // a take unsecurable for ever. The blip is transient by nature; the loss was
+  // not.
+  /** An hour into the take the access token expires and the refresh cannot
+   *  reach the network, so currentUserId() answers null for a while — then the
+   *  session comes back, as a refresh blip does. */
+  async function refreshBlipMidRecording(): Promise<string> {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    mockUid = null
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    mockUid = 'staff-A'
+    return takeId
+  }
+
+  it('a token refresh that answers null mid-recording still lands its audio', async () => {
+    const takeId = await refreshBlipMidRecording()
+    expect(segments().size).toBe(2)
+    expect(metaOf(takeId).lastSeq).toBe(1)
+  })
+
+  it('…and the take is stopped, stamped and secured WHOLE afterwards', async () => {
+    const takeId = await refreshBlipMidRecording()
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    // No tailIncomplete — the mark that makes a take unsecurable for ever —
+    // and the object carries EVERY byte: no cohort of it was memory-only.
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(order).toContain('put')
+    expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'bbb'.length + 'TAIL'.length)
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
   })
 

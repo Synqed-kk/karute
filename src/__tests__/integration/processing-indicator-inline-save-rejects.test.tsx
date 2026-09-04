@@ -41,9 +41,21 @@ const saveKaruteRecordInline = jest.fn(async (_input?: unknown) => ({ id: 'r' })
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecordInline: (...a: unknown[]) => saveKaruteRecordInline(...a),
 }))
-const deleteTake = jest.fn()
+/** Takes the SERVER NEVER RECEIVED under a finalized key — the cohort
+ *  deleteTake refuses to destroy automatically (capture pipeline PR4). */
+const strandedTakeIds = new Set<string>()
+/** …and what the store would have left behind afterwards. */
+const deletedTakeIds = new Set<string>()
+/** ⚖ IT CARRIES THE REAL GUARD (fix round 3). A fake that removed
+ *  unconditionally would go green on a call site that never got past the
+ *  guard at all — which is exactly the bug this round closes for the in-tab
+ *  autosave's settle. */
+const deleteTake = jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+  if (strandedTakeIds.has(takeId) && !opts?.humanResolved) return
+  deletedTakeIds.add(takeId)
+})
 jest.mock('@/lib/karute/take-store', () => ({
-  deleteTake: (...a: unknown[]) => deleteTake(...a),
+  deleteTake: (...a: unknown[]) => deleteTake(...(a as [string, { humanResolved?: boolean }?])),
 }))
 
 import { toast } from 'sonner'
@@ -76,6 +88,8 @@ function stageInTabAutosave() {
 beforeEach(() => {
   globalPipeline.reset()
   jest.clearAllMocks()
+  strandedTakeIds.clear()
+  deletedTakeIds.clear()
 })
 
 describe('ProcessingIndicator — a REJECTED inline save (Greptile #729)', () => {
@@ -109,5 +123,40 @@ describe('ProcessingIndicator — a REJECTED inline save (Greptile #729)', () =>
     await waitFor(() => expect(globalPipeline.state).toBe('review'))
     expect(toast.error).toHaveBeenCalledTimes(1)
     expect(deleteTake).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ THE SETTLE ARM (capture pipeline PR4 fix round 3, F1) ────────────────
+// Same staged autosave, the other exit. A stranded or expired take is offered
+// as `kind: 'take'` and settles HERE, after the in-tab pipeline transcribed it
+// and this save wrote the karute — so the server holds this audio, under the
+// take's finalized key or as the staged copy the words came from. Unflagged,
+// the never-delete guard refused it: the record was written, the take survived,
+// the 復元可能 row came back on the next fold and each retap filed ANOTHER
+// karute. It lives in this file rather than the server-settle suite because
+// that one shares a singleton across five renders; this one's registry is
+// fresh, so the pin means only what it says.
+describe('ProcessingIndicator — a take the server never finalized is settled by the save', () => {
+  it('the take rows are gone: the 復元可能 row cannot come back', async () => {
+    strandedTakeIds.add('take-1')
+    stageInTabAutosave()
+
+    render(<ProcessingIndicator />)
+
+    await waitFor(() => expect(saveKaruteRecordInline).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(deleteTake).toHaveBeenCalled())
+    // THE OUTCOME FIRST: the rows are actually gone, judged through the real
+    // guard — not the argument that got them past it.
+    expect(deletedTakeIds.has('take-1')).toBe(true)
+    expect(deleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
+  })
+
+  it('an ordinary finalized take is settled exactly as before', async () => {
+    stageInTabAutosave()
+
+    render(<ProcessingIndicator />)
+
+    await waitFor(() => expect(deleteTake).toHaveBeenCalled())
+    expect(deletedTakeIds.has('take-1')).toBe(true)
   })
 })
