@@ -10305,6 +10305,26 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "// rendered nothing, which is flag 3's disease exactly. Canon sets it from",
     "{/* canon sets this as the cards' aria-description (:3865).",
   ]
+  // ⚖ BREAKER-828 DELTA 5 C1 — THE EXACT-LINE ARRAY OVER THE BARE MODULE
+  // PATH, RAW. `C1` (a second `import` NEWLINE `* as canonRules from
+  // "…drag-rules"` with DOUBLE quotes, read through a computed key) is
+  // invisible to BOTH belts above: `rawDragImports`'s needle is
+  // quote-specific (single quotes only) and `stripDragImports` drops any
+  // line beginning with `*` — the very line the two-line form's path lands
+  // on. Quote style, one line or two, `import`/`export … from`/`require`
+  // with a CONTIGUOUS path — every static form puts the contiguous path on
+  // SOME raw line, so this array is the zero-budget closure over both
+  // belts: any added, removed or reworded line — even a comment — moves it.
+  // The one non-contiguous form (a concatenated `require`, `C5`) is shut by
+  // foundation's import inventory AND eslint's `no-require-imports` error,
+  // both outside this file — measured, not chased here.
+  const DRAGRULES_SRC: readonly string[] = [
+    "//     src/business/lib/canon-logic/drag-rules.ts. A booking that starts at 17:12",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
+  const DRAGRULES_INT: readonly string[] = [
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
 
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
   const SETS_LINE =
@@ -10475,6 +10495,20 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // so this count may stay at 1 while `S2` is still RED, on the raw
       // belt above. That is why the raw belt exists rather than only this.
       expect({ where, stripDragImports: (stripped(src).match(/canon-logic\/drag-rules/g) ?? []).length }).toEqual({ where, stripDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 5 C1 — AND THE EXACT LINES OVER THE BARE PATH,
+      // CLOSING THE GAP BETWEEN THE TWO BELTS ABOVE. `C1` writes a second
+      // `import` NEWLINE `* as canonRules from "…drag-rules"` with DOUBLE
+      // quotes: the raw belt's needle only matches single quotes, and the
+      // strip drops the `*`-prefixed second line — the very line the path
+      // sits on — so neither counter above moves. Quote style, one line or
+      // two, `import`/`export … from`/`require` with a contiguous path —
+      // every static form puts the contiguous path on SOME raw line, so any
+      // added, removed or reworded line — even a comment — moves this
+      // array. The only non-contiguous form (a concatenated `require`, C5)
+      // is shut outside this file, by foundation's import inventory AND
+      // eslint's `no-require-imports` error — both measured, not this pin's
+      // job.
+      expect(rawLineHits(src, /canon-logic\/drag-rules/g)).toEqual(where === 'checksFor (screen)' ? DRAGRULES_SRC : DRAGRULES_INT)
       // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
       // no-op, are gone in every shape the breaker has used on this lane.
       for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
