@@ -690,7 +690,14 @@
    them for free; ⚖ R13's recipe on the pressed state — a light accent wash and
    accent text, never a fill. Intrinsic like the spine's tiles, so the four
    reflow with the room rather than at a number this sheet babysits. */
-.biz .pg-coaching .cg-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 10px; margin-top: 12px; }
+/* ⚠ TWO OR FOUR, NEVER THREE-AND-AN-ORPHAN. `auto-fit` took three of the four
+   tiles at the reference width and left 「判断できる回数に未到達」 alone on a row
+   of its own — the same half-empty row the supporting column and the 成績 tiles
+   each have a rule against, one level up and one level down. The mock's own
+   answer is four across the desk and two on a phone, and the fold threshold
+   already carries it: four tiles at 130 plus three 10px gaps is 550, and at
+   container 700 the framing card holds 660. */
+.biz .pg-coaching .cg-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .biz .pg-coaching .cg-tile {
   display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
   padding: 11px 13px; min-width: 0;
@@ -992,6 +999,8 @@
      when the total is odd, so the orphan — and only the orphan — takes the whole
      row. A run with six cards is untouched. */
   .biz .pg-coaching .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* …and the board's four counts take their own row, all four (see above). */
+  .biz .pg-coaching .cg-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   /* ⚠ V2-1 — THE BOARD ROW IS THREE COLUMNS, AND THE ACTION IS ITS OWN LINE.
      A fourth `max-content` track is 0px wide on every row that has no action and
      ~200px on the one that does, and `.cg-row` is a grid PER `<li>`, so the

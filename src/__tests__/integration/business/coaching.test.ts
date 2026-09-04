@@ -2163,6 +2163,13 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
   it('D8-2F · the fold band never orphans a card in a half-empty row', () => {
     // the count is read off the DOM, so no number here can go stale
     expect(at(700)).toContain('.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    // ⚠ AND THE BOARD'S FOUR COUNTS ARE TWO OR FOUR, NEVER THREE-AND-AN-ORPHAN.
+    // `auto-fit` took three at the reference width and left the fourth alone on
+    // a row of its own — the same defect one level up (the supporting column)
+    // and one level down (the 成績 tiles) each already have a rule against.
+    expect(CSS_CODE).toContain('.cg-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expect(at(700)).toContain('.cg-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }')
+    expect(CSS_CODE).not.toMatch(/\.cg-tiles \{[^}]*auto-fit/)
   })
 
   it('D8-2G / V2-1 · the board row is THREE columns and the action is its own line', () => {
