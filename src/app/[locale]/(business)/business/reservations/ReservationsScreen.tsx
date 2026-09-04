@@ -196,6 +196,13 @@ const SEND_REFUSAL =
 const ESCALATE_TOAST = (no: string) =>
   `この画面内のプロトタイプでは、予約 ${no}を判断できる担当者へ渡すところまでを示します`
 
+/** F-3 (hardening round, FRESH lens) — ONE 精算 verdict word for both homes:
+ *  the rail card's placeholder and the inspector's `Primary` used to diverge
+ *  by wording for the identical disabled/準備中 state. `QUEUE_ACTION.settle`
+ *  stays as-is (its own suite pin, and the label a live settle action would
+ *  use later) — only this pending-state sentence is shared. */
+const SETTLE_PENDING_LABEL = '売上・レジで精算（準備中）'
+
 export interface Decorated extends ReservationRow {
   deadlineMinute: number | null
   overdue: boolean
@@ -434,6 +441,12 @@ function Screen(props: ReservationsProps) {
   const confirmRef = useRef<HTMLDivElement>(null)
   const segRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
+  // F-1 (hardening round, FRESH lens) — the thumb's `move` closes over its
+  // OWN springs and `placed` flag; parked in a ref (the `useCollapse` `first`
+  // ref shape, :1424) so the mount effect below (deps `[reduced]`, springs
+  // created once) and the per-press effect (deps `[chip]`) can share it
+  // without either effect tearing the springs down on a chip press.
+  const thumbMoveRef = useRef<((jump: boolean) => void) | null>(null)
   const sheetRef = useRef<HTMLElement>(null)
   // F6 (fix round 1, LENS-3 F-1) — the sheet's own modal hardening state,
   // mirroring RecordingScreen.tsx's `Overlay` (:2275-2300, IN-ROOM).
@@ -716,7 +729,12 @@ function Screen(props: ReservationsProps) {
   /** THE SEGMENTED THUMB — X and W on their own springs (.30), driven by the
    *  LIT chip's own offset box, so the thumb cannot drift from the chip it is
    *  under when the counts change width. It JUMPS on first layout, on a resize
-   *  and once the real fonts have loaded; it SETS when a chip is pressed. */
+   *  and once the real fonts have loaded; it SETS when a chip is pressed.
+   *
+   *  F-1 (hardening round, FRESH lens) — TWO effects, not one: this one builds
+   *  the springs ONCE per `reduced` (mount, plus the rare reduced-motion
+   *  flip), so a chip press below never tears them down and re-seeds `placed`
+   *  — the bug that made every press JUMP instead of SLIDE. */
   useEffect(() => {
     const seg = segRef.current
     const thumb = thumbRef.current
@@ -734,12 +752,24 @@ function Screen(props: ReservationsProps) {
       const w = on.offsetWidth
       if (placed && !jump) { sx.set(x); sw.set(w) } else { sx.jump(x); sw.jump(w); placed = true }
     }
+    thumbMoveRef.current = move
     move(false)
     const onResize = () => move(true)
     window.addEventListener('resize', onResize)
     document.fonts?.ready?.then(() => move(true)).catch(() => {})
-    return () => { sx.stop(); sw.stop(); window.removeEventListener('resize', onResize) }
-  }, [reduced, chip])
+    return () => {
+      sx.stop(); sw.stop()
+      window.removeEventListener('resize', onResize)
+      thumbMoveRef.current = null
+    }
+  }, [reduced])
+
+  /** …and THIS effect is the one a chip press actually reruns: it calls the
+   *  persisted `move` against the springs the effect above already built, so
+   *  the press SLIDES (`set`) instead of rebuilding the springs and jumping. */
+  useEffect(() => {
+    thumbMoveRef.current?.(false)
+  }, [chip])
 
   /** THE PHONE SHEET — the same critically-damped spring as everything else, so
    *  it leaves along the exact path it arrived on. It is a page-root sibling of
@@ -1697,7 +1727,7 @@ function RailAction({
   if (row.kind === 'settle') {
     return (
       <button className="btn" type="button" disabled title="売上・レジは準備中です">
-        {QUEUE_ACTION.settle}（準備中）
+        {SETTLE_PENDING_LABEL}
       </button>
     )
   }
@@ -1867,10 +1897,10 @@ function Primary({
     case 'accept':
       return <button className={cls} type="button" data-press onClick={onAccept}>受付リクエストを確認</button>
     case 'settle':
-      return <button className={pending} type="button" disabled title="売上・レジは準備中です">売上・レジで精算（準備中）</button>
+      return <button className={pending} type="button" disabled title="売上・レジは準備中です">{SETTLE_PENDING_LABEL}</button>
     case 'external':
       return (
-        <button className={cls} type="button" data-press onClick={() => onToast(`外部予約元 ${row.no}の参照先はこの探索では省略しています。SYNQEDから変更はしません`)}>
+        <button className={cls} type="button" data-press onClick={() => onToast(`外部予約元 ${row.no}の参照先は、この見本データには含まれていません。SYNQEDからは変更しません`)}>
           予約元の記録を確認
         </button>
       )

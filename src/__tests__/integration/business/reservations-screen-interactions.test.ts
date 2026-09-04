@@ -1028,4 +1028,21 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     expect(inspPinBlocks.length).toBeGreaterThanOrEqual(1)
     for (const b of inspPinBlocks) expect(b).toContain('flex-wrap: wrap')
   })
+
+  it('F-1 (hardening round, FRESH lens MUST-FIX) · the thumb SLIDES on a press — the move effect is keyed on [chip] alone, springs persist in a ref', () => {
+    // the old shape keyed the SPRING-BUILDING effect on [reduced, chip], so
+    // every press tore the springs down and re-seeded `placed` — the thumb
+    // always JUMPED (`.jump()`, no rAF loop) instead of SLIDING (`.set()`).
+    // The mount effect now depends on [reduced] alone…
+    expect(SCREEN_CODE).not.toMatch(/\},\s*\[reduced,\s*chip\]\)/)
+    // …and a SEPARATE effect, keyed on [chip] alone, is what a press reruns —
+    // calling the persisted `move` (via the ref) against the springs the
+    // mount effect already built, so it SLIDES.
+    expect(SCREEN_CODE).toContain('useEffect(() => {\n    thumbMoveRef.current?.(false)\n  }, [chip])')
+    // the springs/`placed` flag survive across that effect's re-runs because
+    // `move` itself is parked in a ref — the `useCollapse` `first`-ref shape
+    // (:1424) ported to this effect pair.
+    expect(SCREEN_CODE).toContain('const thumbMoveRef = useRef<((jump: boolean) => void) | null>(null)')
+    expect(SCREEN_CODE).toContain('thumbMoveRef.current = move')
+  })
 })
