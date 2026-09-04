@@ -28,16 +28,20 @@ import { hasBusinessAdminGrant, isManagementMember } from '@/business/lib/grants
 import { requireBusinessAdmission } from '@/business/lib/admission'
 import * as data from '@/business/lib/data'
 import { appointments, staffAssignments, staffCards, staff, customers, STORE_A, STORE_B } from '@/business/lib/fixtures'
-import { jstMidnight, jstSlot } from '@/business/lib/clock'
+import { jstDayKey, jstMidnight, jstSlot } from '@/business/lib/clock'
 import CustomersPage from '@/app/[locale]/(business)/business/customers/page'
 import { toggleColumn } from '@/business/lib/column-config'
 import {
   CustomersScreen,
   consentLabel,
+  spentLabel,
   ticketLabel,
   walletLabel,
   type CustomerRow,
 } from '@/app/[locale]/(business)/business/customers/CustomersScreen'
+import { customersProps } from '@/app/[locale]/(business)/business/customers/customers-props'
+import { bookingCategory, CATEGORY_LABEL } from '@/business/lib/today-board'
+import { priorVisitCounts } from '@/business/lib/analytics'
 
 /** Chainable supabase stub: from(table).select().eq()…maybeSingle() → the
  *  per-table result, or `fallback` for any table not named. Every .eq() lands
@@ -363,14 +367,38 @@ describe('the fixture data door', () => {
       'src/business/lib/admission.ts': ['./grants', '@/lib/supabase/server', 'next/navigation'],
       'src/business/lib/grants.ts': ['@/lib/supabase/service'],
       'src/app/[locale]/(business)/business/page.tsx': ['next/navigation'],
+      // ⚖ THE ROOM-3 F1 LAW — everything between the admission gate and the
+      // render moved to `customers-props.ts`, so the evidence harness imports
+      // the SAME assembly the route runs. The page keeps the gate, the params,
+      // the sheet and the render, and its data door left with the assembly.
       'src/app/[locale]/(business)/business/customers/page.tsx': [
         './CustomersScreen',
+        './customers-props',
         './customers.css',
         '@/business/lib/admission',
+      ],
+      // ⚠ `priorVisitCounts` LIVES IN `analytics.ts`, NOT `today-board.ts` —
+      // checked, not assumed. The category itself is the board's own
+      // `bookingCategory` with the board's own `CATEGORY_LABEL`, so 顧客 and the
+      // board cannot disagree about who is 新規; the COUNT that feeds it is the
+      // function 売上分析 already calls, on the same lens-clamped rows.
+      'src/app/[locale]/(business)/business/customers/customers-props.ts': [
+        '@/business/lib/analytics',
+        '@/business/lib/clock',
         '@/business/lib/data',
+        '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/customers/CustomersScreen.tsx': [
+        './customers-props',
         '@/business/lib/column-config',
+        // ⚖ Liam 8/23 — the 画面の説明 tour's shared engine.
+        '@/business/lib/guide',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY: the accepted mock's own
+        // `makeSpring`, ported rather than re-invented and PURE of React and the
+        // DOM. A second easing written by hand beside it would be a second
+        // motion language on one page.
+        '@/business/lib/spring',
+        'next/link',
         'react',
       ],
       'src/app/[locale]/(business)/business/customers/loading.tsx': ['@/business/i18n'],
@@ -882,8 +910,10 @@ describe('顧客一覧 screen', () => {
 
   /** The page returns an element tree; find the props the screen is handed.
    *  No renderer needed (and react-dom is off the import allowlist anyway). */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function screenProps(node: any): { rows: CustomerRow[]; lensLabel: string; grouped: boolean } | null {
+  function screenProps(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    node: any,
+  ): { rows: CustomerRow[]; lensLabel: string; grouped: boolean; inboxHref: string; karuteHref: string } | null {
     if (!node || typeof node !== 'object') return null
     if (node.type === CustomersScreen) return node.props
     const kids = node.props?.children
@@ -931,6 +961,23 @@ describe('顧客一覧 screen', () => {
     // cus-05's only forward booking (apt-21, 代官山) is cancelled.
     expect((await render(STORE_B)).find((r) => r.id === 'cus-05')!.hasNext).toBe(false)
   })
+  it('a SAME-DAY future slot IS a 次回予約 — the anchor is an instant, never a day boundary', async () => {
+    // ⚠ THE TRUTH A DAY-GRANULAR FILTER WOULD SILENTLY BREAK. The suite's clock
+    // is 2026-08-19T00:00Z = 09:00 JST, so TODAY's 14:05 and 14:30 slots are
+    // still ahead: きり's apt-09 and さくら's apt-26 must both read today's date.
+    // A `starts_at >= endOfToday`-style filter drops exactly these two rows and
+    // nothing else, which is why they are pinned by name.
+    const ginza = await render(STORE_A)
+    expect(ginza.find((r) => r.id === 'cus-07')!.nextLabel).toBe('8月19日 14:05')
+    expect(ginza.find((r) => r.id === 'cus-11')!.nextLabel).toBe('8月19日 14:30')
+    expect(ginza.find((r) => r.id === 'cus-07')!.hasNext).toBe(true)
+    expect(ginza.find((r) => r.id === 'cus-11')!.hasNext).toBe(true)
+    // …and the same instant excludes a slot that has already BEGUN today:
+    // cus-06's apt-14 starts 13:00 today, which is ahead of 09:00, so she has
+    // one; いつき's only slot today is `done`, so she has none.
+    expect(ginza.find((r) => r.id === 'cus-06')!.hasNext).toBe(true)
+    expect(ginza.find((r) => r.id === 'cus-02')!.hasNext).toBe(false)
+  })
   it('a booking that already started is not a next booking', async () => {
     const ginza = await render(STORE_A)
     // cus-01 holds past bookings AND a future one: the future one wins.
@@ -965,6 +1012,90 @@ describe('顧客一覧 screen', () => {
     expect(bare!.rows.every((r) => r.storeLabel === null)).toBe(true)
     expect(bare!.rows).toEqual((await props(STORE_A))!.rows)
   })
+  it('⚖ B1-1 — 累計支払 is BOOKING-derived, so a thin row shows it like anyone else', async () => {
+    // 回数券 and 預かり残高 are PROFILE facts and stay unknown for a thin row; the
+    // money a booking produced is not a profile fact. なぎ (thin-02) has a
+    // completed 銀座 visit, so both surfaces that print 累計支払 must agree.
+    const ginza = await render(STORE_A)
+    const nagi = ginza.find((r) => r.id === 'thin-02')!
+    expect(nagi.thin).toBe(true)
+    expect(nagi.externalOwner).toBe(false)
+    expect(nagi.totalSpent).toBe(6600)
+    expect(spentLabel(nagi.totalSpent)).toBe('¥6,600')
+    // …and そら, whose 正本 is an external booking source, still states 「—」.
+    const sora = ginza.find((r) => r.id === 'thin-01')!
+    expect(sora.totalSpent).toBeNull()
+    expect(spentLabel(sora.totalSpent)).toBe('—')
+    // なぎ's recorded consent reaches the row, so the thin branch has a ledger to
+    // render; そら's is null, so it has none.
+    expect(nagi.consent).toEqual({ line: false, sms: true, email: false })
+    expect(sora.consent).toBeNull()
+  })
+
+  it('⚖ V-1 — three shapes of consent, and only the thin one is silent', async () => {
+    const ginza = await render(STORE_A)
+    // おとは: a REAL customer with nothing recorded. She has a ledger and it is
+    // empty — the section renders with 「—」 on all three channels.
+    const otoha = ginza.find((r) => r.id === 'cus-05')!
+    expect(otoha.thin).toBe(false)
+    expect(otoha.consent).toBeNull()
+    expect(consentLabel(otoha.consent)).toBe('—')
+    // そら: thin, so there is no profile and no ledger to show at all.
+    const sora = ginza.find((r) => r.id === 'thin-01')!
+    expect(sora.thin).toBe(true)
+    expect(sora.consent).toBeNull()
+    // なぎ: thin, but a consent WAS recorded — the thin branch shows it.
+    const nagi = ginza.find((r) => r.id === 'thin-02')!
+    expect(nagi.thin).toBe(true)
+    expect(nagi.consent).toEqual({ line: false, sms: true, email: false })
+    expect(consentLabel(nagi.consent)).toBe('SMS')
+  })
+
+  it('⚖ B1-5b — no completed visit in THIS lens is unknown, never a confident ¥0', async () => {
+    const ginza = await render(STORE_A)
+    // きり's only completed visit is in 代官山; うみ has none anywhere. A 銀座 desk
+    // may not state that either has spent nothing HERE.
+    expect(ginza.find((r) => r.id === 'cus-07')!.totalSpent).toBeNull()
+    expect(ginza.find((r) => r.id === 'cus-03')!.totalSpent).toBeNull()
+    expect(spentLabel(null)).toBe('—')
+    // …while a customer who really did spend here keeps her number.
+    expect(ginza.find((r) => r.id === 'cus-05')!.totalSpent).toBe(6600)
+    // …and a REAL zero still exists: a visit recorded at ¥0 sums to ¥0, not null.
+    const zeroPriced = appointments().map((a) =>
+      a.id === 'apt-04' ? { ...a, booked_price: 0 } : a,
+    )
+    const { props } = await customersProps({ locale: 'ja', store: STORE_A, world: { appointments: zeroPriced } })
+    expect(props.rows.find((r) => r.id === 'cus-05')!.totalSpent).toBe(0)
+    expect(spentLabel(0)).toBe('¥0')
+  })
+
+  it('⚖ B1-5c — a world override goes through the SAME lens the door applies', async () => {
+    // The harness may hand the room another world; it may not hand it another
+    // store. A 代官山 slot injected under 銀座 must never reach a 銀座 row.
+    const injected = {
+      ...appointments()[0],
+      id: 'apt-inject-daikanyama',
+      store_id: STORE_B,
+      customer_id: 'cus-01',
+      starts_at: jstSlot(2, 9, 0),
+      ends_at: jstSlot(2, 10, 0),
+      status: 'booked' as const,
+      booked_price: 9900,
+    }
+    const world = { appointments: [...appointments(), injected] }
+    const ginza = await customersProps({ locale: 'ja', store: STORE_A, world })
+    const akariGinza = ginza.props.rows.find((r) => r.id === 'cus-01')!
+    const plain = (await render(STORE_A)).find((r) => r.id === 'cus-01')!
+    expect(akariGinza.nextLabel).toBe(plain.nextLabel)
+    expect(akariGinza.history).toEqual(plain.history)
+    expect(akariGinza.bookings).toEqual(plain.bookings)
+    expect(JSON.stringify(akariGinza)).not.toContain('9,900')
+    // …and under 代官山 the same injected slot IS her next booking.
+    const daikanyama = await customersProps({ locale: 'ja', store: STORE_B, world })
+    expect(daikanyama.props.rows.find((r) => r.id === 'cus-01')!.hasNext).toBe(true)
+    expect(daikanyama.props.rows.find((r) => r.id === 'cus-01')!.nextPrice).toBe('¥9,900')
+  })
+
   it('an external-owner thin row states 「—」 rather than guessing money', async () => {
     const sora = (await render(STORE_A)).find((r) => r.id === 'thin-01')!
     expect(sora.totalSpent).toBeNull()
@@ -984,6 +1115,172 @@ describe('顧客一覧 screen', () => {
     const rows = await render()
     expect(rows.find((r) => r.id === 'cus-01')!.party).toEqual([])
     expect(rows.find((r) => r.id === 'cus-03')!.party.map((p) => p.role)).toEqual(['保護者', '支払者'])
+  })
+
+  // ── V2 · the row shape the redesign reads ────────────────────────────────
+  it('⚖-ADJ M — duplicateOf returns, and it RESOLVES for all three candidates', async () => {
+    // WO-1b removed it because nothing read it; the compare drawer reads it now.
+    // It is a member_number, so the drawer's lookup is by 顧客番号 — a lookup by
+    // row id would silently find nothing and render an empty partner forever.
+    const rows = await render(STORE_A)
+    const byNo = new Map(rows.map((r) => [r.no, r]))
+    const candidates = rows.filter((r) => r.merge !== 'none')
+    expect(candidates.map((r) => r.id).sort()).toEqual(['cus-01', 'cus-04', 'cus-09'])
+    expect(candidates.map((r) => [r.no, r.duplicateOf])).toEqual([
+      ['C-3001', 'C-3009'],
+      ['C-3004', 'C-3010'],
+      ['C-3009', 'C-3001'],
+    ])
+    for (const c of candidates) expect(byNo.get(c.duplicateOf!)).toBeDefined()
+  })
+
+  it('⚖ RIDER §3.1 — 空き日数 is whole JST days off the ONE render anchor', async () => {
+    const rows = await render(STORE_A)
+    const by = (id: string) => rows.find((r) => r.id === id)!
+    // apt-04 puts おとは 8 days back inside 銀座
+    expect(by('cus-05').daysSinceLastVisit).toBe(8)
+    expect(by('cus-05').winBack).toBe('最終来店から 8日')
+    // apt-12 is いつき's completed visit TODAY, and she has no future booking
+    expect(by('cus-02').daysSinceLastVisit).toBe(0)
+    expect(by('cus-02').hasNext).toBe(false)
+    expect(by('cus-02').winBack).toBe('本日来店')
+    // かなで has never booked anywhere (the CM-9 row)
+    expect(by('cus-10').daysSinceLastVisit).toBeNull()
+    expect(by('cus-10').winBack).toBe('来店記録なし')
+    // …and the inspector's own line carries the same number
+    expect(by('cus-05').lastVisitMeta).toMatch(/^最終来店 .+（8日前）$/)
+    expect(by('cus-02').lastVisitMeta).toMatch(/（本日）$/)
+    expect(by('cus-10').lastVisitMeta).toBe('最終来店 記録なし')
+  })
+
+  it('⚖ RIDER §3.1 — the number grows with the clock, and is never negative or NaN', async () => {
+    for (const days of [30, 400]) {
+      jest.setSystemTime(new Date(Date.now() + days * 86_400_000))
+      const rows = await render(STORE_A)
+      const seen = rows.map((r) => r.daysSinceLastVisit).filter((n): n is number => n !== null)
+      expect(seen.length).toBeGreaterThan(0)
+      for (const n of seen) {
+        expect(Number.isFinite(n)).toBe(true)
+        expect(n).toBeGreaterThanOrEqual(0)
+      }
+      jest.setSystemTime(new Date('2026-08-19T00:00:00Z'))
+    }
+  })
+
+  it('⚖ RIDER §3.2 — 使い切り fires at a balance of exactly 1, and no fixture row is at 1', async () => {
+    // The world is OUT of fence, so the state is proven on a WORLD OVERRIDE
+    // through the REAL derivations rather than by editing four lanes' fixtures.
+    const plain = await render(STORE_A)
+    expect(plain.every((r) => r.ticketEnding === false)).toBe(true)
+    expect(plain.filter((r) => r.ticket === 1)).toHaveLength(0)
+
+    const ticket1 = customers.map((c) => (c.id === 'cus-06' ? { ...c, ticket_balance: 1 } : c))
+    const { props } = await customersProps({ locale: 'ja', store: STORE_A, world: { customers: ticket1 } })
+    const kaeru = props.rows.find((r) => r.id === 'cus-06')!
+    expect(kaeru.ticket).toBe(1)
+    expect(kaeru.ticketEnding).toBe(true)
+    expect(ticketLabel(kaeru.ticket)).toBe('残 1回')
+    // …and 2 is NOT 使い切り
+    const ticket2 = customers.map((c) => (c.id === 'cus-06' ? { ...c, ticket_balance: 2 } : c))
+    const two = await customersProps({ locale: 'ja', store: STORE_A, world: { customers: ticket2 } })
+    expect(two.props.rows.find((r) => r.id === 'cus-06')!.ticketEnding).toBe(false)
+  })
+
+  it('⚖ RIDER §3.3 — the lifecycle category is the BOARD’s own, and the chip is 新規/VIP only', async () => {
+    const rows = await render(STORE_A)
+    const by = (id: string) => rows.find((r) => r.id === id)!
+    // INDEPENDENTLY RECOMPUTED, not read back off the same field: the board's
+    // own two functions, on the same lens-clamped appointments, must agree with
+    // the room row for row. A category from a second function is a red run.
+    const clampedBookings = await data.listAppointments(STORE_A)
+    const prior = priorVisitCounts(clampedBookings, jstDayKey(new Date()))
+    for (const r of rows) {
+      const fixture = customers.find((c) => c.id === r.id)
+      if (!fixture) continue
+      expect({ id: r.id, cat: r.category }).toEqual({
+        id: r.id,
+        cat: bookingCategory(fixture, prior.get(r.id) ?? 0),
+      })
+    }
+    expect(by('cus-11').category).toBe('new') // さくら — booked today, no completed visit behind her
+    expect(by('cus-10').category).toBe('new') // かなで — registered, never booked anywhere
+    expect(by('cus-04').category).toBe('vip') // えいた — the one VIP
+    // ⚠ THE LITERAL WORDS, NOT A READ-BACK OF THE SAME CONSTANT. Asserting
+    // `chip === CATEGORY_LABEL.new` moves with the constant, so a second home
+    // for the word (or a rename of it) stays green on both sides — the
+    // self-referential-census lesson, in a different costume. The board ships
+    // these two words; a change to either is a deliberate act, and this is where
+    // it has to be noticed.
+    expect(CATEGORY_LABEL.new).toBe('新規')
+    expect(CATEGORY_LABEL.vip).toBe('VIP')
+    expect(by('cus-11').categoryChip).toBe('新規')
+    expect(by('cus-04').categoryChip).toBe('VIP')
+    // …and a 再来 or a 回数券 row carries NO chip: a chip that repeats a column
+    // is clutter (the big-tech simplicity law).
+    expect(by('cus-01').category).toBe('ticket')
+    expect(by('cus-01').categoryChip).toBeNull()
+    expect(by('cus-02').category).toBe('repeat')
+    expect(by('cus-02').categoryChip).toBeNull()
+    // ⚠ 新規 IS LENS-SCOPED, AND THAT IS THE POINT (C2-3). うみ and きり have
+    // completed visits in 代官山 and NONE in 銀座, so from this desk they are new
+    // — which is exactly what 今日の運営's board says about them on the same
+    // clamped rows, and the only reading the isolation law allows (a 再来 chip
+    // here would be this store learning that another store has served them).
+    expect(rows.filter((r) => r.categoryChip !== null).map((r) => r.id).sort()).toEqual([
+      'cus-03', 'cus-04', 'cus-07', 'cus-10', 'cus-11',
+    ])
+    // …and the OTHER store's desk reads them the other way round, which is the
+    // same rule seen from the other side of the wall.
+    const daikanyama = await render(STORE_B)
+    expect(daikanyama.find((r) => r.id === 'cus-07')!.category).toBe('repeat')
+    expect(daikanyama.find((r) => r.id === 'cus-07')!.categoryChip).toBeNull()
+  })
+
+  it('⚖ G2 — the rendered screen is KEYED by the resolved lens, per store', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const keyOf = (node: any): string | null => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === CustomersScreen) return node.key
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = keyOf(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const rendered = async (store?: string) =>
+      keyOf(await CustomersPage({
+        params: Promise.resolve({ locale: 'ja' }),
+        searchParams: Promise.resolve(store ? { store } : {}),
+      }))
+    expect(await rendered(STORE_A)).toBe(STORE_A)
+    expect(await rendered(STORE_B)).toBe(STORE_B)
+    // the bare URL clamps, so it keys the same as the store it lands on
+    expect(await rendered()).toBe(STORE_A)
+  })
+
+  it('⚖-ADJ B — the two live doors carry THIS page’s lens, and are never dropped', async () => {
+    const clamped = await props(STORE_A)
+    expect(clamped!.inboxHref).toBe(`/ja/business/inbox?store=${STORE_A}`)
+    expect(clamped!.karuteHref).toBe(`/ja/business/karute?store=${STORE_A}`)
+    // the bare URL clamps, so its doors point at the SAME store rather than at
+    // a merged view the switcher no longer offers
+    const bare = await props()
+    expect(bare!.inboxHref).toBe(clamped!.inboxHref)
+    expect(bare!.karuteHref).toBe(clamped!.karuteHref)
+  })
+
+  it('the tile predicates count what the tiles promise, on the real plane', async () => {
+    const rows = await render(STORE_A)
+    expect(rows.filter((r) => r.ticket != null && r.ticket > 0).map((r) => r.id)).toEqual([
+      'cus-01', 'cus-04', 'cus-06', 'cus-08',
+    ])
+    // cus-04 holds ¥0, which is NOT 預かり残高あり
+    expect(rows.find((r) => r.id === 'cus-04')!.wallet).toBe(0)
+    expect(rows.filter((r) => r.wallet != null && r.wallet > 0).map((r) => r.id)).toEqual([
+      'cus-01', 'cus-03', 'cus-06', 'cus-08',
+    ])
+    expect(rows.filter((r) => r.merge !== 'none')).toHaveLength(3)
   })
 
   // ── the L-6 promise, stated as a test ────────────────────────────────────
