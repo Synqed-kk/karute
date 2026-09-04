@@ -930,12 +930,69 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
       expect(res.contentType).toBe('audio/mp4')
     })
 
-    it('a stagedTake that is not a uuid is bad_input — the schema refuses it first', async () => {
-      await expect(
-        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: 'take-1' }),
-      ).resolves.toEqual({ error: 'bad_input' })
-      expect(get).not.toHaveBeenCalled()
-      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    // ⚖ THE no_uuid COHORT CAN STAGE AGAIN (slice five fix round 3, F3). Typing
+    // the field `.uuid()` refused the ONE cohort composeStagedKey's random-slot
+    // fallback exists for: a browser with no crypto.randomUUID names its take
+    // `${Date.now()}-…`, so the mint 400'd before the server could fall back.
+    // Such a take is born `no_uuid` — TERMINAL, so unsecurable from birth,
+    // which is EXACTLY the cohort the discard sweep stages — and its words were
+    // therefore never collectable at all, on every mount, for its seven days.
+    // The field is a bounded string now; the server decides the shape.
+    it('a stagedTake that is not a uuid still stages — the server names the slot', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: `${Date.now()}-k3n9x` })
+      expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+      // A FRESH uuid, not the composed id — the copy is unfindable, which is
+      // D10's named ceiling for this cohort, and unfindable beats uncollected.
+      expect(res.path).toMatch(
+        new RegExp(`^stg/biz-1_${SESSION}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webm$`),
+      )
+    })
+
+    // ⚖ THE ROW NAMES THE SLOT, NOT THE CALLER (slice five fix round 3, F4).
+    // The staged branch fenced the SESSION and nothing else, so `stagedTake`
+    // went into the key on a shape check alone: a recordings.viewAll holder
+    // could read a colleague's row, learn both halves of the identity D10 made
+    // composable, and PUT bytes at that take's staged key before the device
+    // ever staged it. No audio is lost (the size fence refuses those bytes) —
+    // but the key is immutable, so the take could never be staged, its
+    // discard's words never collected, and it never became releasable. The row
+    // already knows the answer: its own reserved pointer.
+    describe('…and when the ROW already names a take, that take is the slot', () => {
+      /** A second take id that is a uuid by BOTH readings — zod's strict
+       *  version/variant check and the key grammar's plain hex. `OTHER_UUID`
+       *  above is only the latter (its version nibble is `c`), so using it here
+       *  would have made these cases pass on the base for the wrong reason. */
+      const SECOND_TAKE = '1b2c3d4e-5f60-4a71-8b9c-0d1e2f3a4b5c'
+
+      it('a stagedTake disagreeing with the row’s own pointer is bad_input', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        await expect(
+          mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: SECOND_TAKE }),
+        ).resolves.toEqual({ error: 'bad_input' })
+        expect(createSignedUploadUrl).not.toHaveBeenCalled()
+      })
+
+      it('a stagedTake that AGREES with it composes that take’s key', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      })
+
+      it('…and so does sending no stagedTake at all — the reservation is the truth', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        const res = await mintOk({ stagedFor: SESSION })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      })
+
+      // A row whose pointer is not a TAKE has nothing to outrank the caller
+      // with — a legacy unbound row, or the row of a no_uuid take that could
+      // never reserve one. The client's slot stands, exactly as it did before
+      // this round (green on the base too: this half is a pin, not a fix).
+      it('a row with no take pointer leaves the caller’s uuid slot standing', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: null }))
+        const res = await mintOk({ stagedFor: SESSION, stagedTake: SECOND_TAKE })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${SECOND_TAKE}.webm`)
+      })
     })
 
     it('a stagedTake with NO stagedFor names an act this door does not have', async () => {

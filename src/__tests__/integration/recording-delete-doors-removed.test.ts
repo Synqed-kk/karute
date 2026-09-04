@@ -449,6 +449,17 @@ describe('what REPLACED them', () => {
     expect(src).not.toContain('globalRecorder.discard(')
   })
 
+  // ⚖ AND THE PHONE STILL LOADS THE LAUNCH DRAIN (slice five fix round 3, F8).
+  // D3's whole delivery hangs on ONE side-effect import line with no consumer:
+  // an import-sorting sweep, a merge-conflict resolution or a bundle-budget
+  // trim can drop it, every suite stays green, the bundle SHRINKS, and the
+  // phone silently stops draining owed takes at launch — audio that exists
+  // nowhere else. The module's own suite reaches it with require(), so it
+  // proves the module's behaviour and nothing about whether the shell loads it.
+  it('the phone entry imports the launch drain — D3 is one side-effect line', () => {
+    expect(code('thin/main.tsx')).toContain("import './data/launch-drain'")
+  })
+
   it('the ONE exemption is voice enrolment, and it is fenced at runtime', () => {
     const src = code('src/actions/voice.ts')
     // The positive prefix match is what makes it an exemption rather than a

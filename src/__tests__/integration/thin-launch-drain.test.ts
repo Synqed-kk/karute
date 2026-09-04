@@ -9,26 +9,41 @@
  * nowhere else — until somebody happened to walk back onto 録音. The shell
  * reopens far more often than that page does.
  *
+ * ⚖ AND IT RUNS ON AN AUTHORITATIVE SIGN-IN, ONCE, WITH A TICK (fix round 3,
+ * F6). The first spelling triggered on a uid and memoised it, so the cold
+ * launch it exists for was drained against the PRE-RENDER seed's Bearer — which
+ * may be expired — and the fresh token a second later carried the same uid, so
+ * nothing ran again. It also had no re-entrancy guard of its own and fell
+ * through a busy drain straight into the sweep, putting a second whole take on
+ * the wire. The trigger is the store's authoritative GENERATION now, the run is
+ * single-flight, a busy drain does not sweep, and a take still owed gets one
+ * timer at the record page's own cadence.
+ *
  * Every case here imports the module FRESH (`jest.isolateModules`), because it
- * is a side-effect module: the subscription, the visibility listener and the
- * first run all happen at import.
+ * is a side-effect module: the subscription and the visibility listener are
+ * registered at import.
  */
 
-const drainOwedTakes = jest.fn(async (_isActive?: (takeId: string) => boolean) => ({
-  busy: false,
-  stillOwed: false,
-}))
+/** The real `DrainOutcome` shape: `{busy:true}` carries no `stillOwed` at all,
+ *  which is the whole point of the busy case below. */
+const drainOwedTakes = jest.fn(
+  async (
+    _isActive?: (takeId: string) => boolean,
+  ): Promise<{ busy: boolean; stillOwed?: boolean }> => ({ busy: false, stillOwed: false }),
+)
 const sweepDiscardTranscripts = jest.fn(async () => {})
 const isActiveTake = jest.fn((_id: string) => false)
 
-/** The session the store answers with, and the listener the module registered.
+/** The store's answers, and the listener the module registered.
  *  `subscribeSessionState` is captured rather than re-implemented — what is
  *  under test is what the module does when it is NOTIFIED. */
-let session: { user: { id: string } } | null = null
+let state: { status: string } = { status: 'recovering' }
+let generation = 0
 let notify: (() => void) | null = null
 
 jest.mock('@/lib/auth/mobile/session-store', () => ({
-  getCurrentSession: () => session,
+  getSessionState: () => state,
+  currentGeneration: () => generation,
   subscribeSessionState: (l: () => void) => {
     notify = l
     return () => {}
@@ -45,14 +60,19 @@ jest.mock('@/lib/recording/discard-transcript', () => ({
     (sweepDiscardTranscripts as (...a: unknown[]) => unknown)(...a),
 }))
 
+/** The record page's own cadence, mirrored by the runner (REDRAIN_MS +
+ *  REDRAIN_JITTER_MS). Advancing past the top of the window covers the jitter. */
+const REDRAIN_WINDOW_MS = 65_000
+
 /** Every visibilitychange listener a load() registered. `jest.isolateModules`
  *  gives each case a fresh module registry but NOT a fresh jsdom document, so
- *  without this the eighth case would see all eight modules answer one
- *  foreground. Torn down in afterEach. */
+ *  without this the last case would see every module answer one foreground.
+ *  Torn down in afterEach. */
 const registered: Array<() => void> = []
 
-/** Import the side-effect module in its own registry, then let its
- *  fire-and-forget run settle. */
+/** Import the side-effect module in its own registry, then let anything it
+ *  started settle. Nothing runs at import any more — the subscriber is what
+ *  starts the first drain — so a case that wants a run signs in below. */
 async function load() {
   const add = jest
     .spyOn(document, 'addEventListener')
@@ -80,6 +100,17 @@ async function settle() {
   for (let i = 0; i < 10; i++) await Promise.resolve()
 }
 
+/** An AUTHORITATIVE transition, exactly as the store spells it: a new
+ *  generation, then the notify. A seed and a token rotation do NOT advance the
+ *  generation (session-store.ts), which is what `signedInSameGeneration` below
+ *  stands in for. */
+async function authoritative(status: 'signed-in' | 'signed-out' | 'recovering') {
+  generation += 1
+  state = { status }
+  notify!()
+  await settle()
+}
+
 /** What the WebView reports when it comes back from a pocket. */
 function setVisibility(v: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { value: v, configurable: true })
@@ -87,26 +118,37 @@ function setVisibility(v: 'visible' | 'hidden') {
 }
 
 beforeEach(() => {
-  session = null
+  jest.useFakeTimers()
+  state = { status: 'recovering' }
+  generation = 0
   notify = null
   drainOwedTakes.mockClear()
+  drainOwedTakes.mockImplementation(async () => ({ busy: false, stillOwed: false }))
   sweepDiscardTranscripts.mockClear()
+  sweepDiscardTranscripts.mockImplementation(async () => {})
   isActiveTake.mockClear()
   setVisibility('visible')
 })
 
 afterEach(() => {
+  jest.clearAllTimers()
+  jest.useRealTimers()
   registered.splice(0).forEach((l) => document.removeEventListener('visibilitychange', l))
 })
 
 describe('thin launch drain', () => {
-  it('a shell that opens SIGNED OUT drains nothing', async () => {
+  it('a shell that opens SIGNED OUT drains nothing — and nothing runs at import', async () => {
+    // The module body used to end in a bare `run()` "for a session seeded
+    // before this module was imported". The entry cannot produce that: import
+    // declarations are hoisted, so this body evaluates before bootMobileAuth()
+    // AND before setRecordingPipelinePort — a run there would have drained
+    // through the WEB port from inside the WebView.
     await load()
     expect(drainOwedTakes).not.toHaveBeenCalled()
     expect(sweepDiscardTranscripts).not.toHaveBeenCalled()
   })
 
-  it('a session already known at load drains, THEN sweeps the owed discard words', async () => {
+  it('an authoritative SIGN-IN drains, THEN sweeps the owed discard words', async () => {
     // Order matters: a stopped take is secured WHOLE, and the sweep's own
     // staging is for a take that can never be sealed. Asking in the other order
     // would stage a copy of audio the drain was about to finalize.
@@ -118,9 +160,9 @@ describe('thin launch drain', () => {
     sweepDiscardTranscripts.mockImplementation(async () => {
       order.push('sweep')
     })
-    session = { user: { id: 'staff-A' } }
 
     await load()
+    await authoritative('signed-in')
 
     expect(order).toEqual(['drain', 'sweep'])
   })
@@ -129,58 +171,59 @@ describe('thin launch drain', () => {
     // Not an invented "nothing is live": the singleton is in this bundle
     // already (screen-prefetch imports it), so the belt behind the worklist's
     // stopped-only filter is real.
-    session = { user: { id: 'staff-A' } }
     await load()
+    await authoritative('signed-in')
 
     drainOwedTakes.mock.calls[0][0]!('take-9')
     expect(isActiveTake).toHaveBeenCalledWith('take-9')
   })
 
-  it('the seed→signed-in notify PAIR for one staffer is ONE run, not two', async () => {
-    session = { user: { id: 'staff-A' } }
+  it('the SAME generation notifying again is ONE run, not two', async () => {
+    // A token rotation mirrors into the store without advancing the generation
+    // (applyTokenRotation), and so does the pre-render seed. Neither is a new
+    // reason to drain.
     await load()
+    await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1)
 
-    notify!() // the boot gate settling on the same session it seeded
+    notify!()
     await settle()
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+  })
+
+  it('a RECOVERING notify drains nothing — but the settle that follows does', async () => {
+    // ⚖ THE EXPIRED-SEED CASE (fix round 3, F6). A cold launch with a persisted
+    // session whose token has expired used to drain on the SEED: every mint
+    // 401'd, each take went into its 60 s cooldown, and the fresh token a
+    // moment later carried the same uid — so the launch this module exists for
+    // secured nothing and the audio waited for a foreground cycle. Nothing can
+    // upload without a valid Bearer anyway, so 'recovering' simply waits.
+    await load()
+    await authoritative('recovering')
+    expect(drainOwedTakes).not.toHaveBeenCalled()
+
+    await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1)
   })
 
   it('a sign-OUT then the SAME staffer back in drains again', async () => {
-    // The memo has to be reset by the sign-out, or a staffer who signs out and
-    // straight back in — the whole shape of a shared iPad — never drains for
-    // the rest of the app's life.
-    session = { user: { id: 'staff-A' } }
+    // A shared iPad hands the phone on. Both transitions are authoritative, so
+    // the generation moves twice and the memo cannot hold the second sign-in
+    // back.
     await load()
+    await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1)
 
-    session = null
-    notify!()
-    await settle()
+    await authoritative('signed-out')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1) // nobody to drain for
 
-    session = { user: { id: 'staff-A' } }
-    notify!()
-    await settle()
-    expect(drainOwedTakes).toHaveBeenCalledTimes(2)
-  })
-
-  it('a DIFFERENT staffer signing in drains their own owed takes', async () => {
-    session = { user: { id: 'staff-A' } }
-    await load()
-
-    session = { user: { id: 'staff-B' } }
-    notify!()
-    await settle()
-
-    // The worklist is scoped by the store's owner gate — this module never
-    // names a take itself.
+    await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(2)
   })
 
   it('the app coming back to the FOREGROUND drains; going hidden does not', async () => {
-    session = { user: { id: 'staff-A' } }
     await load()
+    await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1)
 
     setVisibility('hidden')
@@ -192,12 +235,77 @@ describe('thin launch drain', () => {
     expect(drainOwedTakes).toHaveBeenCalledTimes(2)
   })
 
+  it('a BUSY drain does not fall through to the sweep', async () => {
+    // The record page's own drain holds the lock and is working this very
+    // worklist. The sweep's staging is a whole-take upload of its own, so
+    // running it here is the second recording on the wire that lifting the lock
+    // to module scope was meant to prevent.
+    drainOwedTakes.mockImplementation(async () => ({ busy: true }))
+
+    await load()
+    await authoritative('signed-in')
+
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+    expect(sweepDiscardTranscripts).not.toHaveBeenCalled()
+  })
+
+  it('two triggers landing together are ONE run', async () => {
+    // A foreground event arriving while the sign-in's drain is still working.
+    let release: (() => void) | null = null
+    drainOwedTakes.mockImplementation(async () => {
+      await new Promise<void>((r) => {
+        release = r
+      })
+      return { busy: false, stillOwed: false }
+    })
+
+    await load()
+    void authoritative('signed-in')
+    await settle()
+    setVisibility('visible')
+    await settle()
+
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+    release!()
+    await settle()
+  })
+
+  it('a take STILL OWED gets exactly one more look, at the page’s own cadence', async () => {
+    // The record page has this tick and the launch runner had none, so a boot
+    // that drained nothing never asked again.
+    drainOwedTakes.mockImplementationOnce(async () => ({ busy: false, stillOwed: true }))
+
+    await load()
+    await authoritative('signed-in')
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+    await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    expect(drainOwedTakes).toHaveBeenCalledTimes(2)
+
+    // …and the second run answered "nothing owed", so it stops there.
+    await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    expect(drainOwedTakes).toHaveBeenCalledTimes(2)
+  })
+
+  it('a sign-OUT clears the pending re-look', async () => {
+    // Nobody to drain for, and the store's owner gate would answer nothing.
+    drainOwedTakes.mockImplementation(async () => ({ busy: false, stillOwed: true }))
+
+    await load()
+    await authoritative('signed-in')
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+    await authoritative('signed-out')
+    await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+  })
+
   it('nothing it can throw reaches the boot — the run is caught and logged', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     drainOwedTakes.mockRejectedValueOnce(new Error('store is gone'))
-    session = { user: { id: 'staff-A' } }
 
     await load()
+    await authoritative('signed-in')
 
     expect(warn).toHaveBeenCalled()
     // …and the sweep never ran, because the drain never returned. Nothing on

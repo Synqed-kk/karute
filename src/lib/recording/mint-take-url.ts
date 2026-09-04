@@ -67,7 +67,11 @@
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
-import { composeStagedKey, composeTakeKey } from '@/lib/recording/key-grammar'
+import {
+  composeStagedKey,
+  composeTakeKey,
+  parseRecordingKey,
+} from '@/lib/recording/key-grammar'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
@@ -117,7 +121,11 @@ export interface MintTakeUrlInput {
    *  is composable from the core row alone (session = the row id, take + ext =
    *  the row's own reserved pointer), so an object that has no row of its own
    *  is still FINDABLE from the row that owes it. Requires `stagedFor`; absent
-   *  or unusable, the server names the slot as it always did. */
+   *  or unusable, the server names the slot as it always did.
+   *
+   *  ⚖ A HINT, NEVER THE AUTHORITY (fix round 3, F4). When the row named by
+   *  `stagedFor` already carries a take pointer, THAT take fills the slot and a
+   *  value disagreeing with it is `bad_input`. See the staged branch. */
   stagedTake?: string | null
 }
 
@@ -478,6 +486,39 @@ export async function mintTakeUploadUrl(
     }
     const denied = assertRecorderOwnsRow(row, actor)
     if (denied) return denied
+    // ⚖ THE ROW NAMES THE SLOT, NOT THE CALLER (slice five fix round 3, F4).
+    // Packet B fenced the SESSION here and nothing else, so `stagedTake` was
+    // interpolated into the key on a shape check alone: a `recordings.viewAll`
+    // holder could read a colleague's row, learn both halves of the identity
+    // D10 deliberately made composable, and PUT arbitrary bytes at that take's
+    // staged key before the device ever staged it. The key is immutable and the
+    // ports adopt only their own byte length, so no audio is lost — but the
+    // take can then never be staged, its discard's words are never collected,
+    // and it never becomes releasable. That is a denial the door can close.
+    //
+    // The row already knows the answer. Its `audio_storage_path` is this
+    // session's OWN reserved pointer, `app_<biz>_<take>.<ext>` — the same value
+    // D10 composes the staged key from — so when it parses as a take, THAT take
+    // id is the slot and a client naming a different one is `bad_input`. The
+    // row outranks the caller because the reservation was written by the mint
+    // that bound the recording; the caller's field is a hint about it.
+    //
+    // A row with no take pointer — a legacy unbound row, or the row of a
+    // `no_uuid` take that could never reserve one — has nothing to outrank the
+    // caller with, so the client's slot stands if it is a uuid and
+    // composeStagedKey mints a random one if it is not (F3's cohort).
+    //
+    // ⚖ THE CEILING, NAMED: a `recordings.viewAll` holder can still pre-fill
+    // the staged key of a colleague's OWN take — the row is theirs to bind and
+    // the take is the row's, so both halves are legitimate and this fence
+    // cannot see the difference. That denies the discard its words; it loses no
+    // audio (the size fence and serverHoldsTake both hold), and it is
+    // owner-level trust by construction.
+    const rowKey = parseRecordingKey(row.audio_storage_path, businessId)
+    const rowTake = rowKey?.kind === 'take' ? rowKey.takeId : null
+    if (rowTake && input.stagedTake && input.stagedTake !== rowTake) {
+      return { error: 'bad_input' }
+    }
     // ⚖ THE COPY IS THE TAKE'S, CONTAINER AND ALL (slice five packet B, D10).
     // `stagedTake` fills the key's uuid slot, which is what makes this row-less
     // object composable from the core row alone; `mimeType` is the TAKE's own
@@ -490,10 +531,11 @@ export async function mintTakeUploadUrl(
       businessId,
       input.stagedFor,
       input.mimeType ?? DEFAULT_MIME,
-      input.stagedTake,
+      rowTake ?? input.stagedTake,
     )
-    // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
-    // uppercase one still lands here and is refused by the case-exact grammar.
+    // Only the SESSION and the container can fail the grammar now — the slot
+    // never does, because composeStagedKey mints its own for anything that is
+    // not a lowercase take uuid.
     if (composed === null) return { error: 'bad_input' }
     // ⚖ EXISTENCE IS ANSWERED HERE, NOT AT THE PUT (fix round 2). Packet B made
     // this key composable in advance, and the ports read a PUT's "already

@@ -4,13 +4,18 @@
 // WHY A MODULE OF ITS OWN. secure-take is the WHOLE-TAKE upload, but it is no
 // longer the only writer: both ports stage a discard's copy through the same
 // signed-URL door (lib/ports/recording-port.ts, thin/ports/recording.vite.ts),
-// and each of them carried its own, weaker spelling of the same two questions —
-// a flat `!put.ok` throw that read "the object is already there" as a failure,
-// and no deadline at all. A staged key is DETERMINISTIC as of this round
-// (key-grammar.ts#composeStagedKey), so "already there" is now a routine,
-// correct answer on that path too: the same take staged twice lands on the same
-// key and storage refuses the second PUT, exactly as it refuses a duplicate
-// finalized take.
+// and neither of them had a deadline at all. Both import `putDeadlineMs` now
+// (fix round 3, F7), which is what makes "every network call has a deadline"
+// true on the staged legs as well as the whole-take one.
+//
+// ONE HALF IS DELIBERATELY NOT SHARED. `putSaysAlreadyThere` stays the
+// whole-take path's alone: there, "the object is already there" is a SUCCESS,
+// because finalize re-proves the object's size and its row's ownership
+// afterwards. A staged copy is row-less and has no finalize, and its key is
+// composable in advance (key-grammar.ts#composeStagedKey), so an object meeting
+// a staged PUT is not evidence it is ours — the MINT answers existence with a
+// SIZE instead, and only a size match adopts it (design D10's R2 amendment).
+// Every refusal on a signed staged PUT is a failure, 409 included.
 //
 // It imports NOTHING app-side on purpose — no store, no port, no action — so
 // any writer can reach it without a cycle.

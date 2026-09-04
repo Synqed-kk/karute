@@ -581,21 +581,42 @@ export async function stampTakeSession(
  *  ANSWER, not a failure: no store, nobody signed in, the take is gone, it is
  *  another staffer's, or `when` refused it. Re-asking those costs time and
  *  changes nothing, and re-asking `when` would be worse — it is the
- *  first-write-wins brace, and its "no" is the point. */
+ *  first-write-wins brace, and its "no" is the point.
+ *
+ *  ⚖ AND THE STOP LEG'S OWN MARKS DO NOT NEED A UID (slice five fix round 3,
+ *  F1). `gate: 'compare'` is `appendTakeSegment`'s gate, in the same words: the
+ *  uid is COMPARED when it resolves and never REQUIRED. It exists because on
+ *  the phone every sign-out path NULLS the session store BEFORE the wipe runs
+ *  (src/lib/auth/mobile/session-lifecycle.ts:71-77, thin/auth/session.ts:155
+ *  then :168 — which is exactly why both of those thread an explicit uid), and
+ *  thin `currentUserId()` reads that store. So a take live at a sign-out ran
+ *  its real stop (D4) into three writes that were all guaranteed no-ops, and
+ *  the row it left — bytes on disk, no `durationMs`, no `stopPendingAt`, no
+ *  `tailIncomplete` — is the quiet-and-whole shape `isStoppedTake` reads as
+ *  FINISHED on the native shell. The launch drain then sealed the committed
+ *  prefix under the immutable key.
+ *
+ *  ONLY the three marks the stop leg writes take it, and each is the recorder's
+ *  own write on a take IT minted in this runtime — the same argument
+ *  appendTakeSegment makes for the flush beside them. Every other stamp here
+ *  carries a take id from somewhere else (a late mint resolution, a drain, a
+ *  sweep) and keeps 'require'. The read paths are all owner-gated on their own,
+ *  so nothing a null-uid mark writes is ever visible to a colleague. */
 async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
+  opts?: { gate?: 'require' | 'compare' },
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
     try {
       const db = await openDb()
       if (!db) return false
       const uid = await currentUserId()
-      if (!uid) return false
+      if (!uid && opts?.gate !== 'compare') return false
       const tx = db.transaction(TAKES, 'readwrite')
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-      if (!meta || meta.ownerUid !== uid) return false
+      if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
       await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
       return true
@@ -721,16 +742,32 @@ export async function markTakeStartBoundAttempted(takeId: string): Promise<void>
  *  first act, so a start()/discard landing inside THAT write leaves the flush
  *  behind it answering "skipped", and this mark would then write 途中 across a
  *  complete take. `when` is patchTakeMeta's own first-write-wins brace, read
- *  inside the write transaction, so there is no window of its own. */
+ *  inside the write transaction, so there is no window of its own.
+ *
+ *  ⚖ AND IT IS WRITTEN WITHOUT A UID (slice five fix round 3, F1). A logout is
+ *  a real stop now (D4), and on the phone the session store is already nulled
+ *  by the time that stop runs — so under the 'require' gate this mark, the one
+ *  thing that keeps a truncated take out of every drain, was a guaranteed
+ *  no-op on exactly the platform that seals it. `gate: 'compare'` is
+ *  `appendTakeSegment`'s argument, unchanged: this is the recorder's own write
+ *  on a take it minted in this runtime, and a known mismatch is still refused. */
 export async function markTakeTailIncomplete(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { tailIncomplete: true }, (m) => m.durationMs === undefined)
+  await patchTakeMeta(takeId, { tailIncomplete: true }, (m) => m.durationMs === undefined, {
+    gate: 'compare',
+  })
 }
 
 /** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
  *  the leg's first act — see `stopPendingAt` above for why the stop is written
- *  down before the tail rather than after it. */
+ *  down before the tail rather than after it.
+ *
+ *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1), for the same reason and on
+ *  the same gate as `markTakeTailIncomplete` above: it is the abandoned stop's
+ *  FIRST act, and on the phone that stop runs after the session store is
+ *  nulled. `appendTakeSegment`'s compare-don't-require argument covers it —
+ *  the recorder's own write on its own take, in its own runtime. */
 export async function markTakeStopPending(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { stopPendingAt: Date.now() })
+  await patchTakeMeta(takeId, { stopPendingAt: Date.now() }, undefined, { gate: 'compare' })
 }
 
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
@@ -743,14 +780,24 @@ export async function markTakeStopPending(takeId: string): Promise<void> {
  *  Retried by the shared body above, and it ANSWERS now (fix round 13): true
  *  when the stamp is on disk. onstop does not wait on that answer — it holds
  *  the live measurement either way — but a caller that needs to know whether a
- *  later attempt will find this take can ask. */
+ *  later attempt will find this take can ask.
+ *
+ *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1). Same gate, same argument
+ *  as the two marks above: a logout is a real stop, on the phone it runs after
+ *  the session store is nulled, and the tail flush beside this write already
+ *  tolerates that (`appendTakeSegment` COMPARES the uid rather than requiring
+ *  it). Without it a whole take stopped by a sign-out landed its bytes and lost
+ *  its stamp — drainable on the native arm by the quiet-and-whole rule, but
+ *  with the paused-aware measurement gone. */
 export async function stampTakeDuration(
   takeId: string,
   durationMs: number,
 ): Promise<boolean> {
   // …and it is the one write that CLEARS `stopPendingAt` (fix round 17): the
   // stop that set it has finished, and this stamp is how it says so.
-  return patchTakeMeta(takeId, { durationMs, stopPendingAt: undefined })
+  return patchTakeMeta(takeId, { durationMs, stopPendingAt: undefined }, undefined, {
+    gate: 'compare',
+  })
 }
 
 /** The owner gate every read in this file shares, in one place: the take's meta
@@ -1323,9 +1370,12 @@ export async function getRecoverableTake(
  *  drains to read unstamped takes — so the fact is written down now.
  *
  *  `isActive` comes from the caller because the recorder is a module singleton
- *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
- *  recorder in its runtime at all (PR5's launch drain) passes nothing rather
- *  than inventing a check it never made — at launch there is nothing to ask. */
+ *  in the layer ABOVE this one (globalRecorder.isActiveTake). Every caller in
+ *  the app passes it, the phone's launch runner included: it shares the single
+ *  WebView with the recorder, so `globalRecorder.isActiveTake` there is the
+ *  real singleton's answer and not an invented one. The parameter stays
+ *  optional for a caller that genuinely has no recorder in its runtime — a
+ *  test, or a future worker. */
 export function isStoppedTake(
   takeId: string,
   meta: Pick<

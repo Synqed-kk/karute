@@ -1380,6 +1380,21 @@ class GlobalRecorder {
    * less true than skipping it, so there is no condition left but "is a
    * recorder running".
    *
+   * ⚖ AND ON THE PHONE THOSE MARKS LAND BECAUSE THEY NO LONGER ASK FOR A UID
+   * (slice five fix round 3, F1). The paragraph above was true only on the web.
+   * Every thin sign-out path NULLS the session store BEFORE the wipe runs —
+   * src/lib/auth/mobile/session-lifecycle.ts:71-77 flips to signed-out then
+   * calls the wipe, thin/auth/session.ts:155 does the same, and both thread an
+   * explicit uid precisely because `currentUserId()` answers null from there
+   * on. So `markTakeStopPending`, `stampTakeDuration` and
+   * `markTakeTailIncomplete` were all guaranteed no-ops on the one arm that has
+   * a launch drain, and the row this stop left was the quiet, bytes-on-disk,
+   * unflagged shape the native rule reads as FINISHED. Those three writes take
+   * `patchTakeMeta`'s `gate: 'compare'` now (take-store.ts) — the uid is
+   * compared when it resolves and never required, exactly as `appendTakeSegment`
+   * has treated the flush beside them since PR3 fix round 3. That is what makes
+   * the real stop safe here, not the ordering.
+   *
    * With no live recorder at all (idle, or already `recorded` with its leg in
    * flight) this is today's discard-and-reset with the take kept:
    * `wipeSessionVault`'s own `clearOwnTakes` runs after it, and the

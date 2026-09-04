@@ -10,6 +10,10 @@ import type {
   RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { getDataPort } from '@/lib/ports/data-port'
+// The staged PUT's deadline, from the module that already holds the whole-take
+// one (slice five fix round 3, F7). It imports nothing app-side, which is why
+// a port may reach it.
+import { putDeadlineMs } from '@/lib/recording/storage-put'
 import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
@@ -124,16 +128,30 @@ export const viteRecordingPort: RecordingPipelinePort = {
     //    find this row-less object; `mimeType` is `blob.type`, the take's OWN
     //    container from the store's meta — until this round every phone copy was
     //    composed and PUT as webm, so iOS mp4 bytes were mislabelled twice over.
-    //    An empty type is omitted and the server's default stands, exactly as it
-    //    does for the unnamed in-tab fallback.
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
+    //    An empty type is omitted and the server's default stands.
+    //    ⚖ …AND THE UNBOUND FALLBACK SENDS NEITHER (slice five fix round 3, F2).
+    //    Both fields used to ride ONE body for both branches, and the door's
+    //    pair rule (record-schemas.ts) refuses a bare `mimeType` that names
+    //    neither a takeId nor a stagedFor — which is exactly the in-tab
+    //    fallback's shape, and the blob it carries always has a type
+    //    (loadTakeBlob sets it from the take's meta). So every phone take whose
+    //    stop-time upload had failed died at 録音を使用 with a 400. The web arm
+    //    never had it (recording-port.ts puts both inside the stagedFor branch);
+    //    this now mirrors it, and the unbound body is byte-identical to the one
+    //    this leg sent before packet B — which also spares it a `.strict()`
+    //    refusal from a server that predates `stagedTake`.
+    const res = await doorFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        stagedFor: opts?.stagedFor ?? null,
-        stagedTake: opts?.stagedTake ?? null,
-        ...(blob.type ? { mimeType: blob.type } : {}),
-      }),
+      body: JSON.stringify(
+        opts?.stagedFor
+          ? {
+              stagedFor: opts.stagedFor,
+              stagedTake: opts.stagedTake ?? null,
+              ...(blob.type ? { mimeType: blob.type } : {}),
+            }
+          : { stagedFor: null },
+      ),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
     // The facade echoes the mint's WHOLE result (…/upload-url/route.ts's
@@ -163,11 +181,28 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!minted.url) throw new Error('Upload URL failed (no url)')
 
     // 2. PUT the blob directly to storage (the signed URL carries the token).
-    const put = await fetch(minted.url, {
-      method: 'PUT',
-      headers: { 'content-type': minted.contentType },
-      body: blob,
-    })
+    //    ⚖ UNDER A DEADLINE, LIKE EVERY OTHER CALL ON THIS ARM (slice five fix
+    //    round 3, F7). A phone that walks out of signal STALLS its sockets
+    //    rather than failing them, and this one is held by `runDiscardTranscript`
+    //    inside its module-level `inFlight` set while `sweepDiscardTranscripts`
+    //    waits on it sequentially — so one hung staged PUT withheld the discard
+    //    words of every take behind it for the rest of the app run. The deadline
+    //    is the take's own size at ~10 KB/s (storage-put.ts, the same one the
+    //    whole-take PUT carries), and an AbortController with a clearable timer
+    //    rather than `AbortSignal.timeout` for the reason DOOR_TIMEOUT_MS names.
+    const putDeadline = new AbortController()
+    const putTimer = setTimeout(() => putDeadline.abort(), putDeadlineMs(blob.size))
+    let put: Response
+    try {
+      put = await fetch(minted.url, {
+        method: 'PUT',
+        headers: { 'content-type': minted.contentType },
+        body: blob,
+        signal: putDeadline.signal,
+      })
+    } finally {
+      clearTimeout(putTimer)
+    }
     // EVERY refusal is a failure here, the 409 included (fix round 2). On the
     // WHOLE-TAKE path "already there" is a success because finalize re-proves
     // the object's size and its row's ownership afterwards; a staged copy is

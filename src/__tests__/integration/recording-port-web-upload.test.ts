@@ -276,7 +276,8 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
       })
       expect(fetchMock).not.toHaveBeenCalled()
       expect(path).toBe('stg/biz-1_rs-7_take-7.webm')
-      expect(mintRecordingReadUrl).toHaveBeenCalledWith('stg/biz-1_rs-7_take-7.webm')
+      // …and no read url, per F9 below — the fence would refuse a `stg/` key.
+      expect(mintRecordingReadUrl).not.toHaveBeenCalled()
     })
 
     it('a DIFFERENT size is refused — nothing is adopted and nothing is uploaded', async () => {
@@ -301,6 +302,53 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
       ).rejects.toThrow('staged copy mismatch')
       expect(fetchMock).not.toHaveBeenCalled()
     })
+  })
+
+  // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
+  // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
+  // is fenced at `kind === 'take'` (requireOwnPath → isOwnRecordingKey), so a
+  // `stg/` key is refused there by construction: the web arm PUT the copy and
+  // then THREW on the very next line, so the discard's words were never
+  // collected on that arm at all. Nothing needs the URL — runDiscardTranscript
+  // reads `path`, and the discard action signs its own URL from it.
+  it('the staged branch returns the path and mints NO read url', async () => {
+    const { body, path } = await webRecordingPort.prepareTranscription(blob(), null, {
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+    })
+    expect(fetchMock).toHaveBeenCalled() // the copy WAS uploaded
+    expect(path).toBe('app_biz-1_uuid-1.webm')
+    expect(body).toEqual({})
+    expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE STAGED PUT CARRIES A DEADLINE (slice five fix round 3, F7). It is
+  // a real network call on this arm, so the law applies: a stalled one holds
+  // its take in runDiscardTranscript's `inFlight` set while the sequential
+  // sweep waits behind it. Same size-derived number as the whole-take PUT.
+  it('a stalled staged PUT is cut at the blob’s own deadline', async () => {
+    jest.useFakeTimers()
+    try {
+      ;(fetchMock as unknown as jest.Mock).mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new Error('The operation was aborted.')),
+            )
+          }),
+      )
+      const settled = webRecordingPort
+        .prepareTranscription(blob(), null, { stagedFor: 'rs-7', stagedTake: 'take-7' })
+        .then(
+          () => 'resolved',
+          () => 'rejected',
+        )
+      // The floor, for a blob this small (storage-put.ts's PUT_FLOOR_MS).
+      await jest.advanceTimersByTimeAsync(60_000)
+      await expect(settled).resolves.toBe('rejected')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   // …and on the SIGNED arm the 409 is a failure again: it is a race the mint

@@ -213,7 +213,19 @@ describe('the flag flip — the fix itself', () => {
     ).rejects.toThrow('Upload failed (403)')
   })
 
-  it('…and the in-tab fallback names none — the server-named take, as before', async () => {
+  // ⚖ AND THE IN-TAB FALLBACK SENDS NEITHER FIELD (slice five fix round 3, F2).
+  // Both rode ONE body for both branches, and the door's pair rule refuses a
+  // bare `mimeType` that names neither a takeId nor a stagedFor — which is this
+  // branch's exact shape. The blob ALWAYS carries a type in production
+  // (loadTakeBlob sets it from the take's meta, the recorder's result blob sets
+  // it from the negotiated container), so every phone take whose stop-time
+  // upload had failed died at 録音を使用 with `Upload URL failed (400)` — the
+  // offline cohort this slice exists to protect. The typed blob here is what
+  // makes that reachable: the old case used `new Blob(['a'])`, whose empty type
+  // omitted the offending field and hid the defect. The body is byte-identical
+  // to the one this leg sent before packet B, which also spares it a `.strict()`
+  // refusal from a server that predates `stagedTake`.
+  it('…and the in-tab fallback names none — no take, no container, as before', async () => {
     const apiFetch = port(async () =>
       json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm' }),
     )
@@ -221,10 +233,71 @@ describe('the flag flip — the fix itself', () => {
       async () => ({ ok: true, status: 200 }) as unknown as Response,
     ) as unknown as typeof fetch
 
-    await viteRecordingPort.prepareTranscription(new Blob(['a']), null)
+    await viteRecordingPort.prepareTranscription(new Blob(['a'], { type: 'audio/mp4' }), null)
 
     const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null, stagedTake: null })
+    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null })
+  })
+
+  // ⚖ AND BOTH LEGS CARRY A DEADLINE (slice five fix round 3, F7). A phone that
+  // walks out of signal STALLS its sockets rather than failing them, and a hung
+  // staged leg is held in runDiscardTranscript's module-level `inFlight` set
+  // while the sequential sweep waits on it — so one of them withheld the
+  // discard words of every take behind it for the rest of the app run.
+  describe('the staged legs are bounded', () => {
+    it('the mint goes through the port’s 30 s door, not a bare apiFetch', async () => {
+      const apiFetch = port(async () =>
+        json({ path: 'stg/business-1_rs-1_take-1.webm', url: 'https://up/', contentType: 'audio/webm' }),
+      )
+      global.fetch = jest.fn(
+        async () => ({ ok: true, status: 200 }) as unknown as Response,
+      ) as unknown as typeof fetch
+
+      await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        stagedFor: 'rs-1',
+        stagedTake: 'take-1',
+      })
+
+      const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+    })
+
+    it('a stalled PUT is cut at the blob’s own deadline', async () => {
+      jest.useFakeTimers()
+      try {
+        port(async () =>
+          json({
+            path: 'stg/business-1_rs-1_take-1.webm',
+            url: 'https://up/',
+            contentType: 'audio/webm',
+          }),
+        )
+        // A socket iOS holds open: it answers nothing until the signal fires.
+        global.fetch = jest.fn(
+          (_url: string, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () =>
+                reject(new Error('The operation was aborted.')),
+              )
+            }),
+        ) as unknown as typeof fetch
+
+        const leg = viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+          stagedFor: 'rs-1',
+          stagedTake: 'take-1',
+        })
+        const settled = leg.then(
+          () => 'resolved',
+          () => 'rejected',
+        )
+
+        // The floor, for a blob this small (storage-put.ts's PUT_FLOOR_MS).
+        await jest.advanceTimersByTimeAsync(60_000)
+        await expect(settled).resolves.toBe('rejected')
+      } finally {
+        jest.useRealTimers()
+      }
+    })
   })
 
   it('a take that already has its object still uploads NOTHING', async () => {

@@ -4215,7 +4215,26 @@ describe('secure at stop', () => {
   // (fix round 13), so the next drain would seal the committed prefix under the
   // IMMUTABLE finalized key with the rest of the session nowhere left to land.
   describe('⚖ a logout STOPS the take, it does not throw it away', () => {
-    it('a logout mid-recording lands the tail, stamps the take, secures NOTHING and publishes NOTHING', async () => {
+    // ⚖ AND ON BOTH SIGN-OUT ORDERINGS (slice five fix round 3, F1). The web
+    // arm's wipe runs while a uid still resolves; every PHONE path nulls the
+    // session store FIRST — src/lib/auth/mobile/session-lifecycle.ts flips to
+    // signed-out then calls the wipe, thin/auth/session.ts does the same, and
+    // both thread an explicit uid precisely because `currentUserId()` answers
+    // null from there on. The stop leg's three writes all went through
+    // `patchTakeMeta`'s `if (!uid) return false`, so on the one arm that HAS a
+    // launch drain they were guaranteed no-ops and the row this stop left was
+    // the quiet, bytes-on-disk, unflagged shape the native rule seals. Both
+    // cases below therefore run twice, on the file's own `mockUid = null`
+    // idiom (:846, :869, :886), and the uid is restored afterwards because the
+    // reads that matter — the worklist, the take's own meta — are the ones the
+    // NEXT sign-in makes.
+    const orderings: [string, string | null][] = [
+      ['the session store still live (web)', 'staff-A'],
+      ['the session store already nulled (phone)', null],
+    ]
+
+    for (const [arm, uidAtWipe] of orderings) {
+    it(`a logout mid-recording lands the tail, stamps the take, secures NOTHING and publishes NOTHING — ${arm}`, async () => {
       const takeId = await startAndSettle()
       pushChunk('aaa')
       await jest.advanceTimersByTimeAsync(5_000)
@@ -4233,10 +4252,13 @@ describe('secure at stop', () => {
       // this exercises the whole sign-out composition (recorder + pipeline +
       // draft + take-store), which is where the change actually is.
       order.length = 0
+      mockUid = uidAtWipe
       await wipeSessionVault({ uid: 'staff-A' })
       await drain(200)
       await jest.advanceTimersByTimeAsync(0)
       await drain(200)
+      // The staffer signs back in — which is when every read below is made.
+      mockUid = 'staff-A'
 
       // THE TAIL LANDED. Every chunk is on disk and lastSeq covers it.
       expect(metaOf(takeId).lastSeq).toBe(3)
@@ -4265,6 +4287,7 @@ describe('secure at stop', () => {
       expect(takes().size).toBe(1)
       expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([takeId])
     })
+    }
 
     it('a logout while the take is RECORDED with its leg in flight deletes nothing, and the leg still lets go', async () => {
       const takeId = await stoppedTake()
@@ -4289,7 +4312,8 @@ describe('secure at stop', () => {
     // the shape the native rule reads as FINISHED, so the launch drain seals
     // the committed prefix under the immutable key and the rest of the session
     // has nowhere left to land. The real stop writes the truth instead.
-    it('a logout on a take whose persistence LATCHED DISABLED is still flagged, never sealable', async () => {
+    for (const [arm, uidAtWipe] of orderings) {
+    it(`a logout on a take whose persistence LATCHED DISABLED is still flagged, never sealable — ${arm}`, async () => {
       const takeId = await startAndSettle()
       pushChunk('aaa')
       await jest.advanceTimersByTimeAsync(5_000)
@@ -4310,10 +4334,13 @@ describe('secure at stop', () => {
       expect(metaOf(takeId).lastSeq).toBe(1) // p.disabled — memory-only from here
 
       order.length = 0
+      mockUid = uidAtWipe
       await wipeSessionVault({ uid: 'staff-A' })
       await drain(200)
       await jest.advanceTimersByTimeAsync(0)
       await drain(200)
+      // The staffer signs back in — which is when the launch drain asks.
+      mockUid = 'staff-A'
 
       // THE CONSEQUENCE FIRST, because it is the defect: no drain can take
       // this take. Asked through the WORKLIST, not isStoppedTake directly —
@@ -4342,6 +4369,7 @@ describe('secure at stop', () => {
       // The bytes that DID land are still there.
       expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'bbb'.length)
     })
+    }
 
     // ⚖ …AND THE ABANDONED RESET IS THIS TAKE'S, NEVER THE NEXT ONE'S (fix
     // round 1, F2). A BELT, not a defect: onstop is a queued task, and nothing

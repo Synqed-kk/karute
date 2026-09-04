@@ -57,9 +57,12 @@
 
 import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
 // MOVED OUT, NOT CHANGED (slice five packet B). The PUT deadline and the
-// "already there" reader live in storage-put.ts now: both PORTS stage copies
-// through the same storage door and were each carrying a weaker spelling of
-// that refusal. Same functions, same constants, one home.
+// "already there" reader live in storage-put.ts now. `putDeadlineMs` is shared:
+// both PORTS stage a discard's copy through the same storage door and neither
+// carried a deadline (fix round 3, F7), so all three PUTs in the app take the
+// same size-derived one. `putSaysAlreadyThere` is NOT shared — a 409 is a
+// success only here, where finalize re-proves size and ownership afterwards;
+// see storage-put.ts's header.
 import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
 import {
   isStoppedTake,

@@ -28,9 +28,14 @@ jest.mock('@/actions/recording-discard-transcript', () => ({
  *  has to ASK before it reads the row. Mocked for the reason the lazy import
  *  itself names: the recorder's graph reaches next/cache. */
 const mockAwaitTakeSecured = jest.fn(async (_takeId: string) => {})
+/** …and the hold that wait can OUTLIVE (slice five fix round 3, F5). The belt
+ *  gives up at 120 s; the leg holding the take does not, and while it holds,
+ *  the tail is still on its way to disk. */
+const mockIsActiveTake = jest.fn((_takeId: string) => false)
 jest.mock('@/lib/global-recorder', () => ({
   globalRecorder: {
     awaitTakeSecured: (takeId: string) => mockAwaitTakeSecured(takeId),
+    isActiveTake: (takeId: string) => mockIsActiveTake(takeId),
   },
 }))
 
@@ -139,6 +144,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockSupported = true
   mockAwaitTakeSecured.mockImplementation(async () => {})
+  mockIsActiveTake.mockImplementation(() => false)
   mockPersistDiscardTranscript.mockImplementation(async () => ({ ok: true }))
   mockTranscribeAndPersistDiscard.mockImplementation(async () => ({ ok: true }))
   mockReadSecureMeta.mockImplementation(async () => ({
@@ -375,6 +381,44 @@ describe('the audio path', () => {
         expect(mockMarkDone).toHaveBeenCalledWith('take-1')
       })
     }
+
+    // ⚖ …BUT NOT WHILE THE RECORDER STILL HOLDS IT (slice five fix round 3,
+    // F5). `awaitTakeSecured` is belted at 120 s and the HOLD has no deadline
+    // (fix round 16 took it away on purpose), so a slow stop leg — a 43 MB PUT
+    // on salon wifi, a queued IndexedDB tail — is still holding the take when
+    // that belt expires. Its row reads unsecurable (stopPendingAt, no stamp),
+    // so the sweep would stage segments 0..N with N+1 still on its way to disk:
+    // a SHORT copy. D11 then reads `stagedPath` + the done mark as proof the
+    // server holds this take and releases the device's own, longer one — the
+    // tail lost for good, on a take that was only ever discarded.
+    it('a take the stop leg still HOLDS is not staged — its tail is still landing', async () => {
+      mockIsActiveTake.mockImplementation(() => true)
+      mockReadSecureMeta.mockImplementationOnce(async () => ({
+        stopPendingAt: 1_756_000_000_000,
+      }))
+
+      await runDiscardTranscript('take-1', PENDING)
+
+      expect(mockIsActiveTake).toHaveBeenCalledWith('take-1')
+      // Nothing staged, nothing claimed, nothing released…
+      expect(mockLoadTakeBlob).not.toHaveBeenCalled()
+      expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      expect(mockMarkTakeStaged).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      // …and the stamp STAYS, so the next sweep collects the words once the leg
+      // has let go.
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('…and once the leg lets go, the same take stages normally', async () => {
+      mockReadSecureMeta.mockImplementationOnce(async () => ({
+        stopPendingAt: 1_756_000_000_000,
+      }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
+      expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+      expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+    })
 
     it('a RETRYABLE refusal is still merely "not yet" — left for the next sweep', async () => {
       // 'session' is a moment in time (a dead socket, a core 5xx), so the drain

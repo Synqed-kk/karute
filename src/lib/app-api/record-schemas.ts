@@ -23,6 +23,11 @@ const MAX_STORAGE_PATH_CHARS = 300
 // upload-url mint, finalize) — it only BOUNDS the string; the real validation is
 // the closed MIME map in key-grammar.ts.
 const MAX_MIME_CHARS = 100
+// The staged key's uuid SLOT, as sent by the client — bounded rather than
+// shaped, because the shape is decided server-side (see UploadUrlMintSchema's
+// stagedTake note). A uuid is 36; this leaves room for the composed fallback id
+// a browser without crypto.randomUUID gives its take.
+const MAX_STAGED_SLOT_CHARS = 64
 
 // ── Consent grant (§Smaller pre-rulings) ────────────────────────────────────
 // method is a CLOSED enum; policy_version is SERVER-pinned (never accepted here).
@@ -101,9 +106,18 @@ export const SessionMintSchema = z
 // ⚖ AND A STAGED COPY NAMES ITS TAKE TOO (slice five packet B, D10). stagedTake
 // is the take whose bytes are being staged — the value that goes in the key's
 // uuid slot, which is what makes the copy composable from the core row alone
-// (key-grammar.ts#composeStagedKey). It is a uuid because the key's slot is,
-// and it REQUIRES stagedFor: on its own it names a take nobody asked to stage,
-// and this door has exactly two acts.
+// (key-grammar.ts#composeStagedKey). It REQUIRES stagedFor: on its own it names
+// a take nobody asked to stage, and this door has exactly two acts.
+//
+// ⚖ AND IT IS A BOUNDED STRING, NOT A UUID (slice five fix round 3, F3). Typing
+// it `.uuid()` refused the ONE cohort composeStagedKey's random-slot fallback
+// was written for: a browser with no `crypto.randomUUID` names its take
+// `${Date.now()}-…` (global-recorder.ts), so the whole mint 400d before the
+// server could fall back — that take was born `no_uuid` (TERMINAL), i.e.
+// exactly the unsecurable cohort the discard sweep stages, and its words were
+// never collectable at all. `composeStagedKey` already TESTS the slot against
+// TAKE_UUID and mints its own when it fails; the schema's job here is only the
+// length ceiling this file's own law asks of every free string.
 //
 // mimeType JOINS THE STAGED SHAPE with it. Until this round every staged copy
 // was composed with the server's DEFAULT_MIME, so an iOS take's mp4 bytes were
@@ -118,7 +132,7 @@ export const UploadUrlMintSchema = z
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
     recordingSessionId: z.string().uuid().nullish(),
     stagedFor: z.string().uuid().nullish(),
-    stagedTake: z.string().uuid().nullish(),
+    stagedTake: z.string().max(MAX_STAGED_SLOT_CHARS).nullish(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {

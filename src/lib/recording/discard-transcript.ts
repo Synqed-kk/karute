@@ -201,6 +201,18 @@ export async function runDiscardTranscript(
       // mount retry is coming for it; leave the stamp and let the next sweep
       // read the finalized key it will have by then.
       if (!isUnsecurableTake(meta)) return
+      // ⚖ AND NOT WHILE THE RECORDER STILL HOLDS IT (slice five fix round 3,
+      // F5). `awaitTakeSecured` above is belted at SECURE_SETTLE_BELT_MS
+      // (120 s); a stop leg that overran that belt is still holding this take,
+      // its tail is still queued, and `loadTakeBlob` would answer segments
+      // 0..N with N+1 on its way to disk. Staging THAT is a SHORT copy — and
+      // D11 later reads `stagedPath` + the discard's done mark as proof the
+      // server holds this take and releases the device's own, longer one. So
+      // the hold is asked one more time here, right before the read: a held
+      // take keeps its stamp and the next sweep collects its words once the
+      // leg has let go. The probe is the singleton's, lazily for the reason
+      // the awaitTakeSecured call above names.
+      if ((await import('@/lib/global-recorder')).globalRecorder.isActiveTake(takeId)) return
       // It will never have one. The audio is still on the device, so the words
       // are still collectable — stage this take's own blob through the port's
       // existing fallback and transcribe from there. No blob (persistence

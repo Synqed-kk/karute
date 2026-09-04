@@ -16,6 +16,10 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+// The staged PUT's deadline, from the module that holds the whole-take one
+// (slice five fix round 3, F7). It imports nothing app-side, so a port may
+// reach it without a cycle.
+import { putDeadlineMs } from '@/lib/recording/storage-put'
 
 /**
  * What a port answers a mint with. The SUCCESS arm is the shared core's own
@@ -257,13 +261,30 @@ function uploadActions() {
  *  ours. The mint answers existence BEFORE signing now, with the object's
  *  size, and only a size match adopts it (see prepareTranscription). A 409
  *  reaching here is a race the mint did not see a moment earlier; it throws,
- *  the take stays unstaged, and the next sweep's mint answers it with a size. */
+ *  the take stays unstaged, and the next sweep's mint answers it with a size.
+ *
+ *  ⚖ AND IT CARRIES A DEADLINE (slice five fix round 3, F7). This is a real
+ *  network call, not a server action, so it takes a signal — and the law is
+ *  that every one of them has a deadline. A stalled staged PUT holds its take
+ *  inside runDiscardTranscript's module-level `inFlight` set, and the sweep is
+ *  sequential, so one of them withheld the discard words of every take behind
+ *  it. Same number as the whole-take PUT: the blob's own size at ~10 KB/s
+ *  (storage-put.ts). AbortController plus a clearable timer rather than
+ *  AbortSignal.timeout, the same reason the thin arm's doors give. */
 async function putTake(url: string, blob: Blob, contentType: string): Promise<void> {
-  const put = await fetch(url, {
-    method: 'PUT',
-    headers: { 'content-type': contentType },
-    body: blob,
-  })
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+  let put: Response
+  try {
+    put = await fetch(url, {
+      method: 'PUT',
+      headers: { 'content-type': contentType },
+      body: blob,
+      signal: deadline.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
   if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 }
 
@@ -355,6 +376,17 @@ export const webRecordingPort: RecordingPipelinePort = {
         path = minted.path
       }
     }
+    // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
+    // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
+    // is fenced at `kind === 'take'` (key-grammar's grammar, read by
+    // requireOwnPath), so a `stg/` key is refused there by construction: this
+    // line THREW on every web discard staging, after the copy had been PUT, so
+    // the words were never collected on that arm at all. Nothing needs the URL
+    // anyway — the only caller with `stagedFor` is runDiscardTranscript, which
+    // reads `path` and lets the discard action sign its own URL from it. So the
+    // body is empty here, deliberately: there is no audio URL a staged copy can
+    // honestly carry through this door.
+    if (opts?.stagedFor) return { body: {}, path }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
