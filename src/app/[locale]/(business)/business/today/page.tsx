@@ -517,7 +517,7 @@ export default async function TodayPage({
           break: mineShift.breaks.length === 0 ? '休憩なし' : `休憩 ${hhmm(mineShift.breaks[0].start)}–${hhmm(mineShift.breaks[0].end)}`,
         }
       : null,
-    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id } : null,
+    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
     cases,

@@ -14,10 +14,16 @@
 // Capability records.write on all three (only recorders stage audio) — the same
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
-import { requireCapability } from '@/lib/auth/require-permission'
-import { getBusinessId } from '@/lib/staff'
+import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import {
+  mintTakeUploadUrl,
+  type MintTakeUrlInput,
+  type MintTakeUrlResult,
+} from '@/lib/recording/mint-take-url'
 
 /**
  * Tenant fence for a CLIENT-SUPPLIED storage key. The service-role client
@@ -25,6 +31,14 @@ import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
  * caller and another tenant's audio — the same invariant enqueueRecordingJob
  * and processJob enforce on `audio_path`. Throws on a foreign or
  * non-tenant-scoped key.
+ *
+ * TENANT-ONLY, not row-scoped (fix round 6, I4): this proves the key is one
+ * of THIS BUSINESS's takes, never that it is the CALLING STAFFER's own — any
+ * staffer at the tenant can read or remove any colleague's take through the
+ * two legs below today. Known and temporary: the remove leg goes away
+ * entirely in PR4, and the read leg narrows to the reserving row's own
+ * recorder in the player round.
+ *
  * Minted keys have exactly one shape (see mintRecordingUploadUrl), so the
  * grammar is matched POSITIVELY — kind 'take': own prefix, a lowercase uuid,
  * and one of the closed set of extensions — and anything that is not exactly
@@ -40,37 +54,64 @@ async function requireOwnPath(path: string): Promise<void> {
 }
 
 /**
- * Mint a signed UPLOAD url for a fresh take. Key shape is byte-identical to the
+ * Mint a signed UPLOAD url for a take. Key shape is byte-identical to the
  * upload-url facade's (src/app/api/app/v1/recordings/upload-url/route.ts):
  * FLAT (so /api/cleanup's non-recursive bucket list still sweeps it) and
  * tenant-prefixed (so the worker can prove ownership before it reads or
  * deletes the object). No idempotency key needed — an unused signed URL mints
  * no durable state, it just expires.
+ *
+ * `input` is OPTIONAL and absent input is today's behaviour byte-for-byte
+ * (server-named uuid, `.webm`, no row touched). Present, it is CALLER-SUPPLIED
+ * and therefore fenced: the shared core validates the take id against the key
+ * grammar and the container against the closed MIME map, composes, re-parses
+ * its own output, and RESERVES the key on the caller's own recording row before
+ * it signs anything (see mintTakeUploadUrl).
+ *
+ * NO STORE any more (fix round 7): the mint never creates a row, so it has none
+ * to place — startRecordingSession is the one door that mints, and it is where
+ * a take's store comes from. Same deletion finalizeTake took in fix round 4.
+ *
+ * Returns the result UNION rather than throwing (fix round 4), the same shape
+ * finalizeTake gives: `exists` and `reserved_elsewhere` are answers the client
+ * must branch on — "this take is spoken for, start a new one" — and a throw
+ * flattens them all into one unusable failure. The capability gate follows the
+ * same rule (fix round 9): asked with can(), not requireCapability(), so a
+ * denial settles as `{ error: 'forbidden' }` instead of throwing — aligned
+ * with finalizeTake (src/actions/recordings.ts), which made the same call for
+ * the same reason: a thrown denial the client reads as retryable would loop
+ * forever against a permission it will never gain.
  */
-export async function mintRecordingUploadUrl(): Promise<{
-  path: string
-  url: string
-  token: string
-}> {
-  await requireCapability('records.write')
-  const businessId = await getBusinessId()
-  const path = `app_${businessId}_${crypto.randomUUID()}.webm`
+export async function mintRecordingUploadUrl(
+  input?: MintTakeUrlInput,
+): Promise<MintTakeUrlResult> {
+  if (!(await can('records.write'))) return { error: 'forbidden' }
+  // The cookie session is the ONLY source of every one of these: a caller names
+  // neither its tenant, nor itself, nor its reach. staffId owns any row the
+  // mint reserves, and is what the take_named row is attributed to.
+  const [businessId, staffId, capabilities] = await Promise.all([
+    getBusinessId(),
+    getCurrentUserStaffId(),
+    getMyCapabilities(),
+  ])
 
-  const supabase = createServiceClient()
-  const { data, error } = await supabase.storage
-    .from('recordings')
-    .createSignedUploadUrl(path)
-
-  if (error || !data?.signedUrl) {
-    throw new Error('could not mint an upload URL')
-  }
-  return { path: data.path ?? path, url: data.signedUrl, token: data.token }
+  return await mintTakeUploadUrl(
+    newSynqedClient(businessId),
+    {
+      staffId,
+      businessId,
+      canViewAll: capabilities.has('recordings.viewAll'),
+      source: 'web',
+    },
+    input,
+  )
 }
 
 /**
- * Mint a signed READ url for a take the caller already uploaded — what the web
- * transcribe route's `audioUrl` carries (its SSRF guard requires exactly this
- * host). Refuses any path outside the caller's own tenant prefix.
+ * Mint a signed READ url for a take in the caller's own business — what the
+ * web transcribe route's `audioUrl` carries (its SSRF guard requires exactly
+ * this host). Refuses any path outside the caller's own tenant prefix
+ * (requireOwnPath is tenant-scoped only — see its docstring).
  */
 export async function mintRecordingReadUrl(path: string): Promise<{ url: string }> {
   await requireCapability('records.write')

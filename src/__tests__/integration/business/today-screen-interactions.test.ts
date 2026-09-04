@@ -105,7 +105,7 @@ import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
 // operator acts on has to be provable without a renderer.
-import { bedDoor, bedViewsFor } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bedDoor, bedViewsFor, nextVisitCategory } from '@/app/[locale]/(business)/business/today/TodayScreen'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -123,6 +123,118 @@ const STEP = stepPct(9)
 /** ⚠SETTINGS-BATCH — the store's shipped room policy (opsConfig.roomPolicy).
  *  The tests that care about the dials set their own. */
 const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
+
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
+ *
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  A decoy hidden as a TRAILING comment on a real code line survives the
+ *  filter — and then it INFLATES the count, which is red the other way
+ *  round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
+const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
+
+/** ONE call's own text, from its opening anchor to the dependency-array line
+ *  that closes the hook it lives in — found and counted by the SAME anchored
+ *  regex `pinnedLines` uses, over `codeOnly(src)`.
+ *
+ *  ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — THE ANCHORS HAVE TO BE UNIQUE, AND
+ *  THIS FUNCTION IS WHERE THAT IS DECIDED. It used to be `src.indexOf(open)`
+ *  then `src.indexOf(close, i)` over the RAW file: first occurrence, both ends,
+ *  nothing asserting there was only one. The comment that stood here CLAIMED
+ *  「Both anchors are unique in the file」 and never checked it, so the armour
+ *  was not reading the call — it was reading whichever copy came first. The
+ *  breaker copied the rail's fourteen lines verbatim into a `(false as
+ *  boolean) ?` branch ABOVE the real memo, deleted the live protected door and
+ *  re-spelled the two other pinned lines so no file-wide count moved: 530
+ *  suites green, `tsc` exit 0, every slice pin satisfied — by the decoy — and
+ *  both protected doors dark (rail 5 + verdict 5 of 90 fixture cells at
+ *  now=804, 12 + 12 with no clock). `opens` and `closes` are those two counts,
+ *  and every caller asserts both are ONE before reading `text`: a second copy
+ *  then has nowhere to stand, which is the argument `inTheFile: 1` already
+ *  makes one level down for a duplicate LINE.
+ *
+ *  AND THE LOCATOR MOVED WITH THE COUNT. `indexOf` finds an anchor anywhere —
+ *  mid-line, or inside a comment — while the count only sees it at the start of
+ *  a line of code; a locator the count cannot see is a decoy site by
+ *  construction (append the open anchor to the tail of a live line and the
+ *  count still reads one). Both halves run `anchoredLine` over `codeOnly(src)`
+ *  now, so what is counted and what is sliced are the same thing, and `text`
+ *  arrives at the caller already comment-blanked.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Blanking the whole file before slicing means
+ *  an unterminated block comment ABOVE the open anchor eats the anchors
+ *  themselves — `ok` goes false, which is red, so that direction is safe. A
+ *  comment can only ADD lines to a slice or TRUNCATE it; it can never SUPPLY a
+ *  pinned line, because `codeOnly` removed it before the slice existed. */
+const callSlice = (src: string, open: string, close: string) => {
+  const code = codeOnly(src)
+  const opens = [...code.matchAll(anchoredLine(open))]
+  const closes = [...code.matchAll(anchoredLine(close))]
+  const at = (ms: readonly { index?: number }[], after: number) => ms.find((m) => (m.index ?? -1) > after)?.index ?? -1
+  const i = at(opens, -1)
+  const j = i < 0 ? -1 : at(closes, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? code.slice(i, j) : '', opens: opens.length, closes: closes.length }
+}
 
 /** jsdom has no layout: give a node the rect the test needs. */
 function rect(el: Element, r: { left: number; top: number; width: number; height: number }) {
@@ -1209,28 +1321,463 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  be lifted out of the world is `live?.id`, full stop. `?? pending?.id` was
    *  the excluded world, and it may not come back anywhere in this file. */
   it('the screen hands the rooms to BOTH guard doors, out of the ONE book', () => {
-    expect(SRC).toContain('const handId = live?.id ?? null')
-    // ⚖ FIX-4(a) — the ENGINE's exclusion moved with the door's. Pinning only
-    // `placementFeasible` would let a round put `pending` back into the pocket
-    // walk while the beds stayed honest: half a world, which is worse than
-    // either whole one.
-    expect(SRC).toContain('excludeId: handId,')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
+    // ⚖ R7 (SPEC §3.1) — BOTH DOORS, BOTH CALLBACKS, ONE BOOK. `placementFeasible`
+    // answers 「can the card being placed occupy this span」; `protectedWindow-
+    // Feasible` answers 「does the real world publish a protected window starting
+    // here」. The rail was handed the second at E3a and the verdict was not, so
+    // the strip's marks were bed-honest and the word under the cursor was not —
+    // two readings of one board, measured disagreeing on 1,625 of 7,956 cells
+    // (PROBE-R7 §P1). Pinned as the PAIR, because the failure this catches is
+    // exactly half a world; and `handId` above them, because the id that may be
+    // lifted out of the world is `live?.id`, full stop.
+    //
+    // ⚖ BREAKER-827 F1 (BLOCKER) — WHOLE-LINE ANCHORED. Every one of these five
+    // was a `toContain`, and the breaker walked straight through the last of
+    // them: comment the verdict's door out, leave the pinned text beside it as
+    // `// protectedWindowFeasible: …`, and this test stayed green with the
+    // verdict back on the raw pocket-minute enumeration — the exact defect the
+    // round measures. A pinned line has to BE a line now.
+    for (const line of [
+      'const handId = live?.id ?? null',
+      'placementFeasible: bedDoorFor(handId),',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ LENS-2 DECOY 3 (MAJOR) — AND EVERY CALLBACK IS PINNED INSIDE THE CALL
+    // IT IS AN ARGUMENT TO. Presence-in-the-file is reachability-blind and a
+    // MOVE leaves every total where it was: the lens deleted the verdict's door
+    // from the live object and parked a byte-identical copy in a
+    // `void`-discarded dead block above the hook — 486 green, tsc clean, the
+    // guard back on the raw enumeration. Counted ONCE over code file-wide AND
+    // present inside its own call: a duplicate moves the count, a move leaves
+    // the slice.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — AND THE SLICE HAS TO BE THE CALL.
+    // `callSlice` took the FIRST occurrence of each anchor and nothing said
+    // there was only one, so a verbatim DECOY of the rail's fourteen lines,
+    // parked in a `(false as boolean) ?` branch above the real memo, captured
+    // every pin below while the live call shed its protected door: 530 green,
+    // tsc clean, both doors dark. Every anchor is counted before it is read.
+    const uniqueSlice = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      return s
+    }
+    const CODE = codeOnly(SRC)
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
+    for (const [where, call, line] of [
+      ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      ['verdict', verdict.text, 'placementFeasible: bedDoorFor(excludeId, lanes),'],
+      ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
+    ] as const) {
+      expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(SRC, line) })
+        .toEqual({ where, line, inThisCall: 1, inTheFile: 1 })
+    }
+    // `const handId = live?.id ?? null` above them is anchored and not counted:
+    // a second one is a TypeScript redeclaration and a moved one takes every
+    // reader on the screen with it, so there is no silent shape to count for.
+    //
+    // ⚖ FIX-4(a) / BREAKER-827 §DELTA D2(a) — the ENGINE's exclusion moved with
+    // the door's, at BOTH of its sites. Pinning only `placementFeasible` would
+    // let a round put `pending` back into the pocket walk while the beds stayed
+    // honest: half a world, which is worse than either whole one. It was left a
+    // `toContain` as declared residue because one spelling stands for TWO
+    // sites — and the breaker commented the RAIL's out with the mask's keeping
+    // the substring green: 486 passed while 39 of 1,872 strip cells moved, 9 of
+    // them safe → blocked, the card in hand become its own obstacle (the ⚖ R3 /
+    // flag-50 defect class, in the surface Liam photographed). One spelling for
+    // two sites is not a uniqueness question, it is a COUNT question — so the
+    // anchored line is counted (TWO) and then required inside each of the two
+    // calls that must carry it.
+    expect({ excludeIdLines: pinnedLines(SRC, 'excludeId: handId,') }).toEqual({ excludeIdLines: 2 })
+    for (const [where, call] of [
+      ['rail', rail.text],
+      ['heldBoard mask', mask.text],
+    ] as const) {
+      expect({ where, inThisCall: pinnedLines(call, 'excludeId: handId,') }).toEqual({ where, inThisCall: 1 })
+    }
     // The book is built ONCE per frame, in a memo — never inside a predicate,
-    // a pointer frame or a drag handler.
-    expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
-    // ⚖ FIX-4(f) — and on THESE inputs. A dep dropped here is a book answering
-    // about last frame's board, which is the one failure a memo can have.
-    expect(SRC).toContain('[boardLanes, props.rooms, ledgerFrame, handId],')
-    // ⚖ FIX-4(c) — ⚖ 39's escape hatch, whole. A caller handing in a board it
-    // has already taken something out of gets its OWN book; every hot caller
-    // passes nothing and reads the frame's. Pinned as one expression, because
-    // the identity check and the fallback are one decision.
-    expect(SRC).toContain('bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),')
+    // a pointer frame or a drag handler — and on THESE inputs (⚖ FIX-4(f): a
+    // dep dropped here is a book answering about last frame's board, which is
+    // the one failure a memo can have). ⚖ FIX-4(c) — and ⚖ 39's escape hatch,
+    // whole: a caller handing in a board it has already taken something out of
+    // gets its OWN book, every hot caller passes nothing and reads the frame's,
+    // and it is pinned as ONE expression because the identity check and the
+    // fallback are one decision.
+    //
+    // ⚖ BREAKER-827 §DELTA D2(b)/(c)/(d) — ANCHORED, all three. (b) was already
+    // held by the `bedViewsFor(` count one test below and (c) had no reachable
+    // consequence the breaker could measure — those two are insurance, said out
+    // loud. (d) is not: collapsing the hatch to `bedDoor(ledger, lanes,
+    // askerId)` with a `//` decoy beside it left 486 green while 302 of 1,872
+    // verdict cells moved (10 safe → blocked, 12 degraded → safe) — the block
+    // advisor answering off a board it has NOT taken the block out of, which is
+    // ⚖ 39's whole reason for existing.
+    for (const line of [
+      '() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),',
+      '[boardLanes, props.rooms, ledgerFrame, handId],',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
+    // …and there are exactly TWO mentions of `bedDoor(` in the file, counted
+    // over code: the exported declaration and that one call. A second call is a
+    // second door, which is the disease this family exists to remove.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 — AND EXACTLY ONE of those two DEFINES it. The
+    // shim shape one paragraph down works on any name a slice calls; `bedDoor`
+    // is defined on this screen rather than imported into it, so what is banned
+    // here is a SECOND definition shadowing the exported one. `bedDoorFor` is
+    // not it — the word boundary after `bedDoor` sees the `F` and misses.
+    expect({
+      bedDoorMentions: (CODE.match(/bedDoor\(/g) ?? []).length,
+      bedDoorDefinitions: (CODE.match(/\b(?:function|const|let|var|class)\s+bedDoor\b/g) ?? []).length,
+    }).toEqual({ bedDoorMentions: 2, bedDoorDefinitions: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND THE GATE'S NAME IS BOUND IN
+    // EXACTLY ONE PLACE. Every pin above reads a NAME and none of them said
+    // where that name comes from. `const SELLING_ENGINE_LAW = false` written at
+    // the top of the component shadows the import, and the doors suite's read
+    // COUNT is paid back by hardcoding `heldBoard`'s bare ternary head to
+    // `true`: five reads still, every anchored line still a line, both door
+    // lines byte-identical inside their own slices — and BOTH protected doors
+    // dark, `heldCommittedFor`'s `gateOn` false with them. A count of READS was
+    // never a count of BINDINGS, so the bindings are banned and the import is
+    // the only site left.
+    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
+    expect({
+      declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
+    }).toEqual({ declarations: 0 })
+    expect(CODE).not.toMatch(/\bSELLING_ENGINE_LAW\s*=(?!=)/)
+    // …and no destructured or parameter binding either. The one legitimate
+    // `{ SELLING_ENGINE_LAW }` on this screen is the import line above, so it is
+    // taken out before the shape is looked for rather than carved out of it.
+    const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    // …and the fifth read — `heldBoard`'s bare ternary head, the read the doors
+    // suite used to hold by its COUNT alone — is a whole line, counted ONCE
+    // over the file, and inside the memo whose answer it decides. `true` in its
+    // place leaves the slice a line short: red here, and red again on the count.
+    const heldBoard = uniqueSlice(
+      'const heldBoard = useMemo(',
+      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+    )
+    expect({
+      bareGateLines: pinnedLines(SRC, 'SELLING_ENGINE_LAW'),
+      inHeldBoard: pinnedLines(heldBoard.text, 'SELLING_ENGINE_LAW'),
+    }).toEqual({ bareGateLines: 1, inHeldBoard: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — AND THE TWO ENGINE NAMES THE SLICES
+    // CALL ARE THE IMPORTED ONES. The slices name `guardRailsFor` and
+    // `guardVerdictAt`; the import specifiers were not anchored and nothing
+    // counted the names, so a module-level shim — `guardRailsFor as
+    // guardRailsForImpl` plus a local wrapper that spreads
+    // `protectedWindowFeasible: undefined` over whatever the slice handed in —
+    // left every pinned character byte-identical and threw the door away
+    // BETWEEN the slice and the engine, at 487 green and tsc exit 0. That is
+    // §DELTA 2 D4 one level further out: D4 changed what `bedDoorFor` hands
+    // back, this changes what the callee does with what it was handed. So each
+    // name is counted over code — TWO mentions (the import specifier and the
+    // call), ONE of them with a parenthesis — and no local definition of either
+    // is allowed. The specifiers themselves are pinned as exact lines in the
+    // exact-lines test below, which is what reds an `as` rename.
+    for (const [name, mentions, calls] of [
+      ['guardRailsFor', 2, 1],
+      ['guardVerdictAt', 2, 1],
+    ] as const) {
+      expect({
+        name,
+        mentions: (CODE.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length,
+        calls: (CODE.match(new RegExp('\\b' + name + '\\(', 'g')) ?? []).length,
+        definitions: (CODE.match(new RegExp('\\b(?:function|const|let|var|class)\\s+' + name + '\\b', 'g')) ?? []).length,
+      }).toEqual({ name, mentions, calls, definitions: 0 })
+    }
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+
+  /** ⚖ BREAKER-827 §DELTA 2 D4 (BLOCKER) — EVERY PIN ABOVE ASKS WHERE A LINE IS.
+   *  NONE OF THEM ASKS WHAT THE WRAPPER HANDS BACK.
+   *
+   *  The breaker left both door lines byte-identical, in their own call slices,
+   *  counted once file-wide — and added ONE line inside `bedDoorFor`:
+   *
+   *      (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
+   *        askerId === null ? undefined :
+   *        bedDoor(lanes === boardLanes ? ledger : bedViewsFor(…), lanes, askerId),
+   *
+   *  `bedDoorFor(null)` and `bedDoorFor(null, lanes)` then both return
+   *  `undefined`, so `railCtx` drops `protectedWindowFeasible` on BOTH sides and
+   *  the guard falls back to the raw pocket-minute enumeration everywhere. 530
+   *  suites / 8,212 green, `tsc` exit 0, every pin above still true — and 90
+   *  fixture cells moved at the shipped dials (rail 5 + verdict 5 at now=804,
+   *  12 + 12 at now=null): R7's whole change AND #800's rail change, both dark,
+   *  without touching a pinned character.
+   *
+   *  So the three places where those two answers are DECIDED are pinned as
+   *  whole slices: the wrapper, and each door's input literal, are EXACTLY the
+   *  lines below in exactly this order. This is selling-engine-flip.test.ts's
+   *  shape (grep it for FORWARDED) applied to a screen wrapper — an explicit
+   *  array compared with `toEqual`, so an added line, a removed line, a changed
+   *  line and a re-ordered line are one red that PRINTS the whole slice.
+   *
+   *  ⚠ AND THE EQUALITY IS THE BAN LIST. There is no separate list of
+   *  forbidden tokens because there is no room left for one: the arrays hold
+   *  every non-blank line the slice's CODE has, so once they are removed the
+   *  remainder of the slice is whitespace and comments and nothing else. A
+   *  hoisted ternary, a spread, a computed key, a second statement — each is a
+   *  line that is not in the array, or a line in the array that changed.
+   *  `?`, `null` and `undefined` need no ban of their own: the ⚖ 39 hatch
+   *  ternary and both door ternaries are pinned as the exact text they are.
+   *
+   *  ⚖ D6 (§DELTA 2) RIDES IN THE SAME PIN. `...{ protectedWindowFeasible:
+   *  undefined },` written under the verdict's door line left 486 green and was
+   *  caught by `tsc` alone (TS2783 — the type-checker doing armour's job). It is
+   *  a fifteenth line in the verdict array now, so it is a test red too.
+   *
+   *  ⚖ BREAKER-827 §DELTA 3 S3 — AND A FOURTH SLICE JOINS THEM: the import
+   *  statement that brings `guardRailsFor` and `guardVerdictAt` onto this
+   *  screen. The three arrays pin what the screen HANDS IN; none of them said
+   *  who receives it, and a module-level shim behind an `as` rename forwarded
+   *  the door and dropped it one line later at 487 green and `tsc` exit 0.
+   *
+   *  ⚠ WHAT THIS STILL DOES NOT REACH is a decision taken OUTSIDE these
+   *  slices — a lookup elsewhere on the screen that drops what a door returned,
+   *  or a rewiring at the renderer. §DELTA 3 S4 executed exactly that: the
+   *  memo's answer rewritten by `railByLane` one line below it, every mark on
+   *  the strip reading 安全, 487 green. No suite renders `TodayScreen`, so that
+   *  is the ⚖ renderer-fence question already on Liam's desk, and it is the
+   *  recorded CEILING of this family rather than the next round of text. */
+  it('the two guard doors and the wrapper they go through are EXACTLY these lines', () => {
+    /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
+     *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
+     *  blanked, so a decoy has to be real code to appear at all. `ok` — and, ⚖
+     *  §DELTA 3 S1, each anchor's uniqueness — is asserted before the text is
+     *  read: a slice that came back empty because an anchor moved, or that came
+     *  back pointing at a verbatim COPY, would make the equality below vacuous. */
+    const sliceLines = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      // ⚖ BREAKER-827 §DELTA 3 S1 — and `opens`/`closes` are asserted with it.
+      // A verbatim copy of these lines above the real one satisfied every
+      // equality below while the live call lost its door; the equality does not
+      // know which copy it is looking at, so the anchor's uniqueness has to be
+      // established before the text is read at all.
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      const code = codeOnly(s.text)
+      return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
+    }
+
+    // 1 · THE WRAPPER — three lines: the hook, the arrow with its asker and its
+    // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
+    // nowhere to be.
+    expect(
+      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, props.rooms, ledger, ledgerFrame, handId],').lines,
+    ).toEqual([
+      'const bedDoorFor = useCallback(',
+      '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+    ])
+
+    // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
+    const rail = sliceLines(
+      '? guardRailsFor(boardLanes, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],',
+    )
+    expect(rail.lines).toEqual([
+      '? guardRailsFor(boardLanes, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur: railDur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId: handId,',
+      'placementFeasible: bedDoorFor(handId),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      '})',
+      ': [],',
+    ])
+
+    // 3 · THE VERDICT'S INPUT — the same shape, with the caller's own duration,
+    // the caller's own exclusion and the board it was handed.
+    const verdict = sliceLines(
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],',
+    )
+    expect(verdict.lines).toEqual([
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId,',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+      '})',
+      ': null,',
+    ])
+
+    // …and the KEY COUNT beside each array, the flip precedent's second half.
+    // The arrays read whole LINES; this reads `\w+:`-spelled keys, so the two
+    // disagree the moment a key is written in a shape a line has to be read to
+    // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
+    // which is why the number is smaller than the array — both are measured.
+    for (const [where, code, want] of [
+      ['rail', rail.code, 10],
+      ['verdict', verdict.code, 8],
+    ] as const) {
+      expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
+    }
+
+    // 4 · THE TWO ENGINE NAMES ARRIVE, AND THE IMPORT IS EXACTLY THESE LINES.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — the three arrays above pin what the
+    // screen HANDS IN; none of them pinned who receives it. The breaker renamed
+    // both specifiers (`guardRailsFor as guardRailsForImpl`) and wrote two
+    // module-level wrappers that spread `protectedWindowFeasible: undefined`
+    // over the object the slice built: every pinned character byte-identical,
+    // 487 green, `tsc` exit 0, both protected doors dark. So the whole import
+    // statement that brings the engine onto this screen is an exact-lines slice
+    // of its own — an `as` rename, an added specifier, a removed one and a
+    // re-ordered one are all one red that PRINTS the block. The name COUNTS
+    // beside it (two mentions each, one call each, no local definition) are in
+    // the BOTH-doors test above; the two together leave the shim nowhere: the
+    // rename reds here, and a shim that keeps the plain specifier names reds
+    // there on the third mention.
+    //
+    // ⚠ The open anchor is TWO lines (`import {` and its first specifier)
+    // because `import {` alone is three lines on this screen and an anchor that
+    // is not unique is exactly what S1 was — `callSlice` counts it, so a
+    // non-unique anchor is a red rather than a silent wrong slice.
+    expect(sliceLines('import {\n  allocateBed,', "} from './today-interactions'").lines).toEqual([
+      "import {",
+      "allocateBed,",
+      "anchorOnScreen,",
+      "applyBlockMoves,",
+      "applyMoves,",
+      "blockChrome,",
+      "blockClash,",
+      "blockDragModeAt,",
+      "blockEdgeZones,",
+      "blockStepPct,",
+      "BLOCK_STEP_MIN_DEFAULT,",
+      "cardNodes,",
+      "chipProxySize,",
+      "clampLabelWidth,",
+      "clickClosesPopover,",
+      "dragModeAt,",
+      "fieldsPopAnchor,",
+      "fitsDrag,",
+      "fractionIn,",
+      "labelWidthOf,",
+      "liveTimeLabel,",
+      "proxyTransform,",
+      "stretchOrCarry,",
+      "gapKindOf,",
+      "gapLayerFor,",
+      "gapPackingDials,",
+      "guardCheckRow,",
+      "guardCheckRowBesideOffer,",
+      "guardRailsFor,",
+      "guardVerdictAt,",
+      "blockNode,",
+      "heldDrawnFor,",
+      "holdPopAnchor,",
+      "holdSummary,",
+      "isCrumbOffer,",
+      "isHeldBound,",
+      "isOverShelf,",
+      "laneKeyAtY,",
+      "landingVerdict,",
+      "lossOf,",
+      "bedClassCell,",
+      "nearestFreeStarts,",
+      "needsPrivateRoom,",
+      "offerableCell,",
+      "nextSpan,",
+      "onlineOffers,",
+      "overrideCaption,",
+      "onShownBoard,",
+      "pairLanesOf,",
+      "parkChipText,",
+      "pinInViewport,",
+      "restCueStarts,",
+      "warnFaceFor,",
+      "holdClock,",
+      "holdResumeAt,",
+      "HOLD_MS,",
+      "explainRails,",
+      "reservedSentence,",
+      "sameStore,",
+      "sharesStore,",
+      "sellDrawnFor,",
+      "sellLayerFor,",
+      "sidesAt,",
+      "seedBed,",
+      "seedSpanIn,",
+      "slotStartAt,",
+      "unparkOutcome,",
+      "foreignStoreRefusal,",
+      "type GuardRail,",
+      "type LandingFloor,",
+      "type LandingQuestion,",
+      "type LandingVerdict,",
+      "type Move,",
+      "type Moves,",
+      "type OverrideLevel,",
+      "type PairLanes,",
+      "type RailCell,",
+      "type RoomPolicy,",
+      "type SellDrop,",
+      "type WarnCardModel,",
+    ])
+  })
+
+  /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
+   *
+   *  `pendingChecks` was a plain per-render expression over `checksFor`, which
+   *  runs canon's `computeChecks` over every span on the staff and bed lanes —
+   *  on a screen that re-renders per pointer frame. The memo changes no answer:
+   *  its inputs ARE the expression's, which is the only thing that can go wrong
+   *  here and the reason the dependency list is pinned beside the body (a dep
+   *  dropped from THIS memo is a confirm surface answering about last frame's
+   *  board, which is the ⚖ FIX-4(f) failure one memo over). */
+  it('the hold bar’s checks are memoised, on exactly the inputs the expression had', () => {
+    // ⚖ BREAKER-827 F3 (MAJOR) — ANCHORED, AND COUNTED. The breaker replaced the
+    // memo with `useMemo(() => [], [])` and left the pinned line above it as a
+    // comment: 530 suites green, tsc clean, and the hold bar had lost every
+    // check row — `overrideCaption` is an every-row-ok predicate, so 確定 stopped
+    // being gated by the checks at all. Nothing in the repo EXECUTES this memo
+    // (no suite renders TodayScreen — the ⚖ renderer-fence question on Liam's
+    // desk), so this one line is the whole armour and it has to hold both ways:
+    // the real line must BE a line, and there must be exactly ONE assignment to
+    // `pendingChecks` in the file, counted over code, so a second one cannot be
+    // written under it.
+    const MEMO =
+      'const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])'
+    expect({ line: MEMO, has: pinnedLine(SRC, MEMO) }).toEqual({ line: MEMO, has: true })
+    // ⚖ BREAKER-827 §DELTA D1 — AND THE COUNT KNOWS THE TYPED SPELLING. The
+    // breaker put the real line in a block comment and wrote
+    // `const pendingChecks: Check[] = useMemo(() => [], [])` under it: a
+    // spelling `const pendingChecks = ` does not match, so the count still read
+    // ONE and 486 stayed green with the hold bar's rows gone.
+    const assignments = (codeOnly(SRC).match(/^[ \t]*const pendingChecks(?:[ \t]*:[ \t]*[^=\n]+)?[ \t]*=/gm) ?? []).length
+    expect({ assignments }).toEqual({ assignments: 1 })
   })
 
   /** ⚖ FIX-4(e) — THE ONE-DOOR INVARIANT, IN R3's SHAPE.
@@ -4106,6 +4653,153 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setAdded('))
   })
 
+  /** ⚖ 51 (R7) — AND IT CARRIES THE CUSTOMER'S CATEGORY, for the same reason and
+   *  over SEVEN hops — the intent's field, the prop, page.tsx, the arming, the
+   *  landing, the solve, and the CARD the placement mints.
+   *
+   *  The 配置モード landing hardcoded `vip: false`, so a VIP's 次回予約 placed from
+   *  the board was solved onto whatever bed `privateIsLastResort` reached first,
+   *  with no word said — the silent path ⚖ 51 exists to prevent, on the one
+   *  gesture that never had a card to read the category off. The truth was one
+   *  hop away the whole time: `page.tsx`'s `inStore` IS a booking row, and a
+   *  booking row carries `category`. It was being dropped on the way into props.
+   *
+   *  Pinned as the WHOLE CHAIN rather than at the landing alone: a category that
+   *  arrives at the intent and is not read, or is read from an intent nothing
+   *  fills, is the same silence with a longer path to it.
+   *
+   *  ⚠ AND THE SOLVE ASKS IT TOO. `placeNextVisit` calls `solveBed` with its own
+   *  `vip` argument, which was also a hardcoded `false`. Fixing the verdict alone
+   *  would have made the word and the release disagree BY CONSTRUCTION — the
+   *  verdict solving the 個室 and the placement putting the VIP somewhere else —
+   *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
+   *  one field, and both are pinned here so neither can drift back alone.
+   *
+   *  ⚠ AND THE SEVENTH HOP IS THE CARD ITSELF (fix round 1, blind lens 1 #1).
+   *  `placeNextVisit` minted the staged card with `category: 'repeat' as const`,
+   *  and the card is what every LATER gesture asks — `placePendingAt`'s
+   *  `item?.category === 'vip'`, both `solveBed` releases, `bedDoor`'s subject
+   *  path. So the fix held for exactly one press: the same VIP booking, dragged
+   *  one lane over or sent through 安全な開始に置く, asked the room floor as a
+   *  非VIP again and could be seated on a standard bed with nothing said. The
+   *  hop is pinned positively AND negatively, because the old spelling is a
+   *  literal TypeScript cannot flag.
+   *
+   *  ⚠ AND HOP 4 IS A TURN, NOT A COPY (fix round 2, Greptile #827). Carrying
+   *  the category straight across made the OTHER half wrong: `BookingCategory`
+   *  is a per-booking word and 'new' means THIS visit is the customer's first,
+   *  so a first-timer's 次回予約 card came out tagged 新規 and every 新規-reading
+   *  surface counted it. The arming turns that one word over through
+   *  `nextVisitCategory` — VIP and 回数券 are the customer's own traits and ride
+   *  along. The helper itself is pinned BEHAVIOURALLY in the test below; here
+   *  only the wiring is text-pinned, positively and negatively, because the bare
+   *  read is another literal TypeScript cannot flag.
+   *
+   *  ⚠ AND EVERY HOP IS WHOLE-LINE ANCHORED NOW (⚖ BREAKER-827 F2, MAJOR). The
+   *  chain was seven `toContain`s, and the breaker reverted hops 4, 5 and 7
+   *  together with a comment decoy per hop and a re-spelling that walked past
+   *  each negative: `category: 'repeat' as BookingCategory,` at the arming and
+   *  at the card (neither is `'repeat' as const`), and `vip: !1,` at the landing
+   *  (which is not `vip: false`). Chain green, VIP back on a standard bed with
+   *  nothing said. So each hop must BE a line, and three counts close the room a
+   *  decoy needs: one `category:` line in the minted card, one `solveBed(` in
+   *  `placeNextVisit`, one `vip:` in the landing. The dodges themselves are
+   *  banned outright in the three slices, which is cheap and says out loud what
+   *  was tried. */
+  it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
+    const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+    const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // The minted card's own literal, and the landing — the `askGuard(` the empty
+    // slot raises while 配置モード is armed, bounded by the callback it hands its
+    // `run`. Both bounds are asserted before they are used: a slice that came
+    // back empty because an anchor moved would make every count below vacuous.
+    const faceAt = place_.indexOf('const face = {')
+    const seedAt = SRC.indexOf('const slot = place(seed.start, seed.end, hours)')
+    expect({ faceAt: faceAt > -1, seedAt: seedAt > -1 }).toEqual({ faceAt: true, seedAt: true })
+    const face = place_.slice(faceAt, place_.indexOf('\n    }', faceAt))
+    const landing = SRC.slice(seedAt, SRC.indexOf('(s, override) => placeNextVisit(lane, s, override),', seedAt))
+    expect({ face: face.length > 0, landing: landing.length > 0 }).toEqual({ face: true, landing: true })
+    // 1 · the intent's own field and the type it is · 2 · the prop it is filled
+    // from · 3 · the one line in page.tsx that stopped dropping it · 4 · the
+    // arming, which TURNS the word over to the next visit's (⚖ #827) rather
+    // than copying it · 5 · the landing asking the room floor as a VIP · 6 · the
+    // placement that follows it, one field two readers · 7 · and the CARD the
+    // placement mints, which is what every LATER gesture asks.
+    for (const [hop, src, line] of [
+      ['1 intent field', EDITS, 'category: BookingCategory'],
+      ['1 intent type', EDITS, "import type { BoardItem, BookingCategory } from '@/business/lib/today-board'"],
+      ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
+      ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
+      ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
+      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },"],
+      ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
+      ['7 minted card', face, 'category: p.category,'],
+    ] as const) {
+      // ⚖ BREAKER-827 §DELTA — the LINE rides in the failure object, not only
+      // the hop label: a red used to print `{"hop": "4 arming"}` and send the
+      // reader to the table to learn which text moved.
+      expect({ hop, line, has: pinnedLine(src, line) }).toEqual({ hop, line, has: true })
+    }
+    // ⚖ BREAKER-827 F2 — AND THERE IS NO ROOM BESIDE THEM. Hop 5's line is one
+    // long object literal, so it is anchored as the whole line it is rather than
+    // reformatted one key per line — a whitespace change to a product file is
+    // not something a test round gets to make. The counts are what a decoy has
+    // to survive: it can only be added, and every one of these says ONE.
+    //
+    // ⚖ BREAKER-827 §DELTA D1(c) — AND HOP 4 HAS ONE NOW TOO. Hops 5, 6 and 7
+    // survived the block-comment decoy only because the un-blanked decoy line
+    // INFLATED their slice counts; hop 4 was the one hop in the chain with no
+    // count beside it, so the arming took the trick with 486 green. `codeOnly`
+    // closes the hole at the source now, and this is the second lock on the one
+    // door that had none.
+    for (const [where, n, want] of [
+      ['category: lines in the arming', (codeOnly(armed).match(/^.*category:.*$/gm) ?? []).length, 1],
+      ['category: lines in the minted card', (codeOnly(face).match(/^.*category:.*$/gm) ?? []).length, 1],
+      ['solveBed( calls in placeNextVisit', (codeOnly(place_).match(/solveBed\(/g) ?? []).length, 1],
+      ['vip: keys in the landing', (codeOnly(landing).match(/vip:/g) ?? []).length, 1],
+    ] as const) {
+      expect({ where, n }).toEqual({ where, n: want })
+    }
+    // …and the hardcodes are gone, in the spellings they had AND in the two the
+    // breaker reached for. `as BookingCategory` is how `'repeat'` gets past a
+    // `BookingCategory` field without `as const`; `!1` / `!0` are how `false` /
+    // `true` get past a negative that spells the word.
+    expect(armed).not.toContain('category: props.inStore.category,')
+    expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
+    expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
+    expect(place_).not.toContain("category: 'repeat' as const,")
+    for (const [where, slice] of [
+      ['arming', armed],
+      ['landing', landing],
+      ['placeNextVisit', place_],
+    ] as const) {
+      for (const dodge of ['as BookingCategory', '!1', '!0']) {
+        expect({ where, dodge, at: slice.indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
+  })
+
+  /** ⚖ Greptile #827 — 新規 IS A FACT ABOUT ONE VISIT, and the visit 配置モード
+   *  arms is the one AFTER it. This is the only hop in the chain that is a
+   *  decision rather than a wire, so it is pinned as a FUNCTION and not as text:
+   *  the rule survives the arming line being respelled, and a drift shows up as
+   *  a wrong answer instead of a moved string. */
+  it('⚖ 51 — 新規 does not ride to the next visit; the customer’s own traits do', () => {
+    // The turn: a first visit's word cannot describe the visit after it.
+    expect(nextVisitCategory('new')).toBe('repeat')
+    // …and everything else is the CUSTOMER's, so it carries over unchanged.
+    expect(nextVisitCategory('repeat')).toBe('repeat')
+    expect(nextVisitCategory('vip')).toBe('vip')
+    expect(nextVisitCategory('ticket')).toBe('ticket')
+    // The law behind the four rows: whatever today was, the next visit is never
+    // a first one. A fifth category arriving in today-board.ts lands here too.
+    for (const today of ['new', 'repeat', 'ticket', 'vip'] as const) {
+      expect(nextVisitCategory(today)).not.toBe('new')
+    }
+  })
+
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
     // No free room: 配置モード SURVIVES, so the operator can try another slot
@@ -4684,9 +5378,16 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // seed the carried room through `seedBed`, because `sidesAt` reads the
       // board as it stands and that board is the STAGED one once a change is
       // open. The other two are first landings and are byte-untouched.
+      // RENEGOTIATED ONE LAST TIME (⚖ 51, R7): and 次回予約 joins its three
+      // siblings. It was the only landing whose `vip` was a hardcoded `false` —
+      // not by ruling but because it is the one gesture with no card on the
+      // board to read a category off, and the ご来店中 customer's own category
+      // was being dropped between page.tsx and the props. It rides the intent
+      // now (`PlacingIntent.category`), so all four landings ask the allocator
+      // the same question out of the same field.
       "solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
       "solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-      'solveBed(lane.key, null, null, false, place(start, end, hours))',
+      "solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     ]) {
       expect(SRC).toContain(call)
@@ -4911,6 +5612,40 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(verdict(board(), off, cellOf('safe', '')).kind).toBe('clean')
     // …and a regular booking on a standard bed never sees the sentence.
     expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
+  })
+
+  /** ⚖ 51 (R7) — THE SAME FLOOR ON THE SOLVED PATH, which is the shape 配置モード
+   *  asks in: no room named, no booking yet (`solveRoom: true, id: null`).
+   *
+   *  Until R7 that question was asked with `vip: false` hardcoded, so the one
+   *  landing gesture with no card to read a category off walked past the floor
+   *  every other gesture obeys. Now it carries the ご来店中 customer's category
+   *  and the allocator answers it as a VIP.
+   *
+   *  ⚠ THE SENTENCE IS THE ALLOCATOR'S, NOT THE BED-ROW'S. On the explicit
+   *  bed-row path the 個室 rule speaks as 「VIP・個室クラスのご予約です…」 (the two
+   *  tests above), and that sentence is guarded by `!q.solveRoom` — it is
+   *  unreachable from here by construction. On the SOLVED path the rule is a
+   *  FILTER: no compatible room survives it, so the refusal is `fullRoomsRefusal`
+   *  with its `needsPrivate` branch, which names 個室 in the store's own 満室
+   *  grammar. Same floor, same ⚖ 51, one spelling per path — and both are the
+   *  existing shipped wording. No new operator-facing string exists in R7. */
+  it('⚖ 51 — the SOLVED landing, which is 配置モード’s own shape, asks the room floor as a VIP too', () => {
+    // A board whose only bed over the span is a standard one.
+    const standardOnly = board({ beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })] })
+    const placingShape = { solveRoom: true, id: null, bedLane: null }
+    const asVip = verdict(standardOnly, { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect(asVip.kind).toBe('blocked')
+    // ⚖ 73 — a room floor is a FACT about the rooms, so it is `hard-room` and
+    // carries no 「注意して配置」: there is no room for an escalation to buy.
+    expect(asVip.floor).toBe('hard-room')
+    expect(asVip.reason).toBe('16:00〜17:00に使える個室がありません')
+    // …and the identical question for a non-VIP lands, so the sentence is the
+    // floor doing its job and not 配置モード refusing everything.
+    expect(verdict(standardOnly, { ...placingShape, vip: false }, cellOf('safe', '')).kind).toBe('clean')
+    // …and with the 個室 on the board the VIP lands too — into it.
+    const withPrivate = verdict(board(), { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect({ kind: withPrivate.kind, bedLane: withPrivate.bedLane }).toEqual({ kind: 'clean', bedLane: 'bed-03' })
   })
 
   it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {
