@@ -13,7 +13,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 type MintInput =
-  | { takeId?: string | null; mimeType?: string | null; recordingSessionId?: string | null }
+  | {
+      takeId?: string | null
+      mimeType?: string | null
+      recordingSessionId?: string | null
+      /** PR4 fix round 7: the session a STAGED copy is staged for. */
+      stagedFor?: string | null
+    }
   | undefined
 type MintReply =
   | {
@@ -39,9 +45,16 @@ const mintRecordingUploadUrl = jest.fn(
 const mintRecordingReadUrl = jest.fn(async (p: string) => ({
   url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
 }))
+/** The backfill door (PR4 fix round 7) — a pure composition on the server, so
+ *  the key never leaves the tenant prefix to a device that should not compose
+ *  one. Null is its settled "cannot say". */
+const recordingFinalizedKey = jest.fn(
+  async (_i: { takeId: string; mimeType: string }) => 'app_biz-1_take-9.webm' as string | null,
+)
 jest.mock('@/actions/recording-upload', () => ({
   mintRecordingUploadUrl: (i?: MintInput) => mintRecordingUploadUrl(i),
   mintRecordingReadUrl: (p: string) => mintRecordingReadUrl(p),
+  recordingFinalizedKey: (i: { takeId: string; mimeType: string }) => recordingFinalizedKey(i),
 }))
 
 // The finalize door's web twin. Mocked because @/actions/recordings reaches
@@ -73,6 +86,7 @@ beforeEach(() => {
     url: `https://proj.supabase.co/storage/v1/object/sign/recordings/${p}?token=read`,
   }))
   startRecordingSessionAction.mockImplementation(async () => ({ id: 'rs-new' }))
+  recordingFinalizedKey.mockImplementation(async () => 'app_biz-1_take-9.webm')
   fetchMock.mockImplementation(async () => ({ ok: true, status: 200 }) as unknown as Response)
   global.fetch = fetchMock as unknown as typeof fetch
 })
@@ -165,12 +179,47 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
     expect(order).toEqual(['mint', 'put', 'read'])
   })
 
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The in-tab
+  // fallback stays UNBOUND — nothing ever claims its path to a discard — and
+  // the discard's own collection names the session, which is what lets the
+  // transcribe door tell this session's staged audio from any key a caller
+  // could have typed.
+  it('the in-tab fallback names no session — byte-identical to before', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null)
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith(undefined)
+  })
+
+  it('a copy staged FOR a discard carries that session to the mint', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, { stagedFor: 'rs-7' })
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({ stagedFor: 'rs-7' })
+  })
+
   it('a rejected upload fails the take loudly (no silent empty transcript)', async () => {
     fetchMock.mockImplementation(async () => ({ ok: false, status: 403 }) as unknown as Response)
     await expect(webRecordingPort.prepareTranscription(blob(), null)).rejects.toThrow(
       'Upload failed (403)',
     )
     expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ J2 (PR4 fix round 7): the key of a take finalized before the key was
+// stamped. Composed on the SERVER — the device must never assemble a tenant
+// key, which is the rule markTakeFinalized was written to.
+describe('webRecordingPort.finalizedKey', () => {
+  it('asks the composing action and answers its key verbatim', async () => {
+    await expect(webRecordingPort.finalizedKey('take-9', 'audio/mp4')).resolves.toBe(
+      'app_biz-1_take-9.webm',
+    )
+    expect(recordingFinalizedKey).toHaveBeenCalledWith({
+      takeId: 'take-9',
+      mimeType: 'audio/mp4',
+    })
+  })
+
+  it('a null from the action stays a null — the take keeps its un-finalized behaviour', async () => {
+    recordingFinalizedKey.mockImplementation(async () => null)
+    await expect(webRecordingPort.finalizedKey('take-9', 'audio/webm')).resolves.toBeNull()
   })
 })
 

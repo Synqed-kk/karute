@@ -103,8 +103,10 @@ import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
   isOwnRecordingKey,
+  isStagedKeyFor,
   looksLikeRecordingKey,
   composeTakeKey,
+  composeStagedKey,
   extFromMime,
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
@@ -132,6 +134,9 @@ function expectNoBinding(): void {
 // A real lowercase uuid, so a fixture only ever fails the ONE clause it targets —
 // a placeholder body would be refused by the uuid clause and silently mask the rest.
 const UUID = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+/** A second uuid, so the two halves of a STAGED key can never be confused for
+ *  each other in an assertion. It is SESSION's value — the row fixture's id. */
+const SESSION_UUID = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const OWN = `app_biz-1_${UUID}.webm`
 // A second, DIFFERENT take of the same tenant — what a row bound elsewhere holds.
 const OTHER_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -768,6 +773,136 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
   })
 })
 
+// ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (capture pipeline PR4 fix round 7).
+// The discard's word-collection stages the blob of a take that can never be
+// sealed under a finalized key, and that copy is the only object in this bucket
+// with no row of its own. Before this round it was also ANONYMOUS, so the
+// transcribe door had nothing to check a claim against: any records.write
+// holder could name a COLLEAGUE'S finished take and have its words written onto
+// an unrelated discarded session. The key now carries the session, and this is
+// where that binding is made.
+describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its session', () => {
+  it('composes a staged key for the caller’s own session, and reserves NOTHING', async () => {
+    const res = await mintOk({ stagedFor: SESSION })
+    expect(parseRecordingKey(res.path, 'biz-1')).toEqual({
+      kind: 'staged',
+      recordingSessionId: SESSION,
+      ext: 'webm',
+    })
+    expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+    // The reply names the row it is bound to — the client sends it back as the
+    // claim, and the server checks the key against it.
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path)
+    // ROW-LESS BY DESIGN: the row is READ to prove the caller may record onto
+    // it, and nothing else happens — no reservation, no status, no audit row.
+    expect(get).toHaveBeenCalledWith(SESSION)
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+    // …and no existence probe: a staged key is a fresh uuid nobody can have.
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  it('refuses a COLLEAGUE’s session — the same staff rule the take mint applies', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and an owner with recordings.viewAll may stage on one, exactly as they may reserve', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await mintOk({ stagedFor: SESSION })
+    expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+  })
+
+  it('a session core does not know is not_found — nothing is signed for it', async () => {
+    get.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'not_found',
+    })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('no acting staff identity: forbidden, and core is never even asked', async () => {
+    getCurrentUserStaffId.mockResolvedValue(null)
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    expect(get).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a take id and a stagedFor together are bad_input — one act, never two', async () => {
+    // The schema's own rule, cashed at the first line of the shared core: a
+    // staged copy is not a take, so a body claiming to be both is refused
+    // before anything is read.
+    await expect(
+      mintRecordingUploadUrl({ ...NAMED, stagedFor: SESSION }),
+    ).resolves.toEqual({ error: 'bad_input' })
+    expect(get).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a session id that is not a uuid never reaches core', async () => {
+    await expect(mintRecordingUploadUrl({ stagedFor: 'sess-1' })).resolves.toEqual({
+      error: 'bad_input',
+    })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('a storage failure answers upstream, never a half-made URL', async () => {
+    createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'upstream',
+    })
+  })
+})
+
+// The composed key for a take that was finalized before the key was stamped —
+// a pure composition, and the ONE door that answers it (fix round 7, J2).
+describe('recordingFinalizedKey — the backfill door', () => {
+  it('composes the SAME key the mint reserved, with no DB and no storage', async () => {
+    const { recordingFinalizedKey } = await import('@/actions/recording-upload')
+    await expect(recordingFinalizedKey({ takeId: UUID, mimeType: 'audio/webm' })).resolves.toBe(
+      OWN,
+    )
+    expect(get).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('the container decides the extension — an iOS take is .mp4, never .webm', async () => {
+    const { recordingFinalizedKey } = await import('@/actions/recording-upload')
+    await expect(recordingFinalizedKey({ takeId: UUID, mimeType: 'audio/mp4' })).resolves.toBe(
+      `app_biz-1_${UUID}.mp4`,
+    )
+  })
+
+  it('null — never a throw — for a denial, a bad take id or a container we do not store', async () => {
+    const { recordingFinalizedKey } = await import('@/actions/recording-upload')
+    await expect(
+      recordingFinalizedKey({ takeId: 'not-a-uuid', mimeType: 'audio/webm' }),
+    ).resolves.toBeNull()
+    await expect(
+      recordingFinalizedKey({ takeId: UUID, mimeType: 'audio/mpeg' }),
+    ).resolves.toBeNull()
+  })
+
+  it('gates on records.write before it asks who the caller is', async () => {
+    const { recordingFinalizedKey } = await import('@/actions/recording-upload')
+    can.mockResolvedValue(false)
+    await expect(recordingFinalizedKey({ takeId: UUID, mimeType: 'audio/webm' })).resolves.toBeNull()
+    expect(can).toHaveBeenCalledWith('records.write')
+    // The composition's first act is asking for the tenant — never asked = never ran.
+    expect(getBusinessId).not.toHaveBeenCalled()
+  })
+})
+
 // THE FENCE'S OWN PROOF: every key the composer can produce parses back as a
 // TAKE of the same business. If this table ever fails, the mint is handing out
 // keys the downstream fences would refuse — or worse, accept for someone else.
@@ -834,7 +969,14 @@ describe('mintRecordingReadUrl — the tenant fence', () => {
 describe('removeRecordingObject is REMOVED', () => {
   it('the module exports no delete action', async () => {
     const mod = (await import('@/actions/recording-upload')) as Record<string, unknown>
-    expect(Object.keys(mod).sort()).toEqual(['mintRecordingReadUrl', 'mintRecordingUploadUrl'])
+    expect(Object.keys(mod).sort()).toEqual([
+      'mintRecordingReadUrl',
+      'mintRecordingUploadUrl',
+      // Fix round 7: a PURE composition (no DB, no storage) for a take
+      // finalized before the key was stamped. It reads nothing and writes
+      // nothing — the opposite of a delete door.
+      'recordingFinalizedKey',
+    ])
   })
 
   it('and no CODE in the file reaches for a storage remove', () => {
@@ -898,6 +1040,57 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     expect(isOwnRecordingKey(`app_biz-1_${UUID}.mp4`, 'biz-1')).toBe(true)
   })
 
+  // ⚖ THE THIRD SHAPE (PR4 fix round 7): a STAGED copy, named for the SESSION
+  // its words are owed to rather than for a take. It is the only object in this
+  // bucket with no row of its own, and the session in its key is the identity
+  // that lets the discard door check a claim instead of trusting it.
+  it.each(EXTS)('reads a staged copy as kind staged (.%s)', (ext) => {
+    expect(parseRecordingKey(`stg/biz-1_${SESSION_UUID}_${UUID}.${ext}`, 'biz-1')).toEqual({
+      kind: 'staged',
+      recordingSessionId: SESSION_UUID,
+      ext,
+    })
+  })
+
+  it.each([
+    ['another business’s staged copy', `stg/biz-2_${SESSION_UUID}_${UUID}.webm`],
+    ['a prefix-lookalike', `stg/biz-10_${SESSION_UUID}_${UUID}.webm`],
+    ['an app_ body inside stg/', `stg/app_biz-1_${SESSION_UUID}_${UUID}.webm`],
+    ['only one id', `stg/biz-1_${UUID}.webm`],
+    ['a nested staged key', `stg/biz-1_${SESSION_UUID}/${UUID}.webm`],
+    ['an uppercase session id', `stg/biz-1_${SESSION_UUID.toUpperCase()}_${UUID}.webm`],
+    ['an extension outside the closed set', `stg/biz-1_${SESSION_UUID}_${UUID}.exe`],
+  ])('refuses %s', (_label, key) => {
+    expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+  })
+
+  it('composeStagedKey composes exactly what isStagedKeyFor accepts — and nothing wider', () => {
+    const composed = composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')
+    expect(composed).not.toBeNull()
+    expect(parseRecordingKey(composed!.key, 'biz-1')).toEqual({
+      kind: 'staged',
+      recordingSessionId: SESSION_UUID,
+      ext: 'webm',
+    })
+    expect(isStagedKeyFor(composed!.key, 'biz-1', SESSION_UUID)).toBe(true)
+    // …for THIS business and THIS session only. Both halves are the fence.
+    expect(isStagedKeyFor(composed!.key, 'other-biz', SESSION_UUID)).toBe(false)
+    expect(isStagedKeyFor(composed!.key, 'biz-1', UUID)).toBe(false)
+    // A staged copy is not a take, so no fence that means a whole take accepts it.
+    expect(isOwnRecordingKey(composed!.key, 'biz-1')).toBe(false)
+    // …and a take is not a staged copy either.
+    expect(isStagedKeyFor(`app_biz-1_${UUID}.webm`, 'biz-1', SESSION_UUID)).toBe(false)
+    // Every staging gets its own object — the uuid is the server's.
+    expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key).not.toBe(composed!.key)
+  })
+
+  it('composeStagedKey refuses a session id that is not a uuid, and a container it cannot store', () => {
+    expect(composeStagedKey('biz-1', 'sess-1', 'audio/webm')).toBeNull()
+    expect(composeStagedKey('biz-1', SESSION_UUID.toUpperCase(), 'audio/webm')).toBeNull()
+    expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/mpeg')).toBeNull()
+    expect(composeStagedKey('biz-1', { startsWith: () => true }, 'audio/webm')).toBeNull()
+  })
+
   it('looksLikeRecordingKey reads the businessId back out of the name', () => {
     // /api/cleanup lists the bucket root with no tenant to compare against.
     expect(looksLikeRecordingKey(`app_biz-1_${UUID}.webm`)).toBe(true)
@@ -913,5 +1106,11 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     // re-parses — a real businessId never contains '/'.
     expect(looksLikeRecordingKey(`app_../../evil_${UUID}.webm`)).toBe(false)
     expect(looksLikeRecordingKey(`app_a/b_${UUID}.webm`)).toBe(false)
+    // …and it sees the STAGED shape too (fix round 7) — cleanup is report-only,
+    // but a key it cannot read at all would be reported as an orphan of nobody.
+    expect(looksLikeRecordingKey(`stg/biz-1_${SESSION_UUID}_${UUID}.webm`)).toBe(true)
+    expect(looksLikeRecordingKey(`stg/other-biz_${SESSION_UUID}_${UUID}.webm`)).toBe(true)
+    expect(looksLikeRecordingKey(`stg/biz-1_${UUID}.webm`)).toBe(false)
+    expect(looksLikeRecordingKey(`stg/a/b_${SESSION_UUID}_${UUID}.webm`)).toBe(false)
   })
 })

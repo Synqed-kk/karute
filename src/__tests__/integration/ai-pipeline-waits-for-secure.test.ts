@@ -24,10 +24,18 @@ jest.mock('@/lib/global-recorder', () => ({
 }))
 
 const readTakeSecureMeta = jest.fn(
-  async (_takeId: string): Promise<{ finalizedPath?: string } | null> => ({}),
+  async (
+    _takeId: string,
+  ): Promise<{ finalizedPath?: string; finalizedAt?: number; mimeType?: string } | null> => ({}),
 )
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeSecureMeta: (takeId: string) => readTakeSecureMeta(takeId),
+  // ⚖ THE REAL RULE, not a restatement of it (PR4 fix round 7). Whether a take
+  // stamped by slice THREE (finalizedAt, no finalizedPath) can still name its
+  // key is take-store's own answer, and a copy of it here would go green while
+  // that one drifted — the same call isUnsecurableTake's double already makes
+  // in discard-transcript-persist.
+  ensureFinalizedPath: jest.requireActual('@/lib/karute/take-store').ensureFinalizedPath,
 }))
 
 const apiFetch = jest.fn(async (url: string) => {
@@ -48,11 +56,16 @@ const prepareTranscription = jest.fn(
     path: finalizedPath ?? 'app_biz-1_staged-9.webm',
   }),
 )
+/** The backfill door (PR4 fix round 7) — web composes the key server-side, thin
+ *  answers null. Null by default: a take that already carries its key must
+ *  never reach this door at all. */
+const finalizedKey = jest.fn(async (_takeId: string, _mimeType: string) => null as string | null)
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
     aiBase: '/api/ai',
     prepareTranscription: (blob: Blob, finalizedPath: string | null) =>
       prepareTranscription(blob, finalizedPath),
+    finalizedKey: (takeId: string, mimeType: string) => finalizedKey(takeId, mimeType),
   }),
 }))
 
@@ -70,6 +83,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   awaitTakeSecured.mockImplementation(async () => {})
   readTakeSecureMeta.mockImplementation(async () => ({}))
+  finalizedKey.mockImplementation(async () => null)
   prepareTranscription.mockImplementation(async (_blob, finalizedPath) => ({
     body: { path: finalizedPath ?? 'app_biz-1_staged-9.webm' },
     path: finalizedPath ?? 'app_biz-1_staged-9.webm',
@@ -147,5 +161,44 @@ describe('⚖ runAIPipeline waits for the stop’s own upload before it reads th
     expect(awaitTakeSecured).not.toHaveBeenCalled()
     expect(readTakeSecureMeta).not.toHaveBeenCalled()
     expect(prepareTranscription.mock.calls[0][1]).toBeNull()
+  })
+})
+
+// ⚖ J2 (PR4 fix round 7). Slice three's markTakeFinalized stamped `finalizedAt`
+// alone; every reader here gates on `finalizedPath`. A WEB take finalized
+// between those two deploys and still unprocessed therefore read as UNSECURED —
+// and "unsecured" is the staging fallback, i.e. a SECOND whole copy of audio the
+// server already holds, under a key no row points at. The key is deterministic
+// (the mint composed it from this take id and container and reserved exactly it
+// on the row), so it is recomposed once and remembered.
+describe('⚖ a take finalized before the key was stamped still names its object', () => {
+  const SLICE_THREE = { finalizedAt: 1_756_000_000_000, mimeType: 'audio/webm' }
+
+  it('asks the port for the composed key and transcribes THAT — no staging upload', async () => {
+    readTakeSecureMeta.mockImplementation(async () => SLICE_THREE)
+    finalizedKey.mockImplementation(async () => FINALIZED)
+
+    await runAIPipeline(new Blob(['audio']), 'take-1', 'ja', () => {})
+
+    // THE OUTCOME FIRST: null is the fallback, and the fallback is a SECOND
+    // whole upload of audio the server already holds.
+    expect(prepareTranscription.mock.calls[0][1]).toBe(FINALIZED)
+    // …and the take and the container it was recorded in — the same pair the
+    // mint composed from, which is why the server needs no DB read.
+    expect(finalizedKey).toHaveBeenCalledWith('take-1', 'audio/webm')
+  })
+
+  it('a world that cannot answer (the phone) leaves the take exactly as it was', async () => {
+    readTakeSecureMeta.mockImplementation(async () => SLICE_THREE)
+    // finalizedKey's default: null — the thin port's own answer.
+    await runAIPipeline(new Blob(['audio']), 'take-1', 'ja', () => {})
+    expect(prepareTranscription.mock.calls[0][1]).toBeNull()
+  })
+
+  it('a take that already carries its key never knocks on that door', async () => {
+    readTakeSecureMeta.mockImplementation(async () => ({ finalizedPath: FINALIZED }))
+    await runAIPipeline(new Blob(['audio']), 'take-1', 'ja', () => {})
+    expect(finalizedKey).not.toHaveBeenCalled()
+    expect(prepareTranscription.mock.calls[0][1]).toBe(FINALIZED)
   })
 })

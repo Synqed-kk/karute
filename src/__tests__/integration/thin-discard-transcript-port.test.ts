@@ -52,6 +52,58 @@ describe('the flag flip — the fix itself', () => {
     expect(viteRecordingPort.supportsDiscardTranscript).toBe(true)
   })
 
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The phone's
+  // staging leg posted NO body at all, so its copy was anonymous — and an
+  // anonymous copy is a claim the transcribe door has nothing to check.
+  it('the staging leg names the session it is staged FOR', async () => {
+    const apiFetch = port(async () =>
+      json({ path: 'stg/business-1_rs-1_staged-1.webm', url: 'https://up/' }),
+    )
+    global.fetch = jest.fn(
+      async () => ({ ok: true, status: 200 }) as unknown as Response,
+    ) as unknown as typeof fetch
+
+    const { path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+      stagedFor: 'rs-1',
+    })
+
+    const [url, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/app/v1/recordings/upload-url')
+    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: 'rs-1' })
+    expect(path).toBe('stg/business-1_rs-1_staged-1.webm')
+  })
+
+  it('…and the in-tab fallback names none — the server-named take, as before', async () => {
+    const apiFetch = port(async () => json({ path: 'app_business-1_x.webm', url: 'https://up/' }))
+    global.fetch = jest.fn(
+      async () => ({ ok: true, status: 200 }) as unknown as Response,
+    ) as unknown as typeof fetch
+
+    await viteRecordingPort.prepareTranscription(new Blob(['a']), null)
+
+    const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null })
+  })
+
+  it('a take that already has its object still uploads NOTHING', async () => {
+    const apiFetch = port(async () => json({}))
+    const { body, path } = await viteRecordingPort.prepareTranscription(
+      new Blob(['a']),
+      'app_business-1_take-1.webm',
+      { stagedFor: 'rs-1' },
+    )
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(body).toEqual({ path: 'app_business-1_take-1.webm' })
+    expect(path).toBe('app_business-1_take-1.webm')
+  })
+
+  // ⚖ J2 (fix round 7): the phone cannot compose a tenant key, and its cohort
+  // for the backfill is EMPTY by construction — no phone release ever shipped
+  // slice three alone.
+  it('finalizedKey is null on this arm — the take keeps the behaviour it has', async () => {
+    await expect(viteRecordingPort.finalizedKey('take-1', 'audio/webm')).resolves.toBeNull()
+  })
+
   it('and stages NOTHING — the words come off the take’s finalized object', () => {
     // ⚖ capture pipeline PR4: runDiscardTranscript hands the route the take's
     // own finalized key (take-store's finalizedPath), so the staging door the

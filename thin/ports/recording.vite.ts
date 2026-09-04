@@ -106,7 +106,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
   // stamp and collection sweep are SHARED code that was already correct and now
   // simply runs. Its audio leg is the take's own finalized object (PR4).
   supportsDiscardTranscript: true,
-  async prepareTranscription(blob, finalizedPath) {
+  async prepareTranscription(blob, finalizedPath, opts) {
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key, so the facade is simply handed that path — and it deletes
     // nothing when it is done, because the finalized object is evidence.
@@ -114,9 +114,15 @@ export const viteRecordingPort: RecordingPipelinePort = {
 
     // The fallback, for a take the store never held (see the port's doc):
     // byte-for-byte the staging this arm always did.
-    // 1. Service-minted signed upload URL (tenant-prefixed path).
+    // 1. Service-minted signed upload URL (tenant-prefixed path). The body is
+    //    new (fix round 7) and the door has always parsed one: `stagedFor` is
+    //    the session a DISCARD's staged copy is named for, and null — the
+    //    in-tab fallback's shape — is the server-named take this leg has always
+    //    minted.
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ stagedFor: opts?.stagedFor ?? null }),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
     const { path, url } = (await res.json()) as { path: string; url: string }
@@ -131,6 +137,15 @@ export const viteRecordingPort: RecordingPipelinePort = {
 
     // 3. Transcribe by PATH.
     return { body: { path }, path }
+  },
+  // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
+  // backfill this answers exists for takes finalized by slice THREE's code and
+  // read by slice FOUR's — a window no phone release ever shipped: slice three
+  // never went out on its own here, so no phone take can carry `finalizedAt`
+  // without `finalizedPath`. Answering null keeps such a take on exactly the
+  // behaviour it has today rather than inventing a key this arm cannot prove.
+  async finalizedKey() {
+    return null
   },
   // Capture pipeline PR3 fix round 6 — the session door, the phone twin of the
   // web action (thin/ports/actions.vite.ts#facadeStartRecordingSession, which

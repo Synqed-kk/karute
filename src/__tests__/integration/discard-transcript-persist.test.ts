@@ -40,6 +40,9 @@ type SecureMeta = {
   finalizedPath?: string
   /** PR4 fix round 4: where the FIRST staging put this take's audio. */
   stagedPath?: string
+  /** PR4 fix round 7: slice three stamped the TIME and not the key. */
+  finalizedAt?: number
+  mimeType?: string
   tailIncomplete?: boolean
   stopPendingAt?: number
   durationMs?: number
@@ -57,6 +60,9 @@ const mockLoadTakeBlob = jest.fn(async (_takeId: string): Promise<Blob | null> =
   new Blob(['audio']),
 )
 const mockMarkTakeStaged = jest.fn(async (_takeId: string, _stagedPath: string) => {})
+/** PR4 fix round 7: forget round 4's anonymous staged copy so the next sweep
+ *  stages a copy NAMED for this session. */
+const mockClearTakeStaged = jest.fn(async (_takeId: string) => {})
 jest.mock('@/lib/karute/take-store', () => ({
   markDiscardTranscriptDone: (takeId: string) => mockMarkDone(takeId),
   stampDiscardPending: (takeId: string, pending: unknown) =>
@@ -65,6 +71,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: () => mockListPending(),
   loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
   markTakeStaged: (takeId: string, stagedPath: string) => mockMarkTakeStaged(takeId, stagedPath),
+  clearTakeStaged: (takeId: string) => mockClearTakeStaged(takeId),
+  // ⚖ THE REAL RULE again (fix round 7): whether a take stamped by slice THREE
+  // (finalizedAt, no key) can still name its object is take-store's own answer.
+  ensureFinalizedPath: jest.requireActual('@/lib/karute/take-store').ensureFinalizedPath,
   // ⚖ THE REAL RULE, not a restatement of it (PR4 fix round 2). Whether a take
   // can EVER be sealed is the whole question the staging branch asks, and a
   // copy of it here would go green while take-store's own answer drifted.
@@ -72,17 +82,33 @@ jest.mock('@/lib/karute/take-store', () => ({
 }))
 
 let mockSupported = true
+/** ⚖ THE STAGED COPY IS NAMED FOR ITS SESSION (fix round 7). Only the `stg/`
+ *  prefix matters to this file — the grammar itself (and the binding the server
+ *  checks) is proven in recording-upload-actions.test.ts. */
+const STAGED = 'stg/business-1_sess-1_staged-1.webm'
+/** What round 4's staging left behind: an anonymous, take-shaped key. The
+ *  transitional cohort below is exactly the takes still carrying one. */
+const OLD_STAGED = 'app_biz-1_staged-1.webm'
 const mockPrepareTranscription = jest.fn(
-  async (_blob: Blob, _finalizedPath: string | null) => ({
-    body: { path: 'app_biz-1_staged-1.webm' },
-    path: 'app_biz-1_staged-1.webm',
+  async (_blob: Blob, _finalizedPath: string | null, _opts?: { stagedFor?: string | null }) => ({
+    body: { path: STAGED },
+    path: STAGED,
   }),
+)
+/** The backfill door (fix round 7): the web arm composes this take's finalized
+ *  key server-side, the phone answers null. */
+const mockFinalizedKey = jest.fn(
+  async (_takeId: string, _mimeType: string) => null as string | null,
 )
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
     supportsDiscardTranscript: mockSupported,
-    prepareTranscription: (blob: Blob, finalizedPath: string | null) =>
-      mockPrepareTranscription(blob, finalizedPath),
+    prepareTranscription: (
+      blob: Blob,
+      finalizedPath: string | null,
+      opts?: { stagedFor?: string | null },
+    ) => mockPrepareTranscription(blob, finalizedPath, opts),
+    finalizedKey: (takeId: string, mimeType: string) => mockFinalizedKey(takeId, mimeType),
   }),
 }))
 
@@ -112,9 +138,11 @@ beforeEach(() => {
   mockListPending.mockImplementation(async () => [])
   mockLoadTakeBlob.mockImplementation(async () => new Blob(['audio']))
   mockMarkTakeStaged.mockImplementation(async () => {})
+  mockClearTakeStaged.mockImplementation(async () => {})
+  mockFinalizedKey.mockImplementation(async () => null)
   mockPrepareTranscription.mockImplementation(async () => ({
-    body: { path: 'app_biz-1_staged-1.webm' },
-    path: 'app_biz-1_staged-1.webm',
+    body: { path: STAGED },
+    path: STAGED,
   }))
 })
 
@@ -333,10 +361,7 @@ describe('the audio path', () => {
         expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
         expect(mockPrepareTranscription.mock.calls[0][1]).toBeNull()
         expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
-          expect.objectContaining({
-            audioPath: 'app_biz-1_staged-1.webm',
-            recordingSessionId: 'sess-1',
-          }),
+          expect.objectContaining({ audioPath: STAGED, recordingSessionId: 'sess-1' }),
         )
         expect(mockMarkDone).toHaveBeenCalledWith('take-1')
       })
@@ -398,14 +423,14 @@ describe('the audio path', () => {
         await runDiscardTranscript('take-1', PENDING)
 
         expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
-        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', 'app_biz-1_staged-1.webm')
-        expect(metaNow().stagedPath).toBe('app_biz-1_staged-1.webm')
+        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+        expect(metaNow().stagedPath).toBe(STAGED)
         // The retry itself is accepted and paid for — one API call per mount,
         // no upload — and it names the copy that is already up there.
         expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(2)
         expect(mockTranscribeAndPersistDiscard).toHaveBeenNthCalledWith(
           2,
-          expect.objectContaining({ audioPath: 'app_biz-1_staged-1.webm' }),
+          expect.objectContaining({ audioPath: STAGED }),
         )
         // Still owed: nothing was settled by a failure.
         expect(mockMarkDone).not.toHaveBeenCalled()
@@ -425,12 +450,103 @@ describe('the audio path', () => {
       it('a FINALIZED key still wins over a staged one — it is what the pipeline reads', async () => {
         mockReadSecureMeta.mockImplementationOnce(async () => ({
           finalizedPath: 'app_business-1_take-1.webm',
-          stagedPath: 'app_biz-1_staged-1.webm',
+          stagedPath: STAGED,
         }))
         await runDiscardTranscript('take-1', PENDING)
         expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
           expect.objectContaining({ audioPath: 'app_business-1_take-1.webm' }),
         )
+      })
+    })
+
+    // ⚖ …AND THE COPY IS NAMED FOR ITS SESSION (fix round 7, J1). A staged copy
+    // is the only object in this bucket with no row of its own, so without the
+    // session in its KEY the transcribe door had nothing to check a claim
+    // against: any records.write holder could name a COLLEAGUE'S finished take
+    // and have its words written onto an unrelated discarded session.
+    it('the staging names the session it is staged FOR', async () => {
+      mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).toHaveBeenCalledWith(expect.any(Blob), null, {
+        stagedFor: 'sess-1',
+      })
+    })
+
+    // ⚖ THE TRANSITIONAL COHORT (fix round 7, J1-e). A take stamped BEFORE this
+    // round remembers round 4's anonymous, take-shaped staged key — which the
+    // door now refuses. Left alone it would be a permanent silence: settled as
+    // "done" with words that never landed.
+    describe('⚖ a take still carrying round 4’s anonymous staged copy', () => {
+      const stale: SecureMeta = { tailIncomplete: true, stagedPath: OLD_STAGED }
+
+      it('is FORGOTTEN once, not settled — so the next sweep stages a bound copy', async () => {
+        mockReadSecureMeta.mockImplementationOnce(async () => stale)
+        mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({
+          error: 'forbidden',
+        }))
+        await runDiscardTranscript('take-1', PENDING)
+
+        expect(mockClearTakeStaged).toHaveBeenCalledWith('take-1')
+        // NOT done: the words are still owed, and the stamp is what keeps the
+        // sweep coming back for them.
+        expect(mockMarkDone).not.toHaveBeenCalled()
+        // Nothing was re-uploaded on the refused pass — the clear is the whole
+        // act, and the old object is left exactly where it is.
+        expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      })
+
+      // Driven through the SWEEP, against a store that remembers: the mark is
+      // what takes a take OFF the worklist, so settling this one as "done"
+      // would end it here — refused, with words that never landed.
+      it('…and the next sweep does stage a bound copy, which lands', async () => {
+        let meta: SecureMeta = stale
+        let settled = false
+        mockReadSecureMeta.mockImplementation(async () => meta)
+        mockClearTakeStaged.mockImplementation(async () => {
+          meta = { ...meta, stagedPath: undefined }
+        })
+        mockMarkTakeStaged.mockImplementation(async (_takeId, stagedPath) => {
+          meta = { ...meta, stagedPath }
+        })
+        mockMarkDone.mockImplementation(async () => {
+          settled = true
+        })
+        mockListPending.mockImplementation(async () =>
+          settled ? [] : [{ takeId: 'take-1', discardPending: PENDING }],
+        )
+        mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({
+          error: 'forbidden',
+        }))
+
+        await sweepDiscardTranscripts()
+        await sweepDiscardTranscripts()
+
+        expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+        expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+      })
+
+      it('a BOUND copy refused is settled as it always was — never cleared, never a loop', async () => {
+        // The one thing the clear must not do: re-stage a whole take on every
+        // mount against a refusal that will never change.
+        mockReadSecureMeta.mockImplementationOnce(async () => ({
+          tailIncomplete: true,
+          stagedPath: STAGED,
+        }))
+        mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({
+          error: 'forbidden',
+        }))
+        await runDiscardTranscript('take-1', PENDING)
+        expect(mockClearTakeStaged).not.toHaveBeenCalled()
+        expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+      })
+
+      it('a FINALIZED key refused is settled too — only a claim is ever forgotten', async () => {
+        mockTranscribeAndPersistDiscard.mockImplementationOnce(async () => ({
+          error: 'forbidden',
+        }))
+        await runDiscardTranscript('take-1', PENDING)
+        expect(mockClearTakeStaged).not.toHaveBeenCalled()
+        expect(mockMarkDone).toHaveBeenCalledWith('take-1')
       })
     })
 
@@ -445,6 +561,26 @@ describe('the audio path', () => {
       // …and nothing was remembered: there is no copy up there to reuse.
       expect(mockMarkTakeStaged).not.toHaveBeenCalled()
     })
+  })
+
+  // ⚖ J2 (fix round 7). Slice three stamped `finalizedAt` alone; this reader
+  // gates on the KEY. Such a take read as unsecurable-or-not-yet and dead-ended:
+  // it can never be "secured" again, and there was no key to transcribe from.
+  it('a take finalized before the key was stamped names its object and stages nothing', async () => {
+    mockReadSecureMeta.mockImplementationOnce(async () => ({
+      finalizedAt: 1_756_000_000_000,
+      mimeType: 'audio/webm',
+    }))
+    mockFinalizedKey.mockImplementationOnce(async () => 'app_business-1_take-1.webm')
+
+    await runDiscardTranscript('take-1', PENDING)
+
+    expect(mockFinalizedKey).toHaveBeenCalledWith('take-1', 'audio/webm')
+    expect(mockPrepareTranscription).not.toHaveBeenCalled()
+    expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
+      expect.objectContaining({ audioPath: 'app_business-1_take-1.webm' }),
+    )
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
   })
 
   it('a transport throw never escapes at the caller (it is a fire-and-forget kick)', async () => {

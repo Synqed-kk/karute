@@ -1,7 +1,7 @@
 import { Entry } from '@/types/ai'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { readTakeSecureMeta } from '@/lib/karute/take-store'
+import { ensureFinalizedPath, readTakeSecureMeta } from '@/lib/karute/take-store'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -117,7 +117,16 @@ export async function runAIPipeline(
   // jest cannot load in a node-environment suite — a static import here breaks
   // every consumer of this module, inbox-store's page included.
   if (takeId) await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
-  const finalizedPath = takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null
+  // ⚖ …AND A TAKE FINALIZED BY SLICE THREE HAS A KEY TOO (fix round 7). That
+  // deploy stamped `finalizedAt` alone and this line gates on `finalizedPath`,
+  // so a web take finalized in between read as UNSECURED and the fallback below
+  // staged a row-less duplicate of audio the server already holds.
+  // ensureFinalizedPath recomposes the deterministic key once through the port
+  // and remembers it; null (the phone, whose cohort is empty by construction)
+  // leaves this exactly as it was.
+  const meta = takeId ? await readTakeSecureMeta(takeId) : null
+  const finalizedPath =
+    takeId && meta ? await ensureFinalizedPath(takeId, meta, recordingPort) : null
   const { body: transcribeBody } = await recordingPort.prepareTranscription(
     audioBlob,
     finalizedPath,

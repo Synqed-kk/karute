@@ -81,11 +81,36 @@ export interface RecordingPipelinePort {
    * word-collection, for a take that can never be sealed under a finalized key
    * (lib/recording/discard-transcript.ts). Still NO delete on either arm — the
    * staged object is evidence too.
+   *
+   * ⚖ AND A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). `stagedFor`
+   * is the recording session the staged copy's words are owed to, and the door
+   * puts it IN THE KEY (stg/<biz>_<session>_<uuid>) so the transcribe action can
+   * verify the claim instead of accepting any same-tenant key as that discard's
+   * audio. Passed by the discard's word-collection alone; the in-tab fallback
+   * above stays unbound, because nothing ever claims ITS path to a discard.
    */
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
+    opts?: { stagedFor?: string | null },
   ): Promise<{ body: Record<string, unknown>; path: string }>
+  /**
+   * The finalized KEY this take's audio was sealed under — composed, never
+   * looked up (capture pipeline PR4 fix round 7).
+   *
+   * WHY IT EXISTS. Slice three's markTakeFinalized wrote `finalizedAt` alone,
+   * and slice four's readers gate on `finalizedPath`: a WEB take finalized
+   * between those two deploys and still unprocessed reads as UNSECURED, so the
+   * in-tab leg stages a row-less duplicate of audio the server already holds and
+   * the discard sweep dead-ends on a take it can never find an object for. The
+   * key is DETERMINISTIC — the mint composed it from this take id and container
+   * and reserved exactly that on the row — so the server can answer it again
+   * from the same two inputs, with no DB read at all.
+   *
+   * `null` means "this world cannot say" and is a settled answer, never a
+   * failure: the caller keeps the un-finalized behaviour it already has.
+   */
+  finalizedKey(takeId: string, mimeType: string): Promise<string | null>
   /**
    * Mint the recording_sessions ROW for a take that has none (capture pipeline
    * PR3 fix round 6). The SAME door the recorder's own start-mint knocks on —
@@ -245,7 +270,7 @@ export const webRecordingPort: RecordingPipelinePort = {
   // fix. See the flag doc.
   supportsServerJob: false,
   supportsDiscardTranscript: true,
-  async prepareTranscription(blob, finalizedPath) {
+  async prepareTranscription(blob, finalizedPath, opts) {
     const { mintRecordingUploadUrl, mintRecordingReadUrl } = await uploadActions()
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key. The read url is minted server-side over that key through
@@ -254,8 +279,13 @@ export const webRecordingPort: RecordingPipelinePort = {
     let path = finalizedPath
     if (!path) {
       // The fallback, for a take the store never held (see the port's doc).
-      // Byte-for-byte the staging this arm always did, minus its delete.
-      const minted = await mintRecordingUploadUrl()
+      // Byte-for-byte the staging this arm always did, minus its delete —
+      // except that a copy staged FOR A DISCARD names its session, so the
+      // transcribe door can tell this session's own staged audio from any other
+      // key the caller could have typed.
+      const minted = await mintRecordingUploadUrl(
+        opts?.stagedFor ? { stagedFor: opts.stagedFor } : undefined,
+      )
       if ('error' in minted) throw new Error('could not mint an upload URL')
       await putTake(minted.url, blob)
       path = minted.path
@@ -264,6 +294,17 @@ export const webRecordingPort: RecordingPipelinePort = {
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
     return { body: { audioUrl }, path }
+  },
+  async finalizedKey(takeId, mimeType) {
+    const { recordingFinalizedKey } = await uploadActions()
+    // A deadline like every other door on this arm (see withDeadline's note):
+    // null is this one's own settled "cannot say", so a stall degrades to the
+    // un-finalized behaviour instead of holding the caller for the page's life.
+    return withDeadline(
+      recordingFinalizedKey({ takeId, mimeType }),
+      WEB_DOOR_DEADLINE_MS,
+      null,
+    )
   },
   async startSession({ customerId, appointmentId, takeId, mimeType }) {
     // The recorder's own start-mint door, reached exactly as it reaches it

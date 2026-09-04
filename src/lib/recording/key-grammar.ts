@@ -17,10 +17,20 @@
 // A minted key is the ONLY legitimate source of one (mintRecordingUploadUrl in
 // src/actions/recording-upload.ts and the upload-url facade twin compose it
 // byte-identically), so the grammar is matched POSITIVELY and anything else is
-// refused. Two shapes, ONE parser:
+// refused. Three shapes, ONE parser:
 //
 //     take     app_<businessId>_<lowercase uuid>.<ext>
 //     segment  seg/app_<businessId>_<lowercase uuid>/<6-digit seq>.<ext>
+//     staged   stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
+//
+// ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The staged shape
+// is the discard's word-collection copy — the only object in this bucket that
+// is row-less server-side — and it carries the recording session it was staged
+// for IN THE KEY. That is what lets the transcribe door check a caller's claim
+// instead of trusting it: before this round any same-tenant key was accepted as
+// the audio of a discarded session, so a records.write holder could name a
+// COLLEAGUE'S finished take and have its words written onto an unrelated
+// discard. The session id is the identity a row-less object otherwise lacks.
 //
 // A take is flat — no directory segment — because /api/cleanup lists the bucket
 // root non-recursively and would never see a nested orphan. Segments nest on
@@ -34,6 +44,7 @@ const TAKE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const SEQ = /^[0-9]{6}$/
 const TAKE_PREFIX = 'app_'
 const SEGMENT_PREFIX = 'seg/'
+const STAGED_PREFIX = 'stg/'
 const UUID_LENGTH = 36
 /**
  * The CLOSED container map — the one place a recorder MIME becomes a key
@@ -62,6 +73,7 @@ const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
 export type ParsedRecordingKey =
   | { kind: 'take'; takeId: string; ext: string }
   | { kind: 'segment'; takeId: string; seq: number; ext: string }
+  | { kind: 'staged'; recordingSessionId: string; ext: string }
 
 /** `<stem>.<ext>` split on the LAST dot, ext from the closed set or nothing. */
 function splitExtension(name: string): { stem: string; ext: string } | null {
@@ -104,6 +116,22 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     const parts = splitExtension(leaf)
     if (!TAKE_UUID.test(takeId) || !parts || !SEQ.test(parts.stem)) return null
     return { kind: 'segment', takeId, seq: Number(parts.stem), ext: parts.ext }
+  }
+
+  if (key.startsWith(STAGED_PREFIX)) {
+    // stg/<businessId>_<sessionId>_<uuid>.<ext> — no `app_` inside, because the
+    // prefix already says which shape this is. The two uuid halves are
+    // fixed-width, so the separator between them is at a known offset and
+    // neither half can hide a slash: TAKE_UUID is anchored hex.
+    const rest = key.slice(STAGED_PREFIX.length)
+    const tenant = `${businessId}_`
+    if (!rest.startsWith(tenant)) return null
+    const parts = splitExtension(rest.slice(tenant.length))
+    if (!parts || parts.stem[UUID_LENGTH] !== '_') return null
+    const recordingSessionId = parts.stem.slice(0, UUID_LENGTH)
+    if (!TAKE_UUID.test(recordingSessionId)) return null
+    if (!TAKE_UUID.test(parts.stem.slice(UUID_LENGTH + 1))) return null
+    return { kind: 'staged', recordingSessionId, ext: parts.ext }
   }
 
   if (!key.startsWith(prefix)) return null
@@ -182,6 +210,51 @@ export function composeTakeKey(
 }
 
 /**
+ * Compose the STAGED-copy key for the session a discard's words are owed to.
+ *
+ * The uuid is the server's own (a fresh one per staging), so the key is unique
+ * without the client naming anything; the SESSION is the whole point — it is
+ * the binding isStagedKeyFor checks later, and the reason this shape exists.
+ * `businessId` is the caller's OWN verified tenant, and the session id is
+ * validated before it is interpolated, exactly as composeTakeKey validates its
+ * take id — same self-check on the way out, same "reaching the throw is a bug
+ * here, never caller input" contract.
+ */
+export function composeStagedKey(
+  businessId: string,
+  recordingSessionId: unknown,
+  mimeType: unknown,
+): { key: string; ext: string; contentType: string } | null {
+  if (typeof recordingSessionId !== 'string' || !TAKE_UUID.test(recordingSessionId)) return null
+  const contentType = normalizeAudioMime(mimeType)
+  if (contentType === null) return null
+  const ext = MIME_TO_EXT[contentType]
+  const key = `${STAGED_PREFIX}${businessId}_${recordingSessionId}_${crypto.randomUUID()}.${ext}`
+  if (parseRecordingKey(key, businessId)?.kind !== 'staged') {
+    throw new Error('composed staged key failed its own grammar')
+  }
+  return { key, ext, contentType }
+}
+
+/**
+ * True only when `key` is a STAGED copy minted for `businessId` AND for exactly
+ * this recording session — the one claim the discard's transcribe door honours
+ * in place of the row's own pointer (recording-discard-transcript.ts).
+ *
+ * Narrower than "parses" for the same reason isOwnRecordingKey is: a staged
+ * copy of ANOTHER session is this tenant's object too, and accepting it would
+ * be the very lever this shape exists to remove.
+ */
+export function isStagedKeyFor(
+  key: unknown,
+  businessId: string,
+  recordingSessionId: string,
+): key is string {
+  const parsed = parseRecordingKey(key, businessId)
+  return parsed?.kind === 'staged' && parsed.recordingSessionId === recordingSessionId
+}
+
+/**
  * Tenant-BLIND shape check, for /api/cleanup alone: it lists the bucket root
  * with no tenant context, so it cannot name the business a key must belong to.
  *
@@ -193,10 +266,15 @@ export function looksLikeRecordingKey(name: unknown): boolean {
   // app_<businessId>_<uuid>.<ext>: the uuid is fixed-width and the extension is
   // whatever follows the last dot, so the businessId is exactly what lies
   // between `app_` and the `_` that opens the uuid.
+  // A STAGED name (stg/<businessId>_<sessionId>_<uuid>.<ext>) is the same
+  // reading one uuid further left — both prefixes are four characters, and both
+  // ids are fixed-width, so the offset is the only difference.
   // `+ 2` = the separator plus at least one businessId character.
+  const staged = name.startsWith(STAGED_PREFIX)
   const uuidStart = name.lastIndexOf('.') - UUID_LENGTH
-  if (uuidStart < TAKE_PREFIX.length + 2 || name[uuidStart - 1] !== '_') return false
-  const businessId = name.slice(TAKE_PREFIX.length, uuidStart - 1)
+  const idStart = staged ? uuidStart - UUID_LENGTH - 1 : uuidStart
+  if (idStart < TAKE_PREFIX.length + 2 || name[idStart - 1] !== '_') return false
+  const businessId = name.slice(TAKE_PREFIX.length, idStart - 1)
   // A real businessId never contains a path separator — a name that only
   // parses because the derived id happens to reopen the tenant prefix (a
   // traversal body, a folder-shaped id) is not this shape, whatever

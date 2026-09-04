@@ -20,6 +20,8 @@
 // shape (the same gap sat before proceedDiscard's deleteTake), not closed here.
 
 import {
+  clearTakeStaged,
+  ensureFinalizedPath,
   isUnsecurableTake,
   listPendingDiscardTakes,
   loadTakeBlob,
@@ -65,6 +67,14 @@ function retryable(res: object): boolean {
  *  audio, and the loser's write is refused by the probe (or overwrites with the
  *  same words). A real lease belongs on the stamp. */
 const inFlight = new Set<string>()
+
+/** The staged-copy prefix, mirroring key-grammar's own STAGED_PREFIX.
+ *  ponytail: spelled here instead of imported — key-grammar is server-side and
+ *  importing it would pull the whole grammar module into the thin (phone)
+ *  bundle, which runs against a hard byte ceiling. It is NOT a fence
+ *  (isStagedKeyFor, server-side, is): it only tells round 4's anonymous staged
+ *  copy from a bound one, once, for the transitional cohort below. */
+const STAGED_KEY_PREFIX = 'stg/'
 
 /**
  * The `review` origin. Returns TRUE when the take may now be deleted — the
@@ -178,7 +188,14 @@ export async function runDiscardTranscript(
     // the take, so every later sweep re-reads THAT object — one API call per
     // mount, no upload. `finalizedPath` still wins wherever both exist: it is
     // the key the rest of the pipeline reads.
-    let path = meta.finalizedPath ?? meta.stagedPath
+    // ⚖ …AND A TAKE FINALIZED BY SLICE THREE STILL HAS A KEY (fix round 7).
+    // That deploy stamped `finalizedAt` alone, so such a take reads as
+    // unsecured here and waited for an object it would never be able to name.
+    // The key is deterministic; ensureFinalizedPath recomposes it once through
+    // the port and remembers the answer (null on the phone, whose cohort is
+    // empty by construction).
+    const port = getRecordingPipelinePort()
+    let path = (await ensureFinalizedPath(takeId, meta, port)) ?? meta.stagedPath
     if (!path) {
       // Merely not secured YET — an offline stop, a retryable refusal. The
       // mount retry is coming for it; leave the stamp and let the next sweep
@@ -192,7 +209,13 @@ export async function runDiscardTranscript(
       // never even looked for.
       const blob = await loadTakeBlob(takeId)
       if (!blob || blob.size === 0) return
-      path = (await getRecordingPipelinePort().prepareTranscription(blob, null)).path
+      // ⚖ …AND THE COPY IS NAMED FOR THIS SESSION (fix round 7). `stagedFor`
+      // puts the session in the KEY, which is the only identity a row-less
+      // object can carry — and without it the door had to accept any
+      // same-tenant key as this discard's audio, so a colleague's finished take
+      // could be claimed onto a session it has nothing to do with.
+      path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))
+        .path
       await markTakeStaged(takeId, path)
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()
@@ -203,6 +226,24 @@ export async function runDiscardTranscript(
       locale: pending.locale,
     })
     if (retryable(res)) return
+    // ⚖ THE TRANSITIONAL COHORT (fix round 7). A take stamped BEFORE this round
+    // carries a staged copy from round 4's staging — an anonymous, take-shaped
+    // key the door now refuses, because a claim has to be named for its
+    // session. Forget that pointer ONCE and leave the stamp: the next sweep
+    // stages a bound copy and the words land. The old object is not touched —
+    // nothing deletes audio — and a copy that IS bound never reaches here, so
+    // this can neither loop nor re-upload anything twice. Only a CLAIM is
+    // eligible: a forbidden on the take's own finalized key settles exactly as
+    // it always did.
+    if (
+      'error' in res &&
+      res.error === 'forbidden' &&
+      path === meta.stagedPath &&
+      !path.startsWith(STAGED_KEY_PREFIX)
+    ) {
+      await clearTakeStaged(takeId)
+      return
+    }
     await markDiscardTranscriptDone(takeId)
   } catch (err) {
     console.warn('[discard-transcript] persist run failed:', err)

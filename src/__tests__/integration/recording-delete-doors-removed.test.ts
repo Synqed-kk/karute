@@ -274,13 +274,20 @@ describe('what REPLACED them', () => {
   // is. Storage answers that, because no field on the row can (the mint writes
   // the pointer and UPLOADING, finalize writes UPLOADING back, and the discard
   // stamps the duration itself).
+  // Fix round 7 amends it once more: the claim that stands in for an empty
+  // reservation must be THIS SESSION'S OWN staged copy, proven by the key
+  // (stg/<biz>_<session>_<uuid>), never any same-tenant key the caller typed.
   it('the discard transcript reads the ROW’s key, not the caller’s claim', () => {
     const src = code('src/actions/recording-discard-transcript.ts')
     expect(src).toContain('const pointer = recording?.audio_storage_path ?? null')
-    expect(src).toContain('let audioPath = pointer ?? input.audioPath')
+    expect(src).toContain('let audioPath = input.audioPath')
     expect(src).toContain(
-      "if (pointer && pointer !== input.audioPath && (await objectExists(pointer)) === false) {",
+      "if (pointer && (pointer === input.audioPath || (await objectExists(pointer)) !== false)) {",
     )
+    // …and the ONLY other way out of that branch is the session-bound claim.
+    expect(src).toContain('} else if (!ownStaged) {')
+    expect(src).toContain("return { error: 'forbidden' }")
+    expect(src).toContain('const ownStaged = isStagedKeyFor(')
     expect(src).toContain('.createSignedUrl(audioPath, 3600)')
     // ONE home for "does this object exist", shared with both mints.
     expect(src).toContain("import { objectExists } from '@/lib/recording/mint-take-url'")
@@ -323,9 +330,12 @@ describe('what REPLACED them', () => {
   it('the discard’s word-collection stages an unsecurable take through the port', () => {
     const src = code('src/lib/recording/discard-transcript.ts')
     expect(src).toContain('if (!isUnsecurableTake(meta)) return')
+    // …and the copy it stages NAMES the session it is staged for (fix round 7),
+    // which is the identity a row-less object otherwise has none of.
     expect(src).toContain(
-      'path = (await getRecordingPipelinePort().prepareTranscription(blob, null)).path',
+      "path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))",
     )
+    expect(src).toContain('const port = getRecordingPipelinePort()')
     expect(src).not.toContain('.remove(')
     // The rule itself lives beside the two facts it is made of, not here.
     const store = code('src/lib/karute/take-store.ts')

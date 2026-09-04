@@ -619,6 +619,48 @@ export async function markTakeStaged(takeId: string, stagedPath: string): Promis
   await patchTakeMeta(takeId, { stagedPath })
 }
 
+/** Capture pipeline PR4 fix round 7: forget where this take was staged, so the
+ *  next sweep stages it again. ONE cohort needs it — a take stamped before this
+ *  round, whose staged copy carries the old anonymous take-shaped key the
+ *  transcribe door now refuses (it honours only a copy NAMED for the session).
+ *  Clearing the pointer is what lets that take re-stage under a bound key; the
+ *  discard stamp itself is untouched, so nothing is lost and nothing is
+ *  deleted — the old object stays on storage as the evidence it is. */
+export async function clearTakeStaged(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { stagedPath: undefined })
+}
+
+/**
+ * The finalized key for a take that has `finalizedAt` but no `finalizedPath`
+ * (capture pipeline PR4 fix round 7) — asked once, then remembered.
+ *
+ * THE COHORT. Slice three's markTakeFinalized wrote the TIMESTAMP alone; slice
+ * four's readers gate on the KEY. A web take finalized between the two deploys
+ * and still unprocessed therefore reads as unsecured: the in-tab leg stages a
+ * row-less duplicate of audio the server already holds, and the discard sweep
+ * waits for an object it will never name. The key is DETERMINISTIC — the mint
+ * composed it from this take's id and container and reserved exactly that on
+ * the row — so the port recomposes it server-side, where the tenant prefix
+ * lives, and the answer is written back so this is asked at most once per take.
+ *
+ * The port is passed IN rather than reached for: this module is the durable
+ * store, and a store that imports the network seam is one import cycle away
+ * from a page that cannot load. `null` from the port ("this world cannot say" —
+ * the thin arm always) leaves the take exactly as it is.
+ */
+export async function ensureFinalizedPath(
+  takeId: string,
+  meta: Pick<TakeMeta, 'mimeType' | 'finalizedAt' | 'finalizedPath'>,
+  port: { finalizedKey(takeId: string, mimeType: string): Promise<string | null> },
+): Promise<string | null> {
+  if (meta.finalizedPath) return meta.finalizedPath
+  if (!meta.finalizedAt) return null
+  const key = await port.finalizedKey(takeId, meta.mimeType)
+  if (!key) return null
+  await patchTakeMeta(takeId, { finalizedPath: key })
+  return key
+}
+
 /** Capture pipeline PR3: the last secure attempt did not finish. Records WHY
  *  and nothing else — the take stays un-finalized, which is the only fact the
  *  retry (and PR5's drain) reads.

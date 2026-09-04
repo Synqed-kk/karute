@@ -194,9 +194,18 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 
 const mockGetMyCapabilities = getMyCapabilities as jest.Mock
 
-const SESSION = 'sess-1'
+/** A uuid since fix round 7: the STAGED key of a discard's own copy carries
+ *  this id, so the fixture has to be the shape the grammar composes. */
+const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const OWN_PATH = 'app_business-1_11111111-2222-3333-4444-555555555555.webm'
 const FOREIGN_PATH = 'app_business-9_11111111-2222-3333-4444-555555555555.webm'
+/** This session's OWN staged copy — the one claim the door honours in place of
+ *  the row's pointer (stg/<businessId>_<session>_<uuid>.<ext>). */
+const OWN_STAGED = `stg/business-1_${SESSION}_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.webm`
+/** …and a staged copy of a DIFFERENT session: this tenant's object, parses,
+ *  and still refused — the whole point of putting the session in the key. */
+const OTHER_STAGED =
+  'stg/business-1_99999999-8888-4777-8666-555555555555_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.webm'
 
 /** `over` is deliberately loose: several cases below hand the action a
  *  `customerId` it no longer declares, to prove a client-named customer is
@@ -229,7 +238,10 @@ beforeEach(() => {
   mockBucket.probed.length = 0
   listIgnoresSessionFilter = false
   // The session is bound to cust-1 at record time, and cust-1 consented.
-  recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
+  // BORN RESERVED (session-mint.ts), and since fix round 7 the ordinary discard
+  // is the only take-shaped path this door accepts: it names the row's own
+  // pointer, so there is nothing to claim and nothing to probe.
+  recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
   capabilities.current = new Set(['records.write', 'staff.manage'])
   identity.current = 'staff-A'
@@ -258,7 +270,7 @@ describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
   })
 
   it('a customer-less (walk-in) session: skipped without even asking core', async () => {
-    recordingRow = { duration_seconds: null, customer_id: null }
+    recordingRow = { duration_seconds: null, customer_id: null, audio_storage_path: OWN_PATH }
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     await expect(review()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
@@ -290,7 +302,11 @@ describe('a client-named customer cannot widen consent', () => {
     // The session belongs to someone who never consented; the caller names a
     // customer who did. Nothing downstream would contradict a wrong id — it is
     // written nowhere — so this was a free lever, and it must be dead.
-    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-refused',
+      audio_storage_path: OWN_PATH,
+    }
     consentByCustomer = {
       'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
       'cust-refused': null,
@@ -301,7 +317,11 @@ describe('a client-named customer cannot widen consent', () => {
   })
 
   it('the review door ignores it too', async () => {
-    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-refused',
+      audio_storage_path: OWN_PATH,
+    }
     consentByCustomer = {
       'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
       'cust-refused': null,
@@ -348,12 +368,30 @@ describe('the tenant fence on a client-supplied storage key', () => {
     )
   })
 
-  it('a row with NO pointer still honours the claim — legacy rows keep working', async () => {
+  // ⚖ …AND A CLAIM IS ONLY EVER THIS SESSION'S OWN STAGED COPY (fix round 7).
+  // A row with no pointer used to honour ANY same-tenant key, which is the
+  // lever: name a colleague's finished take and its words land on a session
+  // that really was discarded, signed by the claim rather than by the record.
+  // The staged copy — the only object here with no row of its own — now carries
+  // the session it was staged for IN ITS KEY, so the claim is checked.
+  it('a row with NO pointer honours this session’s OWN staged copy', async () => {
     recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
-    await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ ok: true })
+    await expect(staged({ audioPath: OWN_STAGED })).resolves.toEqual({ ok: true })
     expect(mockRunTranscription).toHaveBeenCalledWith(
-      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_STAGED}` } }),
     )
+  })
+
+  it('…and refuses a colleague’s FINISHED take named at the same unbound row', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  it('…and refuses a staged copy of ANOTHER session, which is this tenant’s too', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OTHER_STAGED })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
   })
 
   it('a row pointing OUT of this tenant is refused, never signed', async () => {
@@ -378,7 +416,9 @@ describe('the tenant fence on a client-supplied storage key', () => {
   // and the discard that must already exist stamped duration_seconds itself —
   // so storage is asked, with the same probe the two mints share.
   describe('a reservation whose object never landed does not beat the staged copy', () => {
-    const STAGED = 'app_business-1_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.webm'
+    /** The bound staged copy, since fix round 7 — an anonymous take-shaped one
+     *  is refused here now, whatever the pointer says. */
+    const STAGED = OWN_STAGED
 
     it('the staged path is signed and transcribed when the reserved key is empty', async () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
@@ -431,6 +471,24 @@ describe('the tenant fence on a client-supplied storage key', () => {
       mockBucket.missing.add(OWN_PATH)
       await expect(staged({ audioPath: FOREIGN_PATH })).resolves.toEqual({ error: 'forbidden' })
       expect(mockBucket.probed).toEqual([])
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+
+    // ⚖ THE SECOND BRANCH THAT REACHES THE CLAIM (fix round 7). An empty
+    // reservation is the OTHER way `input.audioPath` gets used, and it was the
+    // wider hole of the two: it needs no legacy row at all, just a take whose
+    // finalized object never landed — which is every unsecurable take.
+    it('an empty reservation does NOT let a colleague’s take stand in', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+
+    it('…nor a staged copy belonging to another session', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: OTHER_STAGED })).resolves.toEqual({ error: 'forbidden' })
       expect(mockRunTranscription).not.toHaveBeenCalled()
     })
   })

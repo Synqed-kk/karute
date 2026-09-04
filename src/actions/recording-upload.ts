@@ -23,7 +23,7 @@ import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-pe
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { composeTakeKey, isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
   mintTakeUploadUrl,
   type MintTakeUrlInput,
@@ -126,6 +126,46 @@ export async function mintRecordingUploadUrl(
   } catch (err) {
     console.warn('[mintRecordingUploadUrl] failed:', err)
     return { error: 'upstream' }
+  }
+}
+
+/**
+ * The finalized KEY for one of this caller's own takes — composed, not looked
+ * up (capture pipeline PR4 fix round 7).
+ *
+ * WHY A DOOR FOR A PURE COMPOSITION. The client must never assemble a tenant
+ * key itself — that is the rule markTakeFinalized was written to (the value it
+ * stores is the MINT's own answer, carried back) — and the tenant prefix is the
+ * one ingredient the device does not have. So the composition stays here, where
+ * the businessId comes off the cookie session and never off the caller, and the
+ * take id + container are the same pair the mint composed from in the first
+ * place. No DB read: the mint RESERVED exactly this key on the row, so
+ * recomposing it is reading back a fact, not guessing one.
+ *
+ * WHO ASKS. A take finalized by slice three (which stamped `finalizedAt` alone)
+ * and read by slice four (which gates on `finalizedPath`) reads as UNSECURED:
+ * the in-tab leg stages a row-less duplicate of audio the server already holds,
+ * and the discard sweep dead-ends. ensureFinalizedPath (take-store) asks this
+ * once for such a take and backfills the answer.
+ *
+ * NEVER THROWS, same contract as the mint above: null is the settled "cannot
+ * say" — a denied capability, a bad pair, an identity read that failed — and
+ * every caller already has un-finalized behaviour to fall back on.
+ */
+export async function recordingFinalizedKey(input: {
+  takeId: string
+  mimeType: string
+}): Promise<string | null> {
+  try {
+    if (!(await can('records.write'))) return null
+    const businessId = await getBusinessId()
+    // composeTakeKey validates both halves and re-parses its own output, so the
+    // key this hands back is one isOwnRecordingKey would accept for this same
+    // business — the property every downstream fence relies on.
+    return composeTakeKey(businessId, input.takeId, input.mimeType)?.key ?? null
+  } catch (err) {
+    console.warn('[recordingFinalizedKey] failed:', err)
+    return null
   }
 }
 

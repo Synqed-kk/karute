@@ -307,7 +307,9 @@ import { globalRecorder } from '@/lib/global-recorder'
 import {
   appendTakeSegment,
   clearOwnTakes,
+  clearTakeStaged,
   deleteTake,
+  ensureFinalizedPath,
   getRecoverableTake,
   isUnsecurableTake,
   listOwnTakes,
@@ -317,6 +319,7 @@ import {
   markDiscardTranscriptDone,
   markTakeFinalized,
   markTakeSecureError,
+  markTakeStaged,
   markTakeStopPending,
   markTakeTailIncomplete,
   readTakeOutcome,
@@ -1446,6 +1449,7 @@ describe('secure at stop', () => {
       finalizedAt?: number
       finalizedPath?: string
       secureError?: string
+      stagedPath?: string
       mimeType?: string
       recordingSessionId?: string | null
       durationMs?: number
@@ -2530,6 +2534,77 @@ describe('secure at stop', () => {
     // The recovery read carries it, so a surface can tell "already on the
     // server" from "still device-only" without a second store read.
     expect((await getRecoverableTake([]))?.finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ⚖ J2 (capture pipeline PR4 fix round 7). Slice three's markTakeFinalized
+  // stamped the TIME and not the KEY, and every slice-four reader gates on the
+  // key: a web take finalized between the two deploys and still unprocessed read
+  // as UNSECURED, so the in-tab leg staged a row-less duplicate of audio the
+  // server already holds and the discard sweep dead-ended. The key is
+  // deterministic, so it is recomposed once and written back.
+  describe('ensureFinalizedPath — the take finalized before the key was stamped', () => {
+    const composing = { finalizedKey: jest.fn(async (t: string, m: string) => `app_biz_${t}.${m}`) }
+
+    it('asks for the key, answers it, and BACKFILLS the take so it is asked once', async () => {
+      const takeId = await stoppedOwedTake()
+      await markTakeFinalized(takeId, 'app_biz_x.webm')
+      // The slice-three shape, exactly: the stamp without the key.
+      delete (metaOf(takeId) as Record<string, unknown>).finalizedPath
+      composing.finalizedKey.mockClear()
+
+      // The RECORDER's own container, off the take — the same half the mint
+      // composed the key from, so the door can answer without a DB read.
+      const mime = metaOf(takeId).mimeType as string
+      const expected = `app_biz_${takeId}.${mime}`
+
+      const meta = (await readTakeSecureMeta(takeId))!
+      await expect(ensureFinalizedPath(takeId, meta, composing)).resolves.toBe(expected)
+      expect(composing.finalizedKey).toHaveBeenCalledWith(takeId, mime)
+      // Written back — the door is knocked on once per take, not once per read.
+      expect(metaOf(takeId).finalizedPath).toBe(expected)
+      const again = (await readTakeSecureMeta(takeId))!
+      composing.finalizedKey.mockClear()
+      await expect(ensureFinalizedPath(takeId, again, composing)).resolves.toBe(expected)
+      expect(composing.finalizedKey).not.toHaveBeenCalled()
+    })
+
+    it('a take that was never finalized is left alone — no door, no write', async () => {
+      const takeId = await stoppedOwedTake()
+      composing.finalizedKey.mockClear()
+      const meta = (await readTakeSecureMeta(takeId))!
+      await expect(ensureFinalizedPath(takeId, meta, composing)).resolves.toBeNull()
+      expect(composing.finalizedKey).not.toHaveBeenCalled()
+      expect(metaOf(takeId).finalizedPath).toBeUndefined()
+    })
+
+    it('a world that cannot say (the phone) writes nothing at all', async () => {
+      const takeId = await stoppedOwedTake()
+      await markTakeFinalized(takeId, 'app_biz_x.webm')
+      delete (metaOf(takeId) as Record<string, unknown>).finalizedPath
+
+      const meta = (await readTakeSecureMeta(takeId))!
+      await expect(
+        ensureFinalizedPath(takeId, meta, { finalizedKey: async () => null }),
+      ).resolves.toBeNull()
+      expect(metaOf(takeId).finalizedPath).toBeUndefined()
+    })
+  })
+
+  // ⚖ J1-e (fix round 7): the transitional clear. A take stamped before this
+  // round remembers round 4's anonymous staged copy, which the transcribe door
+  // now refuses — forgetting the pointer is what lets the next sweep stage a
+  // copy NAMED for its session. Nothing is deleted; the old object stays.
+  it('clearTakeStaged forgets where a take was staged, and touches nothing else', async () => {
+    const takeId = await stoppedOwedTake()
+    await markTakeStaged(takeId, 'app_biz_old-staged.webm')
+    expect(metaOf(takeId).stagedPath).toBe('app_biz_old-staged.webm')
+
+    await clearTakeStaged(takeId)
+
+    expect(metaOf(takeId).stagedPath).toBeUndefined()
+    // The discard stamp is the sweep's own worklist — clearing the copy must
+    // not close the record whose words are still owed.
+    expect(await readTakeSecureMeta(takeId)).not.toBeNull()
   })
 
   it('a take row written before these fields existed still loads and still secures', async () => {

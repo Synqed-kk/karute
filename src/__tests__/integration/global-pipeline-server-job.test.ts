@@ -35,7 +35,9 @@ const deleteTake = jest.fn()
  *  key, read off the take meta. `null` here is a take that is not secured yet —
  *  the pre-enqueue failure that used to be a staging error. */
 const readTakeSecureMeta = jest.fn(
-  async (_takeId: string): Promise<{ finalizedPath?: string } | null> => ({
+  async (
+    _takeId: string,
+  ): Promise<{ finalizedPath?: string; finalizedAt?: number; mimeType?: string } | null> => ({
     finalizedPath: 'app_biz-1_take-1.webm',
   }),
 )
@@ -43,6 +45,11 @@ jest.mock('@/lib/karute/take-store', () => ({
   deleteTake: (...a: unknown[]) => (deleteTake as (...a: unknown[]) => unknown)(...a),
   readTakeSecureMeta: (...a: unknown[]) =>
     (readTakeSecureMeta as (...a: unknown[]) => unknown)(...a),
+  // ⚖ THE REAL RULE (PR4 fix round 7), not a restatement: whether a take
+  // stamped by slice THREE (finalizedAt, no key) can still name its object is
+  // take-store's own answer, and a copy of it here would go green while that
+  // one drifted.
+  ensureFinalizedPath: jest.requireActual('@/lib/karute/take-store').ensureFinalizedPath,
 }))
 
 type EnqueueResult = { ok: true; jobId: string; status: string } | { error: string }
@@ -69,6 +76,10 @@ const jobStatus = jest.fn(
   }),
 )
 const portSupportsServerJob = { current: true }
+/** The backfill door (PR4 fix round 7): web composes the key server-side, thin
+ *  answers null. Null by default — a take that already carries its key must
+ *  never reach it. */
+const finalizedKey = jest.fn(async (_takeId: string, _mimeType: string) => null as string | null)
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
     get supportsServerJob() {
@@ -76,6 +87,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
     },
     enqueueJob: (...a: unknown[]) => (enqueueJob as (...a: unknown[]) => unknown)(...a),
     jobStatus: (...a: unknown[]) => (jobStatus as (...a: unknown[]) => unknown)(...a),
+    finalizedKey: (...a: unknown[]) => (finalizedKey as (...a: unknown[]) => unknown)(...a),
   }),
 }))
 
@@ -104,6 +116,7 @@ beforeEach(() => {
   portSupportsServerJob.current = true
   awaitTakeSecured.mockImplementation(async () => {})
   readTakeSecureMeta.mockResolvedValue({ finalizedPath: 'app_biz-1_take-1.webm' })
+  finalizedKey.mockResolvedValue(null)
   enqueueJob.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   jobStatus.mockResolvedValue({
     status: 'QUEUED',
@@ -127,6 +140,27 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     expect(
       (enqueueJob.mock.calls[0][0] as { audioPath: string }).audioPath,
     ).toBe('app_biz-1_take-1.webm')
+    expect(mockDeferreds).toHaveLength(0)
+  })
+
+  // ⚖ J2 (PR4 fix round 7). Slice three stamped `finalizedAt` alone and this
+  // path gates on the KEY, so such a take threw into the pre-enqueue arm and
+  // the whole recording fell to the in-tab leg — which stages a second copy of
+  // audio the server already holds.
+  it('a take finalized before the key was stamped enqueues the COMPOSED key', async () => {
+    readTakeSecureMeta.mockImplementation(async () => ({
+      finalizedAt: 1_756_000_000_000,
+      mimeType: 'audio/webm',
+    }))
+    finalizedKey.mockImplementation(async () => 'app_biz-1_take-1.webm')
+
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+
+    expect(finalizedKey).toHaveBeenCalledWith('take-1', 'audio/webm')
+    expect((enqueueJob.mock.calls[0][0] as { audioPath: string }).audioPath).toBe(
+      'app_biz-1_take-1.webm',
+    )
     expect(mockDeferreds).toHaveLength(0)
   })
 

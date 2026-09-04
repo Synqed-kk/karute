@@ -284,12 +284,17 @@ export async function finalizeTakeWithClient(
       // reported" state to check, so every retry of a stale finalize files its
       // own capture_unlinked row. The bound on how many is the CLIENT's own
       // retry count, not a dedupe in this function.
+      // The grammar grew a third kind in fix round 7 (a STAGED copy, named for
+      // a session rather than a take), and that one has no take id to report.
+      // A row pointer is never one — the mint reserves take keys — so this
+      // reads exactly as it did; it just says so to the compiler.
+      const parsedPointer = parseRecordingKey(pointer, actor.businessId)
       return emitCaptureUnlinked(
         actor,
         row.id,
         input,
         composed.ext,
-        parseRecordingKey(pointer, actor.businessId)?.takeId ?? null,
+        parsedPointer && parsedPointer.kind !== 'staged' ? parsedPointer.takeId : null,
         { size_verified: false },
       )
     }

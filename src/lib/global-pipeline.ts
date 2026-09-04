@@ -9,7 +9,7 @@ import {
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { deleteTake, readTakeSecureMeta } from '@/lib/karute/take-store'
+import { deleteTake, ensureFinalizedPath, readTakeSecureMeta } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
@@ -332,7 +332,13 @@ class GlobalPipeline {
     // and a static import here would drag that into every module that merely
     // loads this one — the recordings inbox included.
     await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
-    return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
+    // ⚖ …AND SLICE THREE'S TAKES HAVE A KEY TOO (fix round 7): that deploy
+    // stamped `finalizedAt` alone, so such a take answered null here and the
+    // whole enqueue fell to the in-tab arm. The key is deterministic, so it is
+    // recomposed once through the port and remembered (null on the phone,
+    // whose cohort is empty by construction — unchanged behaviour there).
+    const meta = await readTakeSecureMeta(takeId)
+    return meta ? ensureFinalizedPath(takeId, meta, getRecordingPipelinePort()) : null
   }
 
   private async run() {

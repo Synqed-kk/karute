@@ -57,10 +57,12 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
 
   const synqed = newSynqedClient(ctx.identity.businessId)
 
-  // ONLY a CLIENT-NAMED take reserves a row, so only it pays for an identity.
-  // A server-named mint stays byte-identical to before this round: no roster
-  // read, and therefore none of its failure modes on the hot record-start path.
-  const named = Boolean(parsed.data.takeId)
+  // ONLY a body that NAMES A SESSION pays for an identity — a client-named take
+  // (which reserves a row) and, since fix round 7, a staged copy (which reserves
+  // nothing but is bound to a session the SAME staff rule has to clear). A
+  // server-named mint stays byte-identical to before this round: no roster read,
+  // and therefore none of its failure modes on the hot record-start path.
+  const named = Boolean(parsed.data.takeId ?? parsed.data.stagedFor)
 
   // ROSTER GATE — the same half a capability check cannot carry that the
   // finalize twin runs (#566). ctx.identity.authUserId carries no proof of

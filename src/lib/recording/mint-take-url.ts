@@ -67,7 +67,7 @@
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
-import { composeTakeKey } from '@/lib/recording/key-grammar'
+import { composeStagedKey, composeTakeKey } from '@/lib/recording/key-grammar'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
@@ -105,6 +105,13 @@ export interface MintTakeUrlInput {
    *  it from startRecordingSession, the ONE door that mints rows. Absent with
    *  no takeId → a server-named take, which reserves nothing. */
   recordingSessionId?: string | null
+  /** ⚖ STAGE A COPY FOR THIS SESSION (PR4 fix round 7). The discard's
+   *  word-collection stages the disk blob of a take that can never be sealed
+   *  under a finalized key, and the key it gets NAMES this session, so the
+   *  transcribe door can verify the claim instead of trusting it. Never
+   *  together with `takeId` (the schema refuses the pair): a staged copy is
+   *  not a take, reserves nothing and is bound to no row. */
+  stagedFor?: string | null
 }
 
 export type MintTakeUrlResult =
@@ -404,6 +411,39 @@ export async function mintTakeUploadUrl(
   const input = parsed.data
 
   const businessId = actor.businessId
+
+  // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). It is still
+  // ROW-LESS — nothing is reserved, nothing is written, nothing is audited —
+  // but it is no longer ANONYMOUS: the key carries the session, so the
+  // transcribe door can check the binding rather than accept any same-tenant
+  // key as that discard's audio. The row is read only to prove the caller may
+  // record onto it, with the SAME staff rule the take mint applies: the client
+  // is tenant-scoped, so another business's session simply is not found.
+  if (input.stagedFor) {
+    // Nothing to attribute a staging to — the take mint's own first refusal.
+    if (!actor.staffId) return { error: 'forbidden' }
+    let row: Recording
+    try {
+      row = await synqed.recordings.get(input.stagedFor)
+    } catch (err) {
+      if (statusOf(err) === 404) return { error: 'not_found' }
+      console.warn('[mint-take-url] staged session read failed:', err)
+      return { error: 'upstream' }
+    }
+    const denied = assertRecorderOwnsRow(row, actor)
+    if (denied) return denied
+    // DEFAULT_MIME, because a staged copy carries no client-named container:
+    // the schema pairs mimeType with takeId, which this body may not have, and
+    // both ports PUT this blob as audio/webm.
+    const composed = composeStagedKey(businessId, input.stagedFor, DEFAULT_MIME)
+    // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
+    // uppercase one still lands here and is refused by the case-exact grammar.
+    if (composed === null) return { error: 'bad_input' }
+    const signed = await signUpload(composed)
+    if ('error' in signed) return signed
+    return { ...signed, recordingSessionId: input.stagedFor }
+  }
+
   const takeId = input.takeId ?? crypto.randomUUID()
   // ⚖ A CLIENT-NAMED TAKE BRINGS ITS OWN CONTAINER (fix round 1, rider 3's
   // second half). The schema's field-pair rule says so for both doors, and this

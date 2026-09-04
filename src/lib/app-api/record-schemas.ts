@@ -90,13 +90,25 @@ export const SessionMintSchema = z
 // reads, and a mismatch the finalize (which composes the key from the SAME pair
 // it was given) cannot see. Refusing the half-body is one 400 at the door
 // instead. A container with no take id names nothing, exactly as before.
+//
+// stagedFor (capture pipeline PR4 fix round 7) is the OTHER thing this door can
+// mint: the discard's row-less STAGED copy, whose key names the session it was
+// staged for so the transcribe door can verify a claim instead of trusting it.
+// A uuid for the same reason recordingSessionId is — it rides into a core URL
+// PATH unencoded — and NEVER together with a takeId: a staged copy is not a
+// take, so a body carrying both is one act pretending to be two.
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
     recordingSessionId: z.string().uuid().nullish(),
+    stagedFor: z.string().uuid().nullish(),
   })
   .strict()
+  .refine((v) => !(v.takeId && v.stagedFor), {
+    message: 'stagedFor names a staged copy, never a take',
+    path: ['stagedFor'],
+  })
   .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
     message: 'takeId and recordingSessionId must be sent together',
     path: ['recordingSessionId'],

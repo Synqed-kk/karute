@@ -153,7 +153,9 @@ let discardRows: { recording_session_id: string; reason: string }[] = []
  *  only against the empty-settings defaults. */
 let orgSettings: { settings: Record<string, unknown> } = { settings: {} }
 let consentByCustomer: Record<string, { policy_version: string } | null> = {}
-let recordingRow: { customer_id: string | null } | null = { customer_id: 'cust-1' }
+let recordingRow: { customer_id: string | null; audio_storage_path?: string | null } | null = {
+  customer_id: 'cust-1',
+}
 type SegmentRow = { segment_index: number; text: string; start_time: number; end_time: number }
 const upsertSegments = jest.fn(async (id: string, rows: SegmentRow[], opts: { replace: boolean }) => {
   void id
@@ -250,7 +252,11 @@ beforeEach(() => {
   mockRunTranscription.mockResolvedValue({ transcript: '本日はありがとうございます' })
   discardRows = [{ recording_session_id: 'rs-1', reason: 'テスト' }]
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
-  recordingRow = { customer_id: 'cust-1' }
+  // BORN RESERVED (session-mint.ts) — and since PR4 fix round 7 the ordinary
+  // discard is a take-shaped path only when it is the ROW's own key: any other
+  // same-tenant key is a claim, and a claim is honoured only from this
+  // session's own staged copy (stg/<biz>_<session>_<uuid>).
+  recordingRow = { customer_id: 'cust-1', audio_storage_path: OWN_PATH }
   mockCapabilities.mockResolvedValue(new Set(['records.write']))
 })
 
@@ -503,7 +509,7 @@ describe('POST … — the review shape (words already in hand)', () => {
   })
 
   it('a walk-in take (no customer on the session row) → skipped, fail closed', async () => {
-    recordingRow = { customer_id: null }
+    recordingRow = { customer_id: null, audio_storage_path: OWN_PATH }
     expect(await (await post(REVIEW_BODY)).json()).toEqual({ skipped: 'consent' })
     expect(upsertSegments).not.toHaveBeenCalled()
   })

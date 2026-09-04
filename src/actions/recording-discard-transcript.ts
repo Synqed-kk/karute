@@ -37,7 +37,7 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { isOwnRecordingKey, isStagedKeyFor } from '@/lib/recording/key-grammar'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -327,7 +327,20 @@ export async function transcribeAndPersistDiscardWithClient(
     // so this is the only thing standing between a caller and another tenant's
     // audio. FIRST on purpose: a foreign key is the one exit that must never
     // reach the object it names, not even to read it.
-    if (!isOwnRecordingKey(input.audioPath, actor.businessId)) return { error: 'forbidden' }
+    //
+    // TWO SHAPES REACH IT (fix round 7): the take's own finalized key — which
+    // has to pass because the ordinary discard names the row's own pointer —
+    // and a STAGED copy named for THIS session, which is the only claim this
+    // door honours in place of that pointer. Asked once, read twice: here as
+    // the tenant fence, and below as the binding.
+    const ownStaged = isStagedKeyFor(
+      input.audioPath,
+      actor.businessId,
+      input.recordingSessionId,
+    )
+    if (!ownStaged && !isOwnRecordingKey(input.audioPath, actor.businessId)) {
+      return { error: 'forbidden' }
+    }
 
     const supabase = createServiceClient()
     if (!(await hasStaffDiscard(synqed, input.recordingSessionId))) {
@@ -381,9 +394,21 @@ export async function transcribeAndPersistDiscardWithClient(
     // pointing at one still wins over any claim, and `input.audioPath` cleared
     // the SAME isOwnRecordingKey fence at the top of this function before
     // anything here read it.
-    let audioPath = pointer ?? input.audioPath
-    if (pointer && pointer !== input.audioPath && (await objectExists(pointer)) === false) {
-      audioPath = input.audioPath
+    //
+    // ⚖ …AND A CLAIM IS ONLY EVER THIS SESSION'S OWN STAGED COPY (fix round 7).
+    // Two branches reach `input.audioPath` — a row that carries no pointer, and
+    // a pointer whose object never landed — and both used to accept ANY
+    // same-tenant key, so a records.write holder could name a COLLEAGUE'S
+    // finished take and have its words written onto an unrelated discarded
+    // session. A staged copy now carries the session it was staged for in its
+    // KEY, which is the identity a row-less object otherwise has none of, so
+    // the claim is CHECKED rather than trusted. B5 is untouched: a pointer
+    // whose object is really there still wins, whatever the caller named.
+    let audioPath = input.audioPath
+    if (pointer && (pointer === input.audioPath || (await objectExists(pointer)) !== false)) {
+      audioPath = pointer
+    } else if (!ownStaged) {
+      return { error: 'forbidden' }
     }
 
     if (!(await consentAllows(synqed, recording))) return { skipped: 'consent' }
