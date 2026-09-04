@@ -290,6 +290,17 @@ export function spanText(minutes: number): string {
 
 const two = (n: number) => (n < 10 ? `0${n}` : `${n}`)
 
+/** G1 fix — the countdown's own second hand, measured from the wall clock
+ *  rather than counted `setInterval` callbacks. A throttled background tab
+ *  still fires the interval at whatever cadence the browser allows it (some
+ *  callbacks simply never run), so counting CALLS drifts the moment one is
+ *  skipped. Reading real elapsed time instead means a skipped tick is caught
+ *  up on the next one rather than lost forever. Never negative — a callback
+ *  that lands early (rAF jitter) must not count backwards. */
+export function elapsedSecondsSince(startedAtMs: number, nowMs: number): number {
+  return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000))
+}
+
 /**
  * 「あと21分00秒」/「期限超過 54分00秒」 — the accepted mock's own `cdText`,
  * ported line for line (RESERVATIONS-MOCK-v1.html:1113). Seconds always two

@@ -56,6 +56,7 @@ import {
   deadlineOf,
   decisionKindOf,
   eligibilityOf,
+  elapsedSecondsSince,
   flagsOf,
   genuineOf,
   isQueued,
@@ -992,5 +993,23 @@ describe('the room holds at scale', () => {
     const world = { appointments: appointments().map((a) => ({ ...a, store_id: STORE_B })) }
     const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world })).props
     expect(p.rows).toEqual([])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 15. GREPTILE ROUND 1 — G1 · the countdown reads real elapsed time
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('elapsedSecondsSince — measured from the wall clock, never counted callbacks', () => {
+  it('0 → 0, 1s → 1, and a throttled gap catches up rather than drifting', () => {
+    expect(elapsedSecondsSince(1_000, 1_000)).toBe(0)
+    expect(elapsedSecondsSince(1_000, 2_000)).toBe(1)
+    // a background tab throttled to one callback every 125s: the real elapsed
+    // time is read directly rather than reconstructed from missed callbacks
+    expect(elapsedSecondsSince(1_000, 126_000)).toBe(125)
+  })
+
+  it('never negative — a callback landing a hair before its scheduled instant does not count backwards', () => {
+    expect(elapsedSecondsSince(1_000, 999)).toBe(0)
   })
 })

@@ -846,8 +846,18 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     )
     expect(props).not.toContain('freeze')
     // the countdown's second hand is ONE interval from mount, and SSR renders 0
-    expect(SCREEN_CODE).toContain('setInterval(() => setElapsedSec((s) => s + 1), 1000)')
+    expect(SCREEN_CODE).toContain('const id = setInterval(tick, 1000)')
     expect(SCREEN_CODE).toContain('useState(0)')
+  })
+
+  it('G1 · the countdown reads real elapsed time, never counted callbacks', () => {
+    // the throttled-tab drift this fix exists for: a callback-counting tick
+    // (`(s) => s + 1`) undercounts the moment the browser skips a callback.
+    expect(SCREEN_CODE).toContain('setElapsedSec(elapsedSecondsSince(t0, Date.now()))')
+    expect(SCREEN_CODE).not.toContain('(s) => s + 1')
+    // …and the tab-comeback correction fires immediately rather than waiting
+    // up to a second for the next scheduled tick.
+    expect(SCREEN_CODE).toContain("document.addEventListener('visibilitychange', onVisible)")
   })
 
   it('⚖-ADJ M · 期限超過 is derived ONCE, on the server’s pinned minute — there is no second overdue on the client', () => {
@@ -873,7 +883,13 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     //    re-derivation reading the ticking clock to drift is caught here
     //    regardless of what it calls itself, because THIS line is the one
     //    that must contain `countdownText(` and does not.
-    const elapsedSecLines = SCREEN_CODE.split('\n').filter((l) => l.includes('elapsedSec'))
+    //
+    //    G1 fix — matched on the WHOLE identifier (`\belapsedSec\b`), not a
+    //    bare substring: `elapsedSecondsSince` (the pure helper the tick now
+    //    calls) legitimately starts with the same eleven characters, and a
+    //    substring filter would flag that legitimate call as a second read of
+    //    the state itself.
+    const elapsedSecLines = SCREEN_CODE.split('\n').filter((l) => /\belapsedSec\b/.test(l))
     expect(elapsedSecLines.length).toBeGreaterThanOrEqual(1)
     for (const l of elapsedSecLines) {
       if (l.trim().startsWith('const [elapsedSec')) continue // the declaration

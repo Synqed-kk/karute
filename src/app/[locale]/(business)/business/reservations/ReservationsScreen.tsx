@@ -57,6 +57,7 @@ import {
   countdownText,
   deadlineOf,
   decisionKindOf,
+  elapsedSecondsSince,
   flagsOf,
   genuineOf,
   isQueued,
@@ -473,9 +474,23 @@ function Screen(props: ReservationsProps) {
     return () => clearTimeout(t)
   }, [toast])
 
+  // G1 fix — real elapsed time, not counted callbacks (⚖-ADJ J stays true: ONE
+  // interval from mount, no `?freeze=` lever). A throttled background tab can
+  // skip callbacks; `elapsedSecondsSince` reads the wall clock so a skipped
+  // tick is caught up rather than compounding into a drifting countdown. The
+  // `visibilitychange` correction runs the same tick the instant the tab comes
+  // back, so the reader is not left staring at a stale number for up to a
+  // second before the next scheduled tick.
   useEffect(() => {
-    const id = setInterval(() => setElapsedSec((s) => s + 1), 1000)
-    return () => clearInterval(id)
+    const t0 = Date.now()
+    const tick = () => setElapsedSec(elapsedSecondsSince(t0, Date.now()))
+    const id = setInterval(tick, 1000)
+    const onVisible = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   // 表示する列 popover — the wiring itself is the shared canon primitive, unit-
