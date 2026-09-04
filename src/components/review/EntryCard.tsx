@@ -2,7 +2,7 @@
 
 import { Control, useController } from 'react-hook-form'
 import { useLocale, useTranslations } from 'next-intl'
-import { ENTRY_CATEGORIES, EntryCategory } from '@/types/ai'
+import { ENTRY_CATEGORIES, EntryCategory, type Entry } from '@/types/ai'
 import { getCategoryConfig } from '@/lib/karute/categories'
 
 /**
@@ -21,10 +21,14 @@ const CATEGORY_COLORS: Record<EntryCategory, string> = {
   other: 'bg-gray-500/20 text-gray-600 border-gray-500/30 dark:text-gray-300',
 }
 
+interface ReviewFormValues {
+  summary: string
+  entries: Entry[]
+}
+
 interface EntryCardProps {
   index: number
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  control: Control<any>
+  control: Control<ReviewFormValues>
   onRemove: () => void
 }
 

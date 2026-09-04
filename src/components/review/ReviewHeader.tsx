@@ -1,11 +1,16 @@
 'use client'
 
 import { Control, useController } from 'react-hook-form'
+import type { Entry } from '@/types/ai'
 import { useTranslations } from 'next-intl'
 
+interface ReviewFormValues {
+  summary: string
+  entries: Entry[]
+}
+
 interface ReviewHeaderProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  control: Control<any>
+  control: Control<ReviewFormValues>
 }
 
 export function ReviewHeader({ control }: ReviewHeaderProps) {

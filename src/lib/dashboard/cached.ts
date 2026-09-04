@@ -96,18 +96,20 @@ const dashboardByDay = unstable_cache(
 
     const todayAppointments: DashboardTodayAppointment[] = (
       'appointments' in appointmentsRes ? appointmentsRes.appointments : []
-    ).map((a) => ({
-      id: a.id,
-      start_time: a.starts_at,
-      duration_minutes: a.duration_minutes ?? 0,
-      staff_profile_id: a.staff_id,
-      title: a.title,
-      notes: a.notes,
-      karute_record_id: karuteByAppointment.get(a.id) ?? null,
-      customers: customerNameById.has(a.customer_id)
-        ? { name: customerNameById.get(a.customer_id)! }
-        : null,
-    }))
+    )
+      .filter((a) => a.staff_id && a.customer_id)
+      .map((a) => ({
+        id: a.id,
+        start_time: a.starts_at,
+        duration_minutes: a.duration_minutes ?? 0,
+        staff_profile_id: a.staff_id!,
+        title: a.title,
+        notes: a.notes,
+        karute_record_id: karuteByAppointment.get(a.id) ?? null,
+        customers: customerNameById.has(a.customer_id!)
+          ? { name: customerNameById.get(a.customer_id!)! }
+          : null,
+      }))
 
     const recentKarute: DashboardRecentKarute[] = (
       'karute_records' in recentRes ? recentRes.karute_records : []

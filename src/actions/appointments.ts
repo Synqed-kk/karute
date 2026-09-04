@@ -113,20 +113,22 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
         .map((s) => [s.id, s.user_id]),
     )
 
-    return list.appointments.map((a) => ({
-      id: a.id,
-      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-      client_id: a.customer_id,
-      start_time: a.starts_at,
-      duration_minutes: a.duration_minutes ?? 0,
-      title: a.title,
-      notes: a.notes,
-      karute_record_id: karuteByAppointment.get(a.id) ?? null,
-      created_at: a.created_at,
-      customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
-      synqed_status: a.status,
-      source: a.source,
-    }))
+    return list.appointments
+      .filter((a) => a.staff_id && a.customer_id)
+      .map((a) => ({
+        id: a.id,
+        staff_profile_id: profileByStaffId.get(a.staff_id!) ?? a.staff_id!,
+        client_id: a.customer_id!,
+        start_time: a.starts_at,
+        duration_minutes: a.duration_minutes ?? 0,
+        title: a.title,
+        notes: a.notes,
+        karute_record_id: karuteByAppointment.get(a.id) ?? null,
+        created_at: a.created_at,
+        customers: nameById.has(a.customer_id!) ? { name: nameById.get(a.customer_id!)! } : null,
+        synqed_status: a.status,
+        source: a.source,
+      }))
   } catch {
     return []
   }

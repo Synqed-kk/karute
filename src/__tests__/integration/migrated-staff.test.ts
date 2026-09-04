@@ -146,7 +146,7 @@ describe('Migrated staff actions', () => {
 
       const setResult = await setStaffPin('staff-1', '4321')
       expect(setResult).toEqual({})
-      expect(staff.setPin).toHaveBeenCalledWith('staff-1', '4321')
+      expect(staff.setPin).toHaveBeenCalledWith('staff-1', '4321', 'staff-1')
 
       expect(await hasStaffPin('staff-1')).toBe(true)
 
@@ -154,6 +154,7 @@ describe('Migrated staff actions', () => {
 
       const removeResult = await removeStaffPin('staff-1')
       expect(removeResult).toEqual({})
+      expect(staff.removePin).toHaveBeenCalledWith('staff-1', 'staff-1')
 
       expect(await hasStaffPin('staff-1')).toBe(false)
     })

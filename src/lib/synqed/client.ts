@@ -1,5 +1,48 @@
 import { SynqedClient } from '@synqed-kk/client'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentAccessToken } from '@/lib/staff'
+
+function headersToRecord(headers?: HeadersInit): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries())
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  return headers as Record<string, string>
+}
+
+class ActorSynqedClient extends SynqedClient {
+  constructor(
+    config: ConstructorParameters<typeof SynqedClient>[0],
+    private readonly accessToken?: string,
+  ) {
+    super(config)
+  }
+
+  private withActorHeaders<T extends { headers?: HeadersInit }>(init?: T): T | undefined {
+    if (!this.accessToken) return init
+    return {
+      ...init,
+      headers: {
+        ...headersToRecord(init?.headers),
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+    } as unknown as T
+  }
+
+  override fetch<T>(path: string, init?: RequestInit): Promise<T> {
+    return super.fetch<T>(path, this.withActorHeaders(init))
+  }
+
+  override fetchRaw(path: string, init?: RequestInit): Promise<Response> {
+    return super.fetchRaw(path, this.withActorHeaders(init))
+  }
+
+  override fetchMultipart<T>(
+    path: string,
+    formData: FormData,
+    init?: { headers?: Record<string, string> },
+  ): Promise<T> {
+    return super.fetchMultipart<T>(path, formData, this.withActorHeaders(init))
+  }
+}
 
 /**
  * Creates a SynqedClient scoped to the current user's business.
@@ -13,6 +56,9 @@ export async function getSynqedClient() {
   if (!baseUrl || !apiKey) {
     throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
   }
-  const businessId = await getBusinessId()
-  return new SynqedClient({ baseUrl, apiKey, businessId })
+  const [businessId, accessToken] = await Promise.all([
+    getBusinessId(),
+    getCurrentAccessToken(),
+  ])
+  return new ActorSynqedClient({ baseUrl, apiKey, businessId }, accessToken)
 }

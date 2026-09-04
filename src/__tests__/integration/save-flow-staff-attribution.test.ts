@@ -73,7 +73,10 @@ jest.mock('@/lib/supabase/server', () => ({
         data: { user: scenario.authUser },
         error: null,
       })),
-      getSession: jest.fn(async () => ({ data: { session: null } })),
+      getSession: jest.fn(async () => ({
+        data: { session: { access_token: 'test-access-token' } },
+        error: null,
+      })),
     },
   })),
 }))

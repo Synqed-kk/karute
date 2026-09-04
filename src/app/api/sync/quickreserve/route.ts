@@ -177,7 +177,9 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         page_size: 200,
       })
       const existingByKey = new Map<string, string>()
-      for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
+      for (const a of dayAppts) {
+        if (a.staff_id) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
+      }
 
       for (const qrRes of reservations) {
         if (qrRes.deleted) { skipped++; continue }

@@ -225,6 +225,15 @@ async function resolveUserId(): Promise<string> {
   return user.id
 }
 
+// The token is untrusted here and is only forwarded. synqed-core verifies it
+// with Supabase Auth before deriving the staff card and capabilities.
+export const getCurrentAccessToken = cache(async (): Promise<string> => {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getSession()
+  if (error || !data.session?.access_token) throw new Error('Not authenticated')
+  return data.session.access_token
+})
+
 // Memoized for the lifetime of a single request via React cache(). Called from
 // many places per page (every Supabase scope check, every synqed client init)
 // so deduping the auth + profile lookup is worth the wrapper.

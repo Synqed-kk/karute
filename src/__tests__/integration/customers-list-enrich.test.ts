@@ -15,14 +15,16 @@ process.env.SYNQED_CORE_API_KEY = 'test-key'
 // tests can set them. Shapes mirror @synqed-kk/client (customer_id, etc.).
 const scenario: {
   karute: Array<{ customer_id: string; created_at: string }>
-  appts: Array<{ customer_id: string; starts_at: string; title?: string | null }>
-} = { karute: [], appts: [] }
+  appts: Array<{ customer_id: string; starts_at: string; title?: string | null; staff_id?: string | null }>
+  staff: Array<{ id: string; user_id: string | null }>
+} = { karute: [], appts: [], staff: [] }
 
 const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
 const appointments = { list: jest.fn(async () => ({ appointments: scenario.appts })) }
+const staff = { list: jest.fn(async () => ({ staff: scenario.staff })) }
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn(() => ({ karuteRecords, appointments })),
+  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, staff })),
 }))
 
 import {
@@ -38,6 +40,7 @@ import {
 beforeEach(() => {
   scenario.karute = []
   scenario.appts = []
+  scenario.staff = []
 })
 
 const DAY = 86_400_000
@@ -82,6 +85,7 @@ describe('enrichCustomers', () => {
       visitsDone: 0,
       pastAppointmentCount: 0,
       lastVisitService: null,
+      bookingStaffId: null,
     })
   })
 

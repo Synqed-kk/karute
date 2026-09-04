@@ -1,6 +1,7 @@
 'use server'
 
 import { updateTag } from 'next/cache'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 /**
@@ -12,8 +13,12 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
   }
 
   try {
-    const synqed = await getSynqedClient()
-    await synqed.staff.setPin(staffId, pin)
+    const [synqed, actingStaffId] = await Promise.all([
+      getSynqedClient(),
+      getCurrentUserStaffId(),
+    ])
+    if (!actingStaffId) return { error: 'No active staff selected' }
+    await synqed.staff.setPin(staffId, pin, actingStaffId)
     updateTag('staff-list')
     return {}
   } catch (err) {
@@ -26,8 +31,12 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
   try {
-    const synqed = await getSynqedClient()
-    await synqed.staff.removePin(staffId)
+    const [synqed, actingStaffId] = await Promise.all([
+      getSynqedClient(),
+      getCurrentUserStaffId(),
+    ])
+    if (!actingStaffId) return { error: 'No active staff selected' }
+    await synqed.staff.removePin(staffId, actingStaffId)
     updateTag('staff-list')
     return {}
   } catch (err) {

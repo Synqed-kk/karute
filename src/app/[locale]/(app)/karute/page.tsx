@@ -139,6 +139,7 @@ export default async function KaruteRecordsListPage() {
   {
     const apptsByCustomer = new Map<string, typeof apptList.appointments>()
     for (const a of apptList.appointments) {
+      if (!a.customer_id) continue
       const arr = apptsByCustomer.get(a.customer_id)
       if (arr) arr.push(a)
       else apptsByCustomer.set(a.customer_id, [a])
@@ -151,7 +152,7 @@ export default async function KaruteRecordsListPage() {
       const chosen =
         sorted.find((a) => new Date(a.starts_at).getTime() >= nowMs) ??
         sorted[sorted.length - 1]
-      if (chosen) {
+      if (chosen?.staff_id) {
         bookingStaffByCustomer.set(
           cid,
           profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id,
