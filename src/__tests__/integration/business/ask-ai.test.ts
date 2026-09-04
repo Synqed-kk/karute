@@ -1509,10 +1509,13 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     }
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
+    // RE-DERIVED AT THE #832 FOLD: 予約一覧 rewrote `reservations.css` and now
+    // scopes every rule under `.pg-reservations`, so its two bare `.btn` rules
+    // are gone from disk — main made the same narrowing in the 施術記録 and
+    // 売上・レジ lists in the same PR. The list is DERIVED, so it shrinks with
+    // the sheets; the room's own four-level fences below are untouched.
     expect(collisions.sort()).toEqual([
       'customers::.biz .page .btn',
-      'reservations::.biz .btn',
-      'reservations::.biz .btn.primary',
     ])
     // …and this room states its own value for each of them, at FOUR levels.
     const BASE = CSS_CODE.slice(0, CSS_CODE.indexOf('@media'))

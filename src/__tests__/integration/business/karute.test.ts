@@ -1289,8 +1289,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // regex form the 録音 room reached for asserts only its own membership,
     // which this literal already contains. RE-DERIVED on the 2026-09-03 fold of
     // 売上分析 (#830): `.page.pg-analytics` joined the shell line, so the literal
-    // moves with it — which is the pin working, not the pin failing.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-ask-ai) { min-width: 0; }')
+    // moves with it — which is the pin working, not the pin failing. RE-DERIVED
+    // AGAIN on the 2026-09-03 fold of 予約一覧 (#832): `.page.pg-reservations`
+    // joined ahead of this room, in main's order, and the literal moved with it.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1367,8 +1369,6 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
       'customers::.biz .page .btn',
-      'reservations::.biz .btn',
-      'reservations::.biz .btn.primary',
     ])
     // …and this room states its own value for each of them, at FOUR levels, so a
     // sibling's three-level rule cannot win on insertion order.
