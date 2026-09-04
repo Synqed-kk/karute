@@ -63,6 +63,10 @@ const releaseHungWrites = () => {
  *  failure hits one transaction, not the store forever, and scoping it to the
  *  stamp keeps the tail flush's own segment + meta writes out of the count. */
 let failNextDurationStamps = 0
+/** …and the next N writes that carry round 16's TAIL MARK — the write that says
+ *  a stop lost its tail. Same narrow shape as the stamp above, and the case it
+ *  models is the same one: a transaction refusing, not the store dying. */
+let failNextTailMarks = 0
 
 class FakeObjectStore {
   data = new Map<string, Row>()
@@ -128,6 +132,14 @@ class FakeIDB {
                 ) {
                   failNextDurationStamps--
                   throw new Error('idb stop-stamp write failure (test)')
+                }
+                if (
+                  n === TAKES_STORE &&
+                  failNextTailMarks > 0 &&
+                  (row as { tailIncomplete?: boolean }).tailIncomplete !== undefined
+                ) {
+                  failNextTailMarks--
+                  throw new Error('idb tail-mark write failure (test)')
                 }
                 s.data.set(s.keyOf(row), row)
               },
@@ -412,6 +424,7 @@ beforeEach(async () => {
   slowSegmentWrites = false
   releaseHungWrites()
   failNextDurationStamps = 0
+  failNextTailMarks = 0
   delete (window as unknown as { Capacitor?: unknown }).Capacitor
   localStorage.clear()
   globalRecorder.discard()
@@ -1072,6 +1085,7 @@ describe('secure at stop', () => {
       durationMs?: number
       startBoundAttempted?: boolean
       tailIncomplete?: boolean
+      stopPendingAt?: number
       startedAt: number
       updatedAt: number
     }
@@ -2273,7 +2287,7 @@ describe('secure at stop', () => {
   // it. Both shapes of "nothing" count — a heartbeat that has gone stale (the
   // tab was killed mid-take) and a take that never had one (recorded by a
   // bundle older than this round, or in a browser whose storage refused).
-  it('…and takes it once nothing is beating for it — the stop stamp the web used to lose', async () => {
+  it('…and takes it once its beat has EXPIRED — the stop stamp the web used to lose', async () => {
     const stale = await keptTake()
     await beatFromAnotherTab(stale) // that tab then went away and never came back
     const never = await keptTake() // an older bundle's take: nothing ever beat
@@ -2281,18 +2295,26 @@ describe('secure at stop', () => {
     // minute of silence is exactly what a THROTTLED live tab looks like.
     await jest.advanceTimersByTimeAsync(180_000)
 
+    // ⚖ …and ONLY the expired one (fix round 17, AF2). A take that never beat
+    // at all is not a take proved free: it is a pre-round-15 bundle's take, or
+    // one paused in a tab whose storage refused the write, and on the web those
+    // are indistinguishable from a finished recording. It waits for a human.
     expect(heartbeatOf(never)).toBeUndefined()
-    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([
-      stale,
-      never,
-    ])
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([stale])
 
     order.length = 0
     await mountDrain()
     expect(metaOf(stale).finalizedAt).toEqual(expect.any(Number))
-    expect(metaOf(never).finalizedAt).toEqual(expect.any(Number))
     // Same flush-window fallback as the native arm — nobody stamped these.
     expect(lastFinalized().durationSeconds).toBeCloseTo(5, 1)
+    // Untouched, and NOT marked failed: unfinished is not broken.
+    expect(metaOf(never).finalizedAt).toBeUndefined()
+    expect(metaOf(never).secureError).toBeUndefined()
+
+    // …and the single WebView is its own proof, so the native arm still has it.
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([never])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
   })
 
   // The signal itself, at the recorder end: it rides the flush timer that was
@@ -2400,6 +2422,10 @@ describe('secure at stop', () => {
     // Every fact the drain reads says "stopped, seal it".
     expect(globalRecorder.state).toBe('recorded')
     expect(metaOf(takeId).durationMs).toBeUndefined()
+    // …and the leg has ALREADY written the stop down (fix round 17), ahead of
+    // the tail flush: nothing that fails after this point can make the take
+    // look like one that finished.
+    expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
     expect(Date.now() - metaOf(takeId).updatedAt).toBeGreaterThan(20_000)
     // …every fact except the one beat this leg writes at its TOP (round 15).
     expect(heartbeatOf(takeId)).toBe(Date.now())
@@ -2430,6 +2456,9 @@ describe('secure at stop', () => {
     // mark has to mean something, and it means nothing if a normal stop wears
     // it too.
     expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    // …and the stamp is the write that CLEARS the in-flight flag: a stop that
+    // finished wears neither mark.
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
   })
 
   // The other exit of that leg: the tail was SKIPPED (the next customer's
@@ -2547,6 +2576,148 @@ describe('secure at stop', () => {
     await drain(400)
     expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'TAIL'.length)
     expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // ── ⚖ AND THE STOP ITSELF IS ON THE ROW (fix round 17, AE1) ─────────────
+  // Everything above defends this window with things that die with the page:
+  // the hold is a Set in memory, and the beat is written by a timer this page
+  // owns. A stop that dies IN the leg — the tab closed, the WebView killed —
+  // takes both away, and leaves the take unstamped, unmarked, quiet and
+  // unbeating: the shape rounds 13/14 taught both drains to take. The tab next
+  // door (and the page after the reload) reads exactly that, and `() => false`
+  // is what any of them answers for a hold it never had.
+  it('a stop that died in flight is refused by the ROW — no other tab can see the hold', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // 3 bytes committed; 'TAIL' (4) not
+
+    hangSegmentWrites = true // the tail write never answers: the leg never exits
+    globalRecorder.stop()
+    await drain(200)
+    // The first thing the leg did — before the flush, before anything could
+    // release either defence.
+    expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
+
+    // Five minutes on, with the beats queued behind the hung write and never
+    // running: nothing is beating for this take any more.
+    await jest.advanceTimersByTimeAsync(5 * 60_000)
+    expect(Date.now() - heartbeatOf(takeId)!).toBeGreaterThan(120_000)
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+
+    const elsewhere = () => false
+    expect(await listOwnStoppedUnsecuredTakeIds(false, elsewhere)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, elsewhere)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+
+    order.length = 0
+    for (const id of await listOwnStoppedUnsecuredTakeIds(false, elsewhere))
+      await secureTake(port(), id, undefined, elsewhere)
+    // Drop the stopPendingAt check in isStoppedTake and this is where the
+    // committed 3 of the take's 7 bytes are sealed under the immutable
+    // finalized key, with the tail nowhere left to land.
+    expect(putBodies.map((b) => b.size)).toEqual([])
+    expect(order).toEqual([])
+    // Nothing deleted, nothing marked failed — it is a truth for a human.
+    expect(metaOf(takeId).secureError).toBeUndefined()
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+
+    releaseHungWrites() // give the queue back to the tests after this one
+    await drain(400)
+  })
+
+  // …and the same protection when round 16's OWN write is the one that fails.
+  // The marker is written from inside the leg, so a store that refuses it
+  // leaves the `finally` releasing the hold and clearing the beat over a take
+  // with nothing on it — and once storage recovers, the quiet unstamped
+  // unmarked prefix reads as a finished recording on both arms.
+  it('a skipped tail whose MARK could not be written is still sealed by nobody', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // 3 of the take's 7 bytes
+
+    failNextTailMarks = 3 // the write and both its retries: the store says no
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    void globalRecorder.start({ target: TARGET }) // the next customer
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(400) // the mark's two backoffs
+    await drain(200)
+
+    // Round 16's fact never made it onto the row…
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    // …and the leg let go anyway, as it must: a `finally` that waited on the
+    // store would pin the take for the rest of the page's life.
+    expect(globalRecorder.isActiveTake(takeId)).toBe(false)
+    expect(heartbeatOf(takeId)).toBeUndefined()
+    // The fact written FIRST is the one still standing.
+    expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
+
+    await passGrace()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+    expect(await listOwnStoppedUnsecuredTakeIds(false, () => false)).toEqual([])
+
+    order.length = 0
+    await mountDrain()
+    // The same 3 of 7 bytes, and the same single-line mutation reaches them.
+    expect(putBodies.map((b) => b.size)).toEqual([])
+    expect(order).toEqual([])
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  // ── ⚖ AND THE LEG SAYS WHEN IT IS DONE (fix round 17, AE2) ──────────────
+  // A drain that ran while the take was held found nothing owed — correctly,
+  // the tail was still being written — and the page then stopped looking. The
+  // duration stamp lands a moment later and makes the take eligible with nobody
+  // left to take it, so a stop-time upload that missed sat on the device until
+  // a remount or a return to the front. This is the RECORDER's half: one more
+  // notify, at the point where the take has become drainable. The page's half —
+  // its subscription scheduling on exactly this edge — is pinned in
+  // record-mount-drain-sequential.test.tsx.
+  it('the stop leg notifies once more when it settles, and by then the take is owed', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    /** The page's subscription in miniature — the edge it schedules on. */
+    const settleEdges: number[] = []
+    let wasSecuring = globalRecorder.isSecuring()
+    const unsubscribe = globalRecorder.subscribe(() => {
+      const securing = globalRecorder.isSecuring()
+      if (wasSecuring && !securing) settleEdges.push(Date.now())
+      wasSecuring = securing
+    })
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    await drain(200)
+    // In this window there is nothing to take, and nothing has settled.
+    expect(globalRecorder.isSecuring()).toBe(true)
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([])
+    expect(settleEdges).toEqual([])
+
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    unsubscribe()
+
+    // Drop the notify from the leg's `finally` and this is empty: the take is
+    // owed, nothing on the page hears about it, and the audio stays on the
+    // device until a remount or a return to the front.
+    expect(settleEdges).toHaveLength(1)
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([takeId])
   })
 
   // The belt behind that filter. The store answers from a stamp on disk; only

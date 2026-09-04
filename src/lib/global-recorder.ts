@@ -11,6 +11,7 @@ import {
   createTake,
   deleteTake,
   markTakeStartBoundAttempted,
+  markTakeStopPending,
   markTakeTailIncomplete,
   readTakeSecureMeta,
   stampTakeDuration,
@@ -650,6 +651,16 @@ class GlobalRecorder {
         // left for anyone to seal. Taken BEFORE flushTake(), so no drain in
         // this runtime can read the gap either. (AA1 — securingTakeIds.)
         this.holdTakeForSecuring(takeId)
+        // ⚖ …AND THE STOP ITSELF GOES ON THE ROW FIRST (fix round 17). Both
+        // defences above die with this page: the hold is a Set in memory and
+        // the beat stops being written the moment nothing is beating it. Every
+        // way this leg can end without writing what it learned — round 16's
+        // marker write failing, the tab closing mid-stop — therefore leaves the
+        // take looking exactly like one that finished, and the drain seals the
+        // committed prefix under the immutable key. Queued AHEAD of the tail
+        // flush (one queue, one order), so the fact is on disk before anything
+        // can release either defence, and it is cleared by the duration stamp.
+        void this.queueTakeWrite(() => markTakeStopPending(takeId))
       }
       const flushed = this.flushTake()
       this.notify()
@@ -727,6 +738,15 @@ class GlobalRecorder {
             // and at the same instant: this is the point past which no tab —
             // this one or the one next door — can seal anything short.
             this.queueClearHeartbeat(takeId)
+            // ⚖ AND THE LEG SAYS IT IS DONE (fix round 17). A drain that ran
+            // while this take was held found nothing owed — correctly — and
+            // stopped looking; the duration stamp a moment later makes the take
+            // eligible with nobody left to take it, so a failed stop-time
+            // upload sat on the device until a remount or a visibility change.
+            // One more notify is the whole signal: the page's own subscription
+            // schedules its next drain on it, and the lock and the cooldown
+            // make a needless run free.
+            this.notify()
           }
         })
       }
@@ -953,6 +973,14 @@ class GlobalRecorder {
       (this.takeId === takeId &&
         (this.state === 'recording' || this.state === 'paused'))
     )
+  }
+
+  /** …and is a stop leg still finishing ANY of them? (fix round 17) A held take
+   *  is not drainable yet, so the page that drains keeps looking while this is
+   *  true instead of going quiet on an empty worklist — and looks again on the
+   *  notify that follows the release. */
+  isSecuring(): boolean {
+    return this.securingTakeIds.size > 0
   }
 
   stop() {

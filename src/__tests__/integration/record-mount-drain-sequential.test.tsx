@@ -344,4 +344,86 @@ describe('record page re-drain', () => {
     expect(reads()).toBe(afterUnmount)
     expect(secured).toEqual(['take-owed'])
   })
+
+  // ⚖ AND A STOP THAT IS STILL BEING WRITTEN GETS ITS OWN WAKE-UP (fix round
+  // 17, AE2). The stop leg HOLDS its take while the tail lands, so it is
+  // deliberately absent from both worklists in that window — and a drain that
+  // ran there used to be the last one this page ever ran: the duration stamp
+  // arrives a moment later and makes the take eligible with nobody looking, so
+  // a stop-time upload that missed sat on the device until a remount or a
+  // return to the front. The leg's own settle notify is the page's way back.
+  //
+  // The hold is reached through the singleton the way `notify` already is —
+  // nothing here drives a real MediaRecorder, and these two facts (state, and
+  // whether a leg is still finishing) are exactly what the page subscribes to.
+  const legOf = (id: string) => {
+    const rec = globalRecorder as unknown as {
+      securingTakeIds: Set<string>
+      notify: () => void
+    }
+    return {
+      hold: () => rec.securingTakeIds.add(id),
+      release: () => rec.securingTakeIds.delete(id),
+      notify: () => rec.notify(),
+    }
+  }
+
+  it('a stop leg that SETTLES wakes the page — the state never changed', async () => {
+    owed = []
+    // The page is already sitting on a stopped recorder, so the `recorded`
+    // transition below cannot fire: this take became drainable at the SETTLE
+    // and nowhere else.
+    globalRecorder.state = 'recorded'
+    const leg = legOf('take-settling')
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual([])
+    expect(jest.getTimerCount()).toBe(0) // nothing owed, nothing scheduled
+
+    // The leg takes its hold. Still nothing to do, and nothing scheduled.
+    await act(async () => {
+      leg.hold()
+      leg.notify()
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    expect(jest.getTimerCount()).toBe(0)
+
+    // …and it settles: the stamp has landed (the take is owed now) and the
+    // recorder says so. Drop the settled edge and the take stays on the device.
+    await act(async () => {
+      owed = ['take-settling']
+      leg.release()
+      leg.notify()
+      await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    })
+    expect(secured).toEqual(['take-settling'])
+
+    view.unmount()
+  })
+
+  // The belt under that signal: while a leg is still holding, the page keeps
+  // looking. Without it the tick reads an empty worklist — the held take is not
+  // on it — and goes quiet inside the very window the take is owed in.
+  it('a drain that runs DURING the hold keeps the page looking', async () => {
+    owed = []
+    const leg = legOf('take-held')
+    leg.hold()
+
+    const view = mount()
+    await settle()
+    expect(secured).toEqual([])
+    // Nothing was owed, and yet the page is still coming back — because a leg
+    // is still finishing one.
+    expect(jest.getTimerCount()).toBe(1)
+
+    await act(async () => {
+      owed = ['take-held']
+      leg.release()
+      await jest.advanceTimersByTimeAsync(REDRAIN_WINDOW_MS)
+    })
+    expect(secured).toEqual(['take-held'])
+
+    view.unmount()
+  })
 })

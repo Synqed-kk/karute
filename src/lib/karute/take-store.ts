@@ -272,6 +272,26 @@ export type TakeMeta = {
    *  deletes, the audio stays on the device and the take stays plainly
    *  un-finalized, which is what surfaces it as 要対応 for a human. */
   tailIncomplete?: boolean
+  /** ⚖ A STOP IS IN FLIGHT — OR DIED IN ONE (fix round 17). Written by the stop
+   *  leg as its FIRST act, ahead of the tail flush and of anything that could
+   *  release the hold; cleared in the same patch that stamps `durationMs`.
+   *
+   *  Round 16 writes the missing tail down from INSIDE the leg, after the fact,
+   *  which covers only the ways a leg can end while still able to write. The
+   *  marker's own write failing, or the tab closing mid-stop, leaves the take in
+   *  exactly the shape rounds 13/14 taught both drains to take — unstamped,
+   *  quiet, nothing beating for it — and the hold and the beat that were
+   *  covering it die with the page. A fact written FIRST cannot be lost that
+   *  way: it is on the row before either defence can lapse, and every tab and
+   *  every reload reads it there.
+   *
+   *  With no `durationMs` beside it, it says the stop never finished. Such a
+   *  take is never sealed automatically (isStoppedTake, and the drain's
+   *  worklist through it) and stays plainly un-finalized, which surfaces it as
+   *  要対応 for a human exactly like a lost tail. If THIS write fails, IndexedDB
+   *  itself is failing — and a drain that cannot write cannot read its worklist
+   *  either, so it seals nothing. */
+  stopPendingAt?: number
 }
 
 /** What a pending discard-transcript needs to finish after a reload — the
@@ -530,6 +550,13 @@ export async function markTakeTailIncomplete(takeId: string): Promise<void> {
   await patchTakeMeta(takeId, { tailIncomplete: true })
 }
 
+/** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
+ *  the leg's first act — see `stopPendingAt` above for why the stop is written
+ *  down before the tail rather than after it. */
+export async function markTakeStopPending(takeId: string): Promise<void> {
+  await patchTakeMeta(takeId, { stopPendingAt: Date.now() })
+}
+
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
  *  stamped at stop so a LATER attempt (the record page's mount retry, PR5's
  *  drain) finalizes the same number the stop would have. Without it those
@@ -545,7 +572,9 @@ export async function stampTakeDuration(
   takeId: string,
   durationMs: number,
 ): Promise<boolean> {
-  return patchTakeMeta(takeId, { durationMs })
+  // …and it is the one write that CLEARS `stopPendingAt` (fix round 17): the
+  // stop that set it has finished, and this stamp is how it says so.
+  return patchTakeMeta(takeId, { durationMs, stopPendingAt: undefined })
 }
 
 /** The owner gate every read in this file shares, in one place: the take's meta
@@ -597,6 +626,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
   | 'lastSeq'
   | 'heartbeatAt'
   | 'tailIncomplete'
+  | 'stopPendingAt'
 > | null> {
   const meta = await readOwnTakeMeta(takeId)
   if (!meta) return null
@@ -613,6 +643,7 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     lastSeq: meta.lastSeq,
     heartbeatAt: meta.heartbeatAt,
     tailIncomplete: meta.tailIncomplete,
+    stopPendingAt: meta.stopPendingAt,
   }
 }
 
@@ -889,11 +920,19 @@ export async function getRecoverableTake(
  *  now the web had no way to tell them apart, which left the failed-stamp case
  *  above device-only on every browser. The beat above is that way: a live
  *  recorder re-stamps `heartbeatAt` every ~5 s, paused or not, so on the web
- *  the same four facts plus a beat that is absent or older than
- *  HEARTBEAT_STALE_MS mean no recorder anywhere is holding this take. A tab
- *  that is merely PAUSED keeps beating and keeps its take — and one whose
- *  timers the browser has THROTTLED to a beat a minute keeps it too, which is
- *  why that window is two minutes and not the grace.
+ *  the same four facts plus a beat that HAS gone stale mean no recorder
+ *  anywhere is holding this take. A tab that is merely PAUSED keeps beating and
+ *  keeps its take — and one whose timers the browser has THROTTLED to a beat a
+ *  minute keeps it too, which is why that window is two minutes and not the
+ *  grace.
+ *
+ *  ⚖ AND THE WEB NEEDS A BEAT TO POINT AT (fix round 17, AF2). Round 14 read a
+ *  take that NEVER beat as unheld, which is not a fact about it at all: a
+ *  pre-round-15 bundle's take carries no beat, and neither does one paused in a
+ *  tab whose storage refused the write — and both are indistinguishable from a
+ *  finished recording. Only a beat that EXISTS and has expired says the
+ *  recorder that wrote it is gone. Without one the take is left to the inbox
+ *  and a human; nothing about it is auto-sealed.
  *
  *  The native shell does not need it (round 13's reading stands on its own: one
  *  WebView, so a page that is loading is proof enough), and must not depend on
@@ -916,22 +955,33 @@ export function isStoppedTake(
   takeId: string,
   meta: Pick<
     TakeMeta,
-    'durationMs' | 'lastSeq' | 'updatedAt' | 'heartbeatAt' | 'tailIncomplete'
+    | 'durationMs'
+    | 'lastSeq'
+    | 'updatedAt'
+    | 'heartbeatAt'
+    | 'tailIncomplete'
+    | 'stopPendingAt'
   >,
   isActive?: (takeId: string) => boolean,
 ): boolean {
   if (meta.tailIncomplete) return false
   if (meta.durationMs !== undefined) return true
+  // …and a stop that never finished is not a stop (fix round 17). Read AFTER
+  // the stamp, which is the very write that clears this: the flag with no stamp
+  // beside it is a leg still in flight, or one that died in it.
+  if (meta.stopPendingAt !== undefined) return false
   if (meta.lastSeq < 0) return false
   if (isActive?.(takeId)) return false
   if (Date.now() - meta.updatedAt < ACTIVE_GRACE_MS) return false
   if (isNativeShell()) return true
   // …and on the web the beat on this very row is the only thing that can
-  // answer for a recorder in ANOTHER TAB. Absent, or older than the throttled
-  // cadence a background tab can manage: nothing is holding this take.
-  return !(
+  // answer for a recorder in ANOTHER TAB — so there has to BE one: a take that
+  // never beat says nothing about who is holding it (AF2 above). A beat older
+  // than the throttled cadence a background tab can manage is the only reading
+  // that means nothing is holding this take.
+  return (
     meta.heartbeatAt !== undefined &&
-    Date.now() - meta.heartbeatAt < HEARTBEAT_STALE_MS
+    Date.now() - meta.heartbeatAt >= HEARTBEAT_STALE_MS
   )
 }
 

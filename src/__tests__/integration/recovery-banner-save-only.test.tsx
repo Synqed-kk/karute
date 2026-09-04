@@ -118,6 +118,11 @@ let unsecuredTakeIds: string[] = ['take-1']
 let takeOverride: Record<string, unknown> | null = null
 /** What take-store would hand back after a reload (F-2's durable draft seam). */
 let stampedAnswer: Record<string, unknown> | null = null
+/** What the take ROW carries now — which is not always what the offer carries
+ *  (fix round 17, AF1): the mount drain's session-first leg mints and stamps a
+ *  row for the very takes this banner is made of, and it can do so after the
+ *  offer was read. null = the drain has not been there. */
+let stampedSessionId: string | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
@@ -132,6 +137,8 @@ jest.mock('@/lib/karute/take-store', () => ({
   // F-2: a draft's answer now survives a reload through the take id it already
   // carries. `stampedAnswer` is what a REMOUNT would read back.
   readTakeOutcome: jest.fn(async () => stampedAnswer),
+  // AF1: the read the save path uses to catch up with that stamp.
+  readTakeSecureMeta: jest.fn(async () => ({ recordingSessionId: stampedSessionId })),
   // Capture pipeline PR3 fix round 3 — the mount DRAIN's own read. Separate
   // from the offer below on purpose: the offer hides a take flushed inside the
   // 20 s grace, and audio the server lacks must not be hidden by that.
@@ -227,6 +234,7 @@ afterEach(() => {
   offerTake = true
   unsecuredTakeIds = ['take-1']
   takeOverride = null
+  stampedSessionId = null
   stampedAnswer = null
   mockPipelineContext = null
   offerDraft = null
@@ -536,6 +544,33 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     expect(ctx.appointmentCustomerId).toBe('cust-1')
     expect(ctx.outcome).toEqual({ status: 'success' })
     expect(ctx.appointmentId).toBe('appt-1')
+  })
+
+  // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The offer
+  // carries the session id the take had when the banner (or the inbox fold)
+  // read it — and the mount drain's session-first leg mints and stamps a row
+  // for exactly these takes, un-awaited, while the banner sits there. Saving
+  // the snapshot then wrote a karute pointing at nothing while the audio was
+  // already on a real row: the two never met again.
+  it('a take the drain stamped AFTER the offer saves against the stamped row', async () => {
+    grantConsent()
+    // Born unbound (a walk-in whose start-mint failed), then given a row by the
+    // drain a moment after this offer was read.
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    stampedSessionId = 'sess-drained'
+
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    // Pass the offer's own snapshot here instead and this is null — the karute
+    // saves unlinked, and nothing later can pair it with the audio.
+    expect(ctx.recordingSessionId).toBe('sess-drained')
+    expect(ctx.takeId).toBe('take-1')
   })
 
   it('a persisted SKIP also qualifies, and still asks nothing', async () => {

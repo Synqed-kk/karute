@@ -814,7 +814,17 @@ export function RecordPageView({
       // everything failed a minute ago; stopping on that would end the retry at
       // the moment it became necessary. Empty here means finalized or terminal,
       // and neither of those is waiting for us.
-      if (alive && (await listOwnStoppedUnsecuredTakeIds(true, isActive)).length) schedule()
+      // …and a take a stop leg is still HOLDING is owed too (fix round 17): it
+      // is deliberately absent from both lists while its tail is being written,
+      // so a drain that ran inside that window would otherwise be the last one
+      // this page ever ran — the duration stamp lands a moment later and makes
+      // it eligible with nobody looking.
+      if (
+        alive &&
+        (globalRecorder.isSecuring() ||
+          (await listOwnStoppedUnsecuredTakeIds(true, isActive)).length)
+      )
+        schedule()
     }
 
     // 1. The mount — every navigation onto this page, as before.
@@ -833,11 +843,21 @@ export function RecordPageView({
     //    `recorded` transition the take carries no duration stamp yet (onstop
     //    writes it after the tail flush resolves), so a drain fired on this
     //    instant would find the worklist empty and stop looking.
+    //
+    // 3b. …and that same leg SETTLES (fix round 17). The state never changes —
+    //    it was already `recorded` at the stop — so the transition above cannot
+    //    see it, and the take only becomes drainable here: this is where the
+    //    duration stamp has landed and the hold is gone. The recorder's own
+    //    notify is the signal; the edge below is the page reading it.
     let lastState = globalRecorder.state
+    let wasSecuring = globalRecorder.isSecuring()
     const unsubscribe = globalRecorder.subscribe(() => {
       const justStopped = globalRecorder.state === 'recorded' && lastState !== 'recorded'
       lastState = globalRecorder.state
-      if (justStopped) schedule()
+      const securing = globalRecorder.isSecuring()
+      const justSettled = wasSecuring && !securing
+      wasSecuring = securing
+      if (justStopped || justSettled) schedule()
     })
 
     return () => {
@@ -2455,6 +2475,20 @@ export function RecordPageView({
           setRecoveredTake(null)
           return
         }
+        // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The
+        // take's session id was read when the inbox/banner loaded, and the
+        // mount drain's session-first leg mints and stamps a row for exactly
+        // the takes this offer is made of — so a save that carries the snapshot
+        // writes a karute pointing at nothing while the audio sits on a real
+        // row. The retry re-reads the stamp and only mints when there is still
+        // none, which is the same call the discard gate makes.
+        const recordingSessionId =
+          o.take.recordingSessionId ??
+          (await globalRecorder.retryRecordingSessionMint({
+            takeId: o.take.takeId,
+            customerId: dest.customerId,
+            appointmentId: dest.appointmentId || null,
+          }))
         globalPipeline.start(blob, {
           locale,
           customers,
@@ -2475,7 +2509,7 @@ export function RecordPageView({
           // own toast since round 0, and this is the take path's twin.
           // Client-side only, like recoveryUnanswered: never on the job body.
           autoFinish: flow.autoFinish,
-          recordingSessionId: o.take.recordingSessionId,
+          recordingSessionId,
           takeId: o.take.takeId,
         })
         // globalPipeline.start() has already minted this run's id (run()/

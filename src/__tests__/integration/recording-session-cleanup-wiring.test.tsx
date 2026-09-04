@@ -125,6 +125,9 @@ jest.mock('@/lib/global-recorder', () => ({
     state: 'idle',
     recordingSessionId: 'sess-live',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     // The logout-wipe test drives the REAL wipeSessionVault through this.
     discard: jest.fn(),
   },

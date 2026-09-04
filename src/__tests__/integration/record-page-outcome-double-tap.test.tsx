@@ -114,6 +114,9 @@ jest.mock('@/lib/global-recorder', () => ({
     takeId: 'take-normal',
     state: 'idle',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     discard: jest.fn(),
   },
 }))

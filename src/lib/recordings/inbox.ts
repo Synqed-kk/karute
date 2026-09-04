@@ -150,6 +150,10 @@ export interface InboxLocalTake {
    *  because every take written before fix round 16 carries no such field, and
    *  absent means the honest thing: nothing says this take lost its tail. */
   tailIncomplete?: boolean
+  /** A stop leg began for this take and never finished (take-store's
+   *  `stopPendingAt`, cleared by the duration stamp). Same fact for whoever
+   *  reads the row as a lost tail: the recording has an end nobody wrote. */
+  stopPendingAt?: number
 }
 
 export interface InboxRow {
@@ -359,12 +363,16 @@ export function deriveInboxRows(input: {
 }
 
 /** Why a 復元可能 row is 復元可能 — device audio, and whether the stop managed
- *  to finish writing it (fix round 16). Only the two take-only branches ask:
+ *  to finish writing it: a lost tail (fix round 16) and a stop that never
+ *  finished at all (round 17) are the same news to a staffer, and the same
+ *  sub-line. Only the two take-only branches ask:
  *  the failed/DONE branches carry the SERVER's reason, which is the more
  *  specific fact about what went wrong and must not be overwritten by a
  *  device-side one. */
 function recoverableReason(take: InboxLocalTake): InboxReason {
-  return take.tailIncomplete ? 'tailIncomplete' : 'localAudio'
+  return take.tailIncomplete || take.stopPendingAt !== undefined
+    ? 'tailIncomplete'
+    : 'localAudio'
 }
 
 /** Rough length from the take's own stamps — the same estimate the recovery

@@ -137,6 +137,16 @@ describe('録音履歴 — the five states', () => {
     expect(row.reason).toBe('tailIncomplete')
   })
 
+  // …and so does a stop that never finished at all (fix round 17). Same news
+  // to the staffer — the recording has an end nobody managed to write — and
+  // nothing auto-seals either of them, so the row must say so on both.
+  it('復元可能: a take whose STOP never finished reads the same way', () => {
+    const [row] = fold([], [take({ takeId: 't1', stopPendingAt: 1_000 })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
   // The SERVER's reason is the more specific fact about what went wrong, so a
   // device-side flag never overwrites it.
   it('a failed job keeps ITS reason even when the local take lost its tail', () => {

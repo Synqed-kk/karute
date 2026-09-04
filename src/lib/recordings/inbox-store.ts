@@ -144,6 +144,7 @@ async function readLocalTakes() {
     startedAt: t.startedAt,
     updatedAt: t.updatedAt,
     tailIncomplete: t.tailIncomplete,
+    stopPendingAt: t.stopPendingAt,
   }))
 }
 
