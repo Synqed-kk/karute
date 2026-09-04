@@ -215,7 +215,7 @@ describe('the booking calendar stays possible with the 予約 rows in it (⚖ 8/
       if (!a.staff_id) continue
       const shift = shiftOf(a.staff_id)
       expect(shift).not.toBeNull()
-      const warning = shiftWarningOf('x', shift, jstMinuteOfDay(a.starts_at), jstMinuteOfDay(a.ends_at))
+      const warning = shiftWarningOf('x', shift, a.starts_at, a.ends_at)
       if (pending.has(a.id)) {
         // The overrun IS the reason a human has to look at it (M-70's 勤務時間
         // fact). A pending request with nothing to warn about would make the
@@ -1060,5 +1060,33 @@ describe('durationMinutes survives a booking that crosses JST midnight', () => {
     for (const s of safeSlotsFor(sellSlots, row.durationMinutes)) {
       expect(s.end - s.start).toBeGreaterThanOrEqual(60)
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 18. GREPTILE ROUND 1B — A2 · 勤務時間超過 survives a booking that crosses
+// JST midnight — the same bug shape as G3, in the OTHER derivation that reads
+// start/end minutes (`shiftWarningOf`'s overage half)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('shiftWarningOf’s overage warning survives a booking that crosses JST midnight', () => {
+  it('23:30 → 00:30 with the shift ending 24:00 reads 30 minutes overage, never a missed warning', () => {
+    const shift = { start: 10 * 60, end: 24 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 23, 30), jstSlotEnd(0, 23, 30, 60))
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('30分超過')
+  })
+
+  it('23:30 → 00:30 with the shift ending 23:00 reads 90 minutes overage', () => {
+    const shift = { start: 10 * 60, end: 23 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 23, 30), jstSlotEnd(0, 23, 30, 60))
+    expect(warning).not.toBeNull()
+    expect(warning).toContain('90分超過')
+  })
+
+  it('a normal 10:00 → 11:00 booking inside a 09:00–18:00 shift still warns of nothing (unchanged)', () => {
+    const shift = { start: 9 * 60, end: 18 * 60 }
+    const warning = shiftWarningOf('x', shift, jstSlot(0, 10, 0), jstSlotEnd(0, 10, 0, 60))
+    expect(warning).toBeNull()
   })
 })

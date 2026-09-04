@@ -305,7 +305,11 @@ describe('the fixture data door', () => {
       // the board's 本日の売上.
       'src/business/lib/analytics.ts': ['./clock', './fixtures', './fixtures-analytics', './today-board'],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
-      'src/business/lib/reservations.ts': ['./fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
+      // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
+      // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
+      // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above
+      // import `./clock`.
+      'src/business/lib/reservations.ts': ['./clock', './fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
       // The 表示する列 primitive canon keeps in fable-shared.js. Pure DOM +
       // arrays, shared by 顧客 and 予約一覧, so it imports nothing at all.
       'src/business/lib/column-config.ts': [],

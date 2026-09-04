@@ -241,7 +241,9 @@ export async function reservationsPropsFor(
         history: planes.auditTrail[a.id] ?? [],
         // Derived from the shift plane, not stored: the accept dialog warns only
         // where the booking really does fall outside its staff member's day.
-        shiftWarning: shiftWarningOf(who, shiftOf(a.staff_id), startMinute, endMinute),
+        // A2 fix — the real instants, not the minute-of-day pair (an overnight
+        // booking's endMinute wraps smaller than its startMinute).
+        shiftWarning: shiftWarningOf(who, shiftOf(a.staff_id), a.starts_at, a.ends_at),
         // 担当資格 for the accept dialog's middle segment — the roster's own 資格
         // plane, never a literal (see qualificationTextOf).
         qualificationText: qualificationTextOf(

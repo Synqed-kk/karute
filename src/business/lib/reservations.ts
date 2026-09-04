@@ -12,6 +12,7 @@
 // therefore cannot read 確定 on the list while its card says 来店なし on the
 // board — there is no second copy of the fact to drift.
 
+import { jstMidnight, jstMinuteOfDay } from './clock'
 import type { FixtureAppointment, FixtureCustomer } from './fixtures'
 import { NEEDS_STAFF, WANTS_CHANGE, type FixtureReservation } from './fixtures-reservations'
 import type { FixtureSellSlot, FixtureShift } from './fixtures-today'
@@ -360,16 +361,29 @@ export function noShowCountOf(
 /** 勤務時間 warning (M-70's 7th fact, ask C-11). DERIVED from the shift plane:
  *  a request that runs past the end of its staff member's day is the reason the
  *  accept dialog exists. `null` = the booking sits inside the shift and there is
- *  nothing to warn about — an always-present warning warns about nothing. */
+ *  nothing to warn about — an always-present warning warns about nothing.
+ *
+ *  A2 fix (same bug shape as G3) — the overage half is computed from real
+ *  INSTANTS, not bare minute-of-day numbers: a booking that crosses JST
+ *  midnight (23:30→00:30) has a SMALLER end-minute-of-day than its start, so
+ *  `endMinute > shift.end` could silently miss a real overage. The shift's own
+ *  end is anchored to the booking's START day (`jstMidnight(startsAt)` +
+ *  `shift.end` minutes) rather than compared as a bare minute-of-day — the
+ *  shift itself never wraps, only the booking can. */
 export function shiftWarningOf(
   staffName: string,
   shift: Pick<FixtureShift, 'start' | 'end'> | null,
-  startMinute: number,
-  endMinute: number,
+  startsAt: string | Date,
+  endsAt: string | Date,
 ): string | null {
   if (!shift) return `${staffName} はこの日の勤務予定がありません`
   const window = `${staffName} ${hhmm(shift.start)}–${hhmm(shift.end)}`
-  if (endMinute > shift.end) return `${window}・この予約は${endMinute - shift.end}分超過`
+  const startAt = typeof startsAt === 'string' ? new Date(startsAt) : startsAt
+  const endAt = typeof endsAt === 'string' ? new Date(endsAt) : endsAt
+  const shiftEndAt = jstMidnight(startAt) + shift.end * 60_000
+  const overageMinutes = Math.round((endAt.getTime() - shiftEndAt) / 60_000)
+  if (overageMinutes > 0) return `${window}・この予約は${overageMinutes}分超過`
+  const startMinute = jstMinuteOfDay(startAt)
   if (startMinute < shift.start) return `${window}・この予約は${shift.start - startMinute}分早い開始`
   return null
 }
