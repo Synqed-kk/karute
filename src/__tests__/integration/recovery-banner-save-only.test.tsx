@@ -21,7 +21,14 @@ jest.mock('@/i18n/navigation', () => ({
   usePathname: () => '/sessions',
   Link: ({ children }: { children: unknown }) => children,
 }))
-jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+// Driveable since fix round 20 (AL1): the recovery save's own mint is issued
+// HERE, and how long it is given is the thing that item changes.
+const mockStartRecordingSession = jest.fn(
+  async (_input?: unknown): Promise<{ id: string } | null> => null,
+)
+jest.mock('@/actions/recordings', () => ({
+  startRecordingSession: (i: unknown) => mockStartRecordingSession(i as never),
+}))
 // P5-A: RecordPageView imports the written-reason discard action; unmocked it
 // pulls the ESM SDK into this suite. Not exercised here.
 jest.mock('@/actions/recording-discard', () => ({ discardRecordingWithReason: jest.fn() }))
@@ -571,6 +578,49 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     // saves unlinked, and nothing later can pair it with the audio.
     expect(ctx.recordingSessionId).toBe('sess-drained')
     expect(ctx.takeId).toBe('take-1')
+  })
+
+  // ⚖ AND IT IS GIVEN THE STOP LEG'S TEN SECONDS (fix round 20, AL1). The
+  // mint above is ISSUED by this tap and nobody waits for it afterwards, so the
+  // 1.5 s default — the bound for a mint the RECORDER already has in flight,
+  // where giving up costs nothing because the field holds the answer a moment
+  // later — meant a slow phone network saved the karute unlinked. Exactly the
+  // outcome AF1 exists to prevent, arrived at the slow way.
+  it('a slow mint is still waited for: three seconds is inside the bound', async () => {
+    grantConsent()
+    takeOverride = { ...TAKE, recordingSessionId: null, outcome: { status: 'success' } }
+    let answer: (v: { id: string }) => void = () => {}
+    mockStartRecordingSession.mockImplementationOnce(
+      () => new Promise<{ id: string }>((res) => (answer = res)),
+    )
+
+    await renderPage()
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByText('recoverSaveAction'))
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Three seconds on a bad connection: past the 1.5 s default, well inside
+      // the 10 s the stop leg gives the same mint.
+      await act(async () => {
+        jest.advanceTimersByTime(3_000)
+        for (let i = 0; i < 12; i++) await Promise.resolve()
+      })
+      // Drop the option and the race is already over by now, answering null.
+      expect(mockPipelineStart).not.toHaveBeenCalled()
+
+      await act(async () => {
+        answer({ id: 'sess-slow' })
+        for (let i = 0; i < 20; i++) await Promise.resolve()
+      })
+      expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+      const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+      expect(ctx.recordingSessionId).toBe('sess-slow')
+      expect(ctx.takeId).toBe('take-1')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('a persisted SKIP also qualifies, and still asks nothing', async () => {

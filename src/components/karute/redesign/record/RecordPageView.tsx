@@ -32,7 +32,7 @@ import { secureTake } from '@/lib/recording/secure-take'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -2488,6 +2488,16 @@ export function RecordPageView({
             takeId: o.take.takeId,
             customerId: dest.customerId,
             appointmentId: dest.appointmentId || null,
+            // ⚖ THE SAVE-TIME BOUND IS NOT THIS ONE (fix round 20, AL1). The
+            // default is 1.5 s — the bound for a mint the recorder ALREADY has
+            // in flight, where giving up costs nothing because the field will
+            // hold the answer a moment later. This mint is issued right here
+            // and nobody waits for it afterwards: on a slow phone network the
+            // race simply answers null and the karute saves UNLINKED, which is
+            // the outcome AF1 exists to prevent. The stop leg's 10 s is the
+            // right bound — the staffer has already tapped 保存する and is
+            // watching it work.
+            timeoutMs: SECURE_MINT_AWAIT_MS,
           }))
         globalPipeline.start(blob, {
           locale,

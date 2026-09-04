@@ -58,10 +58,23 @@ let hangSegmentWrites = false
  *  start() inside it — the window in which the flush behind it answers
  *  "skipped" for a take that is already whole and already stamped. */
 let hangStampWrites = false
+/** …and the next N CREATE writes — the row a take is born with (`lastSeq: -1`).
+ *  A create that answers AFTER the staffer has started the next recording is
+ *  the window fix round 20's per-take object is measured in: its verdict is
+ *  about ITS take's row and must reach nothing else. */
+let hangNextCreates = 0
+const isCreatePut = (store: string, row: Row) =>
+  store === TAKES_STORE && (row as { lastSeq?: number }).lastSeq === -1
+const parkCreate = (store: string, row: Row) => {
+  if (hangNextCreates <= 0 || !isCreatePut(store, row)) return false
+  hangNextCreates--
+  return true
+}
 const hungWrites: Array<() => void> = []
 const releaseHungWrites = () => {
   hangSegmentWrites = false
   hangStampWrites = false
+  hangNextCreates = 0
   hungWrites.splice(0).forEach((settle) => settle())
 }
 /** Fail the next N writes that carry a STOP STAMP — the one write fix round 13
@@ -78,6 +91,12 @@ let failNextDurationStamps = 0
  *  a stop lost its tail. Same narrow shape as the stamp above, and the case it
  *  models is the same one: a transaction refusing, not the store dying. */
 let failNextTailMarks = 0
+/** …and the next N SEGMENT writes. Since fix round 20 a refused write is the
+ *  ONLY way a stop can end with a tail it did not write: the stop→start and
+ *  stop→discard shapes that used to report a "skipped" tail no longer do, because
+ *  the take's own array and counters go with the take. So every skipped-tail
+ *  case below is re-based on this — the honest one. */
+let failNextSegmentWrites = 0
 /** A real MediaRecorder whose last timeslice ended AT the stop emits a
  *  zero-size final chunk, and `ondataavailable` drops it — so the stop leg
  *  finds nothing pending and the disk is already whole. That is the shape fix
@@ -168,6 +187,10 @@ class FakeIDB {
             new FakeRequest(
               abortOnError(() => {
                 if (failWrites) throw new Error('idb write failure (test)')
+                if (n === SEGMENTS_STORE && failNextSegmentWrites > 0) {
+                  failNextSegmentWrites--
+                  throw new Error('idb segment write failure (test)')
+                }
                 if (
                   n === TAKES_STORE &&
                   failNextDurationStamps > 0 &&
@@ -202,7 +225,8 @@ class FakeIDB {
               (hangSegmentWrites && n === SEGMENTS_STORE) ||
                 (hangStampWrites &&
                   n === TAKES_STORE &&
-                  (row as { durationMs?: number }).durationMs !== undefined),
+                  (row as { durationMs?: number }).durationMs !== undefined) ||
+                parkCreate(n, row),
             ),
           get: (key: unknown) => new FakeRequest(() => s.data.get(norm(key))),
           getAll: () => new FakeRequest(() => [...s.data.values()]),
@@ -290,6 +314,7 @@ import {
   markTakeFinalized,
   markTakeSecureError,
   markTakeStopPending,
+  markTakeTailIncomplete,
   readTakeOutcome,
   readTakeSecureMeta,
   stampDiscardPending,
@@ -485,6 +510,7 @@ beforeEach(async () => {
   releaseHungWrites()
   failNextDurationStamps = 0
   failNextTailMarks = 0
+  failNextSegmentWrites = 0
   emptyTailChunk = false
   stampWrites.length = 0
   delete (window as unknown as { Capacitor?: unknown }).Capacitor
@@ -1261,13 +1287,21 @@ describe('secure at stop', () => {
     expect(metaOf(takeA).recordingSessionId).toBe('session-A')
   })
 
-  // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7, P1). The tail flush is queued
-  // at stop; start() empties `chunks` SYNCHRONOUSLY and only takes its new take
-  // id once the mic is live, so the queued task could find nothing pending and
-  // report "written" for a take whose last chunks it never wrote. onstop then
-  // stamped and secured a SHORT blob under the immutable finalized key — the
-  // rest of that recording could never land afterwards.
-  it('the next customer starts before the tail lands: the short take is never stamped, never sealed', async () => {
+  // ⚖ A SKIPPED TAIL SEALS NOTHING (fix round 7, P1) — AND THE TAIL IS NO
+  // LONGER SKIPPED (fix round 20). The tail flush is queued at stop; start()
+  // used to empty `chunks` SYNCHRONOUSLY under it and take a new id, so the
+  // queued task found the array reset and answered "skipped" for a take whose
+  // last chunks it never wrote. Round 7 answered that by refusing to stamp or
+  // seal — correct then, and the whole recording still sat on the device with
+  // 「途中で終わっています」 against its name.
+  //
+  // The state a queued task reads is the TAKE'S now, captured by reference at
+  // queue time, and start() replaces the object rather than resetting fields
+  // under it. So the old take writes its own tail from its own array, the stamp
+  // rides that write (round 18, AG3), and the recording goes up WHOLE while the
+  // next customer is already recording. This is the test round 7 wrote, on the
+  // truth that replaced its expectation.
+  it('the next customer starts before the tail lands: the OLD take still writes its own tail', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000) // one segment on disk
@@ -1275,25 +1309,44 @@ describe('secure at stop', () => {
 
     slowSegmentWrites = true
     globalRecorder.stop()
-    // The staffer is already recording the next customer.
+    // The staffer is already recording the next customer — BEFORE the queued
+    // tail task has run at all, which is one write EARLIER than the window
+    // round 18's own case lands in.
     void globalRecorder.start({ target: TARGET })
     await drain(200)
-    await jest.advanceTimersByTimeAsync(0)
-    await drain(200)
+    const next = globalRecorder.takeId!
+    expect(next).not.toBe(takeId)
 
-    // Nothing was sent, and the take carries NO stop stamp — so the mount drain
-    // will not touch it either (PR5's launch drain rules on unstamped takes).
-    expect(order).toEqual([])
-    expect(metaOf(takeId).durationMs).toBeUndefined()
-    expect(metaOf(takeId).finalizedAt).toBeUndefined()
-    // The audio that did land is untouched — nothing here deletes.
-    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(400)
+
+    const whole = 'aaa'.length + 'bbb'.length + 'TAIL'.length
+    // Every byte the recorder captured is on the OLD row, stamped by the write
+    // that landed it, wearing neither mark — and it went up whole.
+    expect((await loadTakeBlob(takeId))?.size).toBe(whole)
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    expect(stampWrites).toEqual([1]) // the tail's own write carried it
+    expect(putBodies.at(-1)!.size).toBe(whole)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+    // …and the NEW take is untouched: its own object starts at seq 0, so the
+    // old take's counters were never spent on it.
+    slowSegmentWrites = false
+    pushChunk('ccc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(next).lastSeq).toBe(0)
+    expect((await loadTakeBlob(next))?.size).toBe('ccc'.length)
   })
 
   // The same window, the other way out of it: the stop is handed to the
   // pipeline (or a reasoned discard), which KEEPS the audio and nulls the
-  // recorder's take id. The queued tail is skipped just the same.
-  it('a stop handed straight to the pipeline (keepTake) is not sealed by a skipped tail', async () => {
+  // recorder's take id. Since fix round 20 the queued tail does not care what
+  // the recorder is holding — it holds the take's own array and the take's own
+  // id, and writes them.
+  it('a stop handed straight to the pipeline (keepTake) still lands its own tail', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
@@ -1304,11 +1357,13 @@ describe('secure at stop', () => {
     globalRecorder.discard({ keepTake: true })
     await drain(200)
     await jest.advanceTimersByTimeAsync(0)
-    await drain(200)
+    await drain(400)
 
-    expect(order).toEqual([])
-    expect(metaOf(takeId).durationMs).toBeUndefined()
-    expect(metaOf(takeId).finalizedAt).toBeUndefined()
+    expect((await loadTakeBlob(takeId))?.size).toBe(
+      'aaa'.length + 'bbb'.length + 'TAIL'.length,
+    )
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
   })
 
   it('finalize is told the take id, container, byte length and session — never a path', async () => {
@@ -2533,10 +2588,13 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).stopPendingAt).toBeUndefined()
   })
 
-  // The other exit of that leg: the tail was SKIPPED (the next customer's
-  // recording started first), nothing is stamped and nothing is sealed — the
-  // hold must still be released, or the take would be invisible to every drain
-  // for the rest of the page's life.
+  // The other exit of that leg: the tail was SKIPPED — and since fix round 20
+  // there is exactly one way that happens, the tail WRITE being refused. (The
+  // next customer's recording starting first no longer does it: the take's own
+  // array and counters go with the take, so its tail is written from them.)
+  // Nothing is stamped and nothing is sealed, and the hold must still be
+  // released, or the take would be invisible to every drain for the rest of the
+  // page's life.
   //
   // ⚖ AND THE MISSING TAIL IS WRITTEN DOWN (fix round 16, AC1/AC3). Round 7
   // answered this case with SILENCE: leave the take unstamped, and no drain
@@ -2552,9 +2610,8 @@ describe('secure at stop', () => {
     // …and the recorder's own tail chunk ('TAIL', 4 more) arrives at the stop
     // below, so the whole recording is 7 bytes and the disk holds 3 of them.
 
-    slowSegmentWrites = true
+    failNextSegmentWrites = 1 // the tail write itself is refused
     globalRecorder.stop()
-    void globalRecorder.start({ target: TARGET }) // the next customer
     await drain(200)
     await jest.advanceTimersByTimeAsync(0)
     await drain(200)
@@ -2710,9 +2767,8 @@ describe('secure at stop', () => {
     await jest.advanceTimersByTimeAsync(5_000) // 3 of the take's 7 bytes
 
     failNextTailMarks = 3 // the write and both its retries: the store says no
-    slowSegmentWrites = true
+    failNextSegmentWrites = 1 // …and the tail write that provoked it
     globalRecorder.stop()
-    void globalRecorder.start({ target: TARGET }) // the next customer
     await drain(200)
     await jest.advanceTimersByTimeAsync(0)
     await drain(200)
@@ -3012,12 +3068,18 @@ describe('secure at stop', () => {
   // ── ⚖ THE STAMP IS THE TRUTH ABOUT THE DISK (fix round 19, AI1) ─────────
   // The same tap sequence one write EARLIER. Nothing is pending at the stop, so
   // the first act stamps — the disk was whole at that instant, and the segments
-  // are already written, so no later tap can undo it. But a start() landing
-  // inside that write leaves the flush behind it reading a changed id, and the
+  // are already written, so no later tap can undo it. A start() landing inside
+  // that write used to leave the flush behind it reading a changed id, and the
   // leg's skipped-tail branch wrote `tailIncomplete` over the stamp: one row
   // holding both facts, which isStoppedTake reads FLAG-first — so a complete
   // recording was on nobody's worklist and told the staffer it ended partway.
-  it('a take its own first act STAMPED is never marked 途中 by the flush behind it', async () => {
+  //
+  // ⚖ REWRITTEN ON THE NEW TRUTH (fix round 20). The flush behind the stamp
+  // reads THIS take's own array now, finds the nothing that was there at the
+  // stop, and answers `true` — so the leg does not take its skipped-tail exit
+  // at all: it secures the take, then and there, while the next customer
+  // records. The claim in the title survives untouched and is simply stronger.
+  it('a take its own first act STAMPED is whole — and the flush behind it says so', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000) // seq 0 committed: the disk is whole
@@ -3047,19 +3109,166 @@ describe('secure at stop', () => {
     await drain(400)
     unsubscribe()
 
-    // Drop the `when` and this row wears BOTH: stamped and 途中 at once.
     expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
     expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
     expect(stampWrites).toEqual([0]) // one write carried it, the first act's
-    // The leg took its skipped-tail exit, so it uploaded nothing itself — but
-    // it released the hold and said so, which is the edge the page drains on.
-    expect(order).toEqual([])
-    expect(settleEdges).toHaveLength(1)
-    // …and the take is owed, for the drain the leg's settle notify wakes.
-    await passGrace()
-    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([takeId])
+    // …and the leg took the WHOLE-take exit: it secured the recording itself,
+    // rather than leaving it for a drain to find.
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(putBodies.at(-1)!.size).toBe('aaa'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(settleEdges).toHaveLength(1) // the edge the page drains on, still one
     // Nothing was deleted either: the whole recording is on the device.
     expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  // ── ⚖ THE STOP LEG OWNS ITS TAKE'S STATE (fix round 20, AK1) ────────────
+  // GREPTILE'S OWN INTERLEAVING, which is the one window the two rounds above
+  // left: the queue tail is BUSY at the stop (a segment write in flight), so
+  // the first act has not run yet when the staffer taps 録音開始. It used to
+  // read `this.takeId`, `this.persistDisabled`, `this.chunks` and
+  // `this.persistedChunkCount` at RUN time — every one of them already the NEXT
+  // recording's — so a take whose disk was whole was written down as a stop
+  // still in flight, and the flush behind it then marked it 途中: withheld from
+  // every automatic drain, device-only, 「途中で終わっています」 to the staffer.
+  it('a first act that runs AFTER the next recording began still reads ITS take', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    hangSegmentWrites = true // the beat's segment write never answers…
+    await jest.advanceTimersByTimeAsync(5_000) // …so the queue tail is busy
+    await drain(50)
+    hangSegmentWrites = false // (only that one)
+    expect(metaOf(takeId).lastSeq).toBe(-1) // nothing committed yet
+    order.length = 0
+
+    emptyTailChunk = true // nothing pending at the stop: the disk IS whole
+    globalRecorder.stop()
+    await drain(200) // the first act and the tail flush queue BEHIND the hang
+
+    void globalRecorder.start({ target: TARGET }) // 停止 → 録音, the next customer
+    await drain(200)
+    const next = globalRecorder.takeId!
+    expect(next).not.toBe(takeId)
+    pushChunk('bbb') // …and that customer is already being recorded
+
+    releaseHungWrites() // now the queue drains: the segment, then the first act
+    await drain(400)
+
+    // Read `this.persist` in the first act instead of the captured object and
+    // the new take's un-flushed chunk answers for the old take: a stop still in
+    // flight, and the whole recording refused by both worklists.
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(stampWrites).toEqual([0])
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+    // …and the new take's own object starts where a new take starts.
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(next).lastSeq).toBe(0)
+    expect((await loadTakeBlob(next))?.size).toBe('bbb'.length)
+  })
+
+  // A LIVE discard with a flush already in the queue. The reasoned discard
+  // (A2-2) KEEPS the audio — it still owes its words to the discard record —
+  // so the queued flush must land the chunks it was queued with, under the id
+  // it was queued with. It used to find `chunks` emptied and the id nulled and
+  // write nothing at all.
+  it('a discard mid-queue: the flush still writes the discarded take\'s own chunks', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    hangSegmentWrites = true
+    await jest.advanceTimersByTimeAsync(5_000) // flush #1's write hangs
+    await drain(50)
+    hangSegmentWrites = false
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000) // flush #2 queues behind it
+
+    globalRecorder.discard({ keepTake: true }) // 破棄 with the words still owed
+    expect(globalRecorder.takeId).toBeNull()
+    releaseHungWrites()
+    await drain(400)
+
+    // Both chunks, under the discarded take's own id — nothing thrown, and
+    // nothing written under the recorder's (now absent) one.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'bbb'.length)
+    expect(metaOf(takeId).lastSeq).toBe(1)
+
+    // …and the recorder's own state is a FRESH object, not the discarded
+    // take's counters: the next recording flushes at seq 0.
+    const next = await startAndSettle()
+    pushChunk('ccc')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(next).lastSeq).toBe(0)
+    expect((await loadTakeBlob(next))?.size).toBe('ccc'.length)
+  })
+
+  // The create's verdict is about ITS take's row. It answers after a store
+  // round trip, so the staffer can be recording the next customer by then —
+  // and `persistDisabled` was a singleton, so a create that failed for a take
+  // already gone took the LIVE recording's persistence down with it.
+  it('a createTake that fails disables its own take only, not the one now recording', async () => {
+    hangNextCreates = 1
+    const gone = await startAndSettle() // its row write is parked
+    const live = await startAndSettle() // the next customer; this row lands
+    expect(live).not.toBe(gone)
+    pushChunk('bbb')
+
+    failWrites = true // …and the parked create answers, having failed
+    releaseHungWrites()
+    failWrites = false
+    await drain(200)
+
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    // Write the failure to `this.persist` and the live recording is memory-only
+    // from here on, for a take it never had anything to do with.
+    expect((await loadTakeBlob(live))?.size).toBe('bbb'.length)
+    expect(metaOf(live).lastSeq).toBe(0)
+    expect(takes().get(JSON.stringify(gone))).toBeUndefined()
+  })
+
+  // …and the OTHER half of that reply keeps its guard, because it does not read
+  // the take's own state: `recordingSessionId` is the SINGLETON's, and by the
+  // time a parked create answers, start() has nulled it and the next mint may
+  // have filled it in. Stamping there would point one recording's audio at the
+  // next recording's row.
+  it('a create that answers late never stamps the NEXT recording\'s session on it', async () => {
+    hangNextCreates = 1
+    const gone = await startAndSettle() // no session: the door answers null
+    mockStartRecordingSession.mockImplementationOnce(async () => ({ id: 'session-B' }))
+    const live = await startAndSettle()
+    expect(globalRecorder.recordingSessionId).toBe('session-B')
+
+    releaseHungWrites() // the parked create lands, and its reply runs now
+    await drain(400)
+
+    // The row is the one the create wrote: born with no session, and still
+    // carrying none. Drop the guard and it carries `session-B`.
+    expect(metaOf(gone).recordingSessionId).toBeNull()
+    expect(metaOf(live).recordingSessionId).toBe('session-B')
+  })
+
+  // ⚖ AI1's brace, pinned where it now lives (fix round 20). A row that is
+  // stamped AND 途中 is unreachable from the recorder since this round — the
+  // first act only stamps when nothing is pending, and the flush behind a
+  // nothing answers `true` — so the guard that refuses it is belt, and belt
+  // with no mutation behind it is not shipped. This is the claim itself, at
+  // the store, one transaction wide.
+  it('markTakeTailIncomplete refuses a take that already carries its duration', async () => {
+    const takeId = await stoppedTake()
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    await markTakeTailIncomplete(takeId)
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+
+    // …and it still marks the take the flag is FOR: one with no stamp on it.
+    const unstamped = await startAndSettle()
+    await markTakeTailIncomplete(unstamped)
+    expect(metaOf(unstamped).tailIncomplete).toBe(true)
   })
 
   // ── ⚖ THE SINGLETON ANSWERS FOR ITS OWN TAKE ONLY (fix round 18, AH1) ────
@@ -3188,9 +3397,8 @@ describe('secure at stop', () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
-    slowSegmentWrites = true
+    failNextSegmentWrites = 1 // the tail write is refused: the tail is skipped
     globalRecorder.stop()
-    void globalRecorder.start({ target: TARGET }) // the tail is skipped
     await drain(200)
     await jest.advanceTimersByTimeAsync(0)
     await drain(200)

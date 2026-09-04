@@ -80,7 +80,7 @@ const MINT_AWAIT_MS = 1_500
 // the same 10 s (thin/ports/actions.vite.ts), so on that arm this deadline and
 // the socket's expire together; the web arm is a server action with no signal
 // to give, and this race IS its bound.
-const SECURE_MINT_AWAIT_MS = 10_000
+export const SECURE_MINT_AWAIT_MS = 10_000
 
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
@@ -93,6 +93,12 @@ function getSupportedMimeType(): string {
   ]
   return formats.find(f => MediaRecorder.isTypeSupported(f)) ?? ''
 }
+
+/** One take's persistence state (fix round 20). Everything a queued take-write
+ *  reads about the recording it belongs to, in one object the NEXT take cannot
+ *  reach: start() and discard() replace `this.persist` rather than resetting
+ *  fields under tasks that are already in the queue. */
+type TakePersist = { chunks: Blob[]; seq: number; count: number; disabled: boolean }
 
 class GlobalRecorder {
   state: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
@@ -120,13 +126,20 @@ class GlobalRecorder {
   takeId: string | null = null
 
   private recorder: MediaRecorder | null = null
-  private chunks: Blob[] = []
-  /** Take-durability flush state. `persistedChunkCount` indexes into `chunks`
-   *  (how many are already on disk); the queue serializes flushes so timer /
-   *  pause / visibility triggers never interleave. */
-  private persistDisabled = false
-  private persistSeq = 0
-  private persistedChunkCount = 0
+  /** Take-durability flush state, ONE OBJECT PER TAKE (fix round 20). `count`
+   *  indexes into `chunks` (how many are already on disk); the queue serializes
+   *  flushes so timer / pause / visibility triggers never interleave.
+   *
+   *  ⚖ AND EVERY QUEUED TASK CAPTURES IT BY REFERENCE. These were four fields
+   *  on the singleton, read at RUN time by tasks the stop leg had already
+   *  queued — so a start() or a discard landing inside the queue tail's
+   *  IndexedDB latency reset them under the OLD take's own tasks, and a
+   *  recording that had finished was written down as 途中 and withheld from
+   *  every automatic drain (rounds 18 and 19 each closed one interleaving of
+   *  exactly this). start() and discard() REPLACE this object; the old take's
+   *  tasks keep the old one, and nothing they read can be changed by anything
+   *  but their own writes. */
+  private persist: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false }
   private persistTimer: ReturnType<typeof setInterval> | null = null
   private persistQueue: Promise<void> = Promise.resolve()
   /** Takes this recorder STOPPED but has not finished securing (fix round 14,
@@ -341,54 +354,48 @@ class GlobalRecorder {
    *  uploaded object would be short by the last chunk. Every other caller still
    *  ignores it, and the promise never rejects (the catch below is the queue's).
    *
-   *  ⚖ AND IT SAYS WHETHER IT WROTE (fix round 7, P1). `true` = the disk holds
-   *  this take's chunks (it wrote them, or there was nothing left to write);
-   *  `false` = it SKIPPED, because the recorder moved on before the queued task
-   *  ran — the staffer stopped and immediately started the next recording, or
-   *  discarded. onstop must be able to tell those apart: a skipped tail means
-   *  the take on disk may be SHORT, and sealing a short take under its
-   *  immutable finalized key truncates it forever. */
+   *  ⚖ AND IT SAYS WHETHER IT WROTE (fix round 7, P1 — RE-BASED fix round 20).
+   *  `true` = the disk holds this take's chunks (it wrote them, or there was
+   *  nothing left to write); `false` = the WRITE ITSELF FAILED, which is now the
+   *  ONLY way a tail can be short. It used to mean "the recorder moved on before
+   *  the queued task ran" as well — the staffer stopped and immediately started
+   *  the next recording, or discarded — because the task read the singleton's
+   *  chunks and counters at RUN time and start()/discard() had reset them under
+   *  it. Both are captured per take now: a stop followed by any next action
+   *  still writes its OWN tail from its OWN array, and the stop leg marks
+   *  `tailIncomplete` only for a tail that genuinely did not land. That mark is
+   *  what keeps a SHORT take from being sealed under its immutable finalized
+   *  key, which would truncate it forever. */
   private flushTake(stampDurationMs?: number): Promise<boolean> {
-    if (this.persistDisabled || !this.takeId) return Promise.resolve(false)
+    // Captured at QUEUE time, synchronously, before any `.then`: this take's
+    // own state and this take's own id (fix round 20).
+    const p = this.persist
     const takeId = this.takeId
+    if (p.disabled || !takeId) return Promise.resolve(false)
     const flushed = this.persistQueue
       .then(async () => {
-        // Re-check inside the queued task: a discard may have run meanwhile.
-        if (this.persistDisabled || this.takeId !== takeId) return false
-        // start() empties `chunks` SYNCHRONOUSLY and only takes its new take id
-        // once the mic is live, so a tail queued at stop can find the array
-        // already reset while the id still matches. `pending` is then empty and
-        // the flush would report "nothing to write" — which is how a take that
-        // lost its tail used to be sealed as complete. Fewer chunks than are
-        // already on disk can mean nothing else.
-        if (this.chunks.length < this.persistedChunkCount) return false
-        const pending = this.chunks.slice(this.persistedChunkCount)
+        // Re-read inside the queued task, because an EARLIER flush of THIS take
+        // may have disabled persistence — the only writer `p` has.
+        if (p.disabled) return false
+        const pending = p.chunks.slice(p.count)
         if (pending.length === 0) return true
-        const seq = this.persistSeq
-        const count = this.persistedChunkCount + pending.length
+        const seq = p.seq
+        const count = p.count + pending.length
         // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
         // duration goes into the SAME transaction as the tail bytes, so the
         // fact that the take is complete cannot lose on its own — see AG1.
         const ok = await appendTakeSegment(takeId, seq, new Blob(pending), stampDurationMs)
-        // The recorder is on to something else — but the bytes AND the stamp
-        // are on the OLD take's row, so this answers what the write did (fix
-        // round 18): `false` here used to send the stop leg down its
-        // skipped-tail branch and mark a whole, stamped take `tailIncomplete`,
-        // a row that contradicts itself and reads 途中 to a human. The counter
-        // updates below still belong to the new take, which is why this stays
-        // exactly where it is.
-        if (this.takeId !== takeId) return ok
         if (!ok) {
           // ponytail: fail-open to memory-only — capture continues as today.
-          this.persistDisabled = true
+          p.disabled = true
           return false
         }
-        this.persistSeq = seq + 1
-        this.persistedChunkCount = count
+        p.seq = seq + 1
+        p.count = count
         return true
       })
       .catch(() => {
-        this.persistDisabled = true
+        p.disabled = true
         return false
       })
     // The queue itself stays a plain chain — the answer rides out to the one
@@ -606,7 +613,6 @@ class GlobalRecorder {
     if (previousTakeId) this.queueClearHeartbeat(previousTakeId)
     this.error = null
     this.result = null
-    this.chunks = []
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
@@ -672,15 +678,25 @@ class GlobalRecorder {
       audioBitsPerSecond: 48_000,
     })
 
+    // ⚖ THIS TAKE'S OWN PERSISTENCE STATE (fix round 20), replacing whatever
+    // the previous take left on `this.persist` and captured by reference here
+    // — the one place both recorder callbacks and everything they queue can
+    // read it from. Past the mic (a discard during the permission prompt is
+    // therefore behind us, and cannot leave the callbacks writing into an
+    // object the recorder no longer publishes) and synchronous from here to
+    // `armTakePersistence`, so nothing can flush against a half-named take.
+    const p: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false }
+    this.persist = p
+
     recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) this.chunks.push(e.data)
+      if (e.data.size > 0) p.chunks.push(e.data)
     }
 
     recorder.onstop = () => {
       this.clearRunawayGuard()
       const totalElapsed = Date.now() - this.startTime
       const durationMs = totalElapsed - this.pausedDuration
-      const blob = new Blob(this.chunks, { type: mimeType || recorder.mimeType })
+      const blob = new Blob(p.chunks, { type: mimeType || recorder.mimeType })
       this.result = { blob, mimeType: mimeType || recorder.mimeType, durationMs }
       this.state = 'recorded'
       this.startedAt = null
@@ -716,23 +732,23 @@ class GlobalRecorder {
         // can release either defence, and it is cleared by the duration stamp.
         // ⚖ …AND THE FIRST ACT ASKS WHETHER THE DISK IS ALREADY WHOLE (fix
         // round 18, AG2). Evaluated INSIDE the queue, i.e. after every earlier
-        // flush has settled, which is the only moment `persistedChunkCount` is
-        // exact and `chunks` is final (onstop is the last data event; only
-        // start() and a discard reset either, and both change what this reads).
+        // flush of THIS take has settled, which is the only moment `p.count` is
+        // exact and `p.chunks` is final (onstop is the last data event, and
+        // since fix round 20 nothing outside this take can touch either — the
+        // next start() and a discard REPLACE the object rather than reset it,
+        // so what this reads at run time is this take's own account of itself).
         // Nothing left to write ⇒ this write IS the stamp, so there is no
         // separate stamp write left to lose. A tail still owed ⇒ the stop is a
         // fact first and the stamp rides the tail (AG3).
         //
         // ponytail: if this FIRST act loses, IndexedDB is refusing writes at
         // the stop instant and the flush queued behind it will most likely lose
-        // too → persistDisabled, memory-only capture exactly as before PR3, and
+        // too → `p.disabled`, memory-only capture exactly as before PR3, and
         // the row carries no fact — the next drain reads it as rounds 13/14 do.
-        // That is loss window 8, accepted; it is not the round-17 shape this
-        // round removes (a stamp lost AFTER a stop-pending write that landed).
+        // That is loss window 8, accepted; it is not the round-17 shape round 18
+        // removed (a stamp lost AFTER a stop-pending write that landed).
         void this.queueTakeWrite(() =>
-          this.takeId === takeId &&
-          !this.persistDisabled &&
-          this.chunks.length === this.persistedChunkCount
+          !p.disabled && p.chunks.length === p.count
             ? stampTakeDuration(takeId, durationMs)
             : markTakeStopPending(takeId),
         )
@@ -858,9 +874,6 @@ class GlobalRecorder {
     // this take with its own row, and a mint that answers after this line
     // (every ordinary one) would leave the take carrying nothing.
     this.recordingSessionMintTakeUnknown = false
-    this.persistDisabled = false
-    this.persistSeq = 0
-    this.persistedChunkCount = 0
     void createTake({
       takeId,
       target: this.target,
@@ -875,14 +888,22 @@ class GlobalRecorder {
       // for is the one that never answers.
       ...(reserve ? { startBoundAttempted: true } : {}),
     }).then((ok) => {
-      if (this.takeId !== takeId) return
       if (!ok) {
-        this.persistDisabled = true
+        // No `this.takeId === takeId` guard any more (fix round 20): this is
+        // THIS take's own verdict on its own row, and a create that answers
+        // after the staffer has already started the next recording used to
+        // return here and leave persistence enabled on a take with no row —
+        // every flush of it then failed one at a time.
+        p.disabled = true
         return
       }
       // Mint may have resolved while the meta row was being written — the
-      // mint's own stamp would have hit a missing row, so re-stamp here.
-      if (this.recordingSessionId) void stampTakeSession(takeId, this.recordingSessionId)
+      // mint's own stamp would have hit a missing row, so re-stamp here. This
+      // one KEEPS the guard: `recordingSessionId` is the singleton's, and a new
+      // start() has already nulled it and may have replaced it with the NEXT
+      // recording's session — the one thing here that is not this take's own.
+      if (this.takeId === takeId && this.recordingSessionId)
+        void stampTakeSession(takeId, this.recordingSessionId)
     })
     this.armTakePersistence()
 
@@ -1122,7 +1143,11 @@ class GlobalRecorder {
     if (this.takeId) this.queueClearHeartbeat(this.takeId)
     if (this.takeId && !opts?.keepTake) void deleteTake(this.takeId)
     this.takeId = null
-    this.persistDisabled = false
+    // The next recording's state, and the discarded take's own object left to
+    // whatever it already queued (fix round 20) — a timer flush queued before
+    // this discard still writes ITS chunks under ITS id, rather than finding
+    // the array emptied and reporting a tail it never wrote.
+    this.persist = { chunks: [], seq: 0, count: 0, disabled: false }
     if (this.recorder && this.recorder.state !== 'inactive') {
       // Stop without triggering onstop result
       this.recorder.ondataavailable = null
@@ -1133,7 +1158,6 @@ class GlobalRecorder {
     this.stream = null
     this.result = null
     this.error = null
-    this.chunks = []
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
