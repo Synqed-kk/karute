@@ -18,6 +18,13 @@
 //
 // Nothing rendered waits on any of this. It is fire-and-forget behind the
 // splash, and every refusal it can meet is already recorded on the take.
+//
+// ⚖ THE INVARIANT THIS MODULE KEEPS (fix round 6). Every authoritative
+// signed-in state — a generation while the store's status is 'signed-in' —
+// gets at least one run that STARTED under it. Foreground and retry-tick runs
+// may happen in any state; only a run that started signed-in SERVES a
+// signed-in state. Everything below is that sentence: one key, compared in
+// three places (a run's start, that run's end, and the subscriber).
 
 import {
   currentGeneration,
@@ -43,27 +50,32 @@ import { sweepDiscardTranscripts } from '@/lib/recording/discard-transcript'
 const REDRAIN_MS = 60_000
 const REDRAIN_JITTER_MS = 5_000
 
-/** ⚖ THE TRIGGER IS AN AUTHORITATIVE SIGN-IN, NOT A UID (fix round 3, F6). The
- *  first spelling memoised the uid and ran on any notify that carried one —
- *  which includes the PRE-RENDER seed, whose Bearer may be expired. That run
- *  drained against a stale token, every mint 401'd into a 60 s cooldown, and
- *  the settle a second later carried the SAME uid, so nothing ran again: the
- *  cold launch this module exists for drained nothing at all.
+/** ⚖ THE ONE THING A RUN IS FOR (fix round 6): the signed-in generation it
+ *  started under, or null when it started in any other state.
  *
  *  `currentGeneration()` is the store's own authoritative-write counter — it
  *  advances on the boot result, an explicit login and the sign-out flip, and
- *  NOT on the seed or on a token rotation (session-store.ts). So "the expired
- *  seed just became a fresh token" is exactly a generation the runner has not
- *  drained for, and the seed→settle pair for one staffer is still one run.
+ *  NOT on the pre-render seed or on a token rotation (session-store.ts). The
+ *  STATUS is the other half, and it has to be, because `applyTokenRotation`
+ *  flips recovering → signed-in IN PLACE without moving the counter: a
+ *  generation alone cannot tell "still recovering" from "signed in now".
  *
- *  Null while nobody is signed in, which is what makes the same staffer signing
- *  back in on a shared iPad drain again.
- *
- *  ⚖ AND IT IS WRITTEN BY THE RUN, NOT THE SUBSCRIBER (fix round 4, G1). "This
- *  generation has been drained" is a claim only a pass that actually STARTED
- *  work can make — see `run()` for the shared-iPad case where the subscriber's
- *  version of it was false. */
-let drainedGeneration: number | null = null
+ *  Rounds 3, 4 and 5 each patched one symptom of comparing something narrower
+ *  than this — a uid, then a bare generation, then a generation plus a
+ *  start-time status check — and each left the next shape of the same bug
+ *  alive: a run drained for a staffer it never looked at, or a settle whose own
+ *  turn was spent by a run that started before it. They are one bug. The key
+ *  below is the whole of the fix, and the three places it is compared are the
+ *  three moments that can differ. */
+const servedKey = (): number | null =>
+  getSessionState().status === 'signed-in' ? currentGeneration() : null
+
+/** The last signed-in generation a run actually STARTED under. Written by
+ *  `run()`, never by the subscriber: "this state has been served" is a claim
+ *  only a pass that began under it can make. Null while nobody is signed in,
+ *  which is what makes the same staffer signing back in on a shared iPad drain
+ *  again. */
+let drainedKey: number | null = null
 
 /** The run in flight, so a second trigger joins it instead of starting a rival
  *  (fix round 3, F6). `drainOwedTakes` self-guards its own loop, but the SWEEP
@@ -85,37 +97,29 @@ function schedule(): void {
 
 /** Fire-and-forget, single-flight.
  *
- *  ⚖ JOINING A RUN IS NOT HAVING ONE (fix round 4, G1). On a shared iPad,
- *  staffer A signs out mid-upload and B signs in while A's run is still in
- *  flight. The single-flight guard hands B's trigger A's promise — correct, one
- *  drain at a time — but A's pass is scoped to A: `listOwnStoppedUnsecuredTakeIds`
- *  is owner-gated, so it never looked at B's owed takes and never will. The
- *  memo used to be written by the SUBSCRIBER, so B's generation was marked
- *  drained by a run that was never B's, and the only heal left was the
- *  `stillOwed` tick at the end of A's pass (~60 s, under B's uid) — which a run
- *  ending `busy` also schedules and a run that THROWS does not schedule at all.
- *  A delay standing in for a guarantee, on the audio that exists nowhere else.
+ *  ⚖ JOINING A RUN IS NOT HAVING ONE (fix round 6, and the whole of the
+ *  invariant at the top of this file). A drain is scoped to whoever is signed
+ *  in when it starts — `listOwnStoppedUnsecuredTakeIds` is owner-gated — so a
+ *  pass that began under one state can never answer for another. The
+ *  single-flight guard below is still right (one whole take on the wire at a
+ *  time), but the trigger it turns away has NOT been served: it was handed
+ *  somebody else's promise.
  *
- *  So the memo is written HERE, by the run that actually starts work, and the
- *  generation is captured at that same instant. When this pass finishes, a
- *  newer signed-in generation means somebody joined a run that was not theirs:
- *  it gets its own, immediately, with no timer and no foreground event. */
+ *  So the key is read at the start, memoised only when it names a signed-in
+ *  state, and read again at the end. Different ⇒ a signed-in state exists that
+ *  no run has started under, and it gets one immediately — no timer, no
+ *  foreground event. That covers, in one comparison, all three shapes the
+ *  earlier rounds patched one at a time: the shared iPad where the generation
+ *  moved mid-run, a foreground pass that began while the boot was still
+ *  recovering, and the token rotation that settles recovering → signed-in
+ *  DURING such a pass without moving the generation at all. */
 function run(): Promise<void> {
   if (inFlight) return inFlight
-  // The generation THIS pass belongs to, and the memo the subscriber reads.
-  // Both are set at the one moment that matters — work starting — so a
-  // generation that only ever joined someone else's run is not marked drained.
-  const gen = currentGeneration()
-  // ⚖ …AND ONLY A SIGNED-IN PASS MAY CLAIM IT (fix round 5, H1). Two doors
-  // reach here while the store is NOT signed in — the visibilitychange
-  // listener and the retry tick — and `applyTokenRotation` flips
-  // recovering → signed-in IN PLACE, without bumping the generation
-  // (session-store.ts). So a foreground run during 'recovering' at generation G
-  // used to memoize G, and the settle that followed found "same generation" and
-  // returned: the sign-in's own pass was lost, healed only by the 60 s tick —
-  // or not at all, if that recovering pass threw and armed none. A run that
-  // started while recovering proves nothing about the sign-in that follows it.
-  if (getSessionState().status === 'signed-in') drainedGeneration = gen
+  // Read once, at the one moment that matters: work starting. A run that began
+  // outside signed-in claims nothing, so the settle that follows it still finds
+  // its own turn waiting.
+  const startKey = servedKey()
+  if (startKey !== null) drainedKey = startKey
   const work = (async () => {
     try {
       // The drain FIRST because it is the bytes: whole takes, the larger and
@@ -146,12 +150,17 @@ function run(): Promise<void> {
       console.warn('[launch-drain] run failed:', err)
     } finally {
       inFlight = null
-      // Somebody signed in while this pass was working and was handed this
-      // promise instead of a run of their own. Give them one now — and let IT
-      // write the memo, so a third sign-in landing inside this one is caught
-      // the same way. The `catch` above is outside this block on purpose: a
-      // pass that threw must not swallow the newer staffer's turn.
-      if (getSessionState().status === 'signed-in' && currentGeneration() !== gen) void run()
+      // ⚖ START vs NOW, one comparison. A different key means the generation
+      // moved while this pass worked, OR this pass started outside signed-in
+      // and the store is signed in now — either way a signed-in state exists
+      // that no run has started under, and somebody was handed this promise
+      // instead of a run of their own. Serve it. The new run writes the memo
+      // itself, so a third transition landing inside THAT one is caught the
+      // same way. Deliberately in the `finally` and not the `try`: a pass that
+      // threw must not swallow the next staffer's turn — that was the one
+      // shape with no heal at all before round 4.
+      const now = servedKey()
+      if (now !== null && now !== startKey) void run()
     }
   })()
   inFlight = work
@@ -167,23 +176,22 @@ function run(): Promise<void> {
 // Bearer anyway, and the settle arrives either inside the boot gate's timeout
 // or on the resume coordinator — as a new generation, which is this line.
 subscribeSessionState(() => {
-  const state = getSessionState()
-  if (state.status !== 'signed-in') {
-    // Signed out, or recovering into it. Forget the memo so the next
-    // authoritative sign-in drains, and drop the pending re-look: there is
+  const key = servedKey()
+  if (key === null) {
+    // Signed out, or recovering. Only a sign-out forgets the memo — so the next
+    // authoritative sign-in drains — and drops the pending re-look: there is
     // nobody to drain for, and the store's owner gate would answer nothing.
-    if (state.status === 'signed-out') {
-      drainedGeneration = null
+    if (getSessionState().status === 'signed-out') {
+      drainedKey = null
       clearTimeout(retryTimer)
       retryTimer = undefined
     }
     return
   }
-  // The memo is `run()`'s to write (fix round 4, G1): if this generation only
-  // JOINED a pass belonging to the previous staffer, `drainedGeneration` still
-  // names theirs, and that run's own tail fires this generation's real pass.
-  if (currentGeneration() === drainedGeneration) return
-  void run()
+  // A signed-in state no run has started under. `run()` writes the memo, so a
+  // trigger that merely JOINS a pass in flight leaves this key unserved — and
+  // that pass's own tail comes back for it.
+  if (key !== drainedKey) void run()
 })
 
 // The phone that came back from a pocket with signal. Cooldown protection is

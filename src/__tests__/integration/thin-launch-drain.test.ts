@@ -367,6 +367,51 @@ describe('thin launch drain', () => {
       warn.mockRestore()
     })
 
+    // ⚖ THE ONE THE GENERATION CANNOT SEE (fix round 6). The settle does not
+    // always arrive as a new generation: `applyTokenRotation` flips
+    // recovering → signed-in IN PLACE. So a foreground pass that began while
+    // the boot was still recovering, and a settle that lands DURING it, differ
+    // in status and not in the counter — which is why the runner compares a
+    // composite key and not a generation. Round 5 fixed the sequential half of
+    // this (the pass finishes, then the settle); this is the concurrent half,
+    // where the subscriber's run() joins the pass in flight and is served by
+    // its tail instead.
+    it('a settle landing DURING a recovering pass still gets its own run', async () => {
+      const release = heldDrain()
+      await load()
+      await authoritative('recovering')
+      expect(drainOwedTakes).not.toHaveBeenCalled()
+
+      // The phone comes back from a pocket while the boot is still settling.
+      setVisibility('visible')
+      await settle()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+      // …and the token rotation settles mid-pass: signed-in, same generation.
+      await signedInSameGeneration()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1) // joined the pass in flight
+
+      release()
+      await settle()
+      // Its own pass, immediately — no timer, no second foreground.
+      expect(drainOwedTakes).toHaveBeenCalledTimes(2)
+    })
+
+    // …and the other direction, which is what stops the key from being a
+    // busy-loop: a rotation that changes NOTHING the runner serves (already
+    // signed-in, same generation) is nothing new to serve.
+    it('a same-generation rotation during a SIGNED-IN pass buys no extra run', async () => {
+      const release = heldDrain()
+      await load()
+      await authoritative('signed-in')
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+      await signedInSameGeneration()
+      release()
+      await settle()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+    })
+
     it('a SAME-generation notify during a run buys no extra run', async () => {
       // The memo moved to run(), so this is the case that proves it still does
       // the job it was added for: one sign-in, one pass.
