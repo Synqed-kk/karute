@@ -98,6 +98,12 @@ jest.mock('@synqed-kk/ui', () => {
  *  below-floor take so RecoveryBanner's belowFloor discard link appears. */
 let mockRecoverableTake: Record<string, unknown> | null = null
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
+// Capture pipeline PR3 — the record page's mount retry. This suite's take-store
+// is a fake, so the real secureTake would reach for functions that are not in
+// it; nothing here is about whether the audio reaches the server (that is
+// take-durability.test.ts + recovery-banner-save-only.test.tsx).
+jest.mock('@/lib/recording/secure-take', () => ({ secureTake: jest.fn(async () => {}) }))
+
 jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   // A2-2 — the discard-transcript register.
@@ -110,6 +116,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
   listOwnTakes: jest.fn(async () => []),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => mockRecoverableTake),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   // The logout-wipe test runs the REAL wipeSessionVault through this module.
@@ -152,6 +159,9 @@ jest.mock('@/lib/global-recorder', () => ({
     state: 'idle',
     recordingSessionId: 'sess-live',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     // The logout-wipe test drives the REAL wipeSessionVault through this.
     discard: jest.fn(),
     // Fix round 1: the gate's SECOND chance at a session id. The mint runs once
@@ -466,6 +476,48 @@ describe('a discard that cannot leave its trace does not happen', () => {
     })
     await waitFor(() => expect(mockDiscardRecording).toHaveBeenCalledTimes(1))
     expect(reasonGate()).toBeNull()
+  })
+
+  // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since the
+  // take is secured at STOP, the recorder is no longer the only route to a row:
+  // a start-mint that failed leaves the bounded await answering null forever
+  // (its promise is settled), while secureTake's own session-first call has
+  // already minted this take's row and STAMPED it. The save read that null and
+  // filed the karute UNLINKED, beside audio sitting on that very row — and
+  // silently, because null is also the honest answer when there is no row at
+  // all. So the save falls back exactly the way the discard gate does.
+  it('the SAVE re-reads the stamp too: a row secureTake minted still reaches the karute', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    // What retryRecordingSessionMint answers for a take that already carries a
+    // row: the stamp, with nothing minted.
+    mockRetryMint.mockImplementationOnce(async () => 'sess-secured-at-stop')
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({
+      recordingSessionId: 'sess-secured-at-stop',
+    })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
+  })
+
+  // …and a take that genuinely has no row still saves — unlinked, exactly as it
+  // did before any of this existed. The fallback adds a second chance, never a
+  // new way to fail.
+  it('no row anywhere: the save still goes through, without a session id', async () => {
+    mockAwaitSession.mockImplementation(async () => null)
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('useRecording'))
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({ recordingSessionId: null })
+    expect(mockRetryMint).toHaveBeenCalledTimes(1)
   })
 
   // ── The 使用/破棄 race (fix round 1) ────────────────────────────────────

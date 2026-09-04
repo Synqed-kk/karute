@@ -7,6 +7,20 @@
 // DOM matchers (toBeInTheDocument, etc.) for jsdom component render tests.
 // Harmless to register in node-environment suites — only used by .tsx tests.
 import '@testing-library/jest-dom'
+import { randomUUID } from 'node:crypto'
+
+// jsdom's Crypto ships getRandomValues and nothing else, so `crypto.randomUUID`
+// is undefined in every .tsx / jsdom suite — while every browser this app runs
+// in (and the WKWebView shell) has had it for years. That gap is not neutral
+// any more: a take id that is not a uuid can never be secured (the key grammar
+// refuses it), so without this the recorder's own no-uuid fallback becomes the
+// TEST norm and hides the real path. Node's implementation stands in.
+if (typeof globalThis.crypto?.randomUUID !== 'function') {
+  Object.defineProperty(globalThis.crypto, 'randomUUID', {
+    value: randomUUID,
+    configurable: true,
+  })
+}
 
 const REQUIRED_ENV_VARS = [
   'NEXT_PUBLIC_SUPABASE_URL',

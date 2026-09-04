@@ -14,6 +14,7 @@ import {
   deleteTake,
   getRecoverableTake,
   listOwnTakes,
+  listOwnStoppedUnsecuredTakeIds,
   loadTakeBlob,
   readTakeOutcome,
   stampDiscardPending,
@@ -27,9 +28,11 @@ import {
   runDiscardTranscript,
   sweepDiscardTranscripts,
 } from '@/lib/recording/discard-transcript'
+import { secureTake } from '@/lib/recording/secure-take'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -103,6 +106,34 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
 import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
+
+/** ONE mount drain at a time, ACROSS MOUNTS (capture pipeline PR3 fix round 10,
+ *  P3). The loop below is sequential inside a single mount — a take is a whole
+ *  recording, tens of megabytes, and three PUTs at once on salon wifi starve
+ *  each other until they all time out. But "one in flight" was per MOUNT: a
+ *  staffer bouncing between 記録 and this page (or React remounting under
+ *  StrictMode) ran a second whole drain beside the first, which is the exact
+ *  starvation the loop exists to prevent. Module-level because the two runs
+ *  share no object — the same reason secure-take's own in-flight set is.
+ *
+ *  ponytail: a boolean that DEFERS the second run, not a queue that interleaves
+ *  it — the running drain is already working the same worklist, so the loser
+ *  simply asks again on the next tick. (It used to DROP the run outright, which
+ *  under React's double mount left the surviving mount holding no schedule at
+ *  all — fix round 11.) Upgrade path if that wait ever matters: chain the runs
+ *  instead of re-reading the worklist. */
+let mountDrainRunning = false
+
+/** How long the page waits before it looks at the worklist again (fix round
+ *  11). It is take-store's own SECURE_RETRY_COOLDOWN_MS: a take that just
+ *  failed is not eligible again until then, so a shorter tick could only re-read
+ *  the list and find it hidden. Deliberately a copy rather than an import — this
+ *  is the PAGE's policy (how often it looks), the store's is the TAKE's (how
+ *  soon it may be tried again), and they are equal only by today's arithmetic. */
+const REDRAIN_MS = 60_000
+/** …plus a spread, so a salon's phones — all mounted at the same 10:00 opening
+ *  — do not knock on the same door in the same instant. */
+const REDRAIN_JITTER_MS = 5_000
 
 export interface RecordPageNextAppointment {
   id: string
@@ -703,6 +734,140 @@ export function RecordPageView({
       alive = false
     }
   }, [])
+  // Capture pipeline PR3 — the retry for every stop the network missed, on its
+  // OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one below.
+  // STOPPED takes only: a take whose recorder never stopped may still be running
+  // (this tab remounting, another same-origin tab), and sealing its finalized
+  // key early would truncate it forever. Those wait for PR5's launch drain,
+  // where the single-webview shell proves nothing is live.
+  //
+  // ⚖ AND IT RUNS MORE THAN ONCE PER PAGE LIFE (fix round 11). It used to run
+  // exactly once, at mount — so a take that failed retryably while the staffer
+  // stayed on this page, and a take whose stop stamp landed after the effect had
+  // already read the worklist, both waited for a REMOUNT. This is the page the
+  // recorder lives on, the one a staffer never navigates away from mid-shift:
+  // that wait is the whole shift, and the audio stays device-only for it.
+  // (getRecoverableTake's own 20 s grace hid the same take from the recovery
+  // offer, so nothing on screen said so either.) FOUR moments now schedule the
+  // SAME lock-guarded drain — the mount, the page becoming visible again, the
+  // recorder reaching `recorded`, and a tick that runs only while a take still
+  // owes its bytes — and every timer and listener dies with the mount.
+  //
+  // No UI, no toast, and deliberately outside every render branch: whether the
+  // audio is on the server has nothing to do with what this page shows.
+  // secureTake is idempotent (its in-flight guard and finalizedAt make the
+  // repeats free) and records its own outcome, so a needless run costs a read.
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // ⚖ `recorded` and nothing else: a take still recording (or paused) must
+    // never be finalized — its remaining audio could not land afterwards.
+    // isActiveTake is that rule read from the recorder itself, the belt behind
+    // the worklist's own stopped-only filter.
+    const isActive = (id: string) => globalRecorder.isActiveTake(id)
+
+    /** THE scheduler: ONE pending wake-up, ever. Every trigger routes through
+     *  here, so a burst (the page comes back AND a recording stops AND the tick
+     *  is due) still leaves exactly one timer — and unmount exactly one to
+     *  clear. */
+    const schedule = () => {
+      if (!alive) return
+      clearTimeout(timer)
+      timer = setTimeout(() => void drain(), REDRAIN_MS + Math.random() * REDRAIN_JITTER_MS)
+    }
+
+    const drain = async () => {
+      if (!alive) return
+      // …and ONE drain across mounts, not one per mount — see mountDrainRunning.
+      // The other runner is already on this same worklist: ask again after it,
+      // never beside it.
+      if (mountDrainRunning) {
+        schedule()
+        return
+      }
+      mountDrainRunning = true
+      try {
+        const port = getRecordingPipelinePort()
+        // ONE AT A TIME, and this loop is the ONLY drain path (fix round 7). A
+        // take is a whole recording — tens of megabytes — and a staffer with
+        // three owed takes on salon wifi would otherwise start three PUTs at
+        // once, each starving the others (and the app's own calls) until they
+        // all time out. The recorder's own stopped take used to get a second,
+        // un-awaited call of its own here: it is already on this worklist
+        // (onstop stamps the duration the list reads), and starting it outside
+        // the loop put two whole takes on the wire at once — the exact
+        // starvation this is sequential to prevent.
+        // isActive goes to the WORKLIST too (fix round 13): inside the phone's
+        // single WebView the store may name a take whose stop stamp never
+        // landed, and the singleton is the only thing that can tell that from a
+        // take this very page is still capturing (a paused one flushes nothing
+        // and looks stale within seconds). On the web it changes nothing — the
+        // list stays stopped-only there.
+        for (const id of await listOwnStoppedUnsecuredTakeIds(false, isActive))
+          await secureTake(port, id, undefined, isActive)
+      } finally {
+        mountDrainRunning = false
+      }
+      // Keep ticking only while a take still OWES its bytes — counting the ones
+      // the cooldown is HIDING, which is what the flag asks for. The eligible
+      // list is empty both when everything is safely on the server and when
+      // everything failed a minute ago; stopping on that would end the retry at
+      // the moment it became necessary. Empty here means finalized or terminal,
+      // and neither of those is waiting for us.
+      // …and a take a stop leg is still HOLDING is owed too (fix round 17): it
+      // is deliberately absent from both lists while its tail is being written,
+      // so a drain that ran inside that window would otherwise be the last one
+      // this page ever ran — the duration stamp lands a moment later and makes
+      // it eligible with nobody looking.
+      if (
+        alive &&
+        (globalRecorder.isSecuring() ||
+          (await listOwnStoppedUnsecuredTakeIds(true, isActive)).length)
+      )
+        schedule()
+    }
+
+    // 1. The mount — every navigation onto this page, as before.
+    void drain()
+
+    // 2. The page comes back: a phone locked mid-upload, a WebView the OS
+    //    froze, a staffer who was on another tab. A stalled PUT's own deadline
+    //    has landed by then, so the take is answerable again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void drain()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    // 3. A recording just stopped. The stop path secures it itself, un-awaited;
+    //    this is the net under that leg. SCHEDULED, never immediate — at the
+    //    `recorded` transition the take carries no duration stamp yet (onstop
+    //    writes it after the tail flush resolves), so a drain fired on this
+    //    instant would find the worklist empty and stop looking.
+    //
+    // 3b. …and that same leg SETTLES (fix round 17). The state never changes —
+    //    it was already `recorded` at the stop — so the transition above cannot
+    //    see it, and the take only becomes drainable here: this is where the
+    //    duration stamp has landed and the hold is gone. The recorder's own
+    //    notify is the signal; the edge below is the page reading it.
+    let lastState = globalRecorder.state
+    let wasSecuring = globalRecorder.isSecuring()
+    const unsubscribe = globalRecorder.subscribe(() => {
+      const justStopped = globalRecorder.state === 'recorded' && lastState !== 'recorded'
+      lastState = globalRecorder.state
+      const securing = globalRecorder.isSecuring()
+      const justSettled = wasSecuring && !securing
+      wasSecuring = securing
+      if (justStopped || justSettled) schedule()
+    })
+
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      unsubscribe()
+    }
+  }, [])
+
   useEffect(() => {
     // Both loads are async and owner-gated at their store layer — only the
     // staff member who recorded/saved is ever offered anything (privacy on a
@@ -1361,9 +1526,19 @@ export function RecordPageView({
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
-      // null on timeout/failure → save proceeds without recording_session_id,
-      // exactly as before this feature existed (no dedupe for that save).
-      const recordingSessionId = await awaitRecordingSessionId()
+      let recordingSessionId = await awaitRecordingSessionId()
+      // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since
+      // the take is secured at STOP, the recorder is no longer the only route
+      // to a row: a start-mint that failed leaves this await answering null
+      // forever (the promise is settled), while secureTake's own session-first
+      // call has already minted the take's row and STAMPED it. Saving null
+      // there files the karute unlinked beside audio that is on that row —
+      // silently, because null is also the honest answer when there simply is
+      // no row. So read the stamp the same way the discard gate does: the
+      // retry returns it without minting anything when it is there, and mints
+      // once (bounded) when it is not. Still null → the save proceeds without
+      // a session id, exactly as before any of this existed.
+      if (!recordingSessionId) recordingSessionId = await globalRecorder.retryRecordingSessionMint()
       // A discard during the await bumps the generation — this take no longer
       // belongs to us; drop it instead of pipelining a discarded recording.
       if (gen !== useRecordingGen.current) return
@@ -2300,6 +2475,30 @@ export function RecordPageView({
           setRecoveredTake(null)
           return
         }
+        // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The
+        // take's session id was read when the inbox/banner loaded, and the
+        // mount drain's session-first leg mints and stamps a row for exactly
+        // the takes this offer is made of — so a save that carries the snapshot
+        // writes a karute pointing at nothing while the audio sits on a real
+        // row. The retry re-reads the stamp and only mints when there is still
+        // none, which is the same call the discard gate makes.
+        const recordingSessionId =
+          o.take.recordingSessionId ??
+          (await globalRecorder.retryRecordingSessionMint({
+            takeId: o.take.takeId,
+            customerId: dest.customerId,
+            appointmentId: dest.appointmentId || null,
+            // ⚖ THE SAVE-TIME BOUND IS NOT THIS ONE (fix round 20, AL1). The
+            // default is 1.5 s — the bound for a mint the recorder ALREADY has
+            // in flight, where giving up costs nothing because the field will
+            // hold the answer a moment later. This mint is issued right here
+            // and nobody waits for it afterwards: on a slow phone network the
+            // race simply answers null and the karute saves UNLINKED, which is
+            // the outcome AF1 exists to prevent. The stop leg's 10 s is the
+            // right bound — the staffer has already tapped 保存する and is
+            // watching it work.
+            timeoutMs: SECURE_MINT_AWAIT_MS,
+          }))
         globalPipeline.start(blob, {
           locale,
           customers,
@@ -2320,7 +2519,7 @@ export function RecordPageView({
           // own toast since round 0, and this is the take path's twin.
           // Client-side only, like recoveryUnanswered: never on the job body.
           autoFinish: flow.autoFinish,
-          recordingSessionId: o.take.recordingSessionId,
+          recordingSessionId,
           takeId: o.take.takeId,
         })
         // globalPipeline.start() has already minted this run's id (run()/

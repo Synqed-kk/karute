@@ -753,7 +753,8 @@
         "unsettled": "No result has come back yet",
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
-        "localAudio": "The audio is still on this device (unsaved)"
+        "localAudio": "The audio is still on this device (unsaved)",
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)"
       },
       "action": {
         "open": "Open",
