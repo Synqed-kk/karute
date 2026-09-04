@@ -819,6 +819,30 @@ export async function mintSegmentUploadUrls(
   }
   const denied = assertRecorderOwnsRow(row, actor)
   if (denied) return denied
+  // ⚖ AND ONLY THE RECORDER THEMSELVES MAY SEND SEGMENTS (fix round 1, K1 —
+  // the staged door's own line, five hundred lines up, for the same reason).
+  // `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right for the
+  // TAKE mint — an owner reserving a colleague's take is a designed act there,
+  // and finalize re-proves ownership and byte length behind it. Here it is
+  // wrong twice over. Nothing in the app pumps segments for a take it does not
+  // hold: the pump runs on the RECORDING DEVICE, off the owner-gated take
+  // store, and it is the only caller — so view-all buys this door no legitimate
+  // reach at all. What it did buy was a lever: a segment key is composable in
+  // advance (the take id and the container are both readable off the
+  // colleague's own row, by exactly this capability), so an owner could mint a
+  // seq the device had not reached yet and PUT anything into it. The key is
+  // immutable, so the real device could never write that seq again; its next
+  // pump would meet a length that is not its own and go terminally quiet for
+  // the rest of the take; and the folder an assembler will one day build from
+  // would hold bytes nobody recorded. A plain equality, `canViewAll`
+  // deliberately not consulted; the tenant half stays where it is, one line
+  // above.
+  //
+  // ⚖ THE CEILING, NAMED (P3, record only): the recorder can still pre-fill
+  // their OWN take's segment keys from outside the app. No audio is lost — the
+  // take secures whole at stop regardless — and the only thing denied is that
+  // staffer's own head start. Self-harm, out of this door's reach.
+  if (row.staff_id !== actor.staffId) return { error: 'forbidden' }
 
   // ⚖ THE FENCE (see the docblock). Asked AFTER ownership, so a caller who may
   // not record onto this row never learns anything about what it points at.

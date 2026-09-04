@@ -1190,6 +1190,40 @@ describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fen
     expectNoBinding()
   })
 
+  // ⚖ AND NOT EVEN WITH recordings.viewAll — SENDING SEGMENTS IS THE RECORDER'S
+  // ALONE (fix round 1, K1: the staged door's own line, for the staged door's
+  // own reason). Owner reach is right on the TAKE mint — reserving a
+  // colleague's take is a designed act there, and finalize re-proves ownership
+  // and byte length behind it — and buys this door nothing: the pump runs on
+  // the recording device, off the owner-gated take store, and is the only
+  // caller. What it bought instead was a lever. A segment key is composable in
+  // advance, and both halves of it (the take id, the container) are readable
+  // off the colleague's own row by exactly this capability, so an owner could
+  // mint a seq the device had not reached yet and PUT anything into it: the key
+  // is immutable, so the real device could never write that seq; its next pump
+  // would meet a length that is not its own and go terminally quiet for the
+  // rest of the take; and the folder an assembler will one day build from would
+  // hold bytes nobody recorded. The take is never lost by it — the whole-take
+  // secure at stop is independent — but the new guarantee is.
+  it('…and NOT even with recordings.viewAll — the segments are the recorder’s alone', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    // Nothing probed and nothing signed: the refusal lands before a single key
+    // is asked about, so the door is not an existence oracle over the folder
+    // either. (The take mint KEEPS its owner reach — pinned by its own case,
+    // "…while the take mint KEEPS its owner reach", above.)
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it('…while the recorder themselves is unchanged — same capability, own row', async () => {
+    reserved()
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await segmentsOk()
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0), segKey(1), segKey(2)])
+  })
+
   it('no acting staff identity → forbidden, and core is never read', async () => {
     getCurrentUserStaffId.mockResolvedValue(null)
     await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })

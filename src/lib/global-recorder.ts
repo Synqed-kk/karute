@@ -83,6 +83,21 @@ const MINT_AWAIT_MS = 1_500
 // to give, and this race IS its bound.
 export const SECURE_MINT_AWAIT_MS = 10_000
 
+// ⚖ AND THE STOP LEG'S SEGMENT PUMP HAS A TOTAL BUDGET (slice five packet C fix
+// round 1, K4). Every PUT inside the pump carries its own deadline, and the
+// mint has the door's — but a CATCH-UP has neither: sixty owed segments at
+// three at a time is twenty waves that each succeed honestly, behind a mint
+// that may take most of its 30 s door. Two minutes can pass before secureTake
+// is even called, and `SECURE_SETTLE_BELT_MS` (120 s, just below) is the belt
+// the in-tab readers are already waiting on — so a best-effort HEAD START would
+// spend the whole budget of the guarantee that supersedes it, and the reader
+// past its belt stages a second copy of the same audio onto the same slow link.
+// Twenty seconds buys the tail and the handful behind it, which is what the
+// stop is actually waiting for. Past it the leg goes on and the pump KEEPS
+// RUNNING in the background: it is single-flight, its own deadlines bound it,
+// segments are additive, and nothing downstream reads them yet.
+const STOP_PUMP_BUDGET_MS = 20_000
+
 // The BELT on awaitTakeSecured (fix round 2 of PR4): how long a reader will
 // wait on a stop leg that never exits before it goes on without it. Same figure
 // as take-store's HEARTBEAT_STALE_MS (120 s) and read the same way — a leg
@@ -938,7 +953,28 @@ class GlobalRecorder {
             // bare. It records its own refusals on the take and touches nothing
             // the whole-take path reads. Every step from here down failing still
             // leaves the take on disk, plainly un-finalized, for the next drain.
-            await pumpSegments(getRecordingPipelinePort(), takeId)
+            //
+            // ⚖ A RUN THAT STARTS AFTER THE TAIL, AND A BUDGET ON WAITING FOR
+            // IT (fix round 1, K3 + K4). `fresh: true` because the tail flush a
+            // moment ago fired a pump of its own: without it this await would
+            // JOIN whatever run was already going — one whose row list was read
+            // before the tail segment existed — and "the segments are up" would
+            // be a claim about a five-second-old snapshot. And the wait is
+            // raced against STOP_PUMP_BUDGET_MS the same way the own-mint belt
+            // above is raced, for the reason named at that constant: the pump
+            // carries on in the background past it, and the whole-take secure —
+            // the guarantee that supersedes every segment — starts on time.
+            let pumpBelt: ReturnType<typeof setTimeout> | undefined
+            try {
+              await Promise.race([
+                pumpSegments(getRecordingPipelinePort(), takeId, { fresh: true }),
+                new Promise<void>((resolve) => {
+                  pumpBelt = setTimeout(() => resolve(), STOP_PUMP_BUDGET_MS)
+                }),
+              ])
+            } finally {
+              clearTimeout(pumpBelt)
+            }
             await secureTake(
               getRecordingPipelinePort(),
               takeId,

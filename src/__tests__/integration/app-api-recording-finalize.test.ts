@@ -257,6 +257,22 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
+  // ⚖ AND AN OWNER GETS THE SAME 403 ON THE SEGMENT ARM (fix round 1, K1) —
+  // the staged arm's rule, one act over. A segment key is composable in advance
+  // and both halves are readable off a colleague's row by exactly this
+  // capability, so owner reach here was a pre-fill lever: mint a seq the device
+  // has not reached, PUT anything, and that take's pump meets a length that is
+  // not its own and goes terminally quiet. The pump runs on the recording
+  // device alone, so nothing legitimate is lost by closing it.
+  it('…and an owner with recordings.viewAll gets a 403 on a colleague’s segments', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
   it('…and a row that has not reserved this take’s key → 409 not_reserved', async () => {
     info.mockResolvedValue(objectFree)
     recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })

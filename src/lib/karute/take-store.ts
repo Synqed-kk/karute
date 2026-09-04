@@ -1628,17 +1628,30 @@ export async function listTakeSegmentsAfter(
     const tx = db.transaction([TAKES, SEGMENTS])
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
     if (!meta || meta.ownerUid !== uid) return []
-    // ponytail: getAll + filter, the same trade-off loadTakeBlob and
-    // deleteTakeRows take — rows are few and the blobs are lazy handles.
-    // Upgrade path if a 90-minute take ever makes this cost anything:
-    // IDBKeyRange.bound([takeId, afterSeq + 1], [takeId, []]) on the compound key.
-    const rows = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
-    const after = rows
-      .filter((s) => s.takeId === takeId && s.seq > afterSeq)
-      .sort((a, b) => a.seq - b.seq)
+    // ⚖ A RANGE, NOT A WALK OF THE WHOLE STORE (slice five packet C fix round
+    // 1, K5). The store's own key is `['takeId','seq']`, so this asks for
+    // exactly one take's tail: lower bound this take at `afterSeq + 1`, upper
+    // bound the same take at `[]` — an array sorts above every scalar in
+    // IndexedDB's key order, which makes it the "everything under this takeId"
+    // sentinel. Records come back IN KEY ORDER, so the filter and the sort the
+    // walk needed are gone with it.
+    //
+    // WHY IT HAD TO CHANGE, and it is not tidiness: this runs on the CAPTURE
+    // path, every ~5 s, for the length of the session — its own input grows as
+    // the take it is serving grows (one row per flush: ~1,080 for a 90-minute
+    // take), and every un-cleared take on a shared salon device is in the same
+    // store, permanently, because nothing deletes a segment. Worse, its scope
+    // `[TAKES, SEGMENTS]` is the flush's own readwrite scope, and IndexedDB
+    // serialises overlapping scopes in creation order — so a store-wide read
+    // here delays the very audio write it exists to follow.
+    const rows = (await req(
+      tx
+        .objectStore(SEGMENTS)
+        .getAll(IDBKeyRange.bound([takeId, afterSeq + 1], [takeId, []])),
+    )) as SegmentRow[]
     const out: { seq: number; blob: Blob }[] = []
     let want = afterSeq + 1
-    for (const s of after) {
+    for (const s of rows) {
       if (out.length >= limit || s.seq !== want) break
       out.push({ seq: s.seq, blob: s.blob })
       want++

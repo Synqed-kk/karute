@@ -99,6 +99,26 @@ const segmentDeadlineMs = (bytes: number) =>
 const inFlight = new Map<string, Promise<void>>()
 
 /**
+ * ⚖ AND "JOINED" IS NOT "SAW THE TAIL" (slice five packet C fix round 1, K3).
+ * The one follow-up run a `fresh` caller is owed, per take.
+ *
+ * Single-flight above answers "has the pump finished?", which is the right
+ * answer for every flush-time call and the WRONG one for the stop leg. A run
+ * takes its row list ONCE, at its own start; a run that started at the flush
+ * before the stop listed the disk before the tail segment was written to it. So
+ * the stop leg joining that run and calling it "the segments are up" is a claim
+ * about a snapshot taken five seconds before the moment it cares about — and
+ * item 2's order (last segment PUT → whole-take PUT) quietly stops holding on
+ * exactly the slow link it was written for.
+ *
+ * `fresh: true` therefore means a run that STARTS AFTER any run already in
+ * flight. ONE follow-up, never a queue: a second `fresh` caller during the same
+ * run gets the same follow-up, because one run that starts after this one is
+ * all any of them asked for.
+ */
+const pendingFresh = new Map<string, Promise<void>>()
+
+/**
  * The per-take backoff window. MEMORY ONLY, and deliberately: it dies with the
  * page, and the next page's first flush pumps again — which is the behaviour
  * that is wanted, because a reload is a new attempt at everything. Persisting it
@@ -115,6 +135,18 @@ function bumpBackoff(takeId: string): void {
     Math.min(SEGMENT_BACKOFF_MAX_MS, SEGMENT_BACKOFF_MIN_MS * 2 ** (step - 1)) +
     Math.random() * SEGMENT_BACKOFF_MIN_MS
   backoff.set(takeId, { until: Date.now() + wait, step })
+}
+
+/** ⚖ AND A PUMP THAT STOPPED FOR GOOD SAYS SO ONCE (slice five packet C fix
+ *  round 1, R1). `segmentError` is read by this file's own early return and by
+ *  nothing else — no 要対応 row, no audit — so a take whose head start was
+ *  switched off permanently used to leave no trace anywhere a person or a log
+ *  could meet it. One line at MARK TIME, which is once per take and never on a
+ *  retryable refusal, makes the one thing worth knowing legible: this take is
+ *  no longer sending segments, and why. */
+async function stopSegments(takeId: string, code: string): Promise<void> {
+  console.warn('[segment-uploader] segments stopped for', takeId, code)
+  await markSegmentError(takeId, code)
 }
 
 /** ONE segment PUT, under its own size-derived deadline.
@@ -168,13 +200,40 @@ async function putSegment(url: string, blob: Blob, contentType: string): Promise
  * NEVER THROWS. Its callers are the capture path and the stop leg, and neither
  * may be failed by an upload: every refusal here is recorded on the take (or in
  * the backoff map) and the take carries on exactly as it would have.
+ *
+ * `fresh: true` asks for a run that STARTS after any run already in flight —
+ * the stop leg's ask, and only its ask (see `pendingFresh`). Without it, an
+ * overlapping call joins the running one, which is what every flush-time
+ * trigger wants. Note what `fresh` does NOT do: it does not skip the backoff
+ * window. A take whose door just refused is refusing for a reason, and the stop
+ * leg is not a licence to ask again a second later.
  */
 export async function pumpSegments(
   port: RecordingPipelinePort,
   takeId: string,
+  opts?: { fresh?: boolean },
 ): Promise<void> {
   const running = inFlight.get(takeId)
-  if (running) return running
+  if (!running) return startPump(port, takeId)
+  if (!opts?.fresh) return running
+  const waiting = pendingFresh.get(takeId)
+  if (waiting) return waiting
+  const followUp = running
+    // pumpOnce never rejects — one try/catch around its whole body — and this
+    // keeps that true of the composed promise the stop leg awaits bare.
+    .catch(() => {})
+    .then(() => {
+      // Cleared as the follow-up STARTS, not when it ends. A `fresh` caller
+      // arriving from here on is asking for a run that starts after THIS one,
+      // and handing it this one would be the very join the option refuses.
+      pendingFresh.delete(takeId)
+      return startPump(port, takeId)
+    })
+  pendingFresh.set(takeId, followUp)
+  return followUp
+}
+
+function startPump(port: RecordingPipelinePort, takeId: string): Promise<void> {
   const run = pumpOnce(port, takeId).finally(() => inFlight.delete(takeId))
   inFlight.set(takeId, run)
   return run
@@ -225,7 +284,7 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
       // TERMINAL_SECURE_ERRORS is the ONE list that says which refusals can
       // never turn into a yes — shared with the whole-take path so the two
       // cannot drift, and read here without writing anything of that path's.
-      if (TERMINAL_SECURE_ERRORS.has(minted.error)) await markSegmentError(takeId, minted.error)
+      if (TERMINAL_SECURE_ERRORS.has(minted.error)) await stopSegments(takeId, minted.error)
       else bumpBackoff(takeId)
       return
     }
@@ -263,12 +322,20 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
         }
         // ⚖ AN OBJECT IS ALREADY AT THIS KEY. Adopted ONLY when its byte length
         // is this device's own segment — the retry whose markSegmentsUploaded
-        // was lost, and the one legitimate case. Anything else (a different
-        // length, or storage answering without one at all) is somebody's bytes
-        // where ours should be: terminal FOR THE SEGMENTS, and nothing is
-        // deleted, nothing is overwritten, and the take still secures whole at
-        // stop under a key of its own.
+        // was lost, and the one legitimate case. A DIFFERENT length is somebody
+        // else's bytes where ours should be: terminal FOR THE SEGMENTS, and
+        // nothing is deleted, nothing is overwritten, and the take still
+        // secures whole at stop under a key of its own.
         if (answer.existingSize === row.blob.size) landed.add(row.seq)
+        // ⚖ AND A SIZE-LESS ANSWER IS NOT A VERDICT ABOUT ANYONE'S BYTES (fix
+        // round 1, K6). `null` is storage declining to report a length, not a
+        // length that disagrees — finalize splits exactly these two off one
+        // `info()` read (`size_unknown` vs `size_mismatch`, finalize-take.ts)
+        // and falls through the unknown. Marked terminal here it would mean a
+        // storage-shape change switching every take's pump off fleet-wide, for
+        // good, on evidence about the API rather than about the audio. So it is
+        // a refusal like any other: backoff, and the next flush asks again.
+        else if (answer.existingSize === null) failed = true
         else mismatch = true
       }
     }
@@ -276,7 +343,7 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
       Array.from({ length: Math.min(SEGMENT_CONCURRENCY, rows.length) }, () => worker()),
     )
 
-    if (mismatch) await markSegmentError(takeId, 'seg_mismatch')
+    if (mismatch) await stopSegments(takeId, 'seg_mismatch')
 
     // THE CONTIGUOUS PREFIX, and only it. A seq that landed after a gap is real
     // on storage and stays there — it simply does not move the mark, because
@@ -297,10 +364,11 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
   }
 }
 
-/** Test seam ONLY — the two module maps are process-wide, and a jest file that
+/** Test seam ONLY — the module's maps are process-wide, and a jest file that
  *  drives several takes through the pump would otherwise inherit the previous
  *  case's backoff window. Never called from product code. */
 export function __resetSegmentPumpState(): void {
   inFlight.clear()
+  pendingFresh.clear()
   backoff.clear()
 }
