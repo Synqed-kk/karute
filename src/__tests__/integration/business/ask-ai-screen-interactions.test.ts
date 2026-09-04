@@ -47,6 +47,48 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
+/** ⚠ THE SHEET IS WALKED, NEVER SPLIT ON '}' (R4-7, blind lens L2-F4). A naive
+ *  `split('}')` + `indexOf('{')` finds the MEDIA QUERY'S OWN BRACE first, so the
+ *  first rule inside any band is invisible to it — and the R13 tone guard at the
+ *  bottom of this file was written that way, which made a `.ak-door` tone plant
+ *  at the top of `@media (max-width: 743px)` a demonstrated FALSE PASS. This walk
+ *  keeps each rule's band and its whole (comma-split) selector list, so a guard
+ *  can say WHICH band a rule is in and can never miss one for being first.
+ *  Red-proven against exactly that plant, below. */
+type CssRule = { band: string; selectors: string[]; body: string }
+const rulesOf = (src: string): CssRule[] => {
+  let rest = stripComments(src)
+    .replace(/@(?:keyframes|font-face|counter-style|property)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
+  const out: CssRule[] = []
+  const bands: string[] = []
+  while (rest.length > 0) {
+    const open = rest.indexOf('{')
+    const close = rest.indexOf('}')
+    if (open < 0 && close < 0) break
+    if (close >= 0 && (open < 0 || close < open)) {
+      bands.pop()
+      rest = rest.slice(close + 1)
+      continue
+    }
+    const head = rest.slice(0, open).trim()
+    rest = rest.slice(open + 1)
+    if (head.startsWith('@')) {
+      bands.push(head.replace(/\s+/g, ' '))
+      continue
+    }
+    const end = rest.indexOf('}')
+    out.push({
+      band: bands.length > 0 ? bands.join(' / ') : 'base',
+      selectors: head.split(',').map((s) => s.trim().replace(/\s+/g, ' ')).filter(Boolean),
+      body: end < 0 ? rest : rest.slice(0, end),
+    })
+    rest = end < 0 ? '' : rest.slice(end + 1)
+  }
+  return out
+}
+const selectorsCarrying = (re: RegExp) =>
+  [...new Set(rulesOf(CSS).filter((r) => re.test(r.body)).flatMap((r) => r.selectors))].sort()
+
 type Declaration = { title: string; text: string; at: number }
 const DECLARATIONS: Declaration[] = [
   ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g),
@@ -552,11 +594,52 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(citeRow).not.toContain('data-press')
     // …and the sheet gives it no pointer, no lift and no shadow — a wash tint on
     // a non-pressable, which the one-way accent law allows at exactly this tier.
-    const rule = CSS_CODE.slice(CSS_CODE.indexOf('.biz .pg-ask-ai .ak-cite {'))
+    // ⚠ THE SLICE IS GUARDED (R4-14, blind lens L2-F12). `indexOf` answering −1
+    // makes `body` the empty string, and both `not.toContain`s below then pass on
+    // a rule that has VANISHED — a 「no X」 pin satisfied by absent input, which is
+    // the shape the rail-axis loop sixty lines earlier already guards against.
+    const at = CSS_CODE.indexOf('.biz .pg-ask-ai .ak-cite {')
+    expect({ rule: '.ak-cite', present: at > 0 }).toEqual({ rule: '.ak-cite', present: true })
+    const rule = CSS_CODE.slice(at)
     const body = rule.slice(0, rule.indexOf('}'))
+    expect(body.length).toBeGreaterThan(20)
     expect(body).not.toContain('cursor')
     expect(body).not.toContain('transition')
     expect(CSS_CODE).not.toContain('.ak-cite:hover')
+  })
+
+  it('⚖ R4-4 — the SCREEN’s own cuts are pinned WHERE THEY ARE DECIDED, not only in the lib', () => {
+    // Blind lens L2-F1. `splitAtName` is proven exhaustively in `ask-ai.test.ts`
+    // and the TWO CALL SITES that decide WHICH STRING it searches were pinned
+    // nowhere — and the probe reads `textContent`, which concatenates
+    // `before + name + after` back to the same string wherever the cut landed.
+    // So `splitAtName(card.headline, card.text)`, or dropping the `.ak-nm`
+    // wrapper entirely, survived both suites, the battery AND the probe. This is
+    // the same class round 3 closed for the ANSWER's name chip (R3-1); these are
+    // its unclosed siblings, and the probe carries the RENDERED half of each.
+    expect(SRC_CODE).toContain('const ev = splitAtName(card.evidence, card.evidenceName)')
+    expect(SRC_CODE).toContain('const head = splitAtName(card.headline, card.evidenceName)')
+    expect(SRC_CODE).toContain('<span className="ak-sug-h">{head.before}{head.name && <span className="ak-nm">{head.name}</span>}{head.after}</span>')
+    expect(SRC_CODE).toContain('<span className="ak-ev-t">{ev.before}{ev.name && <span className="ak-nm">{ev.name}</span>}{ev.after}</span>')
+    // R4-2 — the 出典 pill is cut on the SOURCE's own resolver name, and the
+    // middle is the accepted mock's bold (`ASK-AI-MOCK-v1.html:706`).
+    expect(SRC_CODE).toContain('const cited = splitAtName(rest, s.name)')
+    expect(SRC_CODE).toContain('<span className="ak-cite-t">{cited.before}{cited.name && <b>{cited.name}</b>}{cited.after}</span>')
+    // …the answer's SHAPE is the lib's cut of the contract's one string, on the
+    // turn's own text — never `t.text` painted whole into the lead…
+    expect(SRC_CODE).toContain('const { lead, advice } = splitLead(t.text)')
+    expect(SRC_CODE).toContain('<p className="ak-lead">{lead}</p>')
+    expect(SRC_CODE).toContain('{advice !== \'\' && <p className="ak-advice">{advice}</p>}')
+    // …the pill's tag half is the lib's, on the SOURCE's line…
+    expect(SRC_CODE).toContain('const { tag, rest } = splitEvidence(s.line)')
+    expect(SRC_CODE).toContain('{tag !== \'\' && <span className="ak-cite-tag">{tag}</span>}')
+    // …and 「もう一度送る」 re-sends the lib's preceding question, found on the
+    // FAILED turn's own id rather than on whatever turn is nearest in the DOM.
+    expect(SRC_CODE).toContain('const q = precedingQuestion(props.turns, t.id)')
+    expect(SRC_CODE).toContain('onClick={() => takeRetry(q)}')
+    // …and no cut in this room is a pattern-match over rendered prose (⚖-ADJ D):
+    // every needle is a string the derivation handed the screen.
+    expect(SRC_CODE).not.toMatch(/splitAtName\((?!card\.evidence, card\.evidenceName|card\.headline, card\.evidenceName|rest, s\.name)/)
   })
 
   it('⚖ S15 — the ONE 質問のヒント row: two group words, chips that carry their own preview', () => {
@@ -722,9 +805,21 @@ describe('⚖ ALL-SCREEN ADAPTIVITY — the ladder is declared, band by band', (
     // accidental catcher for somebody else's mutant (the M58 lesson).
     const heads = [...SRC_CODE.matchAll(/className="ak-rail-hd"/g)].map((m) => m.index ?? 0)
     expect(heads).toHaveLength(2)
-    for (const at of heads) {
-      const half = SRC_CODE.slice(at)
-      const upto = half.slice(0, half.indexOf('ak-rail-cnt') + 12)
+    // ⚠ EACH TOKEN IS REQUIRED BEFORE ITS PLACE IS COMPARED (R4-8, blind lens
+    // L2-F5). `indexOf` answers −1 for a token that is not there, and −1 is less
+    // than every real index — so a rail head with NO TITLE satisfied both
+    // orderings and this pin, whose whole job is the head's shape, passed on a
+    // head that had lost half of it. And each head is now bounded at the NEXT
+    // one: the scan used to run to the end of the file, so a phone head with no
+    // count silently borrowed the desk head's.
+    for (let n = 0; n < heads.length; n += 1) {
+      const half = SRC_CODE.slice(heads[n], heads[n + 1] ?? SRC_CODE.length)
+      const cnt = half.indexOf('ak-rail-cnt')
+      expect({ head: n, hasOwnCount: cnt >= 0 }).toEqual({ head: n, hasOwnCount: true })
+      const upto = half.slice(0, cnt + 12)
+      for (const token of ['ak-rail-ttl', 'ak-sp', 'ak-rail-cnt']) {
+        expect({ head: n, token, present: upto.includes(token) }).toEqual({ head: n, token, present: true })
+      }
       expect(upto.indexOf('ak-rail-ttl')).toBeLessThan(upto.indexOf('ak-sp'))
       expect(upto.indexOf('ak-sp')).toBeLessThan(upto.indexOf('ak-rail-cnt'))
     }
@@ -850,15 +945,40 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
     for (const named of ['.ak-sug-w', '.ak-msg-a .ak-msg-lb', '.ak-cite-tag', '.ak-ev-k', '.ak-chat-ic', '.ak-nm', '.ak-msg-ctx']) {
       expect({ named, argued: preface.includes(named) }).toEqual({ named, argued: true })
     }
-    // …and the four really are the whole list: every rule in the sheet that puts
-    // the accent family on ink is one of them.
-    const inked = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*color: var\(--ak-accent(?:-hover)?\)[^}]*\}/g)]
-      .flatMap((m) => m[1].trim().split(',').map((x) => x.trim().split('\n').pop()!.trim()))
+    // …and THE SEVEN really are the whole list: every rule in the sheet that puts
+    // the accent family on ink is one of them, or a pressable.
+    //
+    // ⚠ RE-PINNED AT R4-12 (blind lens L2-F9) on three counts. It said 「the four」
+    // for a seven-name list; it had no non-emptiness guard, so a token rename that
+    // stopped the regex matching would have left the loop asserting nothing under
+    // a comment claiming a complete census; and membership was `sel.includes(n)`,
+    // so a future `.ak-msg-lb-note` inherited `.ak-msg-lb`'s argument for free.
+    // Exact selectors, on the walker, with a floor.
+    const inked = selectorsCarrying(/color:\s*var\(--ak-accent(?:-hover)?\)/)
+    expect(inked.length).toBeGreaterThanOrEqual(13)
+    const LABELS = [
+      '.biz .pg-ask-ai .ak-chat-ic',
+      '.biz .pg-ask-ai .ak-cite-tag',
+      '.biz .pg-ask-ai .ak-ev-k',
+      '.biz .pg-ask-ai .ak-msg-a .ak-msg-lb',
+      '.biz .pg-ask-ai .ak-msg-ctx',
+      '.biz .pg-ask-ai .ak-nm',
+    ]
+    const PRESSABLES = [
+      '.biz .pg-ask-ai .ak-hchip:hover',
+      '.biz .pg-ask-ai .ak-help:hover',
+      '.biz .pg-ask-ai .ak-help[aria-expanded="true"]',
+      '.biz .pg-ask-ai .ak-namechip',
+      '.biz .pg-ask-ai .ak-sug-cv.ak-on',
+      '.biz .pg-ask-ai .ak-undo',
+      '.biz .pg-ask-ai .ak-why:hover',
+    ]
     for (const sel of inked) {
-      const label = ['ak-sug-w', 'ak-msg-lb', 'ak-cite-tag', 'ak-ev-k', 'ak-chat-ic', 'ak-nm', 'ak-msg-ctx'].some((n) => sel.includes(n))
-      const pressable = ['ak-why', 'ak-help', 'ak-namechip', 'ak-hchip', 'ak-undo', 'ak-sug-cv'].some((n) => sel.includes(n))
-      expect({ sel, argued: label || pressable }).toEqual({ sel, argued: true })
+      expect({ sel, argued: LABELS.includes(sel) || PRESSABLES.includes(sel) }).toEqual({ sel, argued: true })
     }
+    // …and every NON-pressable in that census is one the paragraph above argues
+    // by name, so the two halves of this pin cannot drift apart.
+    expect(inked.filter((s) => LABELS.includes(s)).sort()).toEqual([...LABELS].sort())
   })
 
   it('WASH TIER ONLY — the tone is a rule, a wash and ONE label, and never touches a pressable', () => {
@@ -877,12 +997,33 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
       .map((m) => m[1].trim().split('\n').pop()!.trim())
     expect(filled).toEqual(['.biz .pg-ask-ai .ak-sug-ic'])
     expect(CSS_CODE).toMatch(/\.ak-sug-in \{[^}]*border-left: 3px solid var\(--ak-cat-rule\)/)
-    // …and the two pressables inside a card are untouched by any of it.
-    for (const block of CSS_CODE.split('}')) {
-      if (/\.ak-door|\.ak-dismiss/.test(block.slice(0, block.indexOf('{') + 1))) {
-        expect({ block: block.slice(0, 60), tone: block.includes('--ak-cat') }).toEqual({ block: block.slice(0, 60), tone: false })
-      }
+    // …and the two pressables inside a card are untouched by any of it — IN
+    // EVERY BAND (R4-7, blind lens L2-F4). This sweep used to `split('}')`, which
+    // never sees the first rule of a band: a `.ak-door` tone planted at the top of
+    // `@media (max-width: 743px)` was caught 0 times, a demonstrated false pass.
+    const toned = rulesOf(CSS).filter((r) => r.selectors.some((s) => /\.ak-door|\.ak-dismiss/.test(s)))
+    // …and the sweep really has rules to sweep: an empty loop asserts nothing.
+    expect(toned.length).toBeGreaterThanOrEqual(5)
+    expect(toned.some((r) => r.band !== 'base')).toBe(true)
+    for (const r of toned) {
+      const at = `${r.band}::${r.selectors.join(',')}`
+      expect({ at, tone: r.body.includes('--ak-cat') }).toEqual({ at, tone: false })
     }
+  })
+
+  it('the tone sweep’s parser SEES the first rule of a band (red-proven)', () => {
+    // The exact plant that passed the old spelling: the tone rule is the FIRST
+    // rule inside the media block, where `split('}')` finds the query's own brace
+    // instead of the selector.
+    const plant = '@media (max-width: 743px) {\n  .biz .pg-ask-ai .ak-door { background: rgba(var(--ak-cat), .3); }\n  .biz .pg-ask-ai .ak-send { padding: 0; }\n}'
+    const seen = rulesOf(plant).filter((r) => r.selectors.some((s) => /\.ak-door/.test(s)))
+    expect(seen).toHaveLength(1)
+    expect(seen[0].band).toBe('@media (max-width: 743px)')
+    expect(seen[0].body).toContain('--ak-cat')
+    // …and the SECOND-rule shape the old parser did catch still reads the same,
+    // so the fix is a widening rather than a swap.
+    const second = '@media (max-width: 743px) {\n  .biz .pg-ask-ai .ak-send { padding: 0; }\n  .biz .pg-ask-ai .ak-dismiss { color: var(--ak-cat-ink); }\n}'
+    expect(rulesOf(second).filter((r) => r.body.includes('--ak-cat'))).toHaveLength(1)
   })
 })
 

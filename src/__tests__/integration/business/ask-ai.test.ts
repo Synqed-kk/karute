@@ -185,11 +185,27 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
       expect({ id: s.id, segment: s.deepLink, live: Boolean(LIVE_SEGMENTS[s.deepLink]) })
         .toEqual({ id: s.id, segment: s.deepLink, live: true })
     }
-    // …and the 準備中 rooms are NOT on that list, which is what makes the pin
-    // above a real gate rather than a spelling check.
-    for (const dead of ['recording', 'coaching', 'settings']) {
-      expect({ dead, live: Boolean(LIVE_SEGMENTS[dead]) }).toEqual({ dead, live: false })
-    }
+    // ⚠ RE-DERIVED, AND ITS REASON CORRECTED (R4-9, blind lens L2-F6). This loop
+    // used to say 「the 準備中 rooms are NOT on that list」 and name 録音 / コーチング /
+    // 設定 — and #823 and #812 shipped two of those three while this branch was
+    // out, so the pin's stated REASON went stale in the very round that
+    // re-derived the fold, even though the assertion still held (it held because
+    // `LIVE_SEGMENTS` was never extended, which is a second reason — the disease
+    // this programme hunts). The narrower thing that is still true: this room
+    // offers a card into EIGHT rooms and into no others, and the rooms it does
+    // not offer are absent for reasons that have nothing to do with each other.
+    // So the list is READ FROM THE RAIL rather than typed here, and each absence
+    // carries the rail's own current flag beside it.
+    const navRows = [...read('src/app/[locale]/(business)/BusinessSidebar.tsx').matchAll(
+      /\{ key: '([^']+)', segment: (null|'[^']+'), label: '[^']*', mini: '[^']*', live: (true|false) \}/g,
+    )].map((m) => ({ key: m[1], live: m[3] === 'true' }))
+    expect(navRows).toHaveLength(12)
+    const notOffered = navRows
+      .filter((n) => !Object.hasOwn(LIVE_SEGMENTS, n.key))
+      .map((n) => `${n.key}:${n.live ? 'live' : '準備中'}`)
+    // 録音 and 設定 are LIVE rooms this room simply has no suggestion shaped for;
+    // コーチング is the one room still unbuilt; AI相談 is this room itself.
+    expect(notOffered.sort()).toEqual(['askAi:live', 'coaching:準備中', 'recording:live', 'settings:live'])
   })
 
   it('⚖ S15 — every suggestion carries a TO-DO and a REASON, and neither states a world fact', () => {
@@ -217,8 +233,12 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
         const plane = suggestionPlane.find((s) => s.id === c.id)!
         const person = personForRef(plane.sourceRef, ix)
         expect({ lens, id: c.id, person: person !== null }).toEqual({ lens, id: c.id, person: true })
+        // ⚠ THE EXPECTATION IS SPELLED THE WAY PRODUCTION IS (R4-14, lens L2-F11).
+        // `String.replace` with a STRING replacement is exactly the form R2-4
+        // removed — an expectation written in it cannot tell the two replacers
+        // apart, so it was quietly re-implementing the bug it sits beside.
         expect({ lens, id: c.id, headline: c.headline })
-          .toEqual({ lens, id: c.id, headline: plane.headline.replace('{name}', person!) })
+          .toEqual({ lens, id: c.id, headline: plane.headline.split('{name}').join(person!) })
         // the slot never reaches a reader, and the name really is in the line
         expect({ lens, id: c.id, raw: c.headline.includes('{name}') }).toEqual({ lens, id: c.id, raw: false })
         expect({ lens, id: c.id, named: c.headline.includes(person!) }).toEqual({ lens, id: c.id, named: true })
@@ -269,6 +289,24 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
       expect({ ref: ref.id, named: line.includes(`${who.name}様`) }).toEqual({ ref: ref.id, named: true })
     }
     expect(subjectOf({ collection: 'customers', id: 'cus-9999' }, ix)).toBeNull()
+    // ⚠ AND THE STRUCTURAL HALF (R4-11, blind lens L2-F8). Everything above
+    // measures AGREEMENT — and two independent derivations that happen to agree
+    // satisfy it, which is the whole failure mode R2-7 closed. So the claim is
+    // also read off the function itself: `evidenceLineOf` reaches the person
+    // through THE resolver in every one of its collection arms, and reaches them
+    // through the module's private name lookup in none of them.
+    const evBody = LIB_CODE.slice(
+      LIB_CODE.indexOf('export function evidenceLineOf'),
+      LIB_CODE.indexOf('export function urgencyOf'),
+    )
+    expect(evBody.length).toBeGreaterThan(600)
+    expect(evBody).not.toMatch(/personOf\(/)
+    const arms = evBody.split("case '").slice(1).map((a) => a.slice(0, a.indexOf("'")))
+    expect(arms.sort()).toEqual(['bookings', 'customers', 'inbox', 'karuteRecords'])
+    for (const arm of evBody.split("case '").slice(1)) {
+      expect({ arm: arm.slice(0, arm.indexOf("'")), resolves: arm.includes('subjectOf(') })
+        .toEqual({ arm: arm.slice(0, arm.indexOf("'")), resolves: true })
+    }
   })
 
   it('⚖ R2-6 — an answer citing BOTH 見本 あかり’s renders TWO chips, told apart by 会員番号', () => {
@@ -304,47 +342,121 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
     // the customer holding the MOST tickets is fixed at the DATA, not at the
     // copy. The subject is compared against every OTHER ticket-holding customer
     // the same lens can read.
+    // ⚠ THE RIVALS COME OUT OF THE ROOM'S OWN LENS DOOR (R4-10, blind lens
+    // L2-F7). They used to be re-derived here — `new Set(appointments.map(…))`,
+    // the room's own rule for 「who can this store see」 written a second time
+    // beside it, which is the ⚖ A8 disease this suite hunts everywhere else. It
+    // reads `askAiIndex().lensCustomers` now: the very set `refInLens` gates
+    // every card, every 根拠 line and every 出典 row on. (⚠ AND THAT SET IS
+    // BOOKING-DERIVED BY LAW, not by accident — a customer row carries no
+    // `store_id` at all (CM-9), so a person is 「in this store」 exactly when a
+    // clamped booking names them. A customer with no booking here is not a
+    // rival this card could ever have been about, because this room cannot see
+    // them.)
+    const ixB = askAiIndex(WORLD_B)
     const ticketsOf = (id: string) =>
-      (customers.find((c) => c.id === id) as unknown as { ticket_balance?: number } | undefined)?.ticket_balance
+      (ixB.customer.get(id) as unknown as { ticket_balance?: number } | undefined)?.ticket_balance
     const card = buildFeed(suggestionPlane, WORLD_B).find((c) => c.id === 'sug-ticket')!
-    const subject = subjectOf(
-      suggestionPlane.find((s) => s.id === 'sug-ticket')!.sourceRef,
-      askAiIndex(WORLD_B),
-    )!
+    const subject = subjectOf(suggestionPlane.find((s) => s.id === 'sug-ticket')!.sourceRef, ixB)!
     const mine = ticketsOf(subject.id)
     expect(mine).toBeGreaterThan(0)
-    const rivals = [...new Set(WORLD_B.appointments.map((a) => a.customer_id).filter(Boolean))]
-      .filter((id) => id !== subject.id)
-      .map((id) => ({ id, tickets: ticketsOf(id as string) }))
-      .filter((r) => typeof r.tickets === 'number')
+    const holders = [...ixB.lensCustomers]
+      .map((id) => ({ id, tickets: ticketsOf(id) }))
+      .filter((r): r is { id: string; tickets: number } => typeof r.tickets === 'number')
+    // …and the comparison can never go quiet (L2-F7): `ticketsOf` casts through
+    // `as unknown`, so a renamed field would empty this list and leave a loop
+    // asserting nothing under a comment claiming a comparison. TWO ticket-bearing
+    // customers is what 代官山 actually holds — cus-04 and the subject — so this
+    // is the world's own floor, not a number picked to be safe.
+    expect(holders.length).toBeGreaterThanOrEqual(2)
+    const rivals = holders.filter((r) => r.id !== subject.id)
+    expect(rivals.length).toBeGreaterThanOrEqual(1)
     for (const r of rivals) {
-      expect({ id: r.id, lower: (r.tickets as number) >= (mine as number) }).toEqual({ id: r.id, lower: true })
+      expect({ id: r.id, lower: r.tickets >= (mine as number) }).toEqual({ id: r.id, lower: true })
     }
+    // …stated once more as the thing the card's sentence actually claims.
+    expect(Math.min(...holders.map((h) => h.tickets))).toBe(mine)
     expect(card.evidenceName).toBe(subject.name)
   })
 
   it('⚖ S15 · R2-1 — splitAtName cuts on the RESOLVER’s string, AFTER the line’s own separator', () => {
     const parts = splitAtName('カルテ K-0001・見本 いつき様（担当 見本 しろう）', '見本 いつき')
-    expect(parts).toEqual({ before: 'カルテ K-0001・', name: '見本 いつき', after: '様（担当 見本 しろう）' })
+    expect(parts).toEqual({ before: 'カルテ K-0001・', name: '見本 いつき様', after: '（担当 見本 しろう）' })
     // ⚠ THE TAG IS NOT SEARCHABLE (R2-1, blind lens L1-1). A bare `indexOf`
     // finds the needle wherever it first appears — including inside 「予約 R-4826」
     // — so a customer named 「予約」, 「カルテ」 or with a latin initial had their
     // chip painted over the reference number. The human half of a resolved line
     // starts after its first 「・」, and that is where the search starts.
     expect(splitAtName('予約 R-4826・予約様（担当 見本 しろう）', '予約'))
-      .toEqual({ before: '予約 R-4826・', name: '予約', after: '様（担当 見本 しろう）' })
+      .toEqual({ before: '予約 R-4826・', name: '予約様', after: '（担当 見本 しろう）' })
     expect(splitAtName('カルテ K-0001・カルテ様（担当 見本 しろう）', 'カルテ'))
-      .toEqual({ before: 'カルテ K-0001・', name: 'カルテ', after: '様（担当 見本 しろう）' })
+      .toEqual({ before: 'カルテ K-0001・', name: 'カルテ様', after: '（担当 見本 しろう）' })
     expect(splitAtName('予約 R-4826・R様（担当 見本 しろう）', 'R'))
-      .toEqual({ before: '予約 R-4826・', name: 'R', after: '様（担当 見本 しろう）' })
+      .toEqual({ before: '予約 R-4826・', name: 'R様', after: '（担当 見本 しろう）' })
     // …and a HEADLINE has no separator at all, so the search is unchanged there
     // (`indexOf` −1, +1 = 0) — which is what keeps the rail card's own chip right.
     expect(splitAtName('見本 いつき様に再来のご案内', '見本 いつき'))
-      .toEqual({ before: '', name: '見本 いつき', after: '様に再来のご案内' })
+      .toEqual({ before: '', name: '見本 いつき様', after: 'に再来のご案内' })
     // a line with no name to find keeps all of itself, rather than being cut in
     // a place a regex guessed at
     expect(splitAtName('受信トレイ・空き待ち', null)).toEqual({ before: '受信トレイ・空き待ち', name: '', after: '' })
     expect(splitAtName('受信トレイ・空き待ち', '誰か')).toEqual({ before: '受信トレイ・空き待ち', name: '', after: '' })
+  })
+
+  it('⚖ R4-1 — 「様」 travels INSIDE the name, because that is the thing a reader sees', () => {
+    // Blind lens L3-1: the world stores 「見本 さくら」 and the page shows
+    // 「見本 さくら様」 — one thing, and the accepted mock wraps it whole
+    // (`ASK-AI-MOCK-v1.html:801`, `:808`). Cutting on the bare name stranded the
+    // honorific in plain text one pixel outside the blue chip, on EVERY rail
+    // headline and EVERY 根拠 line in the room, at every width, in every world.
+    expect(splitAtName('予約 R-4826・見本 さくら様（担当 見本 しろう / テスト整体 60分）', '見本 さくら').name)
+      .toBe('見本 さくら様')
+    expect(splitAtName('見本 さくら様に返事をもらう', '見本 さくら').name).toBe('見本 さくら様')
+    // …and a name the line does NOT follow with 様 cuts exactly where it did
+    // before: this extends the cut, it does not invent an honorific.
+    expect(splitAtName('予約 R-4826・見本 さくら（担当 見本 しろう）', '見本 さくら'))
+      .toEqual({ before: '予約 R-4826・', name: '見本 さくら', after: '（担当 見本 しろう）' })
+    // …and the room's own resolved lines really are the 様-carrying shape, so
+    // the rule above is about the strings this room actually renders rather than
+    // a hand-typed sample of them.
+    const ix = askAiIndex(WORLD_A)
+    for (const card of buildFeed(suggestionPlane, WORLD_A)) {
+      for (const [what, line] of [['headline', card.headline], ['evidence', card.evidence]] as const) {
+        const cut = splitAtName(line, card.evidenceName)
+        expect({ id: card.id, what, ends: cut.name.endsWith('様') }).toEqual({ id: card.id, what, ends: true })
+        expect({ id: card.id, what, whole: cut.before + cut.name + cut.after }).toEqual({ id: card.id, what, whole: line })
+        // …and the honorific is not left behind to be painted twice
+        expect({ id: card.id, what, stranded: cut.after.startsWith('様') }).toEqual({ id: card.id, what, stranded: false })
+      }
+    }
+    // the 出典 pill reads the same way, from the same resolver (R4-2)
+    const answer = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    const plane = conversationPlane.find((t) => t.id === answer.id)!
+    for (const s of answer.sources) {
+      const ref = plane.sources.find((r) => `${r.collection}:${r.id}` === s.ref)!
+      const cut = splitAtName(splitEvidence(s.line).rest, s.name)
+      expect({ ref: s.ref, name: cut.name }).toEqual({ ref: s.ref, name: `${subjectOf(ref, ix)!.name}様` })
+    }
+  })
+
+  it('⚖ R4-2 — an 出典 row carries the PERSON it is about, from the ONE resolver', () => {
+    // The accepted mock bolds the customer's name inside a cite pill
+    // (`ASK-AI-MOCK-v1.html:706`), and the only honest way to know where that
+    // name ends is to be told by the derivation that put it there — the same
+    // string the rail card's 根拠 line is cut on. A screen pattern-matching a
+    // person back out of the rendered prose is the regex ⚖-ADJ D forbids.
+    const answer = buildConversation(conversationPlane, WORLD_A).find((t) => t.role === 'assistant')!
+    expect(answer.sources.length).toBeGreaterThan(0)
+    expect(answer.sources[0].name).toBe('見本 いつき')
+    const ix = askAiIndex(WORLD_A)
+    const plane = conversationPlane.find((t) => t.id === answer.id)!
+    for (const s of answer.sources) {
+      // …every row, and always the resolver's own answer rather than a second
+      // derivation that happens to agree (⚖ A8).
+      const ref = plane.sources.find((r) => `${r.collection}:${r.id}` === s.ref)!
+      expect({ ref: s.ref, name: s.name }).toEqual({ ref: s.ref, name: subjectOf(ref, ix)!.name })
+      expect({ ref: s.ref, inLine: s.line.includes(`${s.name}様`) }).toEqual({ ref: s.ref, inLine: true })
+    }
   })
 
   it('every category the plane uses has a label, and they are canon AI設定’s four', () => {
@@ -1296,17 +1408,50 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
    *  query's own brace — and a planted unscoped rule at the top of a media block
    *  passes every pin. Conditional groups lose their PRELUDE and keep their
    *  rules; keyframes and font-face blocks go entirely, so `from`/`to` never read
-   *  as selectors. Red-proven below against exactly that plant. */
-  const selectorsOf = (src: string) =>
-    stripCss(src)
+   *  as selectors. Red-proven below against exactly that plant.
+   *
+   *  ⚠ AND IT KEEPS THE BAND (R4-6, blind lens L2-F3). `selectorsOf` used to
+   *  throw the at-rule PRELUDE away, and the ⚖ PAGE-SCROLL re-pin below needs
+   *  it: 「the same box, capped once at the desk and once at ≤743」 is a claim
+   *  about WHICH BAND each declaration is in, and a list of bare selector names
+   *  cannot express it — so deleting the touch cap while duplicating the desk one
+   *  read as byte-identical and passed. One walker answers both questions now;
+   *  `selectorsOf` is the same walk with the bands dropped, so the two can never
+   *  disagree about what a rule is. */
+  type CssRule = { band: string; selectors: string[]; body: string }
+  const rulesOf = (src: string): CssRule[] => {
+    let rest = stripCss(src)
       .replace(/@(?:keyframes|font-face|counter-style|property)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
-      .replace(/@(?:media|supports|layer|container)[^{]*\{/g, '')
-      .split('}')
-      .flatMap((block) => {
-        const i = block.indexOf('{')
-        return i < 0 ? [] : block.slice(0, i).split(',').map((s) => s.trim()).filter(Boolean)
+    const out: CssRule[] = []
+    const bands: string[] = []
+    while (rest.length > 0) {
+      const open = rest.indexOf('{')
+      const close = rest.indexOf('}')
+      if (open < 0 && close < 0) break
+      // a band ending before the next rule opens: leave it, and carry on
+      if (close >= 0 && (open < 0 || close < open)) {
+        bands.pop()
+        rest = rest.slice(close + 1)
+        continue
+      }
+      const head = rest.slice(0, open).trim()
+      rest = rest.slice(open + 1)
+      // a conditional group opens a BAND — its rules are read, its prelude kept
+      if (head.startsWith('@')) {
+        bands.push(head.replace(/\s+/g, ' '))
+        continue
+      }
+      const end = rest.indexOf('}')
+      out.push({
+        band: bands.length > 0 ? bands.join(' / ') : 'base',
+        selectors: head.split(',').map((s) => s.trim().replace(/\s+/g, ' ')).filter(Boolean),
+        body: end < 0 ? rest : rest.slice(0, end),
       })
-      .filter((s) => !s.startsWith('@'))
+      rest = end < 0 ? '' : rest.slice(end + 1)
+    }
+    return out
+  }
+  const selectorsOf = (src: string) => rulesOf(src).flatMap((r) => r.selectors).filter((s) => !s.startsWith('@'))
   const classesIn = (sel: string) => [...sel.matchAll(/\.([a-zA-Z][\w-]*)/g)].map((m) => m[1]).filter((n) => n !== 'biz')
 
   const SIBLING_DIRS = readdirSync(join(BIZ, 'business')).filter((d) => {
@@ -1328,6 +1473,18 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   it('the parser SEES the first rule inside an @media block (red-proven)', () => {
     const planted = '@media (max-width: 743px) {\n  .biz .btn { padding: 0; }\n  .biz .pg-ask-ai .ak-send { padding: 0; }\n}'
     expect(selectorsOf(planted)).toEqual(['.biz .btn', '.biz .pg-ask-ai .ak-send'])
+    // ⚠ AND IT SEES THE TWO SHAPES THAT PASSED THE OLD ⚖ PAGE-SCROLL PIN (R4-6,
+    // blind lens L2-F3), demonstrated here rather than described:
+    //  (a) a SECOND vertical scroller riding the panel's own rule on a multi-line
+    //      comma selector — invisible to a parser that keeps only the last line;
+    const comma = '.biz .pg-ask-ai .ak-newbox,\n.biz .pg-ask-ai .ak-chat-scroll { overflow-y: auto; }'
+    expect(rulesOf(comma)[0].selectors)
+      .toEqual(['.biz .pg-ask-ai .ak-newbox', '.biz .pg-ask-ai .ak-chat-scroll'])
+    //  (b) the SAME cap stated twice in ONE band — indistinguishable from one per
+    //      band to a list that records no band.
+    const twice = '.a { max-height: 10px; }\n@media (max-width: 743px) { .a { max-height: 20px; } }'
+    expect(rulesOf(twice).map((r) => `${r.band}::${r.selectors.join(',')}`))
+      .toEqual(['base::.a', '@media (max-width: 743px)::.a'])
   })
 
   it('the neighbours are all here — read from disk, never restated', () => {
@@ -1412,22 +1569,30 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // are content strips, which the ruling allows and each owns its own
     // container; nothing else caps a height; and `overscroll-behavior` is absent
     // everywhere, so the page keeps the document's axis when the panel ends.
-    const vertical: string[] = []
-    const horizontal: string[] = []
-    const capped: string[] = []
-    for (const block of stripCss(CSS_SRC).split('}')) {
-      const i = block.indexOf('{')
-      if (i < 0) continue
-      const sel = block.slice(0, i).trim().split('\n').pop()!.trim()
-      const body = block.slice(i + 1)
-      if (/overflow-y\s*:\s*(auto|scroll)/.test(body)) vertical.push(sel)
-      if (/overflow-x\s*:\s*(auto|scroll)/.test(body)) horizontal.push(sel)
-      if (/max-height/.test(body)) capped.push(sel)
-    }
-    expect(vertical).toEqual(['.biz .pg-ask-ai .ak-chat-scroll'])
-    expect(horizontal).toEqual(['.biz .pg-ask-ai .ak-rail-list', '.biz .pg-ask-ai .ak-hintrow'])
-    // the SAME one box, once at the desk ceiling and once at the ≤743 one
-    expect(capped).toEqual(['.biz .pg-ask-ai .ak-chat-scroll', '.biz .pg-ask-ai .ak-chat-scroll'])
+    // ⚠ REWRITTEN ON THE WALKER (R4-6, blind lens L2-F3). The previous spelling
+    // was three equalities that BOTH passed while the truth was broken, proven on
+    // this sheet: (a) `block.slice(0, i).trim().split('\n').pop()` keeps only the
+    // LAST line of a selector, so a second vertical scroller sharing this rule
+    // through a multi-line comma selector was invisible; (b) `capped` recorded
+    // bare names with no band, so deleting the ≤743 cap and duplicating the desk
+    // one was byte-identical to the truth. Both are impossible to write now: the
+    // sets are COMMA-SPLIT, and every cap carries the band it is stated in.
+    const rules = rulesOf(CSS_SRC)
+    expect(rules.length).toBeGreaterThan(80)
+    const carrying = (re: RegExp) => rules.filter((r) => re.test(r.body))
+    const setOf = (rs: CssRule[]) => [...new Set(rs.flatMap((r) => r.selectors))].sort()
+    const banded = (rs: CssRule[]) => rs.flatMap((r) => r.selectors.map((s) => `${r.band}::${s}`)).sort()
+
+    expect(setOf(carrying(/overflow-y\s*:\s*(auto|scroll)/))).toEqual(['.biz .pg-ask-ai .ak-chat-scroll'])
+    expect(setOf(carrying(/overflow-x\s*:\s*(auto|scroll)/)))
+      .toEqual(['.biz .pg-ask-ai .ak-hintrow', '.biz .pg-ask-ai .ak-rail-list'])
+    // the SAME one box, once at the desk ceiling and once at the ≤743 one — and
+    // the band is part of the assertion, so the two cannot be swapped for each
+    // other or collapsed into one band stated twice.
+    expect(banded(carrying(/max-height/))).toEqual([
+      '@media (max-width: 743px)::.biz .pg-ask-ai .ak-chat-scroll',
+      'base::.biz .pg-ask-ai .ak-chat-scroll',
+    ])
     expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
     // …and `position: sticky` appears nowhere at all in this room.
     expect(CSS_CODE).not.toMatch(/position:\s*sticky/)

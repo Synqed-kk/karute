@@ -938,10 +938,17 @@ export function AskAiScreen(props: AskAiProps) {
                                     // handler and no pointer: a door that does
                                     // not open must not look like a door.
                                     const { tag, rest } = splitEvidence(s.line)
+                                    // …and the customer's name reads FIRST inside
+                                    // the pill (R4-2, the mock's own markup at
+                                    // `ASK-AI-MOCK-v1.html:706`): cut at the ONE
+                                    // resolver's own string, like every other name
+                                    // in this room, never a guess at where a
+                                    // person's name ends.
+                                    const cited = splitAtName(rest, s.name)
                                     return (
                                       <span className="ak-cite" key={s.ref}>
                                         {tag !== '' && <span className="ak-cite-tag">{tag}</span>}
-                                        <span className="ak-cite-t">{rest}</span>
+                                        <span className="ak-cite-t">{cited.before}{cited.name && <b>{cited.name}</b>}{cited.after}</span>
                                       </span>
                                     )
                                   })}

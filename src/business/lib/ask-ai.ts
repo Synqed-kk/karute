@@ -349,12 +349,23 @@ export interface FeedCard {
  *  and paints the chip on the wrong substring. The human half of every resolved
  *  line starts after its first 「・」, so that is where the search starts. A
  *  headline carries no separator at all: `indexOf` returns −1, +1 is 0, and the
- *  search is unchanged. */
+ *  search is unchanged.
+ *
+ *  ⚠ AND 「様」 TRAVELS WITH THE NAME (R4-1). The world stores a person's NAME;
+ *  what a reader is looking at is 「見本 さくら様」 — one thing, the accepted mock's
+ *  own chip (`ASK-AI-MOCK-v1.html:801`, `:808`) — and cutting on the bare name
+ *  left the honorific stranded in plain text a pixel outside the chip on every
+ *  headline and every 根拠 line in the room. The answer's own name chips already
+ *  print `名前様` inside the chip (`AnswerPerson.label`), so this is the room
+ *  agreeing with itself rather than a new rule. A name NOT followed by 様 — a
+ *  headline that puts the person mid-sentence without the honorific — cuts
+ *  exactly where it did before. */
 export function splitAtName(line: string, name: string | null): { before: string; name: string; after: string } {
   if (!name) return { before: line, name: '', after: '' }
   const i = line.indexOf(name, line.indexOf('・') + 1)
   if (i < 0) return { before: line, name: '', after: '' }
-  return { before: line.slice(0, i), name, after: line.slice(i + name.length) }
+  const end = line.startsWith('様', i + name.length) ? i + name.length + 1 : i + name.length
+  return { before: line.slice(0, i), name: line.slice(i, end), after: line.slice(end) }
 }
 
 /** ⚖ THE EVIDENCE LINE READS AS A PILL: a tag and the rest (S15, the accepted
@@ -447,6 +458,13 @@ export function windowFeed<T>(cards: T[], steps: number): { shown: T[]; remainin
 export interface AnswerSource {
   ref: string
   line: string
+  /** The person the line is about, as the ONE resolver spelled them — so the
+   *  cite pill can render the name as the mock does (bold, 様 and all) by
+   *  SPLITTING ON THIS STRING, exactly the way a rail card's 根拠 line does
+   *  (R4-2). `null` only where a line could exist without a subject, which the
+   *  resolver's own contract does not allow: `evidenceLineOf` returns `null` for
+   *  precisely the references `subjectOf` does. */
+  name: string | null
 }
 
 /** A person an answer's 出典 rows are about, and the question a tap on their
@@ -529,12 +547,14 @@ export function buildConversation(turns: FixtureTurn[], world: AskAiWorld): Conv
       if (!refInLens(ref, ix)) continue
       const line = evidenceLineOf(ref, ix)
       if (line === null) continue
-      sources.push({ ref: `${ref.collection}:${ref.id}`, line })
       // ⚠ DISTINCT BY CUSTOMER, NOT BY NAME (R2-6). Deduping on the name folded
       // two different people into one chip the moment an answer cited both
       // 見本 あかり's — which is a chip that fills the composer with a question
       // about the wrong customer.
       const who = subjectOf(ref, ix)
+      // …and the pill carries the SAME resolver's name it was built from (R4-2),
+      // rather than the screen pattern-matching a person back out of the line.
+      sources.push({ ref: `${ref.collection}:${ref.id}`, line, name: who?.name ?? null })
       if (who && !people.some((p) => p.id === who.id)) {
         people.push({ id: who.id, name: who.name, label: '', prompt: namePrompt(who.name) })
       }
