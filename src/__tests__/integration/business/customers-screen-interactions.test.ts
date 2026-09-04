@@ -473,9 +473,14 @@ describe('顧客 V2 — the refusals and the doors (⚖-ADJ A / ⚖-ADJ B)', () 
     expect(SCREEN_CODE.match(/cu-crowc-k">LINE</g)).toHaveLength(1)
     expect(SCREEN_CODE.match(/<ConsentRows row={row} \/>/g)).toHaveLength(2)
     expect(SCREEN_CODE).toContain('if (row.consent == null) return null')
-    // …and 累計支払 is no longer masked for a thin row on the tile.
+    // …and 累計支払 is masked on NEITHER surface — the tile OR the optional
+    // column. The column was the half that showed the derived number while the
+    // tile hid it, so both spellings are pinned or the pair can drift apart
+    // again from the other side.
     expect(SCREEN_CODE).toContain('{spentLabel(row.totalSpent)}')
+    expect(SCREEN_CODE).toContain('<span className="cu-a">{spentLabel(r.totalSpent)}</span>')
     expect(SCREEN_CODE).not.toMatch(/row\.thin \? '—' : spentLabel/)
+    expect(SCREEN_CODE).not.toMatch(/r\.thin \? '—' : spentLabel/)
   })
 
   it('a duplicate’s reason names the shared key when there is one', () => {
