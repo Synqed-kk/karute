@@ -11,7 +11,7 @@
 // The suppression that was supposed to catch it ran inside `renderLane`,
 // filtered `onThisLane` — the same DRAWN ROW — so it could not see p-05's
 // 販売可能枠 hour and p-06's スキマ枠 box both pointing at ベッド2 at all; and it
-// ran AFTER `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the
+// ran AFTER `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the
 // price button were computed from boxes the screen then declined to draw.
 //
 // WHAT THIS FILE PROVES, in the order the round decides things:
@@ -452,7 +452,7 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     // ⚖ PIN MIGRATED at E3b, WITH the decision: same four surfaces, same law,
     // one layer along — they read `sellDrawn`, the PUBLISHED layer (⚖ Q4: the
     // standard hours inside a 新規用に確保 window are withheld from a regular
-    // customer, so they are not 公開中 and not 安全な空き either). The 販売可能枠
+    // customer, so they are not 公開中 and not counted in the 運営影響 stat either). The 販売可能枠
     // heading is now the sell GROUP of the ruled by-kind breakdown (⚖ 8/30 Q3),
     // and its rows are fed from this same `sellDrawn.staffBands` — the counter's
     // own memo is the fourth line below, which is where that surface now lives.

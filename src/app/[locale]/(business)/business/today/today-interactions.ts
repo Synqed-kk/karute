@@ -38,7 +38,7 @@ import {
   type DragMode,
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
-import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
 // imports `laneSpans` from this file as a VALUE, and the capacity book imports
 // `allocateBed`, so a value import back to either would be a real module cycle.
@@ -893,8 +893,8 @@ export interface SellDrop {
  *  box could both point at ベッド2 at the same minute. The shipped suppression
  *  ran inside `renderLane` and filtered `onThisLane` — the same DRAWN ROW — so
  *  it could not see a cross-row collision at all, and because it ran after
- *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, 安全な空き)
- *  were computed from boxes the screen then declined to draw.
+ *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, the 運営影響
+ *  stat) were computed from boxes the screen then declined to draw.
  *
  *  Reconciling HERE, between `deriveSellableCells` and `buildSellLayer`, makes
  *  those counts honest BY CONSTRUCTION: every surface reads a layer built out of
@@ -1155,7 +1155,7 @@ export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown
  *  purchasable, or be painted.
  *
  *  ⚖ R4's OWN LESSON, OBEYED. The reconcile moved out of the renderer in R4
- *  precisely because 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the 公開価格
+ *  precisely because 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the 公開価格
  *  button were counting boxes the paint then declined to draw. Withholding at
  *  the RENDERER would rebuild that defect one law along, so it happens to the
  *  LAYER: every surface that reads the layer stays honest for free, both rows
@@ -2711,6 +2711,33 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
   }
 }
 
+/** ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR.
+ *
+ *  A card being CARRIED shares its face with the one standing on the board
+ *  (`cardFace`), and that face prints the booking's committed start — so for the
+ *  whole gesture the thing in the operator's hand advertised where it came FROM
+ *  while the dashed landing under it said where it was going. Two answers to one
+ *  question, which is ⚖ 54's disease on the one surface the eye is actually on.
+ *
+ *  `liveStartMin` is the landing the ghost is already drawn from, in minutes;
+ *  `null` means there is no landing to speak of (nothing in flight, over the
+ *  shelf, off the board) and the card keeps the label it rests with. The
+ *  grammar is `today-board`'s own — `${hhmm(startMinute)}〜`, start only
+ *  (:423) — reused rather than re-spelled, so a card in hand and the same card
+ *  at rest can never format one minute two ways.
+ *
+ *  ⚖ FIX ROUND 1 (blind round 1, L1 F2) — AND THE SAME LIE WAS ON THE BLOCK.
+ *  A 休憩/予定ブロック in flight printed the time it came FROM too, for exactly
+ *  the reason the card did, so it gets the same answer here rather than a
+ *  second author on the same board. Its face is the OTHER grammar today-board
+ *  writes — `${hhmm(start)}〜${hhmm(end)}` (:462 休憩, :472 block), a span and
+ *  not a start — so an end minute, when the caller has one already in render,
+ *  selects it; no end, and the start-only card grammar stands. */
+export function proxyTimeLabel(restTime: string, liveStartMin: number | null, liveEndMin: number | null = null): string {
+  if (liveStartMin == null) return restTime
+  return liveEndMin == null ? `${hhmm(liveStartMin)}〜` : `${hhmm(liveStartMin)}〜${hhmm(liveEndMin)}`
+}
+
 /** Every drawing of one booking. The board puts the same card on a staff lane
  *  and on a bed lane (canon's `pairOf`), and a gesture owns all of them. */
 export function cardNodes(board: Element | null, caseId: string): HTMLElement[] {
@@ -3149,6 +3176,127 @@ export interface LandingVerdict {
   checks: Check[]
 }
 
+/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,
+ *  and canon is frozen. The constant is the app side's copy of that literal, and
+ *  it is pinned against the canon source so the two cannot drift apart in
+ *  silence (today-screen-interactions.test.ts). */
+export const PRICE_HOLD_ROW = '予約時価格を保持（動的価格は適用しません）'
+
+/** ⚖ R8 T1 — A CHECK ROW THAT NEVER RAN A CHECK.
+ *
+ *  canon asserts 予約時価格を保持 over every landing, including a booking that
+ *  has NO recorded price (apt-09 carries `booked_price: null` by documented
+ *  fixture intent). The row then promises to hold a number that does not exist,
+ *  on a card whose own 予約時価格 fact three lines away reads 記録なし.
+ *
+ *  The row is DROPPED rather than reworded (Fable default, overturnable): the
+ *  fact line already says 記録なし in the operator's own words, so a second
+ *  sentence about the same nothing is noise, and rewording it would be a new
+ *  operator string for a state the surface can already say.
+ *
+ *  Pure, and applied at the two app callers that consume canon's raw rows —
+ *  `landingVerdict` below and the screen's `checksFor`. Order is canon's: a
+ *  filter, never a rebuild. */
+export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
+  return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
+}
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F1 + F3) — THE THREE SETS THE PRICE QUESTION
+ *  IS ANSWERED FROM, built by ONE author and beside the rule that reads them.
+ *
+ *  F3 — WHY IT LEFT THE SCREEN. The memo built these inline, where an anchored
+ *  text pin was the only armour there is, and two tsc-clean edits inside it
+ *  re-opened this item's own defect: a wrapper-body `addedPriced.add(...)` that
+ *  stamped every session row whatever its mint said, and a `priced` rebuilt off
+ *  the server's LANES so every card on the board counted as priced while the
+ *  page's 根拠 list still said no. Set-building is logic; logic lives where a
+ *  truth table can be written about it.
+ *
+ *  F1 — AND THE SHELF IS A SESSION SOURCE, exactly like `added`. A chip carried
+ *  to another day (⚖ Liam 22 — `placeFromShelf` supports that on purpose) is on
+ *  none of THAT day's server lanes and in no `added` row until it lands. The two
+ *  questions asked about the same chip — the mid-drag word (`inHand`) and the
+ *  release (`chipAsk`) — therefore answered 「no price」 for a priced booking in
+ *  hand and 「price」 one gesture later, after the drop stamped the row from
+ *  `chip.priced`: one gesture, two answers to one question, which is the disease
+ *  this item exists to remove. The shelf's own park-time stamp joins the session
+ *  set, so the answer is the same in hand and after the drop.
+ *
+ *  `sessionPriced` is the UNION of the two session writers — rows this session
+ *  added ∪ chips on the shelf — and both halves are STAMPS, never a reading of
+ *  the card's ticket line. `fromServer` is every booking the server's lanes know,
+ *  priced or not: it is what tells a server card apart from a session one, and
+ *  the reason a price-less server booking cannot be answered for by the session.
+ *  Pure — no React, no props, nothing to memoise here. */
+export function priceFactSets(input: {
+  pricedIds: readonly string[]
+  serverLanes: readonly BoardLane[]
+  added: readonly { priced: boolean; item: { caseId: string | null } }[]
+  parked: readonly { id: string; priced: boolean }[]
+}): { priced: ReadonlySet<string>; fromServer: ReadonlySet<string>; sessionPriced: ReadonlySet<string> } {
+  const fromServer = new Set<string>()
+  for (const lane of input.serverLanes) for (const item of lane.items) if (item.caseId != null) fromServer.add(item.caseId)
+  const sessionPriced = new Set<string>()
+  for (const row of input.added) if (row.priced && row.item.caseId != null) sessionPriced.add(row.item.caseId)
+  for (const chip of input.parked) if (chip.priced) sessionPriced.add(chip.id)
+  return { priced: new Set(input.pricedIds), fromServer, sessionPriced }
+}
+
+/** ⚖ R8 T1, FIX ROUND 1 (blind round 1, L2 F10) — 「DOES THIS PLACEMENT HAVE A
+ *  PRICE THE 保持 ROW CAN BE ABOUT?」, asked once for the whole screen.
+ *
+ *  It lives HERE, over four primitives, because the answer IS the item: the
+ *  screen's own closure could have its guard dropped and 444 tests stayed green
+ *  — the wiring was counted, the decision was not. Its two siblings on this
+ *  round (`withPriceFact`, `proxyTimeLabel`) were lifted for that reason and
+ *  this one was not; the truth table below is now pinned like theirs.
+ *
+ *  Two kinds of card stand on this board and they carry their price in two
+ *  different places:
+ *  · a card the SERVER put here answers from the server's own record —
+ *    `priced`, the bookings whose `price` is non-null. apt-09 has none by
+ *    documented fixture intent, and it is the scene this item is for.
+ *  · a card this SESSION put on the board has no server row at all; it answers
+ *    from the STAMP its mint wrote on the row (`AddedRow.priced` — the lane's
+ *    定価 for a 次回予約, `null` on a lane with no 定価 (⚖ R6 D2); the chip's own
+ *    park-time stamp for a shelf placement; the dialog's コース for a creation).
+ *  · a booking this session is HOLDING — a chip on the shelf — answers from that
+ *    same park-time stamp, before it has landed anywhere. `sessionPricedIds` is
+ *    the union of those two, and nothing else.
+ *
+ *  The two are told apart by whether the SERVER's lanes know the id
+ *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
+ *  a real booking's ticket line is non-null even with no price (「価格未記録」/
+ *  「残り3回」), and `placeFromShelf` puts a real booking's own card back into
+ *  the session's list, so reading the session FIRST would answer 「price」 for
+ *  apt-09, which is the exact bug this item removes. That ordering is the whole
+ *  logic, and it is why the guard is a pinned row and not a comment.
+ *
+ *  ⚖ FIX ROUND 2 (Greptile on #828) — AND THE SESSION'S SIDE IS A STAMP NOW,
+ *  never a reading of the card. The session set used to be built from
+ *  `item.ticketCore != null`, which is DISPLAY TEXT: on ANOTHER DAY, where
+ *  `priced` and `fromServer` are both empty, a price-less booking placed from
+ *  the shelf still carried the non-null line 「価格未記録」 and the 保持 row came
+ *  back on exactly the booking T1 removed it from. Every writer now stamps
+ *  `AddedRow.priced` / `ParkChip.priced` at the moment the price is known, and
+ *  this function only reads.
+ *
+ *  ⚖ FIX ROUND 3 (BREAKER-828 F1) — AND THE FOURTH ARGUMENT IS THE WHOLE
+ *  SESSION, which is why it is named for the session and not for `added`. It is
+ *  the UNION of the rows this session put on the board and the CHIPS on the
+ *  shelf (`priceFactSets` above builds it): a chip is a session-held booking
+ *  that has not landed yet, and while it is in the operator's hand on another
+ *  day nothing else on that board knows its price. Reading only `added` is what
+ *  made one gesture answer twice — false in hand, true after the drop. */
+export function hasPriceFact(
+  id: string | null,
+  priced: ReadonlySet<string>,
+  fromServer: ReadonlySet<string>,
+  sessionPricedIds: ReadonlySet<string>,
+): boolean {
+  return id != null && (priced.has(id) || (!fromServer.has(id) && sessionPricedIds.has(id)))
+}
+
 /** One landing, as a question. Every field is something the caller already has;
  *  nothing here reads the DOM, so the same question is asked by the mid-drag
  *  cursor, by the 60分配置 strip's × marks and by the release itself. */
@@ -3170,6 +3318,12 @@ export interface LandingQuestion {
   span: { x: number; w: number }
   /** ⚖ 46 — a chip or a 配置モード intent carried onto a foreign store's board. */
   foreignRefusal: string | null
+  /** ⚖ R8 T1 — does this placement have a price the 保持 row can be ABOUT?
+   *  REQUIRED, because absent would have to default to one of the two answers
+   *  and both defaults lie on the other half of the board: `true` re-asserts the
+   *  row over a price-less booking (the defect), `false` deletes it from every
+   *  caller that simply forgot to say. The screen answers it per gesture. */
+  hasPrice: boolean
   locked: string[]
   rooms: RoomPolicy
   minutesOf: (x: number) => number
@@ -3263,14 +3417,20 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
     }
   }
-  checks = computeChecks(q.span, {
-    spans,
-    bookingId: q.id ?? '',
-    staffName: staff.label,
-    staffUntil: staff.untilLabel,
-    laneLocked: q.locked.includes(staff.key),
-    minutesOf: q.minutesOf,
-  })
+  // ⚖ R8 T1 — canon's rows, minus the 価格保持 assertion when there is no price
+  // to hold. Applied HERE, at the raw-canon entry point, so the cursor word, the
+  // × strip and the red box's fact list all read one filtered list.
+  checks = withPriceFact(
+    computeChecks(q.span, {
+      spans,
+      bookingId: q.id ?? '',
+      staffName: staff.label,
+      staffUntil: staff.untilLabel,
+      laneLocked: q.locked.includes(staff.key),
+      minutesOf: q.minutesOf,
+    }),
+    q.hasPrice,
+  )
 
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.
