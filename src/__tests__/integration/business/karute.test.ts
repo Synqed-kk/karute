@@ -1286,9 +1286,11 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // PROOF LANDS — and the literal stays a LITERAL on purpose: a room joining
     // this shell-owned line has to trip every neighbour's pin, so no room can
     // slip onto the floor exemption without a round that looked at it. The
-    // regex form origin/main reached for asserts only カルテ's own membership,
-    // which this literal already contains.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }')
+    // regex form the 録音 room reached for asserts only its own membership,
+    // which this literal already contains. RE-DERIVED on the 2026-09-03 fold of
+    // 売上分析 (#830): `.page.pg-analytics` joined the shell line, so the literal
+    // moves with it — which is the pin working, not the pin failing.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
