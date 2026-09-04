@@ -608,9 +608,22 @@ function Screen(props: ReservationsProps) {
     () => all.filter((r) => matchesFilters(r, { search, date, status: 'all', source: 'all', price: 'all' })),
     [all, search, date],
   )
+  /** A1 fix — 本日 is the one chip whose OWN press sets 期間 (`chipAfterDateChange`
+   *  law a), so its number cannot be read off `chipBase` (period-narrowed by
+   *  whatever 期間 currently shows): with 期間 = 明日以降 that base holds zero
+   *  today rows and the chip would promise a press that reveals nothing. Its
+   *  count is read off the SEARCH-only base instead — 期間 ignored, because
+   *  pressing 本日 sets it — so the number always equals what the press reveals. */
+  const searchBase = useMemo(
+    () => all.filter((r) => matchesFilters(r, { search, date: 'all', status: 'all', source: 'all', price: 'all' })),
+    [all, search],
+  )
   /** ⚖ THE COUNT ON A CHIP IS THE NUMBER OF ROWS ITS OWN PRESS REVEALS — one
    *  function, over the same predicate the list runs, so the two cannot drift. */
-  const counts = useMemo(() => chipCounts(chipBase), [chipBase])
+  const counts = useMemo(
+    () => ({ ...chipCounts(chipBase), today: chipCounts(searchBase).today }),
+    [chipBase, searchBase],
+  )
 
   /** How many rows the RANGE alone leaves, which is what 「全N件のうち」 counts. */
   const rangeTotal = useMemo(

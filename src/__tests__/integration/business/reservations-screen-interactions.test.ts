@@ -1116,10 +1116,30 @@ describe('G2(b) · chipCounts runs on chipBase — 期間+検索 applied, the ch
     // bug this finding fixes); `visible` (the list AFTER the lit chip's own
     // status/source/price narrowed it) would silently collapse every OTHER
     // chip's number to its intersection with whatever chip is pressed.
-    expect(SCREEN_CODE).toContain('const counts = useMemo(() => chipCounts(chipBase), [chipBase])')
     expect(SCREEN_CODE).toContain(
       "const chipBase = useMemo(\n    () => all.filter((r) => matchesFilters(r, { search, date, status: 'all', source: 'all', price: 'all' })),\n    [all, search, date],\n  )",
     )
+    expect(SCREEN_CODE).not.toContain('chipCounts(all)')
+    expect(SCREEN_CODE).not.toContain('chipCounts(visible)')
+  })
+})
+
+// ═══ GREPTILE ROUND 1B — A1 · 本日's own number is the SEARCH-only base's,
+// never the period-narrowed `chipBase` (期間 is 本日's own axis — its press
+// SETS the period, so a number read under the currently-shown period could
+// read 0件 while the press it labels still reveals rows) ══════════════════
+
+describe('A1 · 本日’s count reads the search-only base, every other chip keeps the period-narrowed one', () => {
+  it('the room composes counts from TWO bases: chipBase for every chip, `searchBase` (period ignored) overriding only `today`', () => {
+    expect(SCREEN_CODE).toContain(
+      "const searchBase = useMemo(\n    () => all.filter((r) => matchesFilters(r, { search, date: 'all', status: 'all', source: 'all', price: 'all' })),\n    [all, search],\n  )",
+    )
+    expect(SCREEN_CODE).toContain(
+      'const counts = useMemo(\n    () => ({ ...chipCounts(chipBase), today: chipCounts(searchBase).today }),\n    [chipBase, searchBase],\n  )',
+    )
+    // the override touches ONLY `today` — every other chip's number still
+    // comes off `chipBase` (period+search narrowed), unchanged by this fix.
+    expect([...SCREEN_CODE.matchAll(/chipCounts\(/g)].length).toBe(2)
     expect(SCREEN_CODE).not.toContain('chipCounts(all)')
     expect(SCREEN_CODE).not.toContain('chipCounts(visible)')
   })
