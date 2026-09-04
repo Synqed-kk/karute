@@ -998,7 +998,9 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-coaching) { min-width: 0; }')
+    // Re-derived at the 2026-09-05 fold: five rooms joined the list on main
+    // (録音 · 売上分析 · 予約一覧 · 顧客 · AI相談) and ⑥ stays appended LAST.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai, .page.pg-coaching) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 
@@ -1075,26 +1077,48 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
   })
 
   it('the neighbours are all here — read from disk, never restated', () => {
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today'])
+    // Re-derived at the 2026-09-05 fold: 録音 · 売上分析 · 予約一覧 · 顧客 ·
+    // AI相談 · 設定 all landed on main since this pin was written, so the family
+    // is ELEVEN sheets beside this room's own. Each newcomer scopes its rules
+    // under its own `.pg-` / `.page-` class, so none of them widens the fence.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'karute', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
+
+  /** The collision rule itself, factored out so the RED-RUN plant below is
+   *  judged by exactly the logic the real sheets are judged by. */
+  const collisionsIn = (dir: string, src: string) => {
+    const out: string[] = []
+    for (const sel of selectorsOf(src)) {
+      if (!sel.startsWith('.biz') || sel.includes('.pg-')) continue
+      const names = classesIn(sel)
+      if (names.length && names.every((n) => mine.has(n))) out.push(`${dir}::${sel}`)
+    }
+    return out
+  }
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
     const collisions: string[] = []
+    let selectorsRead = 0
     for (const dir of SIBLING_DIRS) {
       const src = readFileSync(join(BIZ, 'business', dir, `${dir}.css`), 'utf8')
-      for (const sel of selectorsOf(src)) {
-        if (!sel.startsWith('.biz') || sel.includes('.pg-')) continue
-        const names = classesIn(sel)
-        if (names.length && names.every((n) => mine.has(n))) collisions.push(`${dir}::${sel}`)
-      }
+      selectorsRead += selectorsOf(src).length
+      collisions.push(...collisionsIn(dir, src))
     }
     // Derived, not copied: a neighbour that ever states a bare rule on a name
     // this room renders appears here, and the fence has to grow in the same pass.
-    expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
-      'reservations::.biz .btn',
-      'reservations::.biz .btn.primary',
-    ])
+    // Re-derived at the 2026-09-05 fold and legitimately EMPTY: ③ 予約一覧
+    // (#832) and ④ 顧客 (#834) RETIRED the bare `.biz .btn` / `.biz .btn.primary`
+    // / `.biz .page .btn` rules this pin used to catch, so at this tip no
+    // sibling states an unscoped rule on a name this room renders.
+    expect(collisions.sort()).toEqual([])
+    // ⚠ ANTI-VACUITY, because an empty list proves nothing on its own. Two
+    // things have to hold for the emptiness to MEAN something: the parser
+    // actually read the family's sheets…
+    expect(selectorsRead).toBeGreaterThan(100)
+    // …and a planted bare rule still comes back RED through the same function.
+    // The plant lives in memory — a sibling's file is never touched.
+    expect(collisionsIn('plant', '.biz .btn { font-weight: 500; }\n.biz .page .btn.primary { color: red; }\n.biz .page.pg-plant .btn { color: red; }'))
+      .toEqual(['plant::.biz .btn', 'plant::.biz .page .btn.primary'])
   })
 
   /** Every class name the MARKUP produces. A `${…}` hole is an EXPRESSION, so it
@@ -1159,12 +1183,34 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
       'is-on', 'is-priority', 'is-strength', 'is-support', 'is-theirs', 'is-treated', 'is-unset', 'is-watch',
     ])
     // …and no neighbour states a bare rule on any of them.
+    /** ⚠ COMPOUND-AWARE, re-derived at the 2026-09-05 fold. BARE means the
+     *  modifier stands ALONE in its compound — nothing glued to it, so it can
+     *  match this room's element on the modifier alone. `.biz .is-none` is
+     *  bare; `.cu-cnext.is-none` is NOT, because the neighbour's own class has
+     *  to match first. The old form asked `classesIn(sel).includes(n)`, which
+     *  reads the WHOLE selector and so reported ④'s
+     *  `.biz .page-customers .cu-cnext.is-none .cu-a` as bare although the
+     *  modifier never stands alone there. Splitting on the COMBINATORS
+     *  (whitespace · `>` · `+` · `~`) is what makes the question answerable.
+     *  `.biz` does not count as a partner (`classesIn` drops it), so a
+     *  `.biz.is-on` would still be reported. */
+    const statesBare = (sel: string, name: string) =>
+      sel
+        .split(/[\s>+~]+/)
+        .filter(Boolean)
+        .some((part) => {
+          const names = classesIn(part)
+          return names.length === 1 && names[0] === name
+        })
+    // Proven both ways in memory before it is trusted on the real sheets.
+    expect(statesBare('.biz .page-customers .cu-cnext.is-none .cu-a', 'is-none')).toBe(false)
+    expect(statesBare('.biz .page-customers .is-none .cu-a', 'is-none')).toBe(true)
     for (const dir of SIBLING_DIRS) {
       const src = readFileSync(join(BIZ, 'business', dir, `${dir}.css`), 'utf8')
       for (const sel of selectorsOf(src)) {
         if (sel.includes('.pg-')) continue
         for (const n of isNames) {
-          expect({ dir, sel, name: n, bare: classesIn(sel).includes(n) }).toEqual({ dir, sel, name: n, bare: false })
+          expect({ dir, sel, name: n, bare: statesBare(sel, n) }).toEqual({ dir, sel, name: n, bare: false })
         }
       }
     }
