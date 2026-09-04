@@ -2144,7 +2144,11 @@ describe('⚖ the sibling-sheet fence', () => {
     // carry a copy of the rule in its own sheet, which is exactly that reach
     // however carefully it was scoped.
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.page-customers) { min-width: 0; }')
+    // ⚠ THE PIN IS THIS ROOM'S OWN ENTRY, not the whole list. The list is
+    // SHELL-owned and every room that owes the ALL-SCREEN ladder joins it
+    // (売上分析 did on 2026-09-03), so a literal-string pin here would go red
+    // for a neighbour's correct change and teach nobody anything.
+    expect(shell).toMatch(/\.biz \.app:has\([^)]*\.page\.pg-recording[^)]*\)\s*\{\s*min-width:\s*0;\s*\}/)
     expect(ROOM_CSS).not.toMatch(/\.biz \.app:has/)
     // …and the room's sheet reaches OUTSIDE its own subtree nowhere at all:
     // every selector it states is scoped by `pg-recording`.

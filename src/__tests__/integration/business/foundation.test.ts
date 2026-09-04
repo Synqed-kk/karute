@@ -319,6 +319,12 @@ describe('the fixture data door', () => {
       // nodes. A room's step index, overlay and copy stay in the room; an
       // import here would mean the engine started knowing about one of them.
       'src/business/lib/guide.ts': [],
+      // ⚖ THE NUMBER DICTIONARY (the spreadsheet-absorption plan's Layer 2).
+      // One registry of named business numbers plus the arithmetic that derives
+      // the new ones, and the empty inventory is the PIN on what it is: pure
+      // over its arguments. An import here would mean the dictionary started
+      // knowing about one room's world.
+      'src/business/lib/dictionary.ts': [],
       // canon-logic — the lifted mock behaviour. These four are PURE by design
       // (that is the whole point of lifting them out of canon's inline script),
       // so an empty inventory is not laziness: any import at all here would
@@ -505,15 +511,31 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/reservations/loading.tsx': ['@/business/i18n'],
       'src/app/[locale]/(business)/business/analytics/page.tsx': [
         './AnalyticsScreen',
+        './analytics-props',
         './analytics.css',
         '@/business/lib/admission',
+      ],
+      // ⚠ THE PROP ASSEMBLY, BESIDE THE PAGE (the room-3 F1 law). The evidence
+      // harness imports this function, so an isolated shot is the same assembly
+      // the route runs; `page.tsx` keeps admission, params and the sheet.
+      'src/app/[locale]/(business)/business/analytics/analytics-props.ts': [
+        './AnalyticsScreen',
         '@/business/lib/analytics',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚖ THE NUMBER DICTIONARY. Every word this page prints for a business
+        // number is read from there, so a tile, a column head, a provenance row
+        // and a tour sentence cannot call one figure two things.
+        '@/business/lib/dictionary',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx': [
         '@/business/lib/analytics',
+        '@/business/lib/dictionary',
+        '@/business/lib/guide',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY. It is the accepted
+        // mock's own `makeSpring`, ported rather than re-invented, and PURE.
+        '@/business/lib/spring',
         'next/link',
         'react',
       ],

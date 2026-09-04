@@ -608,6 +608,19 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     expect(SCREEN_SRC.indexOf('cu-fn-bar')).toBeLessThan(SCREEN_SRC.indexOf('cu-fn-panel'))
   })
 
+  it('⚖ F-R1 — this room’s own entry is in the SHELL-owned min-width opt-in list', () => {
+    // ⚠ EACH ROOM PINS ITS OWN ENTRY, NEVER THE WHOLE LIST. 売上分析 made that
+    // change on main when it joined (a literal-string pin on the list goes red
+    // for a NEIGHBOUR's correct change and teaches nobody anything), and this is
+    // the same shape for 顧客 — so the room that owns the entry is the room whose
+    // suite fails if it disappears.
+    const shell = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'),
+      'utf8',
+    )
+    expect(shell).toMatch(/\.biz \.app:has\([^)]*\.page\.page-customers[^)]*\)\s*\{\s*min-width:\s*0;\s*\}/)
+  })
+
   it('⚖-ADJ H — the bands that can be reached in BOTH rail states are container queries', () => {
     for (const band of ['@container cupage (max-width: 1015px)', '@container cupage (max-width: 855px)', '@container cupage (max-width: 759px)']) {
       expect(CSS_CODE).toContain(band)

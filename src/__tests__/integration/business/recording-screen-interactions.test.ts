@@ -522,7 +522,8 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own list, and NOT from this sheet', () => {
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.page.pg-recording, .page.page-customers) { min-width: 0; }')
+    // this room's OWN entry in the shell-owned opt-in list — see recording.test.ts
+    expect(shell).toMatch(/\.biz \.app:has\([^)]*\.page\.pg-recording[^)]*\)\s*\{\s*min-width:\s*0;\s*\}/)
     expect(CSS_CODE).not.toContain('.biz .app:has')
   })
 

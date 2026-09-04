@@ -34,6 +34,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import {
+  CHART,
   chartModel,
   clampTooltipLeft,
   clampTooltipTop,
@@ -43,7 +44,6 @@ import {
   LEDGER_MONTHS,
   monthCoords,
   monthFigures,
-  barPath,
   boardDayFigures,
   priorVisitCounts,
   spanFigures,
@@ -54,6 +54,22 @@ import {
   type RankMetric,
   type RankMonth,
 } from '@/business/lib/analytics'
+import {
+  avgNewTicket,
+  decideLine,
+  deltaTone,
+  landingEstimate,
+  landingGap,
+  monthDelta,
+  numberEntry,
+  NUMBERS,
+  PLANE_NUMBERS,
+  SCOPE_WORD,
+  targetProgress,
+  targetRemaining,
+  UNCONNECTED_NUMBERS,
+  type NumberId,
+} from '@/business/lib/dictionary'
 import { jstDayKey, jstYmd } from '@/business/lib/clock'
 import { appointments, customers, menus, operator, STORE_A, STORE_B } from '@/business/lib/fixtures'
 import { analyticsPolicy, dowWeight, salesLedger, salesTargets, staffMix, menuMix, sourceMix } from '@/business/lib/fixtures-analytics'
@@ -62,6 +78,7 @@ import { dayTotals, treatsPatients, isEarningVisit } from '@/business/lib/today-
 import * as data from '@/business/lib/data'
 import AnalyticsPage from '@/app/[locale]/(business)/business/analytics/page'
 import { AnalyticsScreen, type AnalyticsProps } from '@/app/[locale]/(business)/business/analytics/AnalyticsScreen'
+import { analyticsProps } from '@/app/[locale]/(business)/business/analytics/analytics-props'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 
@@ -97,6 +114,13 @@ const room = async (q: { store?: string; month?: string } = {}) =>
     await AnalyticsPage({ params: Promise.resolve({ locale: 'ja' }), searchParams: Promise.resolve(q) }),
     AnalyticsScreen,
   )!
+
+/** The room on an OVERRIDE WORLD — the same assembly the route runs, over
+ *  inputs this demo plane does not contain (a store with no 目標 dial, a
+ *  business that sells no 回数券). Never a class toggle: the REAL derivations
+ *  run over different arguments. */
+const propsWorld = async (input: Omit<Parameters<typeof analyticsProps>[0], 'locale'>) =>
+  (await analyticsProps({ ...input, locale: 'ja' })).props
 
 const board = async (store?: string) =>
   propsOf<TodayProps>(
@@ -299,12 +323,19 @@ describe('one fixture world', () => {
     expect(figures.newCount + figures.existingCount).toBeLessThanOrEqual(rows.filter(isEarningVisit).length)
   })
 
-  it('the month figure is ONE number: target strip, attention line and the 推移 row all print it', async () => {
+  it('the month figure is ONE number: the tile, the 推移 row and the chart card all print it', async () => {
+    // ⚠ THE SURFACES THIS ASSERTS ARE THE ONES THAT RENDER. It used to route
+    // through the retired target strip and attention strip, which the screen
+    // reads nowhere — so the equality it proved was between two invisible
+    // props (L2 B2-6). The chart card's own month figure is added, because the
+    // hover card was missing from the dictionary's render map (L1 B1-5).
     const p = await room({ store: STORE_A })
-    const fromTarget = yenNumber(p.target!.actual)
+    const tile = yenNumber(p.tiles![0].value)
     const current = p.trend!.rows.find((r) => r.monthsAgo === 0)!
-    expect(yenNumber(current.cells[0])).toBe(fromTarget)
-    expect(p.attention!.line).toContain(p.target!.actual)
+    expect(yenNumber(current.cells[0])).toBe(tile)
+    const card = p.trend!.chartMonths[p.trend!.chartMonths.length - 1]
+    expect(card.partial).toBe(true)
+    expect(yenNumber(card.total)).toBe(tile)
   })
 
   it('the 日報 column sums back to the month figure the rest of the page shows', async () => {
@@ -312,7 +343,7 @@ describe('one fixture world', () => {
     const summed = p.daily!.rows
       .filter((r) => !r.closed)
       .reduce((n, r) => n + yenNumber(r.cells[0]), 0)
-    expect(summed).toBe(yenNumber(p.target!.actual))
+    expect(summed).toBe(yenNumber(p.tiles![0].value))
   })
 
   it('every staff column sums back to the store month — a ranking cannot outgrow its own store', async () => {
@@ -361,13 +392,23 @@ describe('one fixture world', () => {
    * lens weights. テスト代官山店's 12-month LTV average is 32,841.666…, so the
    * fixture genuinely forces a fraction and this cannot be green by luck.
    */
-  it('no figure on the page prints a fraction of a yen', async () => {
+  it('no figure on the page prints a fraction of a yen, except the ONE named rate', async () => {
     const raw = salesLedger.filter((r) => r.store_id === STORE_B).reduce((n, r) => n + r.ltv, 0) / LEDGER_MONTHS
     expect(Number.isInteger(raw)).toBe(false)
     const p = await room({ store: STORE_B })
     const figures = JSON.stringify(p).match(/¥[\d,]+(?:\.\d+)?/g) ?? []
     expect(figures.length).toBeGreaterThan(50)
-    expect(figures.filter((s) => s.includes('.'))).toEqual([])
+    // ⚠ THE EXCEPTION IS NAMED AND IT IS A RATE, NOT A TAKING: the 計算式's
+    // 「÷ N日 ＝ 1日あたり」 line, the accepted mock's own 「¥56,749.5」. Rounding
+    // it to a whole yen would make the formula stop reproducing the very figure
+    // it explains (¥56,750 × 30 is not the landing the tile prints), which is a
+    // worse lie than a decimal. It is the ONLY fractional figure on the page.
+    const perDay = p.tiles!.find((t) => t.calc)!.calc!.lines[1].v
+    expect(new Set(figures.filter((s) => s.includes('.')))).toEqual(new Set([perDay]))
+    // a FINISHED month has no 計算式 at all, so it has no fraction anywhere
+    const done = await room({ store: STORE_B, month: '-1' })
+    const doneFigures = JSON.stringify(done).match(/¥[\d,]+(?:\.\d+)?/g) ?? []
+    expect(doneFigures.filter((s) => s.includes('.'))).toEqual([])
   })
 })
 
@@ -398,7 +439,7 @@ describe('a month in progress is never shown as a finished one', () => {
   it('the current month prints its ELAPSED days, tagged with the day it was read on', async () => {
     const p = await room({ store: STORE_A })
     const plan = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 0)!
-    const shown = yenNumber(p.target!.actual)
+    const shown = yenNumber(p.tiles![0].value)
     const d = jstYmd(new Date()).d
     const coords = monthCoords(new Date(), 0, closedWeekday)
     // TWO reasons this could read low — fewer days shown, or today's pin
@@ -408,16 +449,16 @@ describe('a month in progress is never shown as a finished one', () => {
     if (d < coords.daysInMonth) expect(shown).toBeLessThan(plan.total)
     const current = p.trend!.rows.find((r) => r.monthsAgo === 0)!
     expect(current.tag).toContain(`${d}日時点`)
-    expect(p.attention!.headline).toContain('月の途中です')
+    expect(p.provenance!.monthRow.value).toContain('月の途中です')
     expect(p.dateline).toContain(`${d}日`)
   })
 
   it('the comparison is over an EQUAL span, and says so', async () => {
     const p = await room({ store: STORE_A })
     const d = jstYmd(new Date()).d
-    expect(p.attention!.comparison).toContain('同じ経過日数')
-    expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-    expect(p.attention!.comparison).toContain(`1日〜${d}日`)
+    expect(p.provenance!.monthRow.value).toContain('同じ経過日数')
+    expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+    expect(p.provenance!.monthRow.value).toContain(`1日〜${d}日`)
   })
 
   it('the previous month is read over the SAME span, not its whole self', () => {
@@ -436,10 +477,10 @@ describe('a month in progress is never shown as a finished one', () => {
 
   it('a FINISHED month says it is finished, and compares whole month to whole span', async () => {
     const p = await room({ store: STORE_A, month: '-1' })
-    expect(p.attention!.headline).toContain('完了した月です')
+    expect(p.provenance!.monthRow.value).toContain('完了した月です')
     expect(p.trend!.rows.find((r) => r.monthsAgo === 1)!.selected).toBe(true)
     const row = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 1)!
-    expect(yenNumber(p.target!.actual)).toBe(row.total)
+    expect(yenNumber(p.tiles![0].value)).toBe(row.total)
   })
 
   /**
@@ -463,23 +504,58 @@ describe('a month in progress is never shown as a finished one', () => {
 
     it('a month IN PROGRESS says equal elapsed days, and denies being a whole-month comparison', async () => {
       const p = await room({ store: STORE_A })
-      expect(p.attention!.comparison).toContain('比較は同じ経過日数どうし')
-      expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-      expect(p.attention!.comparison).toContain('7月1日〜22日')
+      expect(p.provenance!.monthRow.value).toContain('比較は同じ経過日数どうし')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+      expect(p.provenance!.monthRow.value).toContain('7月1日〜22日')
     })
 
     it('a finished month read against a WHOLE previous month says so, and drops the disclaimer', async () => {
       // 7月 (31 days) vs 6月 (30) — the span clamps to June's own length, so
       // both months are read whole and canon's disclaimer would be false.
       const p = await room({ store: STORE_A, month: '-1' })
-      expect(p.attention!.comparison).toContain('月全体どうしの比較です')
-      expect(p.attention!.comparison).not.toContain('ではありません')
-      expect(p.attention!.comparison).not.toContain('同じ経過日数')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較です')
+      expect(p.provenance!.monthRow.value).not.toContain('ではありません')
+      expect(p.provenance!.monthRow.value).not.toContain('同じ経過日数')
       // both months named, and the previous month's whole figure quoted
-      expect(p.attention!.comparison).toContain('7月')
-      expect(p.attention!.comparison).toContain('6月')
+      expect(p.provenance!.monthRow.value).toContain('7月')
+      expect(p.provenance!.monthRow.value).toContain('6月')
       const june = salesLedger.find((r) => r.store_id === STORE_A && r.months_ago === 2)!
-      expect(p.attention!.comparison).toContain(june.total.toLocaleString('ja-JP'))
+      expect(p.provenance!.monthRow.value).toContain(june.total.toLocaleString('ja-JP'))
+    })
+
+    /**
+     * ⚖ THE SAME PREDICATE DECIDES THE CHIP, THE FOOTER AND THE DECIDE LINE
+     * (L1 B1-2 · B1-7 · L2 B2-1). The chip used to carry the literal
+     * 「同経過日数比」 on every month, so a finished month printed it directly
+     * above its own footer saying 「前月（7月全体）と比較」 — one number under
+     * two contradictory descriptions, and the one the manager reads was the
+     * false one. Three month states, because a fix keyed on `partial` alone
+     * would pass two of them.
+     */
+    it('the chip, the footer and the decide line name ONE comparison, in all three month states', async () => {
+      const spanWord = numberEntry('spanCompare').label
+      const wholeWord = numberEntry('monthDelta').label
+
+      // (1) a month IN PROGRESS — equal elapsed days
+      const now = await room({ store: STORE_A })
+      expect(now.tiles![0].chip!.text.startsWith(spanWord)).toBe(true)
+      expect(now.tiles![0].foot).toContain('1日〜')
+      expect(now.trend!.decide).toContain('同じ経過日数で')
+
+      // (2) a FINISHED month against a WHOLE previous month — 前月比, and no
+      //     elapsed-day claim anywhere on the decision header
+      const whole = await room({ store: STORE_A, month: '-1' })
+      expect(whole.tiles![0].chip!.text.startsWith(wholeWord)).toBe(true)
+      expect(whole.tiles![0].chip!.text).not.toContain(spanWord)
+      expect(whole.tiles![0].foot).toContain('全体')
+      expect(whole.trend!.decide).not.toContain('同じ経過日数')
+      expect(whole.trend!.decide).toContain('前月と比べて')
+
+      // (3) a finished month whose comparand was TRUNCATED — still equal-span
+      const cut = await room({ store: STORE_A, month: '-2' })
+      expect(cut.tiles![0].chip!.text.startsWith(spanWord)).toBe(true)
+      expect(cut.tiles![0].foot).toContain('1日〜')
+      expect(cut.trend!.decide).toContain('同じ経過日数で')
     })
 
     it('a finished month whose comparand was TRUNCATED keeps the equal-span sentence', async () => {
@@ -488,10 +564,10 @@ describe('a month in progress is never shown as a finished one', () => {
       // 'finished' either way, which is exactly why `partial` alone is not the
       // test the copy may be keyed on.
       const p = await room({ store: STORE_A, month: '-2' })
-      expect(p.attention!.headline).toContain('完了した月です')
-      expect(p.attention!.comparison).toContain('比較は同じ経過日数どうし')
-      expect(p.attention!.comparison).toContain('月全体どうしの比較ではありません')
-      expect(p.attention!.comparison).toContain('5月1日〜30日')
+      expect(p.provenance!.monthRow.value).toContain('完了した月です')
+      expect(p.provenance!.monthRow.value).toContain('比較は同じ経過日数どうし')
+      expect(p.provenance!.monthRow.value).toContain('月全体どうしの比較ではありません')
+      expect(p.provenance!.monthRow.value).toContain('5月1日〜30日')
     })
   })
 
@@ -500,9 +576,29 @@ describe('a month in progress is never shown as a finished one', () => {
    * the heading amber while the month is still running — its one visual
    * "careful, this is partial" cue — and the info indigo once it is finished.
    */
-  it('the 注意 strip is amber while the month runs and indigo once it is finished', async () => {
-    expect((await room({ store: STORE_A })).attention!.tone).toBe('amber')
-    expect((await room({ store: STORE_A, month: '-1' })).attention!.tone).toBe('indigo')
+  /**
+   * D-E, RE-EXPRESSED ON WHAT RENDERS. The retired amber/indigo strip carried
+   * the month's state as a COLOUR, and the strip is gone — so the pin moves to
+   * the three surfaces that carry the same state today, rather than to a prop
+   * nothing draws (L2 B2-6). Two of the three are visual (the row's own cream
+   * wash and its 途中 pill ride `partial`; the tile's scope names the span) and
+   * the third is the sentence.
+   */
+  it('the month IN PROGRESS is marked as such on every surface that states it', async () => {
+    const now = await room({ store: STORE_A })
+    const nowRow = now.trend!.rows.find((r) => r.monthsAgo === 0)!
+    expect(nowRow.partial).toBe(true)
+    expect(nowRow.tag).toContain('日時点')
+    expect(nowRow.ticks.every((t) => t.kind === 'na')).toBe(true)
+    expect(now.tiles![0].scope).toContain('1日〜')
+    expect(now.provenance!.monthRow.value).toContain('月の途中です')
+
+    const done = await room({ store: STORE_A, month: '-1' })
+    const doneRow = done.trend!.rows.find((r) => r.monthsAgo === 1)!
+    expect(doneRow.partial).toBe(false)
+    expect(doneRow.tag).toBeNull()
+    expect(done.tiles![0].scope).toContain('全体')
+    expect(done.provenance!.monthRow.value).toContain('完了した月です')
   })
 })
 
@@ -583,10 +679,13 @@ describe('every control does something, or refuses out loud', () => {
     expect(p.ranking!.byMetric.ltv.aggregateLabel).toContain('平均')
   })
 
-  it('the 内訳 rows exist for the 内訳 button to reveal', async () => {
+  it('the 内訳 button has a card to reveal, and the retired why-rows have their new home', async () => {
     const p = await room({ store: STORE_A })
-    expect(p.attention!.whyRows).toHaveLength(2)
-    for (const row of p.attention!.whyRows) expect(row.length).toBeGreaterThan(0)
+    // the button scrolls to the 売上の内訳 card, which needs its two mix blocks
+    expect(p.trend!.menuSegments.length + p.trend!.sourceSegments.length).toBeGreaterThan(0)
+    // …and the panel's two why-rows are tile 3's value and its footer (§2.10 K)
+    expect(p.tiles![2].value).toMatch(/^\d+件$/)
+    expect(p.tiles![2].foot).toContain('平均単価')
   })
 
   it('every bar the hover card can be raised on has a label behind it', async () => {
@@ -661,7 +760,7 @@ describe('store isolation', () => {
       expect(names).not.toContain('見本 あずさ')
       expect(JSON.stringify(b)).not.toContain('テスト銀座店')
       const a = await room({ store: STORE_A })
-      expect(yenNumber(a.target!.actual)).not.toBe(yenNumber(b.target!.actual))
+      expect(yenNumber(a.tiles![0].value)).not.toBe(yenNumber(b.tiles![0].value))
     } finally {
       restore()
     }
@@ -748,8 +847,59 @@ describe('the 推移 chart', () => {
   })
 
   it('a zero month draws no bar at all rather than a baseline artefact', () => {
-    expect(barPath(10, 10, 22, 0)).toBe('')
-    expect(barPath(10, 10, 22, 40)).toContain('M10,50')
+    // The bars are `<rect>`s now (the mock's own shape), so「draws nothing」is a
+    // zero HEIGHT rather than an empty path — and the rect still sits ON the
+    // baseline rather than one pixel under it.
+    const model = chartModel([{ short: '1月', total: 0, nw: 0 }, { short: '2月', total: 900000, nw: 1 }])
+    const zeros = model.bars.filter((b) => b.monthIndex === 0)
+    expect(zeros).toHaveLength(2)
+    for (const b of zeros) {
+      expect(b.h).toBe(0)
+      expect(b.y).toBe(model.baselineY)
+    }
+  })
+
+  it('the two series are DIFFERENT widths, and the pair sits inside its own month band', () => {
+    const model = chartModel(series)
+    const totals = model.bars.filter((b) => b.series === 'total')
+    const news = model.bars.filter((b) => b.series === 'nw')
+    expect(totals[0].w).toBe(CHART.barW)
+    expect(news[0].w).toBe(CHART.newW)
+    expect(news[0].w).toBeLessThan(totals[0].w)
+    model.groups.forEach((g, i) => {
+      expect(totals[i].x).toBeGreaterThanOrEqual(g.x)
+      expect(news[i].x + news[i].w).toBeLessThanOrEqual(g.x + g.w + 0.001)
+      expect(g.center).toBeCloseTo(g.x + g.w / 2, 6)
+    })
+  })
+
+  it('the y domain covers the TARGET line as well as the tallest bar', () => {
+    // A domain taken from the bars alone runs the 目標 rule off the top of the
+    // plot in exactly the store that is behind its goal.
+    const behind = [{ short: '1月', total: 400000, nw: 100000 }]
+    const model = chartModel(behind, 2_000_000)
+    expect(model.niceMax).toBeGreaterThanOrEqual(2_000_000)
+    expect(model.targetY).not.toBeNull()
+    expect(model.targetY!).toBeGreaterThanOrEqual(model.plotTop)
+    expect(model.targetY!).toBeLessThanOrEqual(model.baselineY)
+    // …and no target means no line at all, rather than a rule at zero.
+    expect(chartModel(behind, 0).targetY).toBeNull()
+  })
+
+  it('exactly the month in progress is hatched, and the callout names the DERIVED peak', () => {
+    const world = [
+      { short: '1月', total: 900000, nw: 200000, partial: false },
+      { short: '2月', total: 1_500_000, nw: 300000, partial: false },
+      { short: '3月', total: 1_100_000, nw: 250000, partial: false },
+      { short: '4月', total: 120000, nw: 40000, partial: true },
+    ]
+    const model = chartModel(world, 1_000_000)
+    expect(model.bars.filter((b) => b.partial)).toHaveLength(2)
+    expect(model.bars.filter((b) => b.partial).every((b) => b.monthIndex === 3)).toBe(true)
+    expect(model.axis.filter((a) => a.partial).map((a) => a.short)).toEqual(['4月'])
+    // 2月 is the peak FINISHED month — not the last one, and not a month name
+    // written into the code.
+    expect(model.labels.map((l) => [l.monthIndex, l.series])).toEqual([[1, 'total'], [3, 'nw']])
   })
 
   it('an all-zero series still produces a readable axis rather than dividing by zero', () => {
@@ -869,10 +1019,10 @@ describe('the first day of a month', () => {
       const p = await room({ store: STORE_A })
       expect(p.daily!.rows).toHaveLength(1)
       expect(p.daily!.rows[0].label).toContain('1日')
-      expect(p.attention!.headline).toContain('1日〜1日')
+      expect(p.provenance!.monthRow.value).toContain('1日〜1日')
       expect(p.dateline).toContain('1日〜1日')
-      expect(p.attention!.comparison).toContain('1日〜1日')
-      expect(yenNumber(p.target!.actual)).toBeGreaterThanOrEqual(0)
+      expect(p.provenance!.monthRow.value).toContain('1日〜1日')
+      expect(yenNumber(p.tiles![0].value)).toBeGreaterThanOrEqual(0)
       // The month in progress is a sliver of its own plan, and says so.
       expect(p.trend!.rows.find((r) => r.monthsAgo === 0)!.tag).toContain('1日時点')
     } finally {
@@ -888,7 +1038,7 @@ describe('the first day of a month', () => {
       const p = await room({ store: STORE_A })
       expect(p.daily!.rows).toHaveLength(1)
       expect(p.daily!.rows[0].closed).toBe(true)
-      expect(yenNumber(p.target!.actual)).toBe(0)
+      expect(yenNumber(p.tiles![0].value)).toBe(0)
       expect(p.trend!.compositionEmpty).toContain('内訳を表示できません')
       expect(p.trend!.menuSegments).toEqual([])
     } finally {
@@ -906,36 +1056,120 @@ describe('the first day of a month', () => {
  * are pinned at the SOURCE, which is where the defect lives.
  */
 describe('analytics.css', () => {
-  const CSS = readFileSync(
-    join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/analytics.css'),
-    'utf8',
-  )
-  /** The rules only — the header prose names `.panel` and `.page` to explain
-   *  why they are not stated, and a scan that reads comments would fail on the
-   *  explanation instead of the code. */
-  const BODY = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
-  /** Selector lists, one entry per rule. */
-  const selectors = BODY
-    .split('}')
-    .map((block) => block.slice(block.lastIndexOf('{') === -1 ? 0 : 0, block.indexOf('{')))
-    .map((s) => s.replace(/@media[^{]*/g, '').trim())
-    .filter((s) => s.length > 0)
-    .flatMap((s) => s.split(',').map((part) => part.trim()))
-    .filter((s) => s.length > 0)
+  const SHEET = 'src/app/[locale]/(business)/business/analytics/analytics.css'
+  const CSS = readFileSync(join(process.cwd(), SHEET), 'utf8')
+
+  /**
+   * ⚖ FENCE-METHOD AMENDMENT (room-5 lens 3, 8/30): A CSS-RULE PARSER IS ITSELF
+   * A PIN THAT CAN LIE. The lane's earlier parser split on '}' and sliced to the
+   * first '{', which is BLIND to the first rule of every at-rule block — the
+   * media query's own brace is the one it finds — so a bare rule planted first
+   * inside an `@media` stayed invisible to it. This one walks the braces: an
+   * at-rule PRELUDE is dropped and its body is walked, `@keyframes` and
+   * `@font-face` go entirely (so `from`/`to` never read as selectors), and the
+   * red-proof below plants exactly the shape the old parser could not see.
+   */
+  function selectorsOf(src: string): string[] {
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, '')
+    const out: string[] = []
+    let head = ''
+    let depth = 0
+    let skipTo = -1
+    for (let i = 0; i < body.length; i += 1) {
+      const c = body[i]
+      if (c === '{') {
+        const prelude = head.trim()
+        head = ''
+        depth += 1
+        if (skipTo >= 0) continue
+        if (prelude.startsWith('@keyframes') || prelude.startsWith('@font-face')) { skipTo = depth; continue }
+        if (prelude.startsWith('@')) continue // a conditional group: keep walking its body
+        for (const part of prelude.split(',')) {
+          const t = part.trim()
+          if (t) out.push(t)
+        }
+        continue
+      }
+      if (c === '}') {
+        depth -= 1
+        head = ''
+        if (skipTo > depth) skipTo = -1
+        continue
+      }
+      if (skipTo >= 0) continue
+      if (c === ';' && depth === 0) { head = ''; continue }
+      if (depth === 0 || head || c.trim()) head += c
+    }
+    return out
+  }
+
+  const selectors = selectorsOf(CSS)
+  /** The OUTERMOST COMPOUND — everything up to the first descendant combinator,
+   *  `.biz` removed. `.page.pg-analytics` is one compound, not two selectors. */
+  const outermost = (sel: string) => {
+    const first = sel.replace(/^\.biz\b/, '').trim().split(/[\s>+~]+/).filter(Boolean)[0] ?? ''
+    return first
+  }
+
+  it('the parser can SEE the first rule inside an @media block', () => {
+    // RED-PROOF, executed: the plant is the exact shape the old parser missed.
+    const planted = selectorsOf('@media (max-width: 800px) {\n  .biz .panel { color: red; }\n}')
+    expect(planted).toEqual(['.biz .panel'])
+    expect(selectorsOf('@keyframes x { from { opacity: 0 } to { opacity: 1 } }')).toEqual([])
+  })
 
   it('states no selector that another room could match — every rule is under the route class', () => {
-    expect(selectors.length).toBeGreaterThan(60)
+    expect(selectors.length).toBeGreaterThan(120)
     // App Router keeps this sheet in the document after a soft navigation, so a
-    // rule whose OUTERMOST class is a shared one (`.panel`, `.page`) restyles
-    // whichever room the reader walks into next. The route class first means
-    // nothing here can match outside this screen's root — and nothing has to
-    // win by insertion order to apply inside it.
-    const outermost = (s: string) => ((s.match(/\.[A-Za-z0-9_-]+/g) ?? []).filter((c) => c !== '.biz')[0] ?? '')
-    expect(selectors.filter((s) => outermost(s) !== '.pg-analytics')).toEqual([])
+    // rule whose outermost compound is a shared one (`.panel`, `.page`)
+    // restyles whichever room the reader walks into next. The route class in
+    // the first compound means nothing here can match outside this screen's
+    // root — and nothing has to win by insertion order to apply inside it.
+    expect(selectors.filter((s) => !outermost(s).includes('.pg-analytics'))).toEqual([])
     // …which by construction means none of the family-shared names is stated
     // bare. Named too, because these are the five another room also defines.
     for (const shared of ['.page', '.panel', '.panel-head', '.subtitle', '.attention']) {
       expect(selectors.filter((s) => outermost(s) === shared)).toEqual([])
+    }
+  })
+
+  it('every class this sheet owns is prefixed — the structural half of the fence', () => {
+    // The neighbours state bare `.biz .<name>` rules on names canon's 売上分析
+    // markup used (`.panel`, `.legend`, `.metric`, `.cell`, `.spot-card`). An
+    // `an-` name exists nowhere else in the family, so there is no rule to
+    // collide with — a fence that cannot rot as the neighbours grow.
+    const owned = new Set<string>()
+    for (const sel of selectors) {
+      for (const cls of sel.match(/\.[A-Za-z][\w-]*/g) ?? []) {
+        if (cls === '.biz' || cls === '.page' || cls === '.pg-analytics') continue
+        owned.add(cls)
+      }
+    }
+    const foreign = [...owned].filter((c) => !c.startsWith('.an-') && !c.startsWith('.is-'))
+    expect(foreign).toEqual([])
+  })
+
+  it('the page scrolls and nothing else does — no vertical scroller, no height cap', () => {
+    // ⚖ PAGE-SCROLL (Liam 8/22, ruled twice). The mock's own `.scrollarea` is
+    // MOCK-ONLY (⚖-ADJ E): a nested scroller here would strand the sticky
+    // 統計 row and hide rows inside a box.
+    const body = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(body).not.toMatch(/max-height\s*:/)
+    expect(body).not.toMatch(/overscroll-behavior/)
+    // ⚠ EVERY `overflow-y` IN THE SHEET EXISTS TO REMOVE AN AXIS, never to add
+    // one: `overflow-x: auto` on its own computes `overflow-y: auto`, which made
+    // the chart strip a nested vertical scroller (found by the probe, not
+    // theorised) and left the same latent shape on three siblings (L4 B4-6).
+    const overflowY = [...body.matchAll(/overflow-y\s*:\s*([a-z]+)/g)].map((m) => m[1])
+    expect(overflowY.length).toBeGreaterThan(0)
+    expect(new Set(overflowY)).toEqual(new Set(['hidden']))
+    // …and EVERY horizontal panner states it, so the sheet cannot grow a
+    // vertical scroller by having content overflow one of them.
+    const panners = [...body.matchAll(/([^{}]+)\{([^}]*overflow-x\s*:\s*auto[^}]*)\}/g)]
+    expect(panners.length).toBe(4)
+    for (const [, sel, decls] of panners) {
+      expect(sel.trim()).toMatch(/an-kpirow|an-chart-body|an-table-scroll|an-seg\b/)
+      expect([sel.trim(), /overflow-y\s*:\s*hidden/.test(decls)]).toEqual([sel.trim(), true])
     }
   })
 
@@ -950,20 +1184,992 @@ describe('analytics.css', () => {
     expect(screen).toMatch(/const ROOT = 'page pg-analytics'/)
   })
 
-  it('the selected month row is visibly selected — its own wash, not the 統計 row and not the page', () => {
+  it('the month being viewed is visibly selected — its own wash, not the 統計 row and not the page', () => {
     const ruleFor = (sel: string) => CSS.match(new RegExp(`${sel}\\s*\\{([^}]*)\\}`))?.[1] ?? ''
     const bg = (sel: string) => (ruleFor(sel).match(/background:\s*([^;]+);/)?.[1] ?? '').trim()
-    const selected = bg('tr\\.selected-row td')
-    const stat = bg('tr\\.stat-row td')
+    const selected = bg('\\.an-trow-body\\.is-sel')
+    const totals = bg('\\.an-ttot')
+    const partial = (ruleFor('\\.an-trow-body\\.is-partial').match(/background:\s*([^;]+);/)?.[1] ?? '').trim()
     expect(selected).toBeTruthy()
-    expect(stat).toBeTruthy()
-    // three-way distinct: the row, the 統計 row it sits above, and the white
-    // table it sits in. #fafbff on #ffffff was a 2% difference nobody could see.
-    expect(selected).not.toBe(stat)
-    expect(selected).not.toBe('#fff')
-    expect(selected).not.toBe('#ffffff')
-    // R13: the family's selected treatment is a light accent WASH, never a fill.
+    expect(totals).toBeTruthy()
+    expect(partial).toBeTruthy()
+    // four-way distinct: the row, the 統計 row, the partial month's own cream,
+    // and the white table it all sits in.
+    expect(new Set([selected, totals, partial, '#fff']).size).toBe(4)
+    // ⚖ R13: the family's selected treatment is a light accent WASH, never a fill.
     expect(selected).toBe('var(--select-bg)')
+  })
+
+  /**
+   * ⚠ THE BLOCKER'S PIN (L4 B4-1) AND THE 統計 ROW'S (L1 B1-1), AS ONE
+   * STRUCTURAL PROPERTY. A shed class is a THREE-PART bargain that has to be
+   * struck in ONE place: the rung that HIDES the column is the rung that
+   * restacks it into the open row's detail line, and the same rung is where the
+   * 統計 row's total takes its own labelled line. The V2 tip struck the first
+   * part inside `@container` and the second outside it, so opening a row at a
+   * desk width ripped two LIVE columns (既存数, 新規数) out of the grid — and
+   * never struck the third at all, so 4–6 totals were invisible above the
+   * phone rung while a phone printed all eleven.
+   *
+   * Written as a BLOCK WALK rather than a selector grep on purpose: what makes
+   * the defect impossible is co-location, and a grep for the rules cannot see
+   * which `@container` they are in. The mutant is「lift one restack out of its
+   * container query」and this is what turns it red.
+   */
+  it('a shed column is hidden, restacked and totalled by the SAME rung — never one without the others', () => {
+    /** The sheet as `@`-blocks: `''` is the top level, otherwise the prelude. */
+    const blocksOf = (src: string) => {
+      const body = src.replace(/\/\*[\s\S]*?\*\//g, '')
+      const out: Record<string, string> = { '': '' }
+      let head = ''
+      let depth = 0
+      let cond = ''
+      let start = -1
+      for (let i = 0; i < body.length; i += 1) {
+        const c = body[i]
+        if (c === '{') {
+          depth += 1
+          if (depth === 1 && head.trim().startsWith('@')) {
+            cond = head.trim().replace(/\s+/g, ' ')
+            start = i + 1
+          } else if (depth === 1) {
+            out[''] += `${head.trim()} {`
+          }
+          head = ''
+          continue
+        }
+        if (c === '}') {
+          depth -= 1
+          if (depth === 0 && start >= 0) {
+            out[cond] = (out[cond] ?? '') + body.slice(start, i)
+            cond = ''
+            start = -1
+          }
+          head = ''
+          continue
+        }
+        if (depth === 0) head += c
+        else if (start < 0) out[''] += c
+      }
+      return out
+    }
+    const blocks = blocksOf(CSS)
+    // The top level plus the three container rungs, and nothing else invented.
+    expect(Object.keys(blocks)).toContain('@container anpage (max-width: 1035px)')
+    expect(Object.keys(blocks)).toContain('@container anpage (max-width: 905px)')
+
+    for (const cls of ['an-always', 'an-sh1', 'an-sh2']) {
+      // where the COLUMN is hidden
+      const hiding = Object.entries(blocks).filter(([, b]) =>
+        new RegExp(`\\.an-trow > \\.${cls}\\s*\\{[^}]*display:\\s*none`).test(b),
+      )
+      expect(hiding).toHaveLength(1)
+      const [rung, block] = hiding[0]
+      // …restacks the open row's cell, in the SAME block
+      expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}\\s*\\{[^}]*grid-column:\\s*1 / -1`))
+      expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
+      // …and shows the total's CHIP in the 統計 row's one wrapped line, in the
+      // same block (the `always` totals ride the ≥800 block, which is the same
+      // rung: the four are shed at every width and the phone rung has its own
+      // chip list). ⚠ A CHIP, NOT A LINE OF ITS OWN — four to six full-width
+      // detail lines under the 合計 line grew the sticky block to 183/212/244px
+      // and repeated the labels the viewed row had just printed (A2-21, ruled).
+      const totalIn = cls === 'an-always' ? blocks['@container anpage (min-width: 800px)'] : block
+      expect(totalIn).toMatch(new RegExp(`\\.an-xtot > \\.${cls}\\s*\\{[^}]*display:\\s*inline-flex`))
+      expect(rung).toBe(cls === 'an-always' ? '' : rung)
+    }
+    // …the chip line is ONE line that wraps, spans the row, and labels every
+    // chip from the same `data-k` the column head carries.
+    const above = blocks['@container anpage (min-width: 800px)']
+    expect(above).toMatch(/\.an-xtot\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/)
+    expect(above).toMatch(/\.an-xtot\s*\{[^}]*grid-column:\s*1 \/ -1/)
+    expect(above).toMatch(/\.an-xtot > \.an-xchip::before\s*\{[^}]*attr\(data-k\)/)
+    // …and it exists ONLY above the phone rung, where a total has left its column
+    expect(blocks['']).toMatch(/\.an-xtot\s*\{\s*display:\s*none/)
+    // …and EVERY cell is locked to the first line, so a restacked cell can
+    // never drag the ones after it into column 1 (次回予約率's defect). ⚠ EVERY,
+    // not「everything except the shed classes」: a shed class is only shed at
+    // ITS rung, so excluding them left 既存数 and 新規数 auto-placed AFTER the
+    // locked cells at rung 0 and scrambled the row against its own head — the
+    // battery's M22 found that, and this is the shape that fixes it.
+    expect(blocks['@container anpage (min-width: 800px)']).toMatch(
+      /\.an-trow > td\s*\{[^}]*grid-row:\s*1/,
+    )
+    // …and every rule that restacks a cell RELEASES the lock in the same rule
+    const restacks = [...CSS.matchAll(/\{([^}]*grid-column:\s*1 \/ -1[^}]*)\}/g)].map((m) => m[1])
+    expect(restacks.length).toBeGreaterThanOrEqual(7)
+    const unreleased = restacks.filter((d) => !/grid-row:\s*auto/.test(d))
+    // the phone rung's card rules are the exception: the lock is scoped ≥800
+    expect(unreleased.length).toBeLessThanOrEqual(2)
+  })
+
+  /**
+   * §R — ONE SELECTION CONCEPT, AND THE CHART IS IN ON IT (⚖-ADJ C). The table's
+   * row wore the selected wash and the tiles followed the URL, but the chart —
+   * the surface read first — gave no sign of which of the twelve columns the
+   * rest of the page was about. The mark DERIVES from the server's own
+   * `selected` row, so it cannot become a second, client-side focused month.
+   */
+  it('the viewed month is marked on the chart, from the selection the server already made', () => {
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    // …derived, never a second state: the only source is the row's own flag
+    expect(screen).toMatch(/const viewed = trend\.rows\[g\.monthIndex\]\?\.selected === true/)
+    expect(screen).toMatch(/an-hit\$\{viewed \? ' is-viewed' : ''\}/)
+    expect(screen).toMatch(/aria-current=\{viewed \? 'true' : undefined\}/)
+    // no useState anywhere near it — the room has no client-side month
+    expect(screen).not.toMatch(/useState[^\n]*viewed/i)
+    // the wash at rest is the SAME one a hover paints, and the dim is hover-only
+    const rule = (sel: string) => CSS.match(new RegExp(`([^{}]*${sel}[^{}]*)\\{([^}]*)\\}`))
+    const wash = rule('an-hit\\.is-viewed')
+    expect(wash).not.toBeNull()
+    expect(wash![1]).toContain('.an-hit:hover')
+    expect(wash![2]).toMatch(/rgba\(37, 99, 235, \.045\)/)
+    expect(CSS).toMatch(/\.an-chart\.is-dim \.an-bar:not\(\.is-sel\)\s*\{[^}]*opacity:\s*\.28/)
+  })
+
+  it('every chip tone the tiles can carry has its own look — and the flat one is grey, not green', () => {
+    // ⚖ L2 B2-7: `.an-cmp`'s DEFAULT is the red 「down」 look, so a tone with no
+    // rule of its own silently inherits it — which is how `flat` was painted
+    // green (the old mapping sent 0 to `up`). The tone union is read off the
+    // screen's own type, so a tone added there without a look here goes red.
+    const screen = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    const tones = screen
+      .match(/chip: \{ text: string; tone: ([^}]*) \} \| null/)![1]
+      .split('|')
+      .map((t) => t.trim().replace(/'/g, ''))
+    expect(tones).toEqual(['up', 'down', 'gap', 'neutral'])
+    const bg = (sel: string) =>
+      (CSS.match(new RegExp(`${sel}\\s*\\{([^}]*)\\}`))?.[1].match(/background:\s*([^;]+);/)?.[1] ?? '').trim()
+    const looks = new Map<string, string>([['down', bg('\\.an-cmp')]])
+    for (const tone of tones.filter((t) => t !== 'down')) looks.set(tone, bg(`\\.an-cmp\\.is-${tone}`))
+    for (const [tone, look] of looks) expect(look === '' ? tone : look).not.toBe(tone)
+    expect(new Set(looks.values()).size).toBe(tones.length)
+    // grey, and it is the neutral family — never the green one
+    expect(looks.get('neutral')).toBe('var(--an-wash)')
+    expect(looks.get('neutral')).not.toBe(looks.get('up'))
+  })
+
+  it('the shell lifts its 1180 floor for this room — the ONE named shared-seam line', () => {
+    // ⚖ ALL-SCREEN cannot hold behind the shell's min-width floor, and no route
+    // sheet may reach up and lift its own (the shell's rule says so). The
+    // opt-in list is SHELL-owned; this pins that the room is on it.
+    const shell = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'),
+      'utf8',
+    )
+    const rule = shell.match(/\.biz \.app:has\(([^)]*)\)\s*\{\s*min-width:\s*0/)
+    expect(rule).not.toBeNull()
+    expect(rule![1]).toContain('.page.pg-analytics')
+  })
+})
+
+// ── 15b. the Number Dictionary ──────────────────────────────────────────────
+
+/**
+ * ⚖ THE SPREADSHEET-ABSORPTION PLAN'S LAYER 2. The 集計表's every formula
+ * becomes a dictionary entry — defined once, computed on the server, shown
+ * identically wherever it appears. These pins are what stop it drifting back
+ * into per-surface literals, which is the disease the two La Estro workbooks
+ * died of.
+ */
+describe('the Number Dictionary', () => {
+  it('every entry is complete, and only an unconnected one carries `needs`', () => {
+    expect(NUMBERS.length).toBe(PLANE_NUMBERS.length + UNCONNECTED_NUMBERS.length)
+    expect(new Set(NUMBERS.map((n) => n.id)).size).toBe(NUMBERS.length)
+    expect(new Set(NUMBERS.map((n) => n.label)).size).toBe(NUMBERS.length)
+    for (const n of NUMBERS) {
+      expect(n.label.length).toBeGreaterThan(0)
+      expect(n.counts.length).toBeGreaterThan(0)
+      expect(n.formula.length).toBeGreaterThan(0)
+      expect(SCOPE_WORD[n.scope]).toBeTruthy()
+      if (n.source === 'unconnected') expect(n.needs && n.needs.length > 0).toBe(true)
+      else expect(n.needs).toBeUndefined()
+      // ⚠ NATIVE JP, and the 9/1 pass's own rule: no em-dash mid-sentence.
+      expect(`${n.counts}${n.formula}`).not.toContain(' — ')
+    }
+  })
+
+  it('an unknown id fails LOUD rather than printing a word nobody defined', () => {
+    expect(() => numberEntry('nope' as NumberId)).toThrow(/unknown number id/)
+  })
+
+  it('⚖⚖ STORE-FIRST — no company-finance number exists in the dictionary', () => {
+    // Liam 9/2: SYNQED Business is the stores-and-managers product. Royalties,
+    // P&L and 本部 rollups stay out of the product's data plane entirely.
+    for (const n of NUMBERS) {
+      expect(`${n.label}${n.counts}${n.formula}`).not.toMatch(/ロイヤリティ|本部|営業利益|粗利|FC/)
+    }
+  })
+
+  it('着地見込み is the pace run to the end of the CALENDAR month', () => {
+    // the mock's own worked example
+    expect(landingEstimate(113499, 2, 30)).toBe(1_702_485)
+    // …and the first of the month is total × the month, never a divide by zero
+    expect(landingEstimate(60000, 1, 31)).toBe(1_860_000)
+    expect(Number.isFinite(landingEstimate(60000, 0, 31))).toBe(true)
+    expect(landingEstimate(0, 3, 30)).toBe(0)
+    expect(landingGap(1_702_485, 2_000_000)).toBe(-297_515)
+    expect(landingGap(0, 2_000_000)).toBe(-2_000_000)
+  })
+
+  it('目標進捗 never divides by a target nobody set, and never prints NaN', () => {
+    expect(targetProgress(113499, 2_000_000)).toBe(6)
+    expect(targetProgress(500000, 0)).toBe(0)
+    expect(Number.isNaN(targetProgress(500000, 0))).toBe(false)
+    expect(targetRemaining(113499, 2_000_000)).toBe(1_886_501)
+    // SIGNED: over the goal is a negative remainder, and the copy branches on it
+    expect(targetRemaining(2_100_000, 2_000_000)).toBe(-100_000)
+    expect(avgNewTicket(30233, 6)).toBe(5039)
+    expect(avgNewTicket(0, 0)).toBeNull()
+  })
+
+  it('前月比 is a percentage for money and POINTS for a rate, and — with no baseline', () => {
+    expect(monthDelta(1_650_000, 1_600_000, 'yen')).toEqual({ kind: 'up', text: '▲3.1%' })
+    expect(monthDelta(1_290_000, 1_680_000, 'yen').text).toBe('▼23.2%')
+    // a rate that went 46% → 49% rose THREE POINTS, not 6.5%
+    expect(monthDelta(0.49, 0.46, 'rate')).toEqual({ kind: 'up', text: '▲3.0pt' })
+    expect(monthDelta(100, 100, 'count')).toEqual({ kind: 'flat', text: '±0' })
+    expect(monthDelta(100, null, 'count')).toEqual({ kind: 'na', text: '—' })
+    expect(monthDelta(100, 0, 'count')).toEqual({ kind: 'na', text: '—' })
+    expect(monthDelta(null, 100, 'count')).toEqual({ kind: 'na', text: '—' })
+  })
+
+  /**
+   * ⚖ ONE PERCENTAGE-CHANGE IMPLEMENTATION (L2 B2-7 · B2-8). The room used to
+   * carry a second, private helper beside `monthDelta` that spelled the same
+   * idea differently (`+/−/±` against `▲/▼`), disagreed about a zero baseline,
+   * and painted an exactly LEVEL month green. The tone belongs beside the
+   * arithmetic, so both live here and the chip reads them.
+   */
+  it('a delta wears the tone its own kind earns — and a flat month is NEUTRAL, never green', () => {
+    expect(deltaTone('up')).toBe('up')
+    expect(deltaTone('down')).toBe('down')
+    expect(deltaTone('flat')).toBe('neutral')
+    expect(deltaTone('na')).toBe('neutral')
+    // the kind a level month reaches, and the text it prints
+    expect(monthDelta(100, 100, 'yen')).toEqual({ kind: 'flat', text: '±0' })
+    expect(deltaTone(monthDelta(100, 100, 'yen').kind)).toBe('neutral')
+  })
+
+  it('the decide line has an honest sentence for every clause that can be missing', () => {
+    const base = {
+      monthCount: 12,
+      lastShort: '8月',
+      lastTotalText: '¥1,650,000',
+      lastRank: 1,
+      currentShort: '9月',
+      currentTotal: 113499,
+      spanDeltaText: '▼26.8%',
+      spanDeltaSign: -1,
+      wholeMonths: false,
+    }
+    expect(decideLine(base)).toBe('直近の完了月8月は ¥1,650,000 で12か月の最高。9月は同じ経過日数で ▼26.8% と出遅れています。')
+    expect(decideLine({ ...base, lastRank: 3 })).toContain('12か月の3番目')
+    expect(decideLine({ ...base, spanDeltaSign: 1, spanDeltaText: '▲4.2%' })).toContain('上回っています')
+    expect(decideLine({ ...base, spanDeltaSign: 0, spanDeltaText: '±0' })).toContain('同じ水準です')
+    expect(decideLine({ ...base, currentTotal: 0 })).toContain('9月はまだ実績がありません')
+    expect(decideLine({ ...base, spanDeltaText: null, spanDeltaSign: null })).toContain('比較していません')
+    expect(decideLine({ ...base, lastShort: null, lastTotalText: null, lastRank: null })).toContain('完了した月がまだない')
+    for (const line of [decideLine(base), decideLine({ ...base, currentTotal: 0 })]) {
+      expect(line).not.toContain('NaN')
+      expect(line).not.toContain('undefined')
+    }
+  })
+
+  /**
+   * ⚖ ONE PREDICATE, THREE SENTENCES (L1 B1-2 · B1-7 · L2 B2-1). The elapsed-day
+   * wording is a CLAIM about which comparison was made, and it was being said
+   * unconditionally — on the chip as a literal, and in the decide line for a
+   * whole month against a whole month. `wholeMonths` is the one input that
+   * decides it, and the same value decides the chip's label and the footer.
+   */
+  it('the decide line says 「同じ経過日数で」 only where that is the comparison it made', () => {
+    const base = {
+      monthCount: 12,
+      lastShort: '8月',
+      lastTotalText: '¥1,650,000',
+      lastRank: 2,
+      currentShort: '8月',
+      currentTotal: 1_650_000,
+      spanDeltaText: '▲3.1%',
+      spanDeltaSign: 1,
+      wholeMonths: true,
+    }
+    // whole against whole: the elapsed-day claim is dropped…
+    expect(decideLine(base)).toBe('直近の完了月8月は ¥1,650,000 で12か月の2番目。前月と比べて ▲3.1% と上回っています。')
+    expect(decideLine(base)).not.toContain('同じ経過日数')
+    // …and the month is not set beside ITSELF (the head already named it)
+    expect(decideLine(base).match(/8月/g)).toHaveLength(1)
+    // a truncated comparand is still an equal-span comparison, and says so
+    expect(decideLine({ ...base, wholeMonths: false })).toContain('同じ経過日数で')
+    // a different month being viewed keeps its own subject
+    expect(decideLine({ ...base, currentShort: '6月' })).toContain('6月は前月と比べて')
+  })
+})
+
+// ── 15c. the decision header, the ticks and the provenance panel ────────────
+
+describe('the decision tiles', () => {
+  it('five tiles, and every label is its DICTIONARY entry word — never a literal', () => {
+    return room({ store: STORE_A }).then((p) => {
+      expect(p.tiles).toHaveLength(5)
+      for (const t of p.tiles!) expect(t.label).toBe(numberEntry(t.id).label)
+      expect(p.tiles!.map((t) => t.id)).toEqual(['total', 'nw', 'newCount', 'targetProgress', 'landing'])
+    })
+  })
+
+  it("tile 1 is the ONE month figure — the table's row and the 内訳 print the same number", async () => {
+    const p = await room({ store: STORE_A })
+    const tile = yenNumber(p.tiles![0].value)
+    expect(yenNumber(p.trend!.rows.find((r) => r.monthsAgo === 0)!.cells[0])).toBe(tile)
+    expect(p.trend!.menuSegments.reduce((n, s) => n + s.amount, 0)).toBe(tile)
+  })
+
+  it('the 着地見込み tile prints the operands its own formula names', async () => {
+    const restore = pin('2026-09-03T04:00:00.000Z')
+    try {
+      const p = await room({ store: STORE_A })
+      const land = p.tiles![4]
+      const total = yenNumber(p.tiles![0].value)
+      const coords = monthCoords(new Date(), 0, closedWeekday)
+      expect(yenNumber(land.value)).toBe(landingEstimate(total, coords.elapsedDays, coords.daysInMonth))
+      expect(land.calc).not.toBeNull()
+      const lines = land.calc!.lines
+      expect(lines).toHaveLength(4)
+      expect(yenNumber(lines[0].v)).toBe(total)
+      expect(lines[1].k).toContain(`÷ ${coords.elapsedDays}日`)
+      expect(lines[2].k).toContain(`× ${coords.daysInMonth}日`)
+      expect(yenNumber(lines[2].v)).toBe(yenNumber(land.value))
+      expect(lines[3].result).toBe(true)
+      // `yenNumber` drops U+2212 on purpose, so the magnitude is compared here
+      // and the SIGN is compared as text three lines down.
+      expect(yenNumber(lines[3].v)).toBe(Math.abs(landingGap(yenNumber(land.value), salesTargets[STORE_A])))
+      // the GAP chip and the last line are the same subtraction, sign and all
+      // (the minus is U+2212, which `yenNumber` drops on purpose — so the two
+      // strings are compared, not two unsigned numbers)
+      expect(land.chip!.text).toContain(lines[3].v)
+      expect(lines[3].v.startsWith('−')).toBe(true)
+      expect(land.chip!.tone).toBe('gap')
+      expect(land.calc!.notes.join('')).toContain('推計')
+      expect(land.calc!.notes.join('')).toContain('暦日ベース')
+    } finally {
+      restore()
+    }
+  })
+
+  it('a store with no 目標 dial gets no percentage and a link to 設定, never 0% and never NaN', async () => {
+    const p = await propsWorld({ store: STORE_A, world: { target: 0 } })
+    const goal = p.tiles![3]
+    expect(goal.value).toBe('目標が未設定です')
+    expect(goal.value).not.toContain('%')
+    expect(goal.bar).toBeNull()
+    expect(goal.link!.href).toContain('/business/settings')
+    // the link's wording never promises an edit 設定 can't do yet — same
+    // honest label+note as the target-set world (verifier PR830 item 2 close)
+    expect(goal.link!.label).toBe('設定を開く')
+    expect(goal.link!.note).toBe('目標の編集は準備中')
+    // …and the chart drops its 目標 rule rather than drawing one at zero
+    expect(p.trend!.targetLabel).toBeNull()
+    expect(p.trend!.chart.targetY).toBeNull()
+    // the landing tile still states the estimate, and says why there is no GAP
+    expect(p.tiles![4].chip).toBeNull()
+    expect(p.tiles![4].calc!.notes.join('')).toContain('目標が未設定')
+  })
+
+  it('⚖-ADJ A — a FINISHED month has nothing to estimate: 着地（確定）, no 計算式', async () => {
+    const p = await room({ store: STORE_A, month: '-1' })
+    const land = p.tiles![4]
+    expect(land.id).toBe('landingFinal')
+    expect(land.label).toBe(numberEntry('landingFinal').label)
+    expect(land.label).toContain('確定')
+    expect(land.scope).toBe('確定・月全体')
+    expect(land.calc).toBeNull()
+    // ⚖-ADJ A AMENDED (fix round 1): one quantity, one name. The chip reads the
+    // 着地GAP entry's own word on a finished month too — the tile label
+    // 着地（確定） has already said the month is over.
+    expect(land.chip!.text).toContain(numberEntry('landingGap').label)
+    expect(land.chip!.text).not.toContain('目標との差')
+    // the value is the month's own total, not a projection of it
+    expect(yenNumber(land.value)).toBe(yenNumber(p.tiles![0].value))
+    // …and no VISIBLE string on the row calls a finished month an estimate.
+    // (The tour sentence names 推計 only to deny it — 「推計ではなく実際の」 — so
+    // the scan is over what the tile prints, not over its explanation.)
+    const printed = p.tiles!.flatMap((t) => [t.prefix, t.label, t.suffix, t.scope, t.value, t.foot ?? '', t.chip?.text ?? ''])
+    expect(printed.filter((x) => x.includes('推計'))).toEqual([])
+    expect(land.guide!.text).toContain('推計ではなく実際の')
+  })
+
+  /**
+   * ⚖ ONE IMPLEMENTATION, PROVED ON THE PAGE. The chip's percentage is the
+   * difference of the two figures the tile itself prints — its value and the
+   * comparand quoted in its own footer — recomputed here through `monthDelta`.
+   * A second helper anywhere in the chain shows up as a different string.
+   */
+  it("tile 1's chip is the difference of the two numbers tile 1 prints", async () => {
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const tile = p.tiles![0]
+      const comparand = yenNumber(tile.foot!.match(/¥[\d,]+/)![0])
+      expect(tile.chip!.text.endsWith(monthDelta(yenNumber(tile.value), comparand, 'yen').text)).toBe(true)
+    }
+  })
+
+  it('a month exactly LEVEL with the one before it prints ±0, in grey, and reads 同じ水準', async () => {
+    // The world is one real ledger row copied across every month, so a finished
+    // month against a whole previous month lands exactly level.
+    const p = await propsWorld({ store: STORE_A, month: '-1', world: { levelMonths: true } })
+    const chip = p.tiles![0].chip!
+    expect(chip.text).toBe(`${numberEntry('monthDelta').label} ±0`)
+    expect(chip.tone).toBe('neutral')
+    expect(chip.tone).not.toBe('up')
+    expect(p.trend!.decide).toContain('同じ水準です')
+    // …and the tick under a level table cell agrees with the chip
+    const rows = p.trend!.rows.filter((r) => !r.partial)
+    expect(rows.slice(1).every((r) => r.ticks[0].kind === 'flat' && r.ticks[0].text === '±0')).toBe(true)
+  })
+
+  it('the ONE truth for 目標: the room reads the plane and links to the room that owns it', async () => {
+    const p = await room({ store: STORE_A })
+    // the target reaches the page through the tile's scope and the chart's own
+    // dashed-rule label — the two surfaces that print it — and nowhere else.
+    expect(p.tiles![3].scope).toBe(`${numberEntry('target').label} ¥${salesTargets[STORE_A].toLocaleString('ja-JP')}`)
+    expect(p.trend!.targetLabel).toBe(p.tiles![3].scope)
+    expect(p.tiles![3].link!.href).toContain('/business/settings')
+    expect(p.tiles![3].link!.href).toContain(`store=${STORE_A}`)
+  })
+})
+
+describe('the 月次内訳 table', () => {
+  it('⚖-ADJ D — eleven columns, four shed by default, and NONE of them dropped', async () => {
+    const p = await room({ store: STORE_A })
+    const heads = p.trend!.metrics.map((c) => c.head)
+    expect(heads).toEqual(['総合売上', '新規売上', '回収売上', '消化売上', '新規数', '既存数', '次回予約率', 'リピート率', '稼働率', 'LTV', '新規LTV'])
+    for (const c of p.trend!.metrics) expect(c.head).toBe(numberEntry(c.id).label)
+    // the four the mock's builder could not read off the deployed table
+    expect(p.trend!.metrics.filter((c) => c.shed === 'always').map((c) => c.head)).toEqual(['リピート率', '稼働率', 'LTV', '新規LTV'])
+    expect(p.trend!.metrics.filter((c) => c.shed === 'sh1').map((c) => c.head)).toEqual(['既存数'])
+    expect(p.trend!.metrics.filter((c) => c.shed === 'sh2').map((c) => c.head)).toEqual(['新規数'])
+    // every row carries every column — a shed cell is styled away, never absent
+    for (const r of p.trend!.rows) {
+      expect(r.cells).toHaveLength(11)
+      expect(r.ticks).toHaveLength(11)
+    }
+    // …and 日報 keeps all eleven under their dictionary names
+    expect(p.daily!.heads).toEqual(['日付', ...heads])
+  })
+
+  it('a tick is the difference of the two numbers the table PRINTS', async () => {
+    const p = await room({ store: STORE_A })
+    const rows = p.trend!.rows
+    for (let i = 1; i < rows.length; i += 1) {
+      if (rows[i].partial) continue
+      p.trend!.metrics.forEach((c, k) => {
+        const unit = numberEntry(c.id).unit
+        const cur = unit === 'rate' ? Number(rows[i].cells[k].replace('%', '')) / 100 : yenNumber(rows[i].cells[k])
+        const prev = unit === 'rate' ? Number(rows[i - 1].cells[k].replace('%', '')) / 100 : yenNumber(rows[i - 1].cells[k])
+        const expected = monthDelta(cur, prev, unit)
+        expect(rows[i].ticks[k].kind).toBe(expected.kind)
+        if (unit !== 'rate') expect(rows[i].ticks[k].text).toBe(expected.text)
+      })
+    }
+  })
+
+  it('the month in progress is NEVER compared, and neither is the first row', async () => {
+    const p = await room({ store: STORE_A })
+    const rows = p.trend!.rows
+    const partial = rows.find((r) => r.partial)!
+    expect(partial.ticks.every((t) => t.kind === 'na' && t.text === '—')).toBe(true)
+    expect(rows[0].ticks.every((t) => t.kind === 'na')).toBe(true)
+  })
+
+  it('the 統計 row is Σ rows / 平均, and it is what the table prints', async () => {
+    const p = await room({ store: STORE_A })
+    expect(p.trend!.stats).toHaveLength(11)
+    const summed = p.trend!.rows.reduce((n, r) => n + yenNumber(r.cells[0]), 0)
+    expect(yenNumber(p.trend!.stats[0].value)).toBe(summed)
+    expect(p.trend!.stats[0].kicker).toBe('合計')
+    expect(p.trend!.stats[6].kicker).toBe('平均')
+  })
+
+  it('every row carries the link that makes it the viewed month, with the store lens on it', async () => {
+    const p = await room({ store: STORE_B })
+    for (const r of p.trend!.rows) {
+      expect(r.href).toContain(`store=${STORE_B}`)
+      expect(r.href).toContain(`month=${-r.monthsAgo}`)
+    }
+    expect(p.trend!.chartMonths.map((m) => m.href)).toEqual(p.trend!.rows.map((r) => r.href))
+  })
+})
+
+describe('the month row is keyboard reachable (VACUOUS-PIN close, verifier PR830 item 3)', () => {
+  // ⚠ the row is the only control that reveals the shed metrics — no
+  // separate detail element exists to render with react-dom (off the
+  // allowlist in this territory), so the pin reads the source the same way
+  // the 画面の説明 tour's own source-regex pins do (see 'the ? is a tour
+  // trigger' below).
+  const SCREEN = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+    'utf8',
+  )
+  // `isOpen`/`toggle` are this row's own local consts — grepped the file,
+  // neither name appears on any other control — so matching them against the
+  // whole source (rather than slicing out the JSX block) still proves these
+  // attributes/handler belong to THIS row, not some other toggle in the page.
+
+  it('the row carries tabIndex 0 and aria-expanded', () => {
+    expect(SCREEN).toMatch(/tabIndex=\{0\}\s*\n\s*aria-expanded=\{isOpen\}/)
+  })
+
+  it('Enter and Space both toggle the open state — the row has no other way in', () => {
+    expect(SCREEN).toMatch(/onClick=\{toggle\}\s*\n\s*onKeyDown=\{\(e\) => \{\s*\n\s*if \(e\.key !== 'Enter' && e\.key !== ' '\) return\s*\n\s*e\.preventDefault\(\)\s*\n\s*toggle\(\)/)
+  })
+})
+
+describe('the provenance panel', () => {
+  /**
+   * §J — THE ROWS ARE DERIVED FROM WHAT RENDERED, and so is this expectation
+   * (L2 B2-2 · B2-4). The old pin re-derived its `rendered` set from the SAME
+   * hand-typed list the production code used, so it was a copy of the code
+   * rather than a statement of the rule — and both missed 着地GAP, a number the
+   * decision header prints twice.
+   *
+   * WHAT THIS COMPUTES INSTEAD: every dictionary word that actually appears in
+   * the props the screen renders. Longest-label-first with masking, because
+   * 「LTV」 lives inside 「新規LTV」. The provenance panel itself is out of the
+   * haystack (it is what is being checked), and so is any sentence saying a
+   * number CANNOT be produced — 「目標が未設定のため、着地GAPは出せません」 names
+   * 着地GAP in order to deny it, which is not the page stating it.
+   *
+   * ONE named exception, because it is stated WITHOUT its own word: 残り営業日
+   * reaches the page as 「残り23営業日」 inside tile 4's footer.
+   */
+  const renderedNumbers = (p: AnalyticsProps) => {
+    const surfaces = { ...p, provenance: undefined }
+    // one chunk per SENTENCE and per string value — a chunk that ran across a
+    // property boundary would drag one prop's 未設定 onto the next prop's word
+    const haystack = JSON.stringify(surfaces)
+      .split(/[。"]/)
+      .filter((s) => !s.includes('出せません') && !s.includes('未設定'))
+      .join('。')
+    let left = haystack
+    const found = new Set<NumberId>()
+    for (const e of [...PLANE_NUMBERS].sort((a, b) => b.label.length - a.label.length)) {
+      if (left.includes(e.label)) {
+        found.add(e.id)
+        left = left.split(e.label).join(' ')
+      }
+    }
+    if (/残り\d+営業日/.test(p.tiles![3].foot ?? '')) found.add('remainingOpenDays')
+    return found
+  }
+
+  it('every row is DERIVED from what the page rendered — the panel cannot list a number the page never states', async () => {
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const ids = p.provenance!.rows.map((r) => r.id as NumberId)
+      expect([month, new Set(ids)]).toEqual([month, renderedNumbers(p)])
+      // …in the DICTIONARY's own order, which is the order the reader met them
+      expect(ids).toEqual(PLANE_NUMBERS.filter((e) => ids.includes(e.id)).map((e) => e.id))
+      for (const r of p.provenance!.rows) {
+        const e = numberEntry(r.id as NumberId)
+        expect(r.key).toContain(e.label)
+        expect(r.value).toContain(e.counts)
+        expect(r.value).toContain(e.formula)
+        expect(r.value).toContain(SCOPE_WORD[e.scope])
+        expect(r.value).toContain(e.owner)
+      }
+    }
+    // the 集計表's own word for a number it calls something else
+    const p = await room({ store: STORE_A })
+    expect(p.provenance!.rows.find((r) => r.id === 'collected')!.key).toContain('入金')
+    // 着地GAP is stated TWICE on the decision header — the chip and 計算式 line 4
+    expect(p.tiles![4].chip!.text).toContain(numberEntry('landingGap').label)
+    expect(p.provenance!.rows.map((r) => r.id)).toContain('landingGap')
+  })
+
+  it('§J — a world that states a number differently gets a different panel', async () => {
+    const ids = async (input: Parameters<typeof propsWorld>[0]) => {
+      const p = await propsWorld(input)
+      expect(new Set(p.provenance!.rows.map((r) => r.id as NumberId))).toEqual(renderedNumbers(p))
+      return p.provenance!.rows.map((r) => r.id)
+    }
+    // a store with no 目標 dial states none of the three target numbers, so the
+    // panel names none of their sources (L2 B2-4)
+    const noTarget = await ids({ store: STORE_A, world: { target: 0 } })
+    for (const gone of ['target', 'targetRemaining', 'remainingOpenDays', 'landingGap']) {
+      expect([gone, noTarget]).toEqual([gone, expect.not.arrayContaining([gone])])
+    }
+    // a FINISHED month has an actual, not an estimate — one row, not the other
+    const done = await ids({ store: STORE_A, month: '-1' })
+    expect(done).toContain('landingFinal')
+    expect(done).not.toContain('landing')
+    // …and the month in progress is the other way round
+    const now = await ids({ store: STORE_A })
+    expect(now).toContain('landing')
+    expect(now).not.toContain('landingFinal')
+    // no 回数券 signal, no 未消化残 row — while 消化売上 keeps its column and its row
+    const noTickets = await ids({ store: STORE_A, world: { noTickets: true } })
+    expect(noTickets).not.toContain('ticketOutstanding')
+    expect(noTickets).toContain('consumed')
+  })
+
+  /**
+   * §E — NO PROP SHIPS THAT NOTHING RENDERS (L1 B1-4 · L2 B2-6). Four props
+   * (`target`, `attention`, `subtitle`, `lensLabel`) plus `trend.statCells`
+   * were assembled, serialized and shipped while the screen read none of them
+   * — carrying a retired string beside its own replacement, and in the target-0
+   * world carrying 「目標進捗 0%」, the exact statement tile 4 refuses to make.
+   * Pinned BOTH WAYS, so neither an unread prop nor an undeclared read survives.
+   */
+  it('every key of the serialized payload is read by the screen, and every read is a declared key', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    /** One `export interface X {…}` block, brace-balanced. */
+    const blockOf = (name: string) => {
+      const at = src.indexOf(`export interface ${name} {`)
+      expect(at).toBeGreaterThan(0)
+      let depth = 0
+      for (let i = src.indexOf('{', at); i < src.length; i += 1) {
+        if (src[i] === '{') depth += 1
+        else if (src[i] === '}' && (depth -= 1) === 0) return src.slice(at, i + 1)
+      }
+      throw new Error(`unbalanced ${name}`)
+    }
+    const declared = new Set<string>()
+    for (const name of ['AnalyticsProps', 'TileProps', 'ProvRow']) {
+      for (const m of blockOf(name).matchAll(/^\s{2,}(\w+)\??:/gm)) declared.add(m[1])
+    }
+    expect(declared.has('statCells')).toBe(false)
+    expect(declared.has('attention')).toBe(false)
+    // The render body — everything after the last type declaration.
+    const body = src.slice(src.indexOf('const VIEWS = ['))
+    const unread = [...declared].filter((k) => !new RegExp(`[.{,]\\s*${k}\\b`).test(body))
+    expect(unread).toEqual([])
+    // …and nothing is read that was never declared (a typo'd `props.x` is
+    // `undefined` at runtime and silent).
+    const read = new Set([...body.matchAll(/\bprops\.(\w+)/g)].map((m) => m[1]))
+    expect([...read].filter((k) => !declared.has(k))).toEqual([])
+  })
+
+  /**
+   * §K — NO HAND-WRITTEN PROVENANCE ROW (L2 B2-3). The 「すべての金額」 pair was
+   * JSX sitting FIRST in the grid, at exactly the place §3's pin forbids it —
+   * and invisible to both the suite and the mutant, because both read
+   * `props.provenance.rows`. So this one reads the JSX.
+   */
+  it('no provenance row is hand-written — every key node comes from props', () => {
+    const src = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+      'utf8',
+    )
+    const keyNodes = [...src.matchAll(/<div className="an-prov-k">([^<]*)</g)].map((m) => m[1].trim())
+    // four: the generated entries, the month and the store this render was
+    // scoped to, and the 未接続 block — every one of them `{…}` from props.
+    expect(keyNodes).toHaveLength(4)
+    for (const node of keyNodes) expect(node.startsWith('{') && node.endsWith('}')).toBe(true)
+    expect(keyNodes.some((n) => /[ぁ-んァ-ヶ一-龯]/.test(n))).toBe(false)
+  })
+
+  it('the six 未接続 numbers are named with what each one needs, and nothing else', async () => {
+    const p = await room({ store: STORE_A })
+    expect(p.provenance!.unconnected).toHaveLength(6)
+    expect(p.provenance!.unconnected.map((r) => r.key)).toEqual(UNCONNECTED_NUMBERS.map((n) => n.label))
+    for (const r of p.provenance!.unconnected) {
+      expect(r.value).toContain('未接続：')
+      expect(r.value).toContain(numberEntry(r.id as NumberId).needs!)
+    }
+  })
+
+  it('⚖ disconnected-depth — an unconnected number is never a tile, a column or a chip', async () => {
+    const p = await room({ store: STORE_A })
+    const unconnected = new Set(UNCONNECTED_NUMBERS.map((n) => n.id))
+    for (const t of p.tiles!) expect(unconnected.has(t.id)).toBe(false)
+    for (const c of p.trend!.metrics) expect(unconnected.has(c.id)).toBe(false)
+    for (const r of p.provenance!.rows) expect(unconnected.has(r.id as NumberId)).toBe(false)
+  })
+
+  it('§2.10 K — every retired string has a NEW HOME, not a deletion', async () => {
+    const p = await room({ store: STORE_A })
+    const panel = JSON.stringify(p.provenance) + JSON.stringify(p.guides)
+    // the attention strip's headline and its comparison sentence
+    expect(panel).toContain(p.provenance!.monthRow.value)
+    expect(panel).toContain(p.provenance!.monthRow.value)
+    // the target strip's trace, now a real link (P1 fix: the label stopped
+    // promising an edit 設定 cannot do yet)
+    expect(p.tiles![3].link!.label).toBe('設定を開く')
+    expect(p.tiles![3].link!.note).toBe('目標の編集は準備中')
+    // the 内訳 panel's 平均単価 row, now tile 3's footer
+    expect(p.tiles![2].foot).toContain('平均単価')
+    // the trailing footnote paragraph, now the panel's own lead (§K)
+    expect(p.provenance!.lead).toContain('どの数値も 売上・レジ の精算記録から導出。')
+    // the chart's own reading paragraph, now behind 12か月の説明を読む
+    expect(p.trend!.reading.length).toBeGreaterThan(40)
+  })
+})
+
+// ── 15d. the words on the page (fix round 1) ────────────────────────────────
+
+/**
+ * ⚖ 8/25, NUMBERS EXPLAIN THEMSELVES — INCLUDING THEIR TIME SCOPE. Every pin
+ * here is a sentence that was making a claim the figure beside it did not
+ * support: a balance stamped with a month it was never read in, a hover card
+ * promising a gesture that only exists above a rung, a label with two は in one
+ * clause, a count called a remainder, and an internal system name in front of
+ * an owner.
+ */
+describe('the words the page states are true of the figures beside them', () => {
+  const ROOM_SRC = ['analytics-props.ts', 'AnalyticsScreen.tsx'].map((f) => ({
+    name: f,
+    code: readFileSync(
+      join(process.cwd(), `src/app/[locale]/(business)/business/analytics/${f}`),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
+  }))
+
+  /**
+   * §F — THE SCAN `dictionary.ts` PROMISES, AND IT EXISTS NOW. Its header used
+   * to claim 「the room's suite scans the source for literal labels」 while no
+   * such scan existed anywhere (L1 B1-5) — a claim in shipped code that no test
+   * backed. Two shapes are the defect, and the header now names them both:
+   *
+   *  1. a literal whose WHOLE content is a metric label — the chart legend's
+   *     `総合売上` and the hover card's `新規売上`, typed into the screen;
+   *  2. a literal that WELDS a label to a value — the tile chip's
+   *     「同経過日数比 ${x}」, which is how the wrong word survived a rebuild.
+   *
+   * A label inside a prose SENTENCE is deliberately not caught: the dictionary's
+   * own `counts`/`formula` text is made of the same words, and 「総合売上は…から
+   * …まで伸びています」 is a sentence, not a label. Both shapes are red-proven.
+   */
+  it('§F — no metric label is spelled as a literal in the room, in either shape', () => {
+    const LABELS = PLANE_NUMBERS.map((n) => n.label)
+    expect(LABELS).toHaveLength(22)
+
+    /** Every string / template literal, and every JSX text node, in one file. */
+    const literalsOf = (code: string) => {
+      const out: string[] = []
+      for (const m of code.matchAll(/'([^'\n]*)'|"([^"\n]*)"|`((?:[^`\\]|\\.)*)`/g)) {
+        out.push(m[1] ?? m[2] ?? m[3])
+      }
+      // JSX text: what sits between a `>` and the next `<` on one line
+      for (const m of code.matchAll(/>([^<>{}\n]+)</g)) out.push(m[1])
+      return out
+    }
+    /** A template's fixed text, with its holes taken out. */
+    const bare = (lit: string) => lit.replace(/\$\{[^}]*\}/g, ' ').trim()
+
+    const offences: string[] = []
+    for (const { name, code } of ROOM_SRC) {
+      for (const lit of literalsOf(code)) {
+        const text = bare(lit)
+        for (const label of LABELS) {
+          // shape 1 — the literal IS the label
+          if (text === label) offences.push(`${name}: bare label 「${lit}」`)
+          // shape 2 — the label, then a value
+          else if (new RegExp(`^${label}[ 　]? `).test(text)) offences.push(`${name}: label welded to a value 「${lit}」`)
+        }
+      }
+    }
+    expect(offences).toEqual([])
+    // …and the scan is not vacuous: it really does see both shapes.
+    const plant = (code: string) => {
+      const found: string[] = []
+      for (const lit of literalsOf(code)) {
+        const text = bare(lit)
+        for (const label of LABELS) {
+          if (text === label || new RegExp(`^${label}[ 　]? `).test(text)) found.push(lit)
+        }
+      }
+      return found
+    }
+    expect(plant('<span className="an-sw is-b" />総合売上</span>')).toEqual(['総合売上'])
+    expect(plant('chip: { text: `前月比 ${spanDelta}` }')).toEqual(['前月比 ${spanDelta}'])
+    expect(plant('reading: `総合売上は${a}から${b}まで伸びています。`')).toEqual([])
+    // ⚠ AND THE BOUNDARY, STATED HONESTLY. The word 「同経過日数比」 that shipped
+    // on tile 1 was not any entry's label — it was INVENTED — so no scan over
+    // the registry's words could ever have caught it. What catches that shape
+    // is the pin below: a chip has to OPEN with a word the dictionary owns.
+    expect(plant('chip: { text: `同経過日数比 ${spanDelta}` }')).toEqual([])
+  })
+
+  it('§F — every chip on a tile opens with a word the dictionary owns, never an invented one', async () => {
+    const LABELS = PLANE_NUMBERS.map((n) => n.label)
+    for (const month of ['0', '-1', '-2']) {
+      const p = await room({ store: STORE_A, month })
+      const chips = p.tiles!.map((t) => t.chip).filter((c) => c !== null)
+      expect(chips.length).toBeGreaterThan(0)
+      for (const chip of chips) {
+        expect([chip!.text, LABELS.some((l) => chip!.text.startsWith(`${l} `))]).toEqual([chip!.text, true])
+      }
+    }
+  })
+
+  it('§D — the 回数券 balance is stamped with TODAY, whatever month is being viewed', async () => {
+    const restore = pin('2026-09-03T04:00:00.000Z')
+    try {
+      // The figure has no month input at all: it is the 残数 the customers hold
+      // right now. Welding the SELECTED month's name to today's day-of-month
+      // printed 「10月3日時点」 for a reading taken on 9月3日 (L1 B1-3).
+      for (const month of ['0', '-1', '-11']) {
+        const p = await room({ store: STORE_A, month })
+        const chip = p.trend!.tickets.find((t) => t.key.startsWith(numberEntry('ticketOutstanding').label))!
+        expect(chip.key).toContain('9月3日時点')
+      }
+      // …while the second chip is a MONTH's takings, so it keeps the month span
+      const back = await room({ store: STORE_A, month: '-1' })
+      expect(back.trend!.tickets[1].key).toContain('8月1日〜31日')
+    } finally {
+      restore()
+    }
+  })
+
+  it('§G — the two ticket chips sit under a 回数券 group heading, and keep their own words', async () => {
+    const p = await room({ store: STORE_A })
+    expect(p.trend!.tickets.map((t) => t.key.split('（')[0])).toEqual([
+      numberEntry('ticketOutstanding').label,
+      numberEntry('consumed').label,
+    ])
+    // …and the group has a heading, so 消化売上 is tied to 回数券 even at ≤799
+    // where the chips stack full width with nothing else beside them (L1 B1-6).
+    const screen = ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code
+    expect(screen).toMatch(/className="an-tickets"[\s\S]{0,400}<span className="an-mix-k">回数券<\/span>/)
+  })
+
+  it('§H/§I — the hover card and the card-band line promise only what actually happens', async () => {
+    const p = await room({ store: STORE_A })
+    const finished = p.trend!.chartMonths.filter((m) => !m.partial)
+    expect(finished.length).toBeGreaterThan(0)
+    // navigation is what a month click always does; the row-open is the desk
+    // rung's extra, and the rule that does it lives inside a container query
+    for (const m of finished) {
+      expect(m.note).toBe('押すと下の表のその月へ移動します')
+      expect(m.note).not.toContain('行を開きます')
+    }
+    // the partial month keeps its own honest note
+    expect(p.trend!.chartMonths.find((m) => m.partial)!.note).toContain('月の途中です')
+    // …and the ≤799 line names the CARD, because that is what a row is there
+    const screen = ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code
+    expect(screen).toContain('・カードをタップすると全項目が開きます')
+    expect(screen).not.toContain('・行を押すと全項目が開きます')
+  })
+
+  it('§M — the 統計 label reads with ONE は, and no sentence carries a second copy of 12', async () => {
+    const restore = pin('2026-09-03T04:00:00.000Z')
+    try {
+      const p = await room({ store: STORE_A })
+      expect(p.trend!.statLabel).toBe(`統計（${LEDGER_MONTHS}か月・9月は1日〜3日の暫定値を含む）`)
+      expect(p.trend!.statLabel.match(/は/g)).toHaveLength(1)
+    } finally {
+      restore()
+    }
+    // ⚠ the month window is ONE number. `analytics-props.ts:869` opened with the
+    // templated `${LEDGER_MONTHS}か月` and closed with a literal 12か月 in the
+    // SAME sentence, so a change to the window would make it disagree with
+    // itself (L5-5).
+    for (const { name, code } of ROOM_SRC) {
+      expect([name, code.match(/12か月/g)]).toEqual([name, null])
+      // 「ぶん」 in hiragana everywhere, including the aria-label 分 also reads ふん
+      expect([name, code.match(/か月分/g)]).toEqual([name, null])
+      // the file's own naka-guro convention: no space between ・ and the clause
+      expect([name, code.match(/・ \$\{/g)]).toEqual([name, null])
+    }
+    // the loanword the same element's tour title never used (L5-6)
+    expect(ROOM_SRC.find((f) => f.name === 'AnalyticsScreen.tsx')!.code).not.toContain('ビュー')
+  })
+
+  it('§Q — no 未接続 line names an internal system, and a count is not a remainder', () => {
+    // 「core の回数券購入記録」 rendered verbatim in front of an owner, twice
+    // (L5-1), and 「Google API」 was the one line naming an interface rather
+    // than a business connection (L5-2).
+    for (const e of UNCONNECTED_NUMBERS) {
+      expect([e.id, /\bcore\b|API|SDK|endpoint/i.test(e.needs!)]).toEqual([e.id, false])
+      expect(e.needs!.length).toBeGreaterThan(3)
+    }
+    expect(numberEntry('ticketPurchaseRate').needs).toBe('回数券の購入記録との接続')
+    expect(numberEntry('googleReviews').needs).toBe('Googleの口コミ情報との接続')
+    // 未消化残 is a COUNT of sessions priced up — its own label already carries
+    // 残, so the scope word saying 残り again named the quantity twice.
+    expect(SCOPE_WORD['as-of']).toBe('その時点の値')
+  })
+})
+
+describe('the 画面の説明 tour', () => {
+  const SCREEN = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+    'utf8',
+  )
+
+  it('every section DECLARES itself, and the census is the expected list', () => {
+    // ⚖ Liam 8/23, both halves: at runtime the walker picks up anything
+    // declared (the probe measures the walked census in a browser); at build
+    // time every section declares itself the day it lands, and this is that
+    // half. Remove one declaration and this goes red.
+    const declared = [...SCREEN.matchAll(/data-guide-title="([^"]+)"|data-guide-title=\{([^}]+)\}/g)]
+      .map((m) => m[1] ?? m[2])
+    expect(declared).toEqual([
+      '売上分析',
+      'いちばん上の5つの数字',
+      't.guide?.title',     // the 着地見込み tile — its own explanation
+      '表示の切り替え',
+      '月次推移',
+      'グラフの読み取り',
+      '店舗の月次内訳',
+      '売上の内訳',
+      '回数券',
+      'スタッフランキング',
+      '日報',
+      '値の設定元',
+    ])
+    // every declaration carries TEXT as well as a title
+    expect((SCREEN.match(/data-guide=/g) ?? []).length).toBe(declared.length)
+  })
+
+  it('every declared section has a native-JP sentence behind it', async () => {
+    const p = await room({ store: STORE_A })
+    const keys = ['head', 'kpis', 'landing', 'tabs', 'chart', 'decide', 'table', 'mix', 'tickets', 'ranking', 'daily', 'footnote']
+    for (const k of keys) {
+      expect(typeof p.guides![k]).toBe('string')
+      expect(p.guides![k].length).toBeGreaterThan(20)
+      expect(p.guides![k]).not.toContain('undefined')
+      expect(p.guides![k]).not.toContain('NaN')
+    }
+  })
+
+  it('the ? is a tour trigger, not a popover — and the engine is the shared one', () => {
+    expect(SCREEN).toContain("from '@/business/lib/guide'")
+    expect(SCREEN).toMatch(/aria-haspopup="dialog"[\s\S]{0,200}aria-expanded=\{tourOpen\}/)
+    expect(SCREEN).toContain('onClick={() => setTourIdx(0)}')
+  })
+})
+
+describe('回数券 language is a capability, not an assumption (registry ⑦)', () => {
+  it('the chips render where the world shows a ticket signal', async () => {
+    const p = await room({ store: STORE_A })
+    expect(p.trend!.tickets).toHaveLength(2)
+    expect(p.trend!.tickets[0].key).toContain(numberEntry('ticketOutstanding').label)
+    expect(p.trend!.tickets[0].unit).toMatch(/回分$/)
+  })
+
+  it('a business that does not sell them gets NOTHING there — never a 「回数券なし」 chip', async () => {
+    const p = await propsWorld({ store: STORE_A, world: { noTickets: true } })
+    // the world really has no signal — proven, not assumed, so this pin cannot
+    // be green for a second reason (⚖ HARNESS-TRUTH)
+    expect(yenNumber(p.trend!.rows.find((r) => r.selected)!.cells[3])).toBe(0)
+    expect(p.trend!.tickets).toEqual([])
+    expect(JSON.stringify(p.trend!)).not.toContain('未消化残')
+    // …and the provenance panel drops the 未消化残 row with them
+    expect(p.provenance!.rows.map((r) => r.id)).not.toContain('ticketOutstanding')
+    // the chips ARE there on the same store's real plane — the difference is
+    // the data, not a switch
+    expect((await room({ store: STORE_A })).trend!.tickets).toHaveLength(2)
   })
 })
 
