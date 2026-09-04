@@ -1145,6 +1145,30 @@ describe('A1 · 本日’s count reads the search-only base, every other chip ke
   })
 })
 
+// ═══ FINAL-FRESH F-1 · the rail badge counts the WHOLE loaded span, labelled
+// so it never reads as the same number the 要対応 CHIP shows once a search or
+// a manually-changed 期間 narrows the chip's own count ═══════════════════
+
+describe('FINAL-FRESH F-1 · rail sub-label says 全期間 — the badge stays queue.length, unfiltered', () => {
+  it('both rail sites (live + LoadFailure) read 全期間・期限順, and no 対応期限の早い順 markup remains on the rail', () => {
+    expect(SCREEN_CODE).toContain('<span className="rv-rl-h">全期間・<br />期限順</span>')
+    expect(SCREEN_CODE).toContain(
+      "<span className=\"rv-rl-h\">{queue.length ? <>全期間・<br />期限順</> : 'この画面で今日決めることはありません'}</span>",
+    )
+    expect(SCREEN_CODE).not.toContain('対応期限の<br />早い順')
+  })
+
+  it('the badge itself is still `queue.length` — unfiltered by search/date — never the chip-narrowed `counts.attention`', () => {
+    expect(SCREEN_CODE).toContain('<span className="rv-rl-c">{queue.length}件</span>')
+  })
+
+  it('the tour text for 要対応 still contains 対応期限の早い順 (DECLARATIONS pin at :642 unaffected) and now also says 全件', () => {
+    expect(SCREEN_CODE).toContain(
+      'data-guide="対応期限の早い順に、期間や検索で一覧を絞っていても全件を並べています。カードを押すと、判断の根拠と次の操作がその場で開きます。"',
+    )
+  })
+})
+
 // ═══ GREPTILE ROUND 1 — G4 · the guided tour traps focus inside its overlay ══
 
 describe('G4 · the tour card is a real modal — inert `.rv-view`, Tab trap, existing Escape/focus-restore', () => {

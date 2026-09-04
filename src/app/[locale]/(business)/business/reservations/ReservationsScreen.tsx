@@ -380,7 +380,9 @@ function LoadFailure() {
           <div className="rv-raillabel">
             <span className="rv-rl-t">要対応</span>
             <span className="rv-rl-c">—</span>
-            <span className="rv-rl-h">対応期限の<br />早い順</span>
+            {/* FINAL-FRESH F-1 — see the live rail's own note below: the label
+                says WHAT the badge counts (⚖ 8/25 numbers explain themselves). */}
+            <span className="rv-rl-h">全期間・<br />期限順</span>
           </div>
           <div className="rv-railcards">
             <div className="rv-railempty">
@@ -1010,12 +1012,20 @@ function Screen(props: ReservationsProps) {
           className="rv-card rv-railrow"
           ref={railRef}
           data-guide-title="要対応"
-          data-guide="対応期限の早い順に、いま決めることだけを並べています。カードを押すと、判断の根拠と次の操作がその場で開きます。"
+          data-guide="対応期限の早い順に、期間や検索で一覧を絞っていても全件を並べています。カードを押すと、判断の根拠と次の操作がその場で開きます。"
         >
+          {/* FINAL-FRESH F-1 (Fable ruling) — this badge is the DEADLINE QUEUE
+              for the whole loaded span, never narrowed by 期間/検索 (its cards
+              stay `queue`, unfiltered): a manager must never see an overdue
+              item hidden by a search. The 要対応 CHIP below is the filter —
+              its own number is what pressing it reveals under the current
+              period/search — so the two can show different counts at once by
+              design. The sub-label says so (全期間・期限順) rather than let two
+              identically-named counts read as a contradiction. */}
           <div className="rv-raillabel">
             <span className="rv-rl-t">要対応</span>
             <span className="rv-rl-c">{queue.length}件</span>
-            <span className="rv-rl-h">{queue.length ? <>対応期限の<br />早い順</> : 'この画面で今日決めることはありません'}</span>
+            <span className="rv-rl-h">{queue.length ? <>全期間・<br />期限順</> : 'この画面で今日決めることはありません'}</span>
           </div>
           {queue.length === 0 ? (
             <div className="rv-railcards">
