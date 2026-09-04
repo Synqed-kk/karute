@@ -472,7 +472,14 @@ describe('顧客 V2 — the refusals and the doors (⚖-ADJ A / ⚖-ADJ B)', () 
   it('⚖ B1-1 — the consent rows have ONE spelling, and both branches render it', () => {
     expect(SCREEN_CODE.match(/cu-crowc-k">LINE</g)).toHaveLength(1)
     expect(SCREEN_CODE.match(/<ConsentRows row={row} \/>/g)).toHaveLength(2)
-    expect(SCREEN_CODE).toContain('if (row.consent == null) return null')
+    // ⚠ THE EARLY RETURN IS THIN-ONLY (⚖ V-1). A real customer with nothing
+    // recorded still HAS a ledger; it is empty, and 「—」 is how this room says
+    // so. Collapsing both absences into one made おとは's section disappear.
+    expect(SCREEN_CODE).toContain('if (row.consent == null && row.thin) return null')
+    expect(SCREEN_CODE).not.toContain('if (row.consent == null) return null')
+    for (const ch of ["c == null ? '—' : c.line", "c == null ? '—' : c.sms", "c == null ? '—' : c.email"]) {
+      expect(SCREEN_CODE).toContain(ch)
+    }
     // …and 累計支払 is masked on NEITHER surface — the tile OR the optional
     // column. The column was the half that showed the derived number while the
     // tile hid it, so both spellings are pinned or the pair can drift apart

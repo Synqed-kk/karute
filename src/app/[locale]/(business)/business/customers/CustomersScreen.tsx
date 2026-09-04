@@ -1640,27 +1640,35 @@ function InspectorBody({
  *  ⚠ THE THREE PHRASES ARE LITERAL HERE and the 受信トレイ suite greps this file
  *  for them — one home, so a change breaks that room loudly rather than quietly. */
 function ConsentRows({ row }: { row: CustomerRow }) {
-  if (row.consent == null) return null
+  // ⚠ TWO DIFFERENT ABSENCES, AND ONLY ONE OF THEM IS SILENT (⚖ V-1).
+  //   · A THIN row has no profile, so it has no consent LEDGER to show: the
+  //     section does not exist for it, which is the WO-1 shape.
+  //   · A REAL customer with nothing recorded HAS a ledger, and the ledger is
+  //     empty — 「—」 on all three channels, per §2.5. Returning null for both
+  //     made おとは's whole 連絡同意 section vanish rather than say 「nothing has
+  //     been recorded」, which is a silence a manager cannot tell from 同意なし.
+  if (row.consent == null && row.thin) return null
+  const c = row.consent
   return (
     <div className="cu-sec">
       <span className="cu-lb-k">連絡同意</span>
       <div className="cu-consents">
-        <div className={`cu-crowc${row.consent.line ? ' is-yes' : ''}`}>
+        <div className={`cu-crowc${c?.line ? ' is-yes' : ''}`}>
           <span className="cu-crowc-k">LINE</span>
           <span className="cu-sp" />
           <span className="cu-crowc-v">
-            {row.consent.line ? (row.lineLinked ? '同意あり / 連携確認済み' : '同意あり / 連携未確認') : '同意なし'}
+            {c == null ? '—' : c.line ? (row.lineLinked ? '同意あり / 連携確認済み' : '同意あり / 連携未確認') : '同意なし'}
           </span>
         </div>
-        <div className={`cu-crowc${row.consent.sms ? ' is-yes' : ''}`}>
+        <div className={`cu-crowc${c?.sms ? ' is-yes' : ''}`}>
           <span className="cu-crowc-k">SMS</span>
           <span className="cu-sp" />
-          <span className="cu-crowc-v">{row.consent.sms ? (row.phone ?? '同意あり') : '同意なし'}</span>
+          <span className="cu-crowc-v">{c == null ? '—' : c.sms ? (row.phone ?? '同意あり') : '同意なし'}</span>
         </div>
-        <div className={`cu-crowc${row.consent.email ? ' is-yes' : ''}`}>
+        <div className={`cu-crowc${c?.email ? ' is-yes' : ''}`}>
           <span className="cu-crowc-k">メール</span>
           <span className="cu-sp" />
-          <span className="cu-crowc-v">{row.consent.email ? (row.email ?? '同意あり') : '同意なし'}</span>
+          <span className="cu-crowc-v">{c == null ? '—' : c.email ? (row.email ?? '同意あり') : '同意なし'}</span>
         </div>
       </div>
     </div>

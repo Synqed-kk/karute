@@ -982,6 +982,25 @@ describe('顧客一覧 screen', () => {
     expect(sora.consent).toBeNull()
   })
 
+  it('⚖ V-1 — three shapes of consent, and only the thin one is silent', async () => {
+    const ginza = await render(STORE_A)
+    // おとは: a REAL customer with nothing recorded. She has a ledger and it is
+    // empty — the section renders with 「—」 on all three channels.
+    const otoha = ginza.find((r) => r.id === 'cus-05')!
+    expect(otoha.thin).toBe(false)
+    expect(otoha.consent).toBeNull()
+    expect(consentLabel(otoha.consent)).toBe('—')
+    // そら: thin, so there is no profile and no ledger to show at all.
+    const sora = ginza.find((r) => r.id === 'thin-01')!
+    expect(sora.thin).toBe(true)
+    expect(sora.consent).toBeNull()
+    // なぎ: thin, but a consent WAS recorded — the thin branch shows it.
+    const nagi = ginza.find((r) => r.id === 'thin-02')!
+    expect(nagi.thin).toBe(true)
+    expect(nagi.consent).toEqual({ line: false, sms: true, email: false })
+    expect(consentLabel(nagi.consent)).toBe('SMS')
+  })
+
   it('⚖ B1-5b — no completed visit in THIS lens is unknown, never a confident ¥0', async () => {
     const ginza = await render(STORE_A)
     // きり's only completed visit is in 代官山; うみ has none anywhere. A 銀座 desk
