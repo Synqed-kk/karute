@@ -469,13 +469,32 @@ class GlobalRecorder {
      *  offers the pair again. */
     reserve?: { takeId: string; mimeType: string } | null
   }): Promise<string | null> {
-    const gen = ++this.recordingSessionGen
-    this.recordingSessionMintInFlight = true
-    this.recordingSessionMintTakeId = input.stampTakeId ?? null
-    // Cleared the moment start() names its take (fix round 12, P1) — until
-    // then it is what stops a resolution stamping/adopting on the previous
-    // recording's take. discard() clears it too.
-    this.recordingSessionMintTakeUnknown = input.stampTakeId == null && this.takeId !== null
+    // ⚖ A MINT FOR SOMEONE ELSE'S TAKE TOUCHES NOTHING HERE (fix round 19,
+    // AJ1). The recovery / 録音履歴 保存する path and the discard gate name a
+    // take the PIPELINE holds; the generation, the in-flight flags and the
+    // field all speak for the recording THIS recorder is making. Bumping the
+    // generation for a foreign mint dropped the live take's own start-mint at
+    // its resolution: tap 録音開始, then 保存する on the banner still on screen
+    // from mount, and the live take ends with no session id on its row and
+    // `startBoundAttempted` already true — so secureTake takes the unbound
+    // branch, mints a second row, and the upload mint answers
+    // `reserved_elsewhere`, which is TERMINAL. The flags carry the mirror of
+    // it: the foreign mint wrote `TakeUnknown = false` over the `true` start()
+    // had just set, and a start-mint resolving before getUserMedia names the
+    // take then falls back to the PREVIOUS recording's take (round 12, P1).
+    // So a foreign mint is a PURE ROW-STAMPING MINT: its take's own stamp
+    // (first write wins) and its return value, and nothing else.
+    const foreign = input.stampTakeId != null && input.stampTakeId !== this.takeId
+    const gen = foreign ? this.recordingSessionGen : ++this.recordingSessionGen
+    if (!foreign) {
+      this.recordingSessionMintInFlight = true
+      this.recordingSessionMintTakeId = input.stampTakeId ?? null
+      // Cleared the moment start() names its take (fix round 12, P1) — until
+      // then it is what stops a resolution stamping/adopting on the previous
+      // recording's take. discard() clears it too.
+      this.recordingSessionMintTakeUnknown =
+        input.stampTakeId == null && this.takeId !== null
+    }
     // Assembled as a value, not an object literal at the call site: the action
     // learns the optional pair in PR2 fix round 10, and until that lands a
     // literal would be an excess-property error against its current signature.
@@ -499,7 +518,8 @@ class GlobalRecorder {
       // A stale generation spends nothing: its row would belong to a take the
       // user has already discarded or replaced.
       .then(async (res) => {
-        if (res || !input.reserve || gen !== this.recordingSessionGen) return res
+        if (res || !input.reserve || (!foreign && gen !== this.recordingSessionGen))
+          return res
         // ⚖ NEVER STEP BACK ONTO A TAKE THAT ALREADY HAS ITS ROW (fix round
         // 10). A bound create that fails SLOWLY can find the stop path already
         // finished: secureTake minted this take's row through the session door
@@ -521,9 +541,9 @@ class GlobalRecorder {
       // in flight): drop it — its row belongs to a different take/customer.
       // The flag is NOT cleared here: it belongs to whichever mint owns the
       // current generation, and that one is still in flight.
-      if (gen !== this.recordingSessionGen) return null
+      if (!foreign && gen !== this.recordingSessionGen) return null
       // Settled (this call swallows every failure to null, so it never rejects).
-      this.recordingSessionMintInFlight = false
+      if (!foreign) this.recordingSessionMintInFlight = false
       // Stamp the persisted take so a crash-recovered save still dedupes.
       // (If the meta row isn't written yet, createTake's callback re-stamps.)
       //
@@ -543,8 +563,10 @@ class GlobalRecorder {
           ? ((await readTakeSecureMeta(stampTakeId))?.recordingSessionId ?? minted)
           : minted
       // Re-read after the store round trip: a discard (or a new start) while it
-      // ran means this id belongs to a recording that is no longer here.
-      if (gen !== this.recordingSessionGen) return null
+      // ran means this id belongs to a recording that is no longer here — a
+      // FOREIGN take's id belongs to a recording this recorder never held, so
+      // nothing it does can make it stale (AJ1).
+      if (!foreign && gen !== this.recordingSessionGen) return null
       // ⚖ …AND A MINT FOR SOMEONE ELSE'S TAKE STOPS AT ITS OWN ROW (fix round
       // 18, AH1). The take's row stamp above IS the record — first write wins —
       // and every caller of the review path uses this return value. Writing the
@@ -570,9 +592,8 @@ class GlobalRecorder {
     // parked here would be read by the recorder's own save just as surely.
     // `stampTakeId` is read at RESOLUTION time by the write guard above; here
     // only the explicit argument can be known, and it is exactly what the
-    // review path passes.
-    if (input.stampTakeId == null || input.stampTakeId === this.takeId)
-      this.recordingSessionPromise = promise
+    // review path passes — which is `foreign` itself, computed at entry.
+    if (!foreign) this.recordingSessionPromise = promise
     return promise
   }
 
@@ -901,12 +922,12 @@ class GlobalRecorder {
    * upstream create (each new mint bumps the generation, so the previous one's
    * row would land referenced by nothing — one orphan per tap).
    *
-   * ponytail: a review-path retry writes its id onto this singleton like any
-   * other mint (the gen guard is what keeps that safe — a newer recording
-   * invalidates it). The recorder is idle in that case and the next start()
-   * clears the field, so the value is only ever read by the caller that asked
-   * for it. Upgrade path if a second consumer ever appears: return the id
-   * without touching the field when `stampTakeId` is someone else's take.
+   * A retry for someone ELSE'S take — the recovery / 録音履歴 save, the discard
+   * gate — stamps that take's own row and returns the id, and touches nothing
+   * on this singleton: not the field, not the held promise (fix round 18, AH1),
+   * not the generation or the in-flight flags (fix round 19, AJ1). This
+   * singleton speaks for the recording the recorder is making, and a mint for a
+   * take the pipeline holds is not it.
    */
   async retryRecordingSessionMint(opts?: {
     customerId?: string | null

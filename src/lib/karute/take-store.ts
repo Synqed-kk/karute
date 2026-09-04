@@ -566,9 +566,17 @@ export async function markTakeStartBoundAttempted(takeId: string): Promise<void>
 /** Capture pipeline PR3 fix round 16: this take's final flush was SKIPPED, so
  *  the disk copy is short of what the recorder captured. Written by the stop
  *  leg BEFORE it releases its hold — see `tailIncomplete` above for why the
- *  missing stamp stopped being enough. */
+ *  missing stamp stopped being enough.
+ *
+ *  ⚖ BUT NEVER OVER A STAMPED TAKE (fix round 19). The stamp says the disk held
+ *  the WHOLE recording at the stop instant — the segments were already written,
+ *  and no later tap can undo that. A stop with nothing pending stamps in its
+ *  first act, so a start()/discard landing inside THAT write leaves the flush
+ *  behind it answering "skipped", and this mark would then write 途中 across a
+ *  complete take. `when` is patchTakeMeta's own first-write-wins brace, read
+ *  inside the write transaction, so there is no window of its own. */
 export async function markTakeTailIncomplete(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { tailIncomplete: true })
+  await patchTakeMeta(takeId, { tailIncomplete: true }, (m) => m.durationMs === undefined)
 }
 
 /** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as

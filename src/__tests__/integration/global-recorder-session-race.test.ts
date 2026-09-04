@@ -75,6 +75,10 @@ jest.mock('@/actions/recordings', () => ({
  *  IndexedDB, so without this every call answers "layer disabled" and the
  *  adoption arm below is unreachable. */
 const mockTakeSessions = new Map<string, string>()
+/** …and the container it was recorded in, which is the only thing that decides
+ *  whether a RETRY may still offer the door a born-reserved create (fix round
+ *  9). A take nobody registers here reads exactly as it did before. */
+const mockTakeMimeTypes = new Map<string, string>()
 const mockStampTakeSession = jest.fn(async (takeId: string, sessionId: string) => {
   if (mockTakeSessions.has(takeId)) return false
   mockTakeSessions.set(takeId, sessionId)
@@ -96,8 +100,12 @@ jest.mock('@/lib/karute/take-store', () => ({
   // no-op that reads exactly like a passing test.
   markTakeTailIncomplete: async () => {},
   readTakeSecureMeta: async (takeId: string) =>
-    mockTakeSessions.has(takeId)
-      ? { takeId, recordingSessionId: mockTakeSessions.get(takeId) }
+    mockTakeSessions.has(takeId) || mockTakeMimeTypes.has(takeId)
+      ? {
+          takeId,
+          recordingSessionId: mockTakeSessions.get(takeId),
+          mimeType: mockTakeMimeTypes.get(takeId),
+        }
       : null,
   stampTakeSession: (takeId: string, sessionId: string) =>
     mockStampTakeSession(takeId, sessionId),
@@ -125,6 +133,7 @@ const TARGET_B = { customerId: 'cust-B', customerName: 'B', karuteNumber: null, 
 beforeEach(() => {
   jest.clearAllMocks()
   mockTakeSessions.clear()
+  mockTakeMimeTypes.clear()
   globalRecorder.discard()
 })
 
@@ -348,5 +357,125 @@ describe('GlobalRecorder — the mic is denied', () => {
 
     expect(globalRecorder.recordingSessionId).toBeNull()
     expect(mockStampTakeSession).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ A MINT FOR SOMEONE ELSE'S TAKE TOUCHES NOTHING ON THE SINGLETON
+// (fix round 19, AJ1).
+//
+// The recovery / 録音履歴 保存する path and the discard gate name a take the
+// PIPELINE holds. Since AH1 such a mint no longer writes the field or parks its
+// promise — but it still bumped the generation, wrote the in-flight flags, and
+// was gen-checked at its own resolution. All three belong to the recording THIS
+// recorder is making, and each one had a hole of its own.
+describe("GlobalRecorder — a mint for someone else's take", () => {
+  // THE FINDING. 録音開始, then 保存する on the recovery banner still on screen
+  // from mount: the foreign mint bumped the generation, so the live take's own
+  // start-mint was dropped at its resolution BEFORE it could stamp. The live
+  // take then carried no session id with `startBoundAttempted` already true —
+  // secureTake takes the unbound branch, mints a second row, and the upload
+  // mint answers `reserved_elsewhere`, which is TERMINAL.
+  it("does not drop the LIVE take's own start-mint", async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise) // start()'s own mint
+    await globalRecorder.start({ target: TARGET_A })
+    const live = globalRecorder.takeId!
+
+    // 保存する, while the live take's mint is still out.
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-recovered' })
+    expect(await globalRecorder.retryRecordingSessionMint({ takeId: 'take-recovered' })).toBe(
+      'session-recovered',
+    )
+
+    // Restore the unconditional bump and both of these fail: the live take is
+    // unbound, and nothing will ever bind it.
+    slow.resolve({ id: 'session-live' })
+    await slow.promise
+    await settle()
+    expect(mockTakeSessions.get(live)).toBe('session-live')
+    expect(globalRecorder.recordingSessionId).toBe('session-live')
+    // …and the recovered take kept its own row all along.
+    expect(mockTakeSessions.get('take-recovered')).toBe('session-recovered')
+  })
+
+  // The mirror, in the flags. start() sets `TakeUnknown` for the window before
+  // getUserMedia names its take; a foreign mint wrote `false` over it, and a
+  // start-mint answering inside that window then read the PREVIOUS recording's
+  // take as its own — round 12's P1 shape, restored by a save on a banner.
+  it("leaves start()'s take-unknown mark standing", async () => {
+    // A: the previous recording, stopped and already carrying its own row.
+    mockTakeSessions.set('take-A', 'session-A')
+    globalRecorder.takeId = 'take-A'
+    globalRecorder.state = 'recorded'
+
+    const restore = slowMic()
+    try {
+      const slow = deferred<{ id: string } | null>()
+      mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+      const started = globalRecorder.start({ target: TARGET_B }) // B, mic pending
+      await settle()
+
+      mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-recovered' })
+      await globalRecorder.retryRecordingSessionMint({ takeId: 'take-recovered' })
+
+      slow.resolve({ id: 'session-B' }) // B's reply, still inside the window
+      await slow.promise
+      await settle()
+      await started // …and now B exists
+      await settle()
+    } finally {
+      restore()
+    }
+
+    // Drop the `if (!foreign)` around the flag writes and B's reply stamps A —
+    // refused, so it ADOPTS A's row and the recorder holds session-A.
+    expect(mockStampTakeSession).not.toHaveBeenCalledWith('take-A', expect.anything())
+    expect(mockTakeSessions.get('take-A')).toBe('session-A')
+    expect(globalRecorder.recordingSessionId).toBe('session-B')
+  })
+
+  // …and the foreign mint's own answer survives the next recording. Its id
+  // belongs to a take the pipeline holds, which nothing this recorder does can
+  // make stale — while a gen check dropped it and the save wrote a karute
+  // pointing at no session at all.
+  it('racing a new start(), it still answers for ITS take', async () => {
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise)
+    const recovered = globalRecorder.retryRecordingSessionMint({ takeId: 'take-recovered' })
+    await settle()
+
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-next' })
+    await globalRecorder.start({ target: TARGET_B }) // the next customer
+    await settle()
+
+    // Restore either gen check for a foreign mint and this answers null with
+    // the row minted and nobody pointing at it.
+    slow.resolve({ id: 'session-recovered' })
+    expect(await recovered).toBe('session-recovered')
+    expect(mockTakeSessions.get('take-recovered')).toBe('session-recovered')
+    // …and the new recording keeps its own.
+    expect(globalRecorder.recordingSessionId).toBe('session-next')
+  })
+
+  // The step-back reads the generation too (fix round 9: one bound attempt,
+  // then the argument-less one). A foreign take whose start never offered the
+  // pair gets its bound create here, and `startBoundAttempted` is written
+  // BEFORE it goes — so when it fails, the unbound create behind it is the only
+  // row that take will ever get, and a new recording must not cancel it.
+  it('steps back to the unbound create even after a new start()', async () => {
+    mockTakeMimeTypes.set('take-recovered', 'audio/webm')
+    const slow = deferred<{ id: string } | null>()
+    mockStartRecordingSession.mockReturnValueOnce(slow.promise) // the bound create
+    const recovered = globalRecorder.retryRecordingSessionMint({ takeId: 'take-recovered' })
+    await settle()
+
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-next' })
+    await globalRecorder.start({ target: TARGET_B }) // the next customer
+    await settle()
+
+    mockStartRecordingSession.mockResolvedValueOnce({ id: 'session-unbound' })
+    slow.resolve(null) // the bound create fails
+    expect(await recovered).toBe('session-unbound')
+    expect(mockTakeSessions.get('take-recovered')).toBe('session-unbound')
   })
 })

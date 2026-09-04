@@ -53,9 +53,15 @@ let slowSegmentWrites = false
  *  dropped: an unanswered segment write blocks the persist QUEUE, so leaving
  *  one behind would starve every take in every test after it. */
 let hangSegmentWrites = false
+/** …and the same park for the STOP STAMP's own TAKES put (fix round 19). The
+ *  first act's write is in flight for a real moment, and 停止 then 録音 lands a
+ *  start() inside it — the window in which the flush behind it answers
+ *  "skipped" for a take that is already whole and already stamped. */
+let hangStampWrites = false
 const hungWrites: Array<() => void> = []
 const releaseHungWrites = () => {
   hangSegmentWrites = false
+  hangStampWrites = false
   hungWrites.splice(0).forEach((settle) => settle())
 }
 /** Fail the next N writes that carry a STOP STAMP — the one write fix round 13
@@ -193,7 +199,10 @@ class FakeIDB {
                 s.data.set(key, row)
               }),
               slowSegmentWrites && n === SEGMENTS_STORE,
-              hangSegmentWrites && n === SEGMENTS_STORE,
+              (hangSegmentWrites && n === SEGMENTS_STORE) ||
+                (hangStampWrites &&
+                  n === TAKES_STORE &&
+                  (row as { durationMs?: number }).durationMs !== undefined),
             ),
           get: (key: unknown) => new FakeRequest(() => s.data.get(norm(key))),
           getAll: () => new FakeRequest(() => [...s.data.values()]),
@@ -2998,6 +3007,59 @@ describe('secure at stop', () => {
     await jest.advanceTimersByTimeAsync(5_000)
     await drain(200)
     expect(metaOf(next).lastSeq).toBe(0)
+  })
+
+  // ── ⚖ THE STAMP IS THE TRUTH ABOUT THE DISK (fix round 19, AI1) ─────────
+  // The same tap sequence one write EARLIER. Nothing is pending at the stop, so
+  // the first act stamps — the disk was whole at that instant, and the segments
+  // are already written, so no later tap can undo it. But a start() landing
+  // inside that write leaves the flush behind it reading a changed id, and the
+  // leg's skipped-tail branch wrote `tailIncomplete` over the stamp: one row
+  // holding both facts, which isStoppedTake reads FLAG-first — so a complete
+  // recording was on nobody's worklist and told the staffer it ended partway.
+  it('a take its own first act STAMPED is never marked 途中 by the flush behind it', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // seq 0 committed: the disk is whole
+    order.length = 0
+
+    /** The page's subscription in miniature — the edge it schedules its drain
+     *  on, and the only thing that tells it this take is owed (round 17, AE2). */
+    const settleEdges: number[] = []
+    let wasSecuring = globalRecorder.isSecuring()
+    const unsubscribe = globalRecorder.subscribe(() => {
+      const securing = globalRecorder.isSecuring()
+      if (wasSecuring && !securing) settleEdges.push(Date.now())
+      wasSecuring = securing
+    })
+
+    emptyTailChunk = true // …so the stop has nothing left to write
+    hangStampWrites = true // …and the first act's stamp is parked in flight
+    globalRecorder.stop()
+    await drain(200)
+    expect(metaOf(takeId).durationMs).toBeUndefined() // still in flight
+
+    void globalRecorder.start({ target: TARGET }) // 停止 → 録音, the next customer
+    await drain(200)
+    expect(globalRecorder.takeId).not.toBe(takeId)
+
+    releaseHungWrites() // the stamp lands on the OLD row; the flush runs behind it
+    await drain(400)
+    unsubscribe()
+
+    // Drop the `when` and this row wears BOTH: stamped and 途中 at once.
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(stampWrites).toEqual([0]) // one write carried it, the first act's
+    // The leg took its skipped-tail exit, so it uploaded nothing itself — but
+    // it released the hold and said so, which is the edge the page drains on.
+    expect(order).toEqual([])
+    expect(settleEdges).toHaveLength(1)
+    // …and the take is owed, for the drain the leg's settle notify wakes.
+    await passGrace()
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([takeId])
+    // Nothing was deleted either: the whole recording is on the device.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
   })
 
   // ── ⚖ THE SINGLETON ANSWERS FOR ITS OWN TAKE ONLY (fix round 18, AH1) ────
