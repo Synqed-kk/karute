@@ -207,19 +207,27 @@
        ─────
          884  the width at which the decision desk first fits.
      The TEAM grid is the BINDING one, from its own terms:
-         608  the board card — 148 (name) + 136 (band) + 260 (the sentence) + 24
-              (two 12px gaps) = 568 of row, inside the card's own 40px padding
+         608  the board card, and the sum is the WHOLE box rather than the
+              tracks alone — the first cut of this number left the row's own
+              padding out and pinned every sentence at exactly its 260px floor:
+                112 (name) + 140 (band) + 260 (the sentence) + 20 (two 10px
+                gaps) = 532 of grid
+              + 28 the row's own left+right padding
+              +  2 the row's own borders
+              + 40 the card's own left+right padding
+              ─── 602, and 608 ships it with 6px of slack.
        + 300  the rail beside it
        +  24  the gap
        ─────
          932  the width at which the board and its rail first fit
          940  ships — 932 plus 8, and 36px clear of the 976 the reference width
               really hands this room.
-     ⚠ THE ROW'S TWO FIXED TRACKS SHRANK FROM V2-1's 168/148 TO 148/136, and the
-     column gap from 14 to 12. V2-1's floor is the SENTENCE (260px) and that is
+     ⚠ THE ROW'S TWO FIXED TRACKS SHRANK FROM V2-1's 168/148 TO 112/140, and the
+     column gap from 14 to 10. V2-1's floor is the SENTENCE (260px) and that is
      untouched; what gave way is the name and the band, which hold a wrapping
-     name and a wrapping chip. Without that the rail could not arrive beside the
-     board at the reference width at all, which is the finding R1-1 names.
+     name (widest measured 104px) and a chip whose longest string is 「まだ判断
+     できません」 (measured 135px). Without that the rail could not arrive beside
+     the board at the reference width at all, which is the finding R1-1 names.
 
      THRESHOLD ⑤ (the RECEIPT, inside a finding CARD — a DIFFERENT container):
          232  the claim column — a recommendation, a top-performer line, a chip
@@ -964,9 +972,9 @@
      right-aligned — under the sentence it acts on, on the row it acts on, and
      never stealing width from it. */
   .biz .pg-coaching .cg-row {
-    grid-template-columns: 148px 136px minmax(260px, 1fr);
+    grid-template-columns: 112px 140px minmax(260px, 1fr);
     align-items: start;
-    gap: 10px 12px;
+    gap: 10px 10px;
   }
   .biz .pg-coaching .cg-row-act { grid-column: 3; justify-self: end; }
 }

@@ -999,12 +999,19 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     expect(distinct[2]).toBeGreaterThanOrEqual(boardFits)
     expect(distinct[2] - boardFits).toBeLessThanOrEqual(24)
     // …and the board ROW really fits inside the board card's own minimum, or
-    // the row would overflow the card at exactly the threshold.
+    // the sentence is pinned at exactly its floor and the grid bleeds over the
+    // card's right edge. ⚠ THE SUM IS THE WHOLE BOX: the tracks, the row's own
+    // 28px of padding and 2px of border, and the card's own 40px. The first cut
+    // of this arithmetic counted the tracks and the card only, and the probe
+    // measured every sentence at exactly 260 — the floor holding, not fitting.
     const row = CSS_CODE.match(/grid-template-columns: (\d+)px (\d+)px minmax\((\d+)px, 1fr\);/)!
     const [nameT, bandT, bodyT] = [Number(row[1]), Number(row[2]), Number(row[3])]
-    const rowGap = Number(CSS_CODE.match(/gap: 10px (\d+)px;/)![1])
-    expect(bodyT).toBe(260)
-    expect(nameT + bandT + bodyT + rowGap * 2 + 40).toBe(board)
+    const rowGap = Number(CSS_CODE.match(/align-items: start;\n    gap: 10px (\d+)px;/)![1])
+    expect({ nameT, bandT, bodyT, rowGap }).toEqual({ nameT: 112, bandT: 140, bodyT: 260, rowGap: 10 })
+    const rowBox = nameT + bandT + bodyT + rowGap * 2 + 28 + 2 + 40
+    expect(rowBox).toBe(602)
+    expect(board).toBeGreaterThanOrEqual(rowBox)
+    expect(board - rowBox).toBeLessThanOrEqual(16)
     // ⑤ : the receipt, inside a finding CARD — a different container entirely.
     const cardThresholds = [...CSS_CODE.matchAll(/@container cg-find \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     expect(cardThresholds).toEqual([480])
@@ -2145,7 +2152,7 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     // rail can arrive beside the board at the wave's reference width. V2-1's own
     // floor is the SENTENCE, and 260 is untouched — that is the half the pixel
     // review was about.
-    expect(row).toContain('grid-template-columns: 148px 136px minmax(260px, 1fr);')
+    expect(row).toContain('grid-template-columns: 112px 140px minmax(260px, 1fr);')
     // …and the action is a LINE OF ITS OWN in the sentence's column, right-
     // aligned — never a fourth track, which would be 0px wide on every row
     // without an action and ~200px on the one that has it.
@@ -2795,17 +2802,19 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     const shell = read('src/app/[locale]/(business)/business-shell.css')
     const rail = Number(shell.match(/\.biz\.sidebar-open \.app \{ grid-template-columns: (\d+)px/)![1])
     expect(rail).toBe(264)
-    // the room's own horizontal padding in the ≤1279 band, from its own sheet
-    const narrow = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1279px)'), CSS_CODE.indexOf('@media (max-width: 1023px)'))
-    const pad = Number(narrow.match(/padding-left: (\d+)px/)![1])
-    expect(pad).toBe(20)
+    // ⚠ THE PADDING AT 1280 IS THE BASE ONE, not the ≤1279 band's. Off by one
+    // viewport pixel and the room is 8px wider than the arithmetic says — which
+    // is the class of mistake this pin exists to keep out, so it reads the rule
+    // that really applies at the reference width.
+    const pad = Number(CSS_CODE.match(/\.biz \.page\.pg-coaching \{ padding: \d+px (\d+)px/)![1])
+    expect(pad).toBe(28)
     const REFERENCE = 1280
     const container = REFERENCE - rail - pad * 2
-    expect(container).toBe(976)
+    expect(container).toBe(960)
     const desk = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1])).sort((a, b) => a - b).pop()!
     // …with real room, not by a pixel: a threshold that only just clears the
     // reference width would put it back on the wrong side after a scrollbar.
-    expect({ desk, container, clears: container - desk >= 16 }).toEqual({ desk: 940, container: 976, clears: true })
+    expect({ desk, container, clears: container - desk >= 16 }).toEqual({ desk: 940, container: 960, clears: true })
     // and EVERY page threshold clears it, not only the last one
     for (const t of [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))) {
       expect({ t, clears: t <= 940 }).toEqual({ t, clears: true })
