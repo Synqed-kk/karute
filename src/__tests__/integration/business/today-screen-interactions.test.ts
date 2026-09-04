@@ -6840,7 +6840,15 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
   /** Selector heads of every rule, at any depth. @media is transparent. */
   function selectorsOf(css: string): Set<string> {
-    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    // ⚠ `@keyframes` STOPS ARE NOT SELECTORS — the repo already ruled this for
+    // the route-css audit (1e95647cc); this local copy of the walk had not
+    // learned it. It only surfaced once TWO of the three sheets defined
+    // keyframes (予約一覧 and 顧客 both do now), at which point `from` and `to`
+    // read as a selector defined in two route stylesheets. Stripped whole,
+    // before the walk, so a stop can never be mistaken for a rule head.
+    const clean = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
     const found = new Set<string>()
     let head = ''
     for (const ch of clean) {

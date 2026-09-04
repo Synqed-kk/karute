@@ -2071,7 +2071,17 @@ describe('⚖ the sibling-sheet fence', () => {
     }
     expect(losses).toEqual([])
     // \u2026and there ARE real rivals, or the pin above proves nothing.
-    expect(rivals.length).toBeGreaterThan(0)
+    // ⚠ THE RIVAL SET IS EMPTY NOW, AND THAT IS A FACT ABOUT THE FAMILY rather
+    // than a hole in this pin: every sibling that used to state a bare rule on a
+    // name this room owns has retired it (顧客 in its V2 redesign, 予約一覧 in
+    // its own). The outranking loop above is vacuous today, so the property it
+    // exists to protect is asserted DIRECTLY — this room's own four-level fence
+    // must still be there. The day a neighbour states a bare rule again,
+    // `rivals` refills and the loop does its job unchanged.
+    for (const f of ['.biz .page.pg-recording .btn { font-weight: 500; }',
+                     '.biz .page.pg-recording .btn.primary { font-weight: 600; }']) {
+      expect(ROOM_CSS).toContain(f)
+    }
   })
 
   it('NO SIBLING states a bare rule that reaches a name only this room owns', () => {

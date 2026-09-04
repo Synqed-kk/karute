@@ -1292,7 +1292,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // moves with it — which is the pin working, not the pin failing. RE-DERIVED
     // AGAIN on the 2026-09-03 fold of 予約一覧 (#832): `.page.pg-reservations`
     // joined ahead of this room, in main's order, and the literal moved with it.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.pg-ask-ai) { min-width: 0; }')
+    // AND AGAIN on the 2026-09-05 fold of 顧客 (#834): `.page.page-customers`
+    // joined ahead of it too — main's own name for that room, main's own order.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1368,7 +1370,12 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
+      // ⚠ THE DERIVED LIST IS NOW EMPTY, AND THAT IS THE MERGED TRUTH: both rooms
+      // that used to state a bare rule on a name this one styles have retired it —
+      // 顧客 in its V2 redesign (its buttons are `cu-btn-*`, its dialog states its
+      // weights at four levels) and 予約一覧 in its own. Derived freshly on every
+      // run, so the day a neighbour states one again this goes red and the fence
+      // grows in the same pass.
     ])
     // …and this room states its own value for each of them, at FOUR levels, so a
     // sibling's three-level rule cannot win on insertion order.

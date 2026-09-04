@@ -1531,9 +1531,17 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // are gone from disk — main made the same narrowing in the 施術記録 and
     // 売上・レジ lists in the same PR. The list is DERIVED, so it shrinks with
     // the sheets; the room's own four-level fences below are untouched.
-    expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
-    ])
+    //
+    // ⚠ RE-DERIVED AGAIN AT THE #834 FOLD, AND IT IS EMPTY NOW: 顧客's V2
+    // redesign retired `customers.css`'s bare `.biz .page .btn` — its buttons
+    // are `cu-btn-*` — which was this room's last surviving collision, and the
+    // same narrowing main made in the 施術記録 / 売上・レジ / 受信トレイ lists in
+    // that PR. Derived freshly on every run, so the day a neighbour states a
+    // bare rule on one of this room's names again, this goes red and the fence
+    // grows in the same pass. What the fence is FOR is unchanged and is proven
+    // below, not here: the room states its own value at FOUR levels regardless
+    // of whether a neighbour is currently contesting it.
+    expect(collisions.sort()).toEqual([])
     // …and this room states its own value for each of them, at FOUR levels.
     const BASE = CSS_CODE.slice(0, CSS_CODE.indexOf('@media'))
     expect(BASE.length).toBeGreaterThan(1000)

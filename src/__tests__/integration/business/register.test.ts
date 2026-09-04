@@ -2369,7 +2369,12 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
+      // ⚠ THE DERIVED LIST IS NOW EMPTY, AND THAT IS THE MERGED TRUTH: both rooms
+      // that used to state a bare rule on a name this one styles have retired it —
+      // 顧客 in its V2 redesign (its buttons are `cu-btn-*`, its dialog states its
+      // weights at four levels) and 予約一覧 in its own. Derived freshly on every
+      // run, so the day a neighbour states one again this goes red and the fence
+      // grows in the same pass.
     ])
     // …and this room states its own value for each of them, at FOUR levels, so a
     // sibling's three-level rule cannot win on insertion order.
