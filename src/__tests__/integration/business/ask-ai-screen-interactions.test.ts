@@ -390,6 +390,20 @@ describe('the room’s controls — every one has a visible effect', () => {
     expect(SRC_CODE).toContain('const railBodyOpen = !railCollapsible || railOpen')
   })
 
+  it('⚖ R3-1 — a name chip is keyed and labelled by the PERSON, not by the name', () => {
+    // R2-6 taught the derivation to tell cus-01 from cus-09 (`label` carries the
+    // 会員番号 when one answer cites both) and this row was throwing it away:
+    // `{p.name}様` painted two IDENTICAL chips, on a duplicate React key.
+    const row = SRC_CODE.slice(SRC_CODE.indexOf('className="ak-namerow"'), SRC_CODE.indexOf('{advice !== '))
+    expect(row).toContain('key={p.id}')
+    expect(row).toContain('{p.label}')
+    expect(row).not.toContain('key={p.name}')
+    expect(row).not.toContain('{p.name}様')
+    // …and the label really is the derivation's, so the chip cannot re-compose
+    // the name a second way (⚖ A8).
+    expect(SRC_CODE).not.toMatch(/ak-namechip[\s\S]{0,300}\$\{p\.name\}/)
+  })
+
   it('⚖ R2-10 — the leaving class is DECLARED, not written onto a React node', () => {
     // React owns this element's className; an effect writing to it as well is
     // two writers on one attribute, and the disagreement only shows up under a

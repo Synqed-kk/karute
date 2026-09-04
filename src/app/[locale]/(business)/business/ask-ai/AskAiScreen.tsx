@@ -908,10 +908,16 @@ export function AskAiScreen(props: AskAiProps) {
                             <p className="ak-lead">{lead}</p>
                             {t.people.length > 0 && (
                               <div className="ak-namerow">
+                                {/* ⚠ KEYED AND LABELLED BY THE PERSON, NOT BY THE
+                                    NAME (R3-1). The derivation already tells two
+                                    same-named customers apart — `label` carries
+                                    the 会員番号 when an answer cites both — and
+                                    this row was throwing that away: two identical
+                                    chips, on a duplicate React key. */}
                                 {t.people.map((p) => (
-                                  <button className="ak-namechip" type="button" data-press key={p.name} onClick={() => fill(p.prompt)}>
+                                  <button className="ak-namechip" type="button" data-press key={p.id} onClick={() => fill(p.prompt)}>
                                     <PersonMark />
-                                    {p.name}様
+                                    {p.label}
                                   </button>
                                 ))}
                               </div>
