@@ -106,7 +106,16 @@ function run(): Promise<void> {
   // Both are set at the one moment that matters — work starting — so a
   // generation that only ever joined someone else's run is not marked drained.
   const gen = currentGeneration()
-  drainedGeneration = gen
+  // ⚖ …AND ONLY A SIGNED-IN PASS MAY CLAIM IT (fix round 5, H1). Two doors
+  // reach here while the store is NOT signed in — the visibilitychange
+  // listener and the retry tick — and `applyTokenRotation` flips
+  // recovering → signed-in IN PLACE, without bumping the generation
+  // (session-store.ts). So a foreground run during 'recovering' at generation G
+  // used to memoize G, and the settle that followed found "same generation" and
+  // returned: the sign-in's own pass was lost, healed only by the 60 s tick —
+  // or not at all, if that recovering pass threw and armed none. A run that
+  // started while recovering proves nothing about the sign-in that follows it.
+  if (getSessionState().status === 'signed-in') drainedGeneration = gen
   const work = (async () => {
     try {
       // The drain FIRST because it is the bytes: whole takes, the larger and

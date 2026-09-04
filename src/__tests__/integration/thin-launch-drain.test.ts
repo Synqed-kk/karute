@@ -111,6 +111,16 @@ async function authoritative(status: 'signed-in' | 'signed-out' | 'recovering') 
   await settle()
 }
 
+/** A token rotation's settle — `applyTokenRotation` (session-store.ts) applies a
+ *  same-user TOKEN_REFRESHED IN PLACE: the status becomes 'signed-in' and the
+ *  generation deliberately does NOT move, because a rotation stays inside the
+ *  current epoch. The one transition the generation cannot see. */
+async function signedInSameGeneration() {
+  state = { status: 'signed-in' }
+  notify!()
+  await settle()
+}
+
 /** What the WebView reports when it comes back from a pocket. */
 function setVisibility(v: 'visible' | 'hidden') {
   Object.defineProperty(document, 'visibilityState', { value: v, configurable: true })
@@ -204,6 +214,30 @@ describe('thin launch drain', () => {
 
     await authoritative('signed-in')
     expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚖ A RUN THAT STARTED WHILE RECOVERING CLAIMS NO GENERATION (fix round 5,
+  // H1). The subscriber is not the only door into `run()`: the visibilitychange
+  // listener and the retry tick both reach it while the store is still
+  // 'recovering'. And the one transition the generation cannot see is exactly
+  // the one that follows — `applyTokenRotation` flips recovering → signed-in IN
+  // PLACE, without bumping it. So a foreground run during recovery memoized
+  // that generation, the settle's notify then read "same generation" and
+  // returned, and the sign-in's own pass was lost: healed by the 60 s tick at
+  // best, and not at all when the recovering pass threw and armed none.
+  it('a run started while RECOVERING does not spend the sign-in’s turn', async () => {
+    await load()
+    await authoritative('recovering')
+    expect(drainOwedTakes).not.toHaveBeenCalled()
+
+    // The phone comes back from a pocket while the boot is still settling.
+    setVisibility('visible')
+    await settle()
+    expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+    // …and the settle lands as a token rotation: signed-in, same generation.
+    await signedInSameGeneration()
+    expect(drainOwedTakes).toHaveBeenCalledTimes(2)
   })
 
   it('a sign-OUT then the SAME staffer back in drains again', async () => {
