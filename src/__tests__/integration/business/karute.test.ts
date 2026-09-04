@@ -1281,9 +1281,20 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    // ⚠ ONE ROOM PER LINE, ADDED THE ROUND ITS PROOF LANDS — the list grows, and
-    // this pin is about THIS room's membership in it. 録音 joined 2026-08-31.
-    expect(shell).toMatch(/\.biz \.app:has\((?=[^)]*\.page\.pg-karute)[^)]*\) \{ min-width: 0; \}/)
+    // RE-DERIVED as 録音 (2026-08-31, main) and AI相談 (probe build1–3 measured
+    // its ladder) joined the list. ⚠ ONE ROOM PER LINE, ADDED THE ROUND ITS
+    // PROOF LANDS — and the literal stays a LITERAL on purpose: a room joining
+    // this shell-owned line has to trip every neighbour's pin, so no room can
+    // slip onto the floor exemption without a round that looked at it. The
+    // regex form the 録音 room reached for asserts only its own membership,
+    // which this literal already contains. RE-DERIVED on the 2026-09-03 fold of
+    // 売上分析 (#830): `.page.pg-analytics` joined the shell line, so the literal
+    // moves with it — which is the pin working, not the pin failing. RE-DERIVED
+    // AGAIN on the 2026-09-03 fold of 予約一覧 (#832): `.page.pg-reservations`
+    // joined ahead of this room, in main's order, and the literal moved with it.
+    // AND AGAIN on the 2026-09-05 fold of 顧客 (#834): `.page.page-customers`
+    // joined ahead of it too — main's own name for that room, main's own order.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1331,15 +1342,19 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
   }
 
-  it('the neighbours are all here — NINE sheets, read from disk, never restated', () => {
-    // `recording` joined the family in room 6 (2026-08-31) and `settings` in the
-    // 予約と確保 round (⚖ Liam 9/1). The list is READ from disk and this line is
+  it('the neighbours are all here — TEN sheets, read from disk, never restated', () => {
+    // ⚠ RE-DERIVED, NOT EXTENDED BY HABIT: a new room shipping a sheet is a new
+    // neighbour for THIS room, and the fence's whole point is that the list is
+    // read from disk and pinned rather than remembered. `recording` joined the
+    // family in room 6 (2026-08-31), `settings` in the 予約と確保 round (⚖ Liam
+    // 9/1) and `ask-ai` in room 7. The list is READ from disk and this line is
     // the pin on what was read — a new neighbour is MEANT to fail here once, so
-    // the room that added it re-derives the collision list below in the same pass
-    // rather than discovering the bleed in a browser (the 売上・レジ room states
-    // the rule in its own words). `settings` states every rule under
-    // `.pg-settings`, so it adds nothing to the collision list.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
+    // the room that added it re-derives the collision list below in the same
+    // pass rather than discovering the bleed in a browser (the 売上・レジ room
+    // states the rule in its own words). `settings` states every rule under
+    // `.pg-settings` and `ask-ai` every rule under `.pg-ask-ai`, so neither adds
+    // a collision below.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

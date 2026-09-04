@@ -92,7 +92,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     items: [
       { key: 'recording', segment: 'recording', label: '録音', mini: '録音', live: true },
       { key: 'karute', segment: 'karute', label: 'カルテ', mini: 'カルテ', live: true },
-      { key: 'askAi', segment: null, label: 'AI相談', mini: 'AI相談', live: false },
+      { key: 'askAi', segment: 'ask-ai', label: 'AI相談', mini: 'AI相談', live: true },
       { key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false },
     ],
   },

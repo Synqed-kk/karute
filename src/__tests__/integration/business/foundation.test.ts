@@ -709,6 +709,56 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // AI相談. The room's own CONSULTATION plane plus the derivations that
+      // BORROW every other fact it shows: the booking's customer / staff / menu
+      // and its 予約番号, the record's own カルテ番号, the thread's subject and
+      // its 回答期限, and the board's `hhmm`. The plane imports NOTHING — the
+      // empty inventory is the W7 fence made machine-readable, exactly as it is
+      // for the record plane above: a plane that imported the world could restate
+      // a fact the world already states, and importing nothing it can only ADD.
+      //
+      // ⚠ AND THE ROOM REACHES INTO `src/lib/ai/*`, `src/lib/app-api/*`,
+      // `src/components/ai/*` AND `src/app/api/ai/*` NOWHERE. The phone's Ask-AI
+      // contract — its capability rule, its request/response shape, its context
+      // modes, its context label and its ephemerality — is mirrored by SHAPE in
+      // `ask-ai.ts` with the file:line it was read at, because Business territory
+      // may not import phone runtime.
+      'src/business/lib/fixtures-ask-ai.ts': [],
+      'src/business/lib/ask-ai.ts': [
+        './fixtures',
+        './fixtures-ask-ai',
+        './fixtures-inbox',
+        './fixtures-karute',
+        './today-board',
+      ],
+      'src/app/[locale]/(business)/business/ask-ai/page.tsx': [
+        './AskAiScreen',
+        './ask-ai-props',
+        './ask-ai.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/ask-ai/ask-ai-props.ts': [
+        './AskAiScreen',
+        '@/business/lib/ask-ai',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-ask-ai',
+        '@/business/lib/fixtures-inbox',
+        '@/business/lib/fixtures-karute',
+      ],
+      'src/app/[locale]/(business)/business/ask-ai/AskAiScreen.tsx': [
+        '@/business/lib/ask-ai',
+        '@/business/lib/guide',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY (S15). It is the accepted
+        // 録音 mock's own `makeSpring`, ported rather than re-invented, and it is
+        // PURE — no React, no DOM — so a second easing written by hand beside it
+        // would be a second motion language on one page.
+        '@/business/lib/spring',
+        'next/link',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/ask-ai/loading.tsx': ['@/business/i18n'],
       // 録音. The room's own RECORDING plane plus the derivations that BORROW
       // every other fact it shows: the booking's date/store/customer/staff/menu,
       // the roster's names through the card↔profile bridge, and — through that
