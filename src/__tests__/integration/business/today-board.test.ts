@@ -1102,27 +1102,52 @@ describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own pric
    *  price was held: the exact defect T1 exists to remove. One author now, and
    *  this is its whole table. */
   it('bookingProofs writes the same price rule down both arms — four combinations, exact lists', () => {
-    expect(bookingProofs('ベッド1を確保', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
-    expect(bookingProofs('ベッド1を確保', false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保'])
+    // ⚖ BREAKER-828 DELTA G5 — EVERY ROW FEEDS A DIFFERENT SENTENCE. This table
+    // used to hand `'ベッド1を確保'` in on every row and assert that same
+    // literal back, so the pass-through was self-fulfilling: a helper that
+    // IGNORED its first argument and printed bed 1's name for every bed shipped
+    // green at 1920 + 1 with `tsc` exit 0, and apt-22 (bed-02), apt-25 and
+    // apt-28 (bed-03) would each have read 「ベッド1を確保」 on their 根拠 list.
+    // (PRE-EXISTING, said plainly: the same hardcode was equally invisible when
+    // the sentence came from an inline call at the page's own call site.)
+    expect(bookingProofs('A', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'A', PROOF])
+    expect(bookingProofs('B', false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'B'])
     expect(bookingProofs(null, true)).toEqual(['担当の勤務時間内', '設備の割当てが未確定', PROOF])
     expect(bookingProofs(null, false)).toEqual(['担当の勤務時間内', '設備の割当てが未確定'])
+    // The sentence in the list IS the argument, reproduced — never a constant
+    // that happens to match the fixture's first bed.
+    expect(bookingProofs('X', true)[2]).toBe('X')
+    for (const proof of ['ベッド2を確保', 'ベッド3を確保', '設備の名前']) {
+      expect({ proof, row: bookingProofs(proof, false)[2] }).toEqual({ proof, row: proof })
+    }
     // The bed's own sentence is used exactly as handed over — the helper writes
-    // the rule, `bedSecuredProof` writes the room.
-    expect(bookingProofs(bedSecuredProof(resources, 'bed-01'), false)).toContain(bedSecuredProof(resources, 'bed-01'))
+    // the rule, `bedSecuredProof` writes the room — and it lands in ITS slot.
+    expect(bookingProofs(bedSecuredProof(resources, 'bed-01'), false)[2]).toBe(bedSecuredProof(resources, 'bed-01'))
     // …and the price line is the ONLY thing the second argument moves.
     for (const proof of ['ベッド1を確保', null]) {
       expect(bookingProofs(proof, false)).toEqual(bookingProofs(proof, true).filter((p) => p !== PROOF))
     }
   })
 
-  /** ⚖ FIX ROUND 3 (BREAKER-828 F6) — AND THE 判断 CARDS FOLLOW THE SAME RULE.
+  /** ⚖ BREAKER-828 DELTA G4 — A FIXTURE-CONSISTENCY PIN, AND IT SAYS SO.
    *
-   *  A 判断 card's 根拠 is the fixture's own `d.proofs`, spread verbatim and
-   *  never met with `b.price`; the T1 walk above iterates BOOKINGS, so the
-   *  `dec-*` keys were never visited and nothing would catch one changing. It is
-   *  benign today — the one decision carrying the row (`dec-recovery`) points at
-   *  apt-26, which is priced — and this is what keeps it that way. */
-  it('a 判断 card never claims 価格保持 over a booking that has no price', async () => {
+   *  This walk CANNOT FAIL ON A CODE CHANGE, and fix round 3's title read as if
+   *  it could. A 判断 card's 根拠 is the fixture's own `d.proofs`, spread into
+   *  the case VERBATIM — `page.tsx` never meets it with `b.price` — so there is
+   *  no product line here to break. The breaker proved it: `[...d.proofs,
+   *  PRICE_HOLD_PROOF]`, every 判断 card claiming the row unconditionally, was
+   *  GREEN at 1920 + 1 with `tsc` exit 0, because every decision on this board
+   *  that names an appointment names a PRICED one (dec-recovery → apt-26,
+   *  dec-checkout → apt-25, dec-absence → apt-27, dec-sms → apt-28, dec-noshow
+   *  → apt-23).
+   *
+   *  What it IS, honestly: demo data is product truth, so this catches a FIXTURE
+   *  edit that hangs 予約時価格を保持 on a decision card whose booking has no
+   *  price — the same sentence T1 removes, printed three lines under its own
+   *  予約時価格 記録なし. `claimed > 0` keeps it from passing vacuously. The
+   *  CODE direction F6 named needs a synthetic decision this fixture does not
+   *  hold; it is unreachable on this board and it is not claimed here. */
+  it('the FIXTURE never hangs 価格保持 on a 判断 card whose booking has no price — a fixture guard, not a code pin', async () => {
     const p = await board(STORE_A)
     let walked = 0
     let claimed = 0

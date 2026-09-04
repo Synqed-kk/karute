@@ -204,23 +204,85 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  inside `'https://…'` is code and stays; a `/*` inside a whole-line comment is
  *  cut away with the comment instead of opening a block. Line COUNT is
  *  preserved (the cut keeps the leading indent), so `callSlice` still slices the
- *  same thing it counts. The ceiling, said honestly: state resets per line, so a
- *  `//` on the second line of a multi-line template literal is cut — that can
- *  only REMOVE text from the scan, which makes a pin fail rather than pass. */
+ *  same thing it counts.
+ *
+ *  ⚖ BREAKER-828 DELTA G3 (MAJOR) — AND TWO PASSES CANNOT READ A STRING. F5's
+ *  fix closed the shape it was filed for and not the class. The line pass
+ *  tracked quotes PER LINE and could not tell a string from an apostrophe that
+ *  is not one, so `) /* it's fine *\/ // shim /*` left the walker believing a
+ *  string was open, the trailing `//` was never cut, its `/*` survived into the
+ *  block pass and swallowed everything down to the next closer (`N12`). And the
+ *  block pass ran over the joined source with no string state at all, so
+ *  `const OPEN = '/*'` … `const CLOSE = '*\/'` opened and closed a comment out
+ *  of two string literals with no `//` anywhere for the first pass to look at
+ *  (`N13`). Both hid a second live `computeChecks(` reader — 1920 tests and
+ *  `tsc --noEmit` green.
+ *
+ *  v3 is ONE pass. A state machine walks the whole source once: code, `'…'`,
+ *  `"…"`, `` `…` `` with `${ … }` holes that return to code at their own brace
+ *  depth, `//` to end of line, `/* … *\/` to its closer or to end of input.
+ *  Escapes inside strings are honoured; strings come back VERBATIM, delimiters
+ *  and all; comments are blanked to SPACES, so the output is the same length as
+ *  the input and every line number and column is the file's own — the two-pass
+ *  version deleted the newlines inside a block comment and moved every line
+ *  under it. Quotes only open a string from CODE state, so a `'` inside a
+ *  comment is a character.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. A regex literal is not parsed — a `/` that
+ *  starts one is code, and a `'` or `"` inside its character class opens a
+ *  string that runs to the end of that line (single- and double-quoted strings
+ *  cannot span a line, which is what bounds it). That can only HIDE text, and
+ *  hiding takes a pinned line out of the arrays and the counts, which is red.
+ *  ADDING is what a decoy needs, and adding is what the counts are for.
+ *
+ *  It is duplicated verbatim in three suites — they do not import one another
+ *  and a new module is forbidden on this lane — and the last describe in each
+ *  file asserts all three copies are byte-identical, marker to marker. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const cutLineComment = (line: string) => {
-  let quote: string | null = null
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]
-    if (quote != null) {
-      if (c === '\\') i++
-      else if (c === quote) quote = null
-    } else if (c === "'" || c === '"' || c === '`') quote = c
-    else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
   }
-  return line
+  return out.join('')
 }
-const codeOnly = (src: string) => src.split('\n').map(cutLineComment).join('\n').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
 const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
 const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -10034,24 +10096,58 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ⚖ BREAKER-828 F5 — THE ARMOUR'S OWN COMMENT STRIPPER, PINNED
+// ⚖ BREAKER-828 F5 + DELTA G3 — THE ARMOUR'S OWN COMMENT STRIPPER, PINNED
 //
 // Every ban and every count in the T1, GAP-11 and T4 blocks below runs over
-// `codeOnly`, so a blind spot in it is a blind spot in all of them. The breaker
-// found one: a TRAILING `// … /*` was not a whole-line comment, so it survived
-// into the block pass and opened a block that swallowed real, compiled code.
+// `codeOnly`, so a blind spot in it is a blind spot in all of them. F5 found
+// one — a TRAILING `// … /*` was not a whole-line comment, so it survived into
+// the block pass and opened a block that swallowed real, compiled code — and
+// the DELTA found that the two-pass FIX for it closed the shape and not the
+// class: a per-line quote walker cannot tell a string from an apostrophe, and
+// the block pass read no strings at all. v3 is one state machine, and this is
+// its table: every shape the breaker has hidden a live reader behind.
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', () => {
+  /** The line that stands between a trailing comment which OPENS a block and
+   *  the `*\/` that closes it — real code the type-checker compiles and every
+   *  ban and count on this lane must be able to see. */
+  const HIDDEN = 'const alt = readCanon(at)'
+
+  /** Every trailing-comment shape the breaker has used, by its own id. The last
+   *  two are the DELTA's: `N12` is one apostrophe inside a same-line block
+   *  comment, which is all it took to blind the per-line walker. */
+  const SHAPES: readonly (readonly [string, string])[] = [
+    ['R-M13b — a bare trailing // that opens a block', ') // shim /*'],
+    ['N23 — a // inside a string before the trailing comment', ") // a string with '//' in it: 'x//y' shim /*"],
+    ['N24 — an escaped quote before the trailing comment', ") /* an escaped quote: 'it\\'s' */ // shim /*"],
+    ['N25 — a // inside a template-literal expression', ") // `${'a'} // b` template shim /*"],
+    ['N12 — an apostrophe inside a SAME-LINE block comment', ") /* it's fine */ // shim /*"],
+  ]
+
   it('a trailing // that opens a block comment cannot swallow the code under it', () => {
-    // M13b's exact shape, in miniature: a live reader hidden between a trailing
-    // comment that opens a block and the `*/` that closes it.
-    const src = ['const checks = wrap(', ') // shim /*', 'const alt = readCanon(at)', 'if (alt) return alt', '/* */'].join('\n')
+    for (const [why, line] of SHAPES) {
+      const code = codeOnly(['const checks = wrap(', line, HIDDEN, 'if (alt) return alt', '/* */'].join('\n'))
+      // The hidden reader is visible…
+      expect({ why, sees: code.includes(HIDDEN), keeps: code.includes('if (alt) return alt') }).toEqual({ why, sees: true, keeps: true })
+      // …and the comment itself is gone, so it cannot inflate a count either.
+      expect({ why, shim: code.includes('shim') }).toEqual({ why, shim: false })
+    }
+  })
+
+  it('a block delimiter inside a STRING LITERAL is a character, not a comment', () => {
+    // `N13` — no `//` anywhere, so the old line pass never looked, and the old
+    // block pass ran over the joined source with no string state: `'/*'` opened
+    // a comment and `'*\/'` closed it, hiding every line between them.
+    const src = ['const checks = wrap(', ')', "const OPEN: string = '/*'", HIDDEN, 'if (alt) return alt', "const CLOSE: string = '*/'"].join('\n')
     const code = codeOnly(src)
-    expect(code).toContain('const alt = readCanon(at)')
+    expect(code).toContain(HIDDEN)
     expect(code).toContain('if (alt) return alt')
-    // …and the comment itself is gone, so it cannot inflate a count either.
-    expect(code).not.toContain('shim')
+    // …and the strings come back verbatim, delimiters and all.
+    expect(code).toContain("const OPEN: string = '/*'")
+    expect(code).toContain("const CLOSE: string = '*/'")
+    // The mirror shape, double-quoted, and one where the delimiters share a line.
+    expect(codeOnly('const p = "/*" + x + "*/"')).toBe('const p = "/*" + x + "*/"')
   })
 
   it('a // inside a string literal is code, not a comment', () => {
@@ -10061,6 +10157,12 @@ describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', 
     // inside one.
     const esc = "const q = 'it\\'s //not a comment'"
     expect(codeOnly(esc)).toBe(esc)
+    // A template's `${ … }` hole is CODE and a template nested inside one is
+    // text again — the state machine walks both, so the inner `//` survives…
+    const nested = 'const t = `a${ b(`c//d`) }e`'
+    expect(codeOnly(nested)).toBe(nested)
+    // …while a real line comment INSIDE a hole is still a comment.
+    expect(codeOnly('const t = `a${ b // gone\n }`')).not.toContain('gone')
   })
 
   it('whole-line comments and /* */ blocks are still blanked, and a /* inside a // is not a block', () => {
@@ -10070,10 +10172,22 @@ describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', 
     const code = codeOnly(src)
     expect(code).toContain('const a = 1')
     expect(code).toContain('const b = 2')
-    // …while a real block still goes.
-    expect(codeOnly('const a = 1 /* gone */ + 2')).toBe('const a = 1  + 2')
-    // The line COUNT is preserved, which is what `callSlice` slices on.
+    // …while a real block still goes. ⚖ DELTA G3 — blanked to SPACES rather
+    // than deleted, so a slice's indices are the file's own indices.
+    expect(codeOnly('const a = 1 /* gone */ + 2').replace(/ +/g, ' ')).toBe('const a = 1 + 2')
+    expect(codeOnly('const a = 1 /* gone */ + 2')).not.toContain('gone')
+    // Which makes the whole output the same LENGTH as the input, line for line
+    // and column for column…
+    for (const s of [src, 'const a = 1 /* gone */ + 2']) {
+      expect({ s, len: codeOnly(s).length }).toEqual({ s, len: s.length })
+    }
+    // …and the line COUNT is preserved, which is what `callSlice` slices on.
     expect(codeOnly(src).split('\n')).toHaveLength(3)
+    // The two-pass version deleted the newlines INSIDE a block comment, so
+    // every line under a JSDoc moved up. It does not any more.
+    const multi = ['const a = 1', '/* one', '   two */', 'const b = 2'].join('\n')
+    expect(codeOnly(multi).split('\n')).toHaveLength(4)
+    expect(codeOnly(multi).split('\n')[3]).toBe('const b = 2')
   })
 })
 
@@ -10405,6 +10519,58 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
   })
 
+  /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
+   *  ARRIVE BY IMPORT, AND MAY NEVER BE DECLARED HERE.
+   *
+   *  Blind round 1's L2 F2 was a local `const hasPriceFor = () => true`, and fix
+   *  round 1 closed it with a declared-exactly-once count. Fix rounds 1 and 3
+   *  then moved the actual decision and the actual set-building into two
+   *  IMPORTED names — `hasPriceFact` and `priceFactSets` — and neither got that
+   *  pin. Both were guarded only by a `name(` count of one, which a declaration
+   *  does not match (`const priceFactSets = (` has a space before the paren), so
+   *  one line inserted above the memo shadowed either of them with every
+   *  anchored line, every count and the import inventory untouched:
+   *
+   *  · `N10` — a local `priceFactSets` returning every parked chip and every
+   *    session card as priced. GREEN at 1920 + 1, tsc exit 0. A price-less
+   *    booking parked and carried gets 予約時価格を保持 back — T1's own defect.
+   *  · `N11` — a local `hasPriceFact` whose body ORs the three sets, i.e. the
+   *    `!fromServer` guard removed. GREEN at 1920 + 1, tsc exit 0. Every server
+   *    booking counts as priced, apt-09 included — EXACTLY the mutation blind
+   *    round 1's F10 was raised for, re-entered through the door the fix built.
+   *
+   *  So both names get the armour `hasPriceFor` has, and then the whole
+   *  accounting: on this screen each name is mentioned exactly TWICE — its
+   *  import specifier and its one call — so a third mention of any shape, a
+   *  declaration, a parameter, an alias, is red. */
+  it('priceFactSets and hasPriceFact arrive by import and are never re-declared here', () => {
+    const code = codeOnly(SRC)
+    const INTCODE = codeOnly(INT)
+    for (const name of ['priceFactSets', 'hasPriceFact'] as const) {
+      // (1) NEVER DECLARED ON THE SCREEN — the hole N10 and N11 walked through.
+      expect({ name, declared: (code.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declared: 0 })
+      // (2) …and never bound as an argument or a parameter, which is how M10
+      //     shadowed `hasPriceFor` without declaring anything.
+      expect({ name, bound: (code.match(new RegExp('[(,][ \\t]*' + name + '[ \\t]*[,)=]', 'g')) ?? []).length })
+        .toEqual({ name, bound: 0 })
+      // (3) CALLED exactly once.
+      expect({ name, calls: (code.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, calls: 1 })
+      // (4) …and it ARRIVES by import: the specifier stands in the pinned
+      //     import block above, counted.
+      expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })
+      // (5) …which is the WHOLE accounting. Two mentions: the specifier and the
+      //     call. A third is a shadow, an alias or a second reader.
+      expect({ name, mentions: (code.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, mentions: 2 })
+      // (6) …and on the other side of the import there is ONE author: exported
+      //     once, declared once, never re-bound to something else.
+      expect({ name, exported: (INTCODE.match(new RegExp('export function ' + name + '\\(', 'g')) ?? []).length })
+        .toEqual({ name, exported: 1 })
+      expect({ name, declaredThere: (INTCODE.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declaredThere: 1 })
+    }
+  })
+
   /** ⚖ FIX ROUND 2 (Greptile on #828) — THE FACT IS STAMPED WHERE IT IS KNOWN,
    *  AND NEVER INFERRED FROM THE CARD.
    *
@@ -10430,6 +10596,17 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(pinnedLines(SRC, SETS_LINE)).toBe(1)
     expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
     expect((code.match(/priceFactSets\(/g) ?? []).length).toBe(1)
+    // ⚖ BREAKER-828 DELTA G1 — AND THEY ARE ONE BLOCK, NOT TWO LINES THAT
+    // HAPPEN TO EXIST. The bans below are a DENYLIST over a slice that was
+    // allowed to be non-empty, and one line walked straight through it:
+    // `Object.assign(sets, { priced: sets.fromServer })` between the two memos
+    // — 1920 tests and `tsc --noEmit` green, every server booking counted as
+    // priced, apt-09's card carrying 予約時価格を保持 while the page's 根拠
+    // list still said no. `Object.assign` is one spelling of many; the hole was
+    // the gap, not the word. One anchored regex over the pair says line A is
+    // IMMEDIATELY followed by line B, so there is no gap to spell anything in —
+    // a line between reds, and so does a blank line, which is also a gap.
+    expect((code.match(new RegExp('^[ \\t]*' + escapeRegExp(SETS_LINE) + '$\\n^[ \\t]*' + escapeRegExp(BIND_LINE) + '$', 'gm')) ?? []).length).toBe(1)
     // …and NOTHING stands between them. A wrapper body needs a body; this is
     // the only place on the screen a set could be built for this question, and
     // the four ways of building one are banned inside it.
@@ -10577,5 +10754,43 @@ describe('⚖ R8 T4 — the incident stat and the header chip name one count onc
     // 安全な空き was the second NAME for that one count, and it is retired —
     // gone from the rendered board and from every comment that taught it.
     expect(code).not.toContain('安全な空き')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })

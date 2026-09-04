@@ -149,30 +149,66 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  ⚖ BREAKER-828 F5 (MAJOR) — AND THE FIRST PASS READS EVERY LINE, NOT ONLY
- *  the lines that are ENTIRELY a comment. A trailing comment that ends in `/*`
- *  used to survive that pass into the block pass, which then ate everything
- *  down to the next block close — real, compiled code, invisible to every ban
- *  and count built on this helper (the breaker hid a second live
- *  `computeChecks(` reader that way and 1912 tests stayed green). Each line is
- *  cut at its first `//` OUTSIDE a string now; a `//` inside `'https://…'` is
- *  code and stays, and the line count is preserved so slicing and counting see
- *  the same thing. Unit-pinned in today-screen-interactions.test.ts (this is a
- *  verbatim copy — these three suites do not import one another). */
+ *  ⚖ BREAKER-828 F5 + DELTA G3 (MAJOR) — AND IT IS ONE PASS, NOT TWO. A
+ *  trailing comment that ends in `/*` used to survive the line pass into the
+ *  block pass, which then ate everything down to the next block close — real,
+ *  compiled code, invisible to every ban and count built on this helper. F5's
+ *  per-line quote walker closed that shape and not the class: an apostrophe
+ *  inside a same-line `/* … *\/` still left it believing a string was open
+ *  (`N12`), and the block pass respected no strings at all, so `const OPEN =
+ *  '/*'` … `const CLOSE = '*\/'` opened and closed a comment out of two string
+ *  literals (`N13`). v3 walks the source ONCE as a state machine over code,
+ *  `'…'`, `"…"`, `` `…` `` with `${ … }` holes, `//` and `/* … *\/`: a
+ *  delimiter inside a string is a character, comments are blanked to spaces so
+ *  the output keeps the input's length and line numbers, and strings come back
+ *  verbatim. Unit-pinned in today-screen-interactions.test.ts; this is a
+ *  VERBATIM copy — these three suites do not import one another — and the last
+ *  describe in this file asserts all three copies are byte-identical. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const cutLineComment = (line: string) => {
-  let quote: string | null = null
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]
-    if (quote != null) {
-      if (c === '\\') i++
-      else if (c === quote) quote = null
-    } else if (c === "'" || c === '"' || c === '`') quote = c
-    else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
   }
-  return line
+  return out.join('')
 }
-const codeOnly = (src: string) => src.split('\n').map(cutLineComment).join('\n').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
 const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
 const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -2033,5 +2069,43 @@ describe('the artifacts', () => {
       '#   · re ≤ mask, on every row (a second reader of one world never pays more',
       '#     than the first — the book’s cache is real, not a comment).',
     ])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })
