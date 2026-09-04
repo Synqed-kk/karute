@@ -127,6 +127,23 @@ const pendingFresh = new Map<string, Promise<void>>()
  */
 const backoff = new Map<string, { until: number; step: number }>()
 
+/**
+ * ⚖ AND HOW MANY SEQS TO ASK FOR, WHICH IS NOT A CONSTANT (fix round 2, M2).
+ * The door's own ceiling is SEGMENT_BATCH and that is what a take starts at.
+ * But a full catch-up is the batch's worth of storage round trips inside the
+ * caller's 30 s door, so on slow storage the answer can expire before it
+ * arrives — and asking for the SAME sixty again, for as long as the latency
+ * lasts, is a recording that never catches up. `upstream` is the code both
+ * arms give a door that ran out of time, so it HALVES the next ask; a mint
+ * that answers restores the ceiling.
+ *
+ * Progress is guaranteed by the floor: a batch of one is two storage calls,
+ * which no honest door misses — so the prefix advances by at least one segment
+ * per flush even on the worst link this can meet. Memory only, like the
+ * backoff beside it, and for the same reason.
+ */
+const batchAsk = new Map<string, number>()
+
 function bumpBackoff(takeId: string): void {
   const step = (backoff.get(takeId)?.step ?? 0) + 1
   // Jittered, so a salon of phones that all lost the same access point do not
@@ -204,9 +221,9 @@ async function putSegment(url: string, blob: Blob, contentType: string): Promise
  * `fresh: true` asks for a run that STARTS after any run already in flight —
  * the stop leg's ask, and only its ask (see `pendingFresh`). Without it, an
  * overlapping call joins the running one, which is what every flush-time
- * trigger wants. Note what `fresh` does NOT do: it does not skip the backoff
- * window. A take whose door just refused is refusing for a reason, and the stop
- * leg is not a licence to ask again a second later.
+ * trigger wants. It also skips the backoff window, for the reason written at
+ * that check: the stop is the one moment the tail is a PROMISE rather than a
+ * retry.
  */
 export async function pumpSegments(
   port: RecordingPipelinePort,
@@ -214,7 +231,7 @@ export async function pumpSegments(
   opts?: { fresh?: boolean },
 ): Promise<void> {
   const running = inFlight.get(takeId)
-  if (!running) return startPump(port, takeId)
+  if (!running) return startPump(port, takeId, opts)
   if (!opts?.fresh) return running
   const waiting = pendingFresh.get(takeId)
   if (waiting) return waiting
@@ -227,21 +244,54 @@ export async function pumpSegments(
       // arriving from here on is asking for a run that starts after THIS one,
       // and handing it this one would be the very join the option refuses.
       pendingFresh.delete(takeId)
-      return startPump(port, takeId)
+      // ⚖ AND THE SLOT IS STILL OWNED BY EXACTLY ONE RUN (fix round 2, M3).
+      // The run this followed cleared `inFlight` in a `.finally` that fires
+      // BEFORE this callback, so a flush-time call landing in that gap has
+      // already started a run of its own. Starting a second one here would put
+      // TWO runs on the same take: the same seqs minted twice, the same
+      // immutable keys PUT twice, the loser reading a 409 as a refusal and
+      // arming a backoff on a take that is doing fine.
+      //
+      // THE INVARIANT, stated: `inFlight` holds at most one run per take at any
+      // instant, and what `fresh` promises is a START-AFTER, not a run of its
+      // own. A run found here necessarily started after the previous one
+      // settled, so it read the store after it — which is exactly the property
+      // the stop leg needs, and joining it satisfies the ask.
+      const live = inFlight.get(takeId)
+      return live ?? startPump(port, takeId, opts)
     })
   pendingFresh.set(takeId, followUp)
   return followUp
 }
 
-function startPump(port: RecordingPipelinePort, takeId: string): Promise<void> {
-  const run = pumpOnce(port, takeId).finally(() => inFlight.delete(takeId))
+function startPump(
+  port: RecordingPipelinePort,
+  takeId: string,
+  opts?: { fresh?: boolean },
+): Promise<void> {
+  const run = pumpOnce(port, takeId, opts).finally(() => inFlight.delete(takeId))
   inFlight.set(takeId, run)
   return run
 }
 
-async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<void> {
+async function pumpOnce(
+  port: RecordingPipelinePort,
+  takeId: string,
+  opts?: { fresh?: boolean },
+): Promise<void> {
   try {
-    const wait = backoff.get(takeId)
+    // ⚖ THE STOP'S OWN ATTEMPT IS NOT A RETRY (fix round 2, M1). Every other
+    // caller honours the window — the trigger is a flush every ~5 s, and a take
+    // whose door is refusing must not ask twelve times a minute. The stop leg
+    // is the one caller for which that is wrong: it runs ONCE, at the only
+    // instant the tail segment exists and the take is about to be sealed, and
+    // one transient refusal on any of the last flushes arms a 5–65 s window
+    // that would make it a silent no-op — the tail never attempted at all, on
+    // exactly the bad link the head start is worth most. So `fresh` gets its
+    // one attempt (bounded by its own per-PUT deadlines and the leg's total
+    // budget), and a failure still arms the backoff below for the flushes that
+    // come after.
+    const wait = opts?.fresh ? undefined : backoff.get(takeId)
     if (wait && Date.now() < wait.until) return
 
     const meta = await readTakeUploadMeta(takeId)
@@ -268,7 +318,8 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
     // CONTIGUOUS from `from + 1`, stopping at the first gap — `uploadedSeq` is a
     // prefix, and a seq behind a hole advances nothing (see the store's own
     // docblock).
-    const rows = await listTakeSegmentsAfter(takeId, from, SEGMENT_BATCH)
+    const ask = batchAsk.get(takeId) ?? SEGMENT_BATCH
+    const rows = await listTakeSegmentsAfter(takeId, from, ask)
     if (rows.length === 0) return
 
     const minted = await port.mintSegmentUrls(
@@ -285,9 +336,17 @@ async function pumpOnce(port: RecordingPipelinePort, takeId: string): Promise<vo
       // never turn into a yes — shared with the whole-take path so the two
       // cannot drift, and read here without writing anything of that path's.
       if (TERMINAL_SECURE_ERRORS.has(minted.error)) await stopSegments(takeId, minted.error)
-      else bumpBackoff(takeId)
+      else {
+        // The door ran out of time (or storage did) — ask for less next time,
+        // down to one seq. See `batchAsk`: this is what keeps a catch-up on a
+        // slow link from re-asking the same impossible batch for ever.
+        if (minted.error === 'upstream') batchAsk.set(takeId, Math.max(1, Math.floor(ask / 2)))
+        bumpBackoff(takeId)
+      }
       return
     }
+    // The door answered, so the ceiling is the right ask again.
+    batchAsk.delete(takeId)
 
     // The door answers per seq; index them so the pool can pair each blob with
     // its own answer without assuming the two lists came back in one order.
@@ -371,4 +430,5 @@ export function __resetSegmentPumpState(): void {
   inFlight.clear()
   pendingFresh.clear()
   backoff.clear()
+  batchAsk.clear()
 }

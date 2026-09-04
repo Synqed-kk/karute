@@ -261,7 +261,17 @@ function auditTakeNamed(
  * advance since slice five packet B, so "something exists here" no longer says
  * the DEVICE put it there — only its byte length, compared against the blob
  * the device still holds, can. `size: null` is storage answering without one:
- * it proves nothing, and the caller must treat it as a mismatch.
+ * it proves nothing, and no caller may adopt on it.
+ *
+ * ⚖ WHAT `size: null` COSTS IS THE CALLER'S CALL, and the two differ on purpose
+ * (packet C fix round 1, K6). For the STAGED caller it is a MISMATCH: that port
+ * refuses, the take stays unstaged, and the next mount tries again at the cost
+ * of one JSON call. For the SEGMENT caller it is a RETRYABLE FAILURE — a
+ * backoff, never `seg_mismatch` — because there the mark is terminal for the
+ * take's whole life, and a storage version that stopped reporting sizes would
+ * otherwise switch every take's pump off fleet-wide on a fact about the API
+ * rather than about anybody's audio. Finalize splits the same two off this same
+ * read (`size_unknown` vs `size_mismatch`).
  *
  * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
  * size dropped, so the two questions can never drift into two probes.
@@ -749,6 +759,41 @@ export async function mintTakeUploadUrl(
  * Upgrade path if a catch-up batch ever times out: bound the fan-out with a
  * small pool, the way the pump PUTs.
  */
+/** How many segment keys the door probes and signs at once (fix round 2, M2).
+ *  Eight: enough that a full 60-seq catch-up is ~8 waves rather than 60, and
+ *  small enough that one client's catch-up cannot open sixty sockets to storage
+ *  at once. */
+const SEGMENT_MINT_CONCURRENCY = 8
+
+/** ONE segment key: does storage already hold it, and if not, a signed URL for
+ *  it. Lifted out of the loop so the waves above can run it in parallel; the
+ *  body is exactly what ran serially before — the probe first, `unknown` fails
+ *  CLOSED, an object that exists comes back as a SIZE and is never signed over. */
+async function mintOneSegment(one: {
+  key: string
+  ext: string
+  contentType: string
+  seq: number
+}): Promise<MintedSegment | { error: 'upstream' }> {
+  // Existence answered BEFORE anything is signed, with the shared single-object
+  // read the staged mint uses (objectSize — ONE spelling in this file, so the
+  // two questions can never drift into two probes).
+  const existing = await objectSize(one.key)
+  // Storage did not answer. Retryable, and nothing is signed meanwhile — the
+  // same posture both of the other acts take.
+  if (existing === 'unknown') return { error: 'upstream' }
+  if (existing.exists)
+    return {
+      seq: one.seq,
+      path: one.key,
+      contentType: one.contentType,
+      existingSize: existing.size,
+    }
+  const signed = await signUpload(one)
+  if ('error' in signed) return signed
+  return { seq: one.seq, ...signed }
+}
+
 export async function mintSegmentUploadUrls(
   synqed: Core,
   actor: MintTakeActor,
@@ -848,27 +893,29 @@ export async function mintSegmentUploadUrls(
   // not record onto this row never learns anything about what it points at.
   if (row.audio_storage_path !== takeKey) return { error: 'not_reserved' }
 
+  // ⚖ BOUNDED PARALLEL, BECAUSE THE BATCH HAS TO FIT THE DOOR (fix round 2,
+  // M2). One seq is two storage calls, and sixty of them run one after another
+  // is up to 120 round trips: at ordinary storage latency that is past the
+  // CALLER's 30 s door (thin `doorFetch`, web `withDeadline`), so the whole
+  // answer is thrown away, no prefix advances, and the pump asks for the same
+  // sixty again for as long as the latency lasts — an offline recording that
+  // can never catch up. In waves of SEGMENT_MINT_CONCURRENCY the worst case is
+  // ~8 waves × 2 calls, a few seconds, comfortably inside the door.
+  //
+  // The ANSWER stays in seq order (the waves are consumed in order, and each
+  // wave in its own), and the refusals are unchanged: the first seq in order
+  // that could not be probed or signed ends the whole call — nothing is
+  // half-minted, and a wave that was already in flight beside it has only read
+  // and signed, never written.
   const segments: MintedSegment[] = []
-  for (const one of composedSegments) {
-    // Existence answered BEFORE anything is signed, with the shared single-object
-    // read the staged mint uses (objectSize — ONE spelling in this file, so the
-    // two questions can never drift into two probes).
-    const existing = await objectSize(one.key)
-    // Storage did not answer. Retryable, and nothing is signed meanwhile — the
-    // same posture both of the other acts take.
-    if (existing === 'unknown') return { error: 'upstream' }
-    if (existing.exists) {
-      segments.push({
-        seq: one.seq,
-        path: one.key,
-        contentType: one.contentType,
-        existingSize: existing.size,
-      })
-      continue
+  for (let i = 0; i < composedSegments.length; i += SEGMENT_MINT_CONCURRENCY) {
+    const wave = await Promise.all(
+      composedSegments.slice(i, i + SEGMENT_MINT_CONCURRENCY).map(mintOneSegment),
+    )
+    for (const answer of wave) {
+      if ('error' in answer) return answer
+      segments.push(answer)
     }
-    const signed = await signUpload(one)
-    if ('error' in signed) return signed
-    segments.push({ seq: one.seq, ...signed })
   }
 
   // The row is named back the way the take mint names it: the caller stamps

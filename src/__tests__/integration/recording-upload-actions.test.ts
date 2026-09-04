@@ -1327,6 +1327,51 @@ describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fen
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // ⚖ AND THE BATCH HAS TO FIT THE DOOR (fix round 2, M2). One seq is two
+  // storage calls; sixty of them one after another is up to 120 round trips,
+  // which at ordinary latency outlives the CALLER's 30 s door — so the answer
+  // is thrown away, no prefix advances, and the pump asks for the same sixty
+  // again for as long as the latency lasts. In waves the same work is ~8 waves
+  // of two calls. The wave size is what this pins: more than one at a time, and
+  // never so many that one client's catch-up opens sixty sockets to storage.
+  it('probes and signs in BOUNDED PARALLEL, and the answer stays in seq order', async () => {
+    reserved()
+    const all = Array.from({ length: 60 }, (_, i) => i)
+    let live = 0
+    let peak = 0
+    info.mockImplementation(async () => {
+      live++
+      peak = Math.max(peak, live)
+      // A real tick, so overlap is observable at all: an instantly-resolved
+      // probe never has two in flight, whatever the door does.
+      await new Promise((r) => setTimeout(r, 0))
+      live--
+      return { data: null, error: notFoundError }
+    })
+
+    const res = await segmentsOk({ ...NAMED, seqs: all })
+
+    expect(res.segments.map((s) => s.seq)).toEqual(all)
+    expect(res.segments.map((s) => s.path)).toEqual(all.map((seq) => segKey(seq)))
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(8)
+  })
+
+  // …and a wave that runs beside a refusal changes nothing about the refusal:
+  // the first seq IN ORDER that could not be probed ends the whole call, and
+  // the others only ever read and signed — this door writes nothing.
+  it('one probe that does not answer ends the batch — upstream, never a half-made one', async () => {
+    reserved()
+    info.mockImplementation(async (key: string) =>
+      key === segKey(2)
+        ? { data: null, error: { message: 'gateway', status: 500 } }
+        : { data: null, error: notFoundError },
+    )
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('the probe is asked for the composed key itself, once per seq', async () => {
     reserved()
     await segmentsOk()

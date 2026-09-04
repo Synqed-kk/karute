@@ -440,6 +440,51 @@ describe('the segment pump — when it does nothing at all', () => {
     expect(listTakeSegmentsAfter).toHaveBeenCalledTimes(2)
   })
 
+  // ⚖ …AND THE SLOT STAYS OWNED BY EXACTLY ONE RUN (fix round 2, M3). The run
+  // a follow-up waited on clears `inFlight` in a `.finally` that fires BEFORE
+  // the follow-up's own callback, so a flush-time call can land in that gap and
+  // start a run of its own. Starting a second one there would put TWO runs on
+  // one take — the same seqs minted twice, the same immutable keys PUT twice,
+  // and the loser reading a 409 as a refusal and arming a backoff on a take
+  // that is doing fine. What `fresh` promises is a START-AFTER, and a run that
+  // began after the previous one settled read the store after it, so joining it
+  // is the promise kept.
+  it('a plain call landing in the handoff window is JOINED, never raced', async () => {
+    slowPut(() => ({ ok: true, status: 200 }), 10)
+    const finished: string[] = []
+
+    // THE HANDOFF WINDOW, hit deliberately: run A clears the single-flight slot
+    // in a `.finally` that fires BEFORE the follow-up's own callback, so a
+    // flush-time call in those few microtasks starts a run of its own. Fired
+    // from run A's last awaited store write, three microtasks on — measured
+    // against both builds, and the window is four hops wide. Land outside it
+    // and the call simply joins whichever run holds the slot, which is the same
+    // answer by a duller route: this case is only interesting inside it.
+    let inWindow: Promise<void> | undefined
+    markSegmentsUploaded.mockImplementation(async () => {
+      finished.push('run')
+      if (inWindow) return
+      let hop = Promise.resolve()
+      for (let i = 0; i < 3; i++) hop = hop.then(() => {})
+      void hop.then(() => {
+        inWindow = pumpSegments(port, TAKE)
+      })
+    })
+
+    const a = pumpSegments(port, TAKE)
+    const fresh = pumpSegments(port, TAKE, { fresh: true })
+
+    // The fresh caller waited for the run that took the slot, not for A: both
+    // marks are in by the time its promise settles, and there is no third.
+    await fresh
+    expect(finished).toEqual(['run', 'run'])
+
+    await Promise.all([a, inWindow])
+    // TWO runs, not three: A, and the one that landed in the window.
+    expect(listTakeSegmentsAfter).toHaveBeenCalledTimes(2)
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+  })
+
   // With nothing in flight there is nothing to start after: `fresh` is the
   // ordinary run, not an extra one.
   it('a fresh call with no run in flight is just the run', async () => {
@@ -474,6 +519,66 @@ describe('the segment pump — what the door’s refusals cost', () => {
       expect(mintSegmentUrls).not.toHaveBeenCalled()
     },
   )
+
+  // ⚖ THE STOP'S OWN ATTEMPT IS NOT A RETRY (fix round 2, M1). Every other
+  // caller honours the window — the trigger is a flush every ~5 s. The stop leg
+  // is the one caller for which that is wrong: it runs ONCE, at the only moment
+  // the tail exists and the take is about to be sealed, so one transient
+  // refusal on any of the last flushes would arm a 5–65 s window that makes it
+  // a silent no-op and the tail is never attempted at all.
+  it('a fresh pump ignores the backoff window; a flush-time pump still honours it', async () => {
+    mintSegmentUrls.mockImplementationOnce(async () => ({ error: 'mint_502' }))
+    await pumpSegments(port, TAKE)
+    expect(markSegmentError).not.toHaveBeenCalled()
+
+    // A flush a moment later, inside the window: nothing is asked for.
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    // The stop leg's own, in the same window: the tail goes up.
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+  })
+
+  // ⚖ AND THE ASK SHRINKS UNTIL THE DOOR CAN ANSWER IT (fix round 2, M2). A
+  // full catch-up is the batch's worth of storage round trips inside a 30 s
+  // door; on slow storage the answer expires before it arrives, and re-asking
+  // for the same sixty is a recording that never catches up. `upstream` is what
+  // both arms call a door that ran out of time.
+  it('a door that keeps timing out is asked for LESS each time, and one answer restores the ceiling', async () => {
+    // The store hands back exactly as many rows as it is asked for, so what the
+    // door is given IS the ask.
+    listTakeSegmentsAfter.mockImplementation(async (_id, after, limit) =>
+      rows(...Array.from({ length: limit }, (_, i) => after + 1 + i)),
+    )
+    readTakeUploadMeta.mockImplementation(async () => meta({ lastSeq: 999 }))
+    mintSegmentUrls.mockImplementation(async () => ({ error: 'upstream' }))
+
+    // `fresh`, so the backoff each refusal arms is not what is being measured.
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls.mock.calls[0][3]).toHaveLength(SEGMENT_BATCH)
+    expect(mintSegmentUrls.mock.calls[1][3]).toHaveLength(SEGMENT_BATCH / 2)
+    expect(mintSegmentUrls.mock.calls[2][3].length).toBeLessThanOrEqual(15)
+
+    // …and the moment the door answers, the ceiling is the ask again.
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+      segments: seqs.map((seq) => ({
+        seq,
+        path: segPath(seq),
+        url: segUrl(seq),
+        contentType: 'audio/webm',
+      })),
+    }))
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls.mock.calls.at(-1)![3]).toHaveLength(SEGMENT_BATCH)
+  })
 
   it('a door that answers a seq it was not asked about is a refusal, not a guess', async () => {
     mintSegmentUrls.mockImplementation(async () => ({
