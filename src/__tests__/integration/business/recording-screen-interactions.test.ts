@@ -522,7 +522,8 @@ describe('⚖ ALL-SCREEN — the ladder and the thumb', () => {
 
   it('⚖ F-R1 — the 1180px floor is lifted from the SHELL’s own list, and NOT from this sheet', () => {
     const shell = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8')
-    expect(shell).toContain('.page.pg-karute, .page.pg-recording) { min-width: 0; }')
+    // RE-DERIVED as AI相談 joined the shell's opt-in list (2026-09-03).
+    expect(shell).toContain('.page.pg-karute, .page.pg-recording, .page.pg-ask-ai) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app:has')
   })
 

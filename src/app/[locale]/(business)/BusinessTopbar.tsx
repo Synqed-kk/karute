@@ -71,6 +71,7 @@ const CRUMB: Record<string, string> = {
   karute: 'カルテ',
   recording: '録音',
   settings: '予約と確保',
+  'ask-ai': 'AI相談',
 }
 
 /** …and its GROUP, for the crumb's first word. The rail already groups every
