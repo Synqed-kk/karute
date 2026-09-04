@@ -1032,3 +1032,33 @@ describe('chipBase (G2(b)) — chipCounts runs over 期間+検索, never the chi
     expect(todayOnly.all).toBeLessThan(full.all)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 17. GREPTILE ROUND 1 — G3 · overnight duration is a real instant difference
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('durationMinutes survives a booking that crosses JST midnight', () => {
+  it('23:30 → 00:30 reads 60 minutes, never a negative minute-of-day subtraction', async () => {
+    const seed = appointments().find((a) => a.id === 'apt-15')!
+    const overnight = {
+      ...seed,
+      id: 'apt-overnight',
+      display_no: 'R-9002',
+      staff_id: null,
+      resource_id: null,
+      starts_at: jstSlot(0, 23, 30),
+      ends_at: jstSlotEnd(0, 23, 30, 60),
+    }
+    const world = { appointments: [...appointments(), overnight] }
+    const p = (await reservationsProps({ locale: 'ja', store: STORE_A, world })).props
+    const row = p.rows.find((r) => r.id === 'apt-overnight')!
+    expect(row.durationMinutes).toBe(60)
+    expect(row.startMinute).toBe(23 * 60 + 30)
+    expect(row.timeLabel).toBe('23:30–00:30')
+    // a slot-picker candidate filter reading this row's durationMinutes must
+    // never be offered a candidate shorter than the booking itself
+    for (const s of safeSlotsFor(sellSlots, row.durationMinutes)) {
+      expect(s.end - s.start).toBeGreaterThanOrEqual(60)
+    }
+  })
+})

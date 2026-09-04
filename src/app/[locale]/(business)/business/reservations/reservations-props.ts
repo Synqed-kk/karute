@@ -207,7 +207,10 @@ export async function reservationsPropsFor(
         dayKey,
         isToday,
         startMinute,
-        durationMinutes: endMinute - startMinute,
+        // G3 fix — a booking that crosses JST midnight (23:30→00:30) has a
+        // SMALLER end-minute-of-day than its start, so subtracting the two
+        // minute-of-day numbers goes negative. The real instants never wrap.
+        durationMinutes: Math.round((Date.parse(a.ends_at) - Date.parse(a.starts_at)) / 60_000),
         startLabel: hhmm(startMinute),
         timeLabel: `${hhmm(startMinute)}–${hhmm(endMinute)}`,
         customerName: customer?.name ?? '—',
