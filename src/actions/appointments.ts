@@ -199,6 +199,7 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
     // (the record page falls back to the next candidate instead). Mirrors the
     // by-date hide.
     if (isTerminalStatus(a.status)) return null
+    if (!a.staff_id || !a.customer_id) return null
     // Store clamp: the list reads are store-filtered, but this per-id read would
     // otherwise let a branch-restricted staff resolve ANY booking by deep link.
     // Fail closed on a storeless row (a handful of pre-repair imports have no
@@ -229,8 +230,8 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
 
     return {
       id: a.id,
-      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-      client_id: a.customer_id,
+      staff_profile_id: profileByStaffId.get(a.staff_id!) ?? a.staff_id!,
+      client_id: a.customer_id!,
       start_time: a.starts_at,
       duration_minutes: a.duration_minutes ?? 0,
       title: a.title,

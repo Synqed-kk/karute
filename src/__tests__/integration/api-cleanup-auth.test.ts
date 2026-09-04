@@ -1,16 +1,18 @@
 import { testApiHandler } from 'next-test-api-route-handler'
 import * as appHandler from '@/app/api/cleanup/route'
 
-// The cleanup cron deletes storage recordings + purges the AI cache with the
-// service-role client, so the ONLY thing under test here is that it refuses to
-// run without the correct Vercel-Cron bearer. Stub the destructive deps so a
+// The cleanup cron reads storage + purges the AI cache with the service-role
+// client. Two things under test: it refuses to run without the correct
+// Vercel-Cron bearer, and — since 2026-09-03, ⚖ audio is never deleted — it
+// REPORTS orphan candidates and removes nothing. Stub the destructive deps so a
 // successful (authorized) call doesn't touch anything real.
 const cleanupExpiredAiCache = jest.fn(async () => 0)
 jest.mock('@/lib/ai-cache', () => ({
   cleanupExpiredAiCache: () => cleanupExpiredAiCache(),
 }))
-// remove() answers with the objects it actually removed, so the mock mirrors the
-// batch it was handed; a case that needs a shorter answer overrides it.
+// The remove fake exists ONLY to prove it is never called (see the afterEach
+// below). It still answers the way storage does, so a regression that brought
+// deletion back would run rather than crash — and be caught for what it is.
 type RemoveResult = { data?: { name: string }[]; error?: { message: string } }
 const removedAll = async (names: string[]): Promise<RemoveResult> => ({
   data: names.map((name) => ({ name })),
@@ -20,7 +22,7 @@ type ListOpts = { limit: number; offset: number }
 // A page that fails answers with data null + an error, so the mock's shape has
 // to be able to say that, not just hand back rows.
 type ListResult = {
-  data: { name: string; created_at: string }[] | null
+  data: { name: string; id: string | null; created_at: string }[] | null
   error?: { message: string }
 }
 const storageList = jest.fn(
@@ -37,17 +39,33 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
+// The sweep's whole output besides the count: ONE structured warn line for
+// the whole walk (never one per candidate — that itself could spend the
+// route's time budget on a large backlog). Silenced and read back here.
+const warn = jest.spyOn(console, 'warn')
+type OrphanWarnRow = { count: number; sample: string[]; truncated: boolean }
+const orphanWarnCall = (): OrphanWarnRow | undefined => {
+  const call = warn.mock.calls.find(
+    ([, row]) => (row as { evt?: string } | undefined)?.evt === 'recordings_orphan_candidates'
+  )
+  return call?.[1] as OrphanWarnRow | undefined
+}
+const reported = (): string[] => orphanWarnCall()?.sample ?? []
+
 beforeEach(() => {
   jest.clearAllMocks()
   process.env.CRON_SECRET = 'test-cron-secret'
   storageList.mockImplementation(async () => ({ data: [] }))
   storageRemove.mockImplementation(removedAll)
+  warn.mockImplementation(() => {})
 })
 
-// remove() is now called once per batch, so "was this name deleted?" is a
-// question about the whole run, not about call 0.
-const removedNames = () =>
-  (storageRemove.mock.calls as unknown as [string[]][]).flatMap(([names]) => names)
+// THE invariant of this route, asserted after every single case in the file
+// rather than in the one test that happens to be about it: nothing in the
+// recordings bucket is ever removed, on any path, at any age.
+afterEach(() => {
+  expect(storageRemove).not.toHaveBeenCalled()
+})
 
 describe('GET /api/cleanup auth', () => {
   it('401s with no Authorization header — never touches storage/cache', async () => {
@@ -110,15 +128,19 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const fresh = new Date().toISOString()
   const page = (prefix: string, n: number, created_at = old) =>
-    Array.from({ length: n }, (_, i) => ({ name: `${prefix}-${i}.webm`, created_at }))
+    Array.from({ length: n }, (_, i) => ({
+      name: `${prefix}-${i}.webm`,
+      id: `${prefix}-${i}`,
+      created_at,
+    }))
 
-  it('walks past the first page and deletes the orphans it finds there', async () => {
+  it('walks past the first page and reports the orphans it finds there', async () => {
     // The storage list is paged. Before pagination this route called list() with
-    // no options, took whatever one page it got, and left every later orphan in
-    // the bucket. First page comes back FULL (the route's own limit), so the walk
+    // no options, took whatever one page it got, and left every later orphan
+    // unseen. First page comes back FULL (the route's own limit), so the walk
     // must ask for more; the second page carries the file that proves it did.
     const first = page('p1', 1000)
-    const second = [...page('p2', 2), { name: 'too-new.webm', created_at: fresh }]
+    const second = [...page('p2', 2), { name: 'too-new.webm', id: 'too-new', created_at: fresh }]
     storageList.mockImplementation(async (_prefix, opts) => ({
       data: opts.offset === 0 ? first : opts.offset === 1000 ? second : [],
     }))
@@ -131,9 +153,10 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
           headers: { authorization: 'Bearer test-cron-secret' },
         })
         expect(res.status).toBe(200)
-        // A walk that reached the end of the bucket says so.
+        // A walk that reached the end of the bucket says so. 1002 old junk
+        // names counted; 'too-new.webm' is inside the hour, so it is not.
         expect(await res.json()).toMatchObject({
-          recordingsDeleted: 1002,
+          recordingsOrphanCandidates: 1002,
           recordingsSweepComplete: true,
         })
       },
@@ -141,10 +164,12 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
 
     // Asked for a second page at all, and advanced by what page 1 RETURNED.
     expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000, 1003])
-    const deleted = removedNames()
-    expect(deleted).toContain('p2-0.webm')
-    // Age filter untouched — a file younger than an hour survives on any page.
-    expect(deleted).not.toContain('too-new.webm')
+    // One line for the whole walk, not 1002 — count is exact, the retained
+    // sample is capped, and the line says the sample is short of the count.
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(orphanWarnCall()).toMatchObject({ count: 1002, truncated: true })
+    expect(reported()).toHaveLength(200)
+    expect(reported()).not.toContain('too-new.webm')
   })
 
   it('logs a mid-walk list failure instead of ending the sweep silently', async () => {
@@ -170,17 +195,18 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
         // clean pass and nobody was alerted.
         expect(res.status).toBe(500)
         // The failure still neither throws nor strands page 1: those names were
-        // genuinely listed and genuinely expired, so they still go, the count
-        // reports exactly them, and the body says the sweep was not finished.
+        // genuinely listed and genuinely expired, so the count reports exactly
+        // them, and the body says the sweep was not finished.
         expect(await res.json()).toMatchObject({
-          recordingsDeleted: 1000,
+          recordingsOrphanCandidates: 1000,
           recordingsSweepComplete: false,
         })
       },
     })
 
     expect(storageList.mock.calls.map(([, o]) => o.offset)).toEqual([0, 1000])
-    expect(removedNames()).toHaveLength(1000)
+    expect(orphanWarnCall()).toMatchObject({ count: 1000, truncated: true })
+    expect(reported()).toHaveLength(200)
     expect(consoleError).toHaveBeenCalledWith(
       '[cleanup] recordings list error:',
       expect.objectContaining({ message: 'list failed' })
@@ -194,7 +220,7 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
     // response has to admit it, exactly as the mid-walk failure does.
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
     storageList.mockImplementation(async (_prefix, opts) => ({
-      data: [{ name: `endless-${opts.offset}.webm`, created_at: old }],
+      data: [{ name: `endless-${opts.offset}.webm`, id: `endless-${opts.offset}`, created_at: old }],
     }))
 
     await testApiHandler({
@@ -205,10 +231,10 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
           headers: { authorization: 'Bearer test-cron-secret' },
         })
         expect(res.status).toBe(500)
-        // One row per page for 100 pages: everything it DID see is deleted, and
+        // One row per page for 100 pages: everything it DID see is reported, and
         // the status admits the walk stopped short.
         expect(await res.json()).toMatchObject({
-          recordingsDeleted: 100,
+          recordingsOrphanCandidates: 100,
           recordingsSweepComplete: false,
         })
       },
@@ -222,13 +248,14 @@ describe('GET /api/cleanup — the sweep sees the WHOLE bucket, not just page 1'
   })
 })
 
-describe('GET /api/cleanup — deletion is batched and the count is honest', () => {
+describe('GET /api/cleanup — the sweep reports, it does not delete', () => {
+  const UUID = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+  const TAKE = `app_biz-1_${UUID}.webm`
+  const ancient = new Date(Date.now() - 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
   const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-  const oldFiles = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ name: `old-${i}.webm`, created_at: old }))
 
   const run = async () => {
-    let body: { recordingsDeleted: number } = { recordingsDeleted: -1 }
+    let body: { recordingsOrphanCandidates: number } = { recordingsOrphanCandidates: -1 }
     await testApiHandler({
       appHandler,
       test: async ({ fetch }) => {
@@ -243,79 +270,80 @@ describe('GET /api/cleanup — deletion is batched and the count is honest', () 
     return body
   }
 
-  it('splits 250 expired names across remove() calls of 100/100/50', async () => {
-    // One oversized remove() carrying all 250 can be refused whole; batching
-    // keeps every request inside a size the storage API actually accepts.
+  it('leaves a ten-year-old conforming take alone and never even names it', async () => {
+    // THE bug this PR fixes: the old sweep deleted every object past an hour
+    // with no look at the job behind it, so a queued/failed/retrying take lost
+    // its audio at the next daily cron. Age says nothing about a take now.
     storageList.mockImplementation(async (_prefix, opts) => ({
-      data: opts.offset === 0 ? oldFiles(250) : [],
+      data: opts.offset === 0 ? [{ name: TAKE, id: 'take-1', created_at: ancient }] : [],
     }))
 
-    expect(await run()).toMatchObject({ recordingsDeleted: 250 })
-
-    const batches = (storageRemove.mock.calls as unknown as [string[]][]).map(
-      ([names]) => names.length
-    )
-    expect(batches).toEqual([100, 100, 50])
-    expect(removedNames()).toHaveLength(250)
+    expect(await run()).toMatchObject({ recordingsOrphanCandidates: 0 })
+    expect(warn).not.toHaveBeenCalled()
+    expect(reported()).toEqual([])
   })
 
-  it('does not count a batch storage refused, and still runs the batches after it', async () => {
-    // The old code discarded remove()'s result and reported expired.length, so a
-    // rejected request still came back as a successful deletion.
-    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
-    storageList.mockImplementation(async (_prefix, opts) => ({
-      data: opts.offset === 0 ? oldFiles(250) : [],
+  it('aggregates a large batch into one warn line, sample capped at 200', async () => {
+    // The line this route emits must not itself cost one console.warn per
+    // candidate — that alone can burn the route's 30s budget on a big backlog.
+    // 250 old junk objects: every one is counted, only the first 200 names
+    // are retained, and the line says the sample is short of the count.
+    const names = Array.from({ length: 250 }, (_, i) => ({
+      name: `junk-${i}.webm`,
+      id: `junk-${i}`,
+      created_at: old,
     }))
-    let call = 0
-    storageRemove.mockImplementation(async (names) =>
-      ++call === 2 ? { error: { message: 'Payload too large' } } : removedAll(names)
-    )
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data: opts.offset === 0 ? names : [],
+    }))
 
-    // 250 expired, the middle batch of 100 refused → 150, not 250.
-    expect(await run()).toMatchObject({ recordingsDeleted: 150 })
-
-    // The failure neither aborted the sweep nor went unlogged.
-    expect(storageRemove).toHaveBeenCalledTimes(3)
-    expect(removedNames()).toHaveLength(250)
-    expect(consoleError).toHaveBeenCalledWith(
-      '[cleanup] recordings batch error:',
-      expect.objectContaining({ message: 'Payload too large' })
-    )
-    consoleError.mockRestore()
+    expect(await run()).toMatchObject({ recordingsOrphanCandidates: 250 })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(orphanWarnCall()).toMatchObject({ count: 250, truncated: true })
+    expect(reported()).toHaveLength(200)
+    expect(reported()[0]).toBe('junk-0.webm')
   })
 
-  it('counts what remove() returned, not what it was asked to delete', async () => {
-    // An object can disappear between the listing and the delete — this system's
-    // own post-transcription cleanup removes takes on exactly that path. remove()
-    // answers with the objects it ACTUALLY removed, so a name that was already
-    // gone must not be credited as a deletion.
-    storageList.mockImplementation(async (_prefix, opts) => ({
-      data: opts.offset === 0 ? oldFiles(3) : [],
-    }))
-    storageRemove.mockImplementation(async (names) => ({
-      data: names.slice(1).map((name) => ({ name })), // old-0.webm vanished first
-    }))
-
-    // Asked to delete 3, storage removed 2.
-    expect(await run()).toMatchObject({ recordingsDeleted: 2 })
-    expect(removedNames()).toHaveLength(3)
-  })
-
-  it('never collects a row whose created_at is missing or unparseable', async () => {
-    // `new Date(null) < cutoff` is the epoch — the old form read an ageless row
-    // as two hours old and queued it for deletion.
+  it('counts and names junk older than an hour — and still deletes none of it', async () => {
     storageList.mockImplementation(async (_prefix, opts) => ({
       data:
         opts.offset === 0
           ? [
-              { name: 'ageless.webm', created_at: null as unknown as string },
-              { name: 'garbage-date.webm', created_at: 'not-a-date' },
-              { name: 'genuinely-old.webm', created_at: old },
+              { name: 'junk.webm', id: 'junk-1', created_at: old },
+              { name: 'rec_legacy.webm', id: 'rec-legacy-1', created_at: old },
             ]
           : [],
     }))
 
-    expect(await run()).toMatchObject({ recordingsDeleted: 1 })
-    expect(removedNames()).toEqual(['genuinely-old.webm'])
+    expect(await run()).toMatchObject({ recordingsOrphanCandidates: 2 })
+    expect(reported()).toEqual(['junk.webm', 'rec_legacy.webm'])
+  })
+
+  it('skips the seg/ folder placeholder by shape, not by the created_at accident', async () => {
+    // list('') on the root returns the segment tree as a row with `id: null` —
+    // storage-js's own signal for a folder, no real object behind it — and no
+    // real created_at either. Paired with a genuinely old DOTLESS junk object
+    // that DOES carry an id: a route that skipped on "no dot" instead of the
+    // real placeholder signal, or one that silently reported nothing at all,
+    // both fail this the same way a route that does it right does not.
+    storageList.mockImplementation(async (_prefix, opts) => ({
+      data:
+        opts.offset === 0
+          ? [
+              { name: 'seg', id: null, created_at: null as unknown as string },
+              { name: 'seg', id: null, created_at: old },
+              { name: 'ageless.webm', id: 'ageless-1', created_at: null as unknown as string },
+              { name: 'garbage-date.webm', id: 'garbage-date-1', created_at: 'not-a-date' },
+              { name: 'garbage', id: 'garbage-1', created_at: old },
+            ]
+          : [],
+    }))
+
+    // Only the dotless junk object has BOTH a real id and a real timestamp —
+    // the two placeholders are skipped on id alone, the other two on created_at,
+    // and 'garbage' is the ONE candidate: a route reporting nothing at all
+    // cannot pass this fixture by accident.
+    expect(await run()).toMatchObject({ recordingsOrphanCandidates: 1 })
+    expect(reported()).toEqual(['garbage'])
   })
 })

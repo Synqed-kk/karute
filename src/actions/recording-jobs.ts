@@ -53,15 +53,16 @@ export async function enqueueRecordingJob(
       resolveStoreScope(),
     ])
     // Tenancy gate — the cookie-path twin of the facade route's check. audioPath
-    // is a client-supplied storage key the worker later reads AND deletes via a
-    // service-role client (no RLS); it MUST be EXACTLY a key minted for this
-    // caller's business, matched positively against the shared grammar (a bare
-    // prefix check also took a traversal body, a query suffix, or a string-shaped
-    // non-string — a server action's argument is caller-supplied JSON, so the
-    // `string` annotation proves nothing at runtime). Web takes staged for a job
-    // go through this shape too, so a hand-crafted RPC pointing at another
-    // tenant's object (or a guessable `rec_*` key) is refused before any job is
-    // queued. The worker re-checks the same invariant as the last defense.
+    // is a client-supplied storage key the worker later READS via a service-role
+    // client (no RLS — and ⚖ never deletes, capture pipeline PR4: the take's
+    // finalized object is the evidence behind the karute and stays); it MUST be
+    // EXACTLY a key minted for this caller's business, matched positively
+    // against the shared grammar (a bare prefix check also took a traversal
+    // body, a query suffix, or a string-shaped non-string — a server action's
+    // argument is caller-supplied JSON, so the `string` annotation proves
+    // nothing at runtime). A hand-crafted RPC pointing at another tenant's
+    // object (or a guessable `rec_*` key) is refused before any job is queued.
+    // The worker re-checks the same invariant as the last defense.
     if (!isOwnRecordingKey(input.audioPath, businessId)) {
       return { error: 'recording not found in this business' }
     }

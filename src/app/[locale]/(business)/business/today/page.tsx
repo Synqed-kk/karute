@@ -388,6 +388,15 @@ export default async function TodayPage({
   const heldBooking = bookings.find((b) => b.state === 'hold') ?? null
   const holdDecision = heldBooking ? planes.decisions.find((d) => d.appointment_id === heldBooking.id) ?? null : null
 
+  /** ⚖ flag 92 (2026-08-31) — THE LEVEL IS THE TRUTH, the boolean is a reading
+   *  of it. The warn card composes THREE faces off `overrideLevelFor`'s three
+   *  levels (warn / 承認待ち / 店長のみ) and a boolean cannot express the middle
+   *  one, so the level is what crosses the seam; `canOverride` below is derived
+   *  from this very const rather than asking the dial a second time, because two
+   *  readings of one answer are free to disagree the day the dial grows a
+   *  fourth level (flag 54's disease, at the permission layer). */
+  const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)
+
   const props: TodayProps = {
     locale,
     store: storeId,
@@ -462,7 +471,22 @@ export default async function TodayPage({
     // for). At the shipped policy — (a), スタッフ in `roles`, `lockedOut` empty —
     // this is the byte-identical answer the two lines it replaced gave; the
     // levels are what a store's settings screen will move.
-    canOverride: overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator) === 'allow-warned',
+    canOverride: overrideLevel === 'allow-warned',
+    // ⚖ flag 92 — the SAME decision at full resolution, for the warn card's own
+    // three faces. `canOverride` above stays exactly what it was for the consult
+    // path (⚖ 50(d)'s 「注意して配置」 gate at the drop); this is the same const
+    // read once more, so the two can never say different things.
+    overrideLevel,
+    // ⚠SETTINGS-BATCH — ⚖ flag 92. Does the warn face's commit ask for a 0.6-秒
+    // long press? The store's dial, decided ONCE here like every other authority
+    // on this screen; the board is handed the answer, never the policy.
+    holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
+    // ⚖ flag 92 — WHOSE NAME the warn card's provenance line prints when the
+    // placement lands on someone else's shift. The operator's own name, from the
+    // same `shell.operator` every other authority on this screen is read from;
+    // the board decides WHETHER to print it (⚖ the name line is automatic and
+    // other-lane-only), never who it is.
+    operatorName: shell.operator.name,
     // ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5) — WHO MAY RELEASE A 確保 WINDOW
     // EARLY, decided ONCE, here, from this operator's own role. Same discipline
     // as the line above: the board is handed the ANSWER, never the rule, so a
@@ -493,7 +517,7 @@ export default async function TodayPage({
           break: mineShift.breaks.length === 0 ? '休憩なし' : `休憩 ${hhmm(mineShift.breaks[0].start)}–${hhmm(mineShift.breaks[0].end)}`,
         }
       : null,
-    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id } : null,
+    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
     cases,

@@ -45,7 +45,11 @@ const segmentSets: { text: string; start_time: number; end_time: number; segment
 let consentByCustomer: Record<string, { policy_version: string } | null> = {}
 /** The session row. `customer_id` is the record-time binding the consent gate
  *  reads; a client-named customer must never be able to steer it. */
-let recordingRow: { duration_seconds: number | null; customer_id: string | null } | null = null
+let recordingRow: {
+  duration_seconds: number | null
+  customer_id: string | null
+  audio_storage_path?: string | null
+} | null = null
 /** Set to make recordingDiscards.list IGNORE the session filter — a core-side
  *  regression the fake would otherwise hide from the fence. */
 let listIgnoresSessionFilter = false
@@ -115,8 +119,14 @@ jest.mock('@/lib/auth/require-permission', () => {
     }),
   }
 })
+// MOCK SURFACE ONLY (PHONEWIRE-2C): the shared body now calls the
+// tenant-explicit twin, because the facade door has no cookie to read a
+// business id from. Same stand-in, same identity mapping — every assertion,
+// fixture and expectation in this file is byte-identical to the pre-refactor
+// suite, which is what makes it the equivalence proof.
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
+  resolveSynqedStaffIdForBusiness: jest.fn(async (id: string) => id),
 }))
 
 /** THE spend counter. Every consent case below asserts on this, not just on the
@@ -130,21 +140,43 @@ jest.mock('@/lib/ai/transcribe', () => ({
   loadStaffReferenceForStaff: jest.fn(async () => null),
 }))
 
-/** `removeThrows` is the janitor failing: storage cleanup must never decide the
- *  outcome the caller reads, or a dead sweep re-runs a transcription that
- *  already landed. */
+/** ⚖ capture pipeline PR4: `removed` must stay EMPTY on every path — the
+ *  storage double is here to prove a delete that no longer exists never comes
+ *  back, not to exercise one. */
 const removed: string[] = []
-let removeThrows = false
+/** WHAT THE BUCKET HOLDS (fix round 3). The transcribe door now asks storage
+ *  whether the ROW's reserved object is actually there before that pointer is
+ *  allowed to beat the caller's claim — `info()`, the same existence probe the
+ *  upload mint and the session mint share. Default: every key has bytes, so
+ *  every pin written before this round keeps meaning exactly what it meant. */
+const mockBucket = {
+  /** Keys storage answers 404 for — a reservation whose PUT never landed. */
+  missing: new Set<string>(),
+  /** Storage failing to ANSWER at all (a 500), which is not "no object". */
+  unreachable: false,
+  /** Every key the door actually probed — the door must not pay for a probe
+   *  it has nothing to decide with. */
+  probed: [] as string[],
+}
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
     storage: {
       from: () => ({
-        createSignedUrl: async (path: string) => ({
-          data: { signedUrl: `https://storage.test/${path}` },
-          error: null,
-        }),
+        info: async (path: string) => {
+          mockBucket.probed.push(path)
+          if (mockBucket.unreachable) return { data: null, error: { status: 500 } }
+          if (mockBucket.missing.has(path)) return { data: null, error: { status: 404 } }
+          return { data: { size: 1 }, error: null }
+        },
+        // Storage cannot sign what it does not hold — which is the whole
+        // shape of the bug fix round 3 closes: sign a reservation whose PUT
+        // never landed and the action answers `failed`, the client reads that
+        // as retryable, and every record-page mount re-stages the same audio.
+        createSignedUrl: async (path: string) =>
+          mockBucket.missing.has(path)
+            ? { data: null, error: { status: 404 } }
+            : { data: { signedUrl: `https://storage.test/${path}` }, error: null },
         remove: async (paths: string[]) => {
-          if (removeThrows) throw new Error('storage unreachable')
           removed.push(...paths)
           return { error: null }
         },
@@ -162,9 +194,18 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 
 const mockGetMyCapabilities = getMyCapabilities as jest.Mock
 
-const SESSION = 'sess-1'
+/** A uuid since fix round 7: the STAGED key of a discard's own copy carries
+ *  this id, so the fixture has to be the shape the grammar composes. */
+const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const OWN_PATH = 'app_business-1_11111111-2222-3333-4444-555555555555.webm'
 const FOREIGN_PATH = 'app_business-9_11111111-2222-3333-4444-555555555555.webm'
+/** This session's OWN staged copy — the one claim the door honours in place of
+ *  the row's pointer (stg/<businessId>_<session>_<uuid>.<ext>). */
+const OWN_STAGED = `stg/business-1_${SESSION}_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.webm`
+/** …and a staged copy of a DIFFERENT session: this tenant's object, parses,
+ *  and still refused — the whole point of putting the session in the key. */
+const OTHER_STAGED =
+  'stg/business-1_99999999-8888-4777-8666-555555555555_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.webm'
 
 /** `over` is deliberately loose: several cases below hand the action a
  *  `customerId` it no longer declares, to prove a client-named customer is
@@ -192,10 +233,15 @@ beforeEach(() => {
   segmentSets.length = 0
   upsertSeen.length = 0
   removed.length = 0
-  removeThrows = false
+  mockBucket.missing.clear()
+  mockBucket.unreachable = false
+  mockBucket.probed.length = 0
   listIgnoresSessionFilter = false
   // The session is bound to cust-1 at record time, and cust-1 consented.
-  recordingRow = { duration_seconds: null, customer_id: 'cust-1' }
+  // BORN RESERVED (session-mint.ts), and since fix round 7 the ordinary discard
+  // is the only take-shaped path this door accepts: it names the row's own
+  // pointer, so there is nothing to claim and nothing to probe.
+  recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
   capabilities.current = new Set(['records.write', 'staff.manage'])
   identity.current = 'staff-A'
@@ -210,8 +256,10 @@ describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
-    // The staged audio is still swept — a refusal must not leave litter.
-    expect(removed).toEqual([OWN_PATH])
+    // ⚖ capture pipeline PR4: the audio is the take's own FINALIZED object, so
+    // a refusal removes NOTHING — there is no throwaway copy any more, and the
+    // recording it just refused to write words for must survive the refusal.
+    expect(removed).toEqual([])
   })
 
   it('no consent row at all: skipped, and ZERO transcription calls', async () => {
@@ -222,7 +270,7 @@ describe('the consent gate (⚖ 8/20 ⑤) refuses BEFORE it spends', () => {
   })
 
   it('a customer-less (walk-in) session: skipped without even asking core', async () => {
-    recordingRow = { duration_seconds: null, customer_id: null }
+    recordingRow = { duration_seconds: null, customer_id: null, audio_storage_path: OWN_PATH }
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     await expect(review()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
@@ -254,7 +302,11 @@ describe('a client-named customer cannot widen consent', () => {
     // The session belongs to someone who never consented; the caller names a
     // customer who did. Nothing downstream would contradict a wrong id — it is
     // written nowhere — so this was a free lever, and it must be dead.
-    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-refused',
+      audio_storage_path: OWN_PATH,
+    }
     consentByCustomer = {
       'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
       'cust-refused': null,
@@ -265,7 +317,11 @@ describe('a client-named customer cannot widen consent', () => {
   })
 
   it('the review door ignores it too', async () => {
-    recordingRow = { duration_seconds: null, customer_id: 'cust-refused' }
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-refused',
+      audio_storage_path: OWN_PATH,
+    }
     consentByCustomer = {
       'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION },
       'cust-refused': null,
@@ -294,6 +350,147 @@ describe('the tenant fence on a client-supplied storage key', () => {
       await expect(staged({ audioPath: bad })).resolves.toEqual({ error: 'forbidden' })
     }
     expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE KEY ITSELF COMES OFF THE ROW (capture pipeline PR4 fix round 1).
+  // The object is PERMANENT now — nothing sweeps it after this call — so a
+  // client-named path inside the caller's own tenant is a standing lever: name
+  // a colleague's finished take and its words land on a session that really was
+  // discarded. `audio_storage_path` is the record-time fact the mint reserved,
+  // exactly as the customer is read off the row rather than off the caller.
+  const OTHER_TAKE = 'app_business-1_99999999-8888-7777-6666-555555555555.webm'
+
+  it('the ROW’s pointer wins over the caller’s claim', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+    await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+    )
+  })
+
+  // ⚖ …AND A CLAIM IS ONLY EVER THIS SESSION'S OWN STAGED COPY (fix round 7).
+  // A row with no pointer used to honour ANY same-tenant key, which is the
+  // lever: name a colleague's finished take and its words land on a session
+  // that really was discarded, signed by the claim rather than by the record.
+  // The staged copy — the only object here with no row of its own — now carries
+  // the session it was staged for IN ITS KEY, so the claim is checked.
+  it('a row with NO pointer honours this session’s OWN staged copy', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OWN_STAGED })).resolves.toEqual({ ok: true })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ audio: { url: `https://storage.test/${OWN_STAGED}` } }),
+    )
+  })
+
+  it('…and refuses a colleague’s FINISHED take named at the same unbound row', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  it('…and refuses a staged copy of ANOTHER session, which is this tenant’s too', async () => {
+    recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
+    await expect(staged({ audioPath: OTHER_STAGED })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  it('a row pointing OUT of this tenant is refused, never signed', async () => {
+    recordingRow = {
+      duration_seconds: null,
+      customer_id: 'cust-1',
+      audio_storage_path: FOREIGN_PATH,
+    }
+    await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ error: 'forbidden' })
+    expect(mockRunTranscription).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND ONLY WHILE THE OBJECT IT NAMES IS REALLY THERE (fix round 3, F2).
+  // Every session is born reserved, so the pointer names the finalized key from
+  // the row's first instant — and for a take that can NEVER be sealed under it
+  // (a lost tail, a stop that never finished, a terminal refusal) that key holds
+  // nothing, while fix round 2 stages the take's own blob under a second key and
+  // sends that path here. Preferring the pointer there signed a key with no
+  // object: `failed`, retryable, re-staged on every record-page mount for ever,
+  // and the words never landed. The ROW cannot answer the question — the mint
+  // writes the key AND status UPLOADING, finalize writes the same status back,
+  // and the discard that must already exist stamped duration_seconds itself —
+  // so storage is asked, with the same probe the two mints share.
+  describe('a reservation whose object never landed does not beat the staged copy', () => {
+    /** The bound staged copy, since fix round 7 — an anonymous take-shaped one
+     *  is refused here now, whatever the pointer says. */
+    const STAGED = OWN_STAGED
+
+    it('the staged path is signed and transcribed when the reserved key is empty', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
+      )
+      // The row's own key is the only thing the door probed — never the
+      // caller's claim, which no caller may use this door to ask about.
+      expect(mockBucket.probed).toEqual([OWN_PATH])
+    })
+
+    it('…and a duration on the row does not make it finalized — the DISCARD wrote that', async () => {
+      // stampRecordingDuration (discard.ts) stamps duration_seconds after the
+      // receipt lands, which hasStaffDiscard above proves it did. A row-fact
+      // rule keyed on the duration would read this as "finalized" and throw the
+      // staged path away again.
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(segmentSets[0][0].text).toBe('こんにちは、本日はありがとうございます')
+    })
+
+    it('B5 stands: a FINISHED take\u2019s object is there, so its row still wins', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      )
+    })
+
+    it('storage that cannot ANSWER keeps the pointer — a probe that cannot read is not an answer', async () => {
+      recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.unreachable = true
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      )
+    })
+
+    it('the ordinary discard names the pointer itself and pays for NO probe', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      await expect(staged({ audioPath: OWN_PATH })).resolves.toEqual({ ok: true })
+      expect(mockBucket.probed).toEqual([])
+    })
+
+    it('a staged path outside the tenant is still refused before anything is read', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: FOREIGN_PATH })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockBucket.probed).toEqual([])
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+
+    // ⚖ THE SECOND BRANCH THAT REACHES THE CLAIM (fix round 7). An empty
+    // reservation is the OTHER way `input.audioPath` gets used, and it was the
+    // wider hole of the two: it needs no legacy row at all, just a take whose
+    // finalized object never landed — which is every unsecurable take.
+    it('an empty reservation does NOT let a colleague’s take stand in', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+
+    it('…nor a staged copy belonging to another session', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: OTHER_STAGED })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
   })
 })
 
@@ -335,21 +532,22 @@ describe('words are persisted ONLY onto an already-discarded session', () => {
     expect(segmentSets).toEqual([])
   })
 
-  it('a refusal past the tenant fence still sweeps the object the client staged', async () => {
-    // The client uploads BEFORE it calls, so every exit past the fence owns the
-    // cleanup — otherwise a discarded recording's audio sits in the bucket and
-    // the next sweep uploads another one.
+  it('⚖ a refusal past the tenant fence deletes NOTHING (PR4)', async () => {
+    // It used to sweep here, because the client staged a throwaway copy before
+    // every call. The path is the take's FINALIZED object now — the discarded
+    // recording itself, kept in full — so a refusal that destroyed it would be
+    // the loss this whole lane exists to end.
     ledger.length = 0
     await expect(staged()).resolves.toEqual({ error: 'not_discarded' })
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 
-  it('a transcription that THROWS still sweeps it, and still reports the failure', async () => {
+  it('⚖ a transcription that THROWS reports the failure and still keeps the audio', async () => {
     mockRunTranscription.mockImplementationOnce(async () => {
       throw new Error('deepgram unreachable')
     })
     await expect(staged()).resolves.toEqual({ error: 'failed' })
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 })
 
@@ -406,7 +604,7 @@ describe('records.write is required, and a denial is TERMINAL', () => {
 // ── 4. The happy path + idempotency ──────────────────────────────────────
 
 describe('what actually lands', () => {
-  it('ONE segment carrying the whole text, and the staged audio is dropped after', async () => {
+  it('ONE segment carrying the whole text, and the audio survives it', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets).toEqual([
       [
@@ -418,7 +616,7 @@ describe('what actually lands', () => {
         },
       ],
     ])
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
     expect(upsertSeen).toEqual([{ id: SESSION, options: { replace: true } }])
   })
 
@@ -426,7 +624,7 @@ describe('what actually lands', () => {
     mockRunTranscription.mockImplementationOnce(async () => ({ transcript: '   ' }))
     await expect(staged()).resolves.toEqual({ skipped: 'empty' })
     expect(segmentSets).toEqual([])
-    expect(removed).toEqual([OWN_PATH])
+    expect(removed).toEqual([])
   })
 
   it('the review path writes the words it was handed, without transcribing anything', async () => {
@@ -447,14 +645,14 @@ describe('what actually lands', () => {
 const LANDED = 'こんにちは、本日はありがとうございます'
 
 describe('a transcript that already landed is never replaced', () => {
-  it('a retry of the staged persist keeps the first text, sweeps its own audio, spends nothing', async () => {
+  it('a retry of the staged persist keeps the first text and spends nothing', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets).toHaveLength(1)
     expect(segmentSets[0][0].text).toBe(LANDED)
     expect(upsertSeen).toHaveLength(1)
-    // The retry staged a fresh object of its own — nothing else collects it.
-    expect(removed).toEqual([OWN_PATH, OWN_PATH])
+    // Both runs read the SAME finalized object, and neither removes it.
+    expect(removed).toEqual([])
     // The probe sits ahead of the transcription, so the retry costs nothing.
     expect(mockRunTranscription).toHaveBeenCalledTimes(1)
   })
@@ -474,21 +672,24 @@ describe('a transcript that already landed is never replaced', () => {
   })
 })
 
-// ── 6. The sweep never decides the outcome ───────────────────────────────
+// ── 6. ⚖ There is no sweep to fail (capture pipeline PR4) ────────────────
+// This section used to prove that a DEAD janitor could not change the answer
+// the caller reads. The janitor is gone, so the stronger statement is the one
+// worth pinning: across every exit this door has, nothing is ever removed.
 
-describe('a failed staged-audio sweep does not fail the persist', () => {
-  it('the words landed, so the answer is ok and the caller drops its take', async () => {
-    removeThrows = true
+describe('no exit from this door deletes recording audio', () => {
+  it('the happy path: the words land and the audio stays', async () => {
     await expect(staged()).resolves.toEqual({ ok: true })
     expect(segmentSets[0][0].text).toBe(LANDED)
+    expect(removed).toEqual([])
   })
 
-  it('a consent refusal stays a settled skip, never a retryable error', async () => {
+  it('a consent refusal stays a settled skip, and still deletes nothing', async () => {
     consentByCustomer = {}
-    removeThrows = true
     await expect(staged()).resolves.toEqual({ skipped: 'consent' })
     expect(mockRunTranscription).not.toHaveBeenCalled()
     expect(segmentSets).toEqual([])
+    expect(removed).toEqual([])
   })
 })
 

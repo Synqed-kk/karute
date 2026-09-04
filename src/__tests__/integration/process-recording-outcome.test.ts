@@ -112,6 +112,7 @@ import { processRecordingJobs } from '@/lib/jobs/process-recording'
 // AI set, so the mocked fn needs to be reachable — the outcome tests above
 // never care about extraction content, hence the shared static default.
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
+import { conformingKey, segmentKey } from './helpers/recording-key-fixtures'
 
 const baseJob = {
   id: 'job-1',
@@ -128,7 +129,10 @@ const baseJob = {
   payload: {
     customer_id: 'cust-1',
     staff_id: 'staff-1',
-    audio_path: 'app_biz-1_x.webm',
+    // A REAL minted key: the worker's tenant gate runs the shared grammar
+    // (2026-09-03), not a bare prefix, so a placeholder unique part is refused
+    // here exactly as it is at the two doors that enqueue.
+    audio_path: conformingKey('biz-1'),
   } as Record<string, unknown>,
 }
 
@@ -201,6 +205,13 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
   it.each([
     ['cross-tenant app_ path', 'app_biz-2_stolen.webm'],
     ['untenanted rec_* path', 'rec_1700000000000.webm'],
+    // This tenant's own SEGMENT: it parses, and the worker still refuses it —
+    // the pipeline transcribes whole takes, never fragments.
+    ['own-tenant segment path', segmentKey('biz-1')],
+    // Own prefix, refused body: a bare `startsWith` would have ACCEPTED both
+    // of these — the grammar refuses them on the body, not the prefix.
+    ['own prefix + traversal body', 'app_biz-1_../../x.webm'],
+    ['own prefix + non-uuid body', 'app_biz-1_stolen.webm'],
   ])(
     '%s → job FAILS before any service-role read (universal tenant-prefix gate)',
     async (_label, audio_path) => {

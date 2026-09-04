@@ -2345,12 +2345,16 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
   }
 
   it('the neighbours are all here — the list is read from disk, never restated', () => {
-    // `karute` joined in room 5 (2026-08-30), `coaching` in room 8
-    // (2026-09-01). The list is READ from
-    // disk and this line is the pin on what was read — a new neighbour is meant
-    // to fail here once, so the room that added it re-derives the collision list
-    // below in the same pass rather than discovering the bleed in a browser.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'coaching', 'customers', 'inbox', 'karute', 'reservations', 'shifts', 'today'])
+    // `karute` joined the family in room 5 (2026-08-30), `recording` in room 6
+    // (2026-08-31), `settings` in the 予約と確保 round (⚖ Liam 9/1) and `ask-ai`
+    // in room 7. The list is READ from disk and this line is the pin on what was
+    // read — a new neighbour is meant to fail here once, so the room that added
+    // it re-derives the collision list below in the same pass rather than
+    // discovering the bleed in a browser. `settings` states every rule under
+    // `.pg-settings` and `ask-ai` every rule under `.pg-ask-ai`, so neither adds
+    // anything to the collision list, and `coaching` (room 8, 2026-09-01)
+    // prefixes every rule `cg-` under `.pg-coaching`, so it adds nothing either.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'coaching', 'customers', 'inbox', 'karute', 'recording', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
@@ -2366,9 +2370,12 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
-      'reservations::.biz .btn',
-      'reservations::.biz .btn.primary',
+      // ⚠ THE DERIVED LIST IS NOW EMPTY, AND THAT IS THE MERGED TRUTH: both rooms
+      // that used to state a bare rule on a name this one styles have retired it —
+      // 顧客 in its V2 redesign (its buttons are `cu-btn-*`, its dialog states its
+      // weights at four levels) and 予約一覧 in its own. Derived freshly on every
+      // run, so the day a neighbour states one again this goes red and the fence
+      // grows in the same pass.
     ])
     // …and this room states its own value for each of them, at FOUR levels, so a
     // sibling's three-level rule cannot win on insertion order.

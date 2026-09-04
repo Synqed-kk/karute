@@ -98,10 +98,14 @@ jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
+  // Fix round 6: ReviewScreen's 保存 exit settles the take through the one rule
+  // (it used to call deleteTake straight), and this double is what it lands in.
+  settleTakeAfterSave: jest.fn(async () => {}),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
   listOwnTakes: jest.fn(async () => []),
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
   // The logout-wipe test runs the REAL wipeSessionVault through this module.
@@ -124,6 +128,9 @@ jest.mock('@/lib/global-recorder', () => ({
     state: 'idle',
     recordingSessionId: 'sess-live',
     subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain.
+    isSecuring: () => false,
     // The logout-wipe test drives the REAL wipeSessionVault through this.
     discard: jest.fn(),
   },

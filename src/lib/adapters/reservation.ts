@@ -94,7 +94,7 @@ export function appointmentsToWeekData(
       count: dayAppts.length,
       bookedMinutes,
       availableMinutes: businessHoursMinutes * Math.max(1, staffOnDay),
-      newCustomerCount: dayAppts.filter((a) => newCustomerIds.has(a.customer_id))
+      newCustomerCount: dayAppts.filter((a) => a.customer_id && newCustomerIds.has(a.customer_id))
         .length,
       remindersPending: 0,
       consentPending: 0,

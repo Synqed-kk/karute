@@ -138,3 +138,144 @@
   stamp still can never fail the discard: every failure is one warn line and the
   result is returned unchanged · Liam (⚖ 2026-08-20 kept-discards doctrine,
   packet PACKET-2026-08-31-NAMES-FIX.md, karute-field-issues lane)
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.create · phone
+  customer-create wiring (PHONEWIRE-1): on phones 新規顧客 creation was dead —
+  the actions port's createCustomer/createQuickCustomer were notWired stubs
+  because the customers facade tree had [id]/* subroutes but no create door.
+  Wiring it meant extracting the two create bodies into WithClient twins so the
+  web action and the new facade POSTs run ONE body — the same Core/WithClient
+  split as the customers.update entry above, where the shared core stays
+  audit-free and the callers emit. The write is FULLY AUDITED on both doors,
+  and this entry only registers the shared body's SDK call site as a known
+  writer: customer.create and customer.quickCreate are LIVE FACADE_AUDIT_MAP
+  mutation rows (facade auto-emit via logFacadeAudit, target id handed over as
+  ctx.auditTargetId since a collection POST carries no path param), and the web
+  wrappers createCustomer/createQuickCustomer — both AUDITED_CORES symbols,
+  both walker-proven — emit customer.create unconditionally on their success
+  path. Not a new silent write in any sense: the SAME customer.create action
+  the web form already wrote, now reachable from the phone too. The raw SDK
+  call site is legitimately new (it moved out of the two audited wrappers into
+  the twins) and CP3 requires its own registration · Liam (⚖ 8/12 one system
+  two doors, packet PACKET-PHONEWIRE-1-2026-09-01.md, adjudication
+  ADJUDICATION-PHONEWIRE-1-2026-09-01, karute-field-issues lane)
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/actions/karute.ts::karuteRecords.create#createManualKaruteRecordWithClient · phone
+  manual-karute wiring (PHONEWIRE-2A): on phones ＋新規カルテ was dead —
+  the actions port's createManualKaruteRecord was a soft stub because the karute
+  facade tree had save/window/reveal but no MANUAL create door. Wiring it meant
+  extracting the create body into a WithClient twin so the web action and the
+  new facade POST run ONE body — the same Core/WithClient split as the
+  customers.create entry directly above. This entry is a RENAME of an allowlist
+  symbol that has stood since 2026-07-27, not a new call site: the raw
+  karuteRecords.create moved verbatim out of createManualKaruteRecord into
+  createManualKaruteRecordWithClient (raw body diff = one line, store_id:
+  storeId -> input.storeId), and CP3 requires the new symbol its own
+  registration. HONEST DIFFERENCE FROM THE PHONEWIRE-1 ENTRY ABOVE, stated
+  rather than borrowed: this write is NOT audited on both doors. The FACADE door
+  now is — karute.manualCreate is a LIVE FACADE_AUDIT_MAP mutation row emitting
+  karute.manual_create, target id handed over as ctx.auditTargetId since the
+  collection POST carries no path param, and a row is safe here (unlike
+  karute.save) because manual create does not pass the
+  createOrUpdateKaruteRecord choke point, so there is exactly one writer. The
+  WEB wrapper createManualKaruteRecord still emits nothing, exactly as it has
+  since the original 2026-07-27 allowlist entry recorded it "genuinely
+  untracked". So this build NARROWS a pre-existing gap and widens nothing: the
+  same manual create the web dialog already performed unaudited, now also
+  reachable from the phone and audited there · Liam (⚖ 8/12 one system two
+  doors, packet PACKET-PHONEWIRE-2A-2026-09-01.md, karute-field-issues lane)
+
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/actions/recording-discard-transcript.ts::storage.recordings.remove#transcribeAndPersistDiscardWithClient · phone
+  discard-transcript wiring (PHONEWIRE-2C): a SYMBOL RENAME, not a new
+  write. The identical entry already stood at
+  `…::storage.recordings.remove#transcribeAndPersistDiscard` since 2026-08-31;
+  wiring the phone split that action into a `*WithClient` body plus its cookie
+  wrapper (the same Core/WithClient shape as the customers.create entry above),
+  and the janitor moved into the shared body — so the ledger key follows the
+  symbol that now owns the call. The cookie wrapper keeping the old name owns
+  no storage call at all. The call itself is unchanged in every respect: a
+  best-effort `storage.recordings.remove` of the staged audio object on every
+  exit past the tenant fence, read-then-delete, the worker's own posture. It is
+  not a business action and its justification is unmoved — the audited action is
+  the recording.discard receipt this transcription belongs to
+  (src/lib/recording/discard.ts, AUDITED_CORES), and both doors refuse to write
+  at all unless that STAFF discard row already exists. Nothing became legal that
+  was not legal yesterday; one symbol name changed · Liam (⚖ 8/20 discard
+  doctrine + ⚖ 8/12 one system two doors, packet
+  PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
+
+- 2026-09-01 · SDK_WRITE_ALLOWLIST:src/lib/recording/staged-audio.ts::storage.recordings.remove · a
+  FILE MOVE of the entry directly above, not a new write (PHONEWIRE-2C fix
+  round 3, Greptile #813). The staged-audio janitor was extracted out of
+  src/actions/recording-discard-transcript.ts into its own module because it
+  grew a SECOND caller: the phone stages its audio BEFORE it posts and every
+  retry stages a fresh object (runDiscardTranscript → stageForJob;
+  DiscardPending carries no path to reuse), so the facade route must sweep its
+  own pre-body refusals or a repeating refusal strands one more object per
+  record-page mount for seven days. The alternative — a second
+  `storage.remove` spelling at the route — is exactly how a fence gets
+  forgotten on one caller, so there is still ONE delete implementation and the
+  old entry was pruned rather than left dead (CP3 named both halves and both
+  were done). The call is byte-unchanged: same best-effort remove of the same
+  staged object, same read-then-delete worker posture, still not a business
+  action — the audited action remains the recording.discard receipt this
+  transcription belongs to. It is STRICTLY NARROWER than what it replaced: the
+  isOwnRecordingKey tenant fence now lives INSIDE the janitor rather than at
+  the one call site, so no caller — present or future — can delete a key that
+  is not its own business's. The module carries no 'use server' for the same
+  reason lib/recording/discard.ts does not: it takes its tenant as an
+  argument, and as a client-invokable action a caller could name any business
+  · Liam (⚖ 8/20 discard doctrine + ⚖ 8/12 one system two doors, packet
+  PACKET-PHONEWIRE-2C-2026-09-01.md, karute-field-issues lane)
+- 2026-09-02 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update#scheduleCustomerDeletionWithClient · PHONEWIRE-2B:
+  the 30-day deletion pair's bodies moved into WithClient twins
+  so the web action and the new facade POST run ONE body — the same
+  Core/WithClient split updateCustomerWithClient already uses in this entry,
+  where the shared core stays audit-free. The `customers.update` call inside it
+  is byte-unchanged (same soft-delete set, ⚖ NO hard delete, Liam 2026-07-19);
+  only its enclosing symbol is new, which is why the gate sees an addition.
+  STRICTLY NARROWER than what it replaces: the old symbol
+  `scheduleCustomerDeletion` covered the whole cookie action, this one covers
+  only the shared write body, and the old name was pruned rather than left
+  dead. BOTH doors are covered — the web wrapper still calls emitDeletionAudit
+  (AUDITED_CORES) unconditionally on its success path, and the facade door's
+  new key customer.deletion.schedule is a LIVE FACADE_AUDIT_MAP mutation row
+  emitting privacy.customer_delete_scheduled (a guarded no-op files nothing:
+  the route sets ctx.auditSuppress) · Liam (⚖ 7/19 no-hard-delete + ⚖ 8/12 one
+  system two doors, packet PACKET-PHONEWIRE-2B-2026-09-01.md,
+  karute-field-issues lane)
+- 2026-09-02 · SDK_WRITE_ALLOWLIST:src/actions/customers.ts::customers.update#cancelCustomerDeletionWithClient · The
+  undo half of the same split, same reasoning line for line: byte-unchanged
+  `customers.update` (deleted_at → null) inside a new, strictly narrower symbol;
+  `cancelCustomerDeletion` pruned; the web wrapper keeps its emitDeletionAudit
+  and the new customer.deletion.cancel key is a LIVE FACADE_AUDIT_MAP mutation
+  row emitting privacy.customer_delete_canceled · Liam (same ruling and packet
+  as the entry above)
+- 2026-09-03 · map:recordings.uploadUrl · Capture pipeline PR2 fix round 7 (J6). The row
+  stays a deliberate skip; only its coveredBy citation moves, from
+  `src/actions/karute.ts#createOrUpdateKaruteRecord` to
+  `src/lib/recording/mint-take-url.ts#auditTakeNamed`. STRICTLY MORE HONEST, not weaker:
+  the old citation named the karute save at the far end of a flow this endpoint merely
+  feeds — an act performed by a different door, on a different day, that would be equally
+  true of half the recording routes. What this endpoint actually WRITES is the take's
+  reservation on its recording row, and the emit that dominates every writing path of
+  that write is auditTakeNamed (recording.take_named), the same symbol AUDITED_CORES
+  already registers for this file. The endpoint's coverage therefore goes from "something
+  downstream eventually files a row" to "this endpoint's own write files its own row" ·
+  Liam (⚖ 8/17 ids-only doc law, packet PACKET-PR2-FIX-ROUND-7.md, karute-field-issues lane)
+- 2026-09-03 · SDK_WRITE_ALLOWLIST:src/lib/recording/session-mint.ts::recordings.create · a
+  FILE MOVE of the src/actions/recordings.ts entry above (fresh-eyes #7 fix
+  round 11), not a new write. startRecordingSessionWithClient came out of
+  src/actions/recordings.ts because that file carries 'use server': every
+  top-level export of such a file is a client-invokable server action, so this
+  function was reachable directly with a caller-supplied businessId — the
+  exact escape mint-take-url.ts's own header warns against, since businessId
+  decides the composed key's tenant prefix. The new home carries no
+  'use server', same rule as mint-take-url.ts / discard.ts /
+  session-cleanup.ts / staged-audio.ts. The recordings.create call itself is
+  STRICTLY NARROWER than what it replaced, never wider: the SAME fresh-eyes
+  round adds an objectExists(key) fence before it, so a row born reserved can
+  no longer be created pointing at bytes this caller's row never wrote (a
+  hard-deleted sibling row's finalized object staying on storage was the gap —
+  session-cleanup deletes the row, never the object). The old entry
+  (src/actions/recordings.ts::recordings.create) is pruned rather than left
+  dead — that call site no longer exists · Liam (fresh-eyes round #7, packet
+  PACKET-PR2-FIX-ROUND-11.md, karute-field-issues lane)

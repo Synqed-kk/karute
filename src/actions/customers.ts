@@ -117,7 +117,34 @@ export type ActionResult =
 // createCustomer
 // ---------------------------------------------------------------------------
 
-export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+/**
+ * Shared create service — takes an EXPLICIT business-scoped client so BOTH the
+ * web server action (cookie identity) AND the facade POST handler (Bearer
+ * identity) run the identical parse, duplicate check, core write and
+ * email-collision guard. Same P-B split as updateCustomerWithClient below.
+ *
+ * Cache invalidation and the audit row stay OUT of here, with the callers:
+ * updateTag is Server-Action-only (it throws from a Route Handler — see
+ * updateCustomerWithClient's note), and the facade's customer.create row is
+ * emitted by logFacadeAudit off FACADE_AUDIT_MAP.
+ *
+ * ⚖ STORE ISOLATION LAW: nothing here reads a store — creation is scoped by
+ * the client's business alone, exactly as web does it. Both doors hand this
+ * body a business-scoped client (cookie business / Bearer business), so the
+ * scope cannot drift between them.
+ */
+export async function createCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  // `unknown`, like updateCustomerWithClient's own input: the facade door hands
+  // this raw JSON off the wire, and CustomerFormSchema below is the ONE parse
+  // both doors run. TWO independent guards keep a smuggled business_id /
+  // store_id / visit_count out of core, and the load-bearing one is the
+  // SECOND: (1) CustomerFormSchema is a z.object, which strips unknown keys at
+  // the parse, and (2) the create payload below is an explicit field list, not
+  // a spread — proven by mutation (a `...input` spread there turns the
+  // store-isolation assertion red; passthrough alone does not).
+  input: unknown,
+): Promise<ActionResult> {
   const parsed = CustomerFormSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -129,8 +156,6 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
   const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender, occupation, member_number } = parsed.data
 
   try {
-    const synqed = await getSynqedClient()
-
     // Check for duplicate name — warn but allow creation
     let duplicateWarning: string | undefined
     const dup = await synqed.customers.checkDuplicate(name)
@@ -167,19 +192,6 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       }
     }
 
-    revalidatePath('/customers')
-    updateTag('customers')
-
-    // Success only, after the write settles (never on the collision return above).
-    await auditWeb({
-      category: 'customer',
-      action: 'customer.create',
-      targetType: 'customer',
-      targetId: customer.id,
-      severity: 'info',
-      requestId: crypto.randomUUID(),
-    })
-
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
     // Keep the raw error in the server log so Anthony can debug; show
@@ -189,13 +201,48 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
   }
 }
 
+/** The WEB door onto the twin above: the cookie identity's client, the two
+ *  cache invalidations (Server-Action-only) and the success-only audit row.
+ *  The collision/validation returns never reach them — the early return is
+ *  the shared body's own `{ success: false }`. */
+export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
+  const synqed = await getSynqedClient()
+  const result = await createCustomerWithClient(synqed, input)
+  if (!result.success) return { success: false, error: result.error }
+
+  revalidatePath('/customers')
+  updateTag('customers')
+
+  // Success only, after the write settles (never on the collision return above).
+  await auditWeb({
+    category: 'customer',
+    action: 'customer.create',
+    targetType: 'customer',
+    targetId: result.id,
+    severity: 'info',
+    requestId: crypto.randomUUID(),
+  })
+
+  return result
+}
+
 // ---------------------------------------------------------------------------
 // createQuickCustomer
 // ---------------------------------------------------------------------------
 
-export async function createQuickCustomer(
+export type QuickCustomerResult =
+  | { success: true; id: string; name: string }
+  | { success: false; error: string }
+
+/** Quick-create's shared service — the same P-B split as
+ *  createCustomerWithClient above, and deliberately its own body: the
+ *  name-only path runs NO duplicate check and echoes core's stored name back
+ *  for the picker to select. Folding it into the full-form body would make
+ *  the phone's quick-create do something the web's never does. */
+export async function createQuickCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
   name: string,
-): Promise<{ success: true; id: string; name: string } | { success: false; error: string }> {
+): Promise<QuickCustomerResult> {
   const trimmedName = name.trim()
   if (!trimmedName) {
     return { success: false, error: 'Name is required' }
@@ -205,28 +252,35 @@ export async function createQuickCustomer(
   }
 
   try {
-    const synqed = await getSynqedClient()
     const customer = await synqed.customers.create({ name: trimmedName })
-
-    revalidatePath('/customers')
-    updateTag('customers')
-
-    // Quick-create is the same customer.create action as the full form
-    // (packet 30 §2) — one create pathway, one action name.
-    await auditWeb({
-      category: 'customer',
-      action: 'customer.create',
-      targetType: 'customer',
-      targetId: customer.id,
-      severity: 'info',
-      requestId: crypto.randomUUID(),
-    })
-
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: message }
   }
+}
+
+/** The WEB door onto the twin above — same wrapper duties as createCustomer. */
+export async function createQuickCustomer(name: string): Promise<QuickCustomerResult> {
+  const synqed = await getSynqedClient()
+  const result = await createQuickCustomerWithClient(synqed, name)
+  if (!result.success) return { success: false, error: result.error }
+
+  revalidatePath('/customers')
+  updateTag('customers')
+
+  // Quick-create is the same customer.create action as the full form
+  // (packet 30 §2) — one create pathway, one action name.
+  await auditWeb({
+    category: 'customer',
+    action: 'customer.create',
+    targetType: 'customer',
+    targetId: result.id,
+    severity: 'info',
+    requestId: crypto.randomUUID(),
+  })
+
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -337,16 +391,19 @@ async function emitDeletionAudit(
   })
 }
 
-/** Schedule deletion: sets core deleted_at = now. The customer drops from
- *  lists (core filters soft-deleted) and the profile banner starts the 30-day
- *  undo countdown. Data is retained in core forever; day 30 only closes the
- *  in-app undo. Error strings are codes the client maps to i18n. */
-export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
+/** Deletion-SCHEDULE core — business-scoped client, no cookie. Shared by the
+ *  web action (cookie identity → requireCapability) and the facade POST
+ *  (Bearer identity → ensureCapability), so the two doors cannot answer the
+ *  same customer differently. Audit-free, the same Core/WithClient split
+ *  grantCustomerConsentWithClient documents: the WEB wrapper emits the
+ *  privacy.* row (emitDeletionAudit hardcodes source:'web' — it belongs to
+ *  the cookie door and nowhere else), the facade's own hook emits its row.
+ *  Never throws: the `error` strings are the codes both UIs map to i18n. */
+export async function scheduleCustomerDeletionWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<ActionResult> {
   try {
-    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
-    await requireCapability('records.delete')
-    const synqed = await getSynqedClient()
-
     // Never restart a running clock: re-scheduling would push the deadline out.
     const existing = await synqed.customers.get(id)
     if (customerDeletedAt(existing)) {
@@ -357,10 +414,6 @@ export async function scheduleCustomerDeletion(id: string): Promise<ActionResult
       deleted_at: new Date().toISOString(),
     } as Parameters<typeof synqed.customers.update>[1])
 
-    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
-    revalidatePath('/customers')
-    revalidatePath(`/customers/${id}`)
-    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     console.error('[scheduleCustomerDeletion] error:', err)
@@ -368,14 +421,51 @@ export async function scheduleCustomerDeletion(id: string): Promise<ActionResult
   }
 }
 
-/** Undo within the window: nulls deleted_at. Rejects once the deadline has
- *  passed — the sweep may already be destroying records, and a cancel that
- *  "succeeds" seconds before hard delete would lie to the staff. */
-export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+/** Schedule deletion: sets core deleted_at = now. The customer drops from
+ *  lists (core filters soft-deleted) and the profile banner starts the 30-day
+ *  undo countdown. Data is retained in core forever; day 30 only closes the
+ *  in-app undo. Error strings are codes the client maps to i18n. */
+export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
   try {
+    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
     await requireCapability('records.delete')
+    // Roster check, the grantCustomerConsent posture (#452) ported here on the
+    // lane lead's ruling: a stale-session records.delete holder used to
+    // schedule an erasure that emitDeletionAudit filed with actorId:null —
+    // an unattributable record of the one act a customer can legally demand,
+    // and the facade door 403s the same caller. Refused BEFORE the write, so
+    // emitDeletionAudit is unreachable from here. The refusal is the union's
+    // own 'failed' (the consent sibling's { ok: false, error } spelled in this
+    // union's vocabulary): the existing deleteFailed toast keeps working, and
+    // a distinct code would be a new i18n string this packet may not add.
+    if (!(await getCurrentUserStaffId())) {
+      return { success: false, error: 'failed' }
+    }
     const synqed = await getSynqedClient()
 
+    const result = await scheduleCustomerDeletionWithClient(synqed, id)
+    // Guard refusal or core failure — nothing was written, so no row and no
+    // revalidation, at exactly the points the pre-split body returned.
+    if (!result.success) return result
+
+    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+    return result
+  } catch (err) {
+    console.error('[scheduleCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Deletion-CANCEL core — the schedule twin above, same split and same
+ *  reasons: shared body, audit-free, never throws. */
+export async function cancelCustomerDeletionWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<ActionResult> {
+  try {
     const existing = await synqed.customers.get(id)
     const deletedAt = customerDeletedAt(existing)
     if (!deletedAt) {
@@ -390,11 +480,34 @@ export async function cancelCustomerDeletion(id: string): Promise<ActionResult> 
       deleted_at: null,
     } as Parameters<typeof synqed.customers.update>[1])
 
+    return { success: true, id }
+  } catch (err) {
+    console.error('[cancelCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Undo within the window: nulls deleted_at. Rejects once the deadline has
+ *  passed — the sweep may already be destroying records, and a cancel that
+ *  "succeeds" seconds before hard delete would lie to the staff. */
+export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+  try {
+    await requireCapability('records.delete')
+    // Same roster check, same ruling as the schedule wrapper above — the undo
+    // is as attributable an act as the schedule, and both doors now agree.
+    if (!(await getCurrentUserStaffId())) {
+      return { success: false, error: 'failed' }
+    }
+    const synqed = await getSynqedClient()
+
+    const result = await cancelCustomerDeletionWithClient(synqed, id)
+    if (!result.success) return result
+
     await emitDeletionAudit('privacy.customer_delete_canceled', id)
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
     updateTag('customers')
-    return { success: true, id }
+    return result
   } catch (err) {
     console.error('[cancelCustomerDeletion] error:', err)
     return { success: false, error: 'failed' }

@@ -100,12 +100,38 @@ type StoredTake = {
   updatedAt: number
   outcome?: unknown
   outcomeSkipped?: boolean
+  /** Set = the server has this take's audio. Absent on every take below, which
+   *  is what a 確認待ち take IS: one this device never settled. */
+  finalizedAt?: number
+  /** The three facts isUnsecurableTake reads (PR4 fix round 4) — whether the
+   *  server can EVER hold this audio, which is what 確認する is now allowed to
+   *  act on. Absent on a take the drain will simply try again. */
+  tailIncomplete?: boolean
+  stopPendingAt?: number
+  durationMs?: number
+  secureError?: string
 }
 /** The device's IndexedDB, in a variable. deleteTake really removes from it, so
- *  a re-fold after 確認する sees the world the app actually left behind. */
+ *  a re-fold after 確認する sees the world the app actually left behind — and
+ *  it carries the REAL guard (capture pipeline PR4): audio the server does not
+ *  have is removed only when a HUMAN resolved the row. A fake that removed
+ *  unconditionally would go green on a call site that had lost the flag. */
 let stored: StoredTake[] = []
-const mockDeleteTake = jest.fn(async (takeId: string) => {
+const mockDeleteTake = jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+  const held = stored.find((t) => t.takeId === takeId)
+  if (held && !held.finalizedAt && !opts?.humanResolved) return
   stored = stored.filter((t) => t.takeId !== takeId)
+})
+/** ⚖ AND THE DECISION ABOVE THAT GUARD (capture pipeline PR4 fix round 4).
+ *  確認する no longer asserts the flag — it asks the store, which answers with
+ *  the REAL rule: only a take that can never be sealed may be settled by a tap.
+ *  `isUnsecurableTake` is required here rather than restated, so a drift in
+ *  take-store's own answer cannot leave this suite green. */
+const mockSettleTakeAfterSave = jest.fn(async (takeId: string) => {
+  const held = stored.find((t) => t.takeId === takeId)
+  const { isUnsecurableTake } =
+    jest.requireActual<typeof import('@/lib/karute/take-store')>('@/lib/karute/take-store')
+  await mockDeleteTake(takeId, { humanResolved: !!held && isUnsecurableTake(held) })
 })
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
@@ -114,13 +140,15 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: (id: string) => mockDeleteTake(id),
+  deleteTake: (id: string, opts?: { humanResolved?: boolean }) => mockDeleteTake(id, opts),
+  settleTakeAfterSave: (id: string) => mockSettleTakeAfterSave(id),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
   listOwnTakes: jest.fn(async () => [...stored].sort((a, b) => b.startedAt - a.startedAt)),
   // The BANNER stays out of the way in this suite — every assertion here is
   // about the inbox rows, and the banner has its own suite.
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
@@ -149,7 +177,17 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   }),
 }))
 jest.mock('@/lib/global-recorder', () => ({
-  globalRecorder: { takeId: null, state: 'idle', subscribe: () => () => {} },
+  globalRecorder: {
+    takeId: null,
+    state: 'idle',
+    subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain — and, for a take
+    // with no session id on it, re-reads the stamp the drain may have written
+    // since this list loaded. Nothing here has a row to find.
+    isSecuring: () => false,
+    retryRecordingSessionMint: jest.fn(async (): Promise<string | null> => null),
+  },
 }))
 const mockPipelineStart = jest.fn()
 jest.mock('@/lib/global-pipeline', () => ({
@@ -357,7 +395,12 @@ describe('録音履歴 — out-of-store customer names', () => {
 describe('録音履歴 — 確認待ち decays once the staffer looks', () => {
   it('確認する settles the take, opens the karute, and the row falls to 保存済み', async () => {
     serverSessions = [session({ recordingSessionId: 'sess-1', karuteRecordId: 'rec-1' })]
-    stored = [take({ takeId: 'take-1', recordingSessionId: 'sess-1' })]
+    // ⚖ PR4 fix round 4: a take the server can NEVER hold — here a stop leg
+    // that died before it could stamp. That is the cohort 確認する may settle:
+    // nothing is coming for this audio, so the tap is the last word on it.
+    stored = [
+      take({ takeId: 'take-1', recordingSessionId: 'sess-1', stopPendingAt: NOW - 41 * MIN }),
+    ]
     await renderPage()
 
     expect(row('session:sess-1').dataset.state).toBe('awaiting-check')
@@ -368,12 +411,49 @@ describe('録音履歴 — 確認待ち decays once the staffer looks', () => {
     })
     await flush(20)
 
-    expect(mockDeleteTake).toHaveBeenCalledWith('take-1')
+    // ⚖ THE ONE HUMAN-RESOLVED DELETE (PR4 fix round 1). A 確認待ち take is by
+    // definition one this device never secured, so without the flag the guard
+    // refuses it and the 要対応 badge can never be cleared by anyone. Round 4
+    // moved the DECISION into the store: the tap asks, and this take's dead
+    // stop leg is what earns the yes.
+    expect(mockSettleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    expect(mockDeleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
     expect(mockPush).toHaveBeenCalledWith('/karute/rec-1')
     // …and the re-fold that follows the settle shows the row as plain 保存済み,
     // with the 要対応 chip gone.
     expect(row('session:sess-1').dataset.state).toBe('saved')
     expect(within(inbox()).queryByText('recording.inbox.needsAttention')).toBeNull()
+  })
+
+  // ⚖ …AND A TAKE THE DRAIN CAN STILL SEAL KEEPS ITS ROW (PR4 fix round 4, F1).
+  // A 確認待ち take whose secure failed RETRYABLY is audio the server is still
+  // going to receive under this take's OWN key. Settling it would throw away
+  // the only copy that can get there, so the tap opens the karute and leaves
+  // the row standing — the drain finalizes it, and the next tap clears it. The
+  // row is honest about a recording the server does not have yet.
+  it('…but a take the drain can still seal is NOT settled — the row stays 確認待ち', async () => {
+    serverSessions = [session({ recordingSessionId: 'sess-1', karuteRecordId: 'rec-1' })]
+    stored = [
+      take({ takeId: 'take-1', recordingSessionId: 'sess-1', secureError: 'upload_503' }),
+    ]
+    await renderPage()
+
+    expect(row('session:sess-1').dataset.state).toBe('awaiting-check')
+
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-1')).getByText('recording.inbox.action.check'))
+    })
+    await flush(20)
+
+    // The settle RAN and the guard refused it — unflagged, because nothing has
+    // given up on this audio.
+    expect(mockSettleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    expect(mockDeleteTake).toHaveBeenCalledWith('take-1', { humanResolved: false })
+    // The karute still opens: looking at the record was never gated on the take.
+    expect(mockPush).toHaveBeenCalledWith('/karute/rec-1')
+    // …and the row says what is true — the recording is still only here.
+    expect(row('session:sess-1').dataset.state).toBe('awaiting-check')
+    expect(within(inbox()).getByText('recording.inbox.needsAttention')).toBeInTheDocument()
   })
 
   it('保存済み offers 開く and settles nothing (there is no take to settle)', async () => {

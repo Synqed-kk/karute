@@ -16,8 +16,11 @@ interface CustomerRowDesktopProps {
   /** See CustomerCardMobile — same flag, same purpose. */
   hrefBase?: string
   /** Entrance stagger position within the current page (decorative;
-   *  reduced motion renders instantly with no delay). */
-  entranceIndex?: number
+   *  reduced motion renders instantly with no delay). `null` = this render
+   *  is not part of a cascade, so the row carries no entrance animation and
+   *  no delay at all — the list gates that (see ./entrance-once), a re-visit
+   *  must not replay the cascade. */
+  entranceIndex?: number | null
 }
 
 /**
@@ -36,17 +39,25 @@ export function CustomerRowDesktop({
   staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
-  entranceIndex = 0,
+  entranceIndex = null,
 }: CustomerRowDesktopProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
   const staff = getStaffColorByKey(staffColorKey)
+  const entrance =
+    entranceIndex === null
+      ? ''
+      : 'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)'
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-[6px] motion-safe:fill-mode-backwards motion-safe:animation-duration-(--duration-base) motion-safe:ease-(--ease-out)"
-      style={{ animationDelay: `${entranceIndex * 40}ms` }}
+      className={`relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 ${entrance}`}
+      style={
+        entranceIndex === null
+          ? undefined
+          : { animationDelay: `${entranceIndex * 40}ms` }
+      }
     >
 
       {/* Customer */}

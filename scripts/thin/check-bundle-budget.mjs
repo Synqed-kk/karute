@@ -266,7 +266,95 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // ceiling a real feature has outgrown gets raised and reported, never held for
 // an approval round. The SCRIPT still gates — it runs in CI and exits non-zero
 // against whatever ceiling stands below.
-const BUDGET_BYTES = 2_019_000
+// RE-BASED 2026-09-02 at PHONEWIRE-3, and this one is a MEASUREMENT-METHOD
+// correction, not a feature raise. Bake 21 (evidence/bake21-20260902) found the
+// gate FAILING on the very bundle it shipped: 2,019,183 B raw against the
+// 2,019,000 ceiling, over by 183 B — while CI on the identical commit was
+// green.
+//
+// Why both were true. CI (.github/workflows/ci.yml) builds this bundle with
+// SHORT DUMMY env — VITE_FACADE_URL https://ci-dummy.invalid,
+// VITE_SUPABASE_URL https://test-dummy.supabase.co, VITE_SUPABASE_ANON_KEY
+// dummy-not-a-key — and passes no VITE_BUILD_COMMIT / VITE_BUILD_NUMBER. Vite
+// INLINES those values as string literals, so a release build (a real facade
+// URL, a real anon JWT, a real commit + build number) is strictly bigger. The
+// CI step's own comment, "the baked values don't affect either", is wrong about
+// bytes. Measured on base f7c1b064, same script, same emptied thin/dist:
+//
+//     release-way   2,019,183 B   (reproduces bake 21 byte-for-byte, per chunk)
+//     CI-way        2,018,928 B
+//     CI under-reads by               255 B
+//
+// The release-way figure was reproduced here WITHOUT copying any real
+// credential: only the byte LENGTHS of the release env values were matched
+// (24 / 40 / 208) with obvious placeholders. Vite inlines them as plain JSON
+// string literals with nothing to escape, so equal length ⇒ equal bytes — and
+// the proof is that all three chunks came out at exactly bake 21's sizes
+// (en 129,609 · index 952,492 · vendor 937,082 = 2,019,183).
+//
+// This round's tip measures 2,018,785 B the release way — 398 B SMALLER than
+// its base, because tab-calm-2 deletes more class text than the offline-catch
+// and the un-suppressed create button add. So there is no feature overage to
+// absorb; the ceiling moves because the number it was compared against was the
+// wrong number. Set above the LARGER of the two honest release-way readings
+// (the base's 2,019,183 — that is what is on phones today), with ~4.8 KB of
+// headroom, the same low-headroom convention as the 2026-08-19/21/24/25 raises
+// and well clear of the 8/8 razor-fail's 193 B margin.
+//
+// Report-only per ⚖ 8/25 describes the RAISE. The SCRIPT still gates: it runs
+// in CI and exits non-zero against whatever ceiling stands below.
+//
+// And CI now measures the RIGHT number. The same round gave the workflow's
+// bundle-gate step placeholder env of release LENGTH (24 / 40 / 208, plus the
+// two build stamps at 8 / 2) — obvious 'x'-padded fakes, never a real value —
+// so its build reproduces the release-way measurement byte-for-byte. Verified
+// 2026-09-02 at this tip: workflow env alone, no thin/.env, 2,018,785 B, equal
+// to the release-way figure above. CI's printed figure is no longer light;
+// treat it as the real one.
+// RAISED 2026-09-04 for the capture pipeline's client half (PR3 — secure-at-
+// stop + session-first + born-reserved), ⚖ decision D: 2,024,000 → 2,032,000.
+// This is a FEATURE raise, not a method correction — the method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist).
+//
+// What is in the phone for the bytes: the audio is now safe the moment 停止 is
+// tapped rather than at 録音を使用 — the take is finalized against a key the
+// server composes, its row is minted through the one session door when the
+// start-mint never landed, every refusal comes back NAMED so a terminal one is
+// never re-uploaded, and this round makes the row born reserved (the start-mint
+// carries the take + container, with one step back for a server that predates
+// the pair).
+//
+// Measured at this round's tip, the release way: en 129,756 · index 958,227 ·
+// vendor 937,082 = 2,025,065 B — 1,065 B over the 2,024,000 ceiling, which is
+// the breach this raise answers. The last release-way figure recorded on main
+// is 2,018,785 B (965500a4, 2026-09-02), so the whole PR3 stack costs the phone
+// +6,280 B. That raise left 6,935 B of headroom at the time it was written; PR4
+// then spent it — see the entry below for where the number stands now.
+//
+// RAISED 2026-09-04 for PR4's never-delete doors (rounds 2–5), ⚖ 8/25:
+// 2,032,000 → 2,040,000. A FEATURE raise, not a method correction — the method
+// is unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: a discarded recording's audio is no
+// longer deleted, so what used to be a delete is now a decision — the settle
+// reads the take and keeps one the server never received, every discard arm
+// MARKS the take so a thrown-away session is never re-offered, a take that can
+// never be sealed still gives up its words off a staged copy that is staged
+// once, and (this round) the discard's word-collection waits for the stop's own
+// upload the way the two pipeline readers already do, so the FIRST kick is the
+// one that lands instead of the words waiting for a mount that may never come.
+//
+// Measured at this round's tip, the CI/release way: en 129,868 · index 965,152 ·
+// vendor 937,082 = 2,032,102 B — 102 B over the 2,032,000 ceiling, which is the
+// breach this raise answers. The whole PR4 stack costs the phone +7,037 B over
+// the 2,025,065 B PR3 tip above. The new ceiling leaves 7,898 B of headroom.
+//
+// Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
+// this line with one revert. The SCRIPT still gates — it runs in CI and exits
+// non-zero against whatever ceiling stands here.
+const BUDGET_BYTES = 2_040_000
 
 let dir
 try {

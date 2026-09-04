@@ -127,7 +127,7 @@ async function loadTodayAppointments(
     )
     return list.appointments
       .filter((a) => !isTerminalStatus(a.status))
-      .map((a) => ({ isExistingCustomer: existingById.get(a.customer_id) }))
+      .map((a) => ({ isExistingCustomer: a.customer_id ? existingById.get(a.customer_id) : undefined }))
   } catch {
     return []
   }
@@ -176,7 +176,7 @@ const getCachedRecentBookings = unstable_cache(
       .filter((a) => new Date(a.created_at).getTime() >= cutoff)
       .map((a) => ({
         id: a.id,
-        customerName: nameById.get(a.customer_id) ?? 'お客様',
+        customerName: (a.customer_id && nameById.get(a.customer_id)) ?? 'お客様',
         createdAt: a.created_at,
         startsAt: a.starts_at,
       }))

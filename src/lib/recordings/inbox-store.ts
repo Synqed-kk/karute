@@ -143,6 +143,11 @@ async function readLocalTakes() {
     customerName: t.target?.customerName ?? null,
     startedAt: t.startedAt,
     updatedAt: t.updatedAt,
+    tailIncomplete: t.tailIncomplete,
+    stopPendingAt: t.stopPendingAt,
+    // PR4 fix round 1 — the flag the fold needs to keep an expired unsecured
+    // take on screen. The store owns the TTL; this just carries its answer.
+    expiredUnsecured: t.expiredUnsecured,
   }))
 }
 

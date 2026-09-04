@@ -114,6 +114,49 @@ describe('録音履歴 — the five states', () => {
     expect(row.takeId).toBe('t1')
     expect(needsAttention(row)).toBe(true)
   })
+
+  // ⚖ …AND IT SAYS SO WHEN THE STOP COULD NOT FINISH WRITING IT (capture
+  // pipeline PR3 fix round 16, AC2). Such a take is refused by both drains and
+  // by secureTake's belt, so it will sit here until a human deals with it —
+  // which is exactly why the row must not tell them the ordinary story. Same
+  // state, same 要対応, one honest sub-line: what is on the device ends
+  // partway.
+  it('復元可能: …and a take whose stop could not write its tail says so', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('…and an ORPHAN take carrying the flag says the same thing', () => {
+    const [row] = fold([], [take({ takeId: 't1', tailIncomplete: true })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+  })
+
+  // …and so does a stop that never finished at all (fix round 17). Same news
+  // to the staffer — the recording has an end nobody managed to write — and
+  // nothing auto-seals either of them, so the row must say so on both.
+  it('復元可能: a take whose STOP never finished reads the same way', () => {
+    const [row] = fold([], [take({ takeId: 't1', stopPendingAt: 1_000 })])
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  // The SERVER's reason is the more specific fact about what went wrong, so a
+  // device-side flag never overwrites it.
+  it('a failed job keeps ITS reason even when the local take lost its tail', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', jobLastError: 'EMPTY_TRANSCRIPT' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', tailIncomplete: true })],
+    )
+    expect(row.state).toBe('failed')
+    expect(row.reason).toBe('emptyTranscript')
+  })
 })
 
 // ── A2-3: the deliberate discard, rendered honestly ────────────────────────
@@ -314,6 +357,60 @@ describe('録音履歴 — walk-ins and orphan takes', () => {
     expect(rows[0].recordingSessionId).toBeNull()
   })
 
+  // ⚖ EXPIRED, UNSECURED, STILL ON THE DEVICE (capture pipeline PR4 fix round
+  // 1). The take store refuses to prune audio the server never received, so
+  // these takes outlive the 7-day window — and the server read is bounded by
+  // that same window, so no session row comes back to carry them. Without a row
+  // of their own they are invisible everywhere, which is how tens of megabytes
+  // per take end up parked on a salon phone with nothing on any screen saying
+  // so. 復元可能, in the vocabulary the card already speaks, offering 保存する.
+  it('an expired UNSECURED take gets a row of its own, however old it is', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-stranded',
+          recordingSessionId: 's-gone',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+          expiredUnsecured: true,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('take:t-stranded')
+    expect(rows[0].state).toBe('recoverable')
+    expect(rows[0].reason).toBe('localAudio')
+    expect(rows[0].takeId).toBe('t-stranded')
+    expect(needsAttention(rows[0])).toBe(true)
+  })
+
+  it('…and an ordinary take that old is still dropped — the flag is the exemption', () => {
+    const rows = fold(
+      [],
+      [
+        take({
+          takeId: 't-old',
+          startedAt: NOW - 9 * 24 * 3600_000,
+          updatedAt: NOW - 9 * 24 * 3600_000,
+        }),
+      ],
+    )
+    expect(rows).toHaveLength(0)
+  })
+
+  // One row per session, always. The two windows are the same constant today,
+  // so this cannot happen — but if they ever drift the session's own row wins
+  // and the stranded take stands down rather than doubling it.
+  it('a stranded take never doubles a session row that DID come back', () => {
+    const rows = fold(
+      [session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' })],
+      [take({ takeId: 't1', recordingSessionId: 's1', expiredUnsecured: true })],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].key).toBe('session:s1')
+  })
+
   it('MULTI-TAKE: two independent takes are two rows — not just the newest', () => {
     // The pre-F1 banner offered only the newest recoverable take; every older
     // one sat un-offered until the TTL swept it. That is the loss this row set
@@ -427,6 +524,7 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.autoSaved',
     'reason.genericFailure',
     'reason.localAudio',
+    'reason.tailIncomplete',
     'action.open',
     'action.check',
     'action.retry',
@@ -456,6 +554,7 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'autoSaved',
       'genericFailure',
       'localAudio',
+      'tailIncomplete',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')

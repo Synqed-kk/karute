@@ -64,12 +64,14 @@ import {
   gapLayerFor,
   gapPackingDials,
   guardRailsFor,
+  guardVerdictAt,
   isHeldBound,
   laneSpans,
   restCueStarts,
   sellLayerFor,
   type GuardRail,
   type RailCell,
+  type RailInput,
   type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
@@ -86,6 +88,118 @@ const supabase = createClient as jest.Mock
 
 const HERE = 'src/app/[locale]/(business)/business/today'
 const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
+
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
+ *
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  A decoy hidden as a TRAILING comment on a real code line survives the
+ *  filter — and then it INFLATES the count, which is red the other way
+ *  round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
+const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
+
+/** ONE call's own text, from its opening anchor to the dependency-array line
+ *  that closes the hook it lives in — found and counted by the SAME anchored
+ *  regex `pinnedLines` uses, over `codeOnly(src)`.
+ *
+ *  ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — THE ANCHORS HAVE TO BE UNIQUE, AND
+ *  THIS FUNCTION IS WHERE THAT IS DECIDED. It used to be `src.indexOf(open)`
+ *  then `src.indexOf(close, i)` over the RAW file: first occurrence, both ends,
+ *  nothing asserting there was only one. The comment that stood here CLAIMED
+ *  「Both anchors are unique in the file」 and never checked it, so the armour
+ *  was not reading the call — it was reading whichever copy came first. The
+ *  breaker copied the rail's fourteen lines verbatim into a `(false as
+ *  boolean) ?` branch ABOVE the real memo, deleted the live protected door and
+ *  re-spelled the two other pinned lines so no file-wide count moved: 530
+ *  suites green, `tsc` exit 0, every slice pin satisfied — by the decoy — and
+ *  both protected doors dark (rail 5 + verdict 5 of 90 fixture cells at
+ *  now=804, 12 + 12 with no clock). `opens` and `closes` are those two counts,
+ *  and every caller asserts both are ONE before reading `text`: a second copy
+ *  then has nowhere to stand, which is the argument `inTheFile: 1` already
+ *  makes one level down for a duplicate LINE.
+ *
+ *  AND THE LOCATOR MOVED WITH THE COUNT. `indexOf` finds an anchor anywhere —
+ *  mid-line, or inside a comment — while the count only sees it at the start of
+ *  a line of code; a locator the count cannot see is a decoy site by
+ *  construction (append the open anchor to the tail of a live line and the
+ *  count still reads one). Both halves run `anchoredLine` over `codeOnly(src)`
+ *  now, so what is counted and what is sliced are the same thing, and `text`
+ *  arrives at the caller already comment-blanked.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Blanking the whole file before slicing means
+ *  an unterminated block comment ABOVE the open anchor eats the anchors
+ *  themselves — `ok` goes false, which is red, so that direction is safe. A
+ *  comment can only ADD lines to a slice or TRUNCATE it; it can never SUPPLY a
+ *  pinned line, because `codeOnly` removed it before the slice existed. */
+const callSlice = (src: string, open: string, close: string) => {
+  const code = codeOnly(src)
+  const opens = [...code.matchAll(anchoredLine(open))]
+  const closes = [...code.matchAll(anchoredLine(close))]
+  const at = (ms: readonly { index?: number }[], after: number) => ms.find((m) => (m.index ?? -1) > after)?.index ?? -1
+  const i = at(opens, -1)
+  const j = i < 0 ? -1 : at(closes, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? code.slice(i, j) : '', opens: opens.length, closes: closes.length }
+}
 
 // ── THE REAL FIXTURE WORLD, driven exactly as E2 drove it ───────────────────
 
@@ -443,6 +557,9 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         cleanupMinutesByBed: w.cleanup,
         rooms: w.rooms,
         held,
+        // ⚖ Greptile #815 — the same `locked: []` this composer already hands
+        // `gap`/`sell` above (this file's worlds model no locked lanes).
+        locked: [],
         dials: gapPackingDials(w.lanes, dialOpts),
       })
     : null
@@ -468,10 +585,14 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
  *    · `lattice` — a callback that always says yes. On the 5-minute lattice
  *                  (gap-guard :195) but blind to the rooms: the LATTICE column.
  *    · `bed`     — the real mask door. The extra difference is the BED column. */
-function rails(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): GuardRail[] {
+/** ⚖ R7 — EXTRACTED, byte-for-byte, so that §4b's census can be handed THE RAIL'S
+ *  OWN INPUT rather than a copy of it that a later edit could let drift. A pin
+ *  that says 「the verdict agrees with the rail」 while building two inputs side
+ *  by side is pinning two functions of two inputs; one builder makes the claim
+ *  structural. `rails` below is unchanged in behaviour and in every argument. */
+function railInputFor(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): RailInput {
   const views = bedViewsFor(w.lanes, w.rooms, frameOf(w), null)
-  const door = bedDoor(views, w.lanes, null)
-  return guardRailsFor(w.lanes, {
+  return {
     open: w.hours.open,
     close: w.hours.close,
     stepMin: 30,
@@ -481,14 +602,18 @@ function rails(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTru
     locked: [],
     guard: { ...configOf(c), mode: c.mode === 'off' ? 'standard' : c.mode },
     excludeId: null,
-    placementFeasible: door,
+    placementFeasible: bedDoor(views, w.lanes, null),
     protectedWindowFeasible:
       kind === 'raw'
         ? undefined
         : kind === 'lattice'
           ? () => true
           : (l, start, dur) => book.newClientMask(l, dur)(start),
-  })
+  }
+}
+
+function rails(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): GuardRail[] {
+  return guardRailsFor(w.lanes, railInputFor(w, c, kind, book))
 }
 
 const cellKey = (c: RailCell) =>
@@ -517,19 +642,177 @@ describe('1 — the round gate', () => {
   })
 
   it('is read at the screen boundary ONLY — never in a layer, a predicate or a handler', () => {
-    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts']
+    // ⚖ R5 POST-MERGE — `held-committed.ts` joins the list on the same terms as
+    // its four siblings: it is a caller-side wrapper over the mask, so if it
+    // ever read the round gate the constant would have a second home and the
+    // five-read count below would not see it.
+    const readers = ['today-interactions.ts', 'capacity-ledger.ts', 'reserved-mask.ts', 'fallback-cells.ts', 'held-committed.ts']
     for (const f of readers) expect({ f, has: SRC(f).includes('SELLING_ENGINE_LAW') }).toEqual({ f, has: false })
-    // …and on the screen it appears exactly five times: the import, one prose
-    // mention in the memo that explains it, and THREE reads — the committed
-    // world's book, the board world's mask, and the rail's protected-window
-    // door. All three are memo bodies at the top level of the component; none
-    // is inside a predicate, a handler or a render path.
+    // ⚖ ROUND 2 — AND IT READS NO SCREEN EITHER, for the same reason one file
+    // over. Round 1 gave the wrapper the committed world's book by importing
+    // `bedViewsFor` from TodayScreen, so the two files imported each other; it
+    // ran, but a cycle on this seam is a trap for the next edit. The door is
+    // handed in as `bookOf` now: the wrapper may not name the screen, and it
+    // may not go around the door to `bedTruthViews` (the capacity book's own
+    // producer) either. R3's ONE DOOR in its stronger form — the wrapper cannot
+    // reach the book at all except through the function its caller gives it.
+    //
+    // ⚖ ROUND 3 — AND WHAT GUARANTEES THAT IS NOT THESE TWO LINES. The comment
+    // here used to say it was, and a NAME pin is dodgeable: lens B's G3 reached
+    // the screen through a SPLIT-STRING DYNAMIC REQUIRE, which spells neither
+    // `./TodayScreen` nor `bedTruthViews` and left both lines green. It went
+    // red at held-committed.test.ts §3 — the test that HANDS OVER a different
+    // door and reads the answer that comes back. That behavioural test is the
+    // guarantee. These two lines are belt-and-braces: they make the honest
+    // spelling of the mistake unspellable, which is worth keeping and is cheap.
+    // They are not the proof.
+    expect(SRC('held-committed.ts')).not.toContain('./TodayScreen')
+    expect(SRC('held-committed.ts')).not.toContain('bedTruthViews')
+    // …and on the screen the gate is read exactly FIVE times, counted over the
+    // file with its comment-led lines blanked: the import, the committed
+    // world's mask, the board world's mask, the rail's protected-window door,
+    // and (⚖ R7, SPEC §3.1) the VERDICT's. All four reads are memo or
+    // useCallback bodies at the top level of the component; none is inside a
+    // predicate, a handler or a render path.
+    //
+    // ⚖ BREAKER-827 F1 (BLOCKER) — SIX → FIVE, AND THE DECISION IS THE POINT.
+    // The old count was SIX over the RAW file: the five above plus the JSDoc
+    // sentence that explains the gate. A count that includes comments is the
+    // count a decoy inflates — comment a real read out, leave a `//`-prefixed
+    // copy where it stood, and the total never moves. So the prose mention is
+    // no longer counted and the number is the number of READS. It still catches
+    // a sixth read arriving (6 ≠ 5) and it now also catches a read leaving,
+    // which is the direction the breaker walked through. The JSDoc is free to
+    // be reworded without moving a pin, which it was not before.
+    //
+    // ⚖ R7 — THE COUNT MOVED BECAUSE THE GATE HALF LANDED. E3a threaded the
+    // protected-window door into the RAIL and left `verdictAt` reading the raw
+    // pocket-minute enumeration, so the strip's marks were bed-honest and the
+    // word under the cursor was not. PROBE-R7 measured the gap at 1,625 of
+    // 7,956 cells across both boards × every guarded combination; §4's new
+    // rail≡verdict census pins it closed.
+    //
+    // ⚖ PIN MIGRATED at ROUND 1 OF THE FIX ROUND, WITH the decision. The
+    // committed world's read used to sit in a SECOND memo up here (the one that
+    // built the book), and that memo is gone — its book is built inside
+    // `heldCommittedFor` now, because a screen-level book memo was a second
+    // untested seam and a mutation lens went through it. The gate is still read
+    // on the screen and still at the boundary; it is handed to the wrapper as a
+    // bare parameter value instead of spelling a ternary here. Same decision,
+    // same count, one home fewer.
     const screen = SRC('TodayScreen.tsx')
-    const reads = [...screen.matchAll(/SELLING_ENGINE_LAW/g)].length
+    const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
     expect(reads).toBe(5)
-    expect(screen).toContain("import { SELLING_ENGINE_LAW } from './selling-engine-gate'")
-    expect(screen).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes')
-    expect(screen).toContain('protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,')
+    // ⚖ D1 — and the number does not move when `codeOnly` learns about block
+    // comments: all five reads are code, none of the six raw occurrences the
+    // pre-armour count saw ever sat inside a block the new filter removes.
+    // ⚖ BREAKER-827 F1 — AND THE FOUR SPELLINGS ARE WHOLE-LINE ANCHORED. The
+    // fifth read is `heldBoard`'s bare `SELLING_ENGINE_LAW` line, the head of a
+    // ternary; it used to be held by the count alone, which is the hole §DELTA
+    // 3 S2 walked through (pay the token back at that line and shadow the name
+    // above). It is anchored and pinned inside its own memo at the end of this
+    // test now — the count is no longer carrying it by itself.
+    // The second line here is the VERDICT's own door, the rail's line one
+    // argument wider — `lanes` for the reason `placementFeasible` beside it
+    // passes it (the block advisor asks about a board it has taken something
+    // out of); `null` for the reason the rail asks `null`, a new client is
+    // never the card in hand.
+    for (const line of [
+      "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+      'gateOn: SELLING_ENGINE_LAW,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+    ]) {
+      expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ LENS-2 DECOY 3 (MAJOR) — AND EACH DOOR IS PINNED INSIDE ITS OWN CALL.
+    // Presence-in-the-file is reachability-blind, and a MOVE leaves every total
+    // exactly where it was: the lens deleted the verdict's door from the live
+    // object literal and parked a byte-identical copy in a `void`-discarded
+    // dead block above the hook — 486 green, tsc clean, and the guard back on
+    // the raw pocket-minute enumeration, which is BREAKER F1's defect reached
+    // by a different road. So each door line is now counted ONCE over code
+    // file-wide AND pinned inside the slice of the call it is an argument to:
+    // a duplicate moves the count, a move leaves the slice, and the two
+    // together have nowhere left to stand.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — AND THE SLICE MUST BE THE CALL.
+    // `callSlice` took the FIRST occurrence of each anchor and nothing asserted
+    // there was only one, so a verbatim DECOY of the rail's fourteen lines
+    // parked in a never-taken branch above the real memo answered every pin
+    // below while the live call shed its protected door: 530 suites green, tsc
+    // exit 0, both doors dark. Each anchor is COUNTED before its text is read.
+    const uniqueSlice = (open: string, close: string) => {
+      const s = callSlice(screen, open, close)
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      return s
+    }
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    for (const [where, call, line] of [
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
+    ] as const) {
+      expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(screen, line) })
+        .toEqual({ where, line, inThisCall: 1, inTheFile: 1 })
+    }
+
+    // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND FIVE READS IS NOT ONE BINDING.
+    // The count above counts READS of a NAME; nothing here said where the name
+    // is bound. `const SELLING_ENGINE_LAW = false` at the top of the component
+    // shadows the import, and the fifth token is handed straight back by
+    // hardcoding `heldBoard`'s bare ternary head to `true` — `reads` is still
+    // 5, the import line is still pinned and present, `gateOn:
+    // SELLING_ENGINE_LAW,` is still a whole anchored line, both door lines are
+    // byte-identical inside their own slices, and BOTH protected doors are dark
+    // with `heldCommittedFor`'s `gateOn` false beside them (487 green, tsc exit
+    // 0). So: the import is the ONE binding site, every other binding shape is
+    // banned, and the fifth read is pinned as a line inside the memo it decides.
+    const CODE = codeOnly(screen)
+    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    expect({ gateImports: pinnedLines(screen, GATE_IMPORT) }).toEqual({ gateImports: 1 })
+    expect({
+      declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
+    }).toEqual({ declarations: 0 })
+    expect(CODE).not.toMatch(/\bSELLING_ENGINE_LAW\s*=(?!=)/)
+    // The one legitimate `{ SELLING_ENGINE_LAW }` on this screen is the import
+    // line, so it is removed before the destructuring and parameter shapes are
+    // looked for rather than carved out of the patterns themselves.
+    const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    const heldBoard = uniqueSlice(
+      'const heldBoard = useMemo(',
+      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+    )
+    expect({
+      bareGateLines: pinnedLines(screen, 'SELLING_ENGINE_LAW'),
+      inHeldBoard: pinnedLines(heldBoard.text, 'SELLING_ENGINE_LAW'),
+    }).toEqual({ bareGateLines: 1, inHeldBoard: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — AND THE ENGINE THE DOORS ARE HANDED
+    // TO IS THE IMPORTED ONE. Both slices call `guardRailsFor` /
+    // `guardVerdictAt` BY NAME, and a module-level shim (`guardRailsFor as
+    // guardRailsForImpl` plus a local wrapper spreading
+    // `protectedWindowFeasible: undefined` over the object the slice built)
+    // forwards the door exactly as written and throws it away one line later:
+    // every pinned character byte-identical, 487 green, tsc exit 0, and the
+    // engine's own unit tests green because they import the real thing. The
+    // two specifiers are whole-line anchored and counted, each name has exactly
+    // TWO code mentions (the specifier and the call), and neither may be
+    // defined on this screen.
+    for (const [name, mentions] of [
+      ['guardRailsFor', 2],
+      ['guardVerdictAt', 2],
+    ] as const) {
+      expect({
+        name,
+        specifiers: pinnedLines(screen, `${name},`),
+        mentions: (CODE.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length,
+        calls: (CODE.match(new RegExp('\\b' + name + '\\(', 'g')) ?? []).length,
+        definitions: (CODE.match(new RegExp('\\b(?:function|const|let|var|class)\\s+' + name + '\\b', 'g')) ?? []).length,
+      }).toEqual({ name, specifiers: 1, mentions, calls: 1, definitions: 0 })
+    }
   })
 
   it('every seam takes the mask as a PARAMETER, so an absent mask is today’s code', () => {
@@ -544,12 +827,51 @@ describe('1 — the round gate', () => {
     expect(int).not.toMatch(/import \{[^}]*reservedMaskFor/)
   })
 
+  // ⚖ PIN MIGRATED at R5 POST-MERGE, WITH the decision. What the pin is for has
+  // not changed — TWO worlds, TWO construction sites, both inside a `useMemo`
+  // and neither inside a predicate, a callback or a handler. What moved is the
+  // COMMITTED world's spelling: its call is now one hop deep, through
+  // `heldCommittedFor` (held-committed.ts), because the memo's inline body could
+  // only ever be held by a text pin and POSTMERGE-CHECK-88b7726c.md findings 1-2
+  // measured two severe mutants slipping one. The wrapper is app-side and it is
+  // NOT a layer, a predicate or a handler: it takes the world as a parameter
+  // like every other seam, it calls `reservedMaskFor` exactly once, and it holds
+  // no derivation of its own — held-committed.test.ts pins its answer against a
+  // direct call. The gate constant is still read only on the screen (the test
+  // above), and the mask is still built once per world per frame.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 1, same decision, one seam fewer. The committed
+  // world's BOOK moved into the wrapper as well: a screen-level book memo was a
+  // second seam no unit test could reach, and pre-gating it on the store's dial
+  // emptied the mask with this whole family green. So the committed site's
+  // first line is the round gate now rather than a book the screen already
+  // built, and `bedViewsFor` — R3's ONE DOOR — is walked inside the wrapper for
+  // that world. Still one construction site per world, still both in a memo.
+  //
+  // ⚖ MIGRATED AGAIN at ROUND 2, same decision, one import fewer. The wrapper
+  // no longer IMPORTS the door — the screen hands it in as `bookOf`, because
+  // round 1's import made the two files import each other. So the walk is
+  // pinned by the parameter it now goes through rather than by the identifier
+  // it used to import, and the test above pins that the wrapper cannot name
+  // the screen or the book's producer at all. One walk, one hand, still.
   it('the mask is built ONCE PER WORLD PER FRAME, in a memo and never in a predicate', () => {
     const screen = SRC('TodayScreen.tsx')
-    // Two construction sites, both world-named, both inside a `useMemo`.
-    expect(screen.split('reservedMaskFor({').length - 1).toBe(2)
-    for (const world of ['lanes: committedLanes,', 'lanes: boardLanes,']) {
-      const at = screen.indexOf(`reservedMaskFor({\n            ${world}`)
+    // One inline construction site left on the screen, one hop away in the
+    // wrapper — and the wrapper is a wrapper, not a second derivation home.
+    expect(screen.split('reservedMaskFor({').length - 1).toBe(1)
+    expect(SRC('held-committed.ts').split('reservedMaskFor({').length - 1).toBe(1)
+    // …and the committed world's book has exactly ONE door and one hand: the
+    // wrapper walks it once, with `null`, because prices read the settled board.
+    expect(SRC('held-committed.ts').split('bookOf(').length - 1).toBe(1)
+    expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    // …and the door it is handed is the screen's one wrapper, not a second one.
+    expect(screen).toContain('bookOf: bedViewsFor,')
+    const sites: readonly (readonly [string, string])[] = [
+      ['committed', 'heldCommittedFor({\n        gateOn: SELLING_ENGINE_LAW,'],
+      ['board', 'reservedMaskFor({\n            lanes: boardLanes,'],
+    ]
+    for (const [world, spelling] of sites) {
+      const at = screen.indexOf(spelling)
       expect({ world, wired: at }).not.toEqual({ world, wired: -1 })
       // The nearest enclosing hook before it is a useMemo, not a callback or a
       // handler — the ledger-threading discipline the capacity book is under.
@@ -829,10 +1151,11 @@ describe('3 — the sales door with the mask live', () => {
    *  guard OFF and the round gate ON gets the fragments back — 「nothing new
    *  appears」 becomes false for that store, by exactly this many boxes.
    *
-   *  Nothing is decided here: the round gate is OFF, so no store sees either
-   *  behaviour yet. The number is measured, pinned, and goes to Liam with E3b's
-   *  flip. Making the fallback guard-conditional is one `&&` if he rules that
-   *  way; it is a product call and not a builder's. */
+   *  Nothing is decided here: the round gate is ON (it shipped at E3b) — this
+   *  fallback's guard-off gain is live product today, unruled as
+   *  guard-conditional. The number is measured, pinned, and goes to Liam with
+   *  E3b's flip. Making the fallback guard-conditional is one `&&` if he rules
+   *  that way; it is a product call and not a builder's. */
   it('MEASURED, NOT RULED: what a guard-OFF store gains from the §5 fallback alone', () => {
     const w = fixtureWorld()
     const c: Combo = { ...shipped(), mode: 'off' }
@@ -878,7 +1201,16 @@ describe('4 — the staff door answers from the same held set', () => {
    *  threaded at all. So the table is asked whether the threading DOES anything:
    *  the bed column has to be non-zero somewhere, and the lattice column has to
    *  be zero everywhere on these two boards (measured, and the reason is in the
-   *  artifact: every pocket here starts on a lattice minute). */
+   *  artifact).
+   *
+   *  ⚖ R7 CORRECTION (PROBE-R7 §P2). This comment used to give the reason as
+   *  「every pocket here starts on a lattice minute」, and that is not true: the
+   *  fixture's `p-06` pocket starts at 804 — `now` itself, off-lattice. The
+   *  narrower claim is the true one and it is the one the leg below actually
+   *  tests: the off-lattice pockets on these two boards are too SHORT to admit a
+   *  protected window at all, so raw and lattice enumerate the same empty list
+   *  and there is nothing for the enumeration move to move. A board with a long
+   *  off-lattice pocket does show it — NOW-TRUNCATED-SCENE builds one. */
   it('the threading is not a no-op — the bed column moves, the lattice column does not', () => {
     expect(RAIL_ROWS.length).toBeGreaterThan(0)
     expect(RAIL_ROWS.every((r) => r.latticeDelta === 0)).toBe(true)
@@ -988,6 +1320,337 @@ describe('4 — the staff door answers from the same held set', () => {
       }, 0),
     })
   }
+})
+
+// ── 4b · THE GATE HALF: THE DROP VERDICT READS THE SAME BOOK ────────────────
+
+const R7_EVIDENCE = process.env.R7_EVIDENCE ?? ''
+const R7_SHA = process.env.R7_SHA ?? 'unstamped'
+
+/** `before`/`after` are counted by `cellKey` — the eight fields the OPERATOR
+ *  sees (state, label, sentence, reason, alternatives, …), which is the measure
+ *  PROBE-R7 §P1's table and Liam's picture are drawn in. `beforeFull`/`afterFull`
+ *  are the same comparison over the WHOLE cell, `impact` included: a verdict can
+ *  agree on every visible field and still report a protected window starting at a
+ *  minute the rooms refuse, which is a real disagreement that `cellKey` cannot
+ *  see. Both are kept because the law leg wants the strict one and the picture
+ *  wants the visible one. */
+interface VerdictRow {
+  board: string
+  dials: string
+  now: number | null
+  cells: number
+  before: number
+  after: number
+  beforeFull: number
+  afterFull: number
+  transitions: string
+  sumDB: number
+  sumDA: number
+}
+const VERDICT_ROWS: VerdictRow[] = []
+/** The now-truncated scene §11.4 asks any guard round for, filled by its own leg. */
+let TRUNCATED: {
+  world: string
+  now: number
+  laneKey: string
+  pocket: { s: number; e: number }
+  raw: number[]
+  lattice: number[]
+  bed: number[]
+  railVsWith: number
+  railVsWithout: number
+} | null = null
+
+/** The three `now` values every world is measured at, deduped: its own, the
+ *  fixture's real 13:24 (804 — the board Liam is looking at), and `null` (a
+ *  board with no clock on it, which is tomorrow). */
+const nowsFor = (w: World): (number | null)[] => [...new Set<number | null>([w.now, 804, null])]
+
+const SHIPPED_FIXTURE_DIALS = 'grid=60 S=60 gapFillMin=30 protected=90 guard=standard'
+
+/** ⚖ SPEC §3.1 — THE OTHER HALF OF §4, AND THE ONE R7 EXISTS FOR.
+ *
+ *  §4 above proves the RAIL answers out of the held set. It says nothing about
+ *  the VERDICT — the word under the cursor, the drop, `pendingGuardRow`,
+ *  `offerableCell`'s re-verdicts and the 「新規N分の空きB→A」 sentence — which
+ *  E3a left reading a RAW pocket-minute enumeration with no bed filter at all.
+ *  Two readings of one board, free to disagree, and PROBE-R7 §P1 measured that
+ *  they DO: 1,625 of 7,956 cells across both boards × every guarded combination.
+ *
+ *  This describe is that measurement made permanent, in two legs that fail for
+ *  opposite reasons:
+ *    · the LAW leg — with the door threaded, rail ≡ verdict at EVERY cell, zero
+ *      disagreements. It goes red if the verdict site loses its door.
+ *    · the ANTI-VACUITY leg — WITHOUT the door the counts are pinned as numbers,
+ *      because a law leg that passes trivially proves nothing. Each number says
+ *      what it measures; a drift shows up as a moved number, never a silent pass. */
+describe('4b — the DROP verdict answers from the same held set as the rail', () => {
+  it('the census: rail ≡ verdict at every cell, both boards × every guarded combo × every now', () => {
+    for (const w of worlds()) {
+      for (const c of matrix()) {
+        if (c.mode === 'off') continue
+        for (const now of nowsFor(w)) {
+          const wv: World = { ...w, now }
+          const book = bookOf(wv)
+          // The rail EXACTLY as it ships, and the verdict handed the rail's own
+          // input object — one builder, so「the same question」 is structural.
+          const rail = rails(wv, c, 'bed', book)
+          const withDoor = railInputFor(wv, c, 'bed', book)
+          const withoutDoor = railInputFor(wv, c, 'raw', book)
+          let cells = 0
+          let before = 0
+          let after = 0
+          let beforeFull = 0
+          let afterFull = 0
+          let sumDB = 0
+          let sumDA = 0
+          const transitions = new Map<string, number>()
+          for (const r of rail) {
+            for (const cell of r.cells) {
+              cells += 1
+              const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
+              const vAfter = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withDoor)
+              const railK = cellKey(cell)
+              const railFull = JSON.stringify(cell)
+              if ((vBefore ? cellKey(vBefore) : 'NULL') !== railK) {
+                before += 1
+                const t = `${vBefore ? vBefore.state : 'null'}→${cell.state}`
+                transitions.set(t, (transitions.get(t) ?? 0) + 1)
+              }
+              if ((vAfter ? cellKey(vAfter) : 'NULL') !== railK) after += 1
+              if (JSON.stringify(vBefore) !== railFull) beforeFull += 1
+              if (JSON.stringify(vAfter) !== railFull) afterFull += 1
+              sumDB += Math.abs((cell.impact?.capacityBefore ?? 0) - (vBefore?.impact?.capacityBefore ?? 0))
+              sumDA += Math.abs((cell.impact?.capacityAfter ?? 0) - (vBefore?.impact?.capacityAfter ?? 0))
+            }
+          }
+          VERDICT_ROWS.push({
+            board: wv.name,
+            dials: comboLabel(c),
+            now,
+            cells,
+            before,
+            after,
+            beforeFull,
+            afterFull,
+            transitions: [...transitions].map(([t, n]) => `${t}:${n}`).join(', '),
+            sumDB,
+            sumDA,
+          })
+        }
+      }
+    }
+    // THE LAW: not "fewer disagreements" — none, and none at the STRICT measure
+    // either (the whole cell, `impact` included, so a verdict cannot pass by
+    // agreeing on the words while reporting a protected window the rooms
+    // refuse). Reported as the offending rows rather than as a count, so a
+    // failure names the board and the dials instead of a bare number.
+    const disagreeing = VERDICT_ROWS.filter((r) => r.after !== 0 || r.afterFull !== 0).map(
+      (r) => `${r.board} · ${r.dials} · now=${r.now}: ${r.after} visible / ${r.afterFull} whole-cell`,
+    )
+    expect(disagreeing).toEqual([])
+  })
+
+  it('ANTI-VACUITY — without the door the verdict DOES disagree, by these measured numbers', () => {
+    // 68 rows: 2 boards × 17 guarded combinations × 2 distinct `now` each.
+    expect({ rows: VERDICT_ROWS.length, cells: VERDICT_ROWS.reduce((n, r) => n + r.cells, 0) }).toEqual({ rows: 68, cells: 7956 })
+    // The whole census, two numbers: cells where the UN-migrated verdict path
+    // (no `protectedWindowFeasible`) answers something other than the shipped
+    // rail's own cell. 1,625 of them differ in what the operator SEES; 1,865 in
+    // the whole cell — the extra 240 agree on every word and disagree about
+    // which minute the protected window starts at, which is the same defect
+    // one field deeper. This is what R7 closes, both counts to zero.
+    expect({
+      visible: VERDICT_ROWS.reduce((n, r) => n + r.before, 0),
+      wholeCell: VERDICT_ROWS.reduce((n, r) => n + r.beforeFull, 0),
+    }).toEqual({ visible: 1625, wholeCell: 1865 })
+
+    // THE TWO ROWS LIAM'S PICTURE IS DRAWN FROM, pinned individually and in full
+    // — the fixture at the store's own shipped dials, on the board he is looking
+    // at (now=804 is 13:24, `REAL.sell.nowMinute`) and on tomorrow's (now=null).
+    const fixtureAt = (now: number | null) =>
+      VERDICT_ROWS.find((r) => r.board === 'fixture' && r.dials === SHIPPED_FIXTURE_DIALS && r.now === now)
+    // TODAY: 5 of 90 strip cells disagree — four of them on lane p-05 about
+    // WHICH minute the protected window starts at (865 raw vs 870 on the
+    // lattice) and which alternative start is offered (955 vs 960), and ONE a
+    // real state flip at 16:00: `blocked` → `degraded`. A start the strip
+    // already calls fine that the drop refuses today.
+    expect(fixtureAt(804)).toEqual({
+      board: 'fixture',
+      dials: SHIPPED_FIXTURE_DIALS,
+      now: 804,
+      cells: 90,
+      before: 5,
+      after: 0,
+      beforeFull: 5,
+      afterFull: 0,
+      transitions: 'blocked→blocked:4, blocked→degraded:1',
+      // Every one of the five is a `fit`/`R-UNAVAILABLE`-class or
+      // alternatives-only difference, so no capacity figure moves today.
+      sumDB: 0,
+      sumDA: 0,
+    })
+    // TOMORROW: 12 of 90, and the state flips go BOTH ways — three windows the
+    // guard was blind to become safe, two it was protecting for nobody become
+    // blocked. Both directions are the same fix; only the second costs a start.
+    expect(fixtureAt(null)).toEqual({
+      board: 'fixture',
+      dials: SHIPPED_FIXTURE_DIALS,
+      now: null,
+      cells: 90,
+      before: 12,
+      after: 0,
+      beforeFull: 12,
+      afterFull: 0,
+      transitions: 'blocked→blocked:6, blocked→degraded:1, degraded→safe:3, degraded→blocked:2',
+      sumDB: 8,
+      sumDA: 5,
+    })
+  })
+
+  /** ⚖ SPEC §11.4 — THE NOW-TRUNCATED SCENE, which every guard round owes and no
+   *  round has yet filed. §4's Δlattice column is 0 on both of this file's
+   *  boards, and the reason is NOT that their pockets are on-lattice (⚖ R7
+   *  correction above): it is that the off-lattice ones are too short to admit a
+   *  protected window. So the enumeration move is invisible here — and a column
+   *  nothing ever moves is a column a later edit can quietly break.
+   *
+   *  This is the smallest board where it DOES move (PROBE-R7 §P2): a pocket
+   *  truncated by `now` itself, long enough to hold a 90-minute window. RAW
+   *  starts it at the pocket's own minute, the lattice at the next multiple of
+   *  five, and the store's real bed-aware mask refuses it a window at all —
+   *  three different answers to one question, which is exactly why the table
+   *  keeps two columns and why the door is the one that ships. */
+  it('SPEC §11.4 — the now-truncated scene: RAW ≠ LATTICE ≠ BED, and the verdict follows the rail', () => {
+    const w: World = { ...syntheticWorld(), now: 811 }
+    const c = shipped()
+    const book = bookOf(w)
+    const engine = createGapGuard({ ...configOf(c), mode: c.mode === 'off' ? 'standard' : c.mode })
+    const lane = staffLanesOf(w.lanes).find((l) => l.key === 'p-05')!
+    const pocket = freePockets({
+      from: lane.window!.from,
+      until: lane.window!.until,
+      close: w.hours.close,
+      now: w.now,
+      occupied: laneSpans(lane),
+    }).find((p) => p.s % 5 !== 0)!
+    // The pocket `now` truncated: it begins at 811, which is not a lattice minute.
+    expect({ s: pocket.s, e: pocket.e }).toEqual({ s: 811, e: 915 })
+
+    const startsUnder = (ctx: GuardContext) => engine.protectedCapacity(pocket, null, ctx).beforeStarts
+    const raw = startsUnder({})
+    const lattice = startsUnder({ protectedWindowFeasible: () => true })
+    const bed = startsUnder({ protectedWindowFeasible: (s, d) => book.newClientMask(lane, d)(s) })
+    // THREE ANSWERS: the pocket's own minute · the lattice ceiling · and the
+    // book, which says no room in this store can host the window at all.
+    expect({ raw, lattice, bed }).toEqual({ raw: [811], lattice: [815], bed: [] })
+
+    // …and on this lane, at every start the rail paints, the verdict WITH the
+    // door reproduces the rail exactly while the verdict WITHOUT it does not.
+    //
+    // ⚠ MEASURED, AND IT IS THE WHOLE CELL THAT CARRIES IT. On this lane the two
+    // verdicts agree on every VISIBLE field — same state, same sentence, same
+    // alternatives — and disagree at `impact.windowsBefore`: without the door
+    // the un-migrated path reports the protected window starting at the second
+    // pocket's own minute (975) where the rail, on the lattice and through the
+    // beds, says 990. So `cellKey` sees nothing here and the whole cell sees
+    // two. A leg written against `cellKey` alone would have passed vacuously on
+    // the very scene it exists to demonstrate.
+    const rail = rails(w, c, 'bed', book).find((r) => r.laneKey === 'p-05')!
+    const ne = (input: RailInput) =>
+      rail.cells.filter((cell) => JSON.stringify(guardVerdictAt(w.lanes, 'p-05', cell.start, input)) !== JSON.stringify(cell)).length
+    const railVsWith = ne(railInputFor(w, c, 'bed', book))
+    const railVsWithout = ne(railInputFor(w, c, 'raw', book))
+    expect({ cells: rail.cells.length, railVsWith, railVsWithout }).toEqual({ cells: 18, railVsWith: 0, railVsWithout: 2 })
+    TRUNCATED = { world: w.name, now: 811, laneKey: 'p-05', pocket: { s: pocket.s, e: pocket.e }, raw, lattice, bed, railVsWith, railVsWithout }
+  })
+
+  /** The two artifacts this describe owes, written the way the flip test writes
+   *  RELEASE-SCENE: under a named env var, so the suite is silent in CI and the
+   *  round's evidence run gets files stamped with the tip they were measured at. */
+  afterAll(() => {
+    if (!R7_EVIDENCE) return
+    mkdirSync(R7_EVIDENCE, { recursive: true })
+    const w = (name: string, lines: string[]) => writeFileSync(join(R7_EVIDENCE, name), `${lines.join('\n')}\n`)
+    w(`VERDICT-DELTA-${R7_SHA}.txt`, [
+      '# VERDICT-DELTA-r7 — the GATE half of spec §3.1, before and after, per row',
+      `# tip: ${R7_SHA}`,
+      '#',
+      '# WHAT MOVED. E3a gave the RAIL a protected-window door (RAIL-DELTA is that',
+      '# half) and left the VERDICT — the word under the cursor, the drop, the',
+      '# 「新規N分の空き」 sentence — enumerating protected windows from the pocket’s',
+      '# own minute with no bed filter. So the strip and the drop were two readings',
+      '# of one board. R7 hands the verdict the rail’s own door.',
+      '#',
+      '#   cells    — every start the shipped rail paints, on every staff lane',
+      '#   before≠  — cells where the UN-migrated verdict answered something other',
+      '#              than the rail’s own cell (today’s code), counted over the',
+      '#              eight fields the OPERATOR sees',
+      '#   after≠   — the same count once the door is threaded. It is 0 on every',
+      '#              row: the fix CLOSES the gap, it does not shrink it.',
+      '#   full≠    — the same two counts over the WHOLE cell, `impact` included.',
+      '#              A verdict can agree on every word and still report a',
+      '#              protected window starting at a minute the rooms refuse; the',
+      '#              visible column cannot see that and this one can.',
+      '#   Σ|ΔB| / Σ|ΔA| — summed absolute difference in impact.capacityBefore /',
+      '#              capacityAfter between the un-migrated verdict and the rail.',
+      '#              0 where the disagreements carry no impact at all.',
+      '#',
+      '# board | dials | now | cells | before≠ | after≠ | full≠ before/after | Σ|ΔB| | Σ|ΔA| | transitions',
+      ...VERDICT_ROWS.map(
+        (r) =>
+          `${r.board.padEnd(24)} | ${r.dials} | now ${String(r.now ?? '-').padStart(4)} | cells ${String(r.cells).padStart(4)}` +
+          ` | before≠ ${String(r.before).padStart(3)} | after≠ ${String(r.after).padStart(3)}` +
+          ` | full≠ ${String(r.beforeFull).padStart(3)}/${String(r.afterFull).padStart(3)}` +
+          ` | ΣΔB ${String(r.sumDB).padStart(3)} | ΣΔA ${String(r.sumDA).padStart(3)}` +
+          ` | ${r.transitions || '—'}`,
+      ),
+      '#',
+      `# TOTALS: ${VERDICT_ROWS.length} rows · ${VERDICT_ROWS.reduce((n, r) => n + r.cells, 0)} cells ·` +
+        ` ${VERDICT_ROWS.reduce((n, r) => n + r.before, 0)} before≠ · ${VERDICT_ROWS.reduce((n, r) => n + r.after, 0)} after≠ ·` +
+        ` whole-cell ${VERDICT_ROWS.reduce((n, r) => n + r.beforeFull, 0)} before≠ / ${VERDICT_ROWS.reduce((n, r) => n + r.afterFull, 0)} after≠`,
+      '#',
+      '# THE ROW THE OPERATOR IS ACTUALLY LOOKING AT is the fixture at the store’s',
+      '# shipped dials: 5 of 90 cells today, one of which is a real state flip at',
+      '# 16:00 (blocked → degraded — a start the strip already calls fine that the',
+      '# drop refuses), and 12 of 90 on tomorrow’s board, where the flips go both',
+      '# ways. Both directions are one fix: the guard stops protecting windows no',
+      '# room can host, and starts seeing real ones it was blind to.',
+    ])
+    if (TRUNCATED) {
+      w(`NOW-TRUNCATED-SCENE-${R7_SHA}.txt`, [
+        '# NOW-TRUNCATED-SCENE — spec §11.4’s standing artifact for a guard round',
+        `# tip: ${R7_SHA}`,
+        '#',
+        '# WHY THIS SCENE EXISTS. Attaching the protected-window door does TWO things',
+        '# (RAIL-DELTA’s two columns): it moves the enumeration onto the 5-minute',
+        '# lattice, and it filters out windows no room can host. On this file’s two',
+        '# boards the first is invisible — their off-lattice pockets are all too',
+        '# SHORT to admit a protected window, so raw and lattice enumerate the same',
+        '# empty list. (NOT 「every pocket starts on a lattice minute」: the fixture’s',
+        '# p-06 pocket starts at 804, which is `now` itself. ⚖ R7 correction.)',
+        '#',
+        '# So here is the smallest board where all three answers differ — a pocket',
+        '# truncated by `now` landing off-lattice, long enough to hold the window:',
+        '#',
+        `#   world     ${TRUNCATED.world}`,
+        `#   now       ${TRUNCATED.now}  (the pocket’s own start — off-lattice)`,
+        `#   lane      ${TRUNCATED.laneKey}`,
+        `#   pocket    [${TRUNCATED.pocket.s},${TRUNCATED.pocket.e}]  (${TRUNCATED.pocket.e - TRUNCATED.pocket.s} min)`,
+        '#',
+        `#   raw       ${JSON.stringify(TRUNCATED.raw)}   — the pocket’s own minute, today’s verdict path`,
+        `#   lattice   ${JSON.stringify(TRUNCATED.lattice)}   — the callback attached, answering yes to everything`,
+        `#   bed       ${JSON.stringify(TRUNCATED.bed)}     — the store’s real mask: no room can host it at all`,
+        '#',
+        '# THREE ANSWERS TO ONE QUESTION, which is the whole reason the count table',
+        '# keeps two columns rather than one.',
+        '#',
+        `#   rail vs verdict WITH the door      ${TRUNCATED.railVsWith} disagreeing cells on this lane`,
+        `#   rail vs verdict WITHOUT the door   ${TRUNCATED.railVsWithout} disagreeing cells on this lane`,
+      ])
+    }
+  })
 })
 
 // ── 5 · THE EXPLAIN LAYER ───────────────────────────────────────────────────
@@ -1279,10 +1942,14 @@ describe('the artifacts', () => {
       ),
       '#',
       '# ASSERTED per row, not eyeballed (§4 of selling-engine-doors.test.ts):',
-      '#  · every pocket on both boards starts on a lattice minute, so Δlattice is',
-      '#    pinned at 0 — the enumeration move is REAL but has nothing to move here,',
-      '#    and the column stays so a board that does have off-lattice pockets shows',
-      '#    it in the right place;',
+      '#  · ⚖ R7 CORRECTION (PROBE-R7 §P2): not 「every pocket starts on a lattice',
+      '#    minute」 — the fixture’s p-06 pocket starts at 804, which is `now` itself',
+      '#    and off-lattice. What holds is narrower: every off-lattice pocket on these',
+      '#    two boards is too SHORT to admit a protected window, so raw and lattice',
+      '#    enumerate the same empty list and Δlattice is pinned at 0. The enumeration',
+      '#    move is REAL but has nothing to move here, and the column stays so a board',
+      '#    that does have a long off-lattice pocket shows it in the right place',
+      '#    (NOW-TRUNCATED-SCENE builds one);',
       '#  · every Δbed cell lies on a lane the book refuses at least one protected',
       '#    window on — no verdict moves without a room to blame;',
       '#  · the rail’s own enumeration under the mask ctx is byte-equal to',
