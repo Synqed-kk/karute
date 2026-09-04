@@ -113,9 +113,25 @@ describe('the six doors that could delete a recording', () => {
 })
 
 describe('what REPLACED them', () => {
-  it('deleteTake carries the one guard: no finalizedAt, no delete', () => {
+  // ⚖ STRENGTHENED (slice five packet B, D11). The guard used to ask
+  // `finalizedAt` alone, which made one cohort immortal: a discarded take that
+  // can never be sealed, whose staged copy the server already holds and whose
+  // words are already settled. The question is now the whole of "does the
+  // server have this?", in ONE spelling both readers share — so the pin moves
+  // with it rather than pinning a rule that is no longer the rule.
+  it('deleteTake carries the one guard: the server does not hold it, no delete', () => {
     const src = code('src/lib/karute/take-store.ts')
-    expect(src).toContain("if (meta && !meta.finalizedAt && !opts?.humanResolved) return")
+    expect(src).toContain("if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return")
+    // …and the rule itself, spelled where both readers can see it. All four
+    // facts, because dropping any one of them releases audio the server may
+    // not have: the staged PUT landed under the STAGED prefix (round 4's
+    // take-shaped copies prove nothing), the words are settled, and the take
+    // can never be sealed under its own key.
+    expect(src).toContain('export function serverHoldsTake(')
+    expect(src).toContain('if (meta.finalizedAt) return true')
+    expect(src).toContain("meta.stagedPath.startsWith('stg/')")
+    expect(src).toContain('meta.discardTranscriptDoneAt !== undefined')
+    expect(src).toContain('isUnsecurableTake(meta)')
   })
 
   // ⚖ ITS EXITS ARE SETTLED SAVES, AND ONE RULE DECIDES THEM (fix rounds 1, 2,
@@ -254,7 +270,7 @@ describe('what REPLACED them', () => {
     const store = code('src/lib/karute/take-store.ts')
     // The TTL branch returns only takes deleteTake will actually take; the rest
     // fall through to the list carrying the flag 録音履歴 renders them from.
-    expect(store).toContain('if (expired && m.finalizedAt) {')
+    expect(store).toContain('if (expired && serverHoldsTake(m)) {')
     expect(store).toContain('expiredUnsecured: expired || undefined')
     expect(code('src/lib/recordings/inbox.ts')).toContain('strandedTakes')
   })
@@ -341,8 +357,17 @@ describe('what REPLACED them', () => {
     expect(src).toContain('if (!isUnsecurableTake(meta)) return')
     // …and the copy it stages NAMES the session it is staged for (fix round 7),
     // which is the identity a row-less object otherwise has none of.
+    // …and its TAKE (slice five packet B, D10) — the uuid slot of the key, and
+    // the reason the copy is findable from the core row at all.
     expect(src).toContain(
-      "path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))",
+      [
+        '      path = (',
+        '        await port.prepareTranscription(blob, null, {',
+        '          stagedFor: pending.recordingSessionId,',
+        '          stagedTake: takeId,',
+        '        })',
+        '      ).path',
+      ].join('\n'),
     )
     expect(src).toContain('const port = getRecordingPipelinePort()')
     expect(src).not.toContain('.remove(')

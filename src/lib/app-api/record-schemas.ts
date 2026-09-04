@@ -97,24 +97,44 @@ export const SessionMintSchema = z
 // A uuid for the same reason recordingSessionId is — it rides into a core URL
 // PATH unencoded — and NEVER together with a takeId: a staged copy is not a
 // take, so a body carrying both is one act pretending to be two.
+//
+// ⚖ AND A STAGED COPY NAMES ITS TAKE TOO (slice five packet B, D10). stagedTake
+// is the take whose bytes are being staged — the value that goes in the key's
+// uuid slot, which is what makes the copy composable from the core row alone
+// (key-grammar.ts#composeStagedKey). It is a uuid because the key's slot is,
+// and it REQUIRES stagedFor: on its own it names a take nobody asked to stage,
+// and this door has exactly two acts.
+//
+// mimeType JOINS THE STAGED SHAPE with it. Until this round every staged copy
+// was composed with the server's DEFAULT_MIME, so an iOS take's mp4 bytes were
+// named `.webm` and PUT as audio/webm — the same live mislabelling the take
+// shape was fixed for. The pair rule below therefore widens by exactly one
+// clause: mimeType requires a takeId OR a stagedFor. A takeId still requires
+// mimeType (the take shape is unchanged in both directions), and a bare
+// mimeType that names neither act is still refused.
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
     recordingSessionId: z.string().uuid().nullish(),
     stagedFor: z.string().uuid().nullish(),
+    stagedTake: z.string().uuid().nullish(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
     message: 'stagedFor names a staged copy, never a take',
     path: ['stagedFor'],
   })
+  .refine((v) => !(v.stagedTake && !v.stagedFor), {
+    message: 'stagedTake names the take of a staged copy — it needs stagedFor',
+    path: ['stagedTake'],
+  })
   .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
     message: 'takeId and recordingSessionId must be sent together',
     path: ['recordingSessionId'],
   })
-  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType), {
-    message: 'takeId and mimeType must be sent together',
+  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType) || Boolean(v.mimeType && v.stagedFor), {
+    message: 'mimeType belongs to a takeId or a stagedFor, and a takeId needs one',
     path: ['mimeType'],
   })
 

@@ -10,6 +10,7 @@ import type {
   RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { getDataPort } from '@/lib/ports/data-port'
+import { putSaysAlreadyThere } from '@/lib/recording/storage-put'
 import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
@@ -119,21 +120,46 @@ export const viteRecordingPort: RecordingPipelinePort = {
     //    the session a DISCARD's staged copy is named for, and null — the
     //    in-tab fallback's shape — is the server-named take this leg has always
     //    minted.
+    //    ⚖ …AND IT NAMES ITS TAKE AND ITS CONTAINER (slice five packet B, D10).
+    //    `stagedTake` fills the key's uuid slot, which is what lets the core row
+    //    find this row-less object; `mimeType` is `blob.type`, the take's OWN
+    //    container from the store's meta — until this round every phone copy was
+    //    composed and PUT as webm, so iOS mp4 bytes were mislabelled twice over.
+    //    An empty type is omitted and the server's default stands, exactly as it
+    //    does for the unnamed in-tab fallback.
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ stagedFor: opts?.stagedFor ?? null }),
+      body: JSON.stringify({
+        stagedFor: opts?.stagedFor ?? null,
+        stagedTake: opts?.stagedTake ?? null,
+        ...(blob.type ? { mimeType: blob.type } : {}),
+      }),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
-    const { path, url } = (await res.json()) as { path: string; url: string }
+    // The facade echoes the mint's WHOLE result (…/upload-url/route.ts's
+    // `ok(ctx, minted)`), so contentType is the same closed-map answer that
+    // decided the key's extension — never this arm's own guess.
+    const { path, url, contentType } = (await res.json()) as {
+      path: string
+      url: string
+      contentType: string
+    }
 
     // 2. PUT the blob directly to storage (the signed URL carries the token).
     const put = await fetch(url, {
       method: 'PUT',
-      headers: { 'content-type': 'audio/webm' },
+      headers: { 'content-type': contentType },
       body: blob,
     })
-    if (!put.ok) throw new Error(`Upload failed (${put.status})`)
+    // ⚖ "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). A staged key
+    // is deterministic now, so staging one take twice lands on its own immutable
+    // copy — storage's refusal means the object this leg wanted exists. Read
+    // through the shared rule, which knows both shapes it arrives in (a plain
+    // 409, and Supabase's 400 with the real code demoted into the body).
+    if (!put.ok && !(await putSaysAlreadyThere(put))) {
+      throw new Error(`Upload failed (${put.status})`)
+    }
 
     // 3. Transcribe by PATH.
     return { body: { path }, path }

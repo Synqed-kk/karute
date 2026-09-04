@@ -55,9 +55,13 @@ describe('the flag flip — the fix itself', () => {
   // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The phone's
   // staging leg posted NO body at all, so its copy was anonymous — and an
   // anonymous copy is a claim the transcribe door has nothing to check.
-  it('the staging leg names the session it is staged FOR', async () => {
+  it('the staging leg names the session it is staged FOR — and the TAKE', async () => {
     const apiFetch = port(async () =>
-      json({ path: 'stg/business-1_rs-1_staged-1.webm', url: 'https://up/' }),
+      json({
+        path: 'stg/business-1_rs-1_take-1.webm',
+        url: 'https://up/',
+        contentType: 'audio/webm',
+      }),
     )
     global.fetch = jest.fn(
       async () => ({ ok: true, status: 200 }) as unknown as Response,
@@ -65,16 +69,97 @@ describe('the flag flip — the fix itself', () => {
 
     const { path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
       stagedFor: 'rs-1',
+      stagedTake: 'take-1',
     })
 
     const [url, init] = apiFetch.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/app/v1/recordings/upload-url')
-    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: 'rs-1' })
-    expect(path).toBe('stg/business-1_rs-1_staged-1.webm')
+    // ⚖ slice five packet B (D10): the take fills the key's uuid slot, which is
+    // what makes a row-less object findable from the row that owes it.
+    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: 'rs-1', stagedTake: 'take-1' })
+    expect(path).toBe('stg/business-1_rs-1_take-1.webm')
+  })
+
+  // ⚖ …AND THE COPY WEARS THE TAKE'S OWN CONTAINER (slice five packet B). This
+  // arm composed and PUT every staged copy as webm, so an iOS take's mp4 bytes
+  // were mislabelled twice: in the key's extension and in the object's own
+  // content-type. `blob.type` is the take's, straight off the store's meta.
+  it('…and the take’s CONTAINER rides with it, on the body and on the PUT', async () => {
+    const apiFetch = port(async () =>
+      json({
+        path: 'stg/business-1_rs-1_take-1.mp4',
+        url: 'https://up/',
+        contentType: 'audio/mp4',
+      }),
+    )
+    const put = jest.fn(async () => ({ ok: true, status: 200 }) as unknown as Response)
+    global.fetch = put as unknown as typeof fetch
+
+    await viteRecordingPort.prepareTranscription(
+      new Blob(['a'], { type: 'audio/mp4' }),
+      null,
+      { stagedFor: 'rs-1', stagedTake: 'take-1' },
+    )
+
+    const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({
+      stagedFor: 'rs-1',
+      stagedTake: 'take-1',
+      mimeType: 'audio/mp4',
+    })
+    // The MINT's answer, never this arm's guess: the same closed-map value that
+    // decided the key's `.mp4`.
+    const [, putInit] = put.mock.calls[0] as unknown as [string, RequestInit]
+    expect(putInit.headers).toEqual({ 'content-type': 'audio/mp4' })
+  })
+
+  // ⚖ "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). With a
+  // deterministic key the second staging of one take meets its own immutable
+  // copy — read as a failure it threw, the sweep never marked the take done,
+  // and the whole blob was re-PUT on every record-page mount for ever.
+  it('a PUT that says the copy is already there RESOLVES — it does not throw', async () => {
+    port(async () =>
+      json({
+        path: 'stg/business-1_rs-1_take-1.webm',
+        url: 'https://up/',
+        contentType: 'audio/webm',
+      }),
+    )
+    global.fetch = jest.fn(
+      async () => new Response(JSON.stringify({ statusCode: '409', error: 'Duplicate' }), {
+        status: 400,
+      }),
+    ) as unknown as typeof fetch
+
+    // The 400-with-409-in-the-body shape, which is the one Supabase's signed
+    // upload endpoint actually answers with.
+    const { path } = await viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+      stagedFor: 'rs-1',
+      stagedTake: 'take-1',
+    })
+    expect(path).toBe('stg/business-1_rs-1_take-1.webm')
+  })
+
+  it('a PUT that really failed still throws — a 403 is not "already there"', async () => {
+    port(async () =>
+      json({ path: 'stg/business-1_rs-1_take-1.webm', url: 'https://up/', contentType: 'audio/webm' }),
+    )
+    global.fetch = jest.fn(
+      async () => ({ ok: false, status: 403 }) as unknown as Response,
+    ) as unknown as typeof fetch
+
+    await expect(
+      viteRecordingPort.prepareTranscription(new Blob(['a']), null, {
+        stagedFor: 'rs-1',
+        stagedTake: 'take-1',
+      }),
+    ).rejects.toThrow('Upload failed (403)')
   })
 
   it('…and the in-tab fallback names none — the server-named take, as before', async () => {
-    const apiFetch = port(async () => json({ path: 'app_business-1_x.webm', url: 'https://up/' }))
+    const apiFetch = port(async () =>
+      json({ path: 'app_business-1_x.webm', url: 'https://up/', contentType: 'audio/webm' }),
+    )
     global.fetch = jest.fn(
       async () => ({ ok: true, status: 200 }) as unknown as Response,
     ) as unknown as typeof fetch
@@ -82,7 +167,7 @@ describe('the flag flip — the fix itself', () => {
     await viteRecordingPort.prepareTranscription(new Blob(['a']), null)
 
     const [, init] = apiFetch.mock.calls[0] as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null })
+    expect(JSON.parse(init.body as string)).toEqual({ stagedFor: null, stagedTake: null })
   })
 
   it('a take that already has its object still uploads NOTHING', async () => {

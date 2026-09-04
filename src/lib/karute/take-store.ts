@@ -984,6 +984,53 @@ export async function settleTakeAfterSave(takeId: string): Promise<void> {
   return deleteTake(takeId, { humanResolved: !!meta && isUnsecurableTake(meta) })
 }
 
+/** ⚖ THE SERVER PROVABLY HOLDS THIS TAKE — the one question the never-delete
+ *  guard actually wants answered (slice five packet B, D11).
+ *
+ *  Until this round the guard asked only `finalizedAt`, which left a cohort
+ *  IMMORTAL AND INVISIBLE on the device: a discarded take that can never be
+ *  sealed under its finalized key. Its bytes were staged to the server and its
+ *  words were read off that copy — and then nothing could ever collect it, so
+ *  tens of megabytes sat on a shared iPad past the TTL, surfaced only as a 要対応
+ *  row nobody can finish, because there is nothing left to finish.
+ *
+ *  THREE facts, and each one is a server-side act that has already happened:
+ *   · `finalizedAt` — the whole take is at its finalized key. Unchanged, and by
+ *     itself enough, exactly as before.
+ *   · `stagedPath` under `stg/` — the staged PUT landed (or answered "already
+ *     there", which means the same thing), and markTakeStaged wrote the key back.
+ *     The prefix is the point: the transitional cohort carries round 4's
+ *     take-shaped `app_…` staged key, which the transcribe door now refuses, so
+ *     those copies prove nothing and are excluded.
+ *   · `discardTranscriptDoneAt` — the words question is SETTLED
+ *     (markDiscardTranscriptDone), so nothing is still reading this blob.
+ *   · and `isUnsecurableTake` — the take can never be sealed under its own key,
+ *     so the staged copy is not an interim step: it is the best the server will
+ *     ever hold. A RETRYABLE take is kept, because the drain is still coming.
+ *
+ *  Pure and exported so the guard and the TTL prune read ONE spelling of it —
+ *  the whole lesson of the three guard spellings that had to die at once. */
+export function serverHoldsTake(
+  meta: Pick<
+    TakeMeta,
+    | 'finalizedAt'
+    | 'stagedPath'
+    | 'discardTranscriptDoneAt'
+    | 'tailIncomplete'
+    | 'stopPendingAt'
+    | 'durationMs'
+    | 'secureError'
+  >,
+): boolean {
+  if (meta.finalizedAt) return true
+  return (
+    typeof meta.stagedPath === 'string' &&
+    meta.stagedPath.startsWith('stg/') &&
+    meta.discardTranscriptDoneAt !== undefined &&
+    isUnsecurableTake(meta)
+  )
+}
+
 /** The rows themselves, no owner question asked — for THIS file's two sweeps,
  *  which have already settled ownership in ways the gate above cannot: the TTL
  *  prune in listOwnTakes drops EXPIRED takes of every owner (nobody is coming
@@ -998,9 +1045,12 @@ export async function settleTakeAfterSave(takeId: string): Promise<void> {
  * twelve call sites (the save, the below-floor discard, the reasoned discard,
  * the inbox), plus the TTL prune and the logout wipe that come straight here —
  * and each of them used to be free to destroy the only copy of a recording. A
- * take with no `finalizedAt` is audio that exists NOWHERE ELSE, so it is
- * refused and kept; the record page's mount retry (and PR5's launch drain) is
- * what turns it into a finalized one, and then the same call succeeds. The one
+ * take the SERVER DOES NOT HOLD is audio that exists nowhere else, so it is
+ * refused and kept; the record page's mount retry and the launch drain are what
+ * turn it into a finalized one, and then the same call succeeds. What "holds"
+ * means is serverHoldsTake above — `finalizedAt`, or the staged copy of a take
+ * that can never be sealed and whose words are already settled (slice five,
+ * D11), which is the cohort this guard used to make immortal. The one
  * exception is a human who settled the row themselves — see `humanResolved` on
  * the door above. What that flag ASSERTS, stated once for all three of its call
  * sites (fix round 4): a save or a tap settled this row, and the server can
@@ -1033,7 +1083,11 @@ async function deleteTakeRows(
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (meta && !meta.finalizedAt && !opts?.humanResolved) return
+    // A take the server does NOT hold is audio that exists nowhere else. The
+    // released cohort is the one serverHoldsTake names: a discarded take that
+    // could never be sealed, whose staged copy the server holds and whose
+    // words are settled.
+    if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return
     await req(tx.objectStore(TAKES).delete(takeId))
     // ponytail: full getAll + filter — rows are few and blobs are lazy
     // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
@@ -1123,7 +1177,11 @@ export async function listOwnTakes(
       // through deleteTakeRows (fix round 14, AA3): this prune drops expired
       // takes of EVERY owner, which the door's owner gate cannot answer for.
       const expired = now - lastActivity > TAKE_TTL_MS
-      if (expired && m.finalizedAt) {
+      // …and "the server has it" is the SAME question the guard below asks
+      // (slice five packet B, D11): a finalized take, or a discarded one that
+      // could never be sealed, whose staged copy the server holds and whose
+      // words are settled. Anything else falls through and is SHOWN.
+      if (expired && serverHoldsTake(m)) {
         void deleteTakeRows(m.takeId)
         continue
       }
@@ -1177,8 +1235,8 @@ export async function listOwnTakes(
         // them away.
         tailIncomplete: m.tailIncomplete,
         stopPendingAt: m.stopPendingAt,
-        // Only ever true past the TTL with no finalizedAt — the branch above
-        // returned every other expired take to the prune.
+        // Only ever true past the TTL for a take the server does not hold — the
+        // branch above returned every other expired take to the prune.
         expiredUnsecured: expired || undefined,
       })
     }

@@ -16,6 +16,7 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+import { putSaysAlreadyThere } from '@/lib/recording/storage-put'
 
 /**
  * What a port answers a mint with. The SUCCESS arm is the shared core's own
@@ -88,11 +89,21 @@ export interface RecordingPipelinePort {
    * verify the claim instead of accepting any same-tenant key as that discard's
    * audio. Passed by the discard's word-collection alone; the in-tab fallback
    * above stays unbound, because nothing ever claims ITS path to a discard.
+   *
+   * ⚖ …AND IT NAMES ITS TAKE (slice five packet B, D10). `stagedTake` is the
+   * take whose bytes these are, and it fills the key's uuid slot — which is what
+   * turns a row-less object into one the CORE ROW can find: session = the row's
+   * id, take + ext = the row's own reserved pointer. Two consequences both arms
+   * carry: the container travels with it (`blob.type` is the take's own, so an
+   * iOS copy is `.mp4` at last instead of the `.webm` every staged copy wore),
+   * and the key is DETERMINISTIC, so a second staging of the same take meets its
+   * own copy. Storage refuses that PUT and the refusal is a SUCCESS — the copy
+   * is there, which is all this leg wanted (⚖ V2.1, storage-put.ts).
    */
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
-    opts?: { stagedFor?: string | null },
+    opts?: { stagedFor?: string | null; stagedTake?: string | null },
   ): Promise<{ body: Record<string, unknown>; path: string }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
@@ -218,14 +229,28 @@ function uploadActions() {
 }
 
 /** PUT the take at a service-minted signed upload URL — the token rides in the
- *  URL. Identical request shape to the thin arm's (thin/ports/recording.vite.ts). */
-async function putTake(url: string, blob: Blob): Promise<void> {
+ *  URL. Identical request shape to the thin arm's (thin/ports/recording.vite.ts).
+ *
+ *  `contentType` is the MINT's answer, never a guess of ours: the key's
+ *  extension and this header are composed from the same closed map server-side
+ *  (key-grammar.ts), so sending anything else labels the object as something the
+ *  key says it is not. Until this round it was a hardcoded 'audio/webm' — the
+ *  live mislabelling bug, on iOS mp4 bytes.
+ *
+ *  ⚖ AND "ALREADY THERE" IS A SUCCESS (slice five packet B, V2.1). A staged key
+ *  is deterministic now, so the second staging of one take meets its own,
+ *  immutable copy; storage's refusal means the object this leg wanted exists.
+ *  The shared reader in storage-put.ts knows both shapes that refusal arrives
+ *  in — the plain 409 and Supabase's 400-with-409-in-the-body. */
+async function putTake(url: string, blob: Blob, contentType: string): Promise<void> {
   const put = await fetch(url, {
     method: 'PUT',
-    headers: { 'content-type': 'audio/webm' },
+    headers: { 'content-type': contentType },
     body: blob,
   })
-  if (!put.ok) throw new Error(`Upload failed (${put.status})`)
+  if (!put.ok && !(await putSaysAlreadyThere(put))) {
+    throw new Error(`Upload failed (${put.status})`)
+  }
 }
 
 /** ⚖ NO WEB DOOR WAITS FOREVER EITHER (fix round 12, P3). The phone's three
@@ -283,11 +308,24 @@ export const webRecordingPort: RecordingPipelinePort = {
       // except that a copy staged FOR A DISCARD names its session, so the
       // transcribe door can tell this session's own staged audio from any other
       // key the caller could have typed.
+      // ⚖ …and a copy staged FOR a discard names its take and its container too
+      // (slice five packet B). `blob.type` IS the take's own: loadTakeBlob sets
+      // it from the stored meta, and an empty one is simply omitted so the mint
+      // applies its own default, exactly as the un-named fallback does.
       const minted = await mintRecordingUploadUrl(
-        opts?.stagedFor ? { stagedFor: opts.stagedFor } : undefined,
+        opts?.stagedFor
+          ? {
+              stagedFor: opts.stagedFor,
+              stagedTake: opts.stagedTake ?? null,
+              mimeType: blob.type || undefined,
+            }
+          : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
-      await putTake(minted.url, blob)
+      // The MINT's contentType on both arms — it is the server's own answer for
+      // the key it just composed, and for the unbound fallback that answer is
+      // the 'audio/webm' this line used to hardcode.
+      await putTake(minted.url, blob, minted.contentType)
       path = minted.path
     }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF

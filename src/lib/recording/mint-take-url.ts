@@ -112,6 +112,13 @@ export interface MintTakeUrlInput {
    *  together with `takeId` (the schema refuses the pair): a staged copy is
    *  not a take, reserves nothing and is bound to no row. */
   stagedFor?: string | null
+  /** ⚖ …AND IT NAMES ITS TAKE (slice five packet B, D10). The take whose bytes
+   *  these are, which goes in the key's uuid slot: with it the whole staged key
+   *  is composable from the core row alone (session = the row id, take + ext =
+   *  the row's own reserved pointer), so an object that has no row of its own
+   *  is still FINDABLE from the row that owes it. Requires `stagedFor`; absent
+   *  or unusable, the server names the slot as it always did. */
+  stagedTake?: string | null
 }
 
 export type MintTakeUrlResult =
@@ -432,10 +439,20 @@ export async function mintTakeUploadUrl(
     }
     const denied = assertRecorderOwnsRow(row, actor)
     if (denied) return denied
-    // DEFAULT_MIME, because a staged copy carries no client-named container:
-    // the schema pairs mimeType with takeId, which this body may not have, and
-    // both ports PUT this blob as audio/webm.
-    const composed = composeStagedKey(businessId, input.stagedFor, DEFAULT_MIME)
+    // ⚖ THE COPY IS THE TAKE'S, CONTAINER AND ALL (slice five packet B, D10).
+    // `stagedTake` fills the key's uuid slot, which is what makes this row-less
+    // object composable from the core row alone; `mimeType` is the TAKE's own
+    // negotiated container, so an iOS copy is finally `.mp4` instead of the
+    // `.webm` every staged copy carried — and both ports now PUT it under the
+    // contentType this same composition answers with. DEFAULT_MIME still stands
+    // in for the in-tab fallback, which names neither: nothing ever claims ITS
+    // path to a discard, so it has no identity to compose.
+    const composed = composeStagedKey(
+      businessId,
+      input.stagedFor,
+      input.mimeType ?? DEFAULT_MIME,
+      input.stagedTake,
+    )
     // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
     // uppercase one still lands here and is refused by the case-exact grammar.
     if (composed === null) return { error: 'bad_input' }

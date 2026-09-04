@@ -214,8 +214,16 @@ export async function runDiscardTranscript(
       // object can carry — and without it the door had to accept any
       // same-tenant key as this discard's audio, so a colleague's finished take
       // could be claimed onto a session it has nothing to do with.
-      path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))
-        .path
+      // ⚖ …AND FOR ITS TAKE (slice five packet B, D10). The take fills the key's
+      // uuid slot, so the whole copy is composable from the core row alone and
+      // the copy of a take that is staged twice is the SAME object, not a second
+      // one. `blob` carries the take's container, which the port sends on.
+      path = (
+        await port.prepareTranscription(blob, null, {
+          stagedFor: pending.recordingSessionId,
+          stagedTake: takeId,
+        })
+      ).path
       await markTakeStaged(takeId, path)
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()

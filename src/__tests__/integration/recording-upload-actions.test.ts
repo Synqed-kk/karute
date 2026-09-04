@@ -860,6 +860,86 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
       error: 'upstream',
     })
   })
+
+  // ⚖ AND IT NAMES ITS TAKE (slice five packet B, D10). A staged copy is the
+  // only object in this bucket with no row of its own, and until this round its
+  // uuid slot was a fresh SERVER uuid — unique, and nameless: nothing outside
+  // the device that PUT it could say which object was a given take's copy. With
+  // the take in the slot the whole key is composable from the core row alone
+  // (session = the row id, take + ext = the row's own reserved pointer), which
+  // is the identity D10 buys with no new registry, message key or audit action.
+  describe('…and the uuid slot is the TAKE', () => {
+    it('the slot IS the take id — and the copy is still a well-formed staged key', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      expect(parseRecordingKey(res.path, 'biz-1')).toEqual({
+        kind: 'staged',
+        recordingSessionId: SESSION,
+        ext: 'webm',
+      })
+      expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+    })
+
+    // The WHOLE point: two stagings of one take compose ONE key, so the second
+    // PUT meets the first copy and storage refuses it (409 = already there,
+    // ⚖ V2.1) instead of minting a second object nothing can find.
+    it('twice for the same take is the SAME key — the copy is immutable, like a take', async () => {
+      const a = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      const b = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(a.path).toBe(b.path)
+    })
+
+    // The no_uuid cohort — a device whose browser has no crypto.randomUUID, so
+    // it never named its take. The server names the slot exactly as it did
+    // before this round, and that copy stays unfindable: the named ceiling.
+    it('no stagedTake keeps the server’s own random slot — two mints differ', async () => {
+      const a = await mintOk({ stagedFor: SESSION })
+      const b = await mintOk({ stagedFor: SESSION })
+      expect(a.path).not.toBe(b.path)
+      expect(isStagedKeyFor(a.path, 'biz-1', SESSION)).toBe(true)
+    })
+
+    it('the container is the TAKE’s — an iOS copy is .mp4, PUT as audio/mp4', async () => {
+      const res = await mintOk({
+        stagedFor: SESSION,
+        stagedTake: UUID,
+        mimeType: 'audio/mp4',
+      })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.mp4`)
+      expect(res.contentType).toBe('audio/mp4')
+    })
+
+    it('a stagedTake that is not a uuid is bad_input — the schema refuses it first', async () => {
+      await expect(
+        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: 'take-1' }),
+      ).resolves.toEqual({ error: 'bad_input' })
+      expect(get).not.toHaveBeenCalled()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    it('a stagedTake with NO stagedFor names an act this door does not have', async () => {
+      await expect(mintRecordingUploadUrl({ stagedTake: UUID })).resolves.toEqual({
+        error: 'bad_input',
+      })
+      expect(get).not.toHaveBeenCalled()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    // The pair rule widened by exactly one clause, so the shapes either side of
+    // it have to stay where they were: a bare mimeType still names nothing.
+    it('a bare mimeType is still refused — it belongs to a takeId or a stagedFor', async () => {
+      await expect(mintRecordingUploadUrl({ mimeType: 'audio/mp4' })).resolves.toEqual({
+        error: 'bad_input',
+      })
+    })
+
+    it('…and stagedFor + takeId is still one act pretending to be two', async () => {
+      await expect(
+        mintRecordingUploadUrl({ ...NAMED, stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'bad_input' })
+      expect(get).not.toHaveBeenCalled()
+    })
+  })
 })
 
 // The composed key for a take that was finalized before the key was stamped —
@@ -1080,8 +1160,41 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     expect(isOwnRecordingKey(composed!.key, 'biz-1')).toBe(false)
     // …and a take is not a staged copy either.
     expect(isStagedKeyFor(`app_biz-1_${UUID}.webm`, 'biz-1', SESSION_UUID)).toBe(false)
-    // Every staging gets its own object — the uuid is the server's.
+    // With no slot named, every staging gets its own object — the uuid is the
+    // server's. That is the no_uuid cohort's behaviour, and D10's ceiling.
     expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key).not.toBe(composed!.key)
+  })
+
+  // ⚖ THE SLOT IS THE TAKE (slice five packet B, D10).
+  it('composeStagedKey puts the TAKE in the slot when it is given one', () => {
+    const composed = composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', UUID)!
+    expect(composed.key).toBe(`stg/biz-1_${SESSION_UUID}_${UUID}.webm`)
+    // Composable from the core row ALONE: session = the row id, take + ext =
+    // the row's own reserved pointer `app_<biz>_<take>.<ext>`.
+    expect(composed.key).toBe(
+      `stg/biz-1_${SESSION_UUID}_${composeTakeKey('biz-1', UUID, 'audio/webm')!.key.slice(
+        'app_biz-1_'.length,
+      )}`,
+    )
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(true)
+    // …and it is STABLE, which is the property the 409-is-success rule needs.
+    expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', UUID)!.key).toBe(composed.key)
+  })
+
+  it.each([
+    ['a non-uuid slot', 'take-1'],
+    ['an uppercase uuid', UUID.toUpperCase()],
+    ['a path-shaped slot', `../${UUID}`],
+    ['a non-string slot', 42],
+    ['null', null],
+  ])('falls back to the server’s own uuid on %s — never into the key', (_label, slot) => {
+    const composed = composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', slot)!
+    // The slot the key actually carries: everything after the session id, minus
+    // the extension. It is a fresh server uuid, and NOT what the caller sent.
+    const carried = composed.key.slice(`stg/biz-1_${SESSION_UUID}_`.length, -'.webm'.length)
+    expect(carried).not.toBe(String(slot))
+    expect(carried).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(true)
   })
 
   it('composeStagedKey refuses a session id that is not a uuid, and a container it cannot store', () => {

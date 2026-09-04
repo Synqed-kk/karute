@@ -90,7 +90,11 @@ const STAGED = 'stg/business-1_sess-1_staged-1.webm'
  *  transitional cohort below is exactly the takes still carrying one. */
 const OLD_STAGED = 'app_biz-1_staged-1.webm'
 const mockPrepareTranscription = jest.fn(
-  async (_blob: Blob, _finalizedPath: string | null, _opts?: { stagedFor?: string | null }) => ({
+  async (
+    _blob: Blob,
+    _finalizedPath: string | null,
+    _opts?: { stagedFor?: string | null; stagedTake?: string | null },
+  ) => ({
     body: { path: STAGED },
     path: STAGED,
   }),
@@ -106,7 +110,7 @@ jest.mock('@/lib/ports/recording-port', () => ({
     prepareTranscription: (
       blob: Blob,
       finalizedPath: string | null,
-      opts?: { stagedFor?: string | null },
+      opts?: { stagedFor?: string | null; stagedTake?: string | null },
     ) => mockPrepareTranscription(blob, finalizedPath, opts),
     finalizedKey: (takeId: string, mimeType: string) => mockFinalizedKey(takeId, mimeType),
   }),
@@ -464,11 +468,15 @@ describe('the audio path', () => {
     // session in its KEY the transcribe door had nothing to check a claim
     // against: any records.write holder could name a COLLEAGUE'S finished take
     // and have its words written onto an unrelated discarded session.
-    it('the staging names the session it is staged FOR', async () => {
+    // ⚖ …AND FOR ITS TAKE (slice five packet B, D10). The take fills the key's
+    // uuid slot, so the copy is composable from the core row alone — and a take
+    // staged twice lands on the SAME object rather than minting a second one.
+    it('the staging names the session it is staged FOR, and the take it is OF', async () => {
       mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
       await runDiscardTranscript('take-1', PENDING)
       expect(mockPrepareTranscription).toHaveBeenCalledWith(expect.any(Blob), null, {
         stagedFor: 'sess-1',
+        stagedTake: 'take-1',
       })
     })
 

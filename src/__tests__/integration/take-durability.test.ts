@@ -1074,6 +1074,132 @@ describe('take durability — deletion lifecycle', () => {
       expect(segments().size).toBe(1)
     })
   })
+
+  // ⚖ THE DEVICE MAY RELEASE WHAT THE SERVER PROVABLY HOLDS (slice five packet
+  // B, D11). The guard above is right about the cohort it was written for, and
+  // it made ANOTHER one immortal AND invisible: a discarded take that can never
+  // be sealed under its finalized key. Its bytes were staged to the server, its
+  // words were read off that copy and settled — and then nothing could ever
+  // collect it, so tens of megabytes sat on a shared iPad past the TTL as a
+  // 要対応 row with nothing left to do. Three facts, all of them server-side
+  // acts that already happened, now open the same door.
+  describe('a staged copy the server holds releases the device copy', () => {
+    /** Age the take past the 7-day TTL, in the store, without touching it. */
+    function age(takeId: string) {
+      const key = JSON.stringify(takeId)
+      const meta = takes().get(key)!
+      const past = Date.now() - 8 * 24 * 60 * 60 * 1000
+      takes().set(key, { ...meta, startedAt: past, updatedAt: past })
+    }
+
+    /** A take that can NEVER be sealed (a tail that never landed), stopped and
+     *  left on the device. Everything the discard's word-collection does to it
+     *  is applied by the caller, one fact at a time. */
+    async function unsecurableTake() {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      await markTakeTailIncomplete(takeId)
+      return takeId
+    }
+
+    const STAGED = 'stg/biz_sess_take.webm'
+
+    it('staged + words settled + unsealable → the TTL finally collects it', async () => {
+      const takeId = await unsecurableTake()
+      await markTakeStaged(takeId, STAGED)
+      await markDiscardTranscriptDone(takeId)
+      age(takeId)
+
+      expect(await listOwnTakes()).toHaveLength(0)
+      await drain()
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    it('…and the logout wipe may take it too — the same one rule, one spelling', async () => {
+      const takeId = await unsecurableTake()
+      await markTakeStaged(takeId, STAGED)
+      await markDiscardTranscriptDone(takeId)
+
+      await clearOwnTakes()
+      await drain()
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+
+    it('the SAME take with its words still unsettled is KEPT by both doors', async () => {
+      // markDiscardTranscriptDone is the sweep's own stop condition: without it
+      // something is still reading this blob, and releasing it would destroy the
+      // audio the discard record's words are owed from.
+      const takeId = await unsecurableTake()
+      await markTakeStaged(takeId, STAGED)
+      age(takeId)
+
+      const listed = await listOwnTakes()
+      expect(listed.map((t) => t.takeId)).toEqual([takeId])
+      expect(listed[0].expiredUnsecured).toBe(true)
+      await clearOwnTakes()
+      await drain()
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+    })
+
+    // ⚖ THE TRANSITIONAL COHORT IS EXCLUDED BY THE PREFIX. Round 4's staging
+    // left an anonymous, TAKE-shaped key that the transcribe door now refuses —
+    // so that copy proves nothing about what the server will read, and the
+    // device copy is all there is.
+    it('a take-shaped stagedPath proves nothing — the take is KEPT', async () => {
+      const takeId = await unsecurableTake()
+      await markTakeStaged(takeId, 'app_biz_old-staged.webm')
+      await markDiscardTranscriptDone(takeId)
+      age(takeId)
+
+      expect((await listOwnTakes()).map((t) => t.takeId)).toEqual([takeId])
+      await clearOwnTakes()
+      await drain()
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+    })
+
+    // A RETRYABLE refusal is not a settled one: the drain is still coming for
+    // this take, and it will seal it under its OWN key. Releasing the device
+    // copy now would kill the only audio that retry could ever upload.
+    it('a RETRYABLE take with a staged copy and settled words is KEPT', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      await markTakeSecureError(takeId, 'network')
+      await markTakeStaged(takeId, STAGED)
+      await markDiscardTranscriptDone(takeId)
+      expect(isUnsecurableTake((await readTakeSecureMeta(takeId))!)).toBe(false)
+      age(takeId)
+
+      expect((await listOwnTakes()).map((t) => t.takeId)).toEqual([takeId])
+      await clearOwnTakes()
+      await drain()
+      expect(takes().size).toBe(1)
+      expect(segments().size).toBe(1)
+    })
+
+    // …and the ORIGINAL question still answers first, for every ordinary take.
+    it('a FINALIZED take is released with no staged copy at all — unchanged', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.discard({ keepTake: true })
+      await drain()
+      await markTakeFinalized(takeId, FINALIZED)
+
+      await deleteTake(takeId)
+      expect(takes().size).toBe(0)
+      expect(segments().size).toBe(0)
+    })
+  })
 })
 
 describe('take durability — the invariant: persistence NEVER touches capture', () => {
