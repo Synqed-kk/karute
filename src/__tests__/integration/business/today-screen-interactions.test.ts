@@ -10296,7 +10296,13 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   // (d) — BOTH RAW-CANON ENTRY POINTS GO THROUGH IT. Anchored whole lines over
   // comment-blanked source, each bounded to the call it belongs to, each
   // counted, with the dodges the breaker reaches for banned outright.
-  it('every consumer of canon’s raw rows filters them — the two call sites, counted', () => {
+  // ⚖ BREAKER-828 DELTA 3 I4 — TITLE HONESTY (pre-existing, not this PR): a
+  // third raw consumer of canon's rows exists at
+  // settings/page.tsx:244 (the 設定 room's own hypothetical sample landing) —
+  // outside this test's scope (the settings room is the release program's
+  // lane; rider filed there). This test counts the BOARD's two call sites
+  // only.
+  it('every consumer of canon’s raw rows filters them — the board’s two call sites, counted', () => {
     for (const [where, src, open_, close_, call] of [
       ['checksFor (screen)', SRC, 'const checks = withPriceFact(', 'hasPriceFor(id),', 'computeChecks(at, {'],
       ['landingVerdict (interactions)', INT, 'checks = withPriceFact(', 'q.hasPrice,', 'computeChecks(q.span, {'],
@@ -10325,6 +10331,17 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // above. The raw count cannot be blinded the same way — it reads `src`
       // itself, never `codeOnly(src)`.
       expect({ where, rawReaders: (src.match(/computeChecks\(/g) ?? []).length }).toEqual({ where, rawReaders: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I1 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE CALL SPELLING. `rawReaders` above matches `computeChecks(` — one
+      // spelling of a call among many (a local alias, `.call`, a spaced
+      // paren, a second import specifier, a string-built lookup all move
+      // NOTHING on that count — `A1` `A2` `A3` `A4` `A7`: 1925 tests and
+      // `tsc --noEmit` green, each a second live reader inside `checksFor`).
+      // This one reads the bare identifier: any of those five shapes adds a
+      // second `computeChecks` mention and this number moves. A legitimate
+      // new use of the name anywhere in the file — even in a comment — must
+      // update it.
+      expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: 12 })
       // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
       // no-op, are gone in every shape the breaker has used on this lane.
       for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
@@ -10580,6 +10597,16 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // second live call from the blanked count without hiding a pinned
       // line, and the raw count reads `SRC` itself, never `codeOnly(SRC)`.
       expect({ name, rawCalls: (SRC.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, rawCalls: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I2 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE `name(` CALL SPELLING. `rawCalls` above cannot see a shadow
+      // declaration — the test's own JSDoc already says why: `const
+      // priceFactSets = (` has a space before the paren, so it never matches
+      // `name + '('`. That is how `A8`/`A9` re-open N10/N11 under the
+      // regex-comment lid without moving `rawCalls`. This one reads every
+      // bare mention of the name in raw SRC: the import specifier, the call,
+      // and one prose mention — three today. A shadow adds a fourth and this
+      // number moves; a legitimate new mention must update it.
+      expect({ name, rawMentions: (SRC.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawMentions: 3 })
       // (4) …and it ARRIVES by import: the specifier stands in the pinned
       //     import block above, counted.
       expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })
@@ -10639,6 +10666,17 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     for (const built of ['new Set(', '.add(', 'ticketCore', 'filter(']) {
       expect({ built, at: binder.text.indexOf(built) }).toEqual({ built, at: -1 })
     }
+    // ⚖ BREAKER-828 DELTA 3 I3 — AND THE LINE BELOW THE PAIR IS GUARDED TOO.
+    // The adjacency regex above and the slice it opens only cover the text
+    // BETWEEN `SETS_LINE` and `BIND_LINE`; nothing stopped a mutation on the
+    // line immediately AFTER the pair from adding a second writer to
+    // `sets.priced` outside the slice (`A11`: `for (const c of parkChips)
+    // (sets.priced as Set<string>).add(c.id)` — 1925 tests and `tsc --noEmit`
+    // green, byte-identical eslint). A raw count of the bare identifier
+    // `sets` catches it: any new mention anywhere in the file, in or out of
+    // the slice, moves this number. A legitimate new use of `sets` must
+    // update it.
+    expect((SRC.match(/\bsets\b/g) ?? []).length).toBe(12)
 
     // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
     // `AddedRow` has ONE construction shape on this screen, so the writers can
