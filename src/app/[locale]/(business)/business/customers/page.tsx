@@ -29,7 +29,14 @@ export default async function CustomersPage({
 }) {
   await requireBusinessAdmission()
   const [{ locale }, { store }] = await Promise.all([params, searchParams])
-  const { props } = await customersProps({ locale, store })
+  const { props, storeKey } = await customersProps({ locale, store })
 
-  return <CustomersScreen {...props} />
+  // ⚖ VIEW STATE IS STORE-SCOPED (⚖ G2, the recording room's own pattern).
+  // `?store=` navigation keeps the same screen instance, so the selected
+  // customer, the pressed tile, the typed search, an open compare drawer and the
+  // rows added in this session would all survive a lens switch — a 銀座 row
+  // selected on a 代官山 desk, which is the isolation law failing at the frame
+  // rather than at the read. Keying by the RESOLVED lens resets all of it, which
+  // is what a shop expects when it changes which store it is looking at.
+  return <CustomersScreen key={storeKey} {...props} />
 }

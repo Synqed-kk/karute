@@ -35,12 +35,13 @@ import {
   dupeReason,
   openCreateDialog,
   closeOnBackdropClick,
+  spentLabel,
   ticketLabel,
   walletLabel,
   TILE_PREDICATE,
   type CustomerRow,
 } from '@/app/[locale]/(business)/business/customers/CustomersScreen'
-import { winBackLine } from '@/app/[locale]/(business)/business/customers/customers-props'
+import { localCustomerRow, winBackLine } from '@/app/[locale]/(business)/business/customers/customers-props'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -729,6 +730,49 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     expect(SCREEN_CODE).not.toMatch(/useState\(false\)[\s\S]{0,40}ownOpen\b/)
     // …the same shape 本人関係 already uses, rather than a second mechanism.
     expect(SCREEN_CODE).toContain('const [openParty, setOpenParty] = useState<string | null>(null)')
+  })
+
+  it('⚖ G1 — a row added in this screen is derived by the SAME rules as one from the door', () => {
+    const row = localCustomerRow({
+      seq: 90001, name: '見本 はなこ', furigana: 'ミホン ハナコ',
+      phone: '090-0000-0000', email: null, source: '店頭登録', storeLabel: null,
+    })
+    // no completed visit → unknown, never a confident ¥0 (⚖ B1-5b)
+    expect(row.totalSpent).toBeNull()
+    expect(spentLabel(row.totalSpent)).toBe('—')
+    // …and someone just added IS 新規, so the chip the server would give appears
+    expect(row.category).toBe('new')
+    expect(row.categoryChip).toBe('新規')
+    expect(row.winBack).toBe('来店記録なし')
+    expect(row.lastVisitMeta).toBe('最終来店 記録なし')
+    expect(row.daysSinceLastVisit).toBeNull()
+    expect(row.ticketEnding).toBe(false)
+    expect(row.mark).toBe('見本')
+    // the screen supplies only what was typed; the derived half is not written there
+    expect(SCREEN_CODE).toContain('const row = localCustomerRow({')
+    expect(SCREEN_CODE).not.toMatch(/totalSpent: 0/)
+    expect(SCREEN_CODE).not.toMatch(/category: 'new'/)
+  })
+
+  it('⚖ G2 — the screen is KEYED by the resolved lens, so a store switch resets its view state', () => {
+    const page = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/customers/page.tsx'),
+      'utf8',
+    ).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    expect(page).toContain('const { props, storeKey } = await customersProps({ locale, store })')
+    expect(page).toContain('<CustomersScreen key={storeKey} {...props} />')
+  })
+
+  it('⚖ G3 — the parked phone sheet is hidden by CSS, before a single script runs', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/customers/customers.css'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '')
+    // `inert` cannot be applied until matchMedia has run; this cannot wait for JS
+    expect(css).toContain('.biz .page-customers .cu-insp { visibility: hidden; transition: visibility 0s linear .42s; }')
+    expect(css).toContain('.biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; visibility: visible; transition: visibility 0s; }')
+    // …and the band is read before paint, so the JS layer arrives as early as it can
+    expect(SCREEN_CODE).toMatch(/useLayoutEffect\(\(\) => \{\s*\n\s*const motion = window\.matchMedia/)
   })
 
   it('⚖ FIX-3 — nothing behind an overlay is reachable, and a hidden sheet is not either', () => {

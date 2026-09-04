@@ -36,7 +36,7 @@ import Link from 'next/link'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring, type Spring } from '@/business/lib/spring'
-import { winBackLine, type CustomerRow, type CustomersProps } from './customers-props'
+import { localCustomerRow, type CustomerRow, type CustomersProps } from './customers-props'
 
 export type { CustomerRow }
 
@@ -352,7 +352,11 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
    *  disagrees with the first client frame. */
   const [reduced, setReduced] = useState(false)
   const [phone, setPhone] = useState(false)
-  useEffect(() => {
+  // ⚠ `useLayoutEffect`, NOT `useEffect` (⚖ G3): the band is read BEFORE the
+  // browser paints, so the window in which `phone` is still its SSR default is
+  // as small as React allows. The CSS above closes the rest of that window on
+  // its own, without depending on this running at all.
+  useLayoutEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     const band = window.matchMedia(PHONE_QUERY)
     const read = () => {
@@ -743,46 +747,19 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     const name = String(data.get('name') ?? '').trim()
     const phoneValue = String(data.get('phone') ?? '').trim()
     if (!name || !phoneValue) return false
-    const seq = 90001 + added.length
-    const row: CustomerRow = {
-      id: `local-${seq}`,
-      no: `C-${seq}`,
+    // ⚠ ONE HOME FOR THE DERIVED HALF (⚖ G1). The screen supplies only what the
+    // person typed; every derived field comes from the same function the server
+    // assembly's rules live beside, so a row added here cannot disagree with a
+    // row that came from the door.
+    const row = localCustomerRow({
+      seq: 90001 + added.length,
       name,
       furigana: String(data.get('kana') ?? '').trim() || null,
-      mark: name.split(/\s+/)[0].slice(0, 3),
       phone: phoneValue,
       email: String(data.get('email') ?? '').trim() || null,
       source: String(data.get('source') ?? '店頭登録'),
-      identityCheck: null,
       storeLabel: grouped ? '店舗未設定' : null,
-      groupKey: '',
-      hasNext: false,
-      nextLabel: 'なし',
-      nextMenu: '予約なし',
-      nextDetail: '次回予約なし',
-      nextPrice: '予約確定後に記録',
-      ticket: null,
-      wallet: null,
-      lastVisitShort: null,
-      lastVisitFull: null,
-      totalSpent: 0,
-      consent: { line: false, sms: false, email: false },
-      lineLinked: false,
-      merge: 'none',
-      duplicateOf: null,
-      party: [],
-      thin: false,
-      externalOwner: false,
-      note: null,
-      history: [],
-      bookings: [],
-      daysSinceLastVisit: null,
-      winBack: winBackLine(null),
-      lastVisitMeta: '最終来店 記録なし',
-      category: 'new',
-      categoryChip: null,
-      ticketEnding: false,
-    }
+    })
     setAdded((was) => [...was, row])
     setSelected(row.id)
     setToast(`${name}さんをこの画面の中だけに追加しました。再読み込みすると消えます`)

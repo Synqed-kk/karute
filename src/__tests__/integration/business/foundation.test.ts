@@ -1236,6 +1236,29 @@ describe('顧客一覧 screen', () => {
     expect(daikanyama.find((r) => r.id === 'cus-07')!.categoryChip).toBeNull()
   })
 
+  it('⚖ G2 — the rendered screen is KEYED by the resolved lens, per store', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const keyOf = (node: any): string | null => {
+      if (!node || typeof node !== 'object') return null
+      if (node.type === CustomersScreen) return node.key
+      const kids = node.props?.children
+      for (const kid of Array.isArray(kids) ? kids.flat() : [kids]) {
+        const hit = keyOf(kid)
+        if (hit) return hit
+      }
+      return null
+    }
+    const rendered = async (store?: string) =>
+      keyOf(await CustomersPage({
+        params: Promise.resolve({ locale: 'ja' }),
+        searchParams: Promise.resolve(store ? { store } : {}),
+      }))
+    expect(await rendered(STORE_A)).toBe(STORE_A)
+    expect(await rendered(STORE_B)).toBe(STORE_B)
+    // the bare URL clamps, so it keys the same as the store it lands on
+    expect(await rendered()).toBe(STORE_A)
+  })
+
   it('⚖-ADJ B — the two live doors carry THIS page’s lens, and are never dropped', async () => {
     const clamped = await props(STORE_A)
     expect(clamped!.inboxHref).toBe(`/ja/business/inbox?store=${STORE_A}`)

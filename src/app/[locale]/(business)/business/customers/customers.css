@@ -767,7 +767,15 @@
     border: 0; border-radius: 0; box-shadow: var(--cu-shadow-4);
     transform: translateY(100%); will-change: transform; pointer-events: none;
   }
-  .biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; }
+  /* ⚠ THE PARKED SHEET IS HIDDEN WITHOUT JAVASCRIPT (⚖ G3). `inert` is applied
+     from `phone`, which cannot be known until `matchMedia` runs — so between
+     first paint and hydration the parked sheet was in the tab order and in the
+     accessibility tree. `visibility: hidden` takes it out of both with no JS at
+     all, and the delayed transition keeps it VISIBLE for the whole slide out
+     (0.42s ≈ the spring's settle) so closing still animates instead of blinking
+     away. The `inert` / `aria-hidden` pair stays as the JS layer above it. */
+  .biz .page-customers .cu-insp { visibility: hidden; transition: visibility 0s linear .42s; }
+  .biz .page-customers .cu-insp.is-sheet-on { pointer-events: auto; visibility: visible; transition: visibility 0s; }
   .biz .page-customers .cu-insp-hd { padding: 12px 52px 10px 13px; flex: 0 0 auto; }
   /* the sheet's own bounded reading area — the second and last of the room's two
      named scrollers, and it exists for the same reason the drawer's does. */
@@ -825,6 +833,8 @@
 
 /* ── reduced motion: state still changes, it simply stops moving ─────────── */
 @media (prefers-reduced-motion: reduce) {
+  /* nothing slides, so the sheet has no travel to stay visible for */
+  .biz .page-customers .cu-insp { transition: visibility 0s; }
   .biz .page-customers [data-press], .biz .page-customers [data-press].is-pressed { transition: opacity 120ms linear; transform: none; }
   .biz .page-customers .cu-tile:hover, .biz .page-customers .cu-dpill:hover { transform: none; }
   .biz .page-customers .cu-rows.is-swap, .biz .page-customers .cu-insp-body { animation: none; }
