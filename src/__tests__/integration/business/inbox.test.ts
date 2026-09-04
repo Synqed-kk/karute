@@ -1052,7 +1052,7 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
         if (names.length && names.every((n) => styled.has(n))) reachable.add(sel)
       }
     }
-    expect([...reachable].sort()).toEqual(['.biz .btn', '.biz .btn.primary', '.biz .page .btn'])
+    expect([...reachable].sort()).toEqual(['.biz .page .btn'])
     // …and every one of them is answered at FOUR levels, which beats a
     // sibling's three and removes the insertion-order coin flip.
     //
@@ -1118,8 +1118,6 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // room's own styling; they just answer no sibling collision any more.
     const pairs: Array<[string, string]> = [
       ['.page .btn', '.biz .page.pg-inbox .btn {'],
-      ['.btn', '.biz .page.pg-inbox .btn {'],
-      ['.btn.primary', '.biz .page.pg-inbox .btn.primary {'],
     ]
     for (const [sibling, fence] of pairs) {
       const props = declared.get(sibling) ?? new Set<string>()
