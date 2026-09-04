@@ -78,6 +78,75 @@ import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/
 const service = createServiceClient as jest.Mock
 const supabase = createClient as jest.Mock
 
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
+ *
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  A decoy hidden as a TRAILING comment on a real code line survives the
+ *  filter — and then it INFLATES the count, which is red the other way
+ *  round. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const pinnedLines = (src: string, line: string) =>
+  (codeOnly(src).match(new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function screenProps(node: any): TodayProps | null {
   if (!node || typeof node !== 'object') return null
@@ -1476,20 +1545,36 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   it('BOTH landing sites carry the seed, and the two excluded solves are untouched', () => {
     // The drop and the keyboard nudge, byte for byte — this is the parity claim
     // the replay above stands on.
-    expect(SRC).toContain(
+    // ⚖ BREAKER-827 F1/F2 — WHOLE-LINE ANCHORED, ALL FOUR. `toContain` on these
+    // four spellings is satisfied by a `//`-prefixed copy left beside a changed
+    // line, and the `solveBed(` count below cannot tell a call that LEFT from a
+    // comment that took its place. The two landing lines were already whole
+    // lines; the 配置モード solve and the shelf chip's are pinned WITH their
+    // assignment now, because that is what a whole line is here — strictly more
+    // than the substring they pinned before, and the smallest change that
+    // anchors them.
+    for (const line of [
       "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-    )
-    expect(SRC).toContain(
       "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-    )
-    // ⛔ DELIBERATELY EXCLUDED. A 次回予約 placement and a shelf chip are FIRST
-    // landings: neither has a staged change of its own to have an origin from,
-    // and 配置モード's solve is asked with no room at all. Different semantics,
-    // and they stay byte-untouched.
-    expect(SRC).toContain('solveBed(lane.key, null, null, false, place(start, end, hours))')
-    expect(SRC).toContain(
-      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
-    )
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
+    // ⛔ DELIBERATELY EXCLUDED FROM THE SEED. A 次回予約 placement and a shelf chip
+    // are FIRST landings: neither has a staged change of its own to have an
+    // origin from, and 配置モード's solve is asked with no room at all. Different
+    // semantics, and the SEED argument stays untouched on both.
+    //
+    // ⚖ 51 (R7) — the VIP argument is a different question and it did move here.
+    // 配置モード's solve passed a hardcoded `false` while its three siblings all
+    // read the customer's category, so a VIP's 次回予約 was solved onto whatever
+    // bed came first. The category rides `PlacingIntent` now. The seed is still
+    // `null, null` — which is what this test is actually about.
+    for (const line of [
+      "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
+      "const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
     // ⚖ flag 92 — A THIRD SITE, and it is the same law rather than an exception:
     // taking the warn card's safe start is another landing of a change that is
     // already staged, so it re-solves from the room that change OWNS. It seeds
