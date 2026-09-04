@@ -121,6 +121,7 @@ jest.mock('@/lib/karute/take-store', () => ({
   listOwnTakes: jest.fn(async () => [...stored].sort((a, b) => b.startedAt - a.startedAt)),
   // The BANNER stays out of the way in this suite — every assertion here is
   // about the inbox rows, and the banner has its own suite.
+  listOwnStoppedUnsecuredTakeIds: jest.fn(async () => []),
   getRecoverableTake: jest.fn(async () => null),
   loadTakeBlob: jest.fn(async () => new Blob(['audio'])),
 }))
@@ -149,7 +150,17 @@ jest.mock('@/hooks/use-global-recorder', () => ({
   }),
 }))
 jest.mock('@/lib/global-recorder', () => ({
-  globalRecorder: { takeId: null, state: 'idle', subscribe: () => () => {} },
+  globalRecorder: {
+    takeId: null,
+    state: 'idle',
+    subscribe: () => () => {},
+    // Fix round 17: the page asks whether a stop leg is still finishing a
+    // take before it decides it has nothing left to drain — and, for a take
+    // with no session id on it, re-reads the stamp the drain may have written
+    // since this list loaded. Nothing here has a row to find.
+    isSecuring: () => false,
+    retryRecordingSessionMint: jest.fn(async (): Promise<string | null> => null),
+  },
 }))
 const mockPipelineStart = jest.fn()
 jest.mock('@/lib/global-pipeline', () => ({

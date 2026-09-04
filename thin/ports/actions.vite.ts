@@ -319,12 +319,16 @@ async function facadeRevokeCustomerConsent(
 // never reaches createPackActionWithClient's derivation), so sending it from
 // this port would be a dead, misleading field. Every OTHER create/redeem
 // field still rides through verbatim.
-const idemPost = (body?: unknown): RequestInit => ({
+const idemPost = (body?: unknown, signal?: AbortSignal): RequestInit => ({
   method: 'POST',
   headers: {
     'Idempotency-Key': crypto.randomUUID(),
     ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
   },
+  // Optional, and only the start-mint passes one so far (fix round 10): a call
+  // whose answer stops mattering after a deadline needs the socket released,
+  // not just ignored.
+  ...(signal ? { signal } : {}),
   ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
 })
 
@@ -748,18 +752,66 @@ async function facadeSaveKaruteInline(
   return { error: body?.error?.message ?? `Save failed (${res.status})` }
 }
 
-async function facadeStartRecordingSession(input: {
+/** How long the recorder's start-mint waits for the session door (capture
+ *  pipeline PR3 fix round 10, P1). A phone that walks out of signal does not
+ *  fail its requests, it STALLS them — and this one used to have no deadline on
+ *  either attempt, so a reply could land minutes later, after the stop had
+ *  already secured the take against a row of its own. The take's store now
+ *  refuses that late stamp, and this releases the socket that carried it: the
+ *  same 10 s the stop path waits (global-recorder's SECURE_MINT_AWAIT_MS), so
+ *  the wait and the request expire together instead of one outliving the other.
+ *
+ *  AbortController + a timer, not AbortSignal.timeout — that static is absent
+ *  from jsdom (this port's own tests) and from WebViews older than Chrome 103,
+ *  where reaching for it would throw and cost every recording its row. Same
+ *  reason, same shape as thin/ports/recording.vite.ts#doorFetch. */
+const START_SESSION_TIMEOUT_MS = 10_000
+
+async function facadeStartRecordingSession({
+  takeId,
+  mimeType,
+  ...input
+}: {
   customerId?: string | null
   appointmentId?: string | null
+  /** ⚖ BORN RESERVED (capture pipeline PR3 fix round 8). The recorder knows
+   *  both at start(), and naming them together is what lets the door compose
+   *  this take's finalized key AT CREATE — so the row is never unbound and the
+   *  mint that follows answers "already ours". Both or neither: half the pair
+   *  is a validation 400. */
+  takeId?: string
+  mimeType?: string
 }): Promise<{ id: string } | null> {
-  // Fail-OPEN: capture must NEVER block on the mint (web action contract).
+  const reserve = takeId && mimeType ? { takeId, mimeType } : null
+  // ONE deadline across both attempts, not one each: the step back is the same
+  // call in a shape an older server knows, and the caller's wait does not
+  // restart for it.
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), START_SESSION_TIMEOUT_MS)
+  // Fail-OPEN: capture must NEVER block on the mint (web action contract) — an
+  // abort throws, and lands in the same catch as every other failure.
   try {
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', idemPost(input))
+    let res = await getDataPort().apiFetch(
+      '/api/app/v1/recordings/session',
+      idemPost(reserve ? { ...input, ...reserve } : input, deadline.signal),
+    )
+    // TRANSITIONAL step back, the twin of the one in thin/ports/recording.vite.ts
+    // (see its comment): a server that predates the pair refuses the whole body,
+    // and a capture that lost its row over a field the server has never heard of
+    // would be a regression. ONCE, only on the door's 400, and both go together.
+    if (reserve && res.status === 400) {
+      res = await getDataPort().apiFetch(
+        '/api/app/v1/recordings/session',
+        idemPost(input, deadline.signal),
+      )
+    }
     if (!res.ok) return null
     const body = (await res.json().catch(() => null)) as { id?: string | null } | null
     return body?.id ? { id: body.id } : null
   } catch {
     return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
