@@ -182,8 +182,15 @@ describe('what REPLACED them', () => {
   // readers of the finalized key wait for the stop's own leg before they read
   // it; without that the staging fallback — which exists for a take the store
   // never held — ran on EVERY ordinary recording.
-  it('both readers of the finalized key wait for the stop’s leg first', () => {
-    for (const rel of ['src/lib/global-pipeline.ts', 'src/lib/ai-pipeline.ts']) {
+  // Fix round 5 adds the THIRD reader: the discard's own word-collection was
+  // kicked at the discard instant by both of its arms, read the row before the
+  // PUT landed, and left the words to a record-page mount that might never come.
+  it('every reader of the finalized key waits for the stop’s leg first', () => {
+    for (const rel of [
+      'src/lib/global-pipeline.ts',
+      'src/lib/ai-pipeline.ts',
+      'src/lib/recording/discard-transcript.ts',
+    ]) {
       // Lazily imported in both, for the reason recording-port already names:
       // the recorder's graph reaches @/actions/recordings → next/cache.
       expect(code(rel)).toContain(

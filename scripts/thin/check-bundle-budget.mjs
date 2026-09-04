@@ -329,13 +329,32 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // vendor 937,082 = 2,025,065 B — 1,065 B over the 2,024,000 ceiling, which is
 // the breach this raise answers. The last release-way figure recorded on main
 // is 2,018,785 B (965500a4, 2026-09-02), so the whole PR3 stack costs the phone
-// +6,280 B. The new ceiling leaves 6,935 B of headroom, which is the room PR5's
-// launch drain (~3.7 KB) needs plus the usual thin margin.
+// +6,280 B. That raise left 6,935 B of headroom at the time it was written; PR4
+// then spent it — see the entry below for where the number stands now.
+//
+// RAISED 2026-09-04 for PR4's never-delete doors (rounds 2–5), ⚖ 8/25:
+// 2,032,000 → 2,040,000. A FEATURE raise, not a method correction — the method
+// is unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: a discarded recording's audio is no
+// longer deleted, so what used to be a delete is now a decision — the settle
+// reads the take and keeps one the server never received, every discard arm
+// MARKS the take so a thrown-away session is never re-offered, a take that can
+// never be sealed still gives up its words off a staged copy that is staged
+// once, and (this round) the discard's word-collection waits for the stop's own
+// upload the way the two pipeline readers already do, so the FIRST kick is the
+// one that lands instead of the words waiting for a mount that may never come.
+//
+// Measured at this round's tip, the CI/release way: en 129,868 · index 965,152 ·
+// vendor 937,082 = 2,032,102 B — 102 B over the 2,032,000 ceiling, which is the
+// breach this raise answers. The whole PR4 stack costs the phone +7,037 B over
+// the 2,025,065 B PR3 tip above. The new ceiling leaves 7,898 B of headroom.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_032_000
+const BUDGET_BYTES = 2_040_000
 
 let dir
 try {

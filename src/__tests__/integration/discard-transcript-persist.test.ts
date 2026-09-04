@@ -22,6 +22,18 @@ jest.mock('@/actions/recording-discard-transcript', () => ({
     mockTranscribeAndPersistDiscard(...(a as [])),
 }))
 
+/** The recorder's own wait (PR4 fix round 5). What that wait DOES — it waits on
+ *  the leg, not on the hold, and gives up at the 120 s belt — is pinned in
+ *  take-durability against the real recorder; here it is the thing this reader
+ *  has to ASK before it reads the row. Mocked for the reason the lazy import
+ *  itself names: the recorder's graph reaches next/cache. */
+const mockAwaitTakeSecured = jest.fn(async (_takeId: string) => {})
+jest.mock('@/lib/global-recorder', () => ({
+  globalRecorder: {
+    awaitTakeSecured: (takeId: string) => mockAwaitTakeSecured(takeId),
+  },
+}))
+
 const mockMarkDone = jest.fn(async (_takeId: string) => {})
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
 type SecureMeta = {
@@ -91,6 +103,7 @@ const PENDING = {
 beforeEach(() => {
   jest.clearAllMocks()
   mockSupported = true
+  mockAwaitTakeSecured.mockImplementation(async () => {})
   mockPersistDiscardTranscript.mockImplementation(async () => ({ ok: true }))
   mockTranscribeAndPersistDiscard.mockImplementation(async () => ({ ok: true }))
   mockReadSecureMeta.mockImplementation(async () => ({
@@ -440,6 +453,81 @@ describe('the audio path', () => {
     })
     await expect(runDiscardTranscript('take-1', PENDING)).resolves.toBeUndefined()
     expect(mockMarkDone).not.toHaveBeenCalled()
+  })
+})
+
+// ⚖ …AND THE KICK WAITS FOR THE STOP'S OWN LEG (PR4 fix round 5). Both discard
+// arms fire at the discard instant, with that take's whole-take PUT still in
+// flight: the row has no key yet, nothing says it can never have one, and the
+// run returned. Nothing re-kicks it but a record-page MOUNT — so a staffer who
+// stays on the page could reach the store's seven-day prune with a discard
+// record that kept its REASON and never its words (the ⚖ 8/20 half).
+describe('⚖ the kick waits for the stop’s own leg first', () => {
+  it('the stop is still uploading: it asks, holds off the read, then reads the FINALIZED key', async () => {
+    let release!: () => void
+    const stopLeg = new Promise<void>((r) => {
+      release = r
+    })
+    mockAwaitTakeSecured.mockImplementation(async () => {
+      await stopLeg
+    })
+    // The row as it stands at the discard instant.
+    mockReadSecureMeta.mockImplementation(async () => ({}))
+
+    const run = runDiscardTranscript('take-1', PENDING)
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+
+    // It asked the recorder first and has NOT touched the row: reading it here
+    // is what returned empty-handed and left the words to the next mount.
+    expect(mockAwaitTakeSecured).toHaveBeenCalledWith('take-1')
+    expect(mockReadSecureMeta).not.toHaveBeenCalled()
+
+    // The leg lands: the key is on the row.
+    mockReadSecureMeta.mockImplementation(async () => ({
+      finalizedPath: 'app_business-1_take-1.webm',
+    }))
+    release()
+    await run
+
+    // ONE transcription, off the object the stop already PUT — nothing staged,
+    // and the take is settled by this FIRST kick.
+    expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledTimes(1)
+    expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
+      expect.objectContaining({ audioPath: 'app_business-1_take-1.webm' }),
+    )
+    expect(mockPrepareTranscription).not.toHaveBeenCalled()
+    expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+  })
+
+  it('a leg that never settles: the belt lets the run proceed, it is not pinned for ever', async () => {
+    jest.useFakeTimers()
+    try {
+      // The recorder's 120 s belt, modelled — the real one is pinned in
+      // take-durability. What THIS side owes is that it waits on that promise
+      // and goes on the moment it resolves, however it resolves.
+      mockAwaitTakeSecured.mockImplementation(
+        () =>
+          new Promise<void>((r) => {
+            setTimeout(r, 120_000)
+          }),
+      )
+      mockReadSecureMeta.mockImplementation(async () => ({}))
+
+      const run = runDiscardTranscript('take-1', PENDING)
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+      expect(mockReadSecureMeta).not.toHaveBeenCalled()
+
+      jest.advanceTimersByTime(120_000)
+      await run
+
+      // It PROCEEDED, and then answered exactly as it does today: no key yet,
+      // so the stamp stays for the next sweep. Nothing hangs, nothing is lost.
+      expect(mockReadSecureMeta).toHaveBeenCalledWith('take-1')
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 

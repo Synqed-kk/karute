@@ -158,6 +158,14 @@ export async function runDiscardTranscript(
   if (inFlight.has(takeId)) return
   inFlight.add(takeId)
   try {
+    // …AFTER THE STOP HAS HAD ITS SAY (fix round 5). Both discard arms kick this
+    // while the stop leg's whole-take PUT is still in flight, so the read below
+    // answers "no key yet" and returns — and only a record-page MOUNT re-kicks
+    // it. This is the one line that makes the FIRST sweep the one that lands.
+    // Lazy for the reason the other two readers name (ai-pipeline.ts,
+    // global-pipeline.ts): the recorder's graph reaches @/actions/recordings →
+    // next/cache, which jest cannot load in a node-environment suite.
+    await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
     // null = the take is gone, or belongs to a DIFFERENT signed-in user (the
     // store's owner gate). Leave the stamp either way: the rightful owner's own
     // sweep can still finish it.
