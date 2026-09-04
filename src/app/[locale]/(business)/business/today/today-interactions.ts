@@ -3215,19 +3215,28 @@ export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
  *  · a card the SERVER put here answers from the server's own record —
  *    `priced`, the bookings whose `price` is non-null. apt-09 has none by
  *    documented fixture intent, and it is the scene this item is for.
- *  · a 次回予約 this SESSION minted has no server row at all; its price is the
- *    one `placeNextVisit` wrote onto the card — `ticketCore`, which is `null`
- *    on a staff lane with no 定価 (⚖ R6 D2). `addedPricedIds` is exactly the
- *    ids of the session's cards whose `ticketCore` is non-null.
+ *  · a card this SESSION put on the board has no server row at all; it answers
+ *    from the STAMP its mint wrote on the row (`AddedRow.priced` — the lane's
+ *    定価 for a 次回予約, `null` on a lane with no 定価 (⚖ R6 D2); the chip's own
+ *    park-time stamp for a shelf placement; the dialog's コース for a creation).
+ *    `addedPricedIds` is exactly the ids of the rows stamped priced.
  *
  *  The two are told apart by whether the SERVER's lanes know the id
  *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
  *  a real booking's ticket line is non-null even with no price (「価格未記録」/
  *  「残り3回」), and `placeFromShelf` puts a real booking's own card back into
- *  the session's list carrying it, so reading the mint FIRST would answer
- *  「price」 for apt-09, which is the exact bug this item removes. That ordering
- *  is the whole logic, and it is why the guard is a pinned row and not a
- *  comment. */
+ *  the session's list, so reading the session FIRST would answer 「price」 for
+ *  apt-09, which is the exact bug this item removes. That ordering is the whole
+ *  logic, and it is why the guard is a pinned row and not a comment.
+ *
+ *  ⚖ FIX ROUND 2 (Greptile on #828) — AND THE SESSION'S SIDE IS A STAMP NOW,
+ *  never a reading of the card. `addedPricedIds` used to be built from
+ *  `item.ticketCore != null`, which is DISPLAY TEXT: on ANOTHER DAY, where
+ *  `priced` and `fromServer` are both empty, a price-less booking placed from
+ *  the shelf still carried the non-null line 「価格未記録」 and the 保持 row came
+ *  back on exactly the booking T1 removed it from. Every writer now stamps
+ *  `AddedRow.priced` / `ParkChip.priced` at the moment the price is known, and
+ *  this function only reads. */
 export function hasPriceFact(
   id: string | null,
   priced: ReadonlySet<string>,

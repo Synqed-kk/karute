@@ -10158,6 +10158,19 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // An empty world prices nothing, and a card that is both is still just yes.
     expect(hasPriceFact('apt-26', new Set(), new Set(), new Set())).toBe(false)
     expect(hasPriceFact('apt-26', priced, fromServer, new Set(['apt-26']))).toBe(true)
+    // ⚖ FIX ROUND 2 (Greptile on #828) — THE CROSS-DAY SCENE, both ways round.
+    // The shelf survives day navigation and `placeFromShelf` places on ANOTHER
+    // DAY by design; that day's `pricedIds` and lanes have never heard of the
+    // booking, so BOTH server sets are empty and the only thing left to answer
+    // with is the stamp the shelf took at park time. A price-less booking was
+    // not stamped, so canon's 保持 row stays off…
+    expect(hasPriceFact('apt-09', new Set(), new Set(), new Set())).toBe(false)
+    // …and its priced twin WAS stamped, so the row is still there. Before the
+    // stamp the session's side was read off `item.ticketCore`, and a price-less
+    // booking's ticket line is the NON-NULL text 「価格未記録」 (today-board.ts
+    // :409-410) — so the first of these two answered `true` and the 保持 row
+    // came back on exactly the booking T1 took it off.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set(['apt-26']))).toBe(true)
   })
 
   it('the screen has exactly ONE hasPriceFor, and it only binds that function', () => {
@@ -10180,6 +10193,74 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // it, so neither can answer from a board that has moved on.
     expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')).toBe(1)
     expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+  })
+
+  /** ⚖ FIX ROUND 2 (Greptile on #828) — THE FACT IS STAMPED WHERE IT IS KNOWN,
+   *  AND NEVER INFERRED FROM THE CARD.
+   *
+   *  The memo's session set was `a.item.ticketCore != null` — a price read off
+   *  DISPLAY TEXT, and 「価格未記録」 is display text. Park a price-less booking,
+   *  page to another day, drop it there (`placeFromShelf` supports exactly that
+   *  — 「on another day it may be taken」): that day's `pricedIds` and lanes know
+   *  nothing about the id, so the session branch answered, the ticket line was
+   *  non-null, and canon's 予約時価格を保持 row came back on the one booking T1
+   *  takes it off. The fix is a FIELD (`ParkChip.priced` / `AddedRow.priced`)
+   *  written by the mint that knew the answer, so this pin is the count of
+   *  writers against the count of stamps, plus each writer's own line. */
+  it('the price fact is STAMPED at every session write, and the memo only reads it', () => {
+    const code = codeOnly(SRC)
+    // (1) THE MEMO READS THE STAMP — and the inference is GONE from it, not
+    // merely unused: a slice that still mentions `ticketCore` is a slice that
+    // can grow the branch back.
+    const memo = callSlice(SRC, 'const hasPriceFor = useMemo(() => {', '}, [props.pricedIds, props.lanes, addedHere])')
+    expect({ ok: memo.ok, opens: memo.opens, closes: memo.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(memo.text, 'const addedPriced = new Set(addedHere.filter((a) => a.priced).map((a) => a.item.caseId).filter((c): c is string => c != null))')).toBe(true)
+    expect(memo.text).not.toContain('ticketCore')
+
+    // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
+    // `AddedRow` has ONE construction shape on this screen, so the writers can
+    // be counted — and a sixth that forgets the fact moves the second count.
+    const rows = code.split('\n').filter((l) => l.includes('{ ...board, laneKey'))
+    expect(rows).toHaveLength(5)
+    expect(rows.filter((l) => /\bpriced\b/.test(l))).toHaveLength(5)
+    // …each with its own answer, as its own whole line: the 次回予約 mint's own
+    // predicate (the one its `ticketCore:` line mints the ¥ face with, ⚖ R6
+    // D2), the chip's carried stamp, and the create dialog's コース.
+    for (const line of [
+      '{ ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },',
+      '{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },',
+      '{ ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },',
+      '{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },',
+      'setAdded((was) => [...was, { ...board, laneKey, item, priced }])',
+      "tab === 'book' && menu?.price != null,",
+    ]) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: 1 })
+    }
+    expect((code.match(/priced: chip\.priced/g) ?? []).length).toBe(2)
+    expect((code.match(/priced: lane\.listPrice > 0/g) ?? []).length).toBe(2)
+
+    // (3) THE CHIP IS STAMPED AT PARK TIME, on the same-day board — the only
+    // board that can answer — and the stamp goes INSIDE the chip the shelf
+    // keeps, so it travels with it to whatever day the drop happens on.
+    const park = callSlice(SRC, 'function park(id: string, item: BoardItem, from: Move) {', 'function unpark(id: string) {')
+    expect({ ok: park.ok, opens: park.opens, closes: park.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(park.text, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {')).toBe(true)
+    // …and the stamp is inside the CHIP LITERAL itself, not merely somewhere in
+    // the handler: a copy parked in a dead branch beside it falls outside this
+    // slice, and the file-wide count refuses a second live one.
+    const chip = callSlice(SRC, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {', '}])')
+    expect({ ok: chip.ok, opens: chip.opens, closes: chip.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(chip.text, 'priced: hasPriceFor(id),')).toBe(true)
+    expect(pinnedLines(SRC, 'priced: hasPriceFor(id),')).toBe(1)
+    // The shelf's only OTHER writer puts the WHOLE chip back — stamp and all —
+    // rather than rebuilding one that has to re-derive the fact.
+    expect(pinnedLines(SRC, 'setParkChips((was) => (was.some((c) => c.id === id) ? was : [...was, chip]))')).toBe(1)
+
+    // (4) THE DODGES: a hardcoded yes in either spelling, a spread that
+    // re-answers a stamped row, and the retired inference coming back.
+    for (const dodge of ['priced: true', 'priced: !0', 'ticketCore != null', '...{ priced']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
   })
 })
 

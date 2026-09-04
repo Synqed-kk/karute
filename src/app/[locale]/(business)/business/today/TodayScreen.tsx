@@ -1276,13 +1276,18 @@ export function TodayScreen(props: TodayProps) {
    *  so the sets are built once per board rather than once per gesture, and it
    *  is declared exactly ONCE on this screen — a second `hasPriceFor` binding
    *  anywhere is a shadow that answers for one call site, and the pin counts
-   *  this declaration. */
+   *  this declaration.
+   *
+   *  ⚖ FIX ROUND 2 (Greptile on #828) — THE SESSION'S SET IS READ OFF THE
+   *  STAMP (`a.priced`), never off the card. It used to be
+   *  `a.item.ticketCore != null`, and a price-less booking's ticket line is the
+   *  non-null text 「価格未記録」: park it, page to another day and place it, and
+   *  the 保持 row came back on the one booking T1 took it off. Every writer
+   *  below stamps the fact where the fact is known. */
   const hasPriceFor = useMemo(() => {
     const priced = new Set(props.pricedIds)
     const fromServer = new Set(props.lanes.flatMap((l) => l.items).map((i) => i.caseId).filter((c): c is string => c != null))
-    const addedPriced = new Set(
-      addedHere.filter((a) => a.item.ticketCore != null).map((a) => a.item.caseId).filter((c): c is string => c != null),
-    )
+    const addedPriced = new Set(addedHere.filter((a) => a.priced).map((a) => a.item.caseId).filter((c): c is string => c != null))
     return (id: string | null): boolean => hasPriceFact(id, priced, fromServer, addedPriced)
   }, [props.pricedIds, props.lanes, addedHere])
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
@@ -4686,6 +4691,12 @@ export function TodayScreen(props: TodayProps) {
         storeLabel: props.lensLabel,
       },
       lenMin: item.endMin - item.startMin, item,
+      // ⚖ R8 FIX ROUND 2 (Greptile on #828) — AND THE PRICE FACT, ASKED HERE.
+      // This is the same-day board, the one whose `pricedIds` and lanes know
+      // the booking; the chip may be placed on 8/22, where nothing does. The
+      // landing reads this stamp instead of the card's ticket line, which says
+      // 「価格未記録」 — non-null — for a booking with no recorded price.
+      priced: hasPriceFor(id),
     }])
     setPending(null)
     show(`${item.title}様を仮置きエリアへ移動しました（仮押さえ扱い）`)
@@ -5058,10 +5069,14 @@ export function TodayScreen(props: TodayProps) {
       caseId: id,
       label: `${hhmm(start)}–${hhmm(end)} ${p.name}様 次回予約（仮押さえ）`,
     }
+    // ⚖ R8 FIX ROUND 2 — the mint stamps its own price fact. `lane.listPrice > 0`
+    // is the SAME predicate the `ticketCore:` line above mints the ¥ face with
+    // (⚖ R6 D2 — a lane with no 定価 mints `null`), so the face the operator
+    // reads and the fact the 保持 row is judged on cannot come apart.
     setAdded((was) => [
       ...was,
-      { ...board, laneKey: lane.key, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
-      { ...board, laneKey: partner.key, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
+      { ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
+      { ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
     ])
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
@@ -5151,10 +5166,15 @@ export function TodayScreen(props: TodayProps) {
       label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')} / ${staffLabel} / ${bed.label} / 仮押さえ`,
     }
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
+    // ⚖ R8 FIX ROUND 2 (Greptile on #828) — THE CHIP'S STAMP TRAVELS WITH IT.
+    // This lands on WHATEVER DAY is on screen, and that day's board knows
+    // nothing about the booking: the fact was taken at park time, on the board
+    // that did. Deriving it here from `landed.ticketCore` is what put the 保持
+    // row back on a price-less booking (「価格未記録」 is a non-null line).
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      { ...board, laneKey: staff.key, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
-      { ...board, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
+      { ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
+      { ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
     // ⚖ AMENDMENT 1, lens-3 F1 — AND THE ROOM SIDE TOO. This wrote only `moves`,
@@ -6800,8 +6820,8 @@ export function TodayScreen(props: TodayProps) {
         data={dialogs.create}
         hours={hours}
         seed={seed}
-        onCreate={(laneKey, item, message) => {
-          setAdded((was) => [...was, { ...board, laneKey, item }])
+        onCreate={(laneKey, item, message, priced) => {
+          setAdded((was) => [...was, { ...board, laneKey, item, priced }])
           show(message)
         }}
       />
@@ -7489,7 +7509,7 @@ function CreateDialog({
   data: TodayProps['dialogs']['create']
   hours: TodayProps['hours']
   seed: { staffId: string; start: number; nonce: number } | null
-  onCreate: (laneKey: string, item: BoardItem, message: string) => void
+  onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
 }) {
   const [tab, setTab] = useState<'book' | 'block'>('book')
   const [start, setStart] = useState(hours.open + 6 * 60 >= hours.close ? hours.open : hours.open + 6 * 60)
@@ -7595,6 +7615,12 @@ function CreateDialog({
       staffId,
       item,
       `${hhmm(start)}の${title}をこの画面の中だけに追加しました。再読み込みすると消えます`,
+      // ⚖ R8 FIX ROUND 2 — the dialog's OWN price fact, on the same predicate
+      // the `ticketCore:` line above mints the face with: a 予約 with a コース
+      // chosen has a price, a 予定ブロック never does. Inert while a created
+      // card cannot be dragged (`onCardPointerDown` returns on `!item.caseId`),
+      // and honest the day it can be.
+      tab === 'book' && menu?.price != null,
     )
   }
 
