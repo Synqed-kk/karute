@@ -912,6 +912,17 @@ function Screen(props: ReservationsProps) {
     helpRef.current?.focus()
   }, [tourOpen])
 
+  /** G4 fix — the tour card traps Tab the SAME way the sheet does: `trapSheetTab`
+   *  over `SHEET_FOCUSABLE`, no second mechanism. Escape and the arrow-key ring
+   *  already exist (the keydown listener above); this only adds Tab containment. */
+  useLayoutEffect(() => {
+    const panel = tourCardRef.current
+    if (!tourOpen || !panel) return
+    const onKey = (e: KeyboardEvent) => trapSheetTab(panel, e)
+    panel.addEventListener('keydown', onKey)
+    return () => panel.removeEventListener('keydown', onKey)
+  }, [tourOpen])
+
   const inspector = current && (
     <InspectorBody
       row={current}
@@ -937,7 +948,13 @@ function Screen(props: ReservationsProps) {
   )
 
   return (
-    <div className="page pg-reservations" ref={rootRef}>
+    <>
+    {/* G4 fix — `inert` while the tour is open, matching this room's own
+        `rv-raildetail`/`rv-confirm` pattern above. The tour's own overlay
+        layers (spot-catch/spot-hover/spot-hole/spot-card, below) render OUTSIDE
+        this subtree — a page root inert-ing its own tour would break
+        tap-to-learn along with everything else. */}
+    <div className="page pg-reservations" ref={rootRef} inert={tourOpen}>
       <div className="rv-view" ref={viewRef}>
         {/* ⚖ ONE COMPACT TITLE ROW (the mock's `.titlerow`). The old subtitle and
             the summary band's sentence are not cut — they are the head's own
@@ -1408,11 +1425,15 @@ function Screen(props: ReservationsProps) {
       <div className={`rv-toast${toast ? ' is-on' : ''}`} role="status" aria-live="polite" aria-atomic="true">
         {toast}
       </div>
+    </div>
 
-      {/* ⚖ Liam 8/23 — 画面の説明. Four layers, in the family's own order: the
-          click catcher (which is what makes every declared region jumpable), the
-          hover outline, the spotlight hole, and the card. */}
-      {tourOpen && (
+    {/* ⚖ Liam 8/23 — 画面の説明. Four layers, in the family's own order: the
+        click catcher (which is what makes every declared region jumpable), the
+        hover outline, the spotlight hole, and the card. G4 fix — this whole
+        block is a SIBLING of the page root, never a descendant of it, so the
+        root's `inert` (while the tour is open) cannot reach in and disable
+        tap-to-learn or the card itself. */}
+    {tourOpen && (
         <>
           <div
             className="rv-spot-catch"
@@ -1440,6 +1461,7 @@ function Screen(props: ReservationsProps) {
             id="rvTour"
             ref={tourCardRef}
             role="dialog"
+            aria-modal="true"
             aria-label="画面の説明"
             style={tourPos ? { top: tourPos.top, left: tourPos.left } : { top: -9999, left: -9999 }}
           >
@@ -1457,7 +1479,7 @@ function Screen(props: ReservationsProps) {
           </div>
         </>
       )}
-    </div>
+    </>
   )
 }
 

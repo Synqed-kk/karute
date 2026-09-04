@@ -41,6 +41,7 @@ import {
   decorate,
   focusResult,
   recordCommit,
+  trapSheetTab,
   viewOnChipPress,
   wireSheet,
   type ReservationRow,
@@ -964,7 +965,13 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     const asideOpen = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<aside\n            className="rv-sheet"'))
     const asideTag = asideOpen.slice(0, asideOpen.indexOf('>') + 1)
     expect(asideTag).toContain('aria-modal="true"')
-    expect([...SCREEN_CODE.matchAll(/aria-modal="true"/g)].length).toBe(1)
+    // G4 (hardening round, H5's own pin, AMENDED) — the tour card is the
+    // SECOND, and last, legal home for the token: it is its own overlay with
+    // its own Tab trap (below), scoped the same way the sheet's own check is.
+    const cardOpen = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="rv-spot-card"'))
+    const cardTag = cardOpen.slice(0, cardOpen.indexOf('>') + 1)
+    expect(cardTag).toContain('aria-modal="true"')
+    expect([...SCREEN_CODE.matchAll(/aria-modal="true"/g)].length).toBe(2)
     expect(SCREEN_CODE).toContain('export function wireSheet(')
     expect(SCREEN_CODE).toContain('export function trapSheetTab(')
     expect(SCREEN_CODE).toContain(
@@ -1115,5 +1122,64 @@ describe('G2(b) · chipCounts runs on chipBase — 期間+検索 applied, the ch
     )
     expect(SCREEN_CODE).not.toContain('chipCounts(all)')
     expect(SCREEN_CODE).not.toContain('chipCounts(visible)')
+  })
+})
+
+// ═══ GREPTILE ROUND 1 — G4 · the guided tour traps focus inside its overlay ══
+
+describe('G4 · the tour card is a real modal — inert page root, Tab trap, existing Escape/focus-restore', () => {
+  it('the page root carries `inert` while the tour is open, and the tour layers render OUTSIDE that subtree', () => {
+    // scoped to the live screen's OWN root — the M-87 LoadFailure branch has
+    // an unrelated `pg-reservations` div earlier in the file, with neither
+    // `ref` nor `inert`.
+    const rootOpen = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<div className="page pg-reservations" ref={rootRef}'))
+    const rootTag = rootOpen.slice(0, rootOpen.indexOf('>') + 1)
+    expect(rootTag).toContain('inert={tourOpen}')
+    // the tour block sits AFTER the page root's last real child (the toast) —
+    // i.e. outside the root's own closing tag, not inside it
+    expect(SCREEN_CODE.indexOf('{tourOpen && (')).toBeGreaterThan(SCREEN_CODE.indexOf('rv-toast'))
+  })
+
+  it('reuses the SHEET’s own trap — trapSheetTab over SHEET_FOCUSABLE, no second mechanism', () => {
+    expect(SCREEN_CODE).toContain('const onKey = (e: KeyboardEvent) => trapSheetTab(panel, e)')
+    // …wired the same way the sheet wires it: a layout effect, on the panel
+    const tourTrapBody = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const panel = tourCardRef.current'))
+    expect(tourTrapBody.slice(0, tourTrapBody.indexOf('}, [tourOpen])'))).toContain(
+      "panel.addEventListener('keydown', onKey)",
+    )
+  })
+
+  it('Escape already closes the tour, and focus already returns to the ? button on close (unchanged, verified)', () => {
+    expect(SCREEN_CODE).toContain("if (e.key === 'Escape') setTourIdx(-1)")
+    expect(SCREEN_CODE).toContain('helpRef.current?.focus()')
+  })
+
+  it('trapSheetTab really cycles Tab/Shift+Tab among a real panel’s own controls — the tour card’s shape (前へ disabled, 次へ, 終了)', () => {
+    document.body.innerHTML = ''
+    const card = document.createElement('div')
+    const prev = document.createElement('button')
+    prev.textContent = '前へ'
+    prev.disabled = true
+    const next = document.createElement('button')
+    next.textContent = '次へ'
+    const done = document.createElement('button')
+    done.textContent = '終了 ✕'
+    card.append(prev, next, done)
+    document.body.append(card)
+
+    const onKey = (e: KeyboardEvent) => trapSheetTab(card, e)
+    card.addEventListener('keydown', onKey)
+
+    // 前へ is disabled, so 次へ is the first FOCUSABLE control
+    next.focus()
+    done.focus()
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(next)
+
+    next.focus()
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(done)
+
+    card.removeEventListener('keydown', onKey)
   })
 })
