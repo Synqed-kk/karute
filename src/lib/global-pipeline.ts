@@ -321,6 +321,17 @@ class GlobalPipeline {
   private async finalizedAudioPath(): Promise<string | null> {
     const takeId = this.context?.takeId
     if (!takeId) return null
+    // …AFTER THE STOP HAS HAD ITS SAY (fix round 2 of PR4). This runs at the
+    // stop instant, while that take's own PUT is still in flight, so reading
+    // the row now answers null on an ordinary recording and sends the whole
+    // take down the not-finalized-yet arm. Free when there is no stop leg to
+    // wait for, bounded when there is.
+    //
+    // Lazy for the same reason enqueueJob's action import below is: the
+    // recorder's own import graph reaches @/actions/recordings → next/cache,
+    // and a static import here would drag that into every module that merely
+    // loads this one — the recordings inbox included.
+    await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
     return (await readTakeSecureMeta(takeId))?.finalizedPath ?? null
   }
 

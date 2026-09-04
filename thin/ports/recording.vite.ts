@@ -110,7 +110,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // THE HAPPY PATH UPLOADS NOTHING (PR4): the whole take is already at its
     // finalized key, so the facade is simply handed that path — and it deletes
     // nothing when it is done, because the finalized object is evidence.
-    if (finalizedPath) return { body: { path: finalizedPath } }
+    if (finalizedPath) return { body: { path: finalizedPath }, path: finalizedPath }
 
     // The fallback, for a take the store never held (see the port's doc):
     // byte-for-byte the staging this arm always did.
@@ -130,7 +130,7 @@ export const viteRecordingPort: RecordingPipelinePort = {
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
-    return { body: { path } }
+    return { body: { path }, path }
   },
   // Capture pipeline PR3 fix round 6 — the session door, the phone twin of the
   // web action (thin/ports/actions.vite.ts#facadeStartRecordingSession, which

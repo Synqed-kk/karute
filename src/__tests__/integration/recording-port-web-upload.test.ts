@@ -99,7 +99,19 @@ describe('webRecordingPort.prepareTranscription — the finalized take', () => {
 
   it('answers with no cleanup fn at all — there is nothing to delete', async () => {
     const result = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
-    expect(Object.keys(result)).toEqual(['body'])
+    // The shape, not merely the absence of one name: NOTHING this answers with
+    // is callable, so no caller can be handed a delete by another spelling.
+    expect(Object.keys(result).sort()).toEqual(['body', 'path'])
+    expect(Object.values(result).some((v) => typeof v === 'function')).toBe(false)
+  })
+
+  // …and it SAYS which key the words came from (PR4 fix round 2). The discard's
+  // word-collection needs the staged key back for a take that can never be
+  // sealed under a finalized one, and a second spelling of this staging is the
+  // thing that must never exist.
+  it('answers the finalized key it was handed', async () => {
+    const { path } = await webRecordingPort.prepareTranscription(blob(), 'app_biz-1_take-9.webm')
+    expect(path).toBe('app_biz-1_take-9.webm')
   })
 })
 
@@ -118,12 +130,15 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
   })
 
   it('hands the transcribe leg the SERVER-minted read url for the path it just uploaded', async () => {
-    const { body } = await webRecordingPort.prepareTranscription(blob(), null)
+    const { body, path } = await webRecordingPort.prepareTranscription(blob(), null)
     expect(mintRecordingReadUrl).toHaveBeenCalledWith('app_biz-1_uuid-1.webm')
     expect(body).toEqual({
       audioUrl:
         'https://proj.supabase.co/storage/v1/object/sign/recordings/app_biz-1_uuid-1.webm?token=read',
     })
+    // …and it names the STAGED key it just wrote (PR4 fix round 2), which is
+    // what the discard's word-collection reads its words from.
+    expect(path).toBe('app_biz-1_uuid-1.webm')
   })
 
   it('mints, then uploads, then signs — never signs a path that was not written', async () => {

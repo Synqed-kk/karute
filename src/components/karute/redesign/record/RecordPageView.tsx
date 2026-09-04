@@ -2578,7 +2578,17 @@ export function RecordPageView({
         return
       }
       clearDraft()
-      if (d.takeId) void deleteTake(d.takeId)
+      // ⚖ THE SECOND HUMAN-RESOLVED EXIT (capture pipeline PR4 fix round 2),
+      // beside 確認する on the inbox row. The only automatic-delete refusal this
+      // call can meet is a take the server never received under its FINALIZED
+      // key — and by the time we are here the record has landed on the server
+      // WITH that take's words, transcribed by the in-tab leg from this very
+      // blob, on a tap by the staffer who owns the row. Without the flag the
+      // expired/stranded cohort re-folds as 復元可能 for ever: the save writes
+      // the karute, the take survives, and the next fold offers the same row
+      // again. Device bytes only — deleteTake reaches IndexedDB and nothing
+      // else, and no server object is touched here or anywhere below it.
+      if (d.takeId) void deleteTake(d.takeId, { humanResolved: true })
       setRecoveredDraft(null)
       setRecoveredTake(null)
       // The draft's write is synchronous-to-completion, so its notice is armed

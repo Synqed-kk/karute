@@ -1156,6 +1156,36 @@ export function isStoppedTake(
   )
 }
 
+/** …and the other side of that coin: a take that will NEVER be sealed under
+ *  its finalized key, however many drains run (capture pipeline PR4 fix round
+ *  2). Not "not secured yet" — that is an offline stop, and it becomes secured
+ *  the moment the phone finds signal. This is the cohort for which waiting is
+ *  the wrong answer for ever, and it is read off isStoppedTake's own two
+ *  permanent refusals plus the settled-refusal list above:
+ *
+ *   · `tailIncomplete` — the disk copy is SHORT of what the recorder captured,
+ *     and the finalized key is immutable, so sealing it could only truncate the
+ *     recording permanently (fix round 16);
+ *   · `stopPendingAt` with no `durationMs` — a stop leg that died in flight.
+ *     The stamp is the write that clears the flag, so the pair says the stamp
+ *     never came and nothing left alive will write it (fix round 17);
+ *   · a TERMINAL secureError — the drain has already stopped re-uploading it.
+ *
+ *  It lives here beside both rules it reads. Its one caller today is the
+ *  discard's word-collection (lib/recording/discard-transcript.ts): the audio
+ *  of these takes is real and the manager-review half of the ⚖ 8/20 doctrine
+ *  needs its words, so that path stages the disk blob instead of waiting for a
+ *  finalized object that can never exist. Nothing here deletes, and nothing
+ *  here seals: an unsecurable take stays on the device, plainly un-finalized,
+ *  as 要対応 for a human. */
+export function isUnsecurableTake(
+  meta: Pick<TakeMeta, 'durationMs' | 'tailIncomplete' | 'stopPendingAt' | 'secureError'>,
+): boolean {
+  if (meta.tailIncomplete) return true
+  if (meta.stopPendingAt !== undefined && meta.durationMs === undefined) return true
+  return meta.secureError !== undefined && TERMINAL_SECURE_ERRORS.has(meta.secureError)
+}
+
 /** Every take of the SIGNED-IN user that is KNOWN STOPPED and whose audio the
  *  SERVER DOES NOT HAVE — the record page's mount drain worklist.
  *

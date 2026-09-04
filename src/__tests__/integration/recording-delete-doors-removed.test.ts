@@ -84,17 +84,21 @@ describe('what REPLACED them', () => {
     expect(src).toContain("if (meta && !meta.finalizedAt && !opts?.humanResolved) return")
   })
 
-  // ⚖ ONE EXIT, AND IT IS A PERSON (fix round 1). The guard needs a way out or
-  // a 確認待ち row whose take was never secured can be cleared by nobody — the
-  // unclearable 要対応 badge this family has already been burned by. The exit is
-  // an argument only the inbox passes, so a future automatic caller has to
-  // WRITE it to get past the guard; there is exactly one such call site.
-  it('…and its one exit is the inbox row a human settled, nowhere else', () => {
+  // ⚖ ITS EXITS ARE PEOPLE, AND THEY ARE COUNTED (fix rounds 1 and 2). The
+  // guard needs a way out or a 確認待ち row whose take was never secured can be
+  // cleared by nobody — the unclearable 要対応 badge this family has already
+  // been burned by. The exit is an argument only a human-driven call site
+  // passes, so a future automatic caller has to WRITE it to get past the guard.
+  // TWO such call sites exist, both in the record page, both on a staffer's own
+  // tap on a row whose karute record is already on the server: 確認する on the
+  // inbox row (round 1), and 保存する on the stranded/recovery row (round 2).
+  it('…and its only exits are the two rows a human settled, nowhere else', () => {
     const store = code('src/lib/karute/take-store.ts')
     expect(store).toContain('opts?: { humanResolved?: boolean }')
     const view = code('src/components/karute/redesign/record/RecordPageView.tsx')
-    expect(view.match(/humanResolved: true/g)).toHaveLength(1)
+    expect(view.match(/humanResolved: true/g)).toHaveLength(2)
     expect(view).toContain('deleteTake(row.takeId, { humanResolved: true })')
+    expect(view).toContain('deleteTake(d.takeId, { humanResolved: true })')
     // No other module in the app may reach for it.
     for (const rel of [
       'src/lib/global-pipeline.ts',
@@ -137,6 +141,49 @@ describe('what REPLACED them', () => {
     expect(src).toContain('const pointer = recording?.audio_storage_path ?? null')
     expect(src).toContain('const audioPath = pointer ?? input.audioPath')
     expect(src).toContain('.createSignedUrl(audioPath, 3600)')
+  })
+
+  // ⚖ …AND THE SECOND UPLOAD OF THE SAME TAKE IS GONE TOO (fix round 2). Both
+  // readers of the finalized key wait for the stop's own leg before they read
+  // it; without that the staging fallback — which exists for a take the store
+  // never held — ran on EVERY ordinary recording.
+  it('both readers of the finalized key wait for the stop’s leg first', () => {
+    for (const rel of ['src/lib/global-pipeline.ts', 'src/lib/ai-pipeline.ts']) {
+      // Lazily imported in both, for the reason recording-port already names:
+      // the recorder's graph reaches @/actions/recordings → next/cache.
+      expect(code(rel)).toContain(
+        "await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)",
+      )
+    }
+    const rec = code('src/lib/global-recorder.ts')
+    // It waits on the LEG, not on the hold — the hold is released before
+    // secureTake runs, so it is already gone for the whole of the upload.
+    expect(rec).toContain('const leg = this.stopLegs.get(takeId)')
+    expect(rec).toContain('this.stopLegs.set(')
+    // …and the wait has a ceiling, so a leg that never exits cannot pin a
+    // recording the staffer is waiting to finish.
+    expect(rec).toContain('const SECURE_SETTLE_BELT_MS = 120_000')
+    expect(rec).toContain('belt = setTimeout(resolve, SECURE_SETTLE_BELT_MS)')
+  })
+
+  // ⚖ …AND A DISCARD'S WORDS SURVIVE A TAKE THAT CAN NEVER BE SEALED (fix
+  // round 2). The early return on a missing finalized key is now asked one
+  // question first, and the staging it falls to is the PORT's own — there is no
+  // second spelling of an upload in the discard path, and still no delete.
+  it('the discard’s word-collection stages an unsecurable take through the port', () => {
+    const src = code('src/lib/recording/discard-transcript.ts')
+    expect(src).toContain('if (!isUnsecurableTake(meta)) return')
+    expect(src).toContain(
+      'path = (await getRecordingPipelinePort().prepareTranscription(blob, null)).path',
+    )
+    expect(src).not.toContain('.remove(')
+    // The rule itself lives beside the two facts it is made of, not here.
+    const store = code('src/lib/karute/take-store.ts')
+    expect(store).toContain('export function isUnsecurableTake(')
+    expect(store).toContain('if (meta.tailIncomplete) return true')
+    expect(store).toContain(
+      'if (meta.stopPendingAt !== undefined && meta.durationMs === undefined) return true',
+    )
   })
 
   it('the ONE exemption is voice enrolment, and it is fenced at runtime', () => {

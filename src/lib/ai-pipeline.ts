@@ -105,6 +105,18 @@ export async function runAIPipeline(
   // + /api/app/v1/ai (no supabase-js in the bundle). The GlobalRecorder /
   // globalPipeline / draft singletons are unchanged — the seam is HERE only.
   const recordingPort = getRecordingPipelinePort()
+  // …AND THE STOP GETS TO FINISH FIRST (capture pipeline PR4 fix round 2). The
+  // 自動 arm reaches this line at the stop instant, with that take's own whole
+  // upload still in flight — so the read below answered null on an ORDINARY
+  // recording and prepareTranscription's fallback staged a second copy of the
+  // same audio to a key no row points at. Free when this runtime has no stop
+  // leg for the take (the recovery/inbox saves, another tab), bounded at two
+  // minutes when it does.
+  // Lazy, and for this file's oldest reason (see recording-port's own): the
+  // recorder's import graph reaches @/actions/recordings → next/cache, which
+  // jest cannot load in a node-environment suite — a static import here breaks
+  // every consumer of this module, inbox-store's page included.
+  if (takeId) await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
   const finalizedPath = takeId ? ((await readTakeSecureMeta(takeId))?.finalizedPath ?? null) : null
   const { body: transcribeBody } = await recordingPort.prepareTranscription(
     audioBlob,

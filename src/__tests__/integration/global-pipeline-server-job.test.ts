@@ -20,6 +20,16 @@ jest.mock('@/lib/ai-pipeline', () => ({
   ),
 }))
 
+/** ⚖ capture pipeline PR4 fix round 2: the path is read only AFTER the take's
+ *  own stop leg has said what it did. Resolves at once by default — every case
+ *  below runs long after any stop — and is gated only where that is the point. */
+const awaitTakeSecured = jest.fn(async (_takeId: string) => {})
+jest.mock('@/lib/global-recorder', () => ({
+  globalRecorder: {
+    awaitTakeSecured: (takeId: string) => awaitTakeSecured(takeId),
+  },
+}))
+
 const deleteTake = jest.fn()
 /** ⚖ capture pipeline PR4: the job's audio_path is the take's OWN finalized
  *  key, read off the take meta. `null` here is a take that is not secured yet —
@@ -92,6 +102,7 @@ beforeEach(() => {
   mockDeferreds.length = 0
   jest.clearAllMocks()
   portSupportsServerJob.current = true
+  awaitTakeSecured.mockImplementation(async () => {})
   readTakeSecureMeta.mockResolvedValue({ finalizedPath: 'app_biz-1_take-1.webm' })
   enqueueJob.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   jobStatus.mockResolvedValue({
@@ -116,6 +127,40 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     expect(
       (enqueueJob.mock.calls[0][0] as { audioPath: string }).audioPath,
     ).toBe('app_biz-1_take-1.webm')
+    expect(mockDeferreds).toHaveLength(0)
+  })
+
+  // ⚖ …AND IT ASKS BEFORE IT READS (PR4 fix round 2). This runs at the STOP
+  // INSTANT, while that take's own PUT is still in flight: read the row there
+  // and the answer is null, which throws into the pre-enqueue arm and lands the
+  // whole take on the in-tab leg — where it is staged a second time.
+  it('⚖ the stop is still uploading: it waits, then enqueues the FINALIZED key', async () => {
+    let release!: () => void
+    const stopLeg = new Promise<void>((r) => {
+      release = r
+    })
+    awaitTakeSecured.mockImplementation(async () => {
+      await stopLeg
+    })
+    // What the row says WHILE the leg is in flight: not secured yet.
+    readTakeSecureMeta.mockResolvedValue({})
+
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(awaitTakeSecured).toHaveBeenCalledWith('take-1')
+    expect(readTakeSecureMeta).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
+
+    // The leg lands and the key is on the row.
+    readTakeSecureMeta.mockResolvedValue({ finalizedPath: 'app_biz-1_take-1.webm' })
+    release()
+    await tick(0)
+
+    expect(
+      (enqueueJob.mock.calls[0][0] as { audioPath: string }).audioPath,
+    ).toBe('app_biz-1_take-1.webm')
+    // …and it never fell through to the in-tab leg, which is where the second
+    // upload of the same take used to happen.
     expect(mockDeferreds).toHaveLength(0)
   })
 

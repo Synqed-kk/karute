@@ -73,11 +73,19 @@ export interface RecordingPipelinePort {
    * null and this leg stages THAT take's blob the way every take was staged
    * before — one upload, server-named key, and NO delete. PR5's launch drain
    * is what makes an un-finalized take rare enough to remove it.
+   *
+   * `path` is the key the transcription will actually be read from — the
+   * finalized one, or the staged one this just wrote (capture pipeline PR4 fix
+   * round 2). Answered rather than kept private because ONE other caller needs
+   * the same staging and must not grow a second spelling of it: the discard's
+   * word-collection, for a take that can never be sealed under a finalized key
+   * (lib/recording/discard-transcript.ts). Still NO delete on either arm — the
+   * staged object is evidence too.
    */
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
-  ): Promise<{ body: Record<string, unknown> }>
+  ): Promise<{ body: Record<string, unknown>; path: string }>
   /**
    * Mint the recording_sessions ROW for a take that has none (capture pipeline
    * PR3 fix round 6). The SAME door the recorder's own start-mint knocks on —
@@ -255,7 +263,7 @@ export const webRecordingPort: RecordingPipelinePort = {
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
-    return { body: { audioUrl } }
+    return { body: { audioUrl }, path }
   },
   async startSession({ customerId, appointmentId, takeId, mimeType }) {
     // The recorder's own start-mint door, reached exactly as it reaches it

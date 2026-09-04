@@ -20,7 +20,9 @@
 // shape (the same gap sat before proceedDiscard's deleteTake), not closed here.
 
 import {
+  isUnsecurableTake,
   listPendingDiscardTakes,
+  loadTakeBlob,
   markDiscardTranscriptDone,
   readTakeSecureMeta,
   stampDiscardPending,
@@ -102,10 +104,22 @@ export async function persistReviewDiscardTranscript(
  * or deliberately not kept) MARKS the take done; anything else leaves it
  * stamped for the next sweep.
  *
- * A take with no finalized object yet (an offline stop) is left exactly as it
+ * A take with no finalized object YET (an offline stop) is left exactly as it
  * is: the record page's mount retry secures it, and the next sweep finishes
  * this. Nothing here can create the object, and nothing here should destroy the
  * only copy while waiting.
+ *
+ * ⚖ …BUT "YET" HAS TO BE TRUE (capture pipeline PR4 fix round 2). Some takes
+ * will NEVER be sealed under a finalized key — a tail that never landed, a stop
+ * leg that died before it could stamp, a settled refusal (isUnsecurableTake).
+ * For those, "wait for the object" is silence for ever: the discard record kept
+ * its REASON and never its words, and the manager-review half of the ⚖ 8/20
+ * doctrine was quietly lost on exactly the recordings most likely to need it.
+ * So the disk blob is staged through the port's own fallback — the same one
+ * prepareTranscription uses for a take the store never held, one upload, NO
+ * delete — and the words are read from there. The staged copy is row-less on
+ * the server by design: a take that must never be sealed under its finalized
+ * key must not be sealed under a second one either.
  */
 export async function runDiscardTranscript(
   takeId: string,
@@ -117,8 +131,24 @@ export async function runDiscardTranscript(
     // null = the take is gone, or belongs to a DIFFERENT signed-in user (the
     // store's owner gate). Leave the stamp either way: the rightful owner's own
     // sweep can still finish it.
-    const path = (await readTakeSecureMeta(takeId))?.finalizedPath
-    if (!path) return
+    const meta = await readTakeSecureMeta(takeId)
+    if (!meta) return
+    let path = meta.finalizedPath
+    if (!path) {
+      // Merely not secured YET — an offline stop, a retryable refusal. The
+      // mount retry is coming for it; leave the stamp and let the next sweep
+      // read the finalized key it will have by then.
+      if (!isUnsecurableTake(meta)) return
+      // It will never have one. The audio is still on the device, so the words
+      // are still collectable — stage this take's own blob through the port's
+      // existing fallback and transcribe from there. No blob (persistence
+      // failed, the segments never landed) is the one case with nothing to
+      // collect: leave the stamp rather than mark a take done whose words were
+      // never even looked for.
+      const blob = await loadTakeBlob(takeId)
+      if (!blob || blob.size === 0) return
+      path = (await getRecordingPipelinePort().prepareTranscription(blob, null)).path
+    }
     const { transcribeAndPersistDiscard } = await transcriptActions()
     const res = await transcribeAndPersistDiscard({
       recordingSessionId: pending.recordingSessionId,

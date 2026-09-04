@@ -309,6 +309,7 @@ import {
   clearOwnTakes,
   deleteTake,
   getRecoverableTake,
+  isUnsecurableTake,
   listOwnTakes,
   listOwnStoppedUnsecuredTakeIds,
   listPendingDiscardTakes,
@@ -1359,6 +1360,7 @@ describe('secure at stop', () => {
   const metaOf = (takeId: string) =>
     takes().get(JSON.stringify(takeId)) as {
       finalizedAt?: number
+      finalizedPath?: string
       secureError?: string
       mimeType?: string
       recordingSessionId?: string | null
@@ -3637,5 +3639,172 @@ describe('secure at stop', () => {
     await passGrace()
     expect(await getRecoverableTake([])).toBeNull() // never re-offered
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId]) // still sent
+  })
+
+  // ── ⚖ THE PIPELINE WAITS FOR THE STOP'S OWN UPLOAD (PR4 fix round 2) ──────
+  // The 自動 pipeline starts at the STOP INSTANT, while this leg's PUT and
+  // finalize are still in flight. Reading `finalizedPath` there answered null
+  // on every ORDINARY recording, so the in-tab leg staged a second whole copy
+  // of the same take to a row-less key: two uploads of the same 43 MB and a
+  // permanent orphan object, per recording.
+  describe('⚖ awaitTakeSecured — the reader waits for the leg, not for the hold', () => {
+    /** A stop whose PUT hangs until the test lets it go — the window the 自動
+     *  pipeline actually asks its question in. */
+    function gatePut() {
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      putMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+        order.push('put')
+        putBodies.push(init?.body as Blob)
+        await gate
+        return { ok: true, status: 200 } as unknown as Response
+      })
+      return () => release()
+    }
+
+    /** Stop, and run the leg as far as the PUT. */
+    async function stopIntoThePut(): Promise<string> {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      globalRecorder.stop()
+      await drain(200)
+      await jest.advanceTimersByTimeAsync(0)
+      await drain(200)
+      return takeId
+    }
+
+    it('a take this runtime never stopped is not waited on at all', async () => {
+      // Another tab's take, the mount drain's, one recorded before this bundle
+      // loaded: there is no leg here, so there is nothing to wait for. (If this
+      // ever waited it would hang on the belt and time out.)
+      const takeId = await keptTake()
+      await expect(globalRecorder.awaitTakeSecured(takeId)).resolves.toBeUndefined()
+      expect(order).not.toContain('put')
+    })
+
+    it('…and neither is one whose leg already finished', async () => {
+      const takeId = await stoppedTake()
+      expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+      await expect(globalRecorder.awaitTakeSecured(takeId)).resolves.toBeUndefined()
+    })
+
+    it('a reader asking DURING the stop’s own PUT waits, then reads the FINALIZED key', async () => {
+      const releasePut = gatePut()
+      const takeId = await stopIntoThePut()
+      expect(order).toContain('put')
+
+      // ⚠ THE WHOLE REASON THIS IS NOT `securingTakeIds`: the hold is released
+      // BEFORE secureTake is called (secureTake asks isActive first), so it is
+      // already gone while 43 MB is on the wire. A reader that asked the hold
+      // would be told "nothing is happening" here.
+      expect(globalRecorder.isActiveTake(takeId)).toBe(false)
+      expect(globalRecorder.isSecuring()).toBe(false)
+
+      let settled = false
+      const waited = globalRecorder.awaitTakeSecured(takeId).then(() => {
+        settled = true
+      })
+      await drain(200)
+      expect(settled).toBe(false)
+      expect(metaOf(takeId).finalizedPath).toBeUndefined()
+
+      releasePut()
+      await drain(200)
+      await waited
+      expect(settled).toBe(true)
+      // The row's answer is on disk by the time the reader is let go —
+      // secureTake awaits markTakeFinalized before it returns, and the leg
+      // awaits secureTake before its `finally`.
+      expect(metaOf(takeId).finalizedPath).toBe(`app_biz-1_${takeId}.webm`)
+      // ONE upload of this take, ever.
+      expect(order.filter((o) => o === 'put')).toHaveLength(1)
+    })
+
+    it('a stop-time upload that FAILS retryably releases the reader too — with no key', async () => {
+      // Unchanged behaviour, pinned: the reader goes on to the staging fallback
+      // exactly as it does today. The stop leg's own failures stay the drain's
+      // business; this only stops the pipeline racing a PUT about to succeed.
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      putMock.mockImplementation(async () => {
+        order.push('put')
+        await gate
+        return { ok: false, status: 500 } as unknown as Response
+      })
+      const takeId = await stopIntoThePut()
+
+      let settled = false
+      const waited = globalRecorder.awaitTakeSecured(takeId).then(() => {
+        settled = true
+      })
+      await drain(200)
+      expect(settled).toBe(false)
+
+      release()
+      await drain(200)
+      await waited
+      expect(settled).toBe(true)
+      expect(metaOf(takeId).finalizedPath).toBeUndefined()
+      expect(metaOf(takeId).secureError).toBe('upload_500')
+    })
+
+    it('⚖ the BELT: a leg that never exits releases the reader at 120 s', async () => {
+      // AD1's hung store — the door was asked and never answered. A recording
+      // the staffer can never finish is worse than one needless staging upload
+      // two minutes later, so the wait has a ceiling.
+      finalizeTake.mockImplementation(() => new Promise(() => {}))
+      const takeId = await stopIntoThePut()
+
+      let settled = false
+      const waited = globalRecorder.awaitTakeSecured(takeId).then(() => {
+        settled = true
+      })
+      await drain(200)
+      expect(settled).toBe(false)
+
+      await jest.advanceTimersByTimeAsync(119_000)
+      await drain(50)
+      expect(settled).toBe(false)
+
+      await jest.advanceTimersByTimeAsync(1_000)
+      await drain(50)
+      await waited
+      expect(settled).toBe(true)
+      // Nothing was sealed and nothing was marked: the leg is still hanging,
+      // and the reader simply stopped waiting on it.
+      expect(metaOf(takeId).finalizedPath).toBeUndefined()
+      expect(metaOf(takeId).secureError).toBeUndefined()
+    })
+  })
+
+  // ── ⚖ isUnsecurableTake — "never", not "not yet" (PR4 fix round 2) ────────
+  describe('⚖ the takes that can NEVER be sealed', () => {
+    it('names the two shapes isStoppedTake refuses for ever, and the settled refusals', () => {
+      // A lost tail: the disk copy is SHORT of the recording and the finalized
+      // key is immutable (fix round 16).
+      expect(isUnsecurableTake({ tailIncomplete: true })).toBe(true)
+      // A stop leg that died before it could stamp — the stamp is the very
+      // write that clears the flag (fix round 17).
+      expect(isUnsecurableTake({ stopPendingAt: Date.now() })).toBe(true)
+      // …and the drain has already stopped re-uploading these.
+      for (const code of TERMINAL_SECURE_ERRORS)
+        expect(isUnsecurableTake({ secureError: code })).toBe(true)
+    })
+
+    it('…and refuses to call a take that is merely NOT SECURED YET unsecurable', () => {
+      // An offline stop, a plain unstamped take, a moment-in-time refusal: all
+      // of these become secured the next time the drain runs.
+      expect(isUnsecurableTake({})).toBe(false)
+      expect(isUnsecurableTake({ secureError: 'session' })).toBe(false)
+      expect(isUnsecurableTake({ secureError: 'network' })).toBe(false)
+      expect(isUnsecurableTake({ secureError: 'no_segments' })).toBe(false)
+      // A stop that DID land its stamp is a finished take, not a dead leg.
+      expect(isUnsecurableTake({ stopPendingAt: Date.now(), durationMs: 5_000 })).toBe(false)
+    })
   })
 })

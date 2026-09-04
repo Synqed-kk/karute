@@ -24,13 +24,23 @@ jest.mock('@/actions/recording-discard-transcript', () => ({
 
 const mockMarkDone = jest.fn(async (_takeId: string) => {})
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
+type SecureMeta = {
+  finalizedPath?: string
+  tailIncomplete?: boolean
+  stopPendingAt?: number
+  durationMs?: number
+  secureError?: string
+}
 const mockReadSecureMeta = jest.fn(
-  async (_takeId: string): Promise<{ finalizedPath?: string } | null> => ({
+  async (_takeId: string): Promise<SecureMeta | null> => ({
     finalizedPath: 'app_business-1_take-1.webm',
   }),
 )
 const mockListPending = jest.fn(
   async (): Promise<{ takeId: string; discardPending: unknown }[]> => [],
+)
+const mockLoadTakeBlob = jest.fn(async (_takeId: string): Promise<Blob | null> =>
+  new Blob(['audio']),
 )
 jest.mock('@/lib/karute/take-store', () => ({
   markDiscardTranscriptDone: (takeId: string) => mockMarkDone(takeId),
@@ -38,11 +48,26 @@ jest.mock('@/lib/karute/take-store', () => ({
     mockStampDiscardPending(takeId, pending),
   readTakeSecureMeta: (takeId: string) => mockReadSecureMeta(takeId),
   listPendingDiscardTakes: () => mockListPending(),
+  loadTakeBlob: (takeId: string) => mockLoadTakeBlob(takeId),
+  // ⚖ THE REAL RULE, not a restatement of it (PR4 fix round 2). Whether a take
+  // can EVER be sealed is the whole question the staging branch asks, and a
+  // copy of it here would go green while take-store's own answer drifted.
+  isUnsecurableTake: jest.requireActual('@/lib/karute/take-store').isUnsecurableTake,
 }))
 
 let mockSupported = true
+const mockPrepareTranscription = jest.fn(
+  async (_blob: Blob, _finalizedPath: string | null) => ({
+    body: { path: 'app_biz-1_staged-1.webm' },
+    path: 'app_biz-1_staged-1.webm',
+  }),
+)
 jest.mock('@/lib/ports/recording-port', () => ({
-  getRecordingPipelinePort: () => ({ supportsDiscardTranscript: mockSupported }),
+  getRecordingPipelinePort: () => ({
+    supportsDiscardTranscript: mockSupported,
+    prepareTranscription: (blob: Blob, finalizedPath: string | null) =>
+      mockPrepareTranscription(blob, finalizedPath),
+  }),
 }))
 
 import {
@@ -68,6 +93,11 @@ beforeEach(() => {
     finalizedPath: 'app_business-1_take-1.webm',
   }))
   mockListPending.mockImplementation(async () => [])
+  mockLoadTakeBlob.mockImplementation(async () => new Blob(['audio']))
+  mockPrepareTranscription.mockImplementation(async () => ({
+    body: { path: 'app_biz-1_staged-1.webm' },
+    path: 'app_biz-1_staged-1.webm',
+  }))
 })
 
 describe('the world gate', () => {
@@ -222,7 +252,86 @@ describe('the audio path', () => {
     mockReadSecureMeta.mockImplementationOnce(async () => ({}))
     await runDiscardTranscript('take-1', PENDING)
     expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+    expect(mockPrepareTranscription).not.toHaveBeenCalled()
     expect(mockMarkDone).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND A TAKE THAT WILL NEVER BE SECURED IS NOT "YET" (PR4 fix round 2).
+  // Waiting for a finalized object that can never exist is silence for ever:
+  // the discard record keeps its REASON and never its words, which is the
+  // manager-review half of the ⚖ 8/20 doctrine, lost on exactly the recordings
+  // most likely to need it.
+  describe('⚖ a take that can NEVER be secured still gives up its words', () => {
+    const unsecurable: [string, SecureMeta][] = [
+      // The tail never landed — the disk copy is short of what the recorder
+      // captured, and the finalized key is immutable (fix round 16).
+      ['a lost tail', { tailIncomplete: true }],
+      // A stop leg that died before it could stamp: the stamp is the write
+      // that clears the flag, so the pair says it never came (fix round 17).
+      ['a stop that never finished', { stopPendingAt: 1_756_000_000_000 }],
+      // A settled refusal — the drain has already stopped re-uploading it.
+      ['a terminal refusal', { secureError: 'reserved_elsewhere' }],
+    ]
+
+    for (const [name, meta] of unsecurable) {
+      it(`${name}: the words are transcribed from a STAGED path and the take is marked done`, async () => {
+        mockReadSecureMeta.mockImplementationOnce(async () => meta)
+        await runDiscardTranscript('take-1', PENDING)
+        // Staged through the port's OWN fallback — one upload, no second
+        // spelling of it in this file, and nothing deleted.
+        expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
+        expect(mockPrepareTranscription.mock.calls[0][1]).toBeNull()
+        expect(mockTranscribeAndPersistDiscard).toHaveBeenCalledWith(
+          expect.objectContaining({
+            audioPath: 'app_biz-1_staged-1.webm',
+            recordingSessionId: 'sess-1',
+          }),
+        )
+        expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+      })
+    }
+
+    it('a RETRYABLE refusal is still merely "not yet" — left for the next sweep', async () => {
+      // 'session' is a moment in time (a dead socket, a core 5xx), so the drain
+      // will ask again and this take gets a finalized key after all.
+      mockReadSecureMeta.mockImplementationOnce(async () => ({ secureError: 'session' }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('a stop-pending take that DID get its stamp is securable — nothing is staged', async () => {
+      mockReadSecureMeta.mockImplementationOnce(async () => ({
+        stopPendingAt: 1_756_000_000_000,
+        durationMs: 62_000,
+      }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('no blob on disk: nothing is staged and the stamp STAYS', async () => {
+      // Persistence failed, or the segments never landed. There are no words to
+      // collect, and marking it done would close a record whose words were
+      // never even looked for.
+      mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
+      mockLoadTakeBlob.mockImplementationOnce(async () => null)
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('a failed staging upload leaves the stamp — the next sweep tries again', async () => {
+      mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
+      mockPrepareTranscription.mockImplementationOnce(async () => {
+        throw new Error('Upload failed (403)')
+      })
+      await expect(runDiscardTranscript('take-1', PENDING)).resolves.toBeUndefined()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
   })
 
   it('a transport throw never escapes at the caller (it is a fire-and-forget kick)', async () => {

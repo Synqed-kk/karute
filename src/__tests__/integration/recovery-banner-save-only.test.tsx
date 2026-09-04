@@ -131,6 +131,12 @@ let stampedAnswer: Record<string, unknown> | null = null
  *  offer was read. null = the drain has not been there. */
 let stampedSessionId: string | null = null
 const mockStampTakeOutcome = jest.fn(async () => {})
+/** Takes the SERVER NEVER RECEIVED — the cohort deleteTake refuses to destroy
+ *  automatically (capture pipeline PR4), and the whole subject of fix round 2's
+ *  D1: the stranded 復元可能 row a staffer saves must actually settle. */
+const mockStrandedTakeIds = new Set<string>()
+/** …and what the store would have left behind afterwards. */
+const mockDeletedTakeIds = new Set<string>()
 jest.mock('@/lib/karute/take-store', () => ({
   // A2-2: the discard-transcript register. Default false/[] = nothing is
   // held back, so every case below behaves exactly as it did pre-A2-2.
@@ -138,7 +144,14 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
-  deleteTake: jest.fn(),
+  // ⚖ IT CARRIES THE REAL GUARD (capture pipeline PR4). A take the server never
+  // received is removed only when a HUMAN resolved the row; a fake that removed
+  // unconditionally would go green on a call site that had lost the flag, which
+  // is exactly the bug fix round 2 closes for the SAVE path.
+  deleteTake: jest.fn(async (takeId: string, opts?: { humanResolved?: boolean }) => {
+    if (mockStrandedTakeIds.has(takeId) && !opts?.humanResolved) return
+    mockDeletedTakeIds.add(takeId)
+  }),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: (...a: unknown[]) => mockStampTakeOutcome(...(a as [])),
   // F-2: a draft's answer now survives a reload through the take id it already
@@ -238,6 +251,8 @@ afterEach(() => {
   mockSaveInline.mockResolvedValue({ id: 'karute-1' })
   mockDayFacts.mockReset()
   mockDayFacts.mockImplementation(async () => DAY_FACTS)
+  mockStrandedTakeIds.clear()
+  mockDeletedTakeIds.clear()
   offerTake = true
   unsecuredTakeIds = ['take-1']
   takeOverride = null
@@ -1361,7 +1376,38 @@ describe('draft save (T-5) and the per-offer answer latch (A-4)', () => {
       deleteTake: jest.Mock
     }
     expect(clearDraft).toHaveBeenCalled()
-    expect(deleteTake).toHaveBeenCalledWith('take-1')
+    // ⚖ THE SECOND HUMAN-RESOLVED EXIT (PR4 fix round 2). The record is on the
+    // server with this take's words; the staffer who owns the row asked for it.
+    expect(deleteTake).toHaveBeenCalledWith('take-1', { humanResolved: true })
+  })
+
+  // ⚖ …AND THAT FLAG IS WHAT MAKES THE ROW GO AWAY (PR4 fix round 2). The
+  // stranded cohort is BY DEFINITION audio the server never received under its
+  // finalized key, so the never-delete guard refuses it — and without the flag
+  // the save wrote the karute, the take survived, and the same 復元可能 row came
+  // back on the very next fold, for ever.
+  it('⚖ a STRANDED take — one the server never received — is settled by the save', async () => {
+    mockStrandedTakeIds.add('take-1')
+    grantConsent()
+    offerTake = false
+    offerDraft = { ...DRAFT }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('pending.title'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('save'))
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    expect(mockSaveInline).toHaveBeenCalledTimes(1)
+    // The row is gone from the device — the guard let this one through because
+    // a human settled it, and nothing on the SERVER was touched either way.
+    expect(mockDeletedTakeIds.has('take-1')).toBe(true)
   })
 
   it('A-4: a retry after a FAILED save never mints a second pack sale', async () => {
