@@ -34,6 +34,7 @@ import { toggleColumn } from '@/business/lib/column-config'
 import {
   CustomersScreen,
   consentLabel,
+  spentLabel,
   ticketLabel,
   walletLabel,
   type CustomerRow,
@@ -961,6 +962,71 @@ describe('顧客一覧 screen', () => {
     expect(bare!.rows.every((r) => r.storeLabel === null)).toBe(true)
     expect(bare!.rows).toEqual((await props(STORE_A))!.rows)
   })
+  it('⚖ B1-1 — 累計支払 is BOOKING-derived, so a thin row shows it like anyone else', async () => {
+    // 回数券 and 預かり残高 are PROFILE facts and stay unknown for a thin row; the
+    // money a booking produced is not a profile fact. なぎ (thin-02) has a
+    // completed 銀座 visit, so both surfaces that print 累計支払 must agree.
+    const ginza = await render(STORE_A)
+    const nagi = ginza.find((r) => r.id === 'thin-02')!
+    expect(nagi.thin).toBe(true)
+    expect(nagi.externalOwner).toBe(false)
+    expect(nagi.totalSpent).toBe(6600)
+    expect(spentLabel(nagi.totalSpent)).toBe('¥6,600')
+    // …and そら, whose 正本 is an external booking source, still states 「—」.
+    const sora = ginza.find((r) => r.id === 'thin-01')!
+    expect(sora.totalSpent).toBeNull()
+    expect(spentLabel(sora.totalSpent)).toBe('—')
+    // なぎ's recorded consent reaches the row, so the thin branch has a ledger to
+    // render; そら's is null, so it has none.
+    expect(nagi.consent).toEqual({ line: false, sms: true, email: false })
+    expect(sora.consent).toBeNull()
+  })
+
+  it('⚖ B1-5b — no completed visit in THIS lens is unknown, never a confident ¥0', async () => {
+    const ginza = await render(STORE_A)
+    // きり's only completed visit is in 代官山; うみ has none anywhere. A 銀座 desk
+    // may not state that either has spent nothing HERE.
+    expect(ginza.find((r) => r.id === 'cus-07')!.totalSpent).toBeNull()
+    expect(ginza.find((r) => r.id === 'cus-03')!.totalSpent).toBeNull()
+    expect(spentLabel(null)).toBe('—')
+    // …while a customer who really did spend here keeps her number.
+    expect(ginza.find((r) => r.id === 'cus-05')!.totalSpent).toBe(6600)
+    // …and a REAL zero still exists: a visit recorded at ¥0 sums to ¥0, not null.
+    const zeroPriced = appointments().map((a) =>
+      a.id === 'apt-04' ? { ...a, booked_price: 0 } : a,
+    )
+    const { props } = await customersProps({ locale: 'ja', store: STORE_A, world: { appointments: zeroPriced } })
+    expect(props.rows.find((r) => r.id === 'cus-05')!.totalSpent).toBe(0)
+    expect(spentLabel(0)).toBe('¥0')
+  })
+
+  it('⚖ B1-5c — a world override goes through the SAME lens the door applies', async () => {
+    // The harness may hand the room another world; it may not hand it another
+    // store. A 代官山 slot injected under 銀座 must never reach a 銀座 row.
+    const injected = {
+      ...appointments()[0],
+      id: 'apt-inject-daikanyama',
+      store_id: STORE_B,
+      customer_id: 'cus-01',
+      starts_at: jstSlot(2, 9, 0),
+      ends_at: jstSlot(2, 10, 0),
+      status: 'booked' as const,
+      booked_price: 9900,
+    }
+    const world = { appointments: [...appointments(), injected] }
+    const ginza = await customersProps({ locale: 'ja', store: STORE_A, world })
+    const akariGinza = ginza.props.rows.find((r) => r.id === 'cus-01')!
+    const plain = (await render(STORE_A)).find((r) => r.id === 'cus-01')!
+    expect(akariGinza.nextLabel).toBe(plain.nextLabel)
+    expect(akariGinza.history).toEqual(plain.history)
+    expect(akariGinza.bookings).toEqual(plain.bookings)
+    expect(JSON.stringify(akariGinza)).not.toContain('9,900')
+    // …and under 代官山 the same injected slot IS her next booking.
+    const daikanyama = await customersProps({ locale: 'ja', store: STORE_B, world })
+    expect(daikanyama.props.rows.find((r) => r.id === 'cus-01')!.hasNext).toBe(true)
+    expect(daikanyama.props.rows.find((r) => r.id === 'cus-01')!.nextPrice).toBe('¥9,900')
+  })
+
   it('an external-owner thin row states 「—」 rather than guessing money', async () => {
     const sora = (await render(STORE_A)).find((r) => r.id === 'thin-01')!
     expect(sora.totalSpent).toBeNull()

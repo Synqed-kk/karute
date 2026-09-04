@@ -198,6 +198,16 @@
 .biz .page-customers .cu-btn-solid[aria-disabled="true"] { background: var(--cu-blue); color: #fff; }
 .biz .page-customers .cu-btn[aria-disabled="true"]:hover { background: #fff; }
 .biz .page-customers .cu-btn-solid[aria-disabled="true"]:hover { background: var(--cu-blue); }
+/* ⚠ AND THE OTHER TWO SKINS, WHICH HAD BEEN LEFT OUT (⚖ B1-2a). A refused
+   control that still lights up under the pointer is telling a reader it will do
+   something. Each states ITS OWN REST PAINT, so hover is a no-op rather than a
+   second look. */
+.biz .page-customers .cu-linklike[aria-disabled="true"]:hover { text-decoration: none; }
+.biz .page-customers .cu-qbtn[aria-disabled="true"]:hover { background: var(--cu-wash); }
+/* …and it does not take the press scale either — the listener skips it, and the
+   sheet says so too, so neither can drift from the other (⚖ B1-2b). */
+.biz .page-customers [data-press][aria-disabled="true"],
+.biz .page-customers [data-press][aria-disabled="true"].is-pressed { transform: none; }
 
 .biz .page-customers .cu-linklike {
   border: 0; background: none; padding: 0;
@@ -674,11 +684,21 @@
    is one number, so these two bands ARE page ≤635 and page ≤375 exactly.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-@media (min-width: 1400px) {
+/* ⚠ THE PADDING RUNGS ARE ON PAGE WIDTH TOO (⚖ B1-3a). They were the last two
+   keyed on the VIEWPORT, which the ladder's own rule forbids: at a 1400 viewport
+   the page is 1136 with the rail open and 1324 with it collapsed, so one page
+   width was getting two paddings. The thresholds are the mock's own viewports
+   minus the 264px rail — 1400 − 264 = 1136, 1320 − 264 = 1056 — so the wide desk
+   keeps exactly the comfort it was approved with, now stated in the coordinate
+   the rest of the ladder speaks. (These live with the ladder rather than in the
+   device block because a side margin is a question about the page's width, not
+   about the device holding it; the ≥44px floor and the topbar height stay on the
+   viewport, where they belong.) */
+@container cupage (min-width: 1136px) {
   .biz .page-customers .cu-inner { padding-inline: 32px; }
 }
 
-@media (max-width: 1320px) {
+@container cupage (max-width: 1056px) {
   .biz .page-customers .cu-inner { padding-inline: 20px; }
 }
 

@@ -538,7 +538,11 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
   useEffect(() => {
     const down = (e: PointerEvent) => {
       const t = (e.target as Element | null)?.closest?.('[data-press]')
-      if (t) t.classList.add('is-pressed')
+      // ⚠ A REFUSED CONTROL DOES NOT PRESS (⚖ B1-2b). Press feedback says「that
+      // worked」, and a control that refuses has nothing to acknowledge — the
+      // scale made a dead lever feel live. The sheet states the same refusal so
+      // the two cannot drift.
+      if (t && t.getAttribute('aria-disabled') !== 'true') t.classList.add('is-pressed')
     }
     const clear = () => {
       for (const el of document.querySelectorAll('[data-press].is-pressed')) el.classList.remove('is-pressed')
@@ -1114,8 +1118,12 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
                 <div className="cu-prov-v">顧客プロフィールが一つに所有します。この一覧は参照と新規顧客追加だけを所有します。</div>
                 <div className="cu-prov-k">重複候補の判断</div>
                 <div className="cu-prov-v">顧客プロフィールが所有します。自動統合はしません。統合・別人確認の実行は未接続です。</div>
+                {/* ⚠ THE OLD WORDING CLAIMED A STORE DIMENSION (⚖ B1-5a) and is
+                    not quoted here for the same reason. It was a new-mock string,
+                    wrong against the contract: 回数券 has no store column and
+                    預かり残高 has no data path at all. */}
                 <div className="cu-prov-k">回数券・預かり残高</div>
-                <div className="cu-prov-v">店舗別の記録です。共通本人情報とは分けて表示します。</div>
+                <div className="cu-prov-v">回数券はお客様ごとの記録で、店舗ごとには分かれていません。預かり残高は未接続で、ここでは見本の数です。</div>
                 {/* The one row the mock lacks, because the product renders the
                     number: D6's lens-scoped sum, explained on the surface. */}
                 <div className="cu-prov-k">累計支払</div>
@@ -1455,7 +1463,13 @@ function InspectorBody({
         )}
 
         <div className="cu-sec">
-          <span className="cu-lb-k">保有状況（この店舗）</span>
+          {/* ⚠ THE HEADING CARRIES NO STORE QUALIFIER (⚖ B1-5a, a truth-fix, and
+              this comment deliberately does not spell the old wording — a
+              comment that quotes what a pin forbids answers for it). The contract says
+              回数券 has NO store column and 預かり残高 has no data path at all —
+              both are customer-wide, and the fixture carries them as business-wide
+              scalars. Only 累計支払 is lens-scoped, so only its own kicker says so. */}
+          <span className="cu-lb-k">保有状況</span>
           <div className="cu-holds">
             <div className="cu-hold">
               <span className="cu-hold-k">回数券</span>
@@ -1471,9 +1485,15 @@ function InspectorBody({
               </span>
             </div>
             <div className="cu-hold">
-              <span className="cu-hold-k">累計支払</span>
-              <span className={`cu-hold-v${row.thin || row.totalSpent == null ? ' is-dim' : ''}`}>
-                {row.thin ? '—' : spentLabel(row.totalSpent)}
+              {/* ⚠ 累計支払 IS BOOKING-DERIVED, so it reads the same on this tile
+                  and in the optional column — one truth, two surfaces (⚖ B1-1).
+                  The thin mask above belongs to the two PROFILE facts only; it
+                  was on this tile too, so なぎ showed 「—」 here and ¥6,600 in the
+                  column. `spentLabel` already says 「—」 for the null an external
+                  owner produces. */}
+              <span className="cu-hold-k">累計支払（この店舗）</span>
+              <span className={`cu-hold-v${row.totalSpent == null ? ' is-dim' : ''}`}>
+                {spentLabel(row.totalSpent)}
               </span>
             </div>
           </div>
@@ -1535,6 +1555,7 @@ function InspectorBody({
                 </div>
               )}
             </div>
+            <ConsentRows row={row} />
             <div className="cu-sec">
               <span className="cu-lb-k">サンプル簡易表示について</span>
               <div className="cu-nodata">
@@ -1561,38 +1582,7 @@ function InspectorBody({
               )}
             </div>
 
-            <div className="cu-sec">
-              <span className="cu-lb-k">連絡同意</span>
-              <div className="cu-consents">
-                <div className={`cu-crowc${row.consent?.line ? ' is-yes' : ''}`}>
-                  <span className="cu-crowc-k">LINE</span>
-                  <span className="cu-sp" />
-                  <span className="cu-crowc-v">
-                    {row.consent == null
-                      ? '—'
-                      : row.consent.line
-                        ? row.lineLinked
-                          ? '同意あり / 連携確認済み'
-                          : '同意あり / 連携未確認'
-                        : '同意なし'}
-                  </span>
-                </div>
-                <div className={`cu-crowc${row.consent?.sms ? ' is-yes' : ''}`}>
-                  <span className="cu-crowc-k">SMS</span>
-                  <span className="cu-sp" />
-                  <span className="cu-crowc-v">
-                    {row.consent == null ? '—' : row.consent.sms ? (row.phone ?? '同意あり') : '同意なし'}
-                  </span>
-                </div>
-                <div className={`cu-crowc${row.consent?.email ? ' is-yes' : ''}`}>
-                  <span className="cu-crowc-k">メール</span>
-                  <span className="cu-sp" />
-                  <span className="cu-crowc-v">
-                    {row.consent == null ? '—' : row.consent.email ? (row.email ?? '同意あり') : '同意なし'}
-                  </span>
-                </div>
-              </div>
-            </div>
+            <ConsentRows row={row} />
 
             <div className="cu-sec">
               <span className="cu-lb-k">来店履歴</span>
@@ -1640,6 +1630,40 @@ function InspectorBody({
         </div>
       </div>
     </>
+  )
+}
+
+/** 連絡同意 — ONE spelling, rendered by BOTH branches (⚖ B1-1). The thin branch
+ *  used to render no section at all while the optional 連絡同意 COLUMN showed
+ *  thin-02's recorded SMS consent, so the two surfaces read one ledger two ways.
+ *  A recorded consent is a recorded consent whether or not a profile exists.
+ *  ⚠ THE THREE PHRASES ARE LITERAL HERE and the 受信トレイ suite greps this file
+ *  for them — one home, so a change breaks that room loudly rather than quietly. */
+function ConsentRows({ row }: { row: CustomerRow }) {
+  if (row.consent == null) return null
+  return (
+    <div className="cu-sec">
+      <span className="cu-lb-k">連絡同意</span>
+      <div className="cu-consents">
+        <div className={`cu-crowc${row.consent.line ? ' is-yes' : ''}`}>
+          <span className="cu-crowc-k">LINE</span>
+          <span className="cu-sp" />
+          <span className="cu-crowc-v">
+            {row.consent.line ? (row.lineLinked ? '同意あり / 連携確認済み' : '同意あり / 連携未確認') : '同意なし'}
+          </span>
+        </div>
+        <div className={`cu-crowc${row.consent.sms ? ' is-yes' : ''}`}>
+          <span className="cu-crowc-k">SMS</span>
+          <span className="cu-sp" />
+          <span className="cu-crowc-v">{row.consent.sms ? (row.phone ?? '同意あり') : '同意なし'}</span>
+        </div>
+        <div className={`cu-crowc${row.consent.email ? ' is-yes' : ''}`}>
+          <span className="cu-crowc-k">メール</span>
+          <span className="cu-sp" />
+          <span className="cu-crowc-v">{row.consent.email ? (row.email ?? '同意あり') : '同意なし'}</span>
+        </div>
+      </div>
+    </div>
   )
 }
 

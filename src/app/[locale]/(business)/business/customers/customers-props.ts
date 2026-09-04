@@ -236,7 +236,12 @@ export async function customersProps({
     // which would show a branch viewer another store's money in one number
     // (contract §5 flags exactly this) — the lensed sum is the reading that
     // cannot leak. Flagged in the PR body as a reconnect decision.
-    const spent = c.external_owner ? null : mine.reduce((sum, v) => sum + (v.booked_price ?? 0), 0)
+    // ⚠ NO COMPLETED VISIT IN THE LENS IS UNKNOWN, NOT ZERO (⚖ B1-5b, the L-6
+    // null doctrine). `reduce(…, 0)` printed a confident ¥0 for きり, whose spend
+    // is all in 代官山 — a branch desk stating another store's customer has spent
+    // nothing here. A real ¥0 exists only where a visit WAS recorded at ¥0, and
+    // that branch still works: the sum runs whenever there is anything to sum.
+    const spent = c.external_owner || mine.length === 0 ? null : mine.reduce((sum, v) => sum + (v.booked_price ?? 0), 0)
 
     const daysSince = lastVisit === null ? null : todayKey - jstDayKey(lastVisit.starts_at)
     const category = bookingCategory(c, priorVisits.get(c.id) ?? 0)

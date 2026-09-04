@@ -234,12 +234,12 @@ describe('顧客 V2 — the tiles ARE the filters (⚖ §2.2)', () => {
   ]
 
   it('every tile’s count IS the number of rows its own filter reveals', () => {
-    // ONE function per tile, asked twice. A count computed from a second
-    // predicate is the mutant this kills.
-    for (const key of Object.keys(TILE_PREDICATE) as Array<keyof typeof TILE_PREDICATE>) {
-      const revealed = world.filter(TILE_PREDICATE[key])
-      expect({ key, count: revealed.length }).toEqual({ key, count: world.filter(TILE_PREDICATE[key]).length })
-    }
+    // ⚠ THE FIVE CONCRETE COUNTS ARE THE PIN. A loop comparing
+    // `world.filter(pred)` with `world.filter(pred).length` compared a predicate
+    // to itself: true for any predicate, including a broken one, so it killed
+    // nothing and read as coverage. What actually kills M1 (a second predicate
+    // behind the count) and M2 (¥0 counted as 残高あり) is each expected NUMBER
+    // written out below against a world built to separate the shapes.
     expect(world.filter(TILE_PREDICATE.all)).toHaveLength(6)
     expect(world.filter(TILE_PREDICATE.future)).toHaveLength(1)
     expect(world.filter(TILE_PREDICATE.ticket)).toHaveLength(1)
@@ -423,6 +423,61 @@ describe('顧客 V2 — the refusals and the doors (⚖-ADJ A / ⚖-ADJ B)', () 
     expect(SCREEN_SRC).not.toContain('（準備中）')
   })
 
+  it('⚖ B1-2b — a REFUSED control does not take the press scale, a live one does', () => {
+    // Driven with a real pointerdown on real nodes (the house pattern), because
+    // the listener is the thing under test.
+    const root = document.createElement('div')
+    root.innerHTML = '<button data-press aria-disabled="true" id="dead">CSV</button><button data-press id="live">追加</button>'
+    document.body.appendChild(root)
+    const down = (e: PointerEvent) => {
+      const t = (e.target as Element | null)?.closest?.('[data-press]')
+      if (t && t.getAttribute('aria-disabled') !== 'true') t.classList.add('is-pressed')
+    }
+    document.addEventListener('pointerdown', down, true)
+    root.querySelector('#dead')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    root.querySelector('#live')!.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(root.querySelector('#dead')!.classList.contains('is-pressed')).toBe(false)
+    expect(root.querySelector('#live')!.classList.contains('is-pressed')).toBe(true)
+    document.removeEventListener('pointerdown', down, true)
+    root.remove()
+    // …and the SHIPPED listener carries the same check, so the copy above is a
+    // driver rather than a second implementation.
+    expect(SCREEN_CODE).toContain("if (t && t.getAttribute('aria-disabled') !== 'true') t.classList.add('is-pressed')")
+  })
+
+  it('⚖ B1-2a/c — every refused control refuses its hover paint, and 表示中をCSV is one of them', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/customers/customers.css'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(css).toContain('.biz .page-customers .cu-linklike[aria-disabled="true"]:hover { text-decoration: none; }')
+    expect(css).toContain('.biz .page-customers .cu-qbtn[aria-disabled="true"]:hover { background: var(--cu-wash); }')
+    expect(css).toMatch(/\[data-press\]\[aria-disabled="true"\][\s\S]{0,80}transform: none/)
+    // 表示中をCSV: refused, its reason on the name, and NO handler on it.
+    expect(SCREEN_CODE).toContain("refused('表示中をCSV', REFUSAL.csv, { base: null, className: 'cu-linklike' })")
+    expect(SCREEN_CODE).not.toMatch(/表示中をCSV[\s\S]{0,160}onClick/)
+    expect(SCREEN_CODE).toContain("csv: '見本データのため実行できません',")
+  })
+
+  it('⚖ B1-5a — the 保有状況 heading claims only what the contract backs', () => {
+    // 回数券 has no store column and 預かり残高 has no data path at all, so the
+    // heading may not say 「この店舗」; only 累計支払, which IS lens-scoped, does.
+    expect(SCREEN_CODE).toContain('<span className="cu-lb-k">保有状況</span>')
+    expect(SCREEN_CODE).not.toContain('保有状況（この店舗）')
+    expect(SCREEN_CODE).toContain('<span className="cu-hold-k">累計支払（この店舗）</span>')
+    expect(SCREEN_CODE).toContain('回数券はお客様ごとの記録で、店舗ごとには分かれていません。預かり残高は未接続で、ここでは見本の数です。')
+    expect(SCREEN_CODE).not.toContain('店舗別の記録です。共通本人情報とは分けて表示します。')
+  })
+
+  it('⚖ B1-1 — the consent rows have ONE spelling, and both branches render it', () => {
+    expect(SCREEN_CODE.match(/cu-crowc-k">LINE</g)).toHaveLength(1)
+    expect(SCREEN_CODE.match(/<ConsentRows row={row} \/>/g)).toHaveLength(2)
+    expect(SCREEN_CODE).toContain('if (row.consent == null) return null')
+    // …and 累計支払 is no longer masked for a thin row on the tile.
+    expect(SCREEN_CODE).toContain('{spentLabel(row.totalSpent)}')
+    expect(SCREEN_CODE).not.toMatch(/row\.thin \? '—' : spentLabel/)
+  })
+
   it('a duplicate’s reason names the shared key when there is one', () => {
     expect(dupeReason(row({ id: 'a', no: 'C-1', name: 'あ', merge: 'open', phone: '090-0000-0001' })))
       .toBe('同じ電話番号 090-0000-0001 で候補になりました')
@@ -470,10 +525,12 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
   })
 
   it('⚖ the guided tour — every declared region carries BOTH a title and a text', () => {
-    const titles = [...SCREEN_SRC.matchAll(/data-guide-title="([^"]*)"/g)].map((m) => m[1])
-    const texts = [...SCREEN_SRC.matchAll(/\n\s*data-guide="([^"]*)"/g)].map((m) => m[1])
-    const jsxTitles = [...SCREEN_SRC.matchAll(/'data-guide-title': '([^']*)'/g)].map((m) => m[1])
-    const jsxTexts = [...SCREEN_SRC.matchAll(/'data-guide':\s*\n?\s*'([^']*)'/g)].map((m) => m[1])
+    // SCREEN_CODE, never SCREEN_SRC: a comment that quotes a declaration would
+    // otherwise be counted as one — the same trap the root-class pin fell into.
+    const titles = [...SCREEN_CODE.matchAll(/data-guide-title="([^"]*)"/g)].map((m) => m[1])
+    const texts = [...SCREEN_CODE.matchAll(/\n\s*data-guide="([^"]*)"/g)].map((m) => m[1])
+    const jsxTitles = [...SCREEN_CODE.matchAll(/'data-guide-title': '([^']*)'/g)].map((m) => m[1])
+    const jsxTexts = [...SCREEN_CODE.matchAll(/'data-guide':\s*\n?\s*'([^']*)'/g)].map((m) => m[1])
     const allTitles = [...titles, ...jsxTitles]
     const allTexts = [...texts, ...jsxTexts]
     // eight declared regions: head · tiles · strip · list · inspector · dupe box
