@@ -948,11 +948,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const receiptGap = num('cg-receipt-gap')
     const statMin = num('cg-stat-min')
     const statTight = num('cg-stat-tight')
+    const valueWide = num('cg-value-wide')
     const statGap = num('cg-stat-gap')
     const colsGap = num('cg-cols-gap')
     const cardGap = num('cg-card-gap')
     expect({ main, side, chart, board, claim, receipt, receiptGap, statMin, statTight, statGap, colsGap, cardGap })
-      .toEqual({ main: 560, side: 300, chart: 520, board: 608, claim: 232, receipt: 232, receiptGap: 16, statMin: 104, statTight: 96, statGap: 10, colsGap: 24, cardGap: 18 })
+      .toEqual({ main: 560, side: 300, chart: 520, board: 608, claim: 232, receipt: 232, receiptGap: 16, statMin: 104, statTight: 101, statGap: 10, colsGap: 24, cardGap: 18 })
+    expect(valueWide).toBe(128)
     const thresholds = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     const distinct = [...new Set(thresholds)].sort((a, b) => a - b)
     // THREE page thresholds, FOUR compositions — and each one equals the sum of
@@ -1034,21 +1036,34 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // column, which is the same half-empty row the supporting column's orphan
     // rule exists to prevent one level down.
     const spineThresholds = [...CSS_CODE.matchAll(/@container cg-spine \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
-    expect(spineThresholds).toEqual([350, 520])
+    expect(spineThresholds).toEqual([332, 560])
+    // ⚠ THE ONE THRESHOLD SHIPPED AT ITS EXACT FIT, and the reason is stated in
+    // the sheet: `auto-fit` already takes three tiles at 332, so a rule shipped
+    // higher would leave a band taking three tiles at the WIDE value size — and
+    // the money value breaks mid-number there. The slack lives in the tile
+    // FLOOR; this rule stops `auto-fit` choosing four, and carries the size step.
     expect(statMin * 3 + statGap * 2).toBe(332)
-    expect(spineThresholds[0]).toBeGreaterThanOrEqual(statMin * 3 + statGap * 2)
-    expect(statTight * 5 + statGap * 4).toBe(520)
+    expect(spineThresholds[0]).toBe(statMin * 3 + statGap * 2)
+    expect(statTight * 5 + statGap * 4).toBe(545)
     expect(spineThresholds[1]).toBeGreaterThanOrEqual(statTight * 5 + statGap * 4)
+    expect(spineThresholds[1] - (statTight * 5 + statGap * 4)).toBeLessThanOrEqual(24)
     expect(CSS_CODE).toContain('.cg-spine { container: cg-spine / inline-size; }')
-    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 350px)'))
+    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 332px)'))
     expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
-    const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 520px)'))
+    const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 560px)'))
     expect(five.slice(0, 400)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
-    // ⚠ AND THE VALUE STEPS WITH THE TILE. A money value that breaks mid-number
-    // is the one thing a money value may never do, and 22px in a ~105px tile
-    // did exactly that. The step is the mock's own D8.
-    expect(three.slice(0, 600)).toContain('.cg-stat-value { font-size: 18px; }')
-    expect(five.slice(0, 400)).toContain('.cg-stat-value { font-size: 22px; }')
+    // ⑦ THE VALUE'S SIZE FOLLOWS THE TILE, not the card. 3-up and 5-up produce
+    // very different tiles out of the same card, so a step keyed on the CARD got
+    // one of them wrong every time and 「4.3 / 5.0」 broke in half. The tile is
+    // the smallest container in the room and the only one that answers 「does
+    // this number fit」.
+    const valueThresholds = [...CSS_CODE.matchAll(/@container cg-stat \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
+    expect(valueThresholds).toEqual([128])
+    expect(valueThresholds[0]).toBe(valueWide)
+    expect(CSS_CODE).toContain('.cg-stat { container: cg-stat / inline-size;')
+    expect(CSS_CODE).toMatch(/\.cg-stat-value \{[^}]*font-size: 17px/)
+    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-stat (min-width: 128px)'))
+    expect(wide.slice(0, 200)).toContain('.cg-stat-value { font-size: 22px; }')
   })
 
   it('the ladder has exactly ONE column threshold, and it is a CONTAINER query', () => {
@@ -1059,14 +1074,16 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // SIX blocks on THREE containers: the page (700 · 880 · 1000), the finding
-    // CARD (560) and the 成績 card (380 · 520). Each is stated ONCE, and the two
-    // card-level containers exist because what decides those two compositions is
-    // the CARD's width — the page's is two layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(6)
+    // SEVEN blocks on FOUR containers: the page (700 · 880 · 940), the finding
+    // CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is
+    // stated ONCE, and every card-level container exists because what decides
+    // that composition is the box it is in — the page's width is one, two or
+    // three layout decisions away from it.
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(7)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
+    expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
     expect(CSS_CODE).toContain('container: cg-page / inline-size')
     // …and NO media band ever restates a composition, so a viewport rule cannot
     // disagree with the shape the container decided.

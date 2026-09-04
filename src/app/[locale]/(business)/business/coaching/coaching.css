@@ -248,15 +248,36 @@
        ×  3
        +  20  two gaps
        ─────
-         332  three across first fit
-         350  ships — 332 plus 18, and low enough that the supporting column at
-              the reference width (≈392, so a card of ≈352) really takes 3+2
-              rather than 2+2+1. A 390px phone (card ≈244) keeps its two.
-          96  the tile's TIGHT floor — the width at which 「平均客単価 / ￥9,800」
-       ×  5   still sits on one line at 22px tabular
-       +  40  four gaps
+         332  three across first fit, and 332 SHIPS — this is the one threshold
+              in the room whose slack lives in the TILE FLOOR rather than in the
+              threshold, and deliberately: `auto-fit` already takes three at
+              332, so a rule shipped any higher would leave the band between the
+              two spellings taking three tiles at the WIDE value size, and the
+              money value would break mid-number exactly where R1's own pixel
+              read found it. The floor (104) is what guarantees the fit; this
+              rule exists to stop `auto-fit` choosing FOUR higher up, and to
+              carry the value's size step down with the tile.
+              At the reference width the supporting column is 376, so the card
+              is 336 and takes 3+2. A 390px phone (card ≈244) keeps its two.
+         101  the tile's TIGHT floor. ⚠ MEASURED, AND THE WIDEST VALUE IS NOT
+       ×  5   THE MONEY: 「4.3 / 5.0」 is 97px at 22px and 75px at 17px, against
+       +  40  「￥9,800」's 86 and 66. 75 + 26 of tile padding = 101.
        ─────
-         520  all five across, which is the composition the desk is for.
+         545  all five across
+         560  ships — 545 plus 15, and the composition the desk is for.
+
+     THRESHOLD ⑦ (the VALUE's own size, inside a TILE — the smallest container
+     in the room, and the right one: what decides whether a number fits is the
+     TILE, not the card and not the page. The first cut of this stepped the size
+     inside the CARD's bands and left 「4.3 / 5.0」 breaking in half at two of
+     them, because 3-up and 5-up produce tiles of very different widths):
+          97  the widest value at 22px 「4.3 / 5.0」, measured
+       +  26  the tile's own left+right padding
+       ─────
+         123  the tile at which the full size fits
+         128  ships — 123 plus 5. Below it the value is 17px (75 + 26 = 101,
+              which is the tile floor above), so a number NEVER breaks in half
+              at any band — the one thing a value may not do.
      Between them the card takes 3+2 rather than `auto-fit`'s 4+1: four tiles
      and an orphan is the same half-empty row the supporting column's own
      `:last-child:nth-child(odd)` rule exists to prevent, one level down.
@@ -272,8 +293,9 @@
   --cg-receipt-min: 232px;
   --cg-receipt-gap: 16px;
   --cg-stat-min: 104px;
-  --cg-stat-tight: 96px;
+  --cg-stat-tight: 101px;
   --cg-stat-gap: 10px;
+  --cg-value-wide: 128px;
   --cg-cols-gap: 24px;
   --cg-card-gap: 18px;
 
@@ -495,23 +517,22 @@
 /* ⑥ — 2 on a phone, 3+2 in the supporting column, 5 across on a wide card.
    Queried on the CARD, because the page's width is two layout decisions away
    from how many facts fit inside it. */
-@container cg-spine (min-width: 350px) {
+@container cg-spine (min-width: 332px) {
   .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  /* ⚠ AND THE VALUE STEPS DOWN WITH THE TILE (the mock's own D8). Three across
-     a ~336px card is a tile of ~105, and 「￥9,800」 at 22px needs 114 — so the
-     money value broke mid-number, which is the one thing a money value may
-     never do. 18px fits it with room, and the label above it is unchanged. */
-  .biz .pg-coaching .cg-stat-value { font-size: 18px; }
 }
-@container cg-spine (min-width: 520px) {
+@container cg-spine (min-width: 560px) {
   .biz .pg-coaching .cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  /* five across a wide card is a tile of ~96, which is what --cg-stat-tight is,
-     and at that width the value has its full size back. */
+}
+/* ⚠ THE TILE IS ITS OWN CONTAINER (threshold ⑦). The value's size follows the
+   TILE, because that is what it has to fit inside — 3-up and 5-up produce very
+   different tiles out of the same card, and a step keyed on the card got one of
+   them wrong every time. */
+.biz .pg-coaching .cg-stat { container: cg-stat / inline-size; padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
+.biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+@container cg-stat (min-width: 128px) {
   .biz .pg-coaching .cg-stat-value { font-size: 22px; }
 }
-.biz .pg-coaching .cg-stat { padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
-.biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
-.biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-basis { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
 
 /* ── the single next move ──────────────────────────────────────────────────── */
