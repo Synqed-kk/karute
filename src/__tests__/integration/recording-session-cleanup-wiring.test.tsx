@@ -98,6 +98,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   appendTakeSegment: jest.fn(),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
+  // Fix round 6: ReviewScreen's 保存 exit settles the take through the one rule
+  // (it used to call deleteTake straight), and this double is what it lands in.
+  settleTakeAfterSave: jest.fn(async () => {}),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),

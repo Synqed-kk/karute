@@ -99,6 +99,7 @@ jest.mock('@synqed-kk/ui', () => {
 let mockRecoverableTake: Record<string, unknown> | null = null
 const mockStampDiscardPending = jest.fn(async (_takeId: string, _pending: unknown) => true)
 const mockMarkDiscardTranscriptDone = jest.fn(async (_takeId: string) => {})
+const mockSettleTakeAfterSave = jest.fn(async (_takeId: string) => {})
 // Capture pipeline PR3 — the record page's mount retry. This suite's take-store
 // is a fake, so the real secureTake would reach for functions that are not in
 // it; nothing here is about whether the audio reaches the server (that is
@@ -116,6 +117,9 @@ jest.mock('@/lib/karute/take-store', () => ({
   listPendingDiscardTakes: jest.fn(async () => []),
   createTake: jest.fn(),
   deleteTake: jest.fn(),
+  // PR4 fix round 6: the SAVE exits ask this rule what a save may take;
+  // none of them calls deleteTake any more.
+  settleTakeAfterSave: (takeId: string) => mockSettleTakeAfterSave(takeId),
   stampTakeSession: jest.fn(),
   stampTakeOutcome: jest.fn(async () => {}),
   readTakeOutcome: jest.fn(async () => null),
@@ -1368,5 +1372,27 @@ describe('A2-2 — persisting the words at discard', () => {
       expect(mockRunDiscardTranscript).not.toHaveBeenCalled()
       expect(mockDiscardRecording).not.toHaveBeenCalled()
     })
+  })
+})
+
+// ⚖ THE FOURTH SETTLED EXIT (PR4 fix round 6). ReviewScreen's 保存 is the SAVE
+// twin of the review discard above — and the exit a walk-in normally takes,
+// because the autosave gate needs an appointment customer. It called deleteTake
+// BARE, which the never-delete guard refuses for a take the server does not
+// have: the just-saved session survived with no stamp on it, so the next fold
+// offered it back as 復元可能 and every retap re-transcribed the same audio.
+// The record here is already on the server carrying this take's words, so the
+// question is only what the AUDIO may do — which is the one rule's question.
+describe('ReviewScreen’s 保存 — the fourth settled exit', () => {
+  it('settles the take through the ONE rule, and deletes nothing bare', async () => {
+    mockPipelineState = 'review'
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('review-saved'))
+    })
+
+    expect(mockSettleTakeAfterSave).toHaveBeenCalledWith('take-1')
+    const { deleteTake } = jest.requireMock('@/lib/karute/take-store') as { deleteTake: jest.Mock }
+    expect(deleteTake).not.toHaveBeenCalled()
   })
 })

@@ -37,6 +37,24 @@ const srcFiles = () =>
     .map((r) => `src/${r.split(sep).join('/')}`)
     .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
 
+/** The two components that own a take: the record page and the autosave chip.
+ *  Every remaining delete door in the app's own code is in one of these. */
+const VIEW = 'src/components/karute/redesign/record/RecordPageView.tsx'
+const INDICATOR = 'src/components/recording/ProcessingIndicator.tsx'
+
+/** ONE handler's body: from the line that opens it to the first line that is
+ *  EXACTLY its closing brace. Both files declare every handler at one fixed
+ *  indent, so this needs no parser — and a rename THROWS here rather than
+ *  quietly censusing an empty string, which is the way a source census dies. */
+const handlerBody = (src: string, open: string, close = '  }') => {
+  const lines = src.split('\n')
+  const start = lines.findIndex((l) => l.includes(open))
+  if (start < 0) throw new Error(`handler not found: ${open}`)
+  const end = lines.findIndex((l, i) => i > start && l === close)
+  if (end < 0) throw new Error(`handler never closed: ${open}`)
+  return lines.slice(start, end + 1).join('\n')
+}
+
 describe('the six doors that could delete a recording', () => {
   it('1. the worker no longer removes the object it just transcribed', () => {
     const src = code('src/lib/jobs/process-recording.ts')
@@ -92,21 +110,28 @@ describe('what REPLACED them', () => {
   })
 
   // ⚖ ITS EXITS ARE SETTLED SAVES, AND ONE RULE DECIDES THEM (fix rounds 1, 2,
-  // 3 and 4). The guard needs a way out or a 確認待ち row whose take was never
+  // 3, 4 and 6). The guard needs a way out or a 確認待ち row whose take was never
   // secured can be cleared by nobody — the unclearable 要対応 badge this family
-  // has already been burned by. THREE call sites reach it, each one downstream
-  // of a karute record already on the server carrying this take's own words:
+  // has already been burned by. FOUR call sites reach it, each one downstream of
+  // a karute record already on the server carrying this take's own words:
   // 確認する on the inbox row (round 1), 保存する on the stranded/recovery row
-  // (round 2), and the in-tab autosave's settle (round 3).
+  // (round 2), the in-tab autosave's settle (round 3), and ReviewScreen's own
+  // 保存 (round 6 — the LAST one still deleting, and the one a walk-in normally
+  // takes, since the autosave gate needs an appointment customer).
   //
-  // Round 4 takes the DECISION off all three. They used to write
+  // Round 4 takes the DECISION off all of them. They used to write
   // `humanResolved: true` as a constant, which was false for a take whose
   // secure failed retryably — no finalized key, a row-less staged copy, and the
   // constant destroying the only audio the drain could still seal. The flag is
   // now computed in ONE place from the take itself, and no call site may write
-  // it: the census below is over the WHOLE of src/, not the three files here,
-  // because a fourth exit added tomorrow is exactly what this pins.
-  it('…and its three exits all route through the ONE rule — no call site writes the flag', () => {
+  // it: the census below is over the WHOLE of src/, not the files named here.
+  //
+  // ⚠ AND THAT CENSUS IS WHY ROUND 6 WAS NEEDED. Banning the CONSTANT is not
+  // banning the DELETE: onSaved never wrote a flag, it just called deleteTake,
+  // and read green here for two rounds. So the exits are now pinned BY HANDLER
+  // — a save path must contain the settle AND must not contain a delete — and
+  // the delete calls themselves are counted in the case below.
+  it('…and its FOUR exits all route through the ONE rule — no save path deletes', () => {
     const store = code('src/lib/karute/take-store.ts')
     expect(store).toContain('opts?: { humanResolved?: boolean }')
     // The rule: the take is READ, and only a take that can never be sealed
@@ -117,11 +142,32 @@ describe('what REPLACED them', () => {
       'return deleteTake(takeId, { humanResolved: !!meta && isUnsecurableTake(meta) })',
     )
 
-    const view = code('src/components/karute/redesign/record/RecordPageView.tsx')
+    const view = code(VIEW)
+    // Sliced by handler, and asserted BOTH ways round: "the file contains a
+    // settle" is what the old census asked, and a save exit that settles one
+    // take while deleting another passes it.
+    for (const [exit, body] of [
+      ['確認する on the inbox row', handlerBody(view, 'function handleInboxOpenRecord(')],
+      ['保存する on the recovery/inbox row', handlerBody(view, 'async function commitRecoverySave(')],
+      ['ReviewScreen’s onSaved', handlerBody(view, 'onSaved={() => {', '          }}')],
+    ] as const) {
+      expect([exit, body.includes('settleTakeAfterSave(')]).toEqual([exit, true])
+      expect([exit, body.includes('deleteTake(')]).toEqual([exit, false])
+    }
+    // The exact spellings, so a settle cannot quietly change which take it
+    // settles while the handler slice above still reads green.
     expect(view).toContain('settleTakeAfterSave(row.takeId).then(() => loadInbox())')
     expect(view).toContain('settleTakeAfterSave(d.takeId)')
-    const indicator = code('src/components/recording/ProcessingIndicator.tsx')
-    expect(indicator).toContain('settleTakeAfterSave(ctx.takeId)')
+    expect(view).toContain(
+      'if (pipeline.context?.takeId) void settleTakeAfterSave(pipeline.context.takeId)',
+    )
+
+    // The fourth exit has no named handler to slice — it is an anonymous run
+    // inside ProcessingIndicator's autosave effect — so the FILE is the fence,
+    // which it can be: this component owns no other take door at all.
+    const indicator = code(INDICATOR)
+    expect(indicator).toContain('if (ctx.takeId) void settleTakeAfterSave(ctx.takeId)')
+    expect(indicator).not.toContain('deleteTake(')
 
     // ⚖ AND THE CONSTANT IS GONE FROM THE APP. Comments are stripped by
     // `code`, so prose about the flag is not the flag.
@@ -131,6 +177,68 @@ describe('what REPLACED them', () => {
     for (const rel of ['src/lib/global-pipeline.ts', 'src/lib/recording/discard-transcript.ts']) {
       expect(code(rel)).not.toContain('humanResolved')
     }
+  })
+
+  // ⚖ …AND EVERY BARE DELETE THAT REMAINS IS A DISCARD THAT MARKED FIRST (fix
+  // round 6). This is the half the flag census could not do: it counts the
+  // CALLS, so a delete that appears anywhere new in these two files fails here
+  // whether or not it carries a flag, and the three that stay have to keep
+  // being the three discard arms — each of which stamps the take before the
+  // delete, so a thrown-away session is never re-offered.
+  it('the only bare deleteTake left in the two take-owning components is a MARKED discard', () => {
+    const bare = (rel: string) =>
+      code(rel)
+        .split('\n')
+        .filter((l) => l.includes('deleteTake('))
+        .map((l) => l.trim())
+
+    expect(bare(VIEW)).toEqual([
+      'void deleteTake(ctx.takeId)', // the pipeline-error arm
+      'void deleteTake(bannerSnap.takeId)', // the ⚖ 8/26 below-floor banner arm
+      'if (takeId) void deleteTake(takeId)', // finishReviewDiscard, called from the review arm
+    ])
+    expect(bare(INDICATOR)).toEqual([])
+
+    const view = code(VIEW)
+    // Arms 1 and 2 mark the take on the line ABOVE their delete — adjacency is
+    // the assertion, because a mark that drifts away from the delete is a
+    // window in which a crash leaves the take alive and offerable again.
+    expect(view).toContain(
+      [
+        '        if (ctx?.takeId) {',
+        '          await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)',
+        '          void deleteTake(ctx.takeId)',
+        '        }',
+      ].join('\n'),
+    )
+    expect(view).toContain(
+      [
+        '        await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)',
+        '        void deleteTake(bannerSnap.takeId)',
+      ].join('\n'),
+    )
+    // Arm 3 takes its take id as a PARAMETER, so its mark is at its one call
+    // site, not in its body: the id reaches the delete only when
+    // persistReviewDiscardTranscript already stamped the take AND settled it
+    // (keepTake false). A failed persist hands it null — the audio is kept and
+    // the retry still has something to read.
+    expect(handlerBody(view, 'function finishReviewDiscard(')).toContain(
+      'if (takeId) void deleteTake(takeId)',
+    )
+    expect(view).toContain(
+      [
+        '        const keepTake = !(await persistReviewDiscardTranscript(',
+        '          ctx?.takeId,',
+        '          pending,',
+        "          globalPipeline.result?.transcript ?? '',",
+        '        ))',
+        '        setDiscardReasonFor(null)',
+        '        finishReviewDiscard(recordingSessionId, keepTake ? null : ctx?.takeId)',
+      ].join('\n'),
+    )
+    // …and that IS its only call site, so the pin above is the whole story
+    // (one declaration + one call = two occurrences).
+    expect(view.split('finishReviewDiscard(').length - 1).toBe(2)
   })
 
   it('…and a refused prune is a VISIBLE take, never a swallowed one', () => {

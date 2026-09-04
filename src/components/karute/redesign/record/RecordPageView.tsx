@@ -2825,8 +2825,13 @@ export function RecordPageView({
             // Save persisted the record → drop the recovery draft (storage +
             // in-memory) AND the persisted take, so no stale banner reoffers a
             // finished session.
+            // ⚖ THE FOURTH SETTLED EXIT (fix round 6) — and the one a walk-in
+            // normally takes (the autosave gate needs an appointment customer),
+            // so a bare deleteTake here was refused for every UNSECURABLE take:
+            // alive, unstamped, re-offered as 復元可能 for a session already saved,
+            // re-transcribing on every retap. One rule decides all four exits.
             clearDraft()
-            if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
+            if (pipeline.context?.takeId) void settleTakeAfterSave(pipeline.context.takeId)
             setRecoveredDraft(null)
             setRecoveredTake(null)
             globalPipeline.reset()
