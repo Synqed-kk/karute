@@ -228,12 +228,20 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  under it. Quotes only open a string from CODE state, so a `'` inside a
  *  comment is a character.
  *
- *  ⚠ THE CEILING, SAID HONESTLY. A regex literal is not parsed — a `/` that
- *  starts one is code, and a `'` or `"` inside its character class opens a
- *  string that runs to the end of that line (single- and double-quoted strings
- *  cannot span a line, which is what bounds it). That can only HIDE text, and
- *  hiding takes a pinned line out of the arrays and the counts, which is red.
- *  ADDING is what a decoy needs, and adding is what the counts are for.
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1 — revised, the
+ *  claim below used to be wrong on both halves). A regex literal is not
+ *  parsed, and a QUOTE inside its character class is not the only thing that
+ *  leaks: because a `/` in code state is pushed as a plain character, the very
+ *  next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) takes the
+ *  block-comment branch too, closing string-blind on whichever `*\/` comes
+ *  next. And 「hiding is red」 only holds when the hidden span contains a
+ *  PINNED line — a mutant that hides only its OWN added lines moves no count
+ *  (`N31`, `N31b`: a second live `computeChecks(` reader, GREEN at 30 suites,
+ *  `tsc --noEmit` clean). The guard against that is not in the tokenizer: a
+ *  RAW count over `src` stands beside every `codeOnly(src)` single-reader
+ *  count that a hidden second reader would matter to — a regex hole can blind
+ *  the blanked count, never the raw one. ADDING is what a decoy needs, and
+ *  adding is what the counts are for.
  *
  *  It is duplicated verbatim in three suites — they do not import one another
  *  and a new module is forbidden on this lane — and the last describe in each
@@ -10306,6 +10314,17 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // computeChecks(at, {` is real code that an anchored count cannot see —
       // it is the one decoy the two counts above walked past.
       expect({ where, readers: (codeOnly(src).match(/computeChecks\(/g) ?? []).length }).toEqual({ where, readers: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — AND THE RAW SOURCE, BESIDE IT. `codeOnly`
+      // does not parse regex literals, and it is not only a quote that leaks:
+      // the very next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) opens a
+      // real block comment too, closing string-blind on the next `*/` — a
+      // second live `computeChecks(` reader can sit hidden in there and the
+      // blanked count above never sees it (`N31`, `N31b`: GREEN at 30 suites,
+      // `tsc --noEmit` clean). Hiding is only red when it removes a PINNED
+      // line from a count; hiding a mutant's own addition moves nothing
+      // above. The raw count cannot be blinded the same way — it reads `src`
+      // itself, never `codeOnly(src)`.
+      expect({ where, rawReaders: (src.match(/computeChecks\(/g) ?? []).length }).toEqual({ where, rawReaders: 1 })
       // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
       // no-op, are gone in every shape the breaker has used on this lane.
       for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
@@ -10556,6 +10575,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
         .toEqual({ name, bound: 0 })
       // (3) CALLED exactly once.
       expect({ name, calls: (code.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, calls: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — and the RAW source beside it, same reason
+      // as the computeChecks pair above: a regex-literal `/*` can hide a
+      // second live call from the blanked count without hiding a pinned
+      // line, and the raw count reads `SRC` itself, never `codeOnly(SRC)`.
+      expect({ name, rawCalls: (SRC.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, rawCalls: 1 })
       // (4) …and it ARRIVES by import: the specifier stands in the pinned
       //     import block above, counted.
       expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })

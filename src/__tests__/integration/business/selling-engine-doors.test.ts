@@ -161,7 +161,20 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  `'…'`, `"…"`, `` `…` `` with `${ … }` holes, `//` and `/* … *\/`: a
  *  delimiter inside a string is a character, comments are blanked to spaces so
  *  the output keeps the input's length and line numbers, and strings come back
- *  verbatim. Unit-pinned in today-screen-interactions.test.ts; this is a
+ *  verbatim.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1). A regex literal
+ *  is not parsed, and a quote inside its character class is not the only
+ *  thing that leaks: the very next `/*` INSIDE the regex body (`/[/*]/`,
+ *  `/a\/*b/`) opens a real block comment too, closing string-blind on the
+ *  next `*\/`. Hiding is only red when it removes a PINNED line from a count;
+ *  hiding a mutant's own addition moves nothing. The guard is not in the
+ *  tokenizer — it is a RAW count over `src` standing beside every
+ *  `codeOnly(src)` single-reader count that a hidden second reader would
+ *  matter to (today-screen-interactions.test.ts, the `computeChecks(` and
+ *  `priceFactSets(`/`hasPriceFact(` reader counts).
+ *
+ *  Unit-pinned in today-screen-interactions.test.ts; this is a
  *  VERBATIM copy — these three suites do not import one another — and the last
  *  describe in this file asserts all three copies are byte-identical. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
