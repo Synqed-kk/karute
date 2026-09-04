@@ -1268,14 +1268,24 @@ describe('analytics.css', () => {
       // …restacks the open row's cell, in the SAME block
       expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}\\s*\\{[^}]*grid-column:\\s*1 / -1`))
       expect(block).toMatch(new RegExp(`\\.an-trow-body\\.is-open > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
-      // …and gives the 統計 row's total its own labelled line, in the same block
-      // (the `always` totals ride the ≥800 block, which is the same rung: the
-      // four are shed at every width and the phone rung has its own chip list).
+      // …and shows the total's CHIP in the 統計 row's one wrapped line, in the
+      // same block (the `always` totals ride the ≥800 block, which is the same
+      // rung: the four are shed at every width and the phone rung has its own
+      // chip list). ⚠ A CHIP, NOT A LINE OF ITS OWN — four to six full-width
+      // detail lines under the 合計 line grew the sticky block to 183/212/244px
+      // and repeated the labels the viewed row had just printed (A2-21, ruled).
       const totalIn = cls === 'an-always' ? blocks['@container anpage (min-width: 800px)'] : block
-      expect(totalIn).toMatch(new RegExp(`\\.an-trow-tot > \\.an-cell\\.${cls}\\s*\\{[^}]*grid-column:\\s*1 / -1`))
-      expect(totalIn).toMatch(new RegExp(`\\.an-trow-tot > \\.an-cell\\.${cls}::before\\s*\\{[^}]*attr\\(data-k\\)`))
+      expect(totalIn).toMatch(new RegExp(`\\.an-xtot > \\.${cls}\\s*\\{[^}]*display:\\s*inline-flex`))
       expect(rung).toBe(cls === 'an-always' ? '' : rung)
     }
+    // …the chip line is ONE line that wraps, spans the row, and labels every
+    // chip from the same `data-k` the column head carries.
+    const above = blocks['@container anpage (min-width: 800px)']
+    expect(above).toMatch(/\.an-xtot\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/)
+    expect(above).toMatch(/\.an-xtot\s*\{[^}]*grid-column:\s*1 \/ -1/)
+    expect(above).toMatch(/\.an-xtot > \.an-xchip::before\s*\{[^}]*attr\(data-k\)/)
+    // …and it exists ONLY above the phone rung, where a total has left its column
+    expect(blocks['']).toMatch(/\.an-xtot\s*\{\s*display:\s*none/)
     // …and EVERY cell is locked to the first line, so a restacked cell can
     // never drag the ones after it into column 1 (次回予約率's defect). ⚠ EVERY,
     // not「everything except the shed classes」: a shed class is only shed at

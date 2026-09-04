@@ -1135,6 +1135,34 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                         </span>
                       </td>
                     ))}
+                    {/* ⚠ THE SHED TOTALS TAKE ONE WRAPPED LINE, NOT FOUR STACKED
+                        ONES. §B made every total visible by giving each shed one
+                        the open row's own full-width detail line — right in
+                        substance, wrong in size: four to six of those lines grew
+                        the sticky block to 183/212/244px and printed the same
+                        four labels twice inside eight lines, directly under the
+                        viewed row's own detail block. A TOTAL IS A LINE, NOT A
+                        ROW, so the shed ones take the phone rung's chip grammar
+                        instead — 「label 平均 value」, left-aligned under the 合計
+                        line, wrapping only when the container runs out.
+                        ⚠ WHY THEY LIVE IN THEIR OWN CELL: grid items cannot share
+                        a line. A cell restacked with `grid-column: 1 / -1` gets a
+                        line to itself by definition, so four of them are four
+                        lines however they are styled. One cell that spans the row
+                        and is itself a wrapping flex box is the only shape that
+                        packs them onto one. The shed cells above simply stay
+                        hidden at the rung that sheds them — the base behaviour —
+                        and every chip carries the same `data-k` label its column had. */}
+                    <td role="cell" className="an-xtot">
+                      {trend.metrics.map((c, i) => (c.shed ? (
+                        <span key={c.id} className={`an-xchip an-${c.shed}`} data-k={c.head}>
+                          <span className="an-v">
+                            <span className="an-k">{trend.stats[i].kicker}</span>
+                            {trend.stats[i].value}
+                          </span>
+                        </span>
+                      ) : null))}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
