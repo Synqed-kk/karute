@@ -176,7 +176,7 @@ export async function getTodayRosterKaruteForAI(
   try {
     const appts = await getTodaysAppointments(storeId, deps)
     const customerIds = [
-      ...new Set(appts.map((a) => a.customer_id).filter(Boolean)),
+      ...new Set(appts.map((a) => a.customer_id).filter((id): id is string => id != null)),
     ]
     if (customerIds.length === 0) return { rosterSize: 0, rows: [] }
     const synqed = deps?.synqed ?? (await getSynqedClient())

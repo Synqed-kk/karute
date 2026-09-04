@@ -275,6 +275,13 @@ export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
  * on the SECOND call silently wrote actor_id:null for a fully-known actor.
  * Same wrapper as getCurrentUserStaffId/getBusinessId in this file.
  */
+export const getCurrentAccessToken = cache(async (): Promise<string> => {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.getSession()
+  if (error || !data.session?.access_token) throw new Error('Not authenticated')
+  return data.session.access_token
+})
+
 export const resolveUserId = cache(async (): Promise<string> => {
   const supabase = await createClient()
   const jwtSecret = process.env.SUPABASE_JWT_SECRET
