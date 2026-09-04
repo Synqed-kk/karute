@@ -521,7 +521,7 @@
 .biz .pg-reservations .rv-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
 
 /* ── 8. the two dialogs that stayed (⚖-ADJ C) ─────────────────────────────── */
-.biz .pg-reservations .rv-dlg {
+.biz .pg-reservations dialog.rv-dlg {
   /* ⚖ Liam flag 32 — Tailwind's preflight zeroes the margin on every element,
      <dialog> included, which kills the UA's `dialog:modal { margin: auto }`
      centring. Every native dialog in Business territory needs this line back. */
