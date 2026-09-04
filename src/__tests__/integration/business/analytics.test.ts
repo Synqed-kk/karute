@@ -1570,6 +1570,10 @@ describe('the decision tiles', () => {
     expect(goal.value).not.toContain('%')
     expect(goal.bar).toBeNull()
     expect(goal.link!.href).toContain('/business/settings')
+    // the link's wording never promises an edit 設定 can't do yet — same
+    // honest label+note as the target-set world (verifier PR830 item 2 close)
+    expect(goal.link!.label).toBe('設定を開く')
+    expect(goal.link!.note).toBe('目標の編集は準備中')
     // …and the chart drops its 目標 rule rather than drawing one at zero
     expect(p.trend!.targetLabel).toBeNull()
     expect(p.trend!.chart.targetY).toBeNull()
@@ -1700,6 +1704,30 @@ describe('the 月次内訳 table', () => {
       expect(r.href).toContain(`month=${-r.monthsAgo}`)
     }
     expect(p.trend!.chartMonths.map((m) => m.href)).toEqual(p.trend!.rows.map((r) => r.href))
+  })
+})
+
+describe('the month row is keyboard reachable (VACUOUS-PIN close, verifier PR830 item 3)', () => {
+  // ⚠ the row is the only control that reveals the shed metrics — no
+  // separate detail element exists to render with react-dom (off the
+  // allowlist in this territory), so the pin reads the source the same way
+  // the 画面の説明 tour's own source-regex pins do (see 'the ? is a tour
+  // trigger' below).
+  const SCREEN = readFileSync(
+    join(process.cwd(), 'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx'),
+    'utf8',
+  )
+  // `isOpen`/`toggle` are this row's own local consts — grepped the file,
+  // neither name appears on any other control — so matching them against the
+  // whole source (rather than slicing out the JSX block) still proves these
+  // attributes/handler belong to THIS row, not some other toggle in the page.
+
+  it('the row carries tabIndex 0 and aria-expanded', () => {
+    expect(SCREEN).toMatch(/tabIndex=\{0\}\s*\n\s*aria-expanded=\{isOpen\}/)
+  })
+
+  it('Enter and Space both toggle the open state — the row has no other way in', () => {
+    expect(SCREEN).toMatch(/onClick=\{toggle\}\s*\n\s*onKeyDown=\{\(e\) => \{\s*\n\s*if \(e\.key !== 'Enter' && e\.key !== ' '\) return\s*\n\s*e\.preventDefault\(\)\s*\n\s*toggle\(\)/)
   })
 })
 
@@ -1877,6 +1905,7 @@ describe('the provenance panel', () => {
     // the target strip's trace, now a real link (P1 fix: the label stopped
     // promising an edit 設定 cannot do yet)
     expect(p.tiles![3].link!.label).toBe('設定を開く')
+    expect(p.tiles![3].link!.note).toBe('目標の編集は準備中')
     // the 内訳 panel's 平均単価 row, now tile 3's footer
     expect(p.tiles![2].foot).toContain('平均単価')
     // the trailing footnote paragraph, now the panel's own lead (§K)

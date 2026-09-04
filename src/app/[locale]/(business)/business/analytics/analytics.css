@@ -821,7 +821,7 @@
   .biz .pg-analytics .an-brk { min-height: 44px; }
   .biz .pg-analytics .an-whybtn { min-height: 44px; padding: 0 12px; }
   .biz .pg-analytics .an-readmore { min-height: 44px; }
-  /* 設定で変更 — a real link inside the goal tile's footer, and a real thumb has
+  /* 設定を開く — a real link inside the goal tile's footer, and a real thumb has
      to be able to hit it (found by the probe's own touch sweep, not assumed) */
   .biz .pg-analytics .an-tlink { display: inline-flex; align-items: center; min-height: 44px; }
   .biz .pg-analytics .an-fn-bar { min-height: 44px; }

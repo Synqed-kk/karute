@@ -1109,12 +1109,12 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                       // ⚠ KEYBOARD PARITY (Greptile P1): the row is the only
                       // control that reveals the shed metrics, so it needs its
                       // own focus stop and Enter/Space handling, not just a
-                      // pointer handler. `aria-controls` names ITSELF —
-                      // there is no separate detail element, the same row's
-                      // cells widen in place when it opens.
+                      // pointer handler. No `aria-controls` — there is no
+                      // separate detail element to point at, the same row's
+                      // cells widen in place when it opens; `aria-expanded`
+                      // on the row itself already carries the state.
                       tabIndex={0}
                       aria-expanded={isOpen}
-                      aria-controls={rowId}
                       className={`an-trow an-trow-body${r.partial ? ' is-partial' : ''}${r.selected ? ' is-sel' : ''}${isOpen ? ' is-open' : ''}${pulseFor === r.monthsAgo && r.selected ? ' is-pulse' : ''}`}
                       onClick={toggle}
                       onKeyDown={(e) => {
