@@ -37,6 +37,7 @@
 // the board has no order to read as a league table. There is deliberately no
 // comparator and no sort key over the roster in this file.
 
+import { coachingPolicy } from './fixtures-coaching'
 import type { FixtureCoachingStaff, FixtureFinding } from './fixtures-coaching'
 
 /** ⚠ ONE HOME FOR THE SESSION COUNT. The run's own `window.sessions_reviewed`
@@ -300,10 +301,36 @@ const ACCESS_BY_ROLE: Record<string, CoachingAccess> = {
  *  offering a role the table does not know is not a value this room can build. */
 export const PREVIEW_ROLES = Object.keys(ACCESS_BY_ROLE)
 
+/** ⚖ Q6 (Liam 9/2) — the per-business VISIBILITY of the evaluation surface.
+ *  Two values, and a value this union does not name is not a third option: it
+ *  fails CLOSED to `'managers'`. A dial whose typo could open a screen is not a
+ *  guardrail, and this one is read from a settings plane nobody has written an
+ *  editor for yet — so the parse is the guardrail. */
+export type EvaluationVisibility = 'managers' | 'all-staff'
+export function resolveVisibility(value: unknown): EvaluationVisibility {
+  return value === 'all-staff' ? 'all-staff' : 'managers'
+}
+
 /** FAIL-CLOSED on this table's OWN rows (the room-4 F-M1 lesson): a role named
- *  `constructor` must not resolve through the prototype chain. */
-export function accessFor(role: string): CoachingAccess {
-  return Object.hasOwn(ACCESS_BY_ROLE, role) ? ACCESS_BY_ROLE[role] : NO_ACCESS
+ *  `constructor` must not resolve through the prototype chain.
+ *
+ *  ⚖ Q6 — AND THE BUSINESS'S OWN DIAL IS READ HERE, IN THE ONE PLACE 「who may
+ *  see the board」 is decided. Three properties, all of them structural rather
+ *  than remembered:
+ *   · it only ever WIDENS `viewTeam` — the `||` cannot take a capability away,
+ *     so a manager is never narrowed by a setting somebody typed;
+ *   · it cannot widen `viewRoi` — the money screen is the owner's own capability
+ *     and this dial has no term in it;
+ *   · it cannot invent a READER — `Object.hasOwn(ACCESS_BY_ROLE, role)` still
+ *     gates it, so an unknown role stays at NO_ACCESS under either value.
+ *  And it never reaches L1: nothing in `buildSelfView` takes a policy at all,
+ *  which is why the staff member's own transcripts, quotes and grant cannot move
+ *  whatever this dial says. */
+export function accessFor(role: string, policy: { evaluationVisibility?: unknown } = coachingPolicy): CoachingAccess {
+  const table = Object.hasOwn(ACCESS_BY_ROLE, role) ? ACCESS_BY_ROLE[role] : NO_ACCESS
+  const open = resolveVisibility(policy.evaluationVisibility) === 'all-staff'
+  if (!open) return table
+  return { viewTeam: table.viewTeam || Object.hasOwn(ACCESS_BY_ROLE, role), viewRoi: table.viewRoi }
 }
 
 // ── L1 — the staff member's own mirror ──────────────────────────────────────
@@ -1086,7 +1113,13 @@ export function buildModuleLibrary(
  *  you. Three states, three sentences, and the decline one carries the
  *  anti-coercion line the phone's own dialog ends with
  *  (`ja.json coaching.consent.declineFootnote`). */
-export const CONSENT_STATE: Record<'unset' | 'granted' | 'declined', { title: string; body: string; cta: string }> = {
+/** ⚠ `strip` IS THE GRANTED STATE'S ONE-LINE COMPOSITION, not a fourth state.
+ *  A decision already taken is a fact to keep visible, not a card to re-read
+ *  every session — so 'granted' also carries the one line the strip prints,
+ *  and the full `body` stays (it rides the strip's `title` and the section's
+ *  guide text, so no sentence retires without a home). 'unset' and 'declined'
+ *  are still DECISIONS the reader has to make, and they keep the whole card. */
+export const CONSENT_STATE: Record<'unset' | 'granted' | 'declined', { title: string; body: string; cta: string; strip?: string }> = {
   unset: {
     title: 'コーチング機能の同意が必要です',
     body: 'あなたのセッションを分析して成長をサポートします。何が記録され、店長に何が見えて何が見えないかを確認したうえで、受けるかどうかを選んでください。同意しなくても仕事には影響しません。',
@@ -1096,6 +1129,7 @@ export const CONSENT_STATE: Record<'unset' | 'granted' | 'declined', { title: st
     title: 'コーチング機能に同意済み',
     body: 'あなたのセッションの分析を許可しています。いつでも取り消せます。取り消しても勤務には影響しませんし、取り消したことは表示されません。',
     cta: '再確認する',
+    strip: 'コーチングを受けることに同意済み ・ いつでも取り消せます',
   },
   declined: {
     title: 'コーチング機能は無効です',

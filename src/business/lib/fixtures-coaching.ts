@@ -49,6 +49,24 @@ import { STORE_A } from './fixtures'
  *  `org_settings.coaching_enabled` — registry ⑤. */
 export const coachingStores: string[] = [STORE_A]
 
+/** ⚠SETTINGS-BATCH — コーチング評価の公開範囲 (⚖ Liam 9/2 Q6; rides the same
+ *  machinery as dial #16 文字起こしの公開範囲).
+ *
+ *  Per-business: `'managers'` (the DEFAULT — 全スタッフ表示 is manager-only) |
+ *  `'all-staff'` (the business chose open visibility).
+ *
+ *  GUARDRAILS, and they are the reason this is a dial rather than a role row:
+ *  the dial WIDENS only the L2 band board; it never widens an L1 layer (own
+ *  transcripts, quotes, grants) and it never NARROWS a manager. A value this
+ *  union does not name fails CLOSED to `'managers'` (`resolveVisibility`,
+ *  coaching.ts) — a mis-typed setting must not be able to open a screen.
+ *
+ *  ⚠ ONE HOME. The editor is registry ⑤ (設定 room); until it exists this is the
+ *  room's READ-SIDE value and nothing writes it. The screen never reads it — it
+ *  reaches the page only through `accessFor(role, policy)`, so there is exactly
+ *  one place where 「who may see the board」 is decided. */
+export const coachingPolicy = { evaluationVisibility: 'managers' as 'managers' | 'all-staff' }
+
 // ── personal-findings.ts — the honest mirror (L1) ────────────────────────────
 
 /** personal-findings.ts:197-199 — `evidence.session_refs[]`. The auditable list
