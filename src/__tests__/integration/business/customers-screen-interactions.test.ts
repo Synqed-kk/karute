@@ -260,17 +260,52 @@ describe('顧客 V2 — the tiles ARE the filters (⚖ §2.2)', () => {
     expect(world.filter(TILE_PREDICATE.merge).map((r) => r.id)).toEqual(['e', 'f'])
   })
 
+  it('⚖ every count on a chip equals the rows its press reveals UNDER THE SAME SEARCH', () => {
+    // The defect this kills: counts over `all` while the list applies
+    // filter ∧ search, so a tile reads 9 and opens onto 3.
+    const world = [
+      row({ id: 'a', no: 'C-3001', name: '見本 あかり', email: 'akari@sample.invalid', merge: 'open', hasNext: true }),
+      row({ id: 'b', no: 'C-3009', name: '見本 あかり', merge: 'open', hasNext: true }),
+      row({ id: 'c', no: 'C-3002', name: '見本 いつき', hasNext: true }),
+      row({ id: 'd', no: 'C-3003', name: '見本 うみ', merge: 'pending' }),
+    ]
+    const searched = world.filter((r) => matchesCustomerSearch(r, '見本 あかり'))
+    expect(searched).toHaveLength(2)
+    for (const k of ['all', 'future', 'merge'] as const) {
+      const count = searched.filter(TILE_PREDICATE[k]).length
+      const revealed = searched.filter(TILE_PREDICATE[k])
+      expect({ k, count, rows: revealed.length }).toEqual({ k, count, rows: count })
+    }
+    expect(searched.filter(TILE_PREDICATE.all)).toHaveLength(2)
+    expect(searched.filter(TILE_PREDICATE.merge)).toHaveLength(2)
+    expect(searched.filter(TILE_PREDICATE.future)).toHaveLength(2)
+    // ⚠ 「akari」 alone matches ONE row, not two: it is in the email of C-3001 and
+    // nowhere in C-3009 (a Japanese name does not contain it). Measured, not
+    // assumed — the two-row scene searches the shared NAME instead.
+    expect(world.filter((r) => matchesCustomerSearch(r, 'akari'))).toHaveLength(1)
+    // …and with the box empty nothing moves: the whole set is the searched set.
+    expect(world.filter((r) => matchesCustomerSearch(r, ''))).toHaveLength(4)
+    // the SOURCE carries it: both the counts and the list read `searched`
+    expect(SCREEN_CODE).toContain('const searched = useMemo(() => all.filter((r) => matchesCustomerSearch(r, search)), [all, search])')
+    expect(SCREEN_CODE).toContain('searched.filter(TILE_PREDICATE[k]).length')
+    expect(SCREEN_CODE).toContain('const matched = searched.filter(TILE_PREDICATE[filter])')
+    // …the strip is the same number as its tile
+    expect(SCREEN_CODE).toContain('const candidates = useMemo(() => searched.filter(TILE_PREDICATE.merge), [searched])')
+    // …and the sub-line's M stays the STORE's whole range, which is not a chip
+    expect(SCREEN_CODE).toContain('{visible.length}名を表示 / この店舗範囲 {all.length}名')
+  })
+
   it('the LIST reads the same table the COUNTS do — one predicate, asked twice', () => {
     // The count and the rows can only agree by construction if the filter goes
     // through the same map. A second predicate written into `visible` is
     // invisible to any pin that only checks the predicates themselves.
-    expect(SCREEN_CODE).toContain('all.filter((r) => TILE_PREDICATE[filter](r) && matchesCustomerSearch(r, search))')
-    expect(SCREEN_CODE).toContain('all.filter(TILE_PREDICATE[k]).length')
+    expect(SCREEN_CODE).toContain('const matched = searched.filter(TILE_PREDICATE[filter])')
+    expect(SCREEN_CODE).toContain('searched.filter(TILE_PREDICATE[k]).length')
   })
 
   it('⚖-ADJ C — the strip is NOT rendered when there is nothing to triage', () => {
     expect(SCREEN_CODE).toContain('{candidates.length > 0 && (')
-    expect(SCREEN_CODE).toContain("const candidates = useMemo(() => all.filter((r) => r.merge !== 'none'), [all])")
+    expect(SCREEN_CODE).toContain('const candidates = useMemo(() => searched.filter(TILE_PREDICATE.merge), [searched])')
   })
 
   it('⚖-ADJ I — the ultra-wide cap is ONE token on the content column', () => {

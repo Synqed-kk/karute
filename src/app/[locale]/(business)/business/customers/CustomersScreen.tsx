@@ -305,32 +305,39 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     '--fx-narrow': columns.map((c) => c.nw).join(' '),
   } as React.CSSProperties
 
-  /** ⚖ §2.2 — the counts and the rows, from the same predicate over the same
-   *  array. `all` includes the client-added rows, so a customer added in this
-   *  session is counted by the tile that would reveal them. */
+  /** ⚖ §2.2 — EVERY COUNT ON A CHIP EQUALS THE ROWS ITS PRESS REVEALS, and the
+   *  search is part of「what its press reveals」. The counts used to run over
+   *  `all` while the list applied filter ∧ search, so with 「akari」 typed a tile
+   *  could read 9 and open onto 3 — a number that is true of a set the reader
+   *  cannot see. Both now run over the SEARCHED set, so the promise holds under
+   *  every search including the empty one (where this is identical to before).
+   *  `all` includes the client-added rows, so a customer added in this session is
+   *  counted by the tile that would reveal them. */
+  const searched = useMemo(() => all.filter((r) => matchesCustomerSearch(r, search)), [all, search])
   const counts = useMemo(
     () =>
       Object.fromEntries(
-        (Object.keys(TILE_PREDICATE) as FilterKey[]).map((k) => [k, all.filter(TILE_PREDICATE[k]).length]),
+        (Object.keys(TILE_PREDICATE) as FilterKey[]).map((k) => [k, searched.filter(TILE_PREDICATE[k]).length]),
       ) as Record<FilterKey, number>,
-    [all],
+    [searched],
   )
 
   const visible = useMemo(() => {
-    // The filter first, the search after it — the sub-line reads
-    // 「filtered-and-searched を表示 / この店舗範囲 all」, which is what it says.
-    const matched = all.filter((r) => TILE_PREDICATE[filter](r) && matchesCustomerSearch(r, search))
+    const matched = searched.filter(TILE_PREDICATE[filter])
     if (!grouped) return matched
     // Stores in order, then the CM-9 unassigned bucket LAST — it is the
     // exception, not the headline.
     const key = (r: CustomerRow) => r.groupKey || '￿'
     return [...matched].sort((a, b) => key(a).localeCompare(key(b)) || a.no.localeCompare(b.no))
-  }, [all, filter, search, grouped])
+  }, [searched, filter, grouped])
 
   const current = all.find((r) => r.id === selected) ?? visible[0] ?? all[0] ?? null
   const offList = current != null && !visible.some((r) => r.id === current.id)
 
-  const candidates = useMemo(() => all.filter((r) => r.merge !== 'none'), [all])
+  /** ⚠ THE STRIP AND THE 重複候補 TILE ARE ONE NUMBER, so the strip counts the
+   *  SEARCHED set too: a title saying 3件 above a tile saying 2 would be the
+   *  same lie in a different place. */
+  const candidates = useMemo(() => searched.filter(TILE_PREDICATE.merge), [searched])
   const byNo = useMemo(() => new Map(all.map((r) => [r.no, r])), [all])
 
   const comparing = compareOf === null ? null : (all.find((r) => r.id === compareOf) ?? null)
