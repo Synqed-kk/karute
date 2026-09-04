@@ -38,9 +38,26 @@ const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 
 type Declaration = { title: string; text: string; at: number }
+
+/** ⚠ TWO SPELLINGS, ONE CENSUS (S16), and the parser has to read BOTH or the
+ *  census silently loses the sections it cannot parse — which is a census that
+ *  proves nothing. Most declarations are a plain string attribute. Two are
+ *  COMPOSED, because ⚖-ADJ K folded a retired sentence into them: the head
+ *  carries the old subtitle and the consent section carries the granted body.
+ *
+ *  A `${…}` hole is resolved when it names a module constant in this same file
+ *  (`HEAD_GUIDE`), and otherwise stands for a runtime sentence — those are
+ *  pinned BY NAME in `coaching.test.ts`'s ⚖-ADJ K test rather than guessed at
+ *  here, and they count as one whole sentence for the length and full-stop
+ *  checks below because that is what they always are. */
+const HOLE = '〔実行時に差し込まれる一文〕。'
+const CONSTS = new Map(
+  [...SRC_CODE.matchAll(/^const ([A-Z_][A-Z0-9_]*) =\s*\n?\s*'([^']*)'/gm)].map((m) => [m[1], m[2]] as const),
+)
+const resolve = (tpl: string) => tpl.replace(/\$\{([^}]*)\}/g, (_, expr: string) => CONSTS.get(expr.trim()) ?? HOLE)
 const DECLARATIONS: Declaration[] = [
-  ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n?\s*data-guide="([^"]*)"/g),
-].map((m) => ({ title: m[1], text: m[2], at: m.index ?? 0 }))
+  ...SRC_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n?\s*data-guide=(?:"([^"]*)"|\{`([^`]*)`\})/g),
+].map((m) => ({ title: m[1], text: m[2] ?? resolve(m[3] ?? ''), at: m.index ?? 0 }))
 
 /** Every OPENING TAG of `<tag …>`, whole. JSX attributes hold braces, template
  *  literals and quotes, so the scan tracks all three rather than stopping at the
@@ -138,12 +155,20 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       '店舗全体のサポートエリア',
       // 経営への効果 (the owner's own third screen)
       'コーチングの効果', '他店舗との比較', '指標ごとの押し上げ', 'この数字の出し方', '費用との比較',
-      // and the boundary a staff member gets instead of the tabs
+      // and the boundary a staff member gets instead of the tabs — S16 makes it a
+      // <section>, because ⚖ Q6 gave it a second sentence and a settings door
       '全スタッフ表示について',
     ]))
     // ⚠ THE COUNT IS PINNED AS WELL AS THE MEMBERSHIP, so a section added
-    // without a declaration cannot hide behind `arrayContaining`.
+    // without a declaration cannot hide behind `arrayContaining`. S16 moved
+    // panels and folded copy but added and removed NO section: the count is the
+    // look-fix round's own 27, re-derived on the new shape.
     expect(titles.length).toBe(27)
+    // …and the two COMPOSED declarations are really in the census rather than
+    // dropped by a parser that could not read them (the room-6 lesson: a census
+    // that only counts what it can parse is self-referential).
+    expect(titles).toContain('コーチング')
+    expect(titles).toContain('コーチングを受けることへの同意')
   })
 
   it('every HEADING the screen prints sits inside a declared element', () => {

@@ -57,8 +57,9 @@ import {
   sampleFloor,
   sessionsOf,
   summaryLeaks,
+  resolveVisibility,
 } from '@/business/lib/coaching'
-import { coachingConsent, coachingStaff, coachingStores, learningModules, patternLibrary, storeRoi, teamPatterns } from '@/business/lib/fixtures-coaching'
+import { coachingConsent, coachingPolicy, coachingStaff, coachingStores, learningModules, patternLibrary, storeRoi, teamPatterns } from '@/business/lib/fixtures-coaching'
 import { STORE_A, STORE_B, staff as worldStaff } from '@/business/lib/fixtures'
 import { coachingProps } from '@/app/[locale]/(business)/business/coaching/coaching-props'
 import type { CoachingSelf } from '@/app/[locale]/(business)/business/coaching/CoachingScreen'
@@ -74,6 +75,7 @@ const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '')
 const CSS_CODE = stripComments(CSS_SRC)
 const SCREEN_CODE = stripComments(SCREEN_SRC).replace(/^\s*\/\/.*$/gm, '')
 const LIB_CODE = stripComments(LIB_SRC).replace(/^\s*\/\/.*$/gm, '')
+const PROPS_CODE = stripComments(PROPS_SRC).replace(/^\s*\/\/.*$/gm, '')
 
 // ── the pinned clock, one mechanism for the whole file ──────────────────────
 /** 12:00 JST on the 15th — mid-month on purpose, so no assertion in this file
@@ -939,30 +941,73 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     }
     const main = num('cg-main-min')
     const side = num('cg-side-min')
+    const chart = num('cg-chart-min')
+    const board = num('cg-board-min')
+    const claim = num('cg-claim-min')
+    const receipt = num('cg-receipt-min')
+    const receiptGap = num('cg-receipt-gap')
     const colsGap = num('cg-cols-gap')
     const cardGap = num('cg-card-gap')
-    expect({ main, side, colsGap, cardGap }).toEqual({ main: 520, side: 320, colsGap: 24, cardGap: 18 })
+    expect({ main, side, chart, board, claim, receipt, receiptGap, colsGap, cardGap })
+      .toEqual({ main: 640, side: 320, chart: 520, board: 644, claim: 260, receipt: 260, receiptGap: 16, colsGap: 24, cardGap: 18 })
     const thresholds = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     const distinct = [...new Set(thresholds)].sort((a, b) => a - b)
-    // TWO thresholds, THREE compositions — and each one equals the sum of its
-    // own terms plus a stated slack, so widening a column without moving its
+    // THREE page thresholds, FOUR compositions — and each one equals the sum of
+    // its own terms plus a stated slack, so widening a column without moving its
     // threshold fails HERE rather than in somebody's browser.
-    expect(distinct).toEqual([700, 880])
+    expect(distinct).toEqual([700, 880, 1000])
     // ⚠ AND EACH THRESHOLD ACTUALLY DOES ITS JOB. A threshold that exists but
     // sets the same shape on both sides is a band with no composition — mutant
     // M28 removed the fold's two-across cards and survived until this pin.
     const fold = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
-    expect(fold.slice(0, 200)).toContain('.cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
-    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 880px)'))
-    expect(desk.slice(0, 320)).toContain('grid-template-columns: minmax(var(--cg-main-min), 1.5fr) minmax(var(--cg-side-min), 1fr)')
-    expect(desk.slice(0, 320)).toContain('.cg-side { grid-template-columns: 1fr; }')
-    const deskFits = main + side + colsGap
-    expect(deskFits).toBe(864)
-    expect(distinct[1]).toBeGreaterThanOrEqual(deskFits)
-    expect(distinct[1] - deskFits).toBeLessThanOrEqual(24)
+    expect(fold.slice(0, 700)).toContain('.cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    const roiDesk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 880px)'))
+    expect(roiDesk.slice(0, 700)).toContain('grid-template-columns: minmax(var(--cg-side-min), 5fr) minmax(var(--cg-chart-min), 7fr)')
+    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 1000px)'))
+    expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr)')
+    expect(desk.slice(0, 900)).toContain('.cg-side { grid-template-columns: minmax(0, 1fr); }')
+    expect(desk.slice(0, 900)).toContain('.cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr)')
+    expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr)')
+
+    // ① → ② : two supporting cards side by side.
     const foldFits = side + side + cardGap
     expect(foldFits).toBe(658)
     expect(distinct[0]).toBeGreaterThanOrEqual(foldFits)
+    // ② → ③ : the room's NARROWEST two-column shape — the chart beside the hero.
+    const roiFits = chart + side + colsGap
+    expect(roiFits).toBe(864)
+    expect(distinct[1]).toBeGreaterThanOrEqual(roiFits)
+    expect(distinct[1] - roiFits).toBeLessThanOrEqual(24)
+    // ③ → ④ : the decision desk, the library row and the board's rail. The
+    // findings column is sized by the RECEIPT GRID, not by the column alone —
+    // 640 = 560 of card plus the 40px of panel padding and 30px of card padding
+    // between the page column and the article's own content box. Sized any
+    // smaller the receipt would open below this threshold, close above it and
+    // open again higher up: a composition gained, lost and gained across one
+    // drag, which this room does not ship.
+    const deskFits = main + side + colsGap
+    expect(deskFits).toBe(984)
+    expect(distinct[2]).toBeGreaterThanOrEqual(deskFits)
+    expect(distinct[2] - deskFits).toBeLessThanOrEqual(24)
+    const boardFits = board + side + colsGap
+    expect(boardFits).toBe(988)
+    expect(distinct[2]).toBeGreaterThanOrEqual(boardFits)
+    expect(distinct[2] - boardFits).toBeLessThanOrEqual(24)
+    // ⑤ : the receipt, inside a finding CARD — a different container entirely.
+    const cardThresholds = [...CSS_CODE.matchAll(/@container cg-find \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
+    expect(cardThresholds).toEqual([560])
+    const receiptFits = claim + receipt + receiptGap
+    expect(receiptFits).toBe(536)
+    expect(cardThresholds[0]).toBeGreaterThanOrEqual(receiptFits)
+    expect(cardThresholds[0] - receiptFits).toBeLessThanOrEqual(24)
+    // …and the article really IS the container the query names.
+    expect(CSS_CODE).toContain('.cg-find { container: cg-find / inline-size;')
+    // ⚠ THE RECEIPT IS MONOTONIC IN PAGE WIDTH, which is the whole reason
+    // `--cg-main-min` is 640 rather than the 520 this room shipped before: the
+    // findings panel's padding (20 × 2) plus the card's own (15 × 2) is 70px,
+    // so the desk column must hold 560 + 70 for the grid to stay open across
+    // the threshold it is measured on the other side of.
+    expect(main).toBeGreaterThanOrEqual(cardThresholds[0] + 70)
   })
 
   it('the ladder has exactly ONE column threshold, and it is a CONTAINER query', () => {
@@ -973,7 +1018,11 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
+    // FOUR blocks: three on the page's own container (700 · 880 · 1000) and one
+    // on the finding CARD's (560). Each is stated ONCE.
     expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(4)
+    expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
+    expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect(CSS_CODE).toContain('container: cg-page / inline-size')
     // …and NO media band ever restates a composition, so a viewport rule cannot
     // disagree with the shape the container decided.
@@ -1030,8 +1079,15 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
   it('the interactive accent is R13’s ONE blue, and no control is filled black', () => {
     expect(CSS_CODE).toContain('--cg-accent: #2563eb;')
     expect(CSS_CODE).not.toContain('#3f5be8')
-    // The selected tab is a WASH, never a solid fill (⚖ R13's own recipe).
-    expect(CSS_CODE).toMatch(/\.cg-tab\.is-on\s*\{[^}]*background: var\(--cg-accent-wash\)/)
+    // ⚖-ADJ N — the selected tab is accent TEXT plus a 2px accent RULE (the
+    // family's underline row), never a solid fill and never a bordered pill.
+    expect(CSS_CODE).toMatch(/\.cg-tab\.is-on\s*\{[^}]*color: var\(--cg-accent\)/)
+    expect(CSS_CODE).not.toMatch(/\.cg-tab\.is-on\s*\{[^}]*background:\s*var\(--cg-accent\)[^-]/)
+    expect(CSS_CODE).toMatch(/\.cg-tab-line\s*\{[^}]*background: var\(--cg-accent\)/)
+    // …and R13's own /8 WASH recipe is still the selected recipe everywhere a
+    // control really does carry one: the pressed count tile and the preview chip.
+    expect(CSS_CODE).toMatch(/\.cg-tile\[aria-pressed="true"\]\s*\{[^}]*background: var\(--cg-accent-wash\)/)
+    expect(CSS_CODE).toMatch(/\.cg-preview-chip\.is-on\s*\{[^}]*background: var\(--cg-accent-wash\)/)
     expect(CSS_CODE).not.toMatch(/background:\s*(#000|#18181b|black)/)
   })
 })
@@ -1178,9 +1234,14 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         }
       }
     }
+    // S16 adds two: the consent section's GRANTED composition (the quiet strip)
+    // and the mount class the enter motion is applied through. The press marker
+    // is deliberately NOT among them — it is `cg-pressed`, because `[data-press]`
+    // is an attribute and an `is-` modifier there would have no `cg-` partner.
     expect([...isNames].sort()).toEqual([
-      'is-building', 'is-control', 'is-declined', 'is-early', 'is-mature', 'is-mine', 'is-none',
-      'is-on', 'is-priority', 'is-strength', 'is-support', 'is-theirs', 'is-treated', 'is-unset', 'is-watch',
+      'is-building', 'is-control', 'is-declined', 'is-early', 'is-enter', 'is-granted', 'is-mature',
+      'is-mine', 'is-none', 'is-on', 'is-priority', 'is-strength', 'is-support', 'is-theirs',
+      'is-treated', 'is-unset', 'is-watch',
     ])
     // …and no neighbour states a bare rule on any of them.
     /** ⚠ COMPOUND-AWARE, re-derived at the 2026-09-05 fold. BARE means the
@@ -1943,21 +2004,22 @@ describe('⚖ D8-4 — all THREE help actions are reachable; none is a dead leve
 })
 
 describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and the screen', () => {
-  /** The four container blocks, each isolated to itself. `.cg-side` + the head
-   *  recompose at 700 and `.cg-cols` at 880; the BOARD ROW has its own pair of
-   *  blocks lower down — reading one when you mean the other is how a pin ends
-   *  up green for the wrong reason.
+  /** ⚠ S16 — ONE BLOCK PER THRESHOLD, and that is the correction. The sheet used
+   *  to state 700 twice and 880 twice (the page columns in one place, the board
+   *  row in another), and reading one when you mean the other is how a pin ends
+   *  up green for the wrong reason. Each threshold now has exactly one home, so
+   *  `at()` asserts that first and everything below it reads one block.
    *
    *  ⚠ RESOLVED INSIDE EACH TEST, NEVER AT COLLECTION TIME. A `throw` in a
    *  describe body takes the whole FILE down, which turns a mutant that ought to
    *  be caught by one named assertion into a crash — and ⚖ HARNESS-TRUTH rider 3
    *  is that a crash proves DETECTION, not discrimination. */
-  const nth = (at: number, i: number) => {
+  const at = (width: number) => {
     const found = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\) \{[\s\S]*?\n\}/g)]
-      .filter((m) => Number(m[1]) === at)
+      .filter((m) => Number(m[1]) === width)
       .map((m) => m[0])
-    expect({ at, blocks: found.length }).toEqual({ at, blocks: 2 })
-    return found[i] ?? ''
+    expect({ at: width, blocks: found.length }).toEqual({ at: width, blocks: 1 })
+    return found[0] ?? ''
   }
 
   it('D8-2D · a finding states its count ONCE, as the receipt’s arithmetic', () => {
@@ -1966,7 +2028,14 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     // sentence whose numbers it restates — it sits with the quoted moment
     expect(card.indexOf('cg-find-count')).toBeGreaterThan(card.indexOf('cg-find-fix'))
     expect(card.indexOf('cg-find-count')).toBeLessThan(card.indexOf('cg-quote'))
-    expect(card).toContain('<b>該当した回数</b>')
+    // ⚠ V2-4/5 — THE LABEL IS A `cg-tk` TOKEN NOW, not a bare `<b>`: a token that
+    // may not break inside itself, so a narrow receipt column wraps BETWEEN
+    // tokens instead of splitting 「該当した / 回数」 down the middle.
+    expect(card).toContain('<span className="cg-tk">該当した回数</span>')
+    // …and it lives in the RECEIPT column, beside the quote, never in the claim.
+    const receipt = card.slice(card.indexOf('cg-find-receipt'))
+    expect(receipt).toContain('cg-find-count')
+    expect(card.slice(card.indexOf('cg-find-claim'), card.indexOf('cg-find-receipt'))).not.toContain('cg-find-count')
     // …and the generator's own `comparison` is still what it prints — the room
     // composes no sentence a generator owns
     expect(LIB_CODE).toContain('countLabel: f.evidence.comparison ?? `${f.evidence.count_total}回`')
@@ -1976,30 +2045,78 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     expect(SCREEN_CODE).not.toContain('cg-spacer')
     expect(CSS_CODE).not.toContain('cg-spacer')
     const head = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<header'), SCREEN_CODE.indexOf('</header>'))
-    expect(head.indexOf('cg-settings')).toBeGreaterThan(head.indexOf('cg-sub'))
-    expect(head.indexOf('cg-settings')).toBeGreaterThan(head.indexOf('cg-window'))
-    // STACKED is the base — under the sentence, full width — and the title-line
-    // placement is a CONTAINER rule like every other shape in this room, never
-    // a viewport band that could disagree with the container.
-    expect(CSS_CODE).toContain('.cg-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;')
-    expect(CSS_CODE).toContain('.cg-settings { grid-column: 1; justify-self: stretch; margin-top: 4px; }')
-    const sideFold = nth(700, 0)
-    expect(sideFold).toContain('.cg-head { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }')
-    expect(sideFold).toContain('.cg-settings { grid-column: 2; grid-row: 2; justify-self: end; margin-top: 0; }')
+    // ⚠ S16 — THE HEAD IS ONE ROW, so there is no `cg-sub` paragraph left for the
+    // action to be pushed in front of. What is pinned instead is the rule that
+    // replaced it: the action is the LAST thing in the title row's source, after
+    // the h1, the ? and both orientation chips.
+    expect(head).not.toContain('cg-sub')
+    expect(head).not.toContain('cg-window')
+    expect(head).not.toContain('cg-viewer"')
+    expect(head.indexOf('cg-settings')).toBeGreaterThan(head.indexOf('cg-help'))
+    expect(head.indexOf('cg-settings')).toBeGreaterThan(head.indexOf('cg-chip-window'))
+    expect(head.indexOf('cg-settings')).toBeGreaterThan(head.indexOf('cg-chip-viewer'))
+    expect(head.lastIndexOf('cg-settings')).toBeGreaterThan(head.lastIndexOf('cg-head-chips'))
+    // The title row is a WRAPPING FLEX and the action is pushed right by margin,
+    // never by a spacer element.
+    expect(CSS_CODE).toContain('.cg-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }')
+    expect(CSS_CODE).toContain('.cg-settings { margin-left: auto; }')
+    // ≤899 — the two chips take a line of their own BELOW the title row, which is
+    // the packet's own reading order for the fold and the phone.
+    const narrow = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'), CSS_CODE.indexOf('@media (max-width: 743px)'))
+    expect(narrow).toContain('.cg-head-chips { order: 2; flex-basis: 100%; }')
+    expect(narrow).toContain('.cg-settings { order: 1; }')
+  })
+
+  it('⚖-ADJ K · every retired sentence has a NEW HOME, and the room can name it', () => {
+    // A string with no new home fails the round. Four sentences left the page
+    // furniture in S16; each is pinned to where it went.
+    //  · the subtitle → the head's own guide text, as its first sentence
+    expect(SCREEN_CODE).toContain('data-guide={`${props.subtitle}${HEAD_GUIDE}`}')
+    //  · the window paragraph → the window chip's `title`
+    expect(SCREEN_CODE).toContain('<span className="cg-chip-window" title={props.windowTitle}>{props.windowChip}</span>')
+    expect(PROPS_CODE).toContain('windowTitle: `${windowLabel}のセッションを見ています`')
+    //  · the viewer paragraph (reach list and all) → the viewer chip's `title`
+    expect(SCREEN_CODE).toContain('<span className="cg-chip-viewer" title={props.viewerLine}>{props.viewerChip}</span>')
+    //  · the granted consent body → the strip's `title` AND the section's guide
+    expect(SCREEN_CODE).toContain('<p className="cg-consent-strip" title={ready.consent.body}>')
+    expect(SCREEN_CODE).toContain('${ready.consent.body}`}')
+    //  · the two standing notice lines → the disclosure bar, visible while closed
+    const bar = SCREEN_CODE.slice(SCREEN_CODE.indexOf('cg-notice-bar'), SCREEN_CODE.indexOf('cg-notice-chevron'))
+    expect(bar).toContain('props.noticeLines.map')
+    // …and NOTHING ELSE retired: every other sentence the assembly builds is
+    // still read by the screen.
+    for (const field of ['dateline', 'subtitle', 'viewerLine', 'viewerChip', 'windowChip', 'windowTitle', 'privacyBadge', 'actionFootnote']) {
+      expect({ field, read: SCREEN_CODE.includes(`props.${field}`) }).toEqual({ field, read: true })
+    }
+    // ⚠ `windowLabel` AND `lensLabel` REACH THE READER THROUGH OTHER STRINGS, and
+    // that is the room's existing pattern rather than a new dead prop: `lensLabel`
+    // has always been woven into `dateline` and `dormantBody` without being
+    // rendered on its own, and S16 puts `windowLabel` in the same position — it
+    // is the ONE canonical window sentence, and both of the head's rendered forms
+    // are composed from it, so the two cannot fork.
+    expect(PROPS_CODE).toContain('windowChip: `直近${WINDOW_DAYS}日 ・ ${dateRange}`')
+    expect(PROPS_CODE).toContain('const windowLabel = `直近${WINDOW_DAYS}日（${dateRange}）`')
   })
 
   it('D8-2F · the fold band never orphans a card in a half-empty row', () => {
     // the count is read off the DOM, so no number here can go stale
-    expect(nth(700, 0)).toContain('.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    expect(at(700)).toContain('.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
   })
 
-  it('D8-2G · the desk board row reserves no empty action track', () => {
-    const boardDesk = nth(880, 1)
-    expect(boardDesk).toContain('grid-template-columns: minmax(110px, 168px) minmax(110px, max-content) minmax(0, 1fr);')
-    // …so the sentence column ends at the same edge on every row, and the
-    // action keeps the placement the FOLD band gives it — under its own row
-    expect(boardDesk).not.toContain('.cg-row-act')
-    expect(nth(700, 1)).toContain('.cg-row-act { grid-column: 3; justify-self: start; }')
+  it('D8-2G / V2-1 · the board row is THREE columns and the action is its own line', () => {
+    const row = at(700)
+    // V2-1: a hard 260px floor under the SENTENCE, so a row that carries a help
+    // action can never collapse its body to ~90px and wrap character by
+    // character — which is exactly what the pixel review caught at 1280/1440/1920.
+    expect(row).toContain('grid-template-columns: 168px 148px minmax(260px, 1fr);')
+    // …and the action is a LINE OF ITS OWN in the sentence's column, right-
+    // aligned — never a fourth track, which would be 0px wide on every row
+    // without an action and ~200px on the one that has it.
+    expect(row).toContain('.cg-row-act { grid-column: 3; justify-self: end; }')
+    expect(CSS_CODE).not.toMatch(/grid-template-columns:[^;]*max-content[^;]*minmax\(0, 1fr\)/)
+    // there is exactly ONE board-row composition above the phone, so no band can
+    // disagree with another about how wide the sentence gets.
+    expect([...CSS_CODE.matchAll(/\.cg-row \{\s*\n?\s*grid-template-columns/g)].length).toBeLessThanOrEqual(1)
   })
 
   it('D8-2H · the sheet’s own accent sentence is TRUE — it names the one data mark', () => {
@@ -2558,5 +2675,350 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
     for (const f of freq) expect(f.count).toBeLessThanOrEqual(rows.length)
     // …and the BOARD's own row order is untouched by the ranking existing.
     expect(rows.map((r) => r.staffLabel)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manager-only', () => {
+  const STAFF = { locale: 'ja', store: STORE_A, world: { role: 'スタッフ', selfId: 'p-04' } }
+
+  it('ONE VALUE HOME, in the plane, with its default', () => {
+    // ⚠ THE DEFAULT IS THE SAFE ONE. A dial nobody has an editor for yet must
+    // ship in the position the business would have chosen if asked last.
+    expect(coachingPolicy.evaluationVisibility).toBe('managers')
+    const plane = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-coaching.ts'), 'utf8')
+    expect(plane).toContain('⚠SETTINGS-BATCH')
+    expect(plane).toContain("export const coachingPolicy = { evaluationVisibility: 'managers' as 'managers' | 'all-staff' }")
+    // …and it is read in exactly ONE place. The screen never sees it, the props
+    // file only hands it to `accessFor`, and no builder takes a policy at all.
+    // Two mentions in the lib, and both belong to that one place: the parameter's
+    // own type, and the single read inside `accessFor`.
+    expect([...LIB_CODE.matchAll(/evaluationVisibility/g)].length).toBe(2)
+    expect(LIB_CODE).toContain('policy: { evaluationVisibility?: unknown } = coachingPolicy')
+    expect(LIB_CODE).toContain('resolveVisibility(policy.evaluationVisibility)')
+    expect(SCREEN_CODE).not.toContain('evaluationVisibility')
+    expect(SCREEN_CODE).not.toContain('coachingPolicy')
+    expect([...PROPS_CODE.matchAll(/policy/g)].length).toBeLessThanOrEqual(6)
+    expect(PROPS_CODE).toContain('const access = accessFor(role, policy)')
+  })
+
+  it('a bogus value fails CLOSED to managers — a typo cannot open a screen', () => {
+    expect(resolveVisibility('all-staff')).toBe('all-staff')
+    expect(resolveVisibility('managers')).toBe('managers')
+    for (const bogus of [undefined, null, '', 'ALL-STAFF', 'all staff', 'everyone', 0, 1, true, {}, [], 'constructor']) {
+      expect({ bogus, out: resolveVisibility(bogus) }).toEqual({ bogus, out: 'managers' })
+    }
+  })
+
+  it('the dial only ever WIDENS viewTeam, never viewRoi and never a manager’s own row', () => {
+    const open = { evaluationVisibility: 'all-staff' }
+    // widened
+    expect(accessFor('スタッフ', open)).toEqual({ viewTeam: true, viewRoi: false })
+    // ⚠ THE MONEY SCREEN HAS NO TERM IN THIS DIAL — it is the owner's own
+    // capability, and 「does this pay for itself」 is the payer's question.
+    expect(accessFor('店舗管理者', open)).toEqual({ viewTeam: true, viewRoi: false })
+    expect(accessFor('オーナー', open)).toEqual({ viewTeam: true, viewRoi: true })
+    // never narrowed
+    expect(accessFor('オーナー', { evaluationVisibility: 'managers' })).toEqual({ viewTeam: true, viewRoi: true })
+    // ⚠ AND IT CANNOT INVENT A READER. A role the table does not know stays at
+    // NO_ACCESS under BOTH values — the room-4 F-M1 prototype guard still holds.
+    for (const unknown of ['constructor', 'toString', '__proto__', '受付', '']) {
+      expect({ unknown, ...accessFor(unknown, open) }).toEqual({ unknown, viewTeam: false, viewRoi: false })
+    }
+  })
+
+  it('DEFAULT — a staff payload has no team at all, and the boundary names the setting', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(STAFF)
+    unpinClock()
+    expect(props.canViewTeam).toBe(false)
+    expect(props.team).toBeNull()
+    expect(JSON.stringify(props)).not.toContain('見本 しろう')
+    expect(props.teamBoundaryPolicy).toEqual({
+      line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
+      doorLabel: '設定を開く',
+      doorState: '準備中',
+    })
+    // ⚠ THE 9/4 LABEL LAW: a link label never promises what its destination
+    // cannot do. The editor is registry ⑤ and does not exist, so the door says
+    // 設定を開く + 準備中 — never 設定で変更.
+    expect(JSON.stringify(props)).not.toContain('設定で変更')
+    expect(SCREEN_CODE).not.toContain('設定で変更')
+    expect(props.viewerLine).toContain('自分のコーチングのみ')
+  })
+
+  it('ALL-STAFF — the staff reader gets the BOARD, and still not one number on it', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...STAFF, world: { ...STAFF.world, policy: { evaluationVisibility: 'all-staff' } } })
+    unpinClock()
+    expect(props.canViewTeam).toBe(true)
+    expect(props.canViewRoi).toBe(false)
+    expect(props.roi).toBeNull()
+    expect(props.team).not.toBeNull()
+    // the boundary clause is GONE, because it would no longer be true here
+    expect(props.teamBoundaryPolicy).toBeNull()
+    expect(props.viewerLine).toContain('自分のコーチング・全スタッフ表示')
+    // ⚠ THE PLANTED-NUMBER HUNT, RE-RUN UNDER THE DIAL. The payload the widened
+    // reader gets is the SAME L2 shape a manager gets — bands and sentences —
+    // so there is still no per-staff number for a wider audience to read.
+    for (const row of props.team!.rows) {
+      expect({ staff: row.staffLabel, digits: /\d/.test(JSON.stringify(row)) }).toEqual({ staff: row.staffLabel, digits: false })
+    }
+    // and the L1 layers did NOT move: this reader still sees only their own self view
+    expect(props.self.kind).toBe('ready')
+    const mine = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(JSON.stringify(mine)).not.toContain('見本 しろう')
+  })
+
+  it('a bogus dial in the PLANE renders exactly the managers screen', async () => {
+    pinClock(MID_MONTH)
+    const bogus = await coachingProps({ ...STAFF, world: { ...STAFF.world, policy: { evaluationVisibility: 'everyone' } } })
+    const managers = await coachingProps({ ...STAFF, world: { ...STAFF.world, policy: { evaluationVisibility: 'managers' } } })
+    unpinClock()
+    expect(bogus.props.canViewTeam).toBe(false)
+    expect(JSON.stringify(bogus.props)).toBe(JSON.stringify(managers.props))
+  })
+
+  it('the dial never reaches L1 — it lives in ONE region of the lib and nowhere else', () => {
+    // ⚠ THE STRONGEST FORM OF 「it never reaches L1」 is that the WORD cannot be
+    // found outside the one region that owns it. Everything between the type and
+    // the end of `accessFor` may mention the dial; nothing else in this file may,
+    // so no builder can grow a policy argument without failing here.
+    const from = LIB_CODE.indexOf('export type EvaluationVisibility')
+    const to = LIB_CODE.indexOf('\n}', LIB_CODE.indexOf('export function accessFor')) + 2
+    expect({ from: from > 0, to: to > from }).toEqual({ from: true, to: true })
+    const outside = LIB_CODE.slice(0, from).replace(/^import .*$/gm, '') + LIB_CODE.slice(to)
+    // ⚠ WORD-BOUNDED, because `policyVersion` is the CONSENT record's own field
+    // (coaching-consent/types.ts:9-16) and has nothing to do with this dial —
+    // a scan that flagged it would be a pin nobody could keep green honestly.
+    expect(outside).not.toMatch(/\bpolicy\b|visibility/i)
+    expect(outside).toContain('policyVersion')
+    // …and every L1/L2 builder really is out there, so the region is not empty
+    // of them by accident.
+    for (const fn of ['buildSelfView', 'buildTriage', 'buildRoi', 'buildPatternLibrary', 'buildModuleLibrary']) {
+      expect({ fn, outside: outside.includes(`export function ${fn}(`) }).toEqual({ fn, outside: true })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ S16 — the mock became the product, and every new lever is real', () => {
+  it('⚖-ADJ A · the disclosure is a CONDITIONAL RENDER, never a hidden copy', () => {
+    // The bar is a real disclosure button, wired both ways.
+    expect(SCREEN_CODE).toContain('aria-expanded={noticeOpen}')
+    expect(SCREEN_CODE).toContain('aria-controls="cgNotice"')
+    expect(SCREEN_CODE).toContain('{noticeOpen && (')
+    expect(SCREEN_CODE).toContain('id="cgNotice"')
+    // ⚠ THE FOUR DELETIONS-EXPRESSED-AS-STYLE, ALL STILL ABSENT — in the screen
+    // AND in the sheet, because either one alone is an escape hatch (VL-4).
+    for (const banned of ['hidden={', 'display: none', 'display:none', 'max-height', 'overflow: hidden', 'overflow:hidden', 'visibility: hidden']) {
+      expect({ banned, inScreen: SCREEN_CODE.includes(banned) }).toEqual({ banned, inScreen: false })
+      expect({ banned, inSheet: CSS_CODE.includes(banned) }).toEqual({ banned, inSheet: false })
+    }
+    // …and the two standing sentences stay VISIBLE while it is closed, so no
+    // reader has to press anything to learn the two facts the room owes them.
+    const bar = SCREEN_CODE.slice(SCREEN_CODE.indexOf('cg-notice-bar'), SCREEN_CODE.indexOf('cg-notice-chevron'))
+    expect(bar).toContain('props.noticeLines.map')
+    expect(bar).toContain('props.transparency.barLead')
+    // the chevron turns with the state, on a transform — never a second icon
+    expect(CSS_CODE).toContain('.cg-notice-bar[aria-expanded="true"] .cg-notice-chevron { transform: rotate(180deg); }')
+  })
+
+  it('⚖-ADJ B · consent is ONE section with two compositions, and the body is never lost', () => {
+    const consent = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className={`cg-consent'), SCREEN_CODE.indexOf('VL-1'))
+    expect(consent).toContain('{ready.consent.strip ? (')
+    expect(consent).toContain('title={ready.consent.body}')
+    expect(consent).toContain('{ready.consent.title}')
+    // ONE declaration, ONE <section> — the strip is a composition, not a state
+    expect([...SCREEN_CODE.matchAll(/className=\{`cg-consent/g)].length).toBe(1)
+    // the strip line exists ONLY for granted; the two decisions keep the card
+    expect(LIB_CODE).toContain("strip: 'コーチングを受けることに同意済み ・ いつでも取り消せます'")
+    expect([...LIB_CODE.matchAll(/\bstrip: '/g)].length).toBe(1)
+  })
+
+  it('⚖-ADJ C · the count tiles FILTER and never sort, and the roster keeps its order', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const rows = props.team!.rows
+    // the filter values ARE the tiles' own keys — a tile can never name a value
+    // the rows cannot answer to
+    expect(props.team!.counts.map((c) => c.key)).toEqual(['growing', 'steady', 'needs-support', 'building'])
+    const order = rows.map((r) => r.staffLabel)
+    for (const band of ['growing', 'steady', 'needs-support', 'building']) {
+      const kept = rows.filter((r) => (r.band ?? 'building') === band).map((r) => r.staffLabel)
+      // a filter REMOVES rows; the ones that stay are in the roster's own order
+      expect({ band, ordered: kept.join('|') }).toEqual({ band, ordered: order.filter((n) => kept.includes(n)).join('|') })
+    }
+    // …and the counts really are the sizes of those groups
+    for (const c of props.team!.counts) {
+      const n = rows.filter((r) => (r.band ?? 'building') === c.key).length
+      expect({ key: c.key, value: c.value }).toEqual({ key: c.key, value: `${n}名` })
+    }
+    // the screen filters, it never sorts — there is no comparator in this room
+    expect(SCREEN_CODE).toContain('team.rows.filter((r) => filter === null || (r.band ?? \'building\') === filter)')
+    expect(SCREEN_CODE).not.toMatch(/\.sort\(|localeCompare|aria-sort/)
+    // pressing the pressed tile clears it, and the state is a real toggle
+    expect(SCREEN_CODE).toContain('aria-pressed={filter === c.key}')
+    expect(SCREEN_CODE).toContain('setFilter((f) => (f === c.key ? null :')
+  })
+
+  it('⚖-ADJ D · 練習するもの points at a module card that really renders', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const ids = new Set(props.modules!.cards.map((c) => c.moduleId))
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    const anchors = [
+      ...self.focus.map((f) => [f.moduleAnchor, f.moduleTitle] as const),
+      ...self.findings.map((f) => [f.moduleAnchor, f.moduleTitle] as const),
+    ]
+    // at least one link really exists in this world, or the pin proves nothing
+    expect(anchors.filter(([a]) => a !== null).length).toBeGreaterThan(0)
+    for (const [anchor, title] of anchors) {
+      // the two are null together or set together — a link can never point at a
+      // card the catalog did not render
+      expect({ anchor: anchor === null, title: title === null }).toEqual({ anchor: anchor === null, title: anchor === null })
+      if (anchor) expect({ anchor, rendered: ids.has(anchor) }).toEqual({ anchor, rendered: true })
+    }
+    // the chip is a REAL anchor (a keyboard reaches it and Enter opens it), and
+    // the module card carries the id it points at
+    expect(SCREEN_CODE).toContain('href={`#${anchor}`}')
+    expect(SCREEN_CODE).toContain('id={mod.moduleId}')
+    // the smooth scroll is decoration ON TOP of the anchor, and it obeys motion
+    expect(SCREEN_CODE).toContain("behavior: reduced ? 'auto' : 'smooth'")
+    // …and the anchor is not landed on under the shell's sticky topbar
+    expect(CSS_CODE).toContain('scroll-margin-top: 84px;')
+  })
+
+  it('⚖-ADJ F/O · the honesty note is INSIDE the trend card, and the money line is LAST', () => {
+    const roi = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelRoi"'))
+    const trend = roi.slice(roi.indexOf('className="cg-roi-trend"'), roi.indexOf('className="cg-roi-lifts"'))
+    // the note is a declared section of its own, nested in the card whose
+    // numbers it describes — unconditional, and inseparable from them
+    expect(trend).toContain('className="cg-honesty"')
+    expect(trend).toContain('data-guide-title="この数字の出し方"')
+    expect(roi).not.toMatch(/\{props\.roi\.honestyNote && /)
+    // ⚖-ADJ O — SOURCE ORDER IS THE ARGUMENT: claim → evidence → detail → money
+    const order = ['cg-roi-hero', 'cg-roi-trend', 'cg-honesty', 'cg-roi-lifts', 'cg-pitch', 'cg-roi-withheld']
+    const at = order.map((c) => roi.indexOf(c))
+    expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
+    // …and the desk places them with NAMED AREAS, so the picture can sit beside
+    // the number without the source order moving.
+    const deskRoi = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 880px)'))
+    expect(deskRoi.slice(0, 900)).toContain('"hero  chart"')
+    expect(deskRoi.slice(0, 900)).toContain('"pitch chart"')
+    expect(deskRoi.slice(0, 900)).toContain('"lifts lifts"')
+    expect(deskRoi.slice(0, 900)).toContain('align-items: start;')
+  })
+
+  it('⚖-ADJ G · ONE width cap, on the page column and repeated on every card', () => {
+    expect(CSS_CODE).toContain('--cg-maxw: 1416px;')
+    expect(CSS_CODE).toMatch(/\.biz \.page\.pg-coaching \{[\s\S]*?max-width: var\(--cg-maxw\);[\s\S]*?margin-inline: auto;/)
+    // the card block, the tabs, the boundary and the dev strip all restate it —
+    // the analytics pattern, so a card can never outgrow the column it is in.
+    expect([...CSS_CODE.matchAll(/max-width: var\(--cg-maxw\)/g)].length).toBeGreaterThanOrEqual(5)
+    // and nothing else in this room states a pixel width cap of its own — a
+    // second number would be a second answer to the same question (⚖ A8). The
+    // media BANDS are not caps, so the scan looks at declarations only.
+    expect(CSS_CODE).not.toMatch(/[;{]\s*max-width:\s*[0-9]{3,}px/)
+  })
+
+  it('⚖-ADJ N · the tab underline is the FROZEN spring, and no new easing was written', () => {
+    expect(SCREEN_CODE).toContain("import { makeSpring } from '@/business/lib/spring'")
+    expect(SCREEN_CODE).toContain("makeSpring((v) => { state.current.x = v; paint() }, { response: 0.3, reduced })")
+    expect(SCREEN_CODE).toContain("makeSpring((v) => { state.current.w = v; paint() }, { response: 0.3, reduced })")
+    // jumped, never animated, on first paint / resize / fonts.ready
+    expect(SCREEN_CODE).toContain('sx.jump(btn.offsetLeft)')
+    expect(SCREEN_CODE).toContain("window.addEventListener('resize', place)")
+    expect(SCREEN_CODE).toContain('document.fonts?.ready')
+    // reduced motion is an ARGUMENT to the spring, read once into state
+    expect(SCREEN_CODE).toContain("window.matchMedia('(prefers-reduced-motion: reduce)')")
+    // ⚠ NO KEYFRAME ANYWHERE — this room animates state with springs and
+    // transitions on transform/opacity, and nothing else.
+    expect(CSS_CODE).not.toContain('@keyframes')
+    expect(CSS_CODE).not.toMatch(/animation:/)
+  })
+
+  it('KEYBOARD REACH — every NEW control is operable without a pointer', () => {
+    // The filter tiles and the disclosure bar are real <button>s, so Tab reaches
+    // them and Enter/Space operates them with no key handler of this room's own;
+    // the 練習するもの chip is a real <a href>. That is the whole fix — a div with
+    // an onClick is the P1 class this pin exists to keep out.
+    const tile = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-tiles"'), SCREEN_CODE.indexOf('</section>', SCREEN_CODE.indexOf('className="cg-tiles"')))
+    expect(tile).toContain('type="button"')
+    expect(tile).toContain('aria-pressed={filter === c.key}')
+    const barTag = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-notice-bar"') - 200, SCREEN_CODE.indexOf('className="cg-notice-bar"') + 200)
+    expect(barTag).toContain('type="button"')
+    expect(SCREEN_CODE).toContain('<a\n        className="cg-linkchip"')
+    // ⚠ NOT ONE onClick ON A NON-INTERACTIVE ELEMENT. The tour's dim layer is
+    // the room's one exception and it is a scrim, not a control — it carries no
+    // information a keyboard user cannot reach through Escape and the arrows.
+    for (const m of SCREEN_CODE.matchAll(/<(\w+)[^>]*onClick=/g)) {
+      expect({ tag: m[1], ok: ['button', 'a', 'div'].includes(m[1]) }).toEqual({ tag: m[1], ok: true })
+    }
+    expect([...SCREEN_CODE.matchAll(/<div[^>]*onClick=/g)].length).toBe(1)
+    expect(SCREEN_CODE).toContain('className="cg-spot-catch"')
+    // …and every one of them reaches ≥44px on a touch band
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    for (const rule of ['.cg-tile { min-height: 44px', '.cg-notice-bar { min-height: 44px', '.cg-linkchip { min-height: 44px']) {
+      expect({ rule, present: touch.includes(rule) }).toEqual({ rule, present: true })
+    }
+  })
+
+  it('THE CRUMB names this room’s own GROUP, derived from the rail rather than typed twice', () => {
+    const TOPBAR = read('src/app/[locale]/(business)/BusinessTopbar.tsx')
+    const SIDEBAR = read('src/app/[locale]/(business)/BusinessSidebar.tsx')
+    const railGroup = SIDEBAR.slice(0, SIDEBAR.indexOf("segment: 'coaching'"))
+      .match(/group: '([^']+)'/g)!.pop()!.replace(/^group: '|'$/g, '')
+    expect(railGroup).toBe('記録・AI')
+    expect(TOPBAR).toContain(`coaching: '${railGroup}',`)
+    expect(TOPBAR).toContain("coaching: 'コーチング',")
+    // ⚠ 録音 and カルテ sit in that same rail group and still fall through to the
+    // 店舗フロア default — two other rooms' pins, named in the report rather than
+    // fixed inside this room's diff.
+    expect(TOPBAR).toContain("{GROUP[segment] ?? '店舗フロア'}")
+    const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string> = {'))
+    const keys = groupBody.slice(0, groupBody.indexOf('}')).match(/^\s*'?([\w-]+)'?:/gm)!
+      .map((k) => k.trim().replace(/'|:/g, ''))
+    expect(keys.sort()).toEqual(['ask-ai', 'coaching', 'settings'])
+  })
+
+  it('THE DECISION DESK — the two stacks are packed, and the order is the argument', () => {
+    const panel = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelSelf"'), SCREEN_CODE.indexOf('id="cgPanelTeam"'))
+    // ⚠ THE SOURCE ORDER PIN, RE-SPELLED ON THE NEW SHAPE (VL-1's own gate is
+    // unmoved): consent → the gate → the decision desk → the library row →
+    // gate-close. The consent card is ABOVE the gate, so it always renders.
+    const order = ['cg-consent', "ready.consent.status !== 'declined'", 'cg-cols', 'cg-main', 'cg-focus', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
+    const at = order.map((c) => panel.indexOf(c))
+    expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
+    // 強み LEADS the supporting column now, right under the numbers it explains
+    const side = panel.slice(panel.indexOf('className="cg-side"'))
+    const sideOrder = ['cg-spine', 'cg-strengths', 'cg-trend', 'cg-outcomes', 'cg-skills', 'cg-learn', 'cg-share']
+    const sideAt = sideOrder.map((c) => side.indexOf(c))
+    expect({ sideOrder, ascending: sideAt.every((v, i) => v > 0 && (i === 0 || v > sideAt[i - 1])) })
+      .toEqual({ sideOrder, ascending: true })
+  })
+
+  it('THE RECEIPT GRID — claim left, receipt right, and NOTHING folded away', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    // every quote the run produced is still on the page — the receipt is a
+    // layout, never a place to put things a reader was owed
+    expect(self.findings.filter((f) => f.moment).length).toBeGreaterThan(0)
+    const card = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-receipt"'), SCREEN_CODE.indexOf('</article>'))
+    for (const piece of ['cg-find-fix', 'cg-find-pattern', 'cg-find-check', 'cg-find-count', 'cg-quote', 'cg-find-warn', 'cg-find-caveat']) {
+      expect({ piece, present: card.includes(piece) }).toEqual({ piece, present: true })
+    }
+    // the CLAIM column holds what to do; the RECEIPT column holds why to believe it
+    const claim = card.slice(card.indexOf('cg-find-claim'), card.indexOf('cg-find-receipt'))
+    const receipt = card.slice(card.indexOf('cg-find-receipt'))
+    expect(claim).toContain('cg-find-fix')
+    expect(claim).toContain('cg-find-pattern')
+    expect(receipt).toContain('cg-quote')
+    expect(receipt).toContain('cg-find-count')
+    expect(claim).not.toContain('cg-quote')
   })
 })

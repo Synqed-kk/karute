@@ -786,6 +786,9 @@ describe('the fixture data door', () => {
       'src/app/[locale]/(business)/business/coaching/CoachingScreen.tsx': [
         '@/business/lib/coaching',
         '@/business/lib/guide',
+        // S16 — the tab underline is the family's own, so it rides the FROZEN
+        // spring rather than a second easing written by hand beside it.
+        '@/business/lib/spring',
         'react',
       ],
       'src/app/[locale]/(business)/business/coaching/loading.tsx': ['@/business/i18n'],

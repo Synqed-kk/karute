@@ -42,6 +42,7 @@ import {
   maturityNote,
   moduleOn,
   PREVIEW_ROLES,
+  resolveVisibility,
   sampleFloor,
   STATUS_BODY,
   STATUS_TITLE,
@@ -53,6 +54,7 @@ import { defaultStoreId, listStaff, listStoreOptions, renderNow, type StoreLens 
 import { operator } from '@/business/lib/fixtures'
 import {
   coachingConsent,
+  coachingPolicy,
   coachingStaff,
   coachingStores,
   learningModules,
@@ -227,6 +229,12 @@ export interface CoachingPropsInput {
     selfId?: string
     /** The store's sample-size floor (registry ⑤'s dial). Clamped, always. */
     floor?: number
+    /** ⚖ Q6 — the business's own 評価の公開範囲 dial (registry ⑤). The harness
+     *  needs the `'all-staff'` world to prove the widening really happens AND
+     *  that it still carries no per-staff number; a bogus value proves the
+     *  fail-closed parse. `unknown` on purpose: the plane is a settings row
+     *  nobody validates yet, so the room must survive whatever is in it. */
+    policy?: { evaluationVisibility?: unknown }
   }
 }
 
@@ -269,7 +277,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   const role = effectiveRole(realRole, as)
   const previewOn = isRolePreviewEnabled()
   const selfId = world?.selfId ?? operator.staff_id
-  const access = accessFor(role)
+  // ⚖ Q6 — THE BUSINESS'S OWN DIAL, READ ONCE, AND ONLY THROUGH `accessFor`.
+  // The plane holds the value; `resolveVisibility` decides what an unknown one
+  // means; `accessFor` is the only place it can change anything. Nothing below
+  // branches on it, which is what keeps 「who may see the board」 to one home.
+  const policy = world?.policy ?? coachingPolicy
+  const visibility = resolveVisibility(policy.evaluationVisibility)
+  const access = accessFor(role, policy)
   const floor = sampleFloor(world?.floor)
   // The query the pill's links must preserve: switching persona must not throw
   // the reader back to a different store.
@@ -357,6 +371,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
     lensLabel,
     windowLabel,
+    // ⚖ THE HEAD IS ONE ROW NOW (S16 §2.1), so the two orientation LINES became
+    // two neutral CHIPS — and neither sentence was cut. The chip is the short
+    // form; the whole sentence rides its `title`, which is where the retired
+    // 「…のセッションを見ています」 paragraph lives (⚖-ADJ K: a string with no
+    // new home fails the round).
+    windowChip: `直近${WINDOW_DAYS}日 ・ ${dateRange}`,
+    windowTitle: `${windowLabel}のセッションを見ています`,
     // ⚠ TRUE ON BOTH SCREENS (the room-5 F5-1 law). The head is the one element
     // this room renders on the self view AND the board, so a sentence about
     // 「your own sessions」 would be the page describing a screen the reader is
@@ -392,6 +413,9 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     // is being read as AND what that role can reach, so orientation does not
     // depend on having seen the other variant. True in production, where there
     // is no preview and the role is simply the reader's own.
+    // The chip says WHO is reading; the whole sentence — including the reach
+    // list — is its `title` and the head's guide text. Same fact, two lengths.
+    viewerChip: `${role}として表示`,
     viewerLine: `この画面は「${role}」として表示しています ・ ${
       access.viewRoi
         ? '自分のコーチング・全スタッフ表示・経営への効果'
@@ -431,6 +455,21 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     // not owed our permission vocabulary.
     teamBoundaryLine:
       '全スタッフ表示は、店舗全体を見る権限のあるアカウントでのみ表示されます。現在は自分のコーチングのみを表示しています。',
+    // ⚖ Q6 (Liam 9/2) — AND THE READER IS TOLD IT IS A SETTING, not a law of the
+    // product. The clause renders only when the dial really is at 'managers',
+    // because under 'all-staff' this sentence would be false for the one reader
+    // who could still land here (a role the access table does not know).
+    // ⚠ 「設定を開く」 + 「準備中」, NEVER 「設定で変更」 (the 9/4 label law): the
+    // editor is registry ⑤ and does not exist yet, so the label may not promise
+    // a change its destination cannot make.
+    teamBoundaryPolicy:
+      visibility === 'managers'
+        ? {
+            line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
+            doorLabel: '設定を開く',
+            doorState: '準備中',
+          }
+        : null,
     self:
       self.kind === 'ready'
         ? {
@@ -444,6 +483,11 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             consent: {
               status: self.view.consent.status,
               ...CONSENT_STATE[self.view.consent.status],
+              // ⚖-ADJ B — the ONE LINE the granted state prints as a strip. Null
+              // for the two states that are still a decision, which is what makes
+              // the screen's branch a fact about the payload rather than a rule
+              // the component keeps.
+              strip: CONSENT_STATE[self.view.consent.status].strip ?? null,
             },
             status: self.view.status,
             statusTitle: STATUS_TITLE[self.view.status],
@@ -485,6 +529,10 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // named. Null when the run linked nothing, or when the reference
               // does not resolve — never an id printed at a reader.
               moduleTitle: moduleTitle.get(f.linkedModuleId ?? '') ?? null,
+              // ⚖-ADJ D — the ANCHOR of that same card, from the SAME lookup, so
+              // a link can never point at a card the catalog did not render: both
+              // fields are null together or set together.
+              moduleAnchor: moduleTitle.has(f.linkedModuleId ?? '') ? f.linkedModuleId : null,
               patternBehavior: f.patternBehavior,
             })),
             // ⚖ staff-focus.ts:200-204 — 「detail MUST cite the evidencing
@@ -501,6 +549,9 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // to the catalog's own title. Before this round `module_id` was a
               // reference into nothing (audit #8).
               moduleTitle: moduleTitle.get(f.moduleId ?? '') ?? null,
+              // ⚖-ADJ D — same lookup, same pair: a title without a rendered card
+              // carries no anchor, and the chip falls back to plain text.
+              moduleAnchor: moduleTitle.has(f.moduleId ?? '') ? f.moduleId : null,
               // staff-focus.ts:171 — 'early_signal' is capped at priority
               // 'medium' by the module's own rule, and it is SAID rather than
               // hidden: a thin signal presented as settled is the mislabelling
@@ -657,6 +708,10 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
       // the same facts whichever side you are on — what changes is which column
       // is about you.
       subtitle: 'コーチング機能で扱われる情報と、店長・オーナーに見える範囲です。',
+      // ⚖-ADJ A — the bar's own second clause. The notice is legal prose a
+      // reader opens deliberately, so the closed bar has to say what is behind
+      // it in the words the reader would use to look for it.
+      barLead: '記録される情報と、店長・オーナーに見える範囲',
       ...TRANSPARENCY,
       staffOnlyLead: '本人だけが見られます。店長・オーナーの画面には表示されません。',
       ownerVisibleLead: '店長・オーナーが見られる範囲です。これ以外は渡りません。',

@@ -8,6 +8,15 @@
 // Nothing here is a shape this room invented — at reconnect the real generation
 // slots in with no reshaping.
 //
+// ⚖ S16 — THE STUDIO DESK. The room was rebuilt to the accepted mock section for
+// section (COACHING-MOCK-v1.html): ONE title row with two neutral chips, the
+// family's underline tabs, the decision desk (次の一手 over the findings on the
+// left, 成績 over the supporting cards on the right), a receipt grid inside every
+// finding, the library row, the triage board with filterable count tiles and its
+// rail, the owner's ROI desk, and the data notice folded behind a disclosure bar.
+// NOT ONE PROVEN BEHAVIOUR MOVED: the mock is a spec for layout, hierarchy, copy
+// and motion, never a licence to drop a surface or a promise.
+//
 // ⚖ TWO SCREENS, ONE AT A TIME, AND THE SWAP IS THE PRIVACY BOUNDARY. 自分の
 // コーチング is one person's own mirror — honest, evidenced, with the receipt.
 // 全スタッフ表示 is the roster as BANDS. Stacking them would put a manager's
@@ -20,15 +29,25 @@
 // for a reader who may see it, and `coaching.ts`'s `TriageRow` has no field for
 // a per-staff number to travel in. This file cannot leak what it was never
 // handed — every sentence below about what is hidden describes the payload, not
-// a promise this component keeps.
+// a promise this component keeps. ⚖ Q6's per-business dial does not change that:
+// it can only widen WHO is handed the L2 board, and the L2 board still has no
+// number on it.
 //
 // ⚖ NOTHING ON THIS PAGE WRITES. Coaching's generation costs money, its consent
 // is a legal record and its depth-share is a permission somebody else owns, so
 // every one of those levers ships REFUSED with its own reason naming the seam it
 // waits on — never half-built behind a control whose only outcome is a toast.
 //
-// WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which tab is open, and which step
-// of the 画面の説明 tour the reader is on. Both are pure browsing.
+// WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which tab is open, which band the
+// board is filtered to, whether the data notice is open, and which step of the
+// 画面の説明 tour the reader is on. All four are pure browsing, and all four
+// reset with the store lens, because `page.tsx` keys this component by it.
+//
+// ⚖ THE DISCLOSURE IS A CONDITIONAL RENDER (⚖-ADJ A / S16-3). The notice's body
+// EXISTS only while the bar is open — it is never `hidden`, never
+// `display: none`, never a clipped `max-height`. Those four are the room's own
+// structural law (a deletion expressed as a style is still a deletion), and the
+// suite reads this file and the sheet for all four.
 //
 // CLASS NAMES ARE PREFIXED `cg-` ON PURPOSE. App Router leaves every sibling
 // room's stylesheet in the document after a client-side navigation, and the
@@ -39,8 +58,9 @@
 // SHELL's and restated here, so those three are fenced in coaching.css at four
 // levels.
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { makeSpring } from '@/business/lib/spring'
 import { keepCardOffHeading, type PerformanceBand } from '@/business/lib/coaching'
 
 /** THE ROUTE WRAPPER. Every rule in coaching.css is scoped under this class, so
@@ -64,9 +84,24 @@ const ROOT = 'page pg-coaching'
  *  that lands on nothing declared, and its opener is the ? it mounts on top of. */
 const SETTLE_MS = 500
 
+/** ⚖-ADJ K — THE RETIRED SUBTITLE'S NEW HOME. S16's head is ONE row, so the
+ *  `subtitle` paragraph left the page furniture; it is FOLDED, not cut, into the
+ *  head's own guide text as its first sentence, where the ? already takes any
+ *  reader who wants the orientation. This constant is the second half — the head
+ *  guide the room has carried since the tour shipped. */
+const HEAD_GUIDE =
+  '接客を振り返るための画面です。数字も気づきも、セッションの記録から出しています。一人ひとりの詳しい内容と会話の引用は、本人だけが見られます。'
+
 type Severity = 'priority' | 'watch' | 'strength'
 /** personal-findings.ts:222 — the run's own four statuses. */
 type RunStatus = 'findings' | 'routine_excellence' | 'capture_gap' | 'insufficient_data'
+
+/** ⚖-ADJ C — the board's ONE client filter. `'building'` is not a band (a row
+ *  below the floor has `band: null`); it is the fourth COUNT, so the filter's
+ *  vocabulary is the tiles' vocabulary and a tile can never name a value the
+ *  rows cannot answer to. */
+export type BandFilter = PerformanceBand | 'building'
+const BAND_FILTERS: readonly string[] = ['growing', 'steady', 'needs-support', 'building']
 
 export interface CoachingStat { key: string; label: string; value: string }
 
@@ -89,6 +124,11 @@ export interface CoachingFinding {
   confidenceNote: string | null
   /** personal-findings.ts:242-243, RESOLVED — never an id at a reader. */
   moduleTitle: string | null
+  /** ⚖-ADJ D — the ANCHOR of the module card the title names, and it is set ONLY
+   *  when that card really renders (the props file resolves both from the same
+   *  lookup). An id never reaches a reader as TEXT; this is an `href` fragment,
+   *  which is the browser's own way of saying 「that card, down there」. */
+  moduleAnchor: string | null
   patternBehavior: string | null
 }
 
@@ -131,8 +171,11 @@ export interface CoachingRoiLift {
 export interface CoachingSelfReady {
   kind: 'ready'
   /** coaching-consent/types.ts:7-16, resolved to the sentences the reader gets.
-   *  ⚖ COACHING IS OPT-IN AND THE PAGE SAYS SO. */
-  consent: { status: 'unset' | 'granted' | 'declined'; title: string; body: string; cta: string }
+   *  ⚖ COACHING IS OPT-IN AND THE PAGE SAYS SO.
+   *  ⚖-ADJ B — `strip` is the ONE LINE the granted state prints instead of the
+   *  card. It is null for the two states that are still a DECISION, so the
+   *  screen's branch reads a fact about the payload rather than keeping a rule. */
+  consent: { status: 'unset' | 'granted' | 'declined'; title: string; body: string; cta: string; strip: string | null }
   status: RunStatus
   statusTitle: string
   statusBody: string | null
@@ -145,7 +188,7 @@ export interface CoachingSelfReady {
   findings: CoachingFinding[]
   /** staff-focus.ts:163-176 FOCUS_L1, resolved — the WHOLE list (≤3), not just
    *  the hero. The room still leads with one; #2 and #3 ride as a quiet list. */
-  focus: Array<{ category: string; categoryLabel: string; label: string; description: string; confidenceNote: string | null; moduleTitle: string | null }>
+  focus: Array<{ category: string; categoryLabel: string; label: string; description: string; confidenceNote: string | null; moduleTitle: string | null; moduleAnchor: string | null }>
   /** staff-focus.ts:200-204 — strengths, each citing its evidencing metric. */
   strengths: Array<{ label: string; detail: string }>
   outcomes: { title: string; reasons: Array<{ reason: string; label: string; count: number }>; pendingLine: string | null }
@@ -214,6 +257,12 @@ export interface CoachingProps {
   dateline: string
   lensLabel: string
   windowLabel: string
+  /** S16 §2.1 — the head's two neutral chips. The CHIP is the short form and the
+   *  whole sentence is its `title`: `windowTitle` is the paragraph that used to
+   *  stand under the h1, and `viewerLine` (below) is the other one. */
+  windowChip: string
+  windowTitle: string
+  viewerChip: string
   subtitle: string
   /** ⚖ WHOSE EYES — one quiet always-visible line naming the reading role. */
   viewerLine: string
@@ -239,11 +288,17 @@ export interface CoachingProps {
   canViewTeam: boolean
   canViewRoi: boolean
   teamBoundaryLine: string
+  /** ⚖ Q6 (Liam 9/2) — the honest clause that names the SETTING, plus the door
+   *  to it. Null when the business is not on `'managers'`, because then the
+   *  sentence would not be true of this business. */
+  teamBoundaryPolicy: { line: string; doorLabel: string; doorState: string } | null
   self: CoachingSelf
   team: CoachingTeam | null
   roi: CoachingRoi | null
   transparency: {
     title: string
+    /** ⚖-ADJ A — the closed bar's own second clause. */
+    barLead: string
     subtitle: string
     missionTitle: string
     missionBody: string
@@ -282,6 +337,59 @@ const samePos = (a: { hole: SpotRect; top: number; left: number }, b: { hole: Sp
   a.top === b.top && a.left === b.left &&
   a.hole.left === b.hole.left && a.hole.top === b.hole.top &&
   a.hole.width === b.hole.width && a.hole.height === b.hole.height
+
+/** ⚖-ADJ N — THE FAMILY'S UNDERLINE TAB LINE, PORTED, NOT RE-INVENTED.
+ *  `AnalyticsScreen.tsx:287-326`'s `useSlider`, carried with its own reasoning:
+ *  two springs from the FROZEN `spring.ts` (one for X, one for the scale that
+ *  stands in for width), painted straight onto the node through a ref so a
+ *  60fps animation never touches React state, and `jump`ed rather than `set` on
+ *  first paint, on resize and once the fonts have loaded — a line that animates
+ *  in from zero on first paint is a page that looks like it is still loading.
+ *
+ *  ⚠ ROOM-LOCAL BY NECESSITY, exactly like `keepCardOffHeading` (C8-6): the hook
+ *  is private to the 売上分析 screen and Business rooms do not import each
+ *  other. The SPRING is shared; the twelve lines that drive it are duplicated
+ *  with their cite, and the engine fix — if the two ever need to move together —
+ *  is a family sweep rather than a cross-room import. */
+function useTabLine(
+  trackRef: React.RefObject<HTMLElement | null>,
+  markRef: React.RefObject<HTMLElement | null>,
+  reduced: boolean,
+) {
+  const state = useRef({ x: 0, w: 100 })
+  const springs = useRef<{ x: ReturnType<typeof makeSpring>; w: ReturnType<typeof makeSpring> } | null>(null)
+  useEffect(() => {
+    const mark = markRef.current
+    if (!mark) return
+    const paint = () => {
+      mark.style.transform = `translateX(${state.current.x}px) scaleX(${state.current.w / 100})`
+    }
+    const sx = makeSpring((v) => { state.current.x = v; paint() }, { response: 0.3, reduced })
+    const sw = makeSpring((v) => { state.current.w = v; paint() }, { response: 0.3, reduced })
+    springs.current = { x: sx, w: sw }
+    const place = () => {
+      const btn = trackRef.current?.querySelector<HTMLElement>('.cg-tab.is-on')
+      if (!btn) return
+      sx.jump(btn.offsetLeft)
+      sw.jump(btn.offsetWidth)
+    }
+    place()
+    window.addEventListener('resize', place)
+    if (document.fonts?.ready) void document.fonts.ready.then(place)
+    return () => {
+      window.removeEventListener('resize', place)
+      sx.stop()
+      sw.stop()
+      springs.current = null
+    }
+  }, [trackRef, markRef, reduced])
+  return useCallback((btn: HTMLElement) => {
+    const s = springs.current
+    if (!s) return
+    s.x.set(btn.offsetLeft)
+    s.w.set(btn.offsetWidth)
+  }, [])
+}
 
 /** ⚖ THE TREATED-VS-CONTROL CHART (audit #18) — the picture that makes the
  *  honesty claim LEGIBLE. `DataDrivenOwnerRoi.tsx:46-78`'s TrendChart, carried
@@ -349,9 +457,21 @@ export function CoachingScreen(props: CoachingProps) {
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
   const tourOpen = tourIdx >= 0
+  /** ⚖-ADJ C — the board's filter, and ⚖-ADJ A — the disclosure. Both are
+   *  browsing state and both die with the store key (`page.tsx`). */
+  const [filter, setFilter] = useState<BandFilter | null>(null)
+  const [noticeOpen, setNoticeOpen] = useState(false)
+  /** Whether the reader asked for less motion. Read ONCE into state so every
+   *  spring is constructed with the same answer and the server render (which has
+   *  no `matchMedia` at all) never disagrees with the first client frame. */
+  const [reduced, setReduced] = useState(false)
 
   const rootRef = useRef<HTMLDivElement>(null)
   const helpRef = useRef<HTMLButtonElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const tabLineRef = useRef<HTMLSpanElement>(null)
+  const boardRef = useRef<HTMLUListElement>(null)
+  const noticeBodyRef = useRef<HTMLDivElement>(null)
   const tourCardRef = useRef<HTMLDivElement>(null)
   const tourNextRef = useRef<HTMLButtonElement>(null)
   const tourRectsRef = useRef<SpotRect[]>([])
@@ -364,12 +484,77 @@ export function CoachingScreen(props: CoachingProps) {
   const [tourPos, setTourPos] = useState<{ hole: SpotRect; top: number; left: number } | null>(null)
   const [tourHover, setTourHover] = useState<SpotRect | null>(null)
 
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const read = () => setReduced(mq.matches)
+    read()
+    mq.addEventListener('change', read)
+    return () => mq.removeEventListener('change', read)
+  }, [])
+
+  const moveTabLine = useTabLine(tabsRef, tabLineRef, reduced)
+
+  /** ⚖ PRESS FEEDBACK ARRIVES ON POINTER-DOWN, and it is ROOM-SCOPED. One
+   *  listener on this room's own root — not the document — because a room that
+   *  listened globally would paint a press state on the shell's sidebar too.
+   *  Pointer-DOWN, not click: feedback that waits for the release is not
+   *  feedback (apple-design §1). `AnalyticsScreen.tsx:511-520`, scoped. */
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const down = (e: PointerEvent) => {
+      const t = (e.target as Element | null)?.closest?.('[data-press]')
+      if (t) t.classList.add('cg-pressed')
+    }
+    const clear = () => {
+      for (const el of root.querySelectorAll('[data-press].cg-pressed')) el.classList.remove('cg-pressed')
+    }
+    root.addEventListener('pointerdown', down, true)
+    for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.addEventListener(ev, clear, true)
+    return () => {
+      root.removeEventListener('pointerdown', down, true)
+      for (const ev of ['pointerup', 'pointercancel', 'blur', 'dragend']) window.removeEventListener(ev, clear, true)
+    }
+  }, [])
+
+  /** THE ENTER MOTION, AND IT IS A MOUNT CLASS RATHER THAN A KEYFRAME (Studio:
+   *  springs for state, transforms and opacity only, never an animation for a
+   *  state change). The class is applied in a LAYOUT effect — before the browser
+   *  paints — and dropped two frames later, so the transition runs from the
+   *  offset rather than flashing at rest first. Under reduced motion nothing is
+   *  applied at all, so there is nothing to transition. */
+  const enter = (el: HTMLElement | null | undefined, nodes: Iterable<Element>) => {
+    void el
+    for (const n of nodes) n.classList.add('is-enter')
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        for (const n of nodes) n.classList.remove('is-enter')
+      }),
+    )
+    return () => cancelAnimationFrame(id)
+  }
+
+  useLayoutEffect(() => {
+    if (reduced) return
+    const board = boardRef.current
+    if (!board) return
+    return enter(board, board.querySelectorAll('.cg-row'))
+  }, [filter, reduced, tab])
+
+  useLayoutEffect(() => {
+    if (reduced || !noticeOpen) return
+    const body = noticeBodyRef.current
+    if (!body) return
+    return enter(body, [body])
+  }, [noticeOpen, reduced])
+
   // ⚖ Liam 8/23 — 画面の説明. A section joins the walk by DECLARING
   // `data-guide-title` + `data-guide` ON ITSELF, so there is no list to keep in
   // sync: a section that renders is a section that is explained, and one that is
   // not on screen — the whole team board while the self tab is open, the spine
   // while a run reported too little, every panel at once while the module is
-  // off — drops out of the walk and out of the N/M count by itself.
+  // off, the notice's body while the disclosure is closed — drops out of the
+  // walk and out of the N/M count by itself.
   useLayoutEffect(() => {
     if (tourIdx < 0) { setTourStep(null); setTourPos(null); setTourHover(null); return }
     const targets = spotTargets(rootRef.current)
@@ -444,7 +629,10 @@ export function CoachingScreen(props: CoachingProps) {
    *  because a screen reader drops `title` once `aria-describedby` is present.
    *
    *  ⚠ THE CLASSES ARE MERGED HERE and a call site must never write `className`
-   *  after the spread — the room-5 F-K1 defect, which is why the merge is last. */
+   *  after the spread — the room-5 F-K1 defect, which is why the merge is last.
+   *  ⚠ AND A REFUSED CONTROL GETS NO PRESS FEEDBACK: nothing happens when it is
+   *  pressed, so nothing should look like it did. `data-press` is for the levers
+   *  that really do something. */
   const refused = (label: string, reason: string, className?: string) => ({
     type: 'button' as const,
     'aria-disabled': 'true' as const,
@@ -481,17 +669,56 @@ export function CoachingScreen(props: CoachingProps) {
   // metrics are the door's own facts, not the run's.
   const hasFindings = ready !== null && ready.status === 'findings' && ready.findings.length > 0
 
+  /** ⚖-ADJ D — 練習するもの, as a real link to the module card the title names.
+   *  The native anchor is the behaviour (a keyboard reaches it by Tab and opens
+   *  it with Enter, and the URL is shareable); the smooth scroll on top of it is
+   *  decoration and it obeys reduced motion. */
+  const practiseChip = (anchor: string | null, title: string | null) =>
+    anchor && title ? (
+      <a
+        className="cg-linkchip"
+        href={`#${anchor}`}
+        data-press
+        onClick={(e) => {
+          const target = document.getElementById(anchor)
+          if (!target) return
+          e.preventDefault()
+          target.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+          if (target.id) window.history.replaceState(null, '', `#${target.id}`)
+        }}
+      >
+        <span className="cg-tk">練習するもの</span>
+        <span className="cg-linkchip-title">{title}</span>
+      </a>
+    ) : title ? (
+      <p className="cg-find-mod">
+        <span className="cg-tk">練習するもの</span>
+        {title}
+      </p>
+    ) : null
+
+  /** ⚖-ADJ C — THE FILTER REMOVES ROWS AND NEVER RE-ORDERS THEM. `filter` on the
+   *  payload's own array keeps the roster's order by construction: there is no
+   *  comparator here to mis-set, which is the same reason `coaching.ts` has no
+   *  sort over the roster at all. A band-less row answers to the fourth COUNT
+   *  (「判断できる回数に未到達」), never to a band it was denied. */
+  const visibleRows = team
+    ? team.rows.filter((r) => filter === null || (r.band ?? 'building') === filter)
+    : []
+
   return (
     <div className={ROOT} ref={rootRef}>
       {/* STEP 0. The head declares itself like every other section, so the walk
           opens on what this page is FOR before it starts pointing at parts of
           it — and its sentence is true on BOTH tabs, which is the room-5 F5-1
           rule: anything that belongs to one screen is declared on that screen's
-          own element and drops with it. */}
+          own element and drops with it.
+          ⚖-ADJ K — and it now carries the retired `subtitle` as its first
+          sentence, so the head is ONE row without a sentence being cut. */}
       <header
         className="cg-head"
         data-guide-title="コーチング"
-        data-guide="接客を振り返るための画面です。数字も気づきも、セッションの記録から出しています。一人ひとりの詳しい内容と会話の引用は、本人だけが見られます。"
+        data-guide={`${props.subtitle}${HEAD_GUIDE}`}
       >
         <div className="cg-eyebrow">{props.dateline}</div>
         <div className="cg-titleline">
@@ -507,35 +734,34 @@ export function CoachingScreen(props: CoachingProps) {
             aria-haspopup="dialog"
             aria-expanded={tourOpen}
             aria-controls="cgTour"
+            data-press
             onClick={() => setTourIdx(0)}
           >
             ?
           </button>
+          {/* ⚖ TWO ORIENTATION FACTS, TWO NEUTRAL CHIPS (S16 §2.1). They are not
+              pressable and they carry no accent — the one-way accent law. Each
+              chip's `title` is the whole sentence it shortens, so the window
+              paragraph and the viewer paragraph both still exist on the page. */}
+          <span className="cg-head-chips">
+            <span className="cg-chip-window" title={props.windowTitle}>{props.windowChip}</span>
+            <span className="cg-chip-viewer" title={props.viewerLine}>{props.viewerChip}</span>
+          </span>
+          {/* ⚠ THE HEAD'S OWN ACTION IS THE LAST THING ON THE TITLE ROW at every
+              width, and at ≤899 the two chips wrap onto their own line beneath
+              it. Reading order stays: what this page is, who is reading it and
+              over what window, and only then the lever waiting on a seam. */}
+          <button {...refused('コーチングの設定', props.refusals.settings, 'cg-settings')}>コーチングの設定</button>
         </div>
-        <p className="cg-sub">{props.subtitle}</p>
-        {/* ⚖ WHOSE EYES IS THIS? — the audit's §3 found no viewer-identity
-            label anywhere in either system. Quiet, in the family's grammar,
-            beside the window it already states: two facts about the READING
-            rather than about the data, on one line each. It is true in
-            production, where there is no preview and the role is the reader's
-            own — orientation, not a dev affordance. */}
-        <p className="cg-viewer">{props.viewerLine}</p>
-        <p className="cg-window">{props.windowLabel}のセッションを見ています</p>
-        {/* ⚠ THE HEAD'S OWN ACTION IS THE LAST THING IN THE HEAD, and the sheet
-            decides where it SITS. On a desk it rides the title line, right; at
-            ≤743 it used to be pushed onto a full-width row BETWEEN the h1 and
-            the sentence that explains the page, so the most prominent element
-            under the title on a phone was a permanently refused control. Now
-            the reading order is the same at every width: what this page is,
-            what it covers, and only then the lever that is waiting on a seam. */}
-        <button {...refused('コーチングの設定', props.refusals.settings, 'cg-settings')}>コーチングの設定</button>
       </header>
 
       {/* ⚖ THE ROLE PREVIEW — `coaching-dev-preview/*` mirrored, three ways.
           ABSENT in production, never hidden: `props.preview` is null when the
           build-time gate is off, so there is no DOM node to find (guard rail 4).
+          A Vercel preview whose env does not set the flag has no strip either —
+          absence is the honest state, not a bug.
 
-          ⚠ LINKS, NOT A CLIENT STORE, and that is deviation C8L-3. On the phone
+          ⚠ LINKS, NOT A CLIENT STORE, and that is deviation C8L-1. On the phone
           the override is a client render-shell swap over data RLS has already
           scoped. Here the visibility wall is built ABOVE the serializer — the
           board is never CONSTRUCTED for a reader without the capability — so a
@@ -550,7 +776,7 @@ export function CoachingScreen(props: CoachingProps) {
       {props.preview && (
         <nav className={`cg-preview${props.preview.isOverridden ? ' is-on' : ''}`} aria-label="コーチング表示ロールの切り替え（開発用）">
           <span className="cg-preview-tag">{props.preview.label}</span>
-          <a className={`cg-preview-chip${props.preview.isOverridden ? '' : ' is-on'}`} href={props.preview.realHref}>
+          <a className={`cg-preview-chip${props.preview.isOverridden ? '' : ' is-on'}`} href={props.preview.realHref} data-press>
             {props.preview.realLabel}
           </a>
           {props.preview.roles.map((r) => (
@@ -558,6 +784,7 @@ export function CoachingScreen(props: CoachingProps) {
               key={r.role}
               className={`cg-preview-chip${props.preview!.isOverridden && props.preview!.current === r.role ? ' is-on' : ''}`}
               href={r.href}
+              data-press
               aria-current={props.preview!.isOverridden && props.preview!.current === r.role ? 'true' : undefined}
             >
               {r.role}
@@ -579,13 +806,20 @@ export function CoachingScreen(props: CoachingProps) {
       ) : (
         <>
           {props.canViewTeam ? (
+            /* ⚖-ADJ N — THE FAMILY'S UNDERLINE TABS. Same semantics as before
+               (a real tablist, the same three ids, the same clamp); what changed
+               is that the selected tab is accent TEXT plus a 2px rule that
+               SLIDES to it, instead of a bordered pill. R13 is unmoved: a wash
+               and a rule, never a filled tab. */
             <div
               className="cg-tabs"
+              ref={tabsRef}
               role="tablist"
               aria-label="表示の切り替え"
               data-guide-title="表示の切り替え"
               data-guide="自分の記録だけを見る画面と、店舗のスタッフ全体を見る画面を切り替えます。全スタッフ表示では、一人ひとりの数字は出ません。"
             >
+              <span className="cg-tab-line" ref={tabLineRef} aria-hidden="true" />
               <button
                 type="button"
                 role="tab"
@@ -593,7 +827,8 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-selected={activeTab === 'self'}
                 aria-controls="cgPanelSelf"
                 className={`cg-tab${activeTab === 'self' ? ' is-on' : ''}`}
-                onClick={() => setTab('self')}
+                data-press
+                onClick={(e) => { setTab('self'); moveTabLine(e.currentTarget) }}
               >
                 {props.selfTabLabel}
               </button>
@@ -604,7 +839,8 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-selected={activeTab === 'team'}
                 aria-controls="cgPanelTeam"
                 className={`cg-tab${activeTab === 'team' ? ' is-on' : ''}`}
-                onClick={() => setTab('team')}
+                data-press
+                onClick={(e) => { setTab('team'); moveTabLine(e.currentTarget) }}
               >
                 {props.teamTabLabel}
               </button>
@@ -612,7 +848,8 @@ export function CoachingScreen(props: CoachingProps) {
                   CAPABILITY. 「Does this pay for itself」 is the question of the
                   person who pays; a 店舗管理者 has no tab here, so the tab row
                   itself is the difference between the two manager personas the
-                  preview walks. */}
+                  preview walks. ⚖ Q6's dial cannot open it — the dial has no
+                  term in `viewRoi` at all. */}
               {props.canViewRoi && (
                 <button
                   type="button"
@@ -621,7 +858,8 @@ export function CoachingScreen(props: CoachingProps) {
                   aria-selected={activeTab === 'roi'}
                   aria-controls="cgPanelRoi"
                   className={`cg-tab${activeTab === 'roi' ? ' is-on' : ''}`}
-                  onClick={() => setTab('roi')}
+                  data-press
+                  onClick={(e) => { setTab('roi'); moveTabLine(e.currentTarget) }}
                 >
                   {props.roiTabLabel}
                 </button>
@@ -630,10 +868,26 @@ export function CoachingScreen(props: CoachingProps) {
           ) : (
             /* canon's boundary-rights variant (fable-coaching.html:360-364), and
                it RENDERS rather than sitting `[hidden]`: for a staff member this
-               is the true state of the page, so it is the state they get. */
-            <p className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。">
-              {props.teamBoundaryLine}
-            </p>
+               is the true state of the page, so it is the state they get.
+               ⚖ Q6 — and when the reason is the BUSINESS'S OWN SETTING rather
+               than the product, the sentence says so and points at the setting.
+               ⚠ 「設定を開く」 + 「準備中」, never 「設定で変更」: the editor is
+               registry ⑤ and does not exist yet, so the label may not promise a
+               change its destination cannot make. */
+            <section className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。表示する範囲は事業ごとの設定で決まります。">
+              <p className="cg-boundary-line">{props.teamBoundaryLine}</p>
+              {props.teamBoundaryPolicy && (
+                <p className="cg-boundary-policy">{props.teamBoundaryPolicy.line}</p>
+              )}
+              {props.teamBoundaryPolicy && (
+                <span className="cg-boundary-door">
+                  <button {...refused(props.teamBoundaryPolicy.doorLabel, props.refusals.settings, 'cg-boundary-btn')}>
+                    {props.teamBoundaryPolicy.doorLabel}
+                  </button>
+                  <span className="cg-note-chip">{props.teamBoundaryPolicy.doorState}</span>
+                </span>
+              )}
+            </section>
           )}
 
           {activeTab === 'self' ? (
@@ -647,15 +901,31 @@ export function CoachingScreen(props: CoachingProps) {
                       allow, so the page read as if coaching simply happens to
                       you. The DECISION is read from the viewer's own record;
                       the CONTROL stays refused, because writing a consent
-                      record is a legal act. */}
+                      record is a legal act.
+
+                      ⚖-ADJ B — ONE SECTION, TWO COMPOSITIONS. A decision already
+                      taken is a fact to keep visible, not a card to re-read every
+                      session, so `granted` renders as a single quiet strip; the
+                      full sentence rides the strip's `title` and this section's
+                      own guide text, so nothing is cut. `unset` and `declined`
+                      are still DECISIONS, and they keep the whole card. */}
                   <section
                     className={`cg-consent is-${ready.consent.status}`}
                     data-guide-title="コーチングを受けることへの同意"
-                    data-guide="あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。断っても勤務には影響しませんし、断ったことは誰にも表示されません。"
+                    data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。断っても勤務には影響しませんし、断ったことは誰にも表示されません。${ready.consent.body}`}
                   >
-                    <h2 className="cg-sec-title">{ready.consent.title}</h2>
-                    <p className="cg-consent-body">{ready.consent.body}</p>
-                    <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
+                    {ready.consent.strip ? (
+                      <p className="cg-consent-strip" title={ready.consent.body}>
+                        <span className="cg-consent-strip-text">{ready.consent.strip}</span>
+                        <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
+                      </p>
+                    ) : (
+                      <>
+                        <h2 className="cg-sec-title">{ready.consent.title}</h2>
+                        <p className="cg-consent-body">{ready.consent.body}</p>
+                        <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
+                      </>
+                    )}
                   </section>
 
                   {/* ⚖ VL-1 — THE CARD'S OWN WORDS ARE THE GATE.
@@ -666,201 +936,217 @@ export function CoachingScreen(props: CoachingProps) {
                       there is nothing to share」. Everything below this point is
                       generated FROM this viewer's own analysed sessions, so a
                       decline stops it here rather than rendering it under a card
-                      that just said it wouldn't. */}
+                      that just said it wouldn't.
+                      ⚠ THE ORDER IS THE PIN: consent → gate → the decision desk
+                      → the library row → gate-close. */}
                   {ready.consent.status !== 'declined' && (
                   <>
-                  <section
-                    className="cg-spine"
-                    data-guide-title="あなたの成績"
-                    data-guide="あなたのセッションから出した成績です。何回ぶんの分析なのかを必ず添えています。回数が少ないうちは荒削りで、増えるほど正確になります。"
-                  >
-                    <div className="cg-sec-head">
-                      <h2 className="cg-sec-title">あなたの成績</h2>
-                      {lock}
-                      <button {...refused('気づきを作り直す', props.refusals.regenerate, 'cg-regen')}>気づきを作り直す</button>
-                    </div>
-                    <div className="cg-stats">
-                      {ready.stats.map((s) => (
-                        <div className="cg-stat" key={s.key}>
-                          <div className="cg-stat-label">{s.label}</div>
-                          <div className="cg-stat-value">{s.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="cg-basis">
-                      {ready.sessionsLabel}
-                      {ready.maturityNote ? ` ・ ${ready.maturityNote}` : ''}
-                    </p>
-                  </section>
-
-                  {ready.focus[0] && (
-                    <section
-                      className="cg-focus"
-                      data-guide-title="次の一手"
-                      data-guide="いま一番効く一つだけを出しています。あれもこれもではなく、次のセッションで試すことを一つに絞っています。"
-                    >
-                      <div className="cg-focus-head">
-                        <span className="cg-kicker">次の一手</span>
-                        <span className="cg-cat">{ready.focus[0].categoryLabel}</span>
-                        {ready.focus[0].confidenceNote && <span className="cg-note-chip">{ready.focus[0].confidenceNote}</span>}
-                        {lock}
-                      </div>
-                      <h2 className="cg-sec-title">{ready.focus[0].label}</h2>
-                      <p>{ready.focus[0].description}</p>
-                      {/* staff-focus.ts:173 — the module this focus points at,
-                          by NAME. Before this round `module_id` was a reference
-                          into nothing; the catalog below is where it lands. */}
-                      {ready.focus[0].moduleTitle && (
-                        <p className="cg-focus-mod">
-                          <b>練習するもの</b>
-                          {ready.focus[0].moduleTitle}
-                        </p>
+                  {/* ⚖ THE DECISION DESK (S16 §2.3/§2.4, mock D5 — ONE grid, two
+                      packed stacks). LEFT: the one move to make next, then the
+                      evidence for it. RIGHT: the numbers that back the move, then
+                      everything that supports reading them. Two separate rows
+                      tore a ~230px hole above 気づき at 1280–1440, because 成績
+                      is the taller card — so the two stacks pack independently
+                      and the columns end where their own content ends. */}
+                  <div className="cg-cols">
+                    <div className="cg-main">
+                      {ready.focus[0] && (
+                        <section
+                          className="cg-focus"
+                          data-guide-title="次の一手"
+                          data-guide="いま一番効く一つだけを出しています。あれもこれもではなく、次のセッションで試すことを一つに絞っています。「練習するもの」を押すと、その練習メニューまで移動します。"
+                        >
+                          <div className="cg-focus-head">
+                            <span className="cg-kicker">次の一手</span>
+                            <span className="cg-cat">{ready.focus[0].categoryLabel}</span>
+                            {ready.focus[0].confidenceNote && <span className="cg-note-chip">{ready.focus[0].confidenceNote}</span>}
+                            {lock}
+                          </div>
+                          <h2 className="cg-sec-title">{ready.focus[0].label}</h2>
+                          <p className="cg-focus-desc">{ready.focus[0].description}</p>
+                          {/* staff-focus.ts:173 — the module this focus points at,
+                              by NAME. Before this round `module_id` was a reference
+                              into nothing; the catalog below is where it lands, and
+                              since S16 the chip really goes there. */}
+                          {practiseChip(ready.focus[0].moduleAnchor, ready.focus[0].moduleTitle)}
+                          {/* ⚖ ONE THING AT A TIME STAYS THE RULE — the hero is
+                              still one. But staff-focus.ts:199 allows three and the
+                              room RESOLVED all three and rendered one, throwing the
+                              rest away (audit #31). They ride here, quiet and
+                              secondary, so nothing the run produced is discarded
+                              and nothing competes with the one move. */}
+                          {ready.focus.length > 1 && (
+                            <div className="cg-focus-next">
+                              <span className="cg-tk">そのあとに効くもの</span>
+                              <ul>
+                                {ready.focus.slice(1).map((f) => (
+                                  <li key={f.label}>
+                                    <span className="cg-cat">{f.categoryLabel}</span>
+                                    <span>{f.label}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </section>
                       )}
-                      {/* ⚖ ONE THING AT A TIME STAYS THE RULE — the hero is
-                          still one. But staff-focus.ts:199 allows three and the
-                          room RESOLVED all three and rendered one, throwing the
-                          rest away (audit #31). They ride here, quiet and
-                          secondary, so nothing the run produced is discarded
-                          and nothing competes with the one move. */}
-                      {ready.focus.length > 1 && (
-                        <div className="cg-focus-next">
-                          <b>そのあとに効くもの</b>
-                          <ul>
-                            {ready.focus.slice(1).map((f) => (
-                              <li key={f.label}>
-                                <span className="cg-cat">{f.categoryLabel}</span>
-                                <span>{f.label}</span>
+
+                      <section
+                        className="cg-findings"
+                        data-guide-title="気づき"
+                        data-guide="良かった点も、直したほうがいい点も、そのまま出しています。左が「次にやること」、右がその根拠 — 「何回中何回」という実際の回数と、そのときの会話の引用です。引用はあなただけが見られます。"
+                      >
+                        <div className="cg-sec-head">
+                          <h2 className="cg-sec-title">{ready.statusTitle}</h2>
+                          {lock}
+                        </div>
+                        {hasFindings ? (
+                          <div className="cg-find-list">
+                            {ready.findings.map((f) => (
+                              <article className={`cg-find is-${f.severity}`} key={f.id}>
+                                <div className="cg-find-head">
+                                  <span className={`cg-sev is-${f.severity}`}>{f.severityLabel}</span>
+                                  <span className="cg-cat">{f.category}</span>
+                                </div>
+                                <h3>{f.headline}</h3>
+                                <p className="cg-find-impact">{f.impact}</p>
+                                {/* ⚖ THE CLAIM AND ITS RECEIPT, SIDE BY SIDE
+                                    (S16 §2.4). Left is what to DO about it; right
+                                    is why anyone should believe it — the count,
+                                    the reader's own quoted moment and the two
+                                    caveats. Below 560px of CARD width the two
+                                    stack, claim first: nothing is hidden and
+                                    nothing is collapsed, because the quote is the
+                                    staff member's own receipt. */}
+                                <div className="cg-receipt">
+                                  <div className="cg-find-claim">
+                                    <p className="cg-find-fix">
+                                      <span className="cg-tk">次にやること</span>
+                                      {f.recommendation}
+                                    </p>
+                                    {/* personal-findings.ts:242-243 — THE LOOP,
+                                        CLOSED. The run links each finding to the
+                                        module and the top-performer pattern that
+                                        fix it; both fields rode in this room's
+                                        plane and reached no screen (audit #81).
+                                        Resolved to names, never ids. */}
+                                    {f.patternBehavior && (
+                                      <p className="cg-find-pattern">
+                                        <span className="cg-tk">上位層がやっていること</span>
+                                        {f.patternBehavior}
+                                      </p>
+                                    )}
+                                    {practiseChip(f.moduleAnchor, f.moduleTitle)}
+                                  </div>
+                                  <div className="cg-find-receipt">
+                                    {f.checklistItemMatched && (
+                                      <p className="cg-find-check">
+                                        <span className="cg-tk">該当した確認項目</span>
+                                        {f.checklistItemMatched}
+                                      </p>
+                                    )}
+                                    {/* ⚠ THE COUNT IS THE RECEIPT, NOT A SECOND
+                                        SENTENCE. `impact` and `comparison` are two
+                                        generator fields with the same job, and
+                                        rendered as adjacent paragraphs every card
+                                        said its own numbers twice. The count sits
+                                        in the EVIDENCE column beside the quoted
+                                        moment and takes a label, so it reads as
+                                        the arithmetic behind the claim. */}
+                                    <p className="cg-find-count">
+                                      <span className="cg-tk">該当した回数</span>
+                                      <span className="cg-find-count-value">{f.countLabel}</span>
+                                    </p>
+                                    {f.countWarning && <p className="cg-find-warn">{f.countWarning}</p>}
+                                    {f.moment && (
+                                      <blockquote className="cg-quote">
+                                        <span className="cg-quote-meta">
+                                          <span className="cg-tk">そのときの会話（あなただけが見られます）</span>
+                                          <span className="cg-tk">{f.moment.date}</span>
+                                          <span className="cg-tk">{f.moment.speakerLabel}</span>
+                                        </span>
+                                        <span className="cg-quote-text">{f.moment.quote}</span>
+                                      </blockquote>
+                                    )}
+                                    {f.confidenceNote && <p className="cg-find-caveat">{f.confidenceNote}</p>}
+                                  </div>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          /* ⚖ THE THREE NON-FINDING STATUSES ARE DESIGNED STATES.
+                             A quiet window, a recorder gap and a too-short run are
+                             three different facts, and the run itself says which
+                             one it is — so the page never stretches a nitpick into
+                             a finding to avoid an empty card. */
+                          <div className="cg-status">
+                            <p className="cg-status-head">{ready.runHeadline}</p>
+                            {ready.statusBody && <p className="cg-status-body">{ready.statusBody}</p>}
+                          </div>
+                        )}
+                      </section>
+                    </div>
+
+                    <div className="cg-side">
+                      <section
+                        className="cg-spine"
+                        data-guide-title="あなたの成績"
+                        data-guide="あなたのセッションから出した成績です。何回ぶんの分析なのかを必ず添えています。回数が少ないうちは荒削りで、増えるほど正確になります。"
+                      >
+                        <div className="cg-sec-head">
+                          <h2 className="cg-sec-title">あなたの成績</h2>
+                          {lock}
+                          <button {...refused('気づきを作り直す', props.refusals.regenerate, 'cg-regen')}>気づきを作り直す</button>
+                        </div>
+                        <div className="cg-stats">
+                          {ready.stats.map((s) => (
+                            <div className="cg-stat" key={s.key}>
+                              <div className="cg-stat-label">{s.label}</div>
+                              <div className="cg-stat-value">{s.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="cg-basis">
+                          {ready.sessionsLabel}
+                          {ready.maturityNote ? ` ・ ${ready.maturityNote}` : ''}
+                        </p>
+                      </section>
+
+                      {/* ⚖ あなたの強み (audit §5 rank 4) — the shape is in
+                          staff-focus.ts:200-204 and the data had been sitting in
+                          this room's own plane since the build round, resolved and
+                          thrown away. Honest-not-sweet: 「detail MUST cite the
+                          evidencing metric/pattern」 is the module's own rule, so
+                          every strength here arrives with its receipt. It is NOT a
+                          consolation list — the ranked findings already carry
+                          severity 'strength' — it is what the focus run separately
+                          concluded you are good at.
+                          ⚠ S16 — IT LEADS THE SUPPORTING COLUMN. It used to sit
+                          full-width above the findings, where a single strength
+                          stretched into the emptiest band on the desk; beside the
+                          numbers it reads as one of them. */}
+                      {ready.strengths.length > 0 && (
+                        <section
+                          className="cg-strengths"
+                          data-guide-title="あなたの強み"
+                          data-guide="うまくいっている点です。ほめるためではなく、何が効いているのかを続けられるように、根拠になった数字を必ず添えています。"
+                        >
+                          <div className="cg-sec-head">
+                            <h2 className="cg-sec-title">あなたの強み</h2>
+                            {lock}
+                          </div>
+                          <ul className="cg-strength-list">
+                            {ready.strengths.map((s) => (
+                              <li className="cg-strength" key={s.label}>
+                                <span className="cg-strength-label">{s.label}</span>
+                                <span className="cg-strength-detail">{s.detail}</span>
                               </li>
                             ))}
                           </ul>
-                        </div>
+                        </section>
                       )}
-                    </section>
-                  )}
 
-                  {/* ⚖ あなたの強み (audit §5 rank 4) — the shape is in
-                      staff-focus.ts:200-204 and the data has been sitting in
-                      this room's own plane since the build round, resolved and
-                      thrown away. Honest-not-sweet: 「detail MUST cite the
-                      evidencing metric/pattern」 is the module's own rule, so
-                      every strength here arrives with its receipt. It is NOT a
-                      consolation list — the ranked findings already carry
-                      severity 'strength' — it is what the focus run separately
-                      concluded you are good at. */}
-                  {ready.strengths.length > 0 && (
-                    <section
-                      className="cg-strengths"
-                      data-guide-title="あなたの強み"
-                      data-guide="うまくいっている点です。ほめるためではなく、何が効いているのかを続けられるように、根拠になった数字を必ず添えています。"
-                    >
-                      <div className="cg-sec-head">
-                        <h2 className="cg-sec-title">あなたの強み</h2>
-                        {lock}
-                      </div>
-                      <ul className="cg-strength-list">
-                        {ready.strengths.map((s) => (
-                          <li className="cg-strength" key={s.label}>
-                            <span className="cg-strength-label">{s.label}</span>
-                            <span className="cg-strength-detail">{s.detail}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-
-                  <div className="cg-cols">
-                    <section
-                      className="cg-findings"
-                      data-guide-title="気づき"
-                      data-guide="良かった点も、直したほうがいい点も、そのまま出しています。それぞれに「何回中何回」という実際の回数と、そのときの会話の引用がついています。引用はあなただけが見られます。"
-                    >
-                      <div className="cg-sec-head">
-                        <h2 className="cg-sec-title">{ready.statusTitle}</h2>
-                        {lock}
-                      </div>
-                      {hasFindings ? (
-                        <div className="cg-find-list">
-                          {ready.findings.map((f) => (
-                            <article className={`cg-find is-${f.severity}`} key={f.id}>
-                              <div className="cg-find-head">
-                                <span className={`cg-sev is-${f.severity}`}>{f.severityLabel}</span>
-                                <span className="cg-cat">{f.category}</span>
-                              </div>
-                              <h3>{f.headline}</h3>
-                              <p className="cg-find-impact">{f.impact}</p>
-                              {f.checklistItemMatched && (
-                                <p className="cg-find-check">
-                                  <b>該当した確認項目</b>
-                                  {f.checklistItemMatched}
-                                </p>
-                              )}
-                              <p className="cg-find-fix">
-                                <b>次にやること</b>
-                                {f.recommendation}
-                              </p>
-                              {/* ⚠ THE COUNT IS THE RECEIPT, NOT A SECOND
-                                  SENTENCE. `impact` and `comparison` are two
-                                  generator fields with the same job — 「the
-                                  quantified cost in plain words」 and 「the
-                                  quantified impact in words」 — and rendered as
-                                  adjacent paragraphs every card said its own
-                                  numbers twice, back to back, which is the
-                                  first thing a reader at the desk bar sees.
-                                  Neither field is dropped (the room composes no
-                                  sentence a generator owns): the count moves
-                                  into the EVIDENCE group beside the quoted
-                                  moment and takes a label, so it reads as the
-                                  arithmetic behind the claim instead of a
-                                  restatement of it. */}
-                              <p className="cg-find-count">
-                                <b>該当した回数</b>
-                                {f.countLabel}
-                              </p>
-                              {f.countWarning && <p className="cg-find-warn">{f.countWarning}</p>}
-                              {f.moment && (
-                                <blockquote className="cg-quote">
-                                  <span className="cg-quote-meta">
-                                    そのときの会話（あなただけが見られます） ・ {f.moment.date} ・ {f.moment.speakerLabel}
-                                  </span>
-                                  <span className="cg-quote-text">{f.moment.quote}</span>
-                                </blockquote>
-                              )}
-                              {/* personal-findings.ts:242-243 — THE LOOP,
-                                  CLOSED. The run links each finding to the
-                                  module and the top-performer pattern that fix
-                                  it; both fields rode in this room's plane and
-                                  reached no screen (audit #81). Resolved to
-                                  names, never ids. */}
-                              {f.patternBehavior && (
-                                <p className="cg-find-pattern">
-                                  <b>上位層がやっていること</b>
-                                  {f.patternBehavior}
-                                </p>
-                              )}
-                              {f.moduleTitle && (
-                                <p className="cg-find-mod">
-                                  <b>練習するもの</b>
-                                  {f.moduleTitle}
-                                </p>
-                              )}
-                              {f.confidenceNote && <p className="cg-find-caveat">{f.confidenceNote}</p>}
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        /* ⚖ THE THREE NON-FINDING STATUSES ARE DESIGNED STATES.
-                           A quiet window, a recorder gap and a too-short run are
-                           three different facts, and the run itself says which
-                           one it is — so the page never stretches a nitpick into
-                           a finding to avoid an empty card. */
-                        <div className="cg-status">
-                          <p className="cg-status-head">{ready.runHeadline}</p>
-                          {ready.statusBody && <p className="cg-status-body">{ready.statusBody}</p>}
-                        </div>
-                      )}
-                    </section>
-
-                    <div className="cg-side">
                       {ready.trend.length > 1 && (
                         <section
                           className="cg-trend"
@@ -871,10 +1157,10 @@ export function CoachingScreen(props: CoachingProps) {
                           <ul className="cg-bars">
                             {ready.trend.map((p, i) => (
                               <li className="cg-bar" key={`${p.label}-${i}`}>
+                                <span className="cg-bar-value">{p.display}</span>
                                 <span className="cg-bar-track">
                                   <span className="cg-bar-fill" style={{ height: `${Math.round(p.value * 100)}%` }} />
                                 </span>
-                                <span className="cg-bar-value">{p.display}</span>
                                 <span className="cg-bar-label">{p.label}</span>
                               </li>
                             ))}
@@ -936,11 +1222,7 @@ export function CoachingScreen(props: CoachingProps) {
                           in this room applies, which broke this file's own
                           header rule three lines into it. What is left is what
                           the shape really guarantees: no name rides with a
-                          technique. (VISIBILITY_MODEL §5's double consent
-                          governs ATTRIBUTION, and these patterns are anonymous
-                          by construction — so the promise was not merely
-                          unbacked, it was a promise about a gate the design
-                          does not need.) */}
+                          technique. */}
                       {ready.learnFromTop.length > 0 && (
                         <section
                           className="cg-learn"
@@ -962,14 +1244,10 @@ export function CoachingScreen(props: CoachingProps) {
                       {/* ⚖ THE GRANT IS THE STAFF MEMBER'S OWN, AND IT IS READ
                           — the state sentence, the body and the button label
                           all come from `SelfView.grant`, the viewer's own plane
-                          row. It used to be a hardcoded 「現在オフ」, which told
-                          a staff member whose row says `granted` that nothing
-                          was shared while the same payload counted them among
-                          the staff who had allowed it.
-                          Default OFF for everyone, always; a manager can only
-                          ask a person face to face — there is deliberately no
-                          request button on this page, because an in-app nag is
-                          the coercion the visibility model rules out. */}
+                          row. Default OFF for everyone, always; a manager can
+                          only ask a person face to face — there is deliberately
+                          no request button on this page, because an in-app nag
+                          is the coercion the visibility model rules out. */}
                       <section
                         className="cg-share"
                         data-guide-title="マネージャーへの共有"
@@ -985,114 +1263,123 @@ export function CoachingScreen(props: CoachingProps) {
                     </div>
                   </div>
 
-                  {/* ⚖ THE PATTERN LIBRARY (audit §5 rank 5) — FIVE NAMED
-                      SHELVES with the actual line a top performer says, where
-                      the room showed two loose anonymous sentences. Full width
-                      beneath the two columns, because a quoted line needs the
-                      line: this is reading, not scanning.
+                  {/* ⚖ THE LIBRARY ROW (S16 §2.5) — the two READING surfaces, side
+                      by side on a desk: what the top performers actually say, and
+                      what to practise about it. Both were full-width readers under
+                      the desk before; paired, the 練習するもの chip above lands on
+                      a card the reader can already see. */}
+                  <div className="cg-library">
+                    {/* ⚖ THE PATTERN LIBRARY (audit §5 rank 5) — FIVE NAMED
+                        SHELVES with the actual line a top performer says.
 
-                      ⚠ EVERY SHELF RENDERS, EMPTY OR NOT — the phone's own
-                      deliberate choice (`PatternCategorySection.tsx:9-18`), so
-                      the reader sees the SHAPE of the library and a quiet month
-                      reads as 「nothing new here」 rather than as a library that
-                      changed size.
+                        ⚠ EVERY SHELF RENDERS, EMPTY OR NOT — the phone's own
+                        deliberate choice (`PatternCategorySection.tsx:9-18`), so
+                        the reader sees the SHAPE of the library and a quiet month
+                        reads as 「nothing new here」 rather than as a library that
+                        changed size.
 
-                      ⚠ AND NO SOURCE NAME, ANYWHERE. The shape has no field for
-                      one: `COACHING_VISIBILITY_MODEL.md:123` flags the phone's
-                      hardcoded `showSource = role === 'owner'` as ungated by
-                      the source's own consent, and §5 requires DOUBLE consent
-                      for attribution. Not hidden by a role check — absent. */}
-                  {props.patterns && (
-                    <section
-                      className="cg-patterns"
-                      data-guide-title="トップパフォーマーのパターン"
-                      data-guide="成績の良いスタッフが実際に使っている言い回しを、場面ごとにまとめています。誰のやり方かは表示されません。まだ見つかっていない場面も、棚だけは出しています。"
-                    >
-                      <h2 className="cg-sec-title">{props.patterns.title}</h2>
-                      <p className="cg-patterns-sub">{props.patterns.subtitle}</p>
-                      <div className="cg-shelves">
-                        {props.patterns.shelves.map((shelf) => (
-                          <div className="cg-shelf" key={shelf.key}>
-                            <h3 className="cg-shelf-title">{shelf.title}</h3>
-                            <p className="cg-shelf-desc">{shelf.description}</p>
-                            {shelf.entries.length > 0 ? (
-                              <ul className="cg-pattern-list">
-                                {shelf.entries.map((e) => (
-                                  <li className="cg-pattern" key={e.title}>
-                                    <span className="cg-pattern-title">{e.title}</span>
-                                    <span className="cg-pattern-behavior">{e.behavior}</span>
-                                    {/* top-performer-patterns.ts:157 — the
-                                        actual LINE, paraphrased, ≤15 chars
-                                        verbatim. This is what a shelf has that
-                                        a summary sentence does not. */}
-                                    <blockquote className="cg-pattern-example">{e.example}</blockquote>
-                                    <span className="cg-pattern-note">{e.adoptionNote}</span>
-                                    <span className="cg-pattern-transfer">{e.transferability}</span>
-                                    {e.confidenceNote && <span className="cg-pattern-caveat">{e.confidenceNote}</span>}
+                        ⚠ AND NO SOURCE NAME, ANYWHERE. The shape has no field for
+                        one: `COACHING_VISIBILITY_MODEL.md:123` flags the phone's
+                        hardcoded `showSource = role === 'owner'` as ungated by
+                        the source's own consent, and §5 requires DOUBLE consent
+                        for attribution. Not hidden by a role check — absent. */}
+                    {props.patterns && (
+                      <section
+                        className="cg-patterns"
+                        data-guide-title="トップパフォーマーのパターン"
+                        data-guide="成績の良いスタッフが実際に使っている言い回しを、場面ごとにまとめています。誰のやり方かは表示されません。まだ見つかっていない場面も、棚だけは出しています。"
+                      >
+                        <h2 className="cg-sec-title">{props.patterns.title}</h2>
+                        <p className="cg-patterns-sub">{props.patterns.subtitle}</p>
+                        <div className="cg-shelves">
+                          {props.patterns.shelves.map((shelf) => (
+                            <div className="cg-shelf" key={shelf.key}>
+                              <h3 className="cg-shelf-title">{shelf.title}</h3>
+                              <p className="cg-shelf-desc">{shelf.description}</p>
+                              {shelf.entries.length > 0 ? (
+                                <ul className="cg-pattern-list">
+                                  {shelf.entries.map((e) => (
+                                    <li className="cg-pattern" key={e.title}>
+                                      <span className="cg-pattern-title">{e.title}</span>
+                                      <span className="cg-pattern-behavior">{e.behavior}</span>
+                                      {/* top-performer-patterns.ts:157 — the
+                                          actual LINE, paraphrased, ≤15 chars
+                                          verbatim. This is what a shelf has that
+                                          a summary sentence does not. */}
+                                      <blockquote className="cg-pattern-example">{e.example}</blockquote>
+                                      <span className="cg-pattern-note">{e.adoptionNote}</span>
+                                      <span className="cg-pattern-transfer">{e.transferability}</span>
+                                      {e.confidenceNote && <span className="cg-pattern-caveat">{e.confidenceNote}</span>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="cg-shelf-empty">{props.patterns!.emptyLine}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {props.patterns.note && <p className="cg-patterns-note">{props.patterns.note}</p>}
+                      </section>
+                    )}
+
+                    {/* ⚖ THE LEARNING-MODULE CATALOG (audit §5 rank 8). The room
+                        diagnosed and then refused into NOTHING: 学習モジュールを
+                        割り当てる pointed at a library that did not exist, and a
+                        finding's `linked_module_id` was a reference nobody could
+                        follow. The catalog is a READ surface — assignment stays
+                        the board's refused action, because it is a write that
+                        sends a person a notification.
+
+                        ⚠ NO PROGRESS BAR AND NO ASSIGNMENT CHIPS. No generator
+                        produces that data, and the phone's own assign card
+                        filters by consent — which
+                        `COACHING_VISIBILITY_MODEL.md:119-122` calls backwards,
+                        because it excludes the people who most need help.
+
+                        ⚖-ADJ D — EVERY CARD IS AN ANCHOR. `id` is the module's own
+                        id, which is what the 練習するもの chips link to; the sheet
+                        gives them a scroll margin so the shell's sticky topbar
+                        never lands on the card the reader was sent to. */}
+                    {props.modules && (
+                      <section
+                        className="cg-modules"
+                        data-guide-title="学習モジュール"
+                        data-guide="気づきに対して、何をどう練習するかをまとめたものです。手順まで書いてあるので、次のセッションでそのまま試せます。割り当ては実データの接続後に使えるようになります。"
+                      >
+                        <h2 className="cg-sec-title">{props.modules.title}</h2>
+                        <p className="cg-modules-sub">{props.modules.subtitle}</p>
+                        <div className="cg-callout">
+                          <b>{props.modules.calloutTitle}</b>
+                          <span>{props.modules.calloutBody}</span>
+                        </div>
+                        <ul className="cg-module-list">
+                          {props.modules.cards.map((mod) => (
+                            <li className={`cg-module${mod.isMine ? ' is-mine' : ''}`} id={mod.moduleId} key={mod.moduleId}>
+                              <div className="cg-module-head">
+                                <span className="cg-module-title">{mod.title}</span>
+                                {mod.isMine && <span className="cg-kicker">{props.modules!.mineLabel}</span>}
+                                <span className="cg-note-chip">{mod.durationLabel}</span>
+                              </div>
+                              <p className="cg-module-desc">{mod.description}</p>
+                              {/* learning-module.ts:163-166 evidenceBasis — WHY
+                                  this module is believed to work. A catalog
+                                  without it is a list, not a recommendation. */}
+                              <p className="cg-module-basis">{mod.basisLabel}</p>
+                              <ol className="cg-module-steps">
+                                {mod.steps.map((st) => (
+                                  <li key={st.step}>
+                                    <b>{st.title}</b>
+                                    <span>{st.detail}</span>
                                   </li>
                                 ))}
-                              </ul>
-                            ) : (
-                              <p className="cg-shelf-empty">{props.patterns!.emptyLine}</p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      {props.patterns.note && <p className="cg-patterns-note">{props.patterns.note}</p>}
-                    </section>
-                  )}
-
-                  {/* ⚖ THE LEARNING-MODULE CATALOG (audit §5 rank 8). The room
-                      diagnosed and then refused into NOTHING: 学習モジュールを
-                      割り当てる pointed at a library that did not exist, and a
-                      finding's `linked_module_id` was a reference nobody could
-                      follow. The catalog is a READ surface — assignment stays
-                      the board's refused action, because it is a write that
-                      sends a person a notification.
-
-                      ⚠ NO PROGRESS BAR AND NO ASSIGNMENT CHIPS. No generator
-                      produces that data, and the phone's own assign card
-                      filters by consent — which
-                      `COACHING_VISIBILITY_MODEL.md:119-122` calls backwards,
-                      because it excludes the people who most need help. */}
-                  {props.modules && (
-                    <section
-                      className="cg-modules"
-                      data-guide-title="学習モジュール"
-                      data-guide="気づきに対して、何をどう練習するかをまとめたものです。手順まで書いてあるので、次のセッションでそのまま試せます。割り当ては実データの接続後に使えるようになります。"
-                    >
-                      <h2 className="cg-sec-title">{props.modules.title}</h2>
-                      <p className="cg-modules-sub">{props.modules.subtitle}</p>
-                      <div className="cg-callout">
-                        <b>{props.modules.calloutTitle}</b>
-                        <span>{props.modules.calloutBody}</span>
-                      </div>
-                      <ul className="cg-module-list">
-                        {props.modules.cards.map((mod) => (
-                          <li className={`cg-module${mod.isMine ? ' is-mine' : ''}`} key={mod.moduleId}>
-                            <div className="cg-module-head">
-                              <span className="cg-module-title">{mod.title}</span>
-                              {mod.isMine && <span className="cg-kicker">{props.modules!.mineLabel}</span>}
-                              <span className="cg-note-chip">{mod.durationLabel}</span>
-                            </div>
-                            <p className="cg-module-desc">{mod.description}</p>
-                            {/* learning-module.ts:163-166 evidenceBasis — WHY
-                                this module is believed to work. A catalog
-                                without it is a list, not a recommendation. */}
-                            <p className="cg-module-basis">{mod.basisLabel}</p>
-                            <ol className="cg-module-steps">
-                              {mod.steps.map((st) => (
-                                <li key={st.step}>
-                                  <b>{st.title}</b>
-                                  <span>{st.detail}</span>
-                                </li>
-                              ))}
-                            </ol>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
+                              </ol>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                  </div>
                   </>
                   )}
                 </>
@@ -1110,102 +1397,133 @@ export function CoachingScreen(props: CoachingProps) {
           ) : activeTab === 'team' ? (
             team && (
               <div id="cgPanelTeam" role="tabpanel" aria-labelledby="cgTabTeam" className="cg-panel">
-                <section
-                  className="cg-framing"
-                  data-guide-title="全スタッフ表示の見かた"
-                  data-guide="一人ひとりの成約率や回数は表示しません。本人のこれまでと比べてどうかという区分だけを出し、サポートが必要な人には必ずできることを一つ添えています。"
-                >
-                  <p className="cg-framing-line">{team.framingLine}</p>
-                  <div className="cg-stats">
-                    {team.counts.map((c) => (
-                      <div className="cg-stat" key={c.key}>
-                        <div className="cg-stat-label">{c.label}</div>
-                        <div className="cg-stat-value">{c.value}</div>
+                {/* ⚖ THE TRIAGE BOARD AND ITS RAIL (S16 §2.6). The board is the
+                    work; the rail is what the whole store needs and who has
+                    opened up. Below the derived threshold the rail stacks under
+                    the board, which is the reading order anyway. */}
+                <div className="cg-teamgrid">
+                  <div className="cg-teammain">
+                    <section
+                      className="cg-framing"
+                      data-guide-title="全スタッフ表示の見かた"
+                      data-guide="一人ひとりの成約率や回数は表示しません。本人のこれまでと比べてどうかという区分だけを出し、サポートが必要な人には必ずできることを一つ添えています。区分のタイルを押すと、その区分の人だけが下に残ります。もう一度押すと全員に戻ります。"
+                    >
+                      <p className="cg-framing-line">{team.framingLine}</p>
+                      {/* ⚖-ADJ C — THE COUNTS ARE THE FILTER (the ④ 顧客 grammar).
+                          Real `<button>`s, so Tab reaches them and Enter or Space
+                          operates them without this room writing a key handler;
+                          `aria-pressed` is the state, and pressing the pressed
+                          tile clears it. ⚠ IT FILTERS, IT NEVER SORTS — there is
+                          no comparator anywhere in this room. */}
+                      <div className="cg-tiles" role="group" aria-label="区分でしぼり込む">
+                        {team.counts.map((c) => (
+                          <button
+                            key={c.key}
+                            type="button"
+                            className="cg-tile"
+                            aria-pressed={filter === c.key}
+                            data-press
+                            onClick={() =>
+                              setFilter((f) => (f === c.key ? null : BAND_FILTERS.includes(c.key) ? (c.key as BandFilter) : null))
+                            }
+                          >
+                            <span className="cg-tile-label">{c.label}</span>
+                            <span className="cg-tile-value">{c.value}</span>
+                          </button>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
+                    </section>
 
-                <section
-                  className="cg-board"
-                  data-guide-title="スタッフの状況"
-                  data-guide="スタッフごとの区分です。順位はつけません。数字も出しません。サポートが必要と出ている人には、その場でできることが並びます。"
-                >
-                  <h2 className="cg-sec-title">スタッフの状況</h2>
-                  {/* ⚠ ONE CALL, RENDERED TWICE (⚖ A8). A row's support state is
-                      the PRESENCE of its paired action and nothing else — a
-                      second boolean read alongside it is exactly the 「chip said
-                      ✓, drop refused」 disease, and it would be the one place on
-                      screen where the 1:1 pairing could come apart. */}
-                  <ul className="cg-rows">
-                    {team.rows.map((r, i) => (
-                      <li className={`cg-row${r.action ? ' is-support' : ''}`} key={`${r.staffLabel}-${i}`}>
-                        <span className="cg-row-name">{r.staffLabel}</span>
-                        <span className="cg-row-band">
-                          <span className={`cg-chip ${r.bandTone}`}>{r.bandLabel}</span>
-                          {r.maturityNote && <span className="cg-note-chip">{r.maturityNote}</span>}
-                        </span>
-                        <span className="cg-row-body">
-                          <span className="cg-row-line">{r.trajectoryLine}</span>
-                          {/* staff-focus.ts:159 — categorical only, no number,
-                              no name. This is the ONE per-staff sentence an
-                              owner may read, and it is the generator's own. */}
-                          {r.focusAreas.map((f) => (
-                            <span className="cg-row-focus" key={f.label}>
-                              <span className="cg-cat">{f.label}</span>
-                              <span>{f.summaryText}</span>
+                    <section
+                      className="cg-board"
+                      data-guide-title="スタッフの状況"
+                      data-guide="スタッフごとの区分です。順位はつけません。数字も出しません。サポートが必要と出ている人には、その場でできることが並びます。"
+                    >
+                      <h2 className="cg-sec-title">スタッフの状況</h2>
+                      {/* ⚠ ONE CALL, RENDERED TWICE (⚖ A8). A row's support state is
+                          the PRESENCE of its paired action and nothing else — a
+                          second boolean read alongside it is exactly the 「chip said
+                          ✓, drop refused」 disease, and it would be the one place on
+                          screen where the 1:1 pairing could come apart. */}
+                      <ul className="cg-rows" ref={boardRef}>
+                        {visibleRows.map((r, i) => (
+                          <li className={`cg-row${r.action ? ' is-support' : ''}`} key={`${r.staffLabel}-${i}`}>
+                            <span className="cg-row-name">{r.staffLabel}</span>
+                            <span className="cg-row-band">
+                              <span className={`cg-chip ${r.bandTone}`}>{r.bandLabel}</span>
+                              {r.maturityNote && <span className="cg-note-chip">{r.maturityNote}</span>}
                             </span>
+                            <span className="cg-row-body">
+                              <span className="cg-row-line">{r.trajectoryLine}</span>
+                              {/* staff-focus.ts:159 — categorical only, no number,
+                                  no name. This is the ONE per-staff sentence an
+                                  owner may read, and it is the generator's own. */}
+                              {r.focusAreas.map((f) => (
+                                <span className="cg-row-focus" key={f.label}>
+                                  <span className="cg-cat">{f.label}</span>
+                                  <span>{f.summaryText}</span>
+                                </span>
+                              ))}
+                              {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
+                                  the L2 leak guard's own honesty half. */}
+                              {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}
+                            </span>
+                            {/* ⚠ V2-1 — THE ACTION IS ITS OWN LINE UNDER THE BODY,
+                                never a fourth column. A fourth track is 0px wide on
+                                every row that has no action and ~200px on the one
+                                that does, and `.cg-row` is a grid PER `<li>`, so the
+                                one flagged row's sentence collapsed to ~90px and
+                                wrapped character by character. */}
+                            {r.action && (
+                              <button {...refused(r.action.label, props.helpRefusals[r.action.kind], 'cg-row-act')}>{r.action.label}</button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  </div>
+
+                  <div className="cg-rail">
+                    {/* ⚖ サポートエリア頻度 (audit §5 rank 7) — the ONE owner-
+                        facing 「what does the whole store need」 answer, and the
+                        only surface here that aggregates across people.
+                        ⚠ PLAIN LABELLED COUNTS OF STAFF, and the label says what it
+                        counts (⚖ 8/25). No 1位, no medal, no arrow, no rank number:
+                        this is where support is needed, not who is winning. */}
+                    <section
+                      className="cg-ranking"
+                      data-guide-title="店舗全体のサポートエリア"
+                      data-guide="いま支援が必要な場面ごとに、何名がそこに当たっているかを出しています。誰のことかは表示しません。順位ではありません。"
+                    >
+                      <h2 className="cg-sec-title">{team.focusRanking.title}</h2>
+                      <p className="cg-ranking-note">{team.focusRanking.note}</p>
+                      {team.focusRanking.rows.length > 0 ? (
+                        <ul className="cg-reasons">
+                          {team.focusRanking.rows.map((r) => (
+                            <li className="cg-reason" key={r.key}>
+                              <span className="cg-reason-label">{r.label}</span>
+                              <span className="cg-reason-count">{r.value}</span>
+                            </li>
                           ))}
-                          {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
-                              the L2 leak guard's own honesty half. */}
-                          {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}
-                        </span>
-                        {r.action && (
-                          <button {...refused(r.action.label, props.helpRefusals[r.action.kind], 'cg-row-act')}>{r.action.label}</button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+                        </ul>
+                      ) : (
+                        <p className="cg-ranking-empty">{team.focusRanking.emptyLine}</p>
+                      )}
+                    </section>
 
-                {/* ⚖ サポートエリア頻度 (audit §5 rank 7) — the ONE owner-
-                    facing 「what does the whole store need」 answer, and the
-                    only surface here that aggregates across people.
-                    ⚠ PLAIN LABELLED COUNTS OF STAFF, and the label says what it
-                    counts (⚖ 8/25). No 1位, no medal, no arrow, no rank number:
-                    this is where support is needed, not who is winning. */}
-                <section
-                  className="cg-ranking"
-                  data-guide-title="店舗全体のサポートエリア"
-                  data-guide="いま支援が必要な場面ごとに、何名がそこに当たっているかを出しています。誰のことかは表示しません。順位ではありません。"
-                >
-                  <h2 className="cg-sec-title">{team.focusRanking.title}</h2>
-                  <p className="cg-ranking-note">{team.focusRanking.note}</p>
-                  {team.focusRanking.rows.length > 0 ? (
-                    <ul className="cg-reasons">
-                      {team.focusRanking.rows.map((r) => (
-                        <li className="cg-reason" key={r.key}>
-                          <span className="cg-reason-label">{r.label}</span>
-                          <span className="cg-reason-count">{r.value}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="cg-ranking-empty">{team.focusRanking.emptyLine}</p>
-                  )}
-                </section>
-
-                <section
-                  className="cg-adoption"
-                  data-guide-title="共有の状況"
-                  data-guide="深い共有を許可しているスタッフの人数だけを表示します。誰が許可していないかは出しません。許可された内容を開く画面は、権限の仕組みができてから使えるようになります。"
-                >
-                  <h2 className="cg-sec-title">共有の状況</h2>
-                  <p className="cg-adoption-line">{team.adoptionLine}</p>
-                  <p className="cg-adoption-note">{team.adoptionNote}</p>
-                  <button {...refused('共有された内容を見る', props.refusals.depth, 'cg-depth')}>共有された内容を見る</button>
-                  <p className="cg-limit">{team.limitNote}</p>
-                </section>
+                    <section
+                      className="cg-adoption"
+                      data-guide-title="共有の状況"
+                      data-guide="深い共有を許可しているスタッフの人数だけを表示します。誰が許可していないかは出しません。許可された内容を開く画面は、権限の仕組みができてから使えるようになります。"
+                    >
+                      <h2 className="cg-sec-title">共有の状況</h2>
+                      <p className="cg-adoption-line">{team.adoptionLine}</p>
+                      <p className="cg-adoption-note">{team.adoptionNote}</p>
+                      <button {...refused('共有された内容を見る', props.refusals.depth, 'cg-depth')}>共有された内容を見る</button>
+                      <p className="cg-limit">{team.limitNote}</p>
+                    </section>
+                  </div>
+                </div>
               </div>
             )
           ) : (
@@ -1217,83 +1535,94 @@ export function CoachingScreen(props: CoachingProps) {
                by a mis-wiring, the same construction `TriageRow` uses.
 
                ⚠ EVERY NUMBER HERE IS A SUBTRACTION, and the honesty note that
-               says so renders WITH them rather than beside them. */
+               says so renders WITH them rather than beside them.
+
+               ⚖-ADJ O — SOURCE ORDER IS THE ARGUMENT: the claim, then the
+               evidence that earns it, then the per-metric detail, and the money
+               sentence LAST. The desk places them with named areas so the pitch
+               sits under the hero and the chart spans both rows; below the
+               threshold the single column simply reads in this order, and the
+               tour walks it the same way — the pitch is this tab's last step. */
             props.roi && (
               <div id="cgPanelRoi" role="tabpanel" aria-labelledby="cgTabRoi" className="cg-panel">
-                <section
-                  className="cg-roi-hero"
-                  data-guide-title="コーチングの効果"
-                  data-guide="コーチングを始めてから、この店舗の数字がどれだけ押し上がったかです。季節や景気で全店が動いた分は、コーチングを使っていない他店舗の変化を引いて取り除いています。"
-                >
-                  <span className="cg-roi-eyebrow">{props.roi.heroLabel}</span>
-                  <p className="cg-roi-value">
-                    {props.roi.hero.label} {props.roi.hero.liftDisplay}
-                  </p>
-                  <p className="cg-roi-sub">{props.roi.heroSub}</p>
-                  <span className={`cg-conf is-${props.roi.hero.confidence}`}>
-                    {props.roi.confidenceLead}：{props.roi.hero.confidenceLabel}
-                  </span>
-                </section>
-
-                <section
-                  className="cg-roi-trend"
-                  data-guide-title="他店舗との比較"
-                  data-guide="濃い線がこの店舗、点線がコーチングを使っていない他店舗の平均です。縦の線から右がコーチングを始めたあとで、そこから差が開いていれば、それがコーチングの効果です。"
-                >
-                  <h2 className="cg-sec-title">{props.roi.trendTitle}</h2>
-                  <p className="cg-roi-note">{props.roi.trendSub}</p>
-                  <RoiChart
-                    treated={props.roi.trend.treated}
-                    control={props.roi.trend.control}
-                    labels={props.roi.trend.labels}
-                    startFraction={props.roi.trend.startFraction}
-                  />
-                  <ul className="cg-roi-legend">
-                    <li><span className="cg-roi-key is-treated" aria-hidden="true" />{props.roi.treatedLabel}</li>
-                    <li><span className="cg-roi-key is-control" aria-hidden="true" />{props.roi.controlLabel}</li>
-                  </ul>
-                </section>
-
-                <section
-                  className="cg-roi-lifts"
-                  data-guide-title="指標ごとの押し上げ"
-                  data-guide="指標ごとに、他の要因を引いたあとの押し上げ分です。判断できる期間がまだ短いものは「初期」「構築中」と正直に出しています。"
-                >
-                  <h2 className="cg-sec-title">{props.roi.liftsTitle}</h2>
-                  <p className="cg-roi-note">{props.roi.liftsSub}</p>
-                  <ul className="cg-lift-list">
-                    {props.roi.lifts.map((l) => (
-                      <li className="cg-lift" key={l.key}>
-                        <span className="cg-lift-label">{l.label}</span>
-                        <span className="cg-lift-value">{l.liftDisplay}</span>
-                        <span className="cg-lift-levels">{l.afterDisplay} ← {l.beforeDisplay}</span>
-                        <span className={`cg-conf is-${l.confidence}`}>{l.confidenceLabel}</span>
-                        <span className="cg-lift-basis">{l.horizonNote}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-
-                {/* ⚖ THE METHOD, IN PLAIN WORDS, AND IT IS NOT OPTIONAL. A lift
-                    printed without the sentence that says what was subtracted
-                    from it is exactly the overclaim this screen exists not to
-                    make — so it renders inside the same panel as the numbers,
-                    unconditionally, and the suite pins that it cannot be
-                    separated from them. */}
-                <section className="cg-honesty" data-guide-title="この数字の出し方" data-guide="コーチングを受けたこの店舗の変化から、使っていない他店舗の自然な変化を引いた残りだけを出しています。データが少ないうちは自動的に抑えめに補正します。">
-                  <p>{props.roi.honestyNote}</p>
-                </section>
-
-                {props.roi.pitchSub && (
-                  <section className="cg-pitch" data-guide-title="費用との比較" data-guide="押し上がった分を、この規模の店舗の売上に置き換えた目安です。確からしさが十分なときだけ表示します。">
-                    <h2 className="cg-sec-title">{props.roi.pitchTitle}</h2>
-                    <p>{props.roi.pitchSub}</p>
+                <div className="cg-roigrid">
+                  <section
+                    className="cg-roi-hero"
+                    data-guide-title="コーチングの効果"
+                    data-guide="コーチングを始めてから、この店舗の数字がどれだけ押し上がったかです。季節や景気で全店が動いた分は、コーチングを使っていない他店舗の変化を引いて取り除いています。"
+                  >
+                    <span className="cg-roi-eyebrow">{props.roi.heroLabel}</span>
+                    <p className="cg-roi-value">
+                      <span className="cg-roi-metric">{props.roi.hero.label}</span>
+                      {props.roi.hero.liftDisplay}
+                    </p>
+                    <p className="cg-roi-sub">{props.roi.heroSub}</p>
+                    <span className={`cg-conf is-${props.roi.hero.confidence}`}>
+                      {props.roi.confidenceLead}：{props.roi.hero.confidenceLabel}
+                    </span>
                   </section>
-                )}
-                {/* ⚠ THE WITHHELD MONEY LINE IS SAID OUT LOUD, like every other
-                    short receipt in this room. Silence would read as 「there is
-                    no value」 rather than 「we will not claim one yet」. */}
-                {props.roi.pitchWithheld && <p className="cg-roi-withheld">{props.roi.pitchWithheld}</p>}
+
+                  <section
+                    className="cg-roi-trend"
+                    data-guide-title="他店舗との比較"
+                    data-guide="濃い線がこの店舗、点線がコーチングを使っていない他店舗の平均です。縦の線から右がコーチングを始めたあとで、そこから差が開いていれば、それがコーチングの効果です。"
+                  >
+                    <h2 className="cg-sec-title">{props.roi.trendTitle}</h2>
+                    <p className="cg-roi-note">{props.roi.trendSub}</p>
+                    <RoiChart
+                      treated={props.roi.trend.treated}
+                      control={props.roi.trend.control}
+                      labels={props.roi.trend.labels}
+                      startFraction={props.roi.trend.startFraction}
+                    />
+                    <ul className="cg-roi-legend">
+                      <li><span className="cg-roi-key is-treated" aria-hidden="true" />{props.roi.treatedLabel}</li>
+                      <li><span className="cg-roi-key is-control" aria-hidden="true" />{props.roi.controlLabel}</li>
+                    </ul>
+                    {/* ⚖-ADJ F — THE METHOD, IN PLAIN WORDS, AND IT IS NOT
+                        OPTIONAL. A lift printed without the sentence that says
+                        what was subtracted from it is exactly the overclaim this
+                        screen exists not to make. S16 moved it INSIDE the chart
+                        card, as its footer line, because that is where a reader
+                        asks the question — and it is still its own declared
+                        section, still unconditional, still inseparable from the
+                        numbers it describes. */}
+                    <section className="cg-honesty" data-guide-title="この数字の出し方" data-guide="コーチングを受けたこの店舗の変化から、使っていない他店舗の自然な変化を引いた残りだけを出しています。データが少ないうちは自動的に抑えめに補正します。">
+                      <p>{props.roi.honestyNote}</p>
+                    </section>
+                  </section>
+
+                  <section
+                    className="cg-roi-lifts"
+                    data-guide-title="指標ごとの押し上げ"
+                    data-guide="指標ごとに、他の要因を引いたあとの押し上げ分です。判断できる期間がまだ短いものは「初期」「構築中」と正直に出しています。"
+                  >
+                    <h2 className="cg-sec-title">{props.roi.liftsTitle}</h2>
+                    <p className="cg-roi-note">{props.roi.liftsSub}</p>
+                    <ul className="cg-lift-list">
+                      {props.roi.lifts.map((l) => (
+                        <li className="cg-lift" key={l.key}>
+                          <span className="cg-lift-label">{l.label}</span>
+                          <span className="cg-lift-value">{l.liftDisplay}</span>
+                          <span className="cg-lift-levels">{l.afterDisplay} ← {l.beforeDisplay}</span>
+                          <span className={`cg-conf is-${l.confidence}`}>{l.confidenceLabel}</span>
+                          <span className="cg-lift-basis">{l.horizonNote}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  {props.roi.pitchSub && (
+                    <section className="cg-pitch" data-guide-title="費用との比較" data-guide="押し上がった分を、この規模の店舗の売上に置き換えた目安です。確からしさが十分なときだけ表示します。">
+                      <h2 className="cg-sec-title">{props.roi.pitchTitle}</h2>
+                      <p>{props.roi.pitchSub}</p>
+                    </section>
+                  )}
+                  {/* ⚠ THE WITHHELD MONEY LINE IS SAID OUT LOUD, like every other
+                      short receipt in this room. Silence would read as 「there is
+                      no value」 rather than 「we will not claim one yet」. */}
+                  {props.roi.pitchWithheld && <p className="cg-roi-withheld">{props.roi.pitchWithheld}</p>}
+                </div>
               </div>
             )
           )}
@@ -1304,91 +1633,112 @@ export function CoachingScreen(props: CoachingProps) {
 
       {/* ⚖ あなたのデータについて (audit §5 rank 3) — the NINE ITEMISED FACTS,
           the Synqed-as-processor disclosure and the mission line, in the
-          phone's own legally-reviewed words. Two of the nine already stood here
-          as `noticeLines`; the other seven had no home in Business at all,
-          which is the largest copy gap the audit found.
+          phone's own legally-reviewed words.
 
           ⚠ IT IS A SECTION, NOT A ROUTE. This room is ONE page — a reader
           should not have to leave the screen a promise is about in order to
           read the promise. It stands outside the tab row for the same reason:
-          the wall it describes does not change when the tab does. */}
+          the wall it describes does not change when the tab does.
+
+          ⚖-ADJ A (S16-3, LIAM-VISIBLE) — AND IT IS A DISCLOSURE NOW. Legal prose
+          a reader opens deliberately sat above the fold on every tab; folded, the
+          bar still SAYS what is behind it and keeps the two standing sentences
+          visible, and the body is ADDED and REMOVED — never `hidden`, never
+          `display: none`, never a clipped `max-height`. Closed is a real state of
+          the page, not a hidden copy of it. */}
       <section
         className="cg-notice"
         data-guide-title="あなたのデータについて"
-        data-guide="コーチングで何が記録され、店長・オーナーに何が見えて何が見えないかの一覧です。会話の録音と文字起こしは、誰の画面にも表示されません。"
+        data-guide="コーチングで何が記録され、店長・オーナーに何が見えて何が見えないかの一覧です。会話の録音と文字起こしは、誰の画面にも表示されません。見出しを押すと全文が開きます。"
       >
-        <h2 className="cg-sec-title">{props.transparency.title}</h2>
-        <p className="cg-notice-sub">{props.transparency.subtitle}</p>
-        {props.noticeLines.map((line) => (
-          <p className="cg-notice-line" key={line}>{line}</p>
-        ))}
-
-        <div className="cg-mission">
-          <b>{props.transparency.missionTitle}</b>
-          <p>{props.transparency.missionBody}</p>
-        </div>
-
-        {/* ⚖ THE WALL, ITEMISED, SIDE BY SIDE. Two columns is the composition,
-            because the whole point is that a reader can see BOTH lists at once
-            and check that nothing appears on both. */}
-        <div className="cg-wall">
-          <div className="cg-wall-col is-mine">
-            <b>{props.transparency.staffOnlyTitle}</b>
-            <p className="cg-wall-lead">{props.transparency.staffOnlyLead}</p>
-            <ul>
-              {props.transparency.staffOnly.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="cg-wall-col is-theirs">
-            <b>{props.transparency.ownerVisibleTitle}</b>
-            <p className="cg-wall-lead">{props.transparency.ownerVisibleLead}</p>
-            <ul>
-              {props.transparency.ownerVisible.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        {/* ⚖ THE LEGALLY-PRECISE HALF, WHICH EXISTS NOWHERE ELSE IN BUSINESS:
-            who else touches this data, for what, and through which
-            sub-processors. */}
-        <div className="cg-synqed">
-          <b>{props.transparency.synqedTitle}</b>
-          <p>{props.transparency.synqedIntro}</p>
-          <ul>
-            {props.transparency.synqed.map((f) => (
-              <li key={f}>{f}</li>
+        <button
+          type="button"
+          className="cg-notice-bar"
+          aria-expanded={noticeOpen}
+          aria-controls="cgNotice"
+          data-press
+          onClick={() => setNoticeOpen((o) => !o)}
+        >
+          <span className="cg-notice-bar-text">
+            <span className="cg-notice-bar-title">
+              {props.transparency.title} ・ {props.transparency.barLead}
+            </span>
+            {props.noticeLines.map((line) => (
+              <span className="cg-notice-line" key={line}>{line}</span>
             ))}
-          </ul>
-          <p className="cg-retention">
-            <b>{props.transparency.retentionLabel}</b>
-            {props.transparency.retentionBody}
-          </p>
-        </div>
+          </span>
+          <span className="cg-notice-chevron" aria-hidden="true">▾</span>
+        </button>
 
-        {/* ⚖ A DELETION REQUEST IS A LEGAL RECORD — the same class this room
-            already refuses everywhere else, so it ships refused with its own
-            reason rather than half-built behind a button that only toasts. */}
-        {/* ⚠ THERE IS NO 「同意内容を見る」 BUTTON, AND THAT IS THE POINT. The
-            phone's transparency page carries one because the consent text lives
-            behind a dialog; here the whole of it — what is recorded, what the
-            owner can and cannot see, Synqed's own use, the retention period —
-            is on this page, immediately above. A control that takes the reader
-            to where the reader already is is not a feature this room is
-            missing. The one act that is NOT already here is the deletion
-            request, and it ships refused with its own reason. */}
-        <div className="cg-data-actions">
-          <button {...refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')}>
-            {props.transparency.deletionCta}
-          </button>
-          <p className="cg-delete-body">
-            <b>{props.transparency.deletionTitle}</b>
-            {props.transparency.deletionBody}
-          </p>
-        </div>
+        {noticeOpen && (
+          <div className="cg-notice-body" id="cgNotice" ref={noticeBodyRef}>
+            <h2 className="cg-sec-title">{props.transparency.title}</h2>
+            <p className="cg-notice-sub">{props.transparency.subtitle}</p>
+
+            <div className="cg-mission">
+              <b>{props.transparency.missionTitle}</b>
+              <p>{props.transparency.missionBody}</p>
+            </div>
+
+            {/* ⚖ THE WALL, ITEMISED, SIDE BY SIDE. Two columns is the composition,
+                because the whole point is that a reader can see BOTH lists at once
+                and check that nothing appears on both. */}
+            <div className="cg-wall">
+              <div className="cg-wall-col is-mine">
+                <b>{props.transparency.staffOnlyTitle}</b>
+                <p className="cg-wall-lead">{props.transparency.staffOnlyLead}</p>
+                <ul>
+                  {props.transparency.staffOnly.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="cg-wall-col is-theirs">
+                <b>{props.transparency.ownerVisibleTitle}</b>
+                <p className="cg-wall-lead">{props.transparency.ownerVisibleLead}</p>
+                <ul>
+                  {props.transparency.ownerVisible.map((f) => (
+                    <li key={f}>{f}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* ⚖ THE LEGALLY-PRECISE HALF, WHICH EXISTS NOWHERE ELSE IN BUSINESS:
+                who else touches this data, for what, and through which
+                sub-processors. */}
+            <div className="cg-synqed">
+              <b>{props.transparency.synqedTitle}</b>
+              <p>{props.transparency.synqedIntro}</p>
+              <ul>
+                {props.transparency.synqed.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+              <p className="cg-retention">
+                <b>{props.transparency.retentionLabel}</b>
+                {props.transparency.retentionBody}
+              </p>
+            </div>
+
+            {/* ⚖ A DELETION REQUEST IS A LEGAL RECORD — the same class this room
+                already refuses everywhere else, so it ships refused with its own
+                reason rather than half-built behind a button that only toasts.
+                ⚠ THERE IS NO 「同意内容を見る」 BUTTON, AND THAT IS THE POINT: the
+                whole of the consent text is on this page, immediately above. A
+                control that takes the reader to where the reader already is is not
+                a feature this room is missing. */}
+            <div className="cg-data-actions">
+              <button {...refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')}>
+                {props.transparency.deletionCta}
+              </button>
+              <p className="cg-delete-body">
+                <b>{props.transparency.deletionTitle}</b>
+                {props.transparency.deletionBody}
+              </p>
+            </div>
+          </div>
+        )}
       </section>
 
       {tourOpen && (
