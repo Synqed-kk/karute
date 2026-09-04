@@ -291,7 +291,7 @@ export interface CoachingProps {
   /** ⚖ Q6 (Liam 9/2) — the honest clause that names the SETTING, plus the door
    *  to it. Null when the business is not on `'managers'`, because then the
    *  sentence would not be true of this business. */
-  teamBoundaryPolicy: { line: string; doorLabel: string; doorState: string } | null
+  teamBoundaryPolicy: { line: string; doorLabel: string; doorHref: string; doorState: string } | null
   self: CoachingSelf
   team: CoachingTeam | null
   roi: CoachingRoi | null
@@ -724,7 +724,12 @@ export function CoachingScreen(props: CoachingProps) {
         <div className="cg-titleline">
           <h1>コーチング</h1>
           {/* ⚖ Liam 8/23 — the ? opens the GUIDED TOUR, the same one 今日の運営
-              has. A hairline circle, never a filled one (⚖ R13). */}
+              has. A hairline circle, never a filled one (⚖ R13).
+              ⚠ R1-2 — `aria-controls` may only name an element that EXISTS. The
+              tour card is a conditional render, so the attribute arrives with it
+              and leaves with it; `aria-expanded` stays either way, because
+              「is it open」 is true of the button at all times. The same
+              correction PR #830 made one room over. */}
           <button
             className="cg-help"
             type="button"
@@ -733,7 +738,7 @@ export function CoachingScreen(props: CoachingProps) {
             aria-label="画面の説明"
             aria-haspopup="dialog"
             aria-expanded={tourOpen}
-            aria-controls="cgTour"
+            aria-controls={tourOpen ? 'cgTour' : undefined}
             data-press
             onClick={() => setTourIdx(0)}
           >
@@ -871,19 +876,24 @@ export function CoachingScreen(props: CoachingProps) {
                is the true state of the page, so it is the state they get.
                ⚖ Q6 — and when the reason is the BUSINESS'S OWN SETTING rather
                than the product, the sentence says so and points at the setting.
-               ⚠ 「設定を開く」 + 「準備中」, never 「設定で変更」: the editor is
-               registry ⑤ and does not exist yet, so the label may not promise a
-               change its destination cannot make. */
-            <section className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。表示する範囲は事業ごとの設定で決まります。">
+               ⚠ R1-3 — THE DOOR IS A REAL LINK. The 設定 room exists (#812);
+               what does not exist is this dial's own editor inside it. So the
+               label 「設定を開く」 promises OPENING and the link really opens,
+               keeping the store the reader is on — and the 「準備中」 chip beside
+               it is the one place that says the editor is not there yet. Never
+               「設定で変更」: THAT label would promise a change the destination
+               cannot make (the 9/4 label law). The head's 「コーチングの設定」 is a
+               different lever — its label promises CHANGING — and stays refused. */
+            <section className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。表示する範囲は事業ごとの設定で決まり、「設定を開く」から設定画面に移動できます。この項目の編集は準備中です。">
               <p className="cg-boundary-line">{props.teamBoundaryLine}</p>
               {props.teamBoundaryPolicy && (
                 <p className="cg-boundary-policy">{props.teamBoundaryPolicy.line}</p>
               )}
               {props.teamBoundaryPolicy && (
                 <span className="cg-boundary-door">
-                  <button {...refused(props.teamBoundaryPolicy.doorLabel, props.refusals.settings, 'cg-boundary-btn')}>
+                  <a className="cg-boundary-link" href={props.teamBoundaryPolicy.doorHref} data-press>
                     {props.teamBoundaryPolicy.doorLabel}
-                  </button>
+                  </a>
                   <span className="cg-note-chip">{props.teamBoundaryPolicy.doorState}</span>
                 </span>
               )}
@@ -1664,11 +1674,13 @@ export function CoachingScreen(props: CoachingProps) {
         data-guide-title="あなたのデータについて"
         data-guide="コーチングで何が記録され、店長・オーナーに何が見えて何が見えないかの一覧です。会話の録音と文字起こしは、誰の画面にも表示されません。見出しを押すと全文が開きます。"
       >
+        {/* ⚠ R1-2 — `aria-controls` names the body only while the body is
+            mounted; `aria-expanded` is true of the bar at all times. */}
         <button
           type="button"
           className="cg-notice-bar"
           aria-expanded={noticeOpen}
-          aria-controls="cgNotice"
+          aria-controls={noticeOpen ? 'cgNotice' : undefined}
           data-press
           onClick={() => setNoticeOpen((o) => !o)}
         >

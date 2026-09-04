@@ -952,13 +952,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const colsGap = num('cg-cols-gap')
     const cardGap = num('cg-card-gap')
     expect({ main, side, chart, board, claim, receipt, receiptGap, statMin, statTight, statGap, colsGap, cardGap })
-      .toEqual({ main: 640, side: 320, chart: 520, board: 644, claim: 260, receipt: 260, receiptGap: 16, statMin: 110, statTight: 96, statGap: 10, colsGap: 24, cardGap: 18 })
+      .toEqual({ main: 560, side: 300, chart: 520, board: 608, claim: 232, receipt: 232, receiptGap: 16, statMin: 104, statTight: 96, statGap: 10, colsGap: 24, cardGap: 18 })
     const thresholds = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     const distinct = [...new Set(thresholds)].sort((a, b) => a - b)
     // THREE page thresholds, FOUR compositions — and each one equals the sum of
     // its own terms plus a stated slack, so widening a column without moving its
     // threshold fails HERE rather than in somebody's browser.
-    expect(distinct).toEqual([700, 880, 1000])
+    expect(distinct).toEqual([700, 880, 940])
     // ⚠ AND EACH THRESHOLD ACTUALLY DOES ITS JOB. A threshold that exists but
     // sets the same shape on both sides is a band with no composition — mutant
     // M28 removed the fold's two-across cards and survived until this pin.
@@ -966,50 +966,60 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     expect(fold.slice(0, 700)).toContain('.cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
     const roiDesk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 880px)'))
     expect(roiDesk.slice(0, 700)).toContain('grid-template-columns: minmax(var(--cg-side-min), 5fr) minmax(var(--cg-chart-min), 7fr)')
-    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 1000px)'))
+    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr)')
     expect(desk.slice(0, 900)).toContain('.cg-side { grid-template-columns: minmax(0, 1fr); }')
     expect(desk.slice(0, 900)).toContain('.cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr)')
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr)')
 
     // ① → ② : two supporting cards side by side.
+    // ⚠ R1 LEFT THIS THRESHOLD WHERE IT IS TOO. Its fit dropped to 618 with the
+    // supporting minimum; 700 still ships, for its original stated reason — the
+    // pair arrives at the FOLD and not one band earlier on an iPad in portrait.
     const foldFits = side + side + cardGap
-    expect(foldFits).toBe(658)
+    expect(foldFits).toBe(618)
     expect(distinct[0]).toBeGreaterThanOrEqual(foldFits)
     // ② → ③ : the room's NARROWEST two-column shape — the chart beside the hero.
+    // ⚠ R1 LEFT THIS THRESHOLD WHERE IT IS. Its own fit dropped to 844 when the
+    // supporting minimum came down, but moving 880 would re-band a composition
+    // R1 did not ask to change — so the slack is 36 and it is stated rather than
+    // spent.
     const roiFits = chart + side + colsGap
-    expect(roiFits).toBe(864)
+    expect(roiFits).toBe(844)
     expect(distinct[1]).toBeGreaterThanOrEqual(roiFits)
-    expect(distinct[1] - roiFits).toBeLessThanOrEqual(24)
+    expect(distinct[1] - roiFits).toBeLessThanOrEqual(40)
     // ③ → ④ : the decision desk, the library row and the board's rail. The
-    // findings column is sized by the RECEIPT GRID, not by the column alone —
-    // 640 = 560 of card plus the 40px of panel padding and 30px of card padding
-    // between the page column and the article's own content box. Sized any
-    // smaller the receipt would open below this threshold, close above it and
-    // open again higher up: a composition gained, lost and gained across one
-    // drag, which this room does not ship.
+    // BOARD is the binding term, and the threshold is capped by the wave's own
+    // reference width rather than derived upward from the mins (R1-1).
     const deskFits = main + side + colsGap
-    expect(deskFits).toBe(984)
+    expect(deskFits).toBe(884)
     expect(distinct[2]).toBeGreaterThanOrEqual(deskFits)
-    expect(distinct[2] - deskFits).toBeLessThanOrEqual(24)
     const boardFits = board + side + colsGap
-    expect(boardFits).toBe(988)
+    expect(boardFits).toBe(932)
     expect(distinct[2]).toBeGreaterThanOrEqual(boardFits)
     expect(distinct[2] - boardFits).toBeLessThanOrEqual(24)
+    // …and the board ROW really fits inside the board card's own minimum, or
+    // the row would overflow the card at exactly the threshold.
+    const row = CSS_CODE.match(/grid-template-columns: (\d+)px (\d+)px minmax\((\d+)px, 1fr\);/)!
+    const [nameT, bandT, bodyT] = [Number(row[1]), Number(row[2]), Number(row[3])]
+    const rowGap = Number(CSS_CODE.match(/gap: 10px (\d+)px;/)![1])
+    expect(bodyT).toBe(260)
+    expect(nameT + bandT + bodyT + rowGap * 2 + 40).toBe(board)
     // ⑤ : the receipt, inside a finding CARD — a different container entirely.
     const cardThresholds = [...CSS_CODE.matchAll(/@container cg-find \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
-    expect(cardThresholds).toEqual([560])
+    expect(cardThresholds).toEqual([480])
     const receiptFits = claim + receipt + receiptGap
-    expect(receiptFits).toBe(536)
+    expect(receiptFits).toBe(480)
     expect(cardThresholds[0]).toBeGreaterThanOrEqual(receiptFits)
     expect(cardThresholds[0] - receiptFits).toBeLessThanOrEqual(24)
     // …and the article really IS the container the query names.
     expect(CSS_CODE).toContain('.cg-find { container: cg-find / inline-size;')
-    // ⚠ THE RECEIPT IS MONOTONIC IN PAGE WIDTH, which is the whole reason
-    // `--cg-main-min` is 640 rather than the 520 this room shipped before: the
-    // findings panel's padding (20 × 2) plus the card's own (15 × 2) is 70px,
-    // so the desk column must hold 560 + 70 for the grid to stay open across
-    // the threshold it is measured on the other side of.
+    // ⚠ THE RECEIPT IS MONOTONIC IN PAGE WIDTH, and at R1 it is the RECEIPT that
+    // was lowered to make that true of a 560 column rather than the column that
+    // was raised to make it true of a 560 receipt. The findings panel's padding
+    // (20 × 2) plus the card's own (15 × 2) is 70px, so the desk column must
+    // hold the card threshold + 70 for the grid to stay open across the page
+    // threshold it is measured on the other side of.
     expect(main).toBeGreaterThanOrEqual(cardThresholds[0] + 70)
 
     // ⑥ THE SPINE'S OWN CONTAINER — 2 on a phone, 3+2 in the supporting column,
@@ -1017,13 +1027,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // column, which is the same half-empty row the supporting column's orphan
     // rule exists to prevent one level down.
     const spineThresholds = [...CSS_CODE.matchAll(/@container cg-spine \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
-    expect(spineThresholds).toEqual([380, 520])
-    expect(statMin * 3 + statGap * 2).toBe(350)
+    expect(spineThresholds).toEqual([350, 520])
+    expect(statMin * 3 + statGap * 2).toBe(332)
     expect(spineThresholds[0]).toBeGreaterThanOrEqual(statMin * 3 + statGap * 2)
     expect(statTight * 5 + statGap * 4).toBe(520)
     expect(spineThresholds[1]).toBeGreaterThanOrEqual(statTight * 5 + statGap * 4)
     expect(CSS_CODE).toContain('.cg-spine { container: cg-spine / inline-size; }')
-    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 380px)'))
+    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 350px)'))
     expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
     const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 520px)'))
     expect(five.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
@@ -2131,7 +2141,11 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     // V2-1: a hard 260px floor under the SENTENCE, so a row that carries a help
     // action can never collapse its body to ~90px and wrap character by
     // character — which is exactly what the pixel review caught at 1280/1440/1920.
-    expect(row).toContain('grid-template-columns: 168px 148px minmax(260px, 1fr);')
+    // ⚠ R1-1 SHRANK THE TWO FIXED TRACKS (168/148 → 148/136, gap 14 → 12) so the
+    // rail can arrive beside the board at the wave's reference width. V2-1's own
+    // floor is the SENTENCE, and 260 is untouched — that is the half the pixel
+    // review was about.
+    expect(row).toContain('grid-template-columns: 148px 136px minmax(260px, 1fr);')
     // …and the action is a LINE OF ITS OWN in the sentence's column, right-
     // aligned — never a fourth track, which would be 0px wide on every row
     // without an action and ~200px on the one that has it.
@@ -2760,6 +2774,7 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     expect(props.teamBoundaryPolicy).toEqual({
       line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
       doorLabel: '設定を開く',
+      doorHref: `/ja/business/settings?store=${encodeURIComponent(STORE_A)}`,
       doorState: '準備中',
     })
     // ⚠ THE 9/4 LABEL LAW: a link label never promises what its destination
@@ -2768,6 +2783,81 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     expect(JSON.stringify(props)).not.toContain('設定で変更')
     expect(SCREEN_CODE).not.toContain('設定で変更')
     expect(props.viewerLine).toContain('自分のコーチングのみ')
+  })
+
+
+  it('⚖ R1-1 · the WAVE’S REFERENCE WIDTH is a DESK, and the number is read off the SHELL', () => {
+    // ⚠ THE BAR FOR THIS WAVE IS THE MOCK'S 1280 SHOT, so 1280 with the sidebar
+    // OPEN has to render the desk. The width this room actually gets there is
+    // not a number to remember — it is the viewport minus the SHELL's own rail
+    // minus this room's own gutters, and all three are read from the sheets so
+    // none of them can go stale behind the threshold.
+    const shell = read('src/app/[locale]/(business)/business-shell.css')
+    const rail = Number(shell.match(/\.biz\.sidebar-open \.app \{ grid-template-columns: (\d+)px/)![1])
+    expect(rail).toBe(264)
+    // the room's own horizontal padding in the ≤1279 band, from its own sheet
+    const narrow = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1279px)'), CSS_CODE.indexOf('@media (max-width: 1023px)'))
+    const pad = Number(narrow.match(/padding-left: (\d+)px/)![1])
+    expect(pad).toBe(20)
+    const REFERENCE = 1280
+    const container = REFERENCE - rail - pad * 2
+    expect(container).toBe(976)
+    const desk = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1])).sort((a, b) => a - b).pop()!
+    // …with real room, not by a pixel: a threshold that only just clears the
+    // reference width would put it back on the wrong side after a scrollbar.
+    expect({ desk, container, clears: container - desk >= 16 }).toEqual({ desk: 940, container: 976, clears: true })
+    // and EVERY page threshold clears it, not only the last one
+    for (const t of [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))) {
+      expect({ t, clears: t <= 940 }).toEqual({ t, clears: true })
+    }
+    // ⚠ AND THE RECEIPT IS OPEN INSIDE THAT DESK'S FINDINGS COLUMN. 560 of
+    // column − 40 of panel padding − 30 of card padding = 490 of article.
+    const num = (name: string) => Number(CSS_CODE.match(new RegExp(`--${name}:\\s*(\\d+)px`))![1])
+    expect(num('cg-main-min') - 70).toBeGreaterThanOrEqual(480)
+  })
+
+  it('⚖ R1-2 · `aria-controls` names only an element that is MOUNTED', () => {
+    // PR #830's own correction, one room over: a control may not point at an id
+    // that is not in the document. Both of this room's disclosure-shaped
+    // controls render their target conditionally, so the attribute goes with it.
+    expect(SCREEN_CODE).toContain("aria-controls={tourOpen ? 'cgTour' : undefined}")
+    expect(SCREEN_CODE).toContain("aria-controls={noticeOpen ? 'cgNotice' : undefined}")
+    expect(SCREEN_CODE).not.toMatch(/aria-controls="cg(Tour|Notice)"/)
+    // …and `aria-expanded` stays unconditional, because 「is it open」 is true of
+    // the button whether or not the panel exists.
+    expect(SCREEN_CODE).toContain('aria-expanded={tourOpen}')
+    expect(SCREEN_CODE).toContain('aria-expanded={noticeOpen}')
+    // the two ids the room does state are the two it conditionally renders
+    expect(SCREEN_CODE).toContain('id="cgTour"')
+    expect(SCREEN_CODE).toContain('id="cgNotice"')
+    // the tab row's own aria-controls are NOT conditional and must not be —
+    // every panel it names is mounted whenever the row is.
+    expect(SCREEN_CODE).toContain('aria-controls="cgPanelSelf"')
+  })
+
+  it('⚖ R1-3 · the settings door is a REAL LINK to a room that exists, lens and all', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(STAFF)
+    const allStores = await coachingProps({ locale: 'ja', store: undefined, world: { role: 'スタッフ', selfId: 'p-04' } })
+    unpinClock()
+    // the label promises OPENING and the href really opens — the 設定 room ships
+    // (#812); what is 準備中 is this dial's own editor inside it, and the chip
+    // beside the link is the one place that says so.
+    expect(props.teamBoundaryPolicy!.doorLabel).toBe('設定を開く')
+    expect(props.teamBoundaryPolicy!.doorState).toBe('準備中')
+    expect(props.teamBoundaryPolicy!.doorHref).toBe(`/ja/business/settings?store=${encodeURIComponent(STORE_A)}`)
+    // ⚠ THE LENS RIDES THE LINK. A door that dropped the store would land the
+    // reader on a different shop's settings, which is the isolation law failing
+    // at a link rather than at a read.
+    expect(allStores.props.teamBoundaryPolicy!.doorHref).toContain('/business/settings')
+    // it is an ANCHOR in the screen, so the keyboard reaches it by nature
+    expect(SCREEN_CODE).toContain('<a className="cg-boundary-link" href={props.teamBoundaryPolicy.doorHref} data-press>')
+    expect(SCREEN_CODE).not.toContain("'cg-boundary-btn'")
+    // …and the route it names really exists in this repo
+    expect(readdirSync(join(BIZ, 'business'))).toContain('settings')
+    // the head's own lever is a DIFFERENT one and stays refused: its label
+    // promises CHANGING, which nothing here can do yet.
+    expect(SCREEN_CODE).toContain("refused('コーチングの設定', props.refusals.settings, 'cg-settings')")
   })
 
   it('the head’s two chips name the role and the window, on the real payload', async () => {
@@ -2842,7 +2932,7 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
   it('⚖-ADJ A · the disclosure is a CONDITIONAL RENDER, never a hidden copy', () => {
     // The bar is a real disclosure button, wired both ways.
     expect(SCREEN_CODE).toContain('aria-expanded={noticeOpen}')
-    expect(SCREEN_CODE).toContain('aria-controls="cgNotice"')
+    expect(SCREEN_CODE).toContain("aria-controls={noticeOpen ? 'cgNotice' : undefined}")
     expect(SCREEN_CODE).toContain('{noticeOpen && (')
     expect(SCREEN_CODE).toContain('id="cgNotice"')
     // ⚠ THE FOUR DELETIONS-EXPRESSED-AS-STYLE, ALL STILL ABSENT — in the screen

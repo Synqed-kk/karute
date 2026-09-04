@@ -257,7 +257,6 @@ export interface CoachingPropsResult {
 }
 
 export async function coachingProps({ locale, store, as, world }: CoachingPropsInput): Promise<CoachingPropsResult> {
-  void locale
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
   const clamped = storeId !== null
@@ -288,6 +287,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // The query the pill's links must preserve: switching persona must not throw
   // the reader back to a different store.
   const keepStore = clamped ? `?store=${encodeURIComponent(storeId!)}&` : '?'
+  // ⚖ R1-3 — THE SETTINGS ROOM EXISTS (#812), so the door to it is a REAL LINK
+  // and it keeps the lens the reader is on (the 売上分析 pattern,
+  // analytics-props.ts:400). What does NOT exist is the ⚖ Q6 dial's own editor
+  // inside that room — and the 「準備中」 chip beside the link is what says so.
+  // One truth, one place: the label promises OPENING, which the link really
+  // does; the chip promises nothing.
+  const settingsHref = `/${locale}/business/settings${clamped ? `?store=${encodeURIComponent(storeId!)}` : ''}`
 
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
@@ -467,6 +473,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
         ? {
             line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
             doorLabel: '設定を開く',
+            doorHref: settingsHref,
             doorState: '準備中',
           }
         : null,

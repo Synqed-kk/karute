@@ -344,7 +344,9 @@ describe('the keyboard is never stranded', () => {
 
   it('the ? announces what it controls, and the card is a dialog', () => {
     expect(SRC_CODE).toContain('aria-haspopup="dialog"')
-    expect(SRC_CODE).toContain('aria-controls="cgTour"')
+    // ⚠ R1-2 — the attribute names the card only while the card is MOUNTED
+    // (PR #830's own correction, one room over); `aria-expanded` is unconditional.
+    expect(SRC_CODE).toContain("aria-controls={tourOpen ? 'cgTour' : undefined}")
     expect(SRC_CODE).toContain('id="cgTour"')
     expect(SRC_CODE).toContain('role="dialog"')
   })

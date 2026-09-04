@@ -59,18 +59,21 @@
       screen has the width for. A near-square screen is wide and SHORT: stacking
       seven cards down it is the stretched-phone look Liam named.
 
-   ③ ROI DESK (container ≥ 880)
+   ③ ROI DESK (container ≥ 880 — unchanged at R1: its own fit is 844 and the
+      threshold stays where it is, because moving it would re-band a
+      composition R1 did not ask to change)
       経営への効果 becomes a desk: the claim and the money sentence stacked left,
       the chart that earns them on the right, the four lifts across the bottom.
       It reaches its shape FIRST because it is the room's narrowest two-column
       composition — one chart beside one number.
 
-   ④ DESK     (container ≥ 1000 — laptops and externals)
+   ④ DESK     (container ≥ 940 — laptops and externals, AND the wave's own 1280
+      reference width with the sidebar open, which hands this room 976)
       自分のコーチング splits 7fr/5fr, the library row splits 7fr/5fr, and
       全スタッフ表示 gains its rail at 8fr/4fr. The supporting column returns to
       ONE track, because it is a column again rather than a row of cards.
 
-   ⑤ RECEIPT  (a finding CARD ≥ 560 — its own container, not the page's)
+   ⑤ RECEIPT  (a finding CARD ≥ 480 — its own container, not the page's)
       Inside every finding, the claim and its receipt sit side by side. This one
       queries the ARTICLE, because what decides whether a quote and a
       recommendation fit beside each other is the card's width, not the page's.
@@ -188,49 +191,59 @@
               available width EQUALS the two minima and a fractional page (zoom,
               a scrollbar) would land the grid on the wrong side of an equality.
 
-     THRESHOLD ③→④ (ROI desk → desk) — the DECISION DESK, and the number is
-     driven by the RECEIPT GRID rather than by the findings column alone:
-         640  the findings column. ⚠ NOT 520: the receipt grid inside a finding
-              opens at 560 of CARD width, and a card sits inside the findings
-              panel's 20px padding and its own 15px padding — 70px in all. A
-              560-wide receipt therefore needs 630 of column, and 640 ships it
-              with 10px of slack. Sized this way the receipt is open on BOTH
-              sides of this threshold: below it the findings are full width and
-              far wider than 630; above it the column never goes under 640. A
-              grid that opened, closed and opened again across one drag is the
-              non-monotonic composition this room does not ship.
-       + 320  the supporting column beside it
+     THRESHOLD ③→④ (ROI desk → desk) — the DECISION DESK.
+     ⚠ THE NUMBER IS SET BY THE WAVE'S REFERENCE WIDTH (R1-1). The accepted
+     mock's 1280 shot is the bar for this wave, and at 1280 with the sidebar
+     OPEN the shell leaves a 1016px page — 976 of container once this room's own
+     20px gutters come off. A threshold of 1000 put that width on the FOLD side
+     of the line, so the product rendered ONE column where the mock renders two.
+     Every `cg-page` desk threshold is therefore ≤ 940, and the MINS were
+     re-derived to fit rather than the threshold raised to fit the mins:
+         560  the findings column — the mock's own ~560, and wide enough for the
+              receipt grid to be OPEN inside it (560 − 40 of panel padding − 30
+              of card padding = 490 of article, against a 480 threshold).
+       + 300  the supporting column beside it
        +  24  the gap between them
        ─────
-         984  the width at which the desk first fits
-        1000  ships — 984 plus 16px, the same slack ③ takes.
-     The TEAM grid and the LIBRARY row cross at the same number, from their own
-     terms rather than by being told to:
-         644  the board card — 168 (name) + 148 (band) + 260 (the sentence) + 28
-              (two 14px gaps) = 604 of row, inside the card's own 40px padding
-       + 320  the rail beside it
+         884  the width at which the decision desk first fits.
+     The TEAM grid is the BINDING one, from its own terms:
+         608  the board card — 148 (name) + 136 (band) + 260 (the sentence) + 24
+              (two 12px gaps) = 568 of row, inside the card's own 40px padding
+       + 300  the rail beside it
        +  24  the gap
        ─────
-         988  → the same 1000 ships it, 12px of slack.
+         932  the width at which the board and its rail first fit
+         940  ships — 932 plus 8, and 36px clear of the 976 the reference width
+              really hands this room.
+     ⚠ THE ROW'S TWO FIXED TRACKS SHRANK FROM V2-1's 168/148 TO 148/136, and the
+     column gap from 14 to 12. V2-1's floor is the SENTENCE (260px) and that is
+     untouched; what gave way is the name and the band, which hold a wrapping
+     name and a wrapping chip. Without that the rail could not arrive beside the
+     board at the reference width at all, which is the finding R1-1 names.
 
      THRESHOLD ⑤ (the RECEIPT, inside a finding CARD — a DIFFERENT container):
-         260  the claim column — a recommendation, a top-performer line, a chip
-       + 260  the receipt column — a labelled count and one quoted moment
+         232  the claim column — a recommendation, a top-performer line, a chip
+       + 232  the receipt column — a labelled count and one quoted moment
        +  16  the gap between them
        ─────
-         536  the width at which claim and receipt first sit side by side
-         560  ships — 536 plus 24px of slack.
+         480  the width at which claim and receipt first sit side by side, and
+              the number that keeps the DESK threshold MONOTONIC: at 560 of
+              column the article is 490, so the grid is open ABOVE the
+              threshold, and below it the findings are full width and far wider
+              — open on both sides, one crossing low down, and never a column
+              gained, lost and gained again across one drag.
 
      THRESHOLD ⑥ (the SPINE's five tiles, inside the 成績 CARD — its own
      container, for the same reason the receipt has one: what decides how many
      facts fit is the card's width, not the page's):
-         110  a tile, at the floor a phone needs to fit TWO of them
+         104  a tile, at the floor a phone needs to fit TWO of them
        ×  3
        +  20  two gaps
        ─────
-         350  three across first fit
-         380  ships — 350 plus 30, so a 390px phone (card ≈322) keeps its two
-              and does not squeeze three.
+         332  three across first fit
+         350  ships — 332 plus 18, and low enough that the supporting column at
+              the reference width (≈392, so a card of ≈352) really takes 3+2
+              rather than 2+2+1. A 390px phone (card ≈244) keeps its two.
           96  the tile's TIGHT floor — the width at which 「平均客単価 / ￥9,800」
        ×  5   still sits on one line at 22px tabular
        +  40  four gaps
@@ -243,14 +256,14 @@
      ALL SIX ARE CONTAINER QUERIES, and container width is monotonic in page
      width, so each threshold is crossed EXACTLY ONCE across a sweep — the room
      never gains a column, loses it and gains it again. */
-  --cg-main-min: 640px;
-  --cg-side-min: 320px;
+  --cg-main-min: 560px;
+  --cg-side-min: 300px;
   --cg-chart-min: 520px;
-  --cg-board-min: 644px;
-  --cg-claim-min: 260px;
-  --cg-receipt-min: 260px;
+  --cg-board-min: 608px;
+  --cg-claim-min: 232px;
+  --cg-receipt-min: 232px;
   --cg-receipt-gap: 16px;
-  --cg-stat-min: 110px;
+  --cg-stat-min: 104px;
   --cg-stat-tight: 96px;
   --cg-stat-gap: 10px;
   --cg-cols-gap: 24px;
@@ -368,6 +381,17 @@
 .biz .pg-coaching .cg-boundary-line { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-coaching .cg-boundary-policy { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.75; }
 .biz .pg-coaching .cg-boundary-door { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* ⚖ R1-3 — a REAL link to the 設定 room, so the accent belongs on it (the
+   one-way accent law's main clause). The 「準備中」 chip beside it is what says
+   this dial's own editor is not there yet. */
+.biz .pg-coaching .cg-boundary-link {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 6px 13px;
+  border: 1px solid rgba(37, 99, 235, .28); border-radius: 999px;
+  background: #fff; color: var(--cg-accent-ink);
+  font-size: 12.5px; font-weight: 600; line-height: 1.6; text-decoration: none;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-boundary-link:hover { background: var(--cg-accent-wash); }
 
 /* ── panels, shared furniture ──────────────────────────────────────────────── */
 .biz .pg-coaching .cg-panel { display: flex; flex-direction: column; gap: var(--cg-card-gap); }
@@ -463,7 +487,7 @@
 /* ⑥ — 2 on a phone, 3+2 in the supporting column, 5 across on a wide card.
    Queried on the CARD, because the page's width is two layout decisions away
    from how many facts fit inside it. */
-@container cg-spine (min-width: 380px) {
+@container cg-spine (min-width: 350px) {
   .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @container cg-spine (min-width: 520px) {
@@ -535,7 +559,7 @@
 .biz .pg-coaching .cg-receipt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 11px; }
 .biz .pg-coaching .cg-find-claim,
 .biz .pg-coaching .cg-find-receipt { min-width: 0; }
-@container cg-find (min-width: 560px) {
+@container cg-find (min-width: 480px) {
   .biz .pg-coaching .cg-receipt {
     grid-template-columns: minmax(var(--cg-claim-min), 1fr) minmax(var(--cg-receipt-min), 1fr);
     gap: var(--cg-receipt-gap);
@@ -940,9 +964,9 @@
      right-aligned — under the sentence it acts on, on the row it acts on, and
      never stealing width from it. */
   .biz .pg-coaching .cg-row {
-    grid-template-columns: 168px 148px minmax(260px, 1fr);
+    grid-template-columns: 148px 136px minmax(260px, 1fr);
     align-items: start;
-    gap: 10px 14px;
+    gap: 10px 12px;
   }
   .biz .pg-coaching .cg-row-act { grid-column: 3; justify-self: end; }
 }
@@ -969,9 +993,9 @@
   .biz .pg-coaching .cg-roigrid > .cg-roi-withheld { grid-area: pitch; }
 }
 
-/* ④ DESK (≥1000) — the decision desk, the library row and the board's rail.
+/* ④ DESK (≥940) — the decision desk, the library row and the board's rail.
    The supporting column returns to ONE track because it is a column again. */
-@container cg-page (min-width: 1000px) {
+@container cg-page (min-width: 940px) {
   .biz .pg-coaching .cg-cols {
     grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr);
     gap: var(--cg-cols-gap);
@@ -1027,6 +1051,7 @@
      is the 練習するもの chip, the count tiles and the disclosure bar. */
   .biz .pg-coaching .cg-preview-chip { min-height: 44px; }
   .biz .pg-coaching .cg-linkchip { min-height: 44px; }
+  .biz .pg-coaching .cg-boundary-link { min-height: 44px; }
   .biz .pg-coaching .cg-tile { min-height: 44px; }
   .biz .pg-coaching .cg-notice-bar { min-height: 44px; }
 }
