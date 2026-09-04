@@ -914,10 +914,12 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
   it('every canon category has a tone, and the BASE is neutral so a new one arrives grey', () => {
     // ⚠ RE-PINNED FOR S15 (LIAM-VISIBLE): the accepted mock RETIRES the
     // カルテ-borrowed palette the 8/31 build shipped (teal / violet / pink /
-    // orange) and gives each canon category one hue spent in three places — the
-    // card's left rule, the icon's wash and the category WORD's ink. The tone is
-    // three named custom properties now rather than one rgb triple, because the
-    // three places want three different saturations of it.
+    // orange) and gives each canon category one hue. ⚠ RE-PINNED AGAIN AT ROUND 5
+    // (Greptile G-1): the hue is spent in TWO places — the card's left rule and
+    // the icon's wash — and the WORD's ink token is neutral in all four, so the
+    // third place the mock coloured is gone. The tone is still three named custom
+    // properties rather than one rgb triple, because rule and wash want two
+    // saturations and the ink is not a saturation at all.
     //
     // The neutral default is the whole reason a fifth category cannot turn up
     // wearing a fourth's colour (the カルテ room's own note, carried).
@@ -934,36 +936,14 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
     expect(SRC_CODE).toContain('{CATEGORY_MARK[card.category] ?? <NeutralMark />}')
   })
 
-  it('⚖ R2-8 — every saturated-accent NON-PRESSABLE is named at the rule', () => {
-    // The accepted mock puts accent ink on SEVEN small non-pressables — five
-    // labels and two inline tokens. No colour changes (the mock is the spec Liam
-    // accepted) — what changes is that the sheet's own exception paragraph names
-    // ALL of them,
-    // so the next reader finds the argument rather than an undocumented
-    // divergence from the one-way accent law.
-    const preface = CSS.slice(0, CSS.indexOf('*/', CSS.indexOf('THE ONE-WAY ACCENT LAW')))
-    for (const named of ['.ak-sug-w', '.ak-msg-a .ak-msg-lb', '.ak-cite-tag', '.ak-ev-k', '.ak-chat-ic', '.ak-nm', '.ak-msg-ctx']) {
-      expect({ named, argued: preface.includes(named) }).toEqual({ named, argued: true })
-    }
-    // …and THE SEVEN really are the whole list: every rule in the sheet that puts
-    // the accent family on ink is one of them, or a pressable.
-    //
-    // ⚠ RE-PINNED AT R4-12 (blind lens L2-F9) on three counts. It said 「the four」
-    // for a seven-name list; it had no non-emptiness guard, so a token rename that
-    // stopped the regex matching would have left the loop asserting nothing under
-    // a comment claiming a complete census; and membership was `sel.includes(n)`,
-    // so a future `.ak-msg-lb-note` inherited `.ak-msg-lb`'s argument for free.
-    // Exact selectors, on the walker, with a floor.
-    const inked = selectorsCarrying(/color:\s*var\(--ak-accent(?:-hover)?\)/)
-    expect(inked.length).toBeGreaterThanOrEqual(13)
-    const LABELS = [
-      '.biz .pg-ask-ai .ak-chat-ic',
-      '.biz .pg-ask-ai .ak-cite-tag',
-      '.biz .pg-ask-ai .ak-ev-k',
-      '.biz .pg-ask-ai .ak-msg-a .ak-msg-lb',
-      '.biz .pg-ask-ai .ak-msg-ctx',
-      '.biz .pg-ask-ai .ak-nm',
-    ]
+  it('⚖ THE ONE-WAY ACCENT LAW IS STRICT — no non-pressable carries the accent, as ink OR as a rule', () => {
+    // ⚠ RE-WRITTEN AT ROUND 5 (Greptile G-1). The old pin let SEVEN non-pressables
+    // keep saturated accent ink so long as the sheet's head comment ARGUED each
+    // one — the accepted mock's own detail, argued at the rule. Greptile read the
+    // repo's R13 directive against that and it is right: a law with seven named
+    // holes is not a law, and the next mock detail would have been the eighth.
+    // The pin no longer takes an argument for an answer. The accent family may
+    // appear as `color` or as a left rule ONLY on something a reader can press.
     const PRESSABLES = [
       '.biz .pg-ask-ai .ak-hchip:hover',
       '.biz .pg-ask-ai .ak-help:hover',
@@ -973,24 +953,76 @@ describe('⚖ THE QUIET SECOND AXIS — a wash-tier tone per category, and nothi
       '.biz .pg-ask-ai .ak-undo',
       '.biz .pg-ask-ai .ak-why:hover',
     ]
-    for (const sel of inked) {
-      expect({ sel, argued: LABELS.includes(sel) || PRESSABLES.includes(sel) }).toEqual({ sel, argued: true })
+    // …and PRESSABLE is DERIVED FROM THE SCREEN, never this list's own claim: each
+    // name is a class the markup puts on a `<button>` or a `<Link>` — or, for the
+    // one state glyph, a span living INSIDE one. A control quietly demoted to a
+    // `<div>` drops out of this set and fails here before it can keep the accent.
+    const controlClasses = new Set(
+      [...openingTags(SRC_CODE, 'button'), ...openingTags(SRC_CODE, 'Link')]
+        .flatMap((t) => (/className=(?:"([^"]*)"|\{`([^`]*)`\})/.exec(t.text) ?? []).slice(1))
+        .filter((c): c is string => typeof c === 'string')
+        .flatMap((c) => c.split(/[^\w-]+/))
+        .filter(Boolean),
+    )
+    expect(controlClasses.size).toBeGreaterThanOrEqual(6)
+    const openBtn = openingTags(SRC_CODE, 'button').find((t) => t.text.includes('ak-sug-open'))!
+    const openSpan = spanOf(SRC_CODE, 'button', openBtn)
+    const insideAControl = SRC_CODE.slice(openSpan.start, openSpan.end).includes('ak-sug-cv')
+    expect(insideAControl).toBe(true)
+    for (const sel of PRESSABLES) {
+      const cls = sel.replace('.biz .pg-ask-ai .', '').replace(/[:[].*$/, '').split('.')[0]
+      const pressable = controlClasses.has(cls) || (cls === 'ak-sug-cv' && insideAControl)
+      expect({ cls, pressable }).toEqual({ cls, pressable: true })
     }
-    // …and every NON-pressable in that census is one the paragraph above argues
-    // by name, so the two halves of this pin cannot drift apart.
-    expect(inked.filter((s) => LABELS.includes(s)).sort()).toEqual([...LABELS].sort())
+
+    // (a) INK. Every rule in the sheet putting the accent family on `color`.
+    const inked = selectorsCarrying(/color:\s*var\(--ak-accent(?:-hover)?\)/)
+    // a non-emptiness floor: a token rename that stopped the regex matching would
+    // otherwise leave this asserting nothing under a comment claiming a census.
+    expect(inked.length).toBeGreaterThanOrEqual(6)
+    expect(inked.sort()).toEqual([...PRESSABLES].sort())
+
+    // (b) A LEFT RULE. `border-left-color` and the `border-left` shorthand, both
+    // stated directly and reached through the card's `--ak-cat-rule` indirection —
+    // which is how the booking card wore the SOLID accent as a 3px edge.
+    const ruled = selectorsCarrying(/border-left(?:-color)?:[^;]*var\(--ak-accent(?:-hover)?\)/)
+    expect(ruled).toEqual([])
+    const catRules = [...CSS_CODE.matchAll(/--ak-cat-rule:\s*([^;]+);/g)].map((m) => m[1].trim())
+    expect(catRules.length).toBeGreaterThanOrEqual(5)
+    for (const value of catRules) {
+      expect({ value, accent: /--ak-accent/.test(value) }).toEqual({ value, accent: false })
+    }
+    // …and the tone token the WORD reads is neutral in every category: a label is
+    // a label, so `--ak-cat-ink` is an ink token and never a hue.
+    const catInks = [...CSS_CODE.matchAll(/--ak-cat-ink:\s*([^;]+);/g)].map((m) => m[1].trim())
+    expect(catInks.length).toBeGreaterThanOrEqual(5)
+    expect([...new Set(catInks)].sort()).toEqual(['var(--ink-2)', 'var(--ink-3)'])
+
+    // (c) …and the sheet SAYS SO, so the next reader finds the law rather than a
+    // diff. The old paragraph's seven-exception list must be gone, not amended.
+    const preface = CSS.slice(0, CSS.indexOf('*/', CSS.indexOf('THE ONE-WAY ACCENT LAW')))
+    expect(preface).toContain('AND IT HAS NO EXCEPTIONS')
+    expect(preface).toContain('PRESSABLES ONLY')
+    for (const freed of ['.ak-sug-w', '.ak-msg-a .ak-msg-lb', '.ak-cite-tag', '.ak-ev-k', '.ak-chat-ic', '.ak-nm', '.ak-msg-ctx']) {
+      expect({ freed, neutral: preface.includes(freed) }).toEqual({ freed, neutral: true })
+    }
   })
 
-  it('WASH TIER ONLY — the tone is a rule, a wash and ONE label, and never touches a pressable', () => {
-    // ⚖ THE ONE-WAY ACCENT LAW, AND THE ONE PLACE THIS ROOM ARGUES AT IT. The
-    // mock colours the category WORD, and the S15 packet §2.5 rules it in: it is
-    // a 10.5px/700 LABEL naming which AI設定 switch produced the row, it sits on
-    // a non-pressable, and its hue is the card's own rule. The previous build's
-    // pin said 「the tone never becomes ink」; this one says WHERE it may, and
-    // holds everything else exactly where it was.
+  it('WASH TIER ONLY — the tone is a rule and a wash, its ink token is neutral, and it never touches a pressable', () => {
+    // ⚖ THE ONE-WAY ACCENT LAW, WITH THE LAST HOLE CLOSED (round 5, Greptile
+    // G-1). The S15 build spent the category hue in THREE places — the rule, the
+    // icon wash and the WORD — and argued the third at the sheet's head. It is
+    // TWO places now: a label is a label, so `--ak-cat-ink` is `--ink-2` in every
+    // category and the tone lives only in the wash / line-tint tier. The strict
+    // complement (nothing non-pressable carries the accent as ink or as a rule)
+    // is pinned above; this pin holds WHERE the category tone may be spent.
     const inked = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*color: var\(--ak-cat-ink\)[^}]*\}/g)]
       .map((m) => m[1].trim().split('\n').pop()!.trim())
     expect(inked.sort()).toEqual(['.biz .pg-ask-ai .ak-sug-ic', '.biz .pg-ask-ai .ak-sug-w'])
+    // …and what those two read is an INK token, never a hue: the four categories
+    // differ in their rule and their wash, and agree on their word.
+    expect([...CSS_CODE.matchAll(/\[data-cat="[^"]+"\] \{[^}]*--ak-cat-ink: ([^;]+);/g)].map((m) => m[1]))
+      .toEqual(['var(--ink-2)', 'var(--ink-2)', 'var(--ink-2)', 'var(--ink-2)'])
     // the card's BACKGROUND is never the tone — only its 3px left rule and the
     // 17px icon chip are, which is the wash tier the law allows.
     const filled = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*background: var\(--ak-cat-wash\)[^}]*\}/g)]

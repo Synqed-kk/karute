@@ -1348,8 +1348,25 @@ describe('the shell one-liners', () => {
     expect(SIDEBAR).not.toMatch(/animate|blink|pulse/)
   })
 
-  it('the breadcrumb leaf is the room’s own name', () => {
+  it('the breadcrumb names this room’s own GROUP and its own leaf', () => {
     expect(TOPBAR).toContain("'ask-ai': 'AI相談',")
+    // ⚠ ADDED AT ROUND 5 (Greptile G-2). The leaf shipped without a group entry,
+    // so the crumb fell through to the 店舗フロア default and told the reader a
+    // different thing from the rail they had just used. The group is DERIVED from
+    // the rail rather than typed twice: whichever NAV group holds `ask-ai` is the
+    // word the crumb must print, so the two cannot drift apart.
+    const railGroup = SIDEBAR.slice(0, SIDEBAR.indexOf("segment: 'ask-ai'"))
+      .match(/group: '([^']+)'/g)!.pop()!.replace(/^group: '|'$/g, '')
+    expect(railGroup).toBe('記録・AI')
+    expect(TOPBAR).toContain(`'ask-ai': '${railGroup}',`)
+    // …and the default is still the default: 録音 and カルテ sit in that same rail
+    // group and keep falling through to 店舗フロア. That is another room's pin to
+    // move, named in the report rather than fixed inside this room's diff.
+    expect(TOPBAR).toContain("{GROUP[segment] ?? '店舗フロア'}")
+    const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string> = {'))
+    const groupKeys = groupBody.slice(0, groupBody.indexOf('}')).match(/^\s*'?([\w-]+)'?:/gm)!
+      .map((k) => k.trim().replace(/'|:/g, ''))
+    expect(groupKeys.sort()).toEqual(['ask-ai', 'settings'])
   })
 
   it('the loading string exists, so the route’s own convention has copy', () => {

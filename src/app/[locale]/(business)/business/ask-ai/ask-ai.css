@@ -35,36 +35,32 @@
    and never mixes the two. It is spent SOLID on exactly two pressables: 送信 and
    a card's door.
 
-   ⚖ THE ONE-WAY ACCENT LAW, AND THE SEVEN PLACES THIS ROOM ARGUES AT IT. Every
-   non-pressable here is neutral or a WASH — the trust chips, the urgency badge,
-   the 未接続 note, the evidence pills' own bodies. SEVEN small things carry
-   saturated ink, all of them from the accepted mock, none of them inside
-   anything a reader can press. Two shapes, and each is a tier the law leaves
-   open:
+   ⚖ THE ONE-WAY ACCENT LAW, AND IT HAS NO EXCEPTIONS. Saturated accent —
+   `--ak-accent` and `--ak-accent-hover` — is spent on PRESSABLES ONLY: 送信, a
+   card's door, a name chip, 元に戻す, and the hover / expanded states of the ?,
+   the hint chips and the trust row's `.ak-why`. Nothing a reader cannot press
+   carries it, as ink or as a border.
 
-   LABELS — they name a thing, at 10.5–11px/700, and never report a verdict:
-     · `.ak-sug-w`   — the category WORD on a suggestion card, naming which AI設定
-                       switch produced the row; its hue is the card's own left
-                       rule (ruled in the S15 packet §2.5);
-     · `.ak-msg-a .ak-msg-lb` — 「AIの回答」, the shoulder that tells an answer from
-                       a question when neither carries a loud fill;
-     · `.ak-cite-tag` — 「カルテ K-0001」, the half of an evidence line that says
-                       WHICH record, inside a pill that is deliberately not a door;
-     · `.ak-ev-k`    — 「根拠」, the same job on a rail card;
-     · `.ak-chat-ic` — the 会話 head's own glyph, which is the family's TINTED
-                       SECTION-HEAD ICON (the 録音 room's `rc-sec-icon`, itself the
-                       カルテ room's) — an icon naming its section.
+   THE NON-PRESSABLE VOCABULARY IS TWO TIERS, and neither of them is the accent:
 
-   INLINE TOKENS — a customer or a slice of data, set as a chip INSIDE a
-   sentence, on the wash the law already allows (CLAUDE.md's approved icon-chip
-   treatment: a *-50/-100 tint with its own ink):
-     · `.ak-nm`      — a customer's name, wherever a sentence contains one;
-     · `.ak-msg-ctx` — 「…様のカルテ2件」, the slice a question carried its hint for.
+   WASHES AND LINE TINTS — `--ak-blue-wash` / `--ak-blue-wash-2` /
+   `--ak-blue-line`, and the green / amber / slate families beside them. A cite
+   pill, an inline name token, a card's 3px left rule and a category icon's 17px
+   chip are painted from this tier, which is the treatment CLAUDE.md allows on
+   something that is deliberately not a door.
 
-   All seven are stated here so they are argued at the rule rather than found in
-   a diff (R2-8; no colour changed — the mock is the spec Liam accepted). The
-   room's PRESSABLES (送信, a card's door, 却下, the chips, the ?) are untouched by
-   any of it, so a saturated FILL still means「you can press this」.
+   NEUTRAL INK — `--ink` / `--ink-2` / `--ink-3` / `--ak-ink-4`, for every label
+   and every verdict-free word: the category WORD (`.ak-sug-w`), 「AIの回答」
+   (`.ak-msg-a .ak-msg-lb`), 「根拠」 (`.ak-ev-k`), 「出典 3件」 (`.ak-cites-k`),
+   「カルテ K-0001」 (`.ak-cite-tag`), the 会話 head's glyph (`.ak-chat-ic`), and
+   the name and slice tokens a sentence carries (`.ak-nm`, `.ak-msg-ctx`).
+
+   ⚠ THIS OVERTURNS THE SEVEN ARGUED EXCEPTIONS the S15 build carried over from
+   the accepted mock (R2-8). Greptile read the repo's own R13 directive against
+   them, and it is right: the mock is a picture, the law is the repo's, and a law
+   with seven named holes stops being one. All seven are neutral or wash now
+   (LIAM-VISIBLE, reported at §15), so a saturated fill and a saturated ink mean
+   the same single thing —「you can press this」.
 
    ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
@@ -321,7 +317,7 @@
   display: flex; align-items: center; gap: 7px; padding: 8px 14px 7px;
   border-bottom: 1px solid var(--ak-line-soft); font-size: 13px; font-weight: 700;
 }
-.biz .pg-ask-ai .ak-chat-ic { display: flex; color: var(--ak-accent); }
+.biz .pg-ask-ai .ak-chat-ic { display: flex; color: var(--ink-3); }
 
 /* ⚠ THE ONE BOUNDED READING PANEL IN THE ROOM (⚖-ADJ A), argued at the top of
    this sheet. A ceiling in `vh` because it is a READING height — how much of a
@@ -349,9 +345,9 @@
   display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px;
   color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .02em;
 }
-.biz .pg-ask-ai .ak-msg-a .ak-msg-lb { color: var(--ak-accent-hover); }
+.biz .pg-ask-ai .ak-msg-a .ak-msg-lb { color: var(--ink-3); }
 .biz .pg-ask-ai .ak-msg-ctx {
-  font-size: 11px; font-weight: 600; color: var(--ak-accent-hover); background: var(--ak-blue-wash);
+  font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--ak-blue-wash);
   border: 1px solid var(--ak-blue-line); border-radius: 999px; padding: 1px 8px; letter-spacing: 0;
 }
 .biz .pg-ask-ai .ak-msg-tx { margin: 2px 0 0; color: var(--ink); font-size: 13px; line-height: 1.72; }
@@ -362,7 +358,7 @@
 /* A customer's name reads as a chip wherever it appears — inside a sentence on a
    rail card, and as a pressable one under an answer. */
 .biz .pg-ask-ai .ak-nm {
-  background: var(--ak-blue-wash); color: var(--ak-accent-hover); border: 1px solid var(--ak-blue-line);
+  background: var(--ak-blue-wash); color: var(--ink); border: 1px solid var(--ak-blue-line);
   border-radius: 5px; padding: 0 4px; font-weight: 700; white-space: nowrap;
 }
 .biz .pg-ask-ai .ak-namerow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
@@ -378,7 +374,7 @@
 .biz .pg-ask-ai .ak-cites { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--ak-line-soft); }
 /* ONE HOME FOR 出典 (F2-2): the head is the derived string itself — 「出典 3件」 —
    so the word is not printed once as a label and again inside the count. */
-.biz .pg-ask-ai .ak-cites-k { color: var(--ak-ink-4); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.biz .pg-ask-ai .ak-cites-k { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 .biz .pg-ask-ai .ak-citerow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 /* ⚖-ADJ E — THE CITE PILL IS NOT PRESSABLE, AND MUST NOT LOOK IT. Registry ⑥:
    no shipped room accepts a record-level param, so there is nowhere for a pill
@@ -390,7 +386,7 @@
   border: 1px solid var(--ak-blue-line); background: var(--ak-blue-wash); border-radius: 999px;
   padding: 2px 11px 2px 8px; font-size: 11.5px; color: var(--ink-2); text-align: left;
 }
-.biz .pg-ask-ai .ak-cite-tag { flex: 0 0 auto; color: var(--ak-accent-hover); font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.biz .pg-ask-ai .ak-cite-tag { flex: 0 0 auto; color: var(--ink-2); font-size: 10.5px; font-weight: 700; white-space: nowrap; }
 .biz .pg-ask-ai .ak-cite-t { min-width: 0; }
 
 /* THE FAILED TURN — a quiet honest card with its own way out (⚖ D-3 + ⚖-ADJ F),
@@ -508,10 +504,15 @@
 .biz .pg-ask-ai .ak-sug-in:hover { box-shadow: var(--ak-shadow-2); transform: translateY(-1px); }
 /* ── ⚖ THE QUIET SECOND AXIS — the ACCEPTED MOCK'S four (S15, LIAM-VISIBLE) ───
    A rail of one flat register reads as a wall. The mock gives each canon AI設定
-   category a hue and spends it in three places at once: the card's left rule, the
-   icon's wash, and the category WORD's ink. The word is a 10.5px/700 LABEL on a
-   non-pressable — argued at the top of this sheet — and the card's own pressables
-   are untouched.
+   category a hue and spends it in TWO places: the card's 3px left rule and the
+   icon's 17px wash — the wash / line-tint tier, which is the whole of what the
+   one-way accent law leaves open to a non-pressable.
+
+   ⚠ THE CATEGORY WORD IS NO LONGER PART OF THE HUE (Greptile G-1, round 5). It
+   is a 10.5px/700 LABEL, and a label is neutral: `--ak-cat-ink` is `--ink-2` in
+   all four, so the tone lives on the rule and the chip and nowhere else. Booking
+   was the loudest case — its rule was the SOLID accent — and it is the wash
+   tier's own line (`--ak-blue-line`) now. The card's pressables are untouched.
 
    ⚠ THIS RETIRES THE カルテ-BORROWED PALETTE the 8/31 build shipped (teal /
    violet / pink / orange). It is a change to something Liam has already seen, so
@@ -524,10 +525,10 @@
   --ak-cat-wash: var(--ak-wash);
   --ak-cat-ink: var(--ink-3);
 }
-.biz .pg-ask-ai .ak-sug-in[data-cat="booking"] { --ak-cat-rule: var(--ak-accent); --ak-cat-wash: var(--ak-blue-wash); --ak-cat-ink: var(--ak-accent-hover); }
-.biz .pg-ask-ai .ak-sug-in[data-cat="customer_follow"] { --ak-cat-rule: #3fae74; --ak-cat-wash: var(--ak-green-wash); --ak-cat-ink: var(--ak-green); }
-.biz .pg-ask-ai .ak-sug-in[data-cat="staffing"] { --ak-cat-rule: var(--ak-slate); --ak-cat-wash: var(--ak-slate-wash); --ak-cat-ink: var(--ak-slate); }
-.biz .pg-ask-ai .ak-sug-in[data-cat="vip"] { --ak-cat-rule: #dfa23c; --ak-cat-wash: var(--ak-amber-wash); --ak-cat-ink: var(--ak-amber); }
+.biz .pg-ask-ai .ak-sug-in[data-cat="booking"] { --ak-cat-rule: var(--ak-blue-line); --ak-cat-wash: var(--ak-blue-wash); --ak-cat-ink: var(--ink-2); }
+.biz .pg-ask-ai .ak-sug-in[data-cat="customer_follow"] { --ak-cat-rule: #3fae74; --ak-cat-wash: var(--ak-green-wash); --ak-cat-ink: var(--ink-2); }
+.biz .pg-ask-ai .ak-sug-in[data-cat="staffing"] { --ak-cat-rule: var(--ak-slate); --ak-cat-wash: var(--ak-slate-wash); --ak-cat-ink: var(--ink-2); }
+.biz .pg-ask-ai .ak-sug-in[data-cat="vip"] { --ak-cat-rule: #dfa23c; --ak-cat-wash: var(--ak-amber-wash); --ak-cat-ink: var(--ink-2); }
 /* …and a BADGED card wears the family's attention amber over its own tone, so
    the exception is legible before the category is. */
 .biz .pg-ask-ai .ak-sug-in.ak-attn { border-color: var(--ak-amber-line); border-left-color: var(--ak-amber); background: #fffdf8; }
@@ -564,7 +565,7 @@
   border: 1px solid var(--line); background: var(--ak-wash); border-radius: var(--ak-r-sm);
   padding: 2px 8px 3px; color: var(--ink-3); font-size: 11px;
 }
-.biz .pg-ask-ai .ak-ev-k { flex: 0 0 auto; color: var(--ak-accent-hover); font-size: 10.5px; font-weight: 700; }
+.biz .pg-ask-ai .ak-ev-k { flex: 0 0 auto; color: var(--ink-3); font-size: 10.5px; font-weight: 700; }
 .biz .pg-ask-ai .ak-ev-t { flex: 1; min-width: 0; line-height: 1.65; }
 
 .biz .pg-ask-ai .ak-sug-act { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
