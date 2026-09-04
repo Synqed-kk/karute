@@ -10213,6 +10213,99 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
   const CANON = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'), 'utf8')
 
+  // ⚖ BREAKER-828 DELTA 4 — comment-STRIPPED lines, foundation's own
+  // line-prefix strip with the JSX comment opener (open-brace, slash,
+  // star) added — foundation's own form does not cover it, and a bare JSX
+  // comment line reads as code without it (RED on `B4LT` in the breaker's
+  // own delta-4 run, which pays the raw budget from a JSDoc line AND the
+  // strip budget from a JSX comment together, and over-pays: `sets` moves
+  // to 11, one BELOW its own pin). LINE-BASED ON PURPOSE: a regex-literal
+  // `/*` lid (`H1`, `/[/*]/`) opens a real block comment inside `codeOnly`,
+  // but cannot blind a strip that only asks whether a LINE begins with a
+  // comment marker. Its own ceiling, named plainly: a CODE line that
+  // begins with `*` (a tsc-clean multiplicative continuation) is dropped
+  // like a comment line too — the exact-line arrays below are the belt for
+  // that gap, not this helper.
+  const stripped = (s: string) => s.split('\n').filter((l) => !/^\s*(\{?\/\/|\*|\{?\/\*)/.test(l)).join('\n')
+
+  // ⚖ BREAKER-828 DELTA 4 — one entry per MATCH (not per line): the line the
+  // match sits on, trimmed, in file order. A line that mentions the same
+  // name several times stands several times — the `hasPriceFor` bind line
+  // mentions `sets` four times and appears four times in `SETS_SRC` below.
+  // This is the belt the strip above cannot be: ANY added line, removed
+  // line, or reworded line — even a comment — changes the array, so paying
+  // for a mutation out of a prose budget is impossible here, not merely
+  // expensive (`B7`/`B8` below are the documentation-only mutants that
+  // prove the raw counts already carry this exact cost; a failing array
+  // prints the diff, so a legitimate edit re-spells one entry).
+  const rawLineHits = (s: string, re: RegExp): string[] =>
+    s.split('\n').flatMap((l) => Array.from({ length: (l.match(re) ?? []).length }, () => l.trim()))
+
+  // ⚖ BREAKER-828 DELTA 4 — a plain substring count for the import-door belt
+  // below, spelled without a regex escape on the path's slashes: a regex
+  // literal escapes `/` as `\/`, and this repo's own import-isolation
+  // scanner (business-isolation.test.ts) reads raw text for anything
+  // shaped like `from '…'`, so an ESCAPED specifier reads back as a
+  // "bare package off the allowlist" to that unrelated suite. A plain
+  // string needle, split-counted, spells the specifier exactly as it
+  // appears in real code and is invisible to that concern.
+  const rawSubstringCount = (s: string, needle: string): number => s.split(needle).length - 1
+
+  // ⚖ BREAKER-828 DELTA 4 — the raw lines themselves, script-emitted off this
+  // tip via `rawLineHits` and pasted verbatim, never hand-retyped.
+  const COMPUTECHECKS_SRC: readonly string[] = [
+    "computeChecks,",
+    "*  A `BoardItem` has no price (today-board.ts), and canon's `computeChecks`",
+    "*  ledger and `computeChecks` are never run per pixel. */",
+    "/** canon `computeChecks` fed from the board as it currently stands. The sell",
+    "computeChecks(at, {",
+    "// ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole",
+    "*  and cannot be confirmed is still `computeChecks`' answer alone and a",
+    "*  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever",
+    "*  than `computeChecks` says; there is simply nothing to gate. ⚖ 92 fix round 8",
+    "*  literal `false`, so ⚖ 73 is intact and `computeChecks` still has no subject",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+  ]
+  const COMPUTECHECKS_INT: readonly string[] = [
+    "computeChecks,",
+    "*  reading before 確定 — as INFORMATION, not as a gate: `computeChecks` still",
+    "*  `computeChecks` alone is the gate), so it cannot earn ×, whatever the engine",
+    "/** ⚖ 73 — the ONE hard row the frozen engine emits. `computeChecks`",
+    "/** WHY, in the board's existing vocabulary — `computeChecks`' own sentence for",
+    "/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,",
+    "/** The same span in canon's percent units — `computeChecks` speaks percent. */",
+    "*  the wrong board first, then the person (重複/勤務/ロック — `computeChecks`'",
+    "computeChecks(q.span, {",
+    "*  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules",
+    "*  can legitimately carry the same one — the day `computeChecks` grows a second",
+    "*  `computeChecks`-confirmable) was walled by the dial. It was composed from",
+  ]
+  const PRICEFACTSETS_SRC: readonly string[] = [
+    "priceFactSets,",
+    "*  `priceFactSets` is where a truth table can be written about them. It also",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+  ]
+  const HASPRICEFACT_SRC: readonly string[] = [
+    "hasPriceFact,",
+    "*  `hasPriceFact` (today-interactions), which is where its reasoning and its",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+  ]
+  const SETS_SRC: readonly string[] = [
+    "*   確定/元に戻す, which are the question. Clicking the card sets this true. */",
+    "*  sets built once per board, handed to the pure function. It is a `useMemo`",
+    "*  so the sets are built once per board rather than once per gesture, and it",
+    "*  two lines are the whole binder — the sets, then the question. */",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "*  keyboard nudge sets it deliberately (Shift/Alt cannot change a start, ⚖",
+    "// rendered nothing, which is flag 3's disease exactly. Canon sets it from",
+    "{/* canon sets this as the cards' aria-description (:3865).",
+  ]
+
   /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
   const SETS_LINE =
     'const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])'
@@ -10342,6 +10435,46 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // new use of the name anywhere in the file — even in a comment — must
       // update it.
       expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: 12 })
+      // ⚖ BREAKER-828 DELTA 4 J1 — AND `rawIdents` ABOVE IS A WHOLE-FILE
+      // TOTAL THAT PROSE AND CODE SHARE. Ten of `computeChecks`'s twelve raw
+      // mentions in this file are prose; a mutant that adds one live reader
+      // inside `checksFor` and rewords one distant JSDoc mention pays for
+      // itself out of that prose budget and leaves `rawIdents` sitting at 12
+      // (`B1` `B1L`: 1925 tests, `tsc --noEmit` clean, byte-identical
+      // eslint — a second live raw-canon reader in `checksFor`). This one
+      // counts over comment-STRIPPED lines, which removes the currency:
+      // both files read 2 live mentions today — the import specifier and
+      // the pinned call. A legitimate new use, even inside a comment, must
+      // update it.
+      expect({ where, codeIdents: (stripped(src).match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, codeIdents: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // `computeChecks` in this file, trimmed, in file order (one entry per
+      // mention — a line naming it twice stands twice). Any added, removed
+      // or REWORDED line — even a comment reworded to pay `codeIdents`
+      // above — changes this array and prints the diff.
+      expect(rawLineHits(src, /\bcomputeChecks\b/g)).toEqual(where === 'checksFor (screen)' ? COMPUTECHECKS_SRC : COMPUTECHECKS_INT)
+      // ⚖ BREAKER-828 DELTA 4 J4 — THE IMPORT-DOOR RAW BELT. `B5` spells
+      // `computeChecks` NOWHERE — it reaches canon through a SECOND import
+      // statement from a module this screen already imports
+      // (`import * as canonRules from '…/drag-rules'`), read through a
+      // computed key (`bag['compute' + 'Checks']`). `foundation.test.ts`'s
+      // import inventory collects into a `Set`, so a duplicate module
+      // specifier is invisible to the door that catches a NEW module — it
+      // sees new modules, not new imports (that general fix is a rider on
+      // `foundation.test.ts`, untouchable from this file). This raw count of
+      // the quoted specifier is the in-scope substitute: zero budget on the
+      // tip today, proven by script — no comment line in either file
+      // contains the string.
+      expect({ where, rawDragImports: rawSubstringCount(src, "from '@/business/lib/canon-logic/drag-rules'") }).toEqual({ where, rawDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE SAME DOOR, OVER THE STRIP. Recorded
+      // beside the raw belt above rather than instead of it: `S2`
+      // (`B5` re-spelt as the two-line import form `import` NEWLINE
+      // `* as canonRules from '…drag-rules'`) puts the quoted specifier on a
+      // line that STARTS WITH `*` — exactly the strip's own named ceiling —
+      // so this count may stay at 1 while `S2` is still RED, on the raw
+      // belt above. That is why the raw belt exists rather than only this.
+      expect({ where, stripDragImports: (stripped(src).match(/canon-logic\/drag-rules/g) ?? []).length }).toEqual({ where, stripDragImports: 1 })
       // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
       // no-op, are gone in every shape the breaker has used on this lane.
       for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
@@ -10607,6 +10740,29 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
       // and one prose mention — three today. A shadow adds a fourth and this
       // number moves; a legitimate new mention must update it.
       expect({ name, rawMentions: (SRC.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawMentions: 3 })
+      // ⚖ BREAKER-828 DELTA 4 J2 — AND `rawMentions` ABOVE HAS A BUDGET OF
+      // EXACTLY ONE, AND IT IS A JSDoc LINE. The pin's own comment already
+      // names the third mention as prose — that one line is the whole
+      // budget, and one line is all a shadow costs: `B2`/`B3` add the
+      // delta-3 shadow under the `/[/*]/` lid AND reword that one JSDoc
+      // mention, leaving `rawMentions` sitting at 3 (1925 tests, `tsc
+      // --noEmit` clean, one new `no-unused-vars` eslint warning per name —
+      // the tip already carries 229, so no gate fails). This one counts over
+      // comment-STRIPPED lines: both names read 2 today — the pinned
+      // specifier and the call on the pinned `SETS_LINE`/`BIND_LINE`. A
+      // shadow adds a third live mention and this number moves.
+      expect({ name, codeMentions: (stripped(SRC).match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, codeMentions: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // this name in `TodayScreen.tsx`, trimmed, in file order. Any added,
+      // removed or reworded line changes this array and prints the diff.
+      expect(rawLineHits(SRC, new RegExp('\\b' + name + '\\b', 'g'))).toEqual(name === 'priceFactSets' ? PRICEFACTSETS_SRC : HASPRICEFACT_SRC)
+      // ⚖ BREAKER-828 DELTA 4 — A CHEAP SECOND BELT FOR J2, RAW AND
+      // SHAPE-BASED RATHER THAN BUDGETED. It does NOT cover a destructured
+      // shadow (`const { priceFactSets: x } = …`) — `codeMentions` and the
+      // exact-line array above are the primary; this is a second, cheaper
+      // trip-wire on the DECLARATION shape `B2`/`B3` actually use.
+      expect({ name, rawDeclared: (SRC.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawDeclared: 0 })
       // (4) …and it ARRIVES by import: the specifier stands in the pinned
       //     import block above, counted.
       expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })
@@ -10677,6 +10833,26 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     // the slice, moves this number. A legitimate new use of `sets` must
     // update it.
     expect((SRC.match(/\bsets\b/g) ?? []).length).toBe(12)
+    // ⚖ BREAKER-828 DELTA 4 J3 — AND `sets` IS AN ENGLISH VERB, AND ITS
+    // BUDGET IS FOUR UNRELATED COMMENTS. `sets` is not a rare identifier —
+    // this file uses it as an ordinary verb seven times in prose, four of
+    // those in comments about entirely different features. `B4` pays for
+    // the second writer below by trading `sets` → `marks` in a comment
+    // about card clicking 590 lines above the binder (1925 tests, `tsc
+    // --noEmit` clean, byte-identical eslint); `B4L` is the same under the
+    // `/[/*]/` lid. This one counts over comment-STRIPPED lines: one
+    // mention on `SETS_LINE`, four on `BIND_LINE` — five today. There is
+    // nothing left to spend: every mention the strip still counts sits on
+    // a line another pin already fixes whole.
+    expect((stripped(SRC).match(/\bsets\b/g) ?? []).length).toBe(5)
+    // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+    // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+    // `sets` in this file, trimmed, in file order — the bind line mentions
+    // it four times and stands four times here. Any added, removed or
+    // reworded line, even the double-trade `B4LT` pays (a JSDoc line AND
+    // the one `{/* … */}` JSX comment a bare strip reads as code), changes
+    // this array and prints the diff.
+    expect(rawLineHits(SRC, /\bsets\b/g)).toEqual(SETS_SRC)
 
     // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
     // `AddedRow` has ONE construction shape on this screen, so the writers can
