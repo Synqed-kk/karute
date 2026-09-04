@@ -946,10 +946,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const claim = num('cg-claim-min')
     const receipt = num('cg-receipt-min')
     const receiptGap = num('cg-receipt-gap')
+    const statMin = num('cg-stat-min')
+    const statTight = num('cg-stat-tight')
+    const statGap = num('cg-stat-gap')
     const colsGap = num('cg-cols-gap')
     const cardGap = num('cg-card-gap')
-    expect({ main, side, chart, board, claim, receipt, receiptGap, colsGap, cardGap })
-      .toEqual({ main: 640, side: 320, chart: 520, board: 644, claim: 260, receipt: 260, receiptGap: 16, colsGap: 24, cardGap: 18 })
+    expect({ main, side, chart, board, claim, receipt, receiptGap, statMin, statTight, statGap, colsGap, cardGap })
+      .toEqual({ main: 640, side: 320, chart: 520, board: 644, claim: 260, receipt: 260, receiptGap: 16, statMin: 110, statTight: 96, statGap: 10, colsGap: 24, cardGap: 18 })
     const thresholds = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     const distinct = [...new Set(thresholds)].sort((a, b) => a - b)
     // THREE page thresholds, FOUR compositions — and each one equals the sum of
@@ -1008,6 +1011,22 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // so the desk column must hold 560 + 70 for the grid to stay open across
     // the threshold it is measured on the other side of.
     expect(main).toBeGreaterThanOrEqual(cardThresholds[0] + 70)
+
+    // ⑥ THE SPINE'S OWN CONTAINER — 2 on a phone, 3+2 in the supporting column,
+    // 5 across on a wide card. `auto-fit` alone gave 4+1 at the desk's 5fr
+    // column, which is the same half-empty row the supporting column's orphan
+    // rule exists to prevent one level down.
+    const spineThresholds = [...CSS_CODE.matchAll(/@container cg-spine \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
+    expect(spineThresholds).toEqual([380, 520])
+    expect(statMin * 3 + statGap * 2).toBe(350)
+    expect(spineThresholds[0]).toBeGreaterThanOrEqual(statMin * 3 + statGap * 2)
+    expect(statTight * 5 + statGap * 4).toBe(520)
+    expect(spineThresholds[1]).toBeGreaterThanOrEqual(statTight * 5 + statGap * 4)
+    expect(CSS_CODE).toContain('.cg-spine { container: cg-spine / inline-size; }')
+    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 380px)'))
+    expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
+    const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 520px)'))
+    expect(five.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
   })
 
   it('the ladder has exactly ONE column threshold, and it is a CONTAINER query', () => {
@@ -1018,11 +1037,14 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // FOUR blocks: three on the page's own container (700 · 880 · 1000) and one
-    // on the finding CARD's (560). Each is stated ONCE.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(4)
+    // SIX blocks on THREE containers: the page (700 · 880 · 1000), the finding
+    // CARD (560) and the 成績 card (380 · 520). Each is stated ONCE, and the two
+    // card-level containers exist because what decides those two compositions is
+    // the CARD's width — the page's is two layout decisions away from it.
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(6)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
+    expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
     expect(CSS_CODE).toContain('container: cg-page / inline-size')
     // …and NO media band ever restates a composition, so a viewport rule cannot
     // disagree with the shape the container decided.

@@ -221,7 +221,26 @@
          536  the width at which claim and receipt first sit side by side
          560  ships — 536 plus 24px of slack.
 
-     ALL FIVE ARE CONTAINER QUERIES, and container width is monotonic in page
+     THRESHOLD ⑥ (the SPINE's five tiles, inside the 成績 CARD — its own
+     container, for the same reason the receipt has one: what decides how many
+     facts fit is the card's width, not the page's):
+         110  a tile, at the floor a phone needs to fit TWO of them
+       ×  3
+       +  20  two gaps
+       ─────
+         350  three across first fit
+         380  ships — 350 plus 30, so a 390px phone (card ≈322) keeps its two
+              and does not squeeze three.
+          96  the tile's TIGHT floor — the width at which 「平均客単価 / ￥9,800」
+       ×  5   still sits on one line at 22px tabular
+       +  40  four gaps
+       ─────
+         520  all five across, which is the composition the desk is for.
+     Between them the card takes 3+2 rather than `auto-fit`'s 4+1: four tiles
+     and an orphan is the same half-empty row the supporting column's own
+     `:last-child:nth-child(odd)` rule exists to prevent, one level down.
+
+     ALL SIX ARE CONTAINER QUERIES, and container width is monotonic in page
      width, so each threshold is crossed EXACTLY ONCE across a sweep — the room
      never gains a column, loses it and gains it again. */
   --cg-main-min: 640px;
@@ -231,6 +250,9 @@
   --cg-claim-min: 260px;
   --cg-receipt-min: 260px;
   --cg-receipt-gap: 16px;
+  --cg-stat-min: 110px;
+  --cg-stat-tight: 96px;
+  --cg-stat-gap: 10px;
   --cg-cols-gap: 24px;
   --cg-card-gap: 18px;
 
@@ -436,7 +458,17 @@
    supporting column at 390 the card holds ~244px, and a 132 floor put each of
    the five facts on a row of its own. `auto-fit` never makes more tracks than
    there are items, so a lower floor changes the narrow bands and nothing else. */
-.biz .pg-coaching .cg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+.biz .pg-coaching .cg-spine { container: cg-spine / inline-size; }
+.biz .pg-coaching .cg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cg-stat-min), 1fr)); gap: var(--cg-stat-gap); margin-top: 12px; }
+/* ⑥ — 2 on a phone, 3+2 in the supporting column, 5 across on a wide card.
+   Queried on the CARD, because the page's width is two layout decisions away
+   from how many facts fit inside it. */
+@container cg-spine (min-width: 380px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container cg-spine (min-width: 520px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 .biz .pg-coaching .cg-stat { padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
 .biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
