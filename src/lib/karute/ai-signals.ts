@@ -78,7 +78,7 @@ export async function getTodaySignals(
     if (appts.length === 0) return []
 
     const rosterIds = [
-      ...new Set(appts.map((a) => a.customer_id).filter(Boolean)),
+      ...new Set(appts.map((a) => a.customer_id).filter((id): id is string => id != null)),
     ]
 
     const synqed = await getSynqedClient()
@@ -96,7 +96,8 @@ export async function getTodaySignals(
 
     // next_visit — the earliest appointment still ahead of now today.
     const upcoming = appts
-      .filter((a) => a.customer_id && new Date(a.starts_at).getTime() > now.getTime())
+      .filter((a): a is typeof a & { customer_id: string } =>
+        a.customer_id != null && new Date(a.starts_at).getTime() > now.getTime())
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0]
     if (upcoming) {
       const name = subjectName(nameById.get(upcoming.customer_id), locale)

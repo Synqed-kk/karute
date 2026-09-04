@@ -355,7 +355,7 @@ describe('updateAppointment — audit', () => {
     // the booking first (terminal guard, same as every sibling core) — a
     // live default so tests scoped to the patch/detail contract don't have
     // to know about it; the terminal/not-found tests below override it.
-    appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
+    appointments.get.mockResolvedValue({ status: 'SCHEDULED', customer_id: 'cust-1' })
   })
 
   it('emits exactly one booking.update row, ids-only detail, changed:"staff" for a staff-only reassign', async () => {
@@ -452,7 +452,7 @@ describe('updateAppointment — audit', () => {
   // could silently reschedule/reassign an already-cancelled or no-show
   // booking. Mirrors restoreAppointmentCore's read-check.
   it('refuses to edit an already-terminal (cancelled/no-show) booking — zero rows', async () => {
-    appointments.get.mockResolvedValue({ status: 'CANCELLED' })
+    appointments.get.mockResolvedValue({ status: 'CANCELLED', customer_id: 'cust-1' })
     const lines = await auditLines(async () => {
       const result = await updateAppointment('appt-1', { durationMinutes: 30 })
       expect(result).toEqual({ error: 'A cancelled or no-show booking cannot be edited.' })
