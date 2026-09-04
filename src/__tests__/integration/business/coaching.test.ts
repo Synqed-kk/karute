@@ -1043,7 +1043,12 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 350px)'))
     expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
     const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 520px)'))
-    expect(five.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
+    expect(five.slice(0, 400)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
+    // ⚠ AND THE VALUE STEPS WITH THE TILE. A money value that breaks mid-number
+    // is the one thing a money value may never do, and 22px in a ~105px tile
+    // did exactly that. The step is the mock's own D8.
+    expect(three.slice(0, 600)).toContain('.cg-stat-value { font-size: 18px; }')
+    expect(five.slice(0, 400)).toContain('.cg-stat-value { font-size: 22px; }')
   })
 
   it('the ladder has exactly ONE column threshold, and it is a CONTAINER query', () => {

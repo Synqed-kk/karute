@@ -497,9 +497,17 @@
    from how many facts fit inside it. */
 @container cg-spine (min-width: 350px) {
   .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* ⚠ AND THE VALUE STEPS DOWN WITH THE TILE (the mock's own D8). Three across
+     a ~336px card is a tile of ~105, and 「￥9,800」 at 22px needs 114 — so the
+     money value broke mid-number, which is the one thing a money value may
+     never do. 18px fits it with room, and the label above it is unchanged. */
+  .biz .pg-coaching .cg-stat-value { font-size: 18px; }
 }
 @container cg-spine (min-width: 520px) {
   .biz .pg-coaching .cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  /* five across a wide card is a tile of ~96, which is what --cg-stat-tight is,
+     and at that width the value has its full size back. */
+  .biz .pg-coaching .cg-stat-value { font-size: 22px; }
 }
 .biz .pg-coaching .cg-stat { padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
