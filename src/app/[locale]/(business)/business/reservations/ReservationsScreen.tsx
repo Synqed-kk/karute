@@ -152,6 +152,21 @@ export interface ReservationsProps {
 
 type DateFilter = 'all' | 'today' | 'future'
 
+/** G2(a) — 「本日」 chip and 期間 dropdown are ONE axis. Moving the period off
+ *  today while that chip is lit leaves a pressed chip describing a list it no
+ *  longer selects (the pressed-chip-contradicts-the-list bug); every other
+ *  chip is orthogonal to 期間 and is left alone. */
+export function chipAfterDateChange(chip: SavedView, nextDate: DateFilter): SavedView {
+  return chip === 'today' && nextDate !== 'today' ? 'all' : chip
+}
+
+/** Pressing 本日 while it is already lit moves the SAME axis back to the full
+ *  span rather than re-applying an already-applied chip — the dropdown shows
+ *  the full span again. Every other chip presses exactly as it always did. */
+export function viewOnChipPress(chip: SavedView, pressed: SavedView): SavedView {
+  return pressed === 'today' && chip === 'today' ? 'all' : pressed
+}
+
 /** 表示する列 — this panel's own five columns driving the shared primitive.
  *  `w` is the desk track list and `nw` the narrow-desk one; the narrow list is
  *  built from the visible columns MINUS 担当・設備, which the narrow band sheds
@@ -582,9 +597,20 @@ function Screen(props: ReservationsProps) {
   )
   const visible = useMemo(() => all.filter((r) => matchesFilters(r, filters)), [all, filters])
 
+  /** G2(b) — COUNTS DESCRIBE THE LIST ACTUALLY SHOWN. `chipBase` is the list
+   *  BEFORE the chip's own status/source/price narrow it: 期間 and 検索 stay
+   *  exactly as they currently stand (independent of which chip is lit), so
+   *  「要対応 5件」 is exactly the rows that chip reveals under the period and
+   *  search on screen right now — never a second, chip-narrowed base (which
+   *  would silently collapse every OTHER chip's number to its intersection
+   *  with whatever is currently pressed). */
+  const chipBase = useMemo(
+    () => all.filter((r) => matchesFilters(r, { search, date, status: 'all', source: 'all', price: 'all' })),
+    [all, search, date],
+  )
   /** ⚖ THE COUNT ON A CHIP IS THE NUMBER OF ROWS ITS OWN PRESS REVEALS — one
    *  function, over the same predicate the list runs, so the two cannot drift. */
-  const counts = useMemo(() => chipCounts(all), [all])
+  const counts = useMemo(() => chipCounts(chipBase), [chipBase])
 
   /** How many rows the RANGE alone leaves, which is what 「全N件のうち」 counts. */
   const rangeTotal = useMemo(
@@ -652,10 +678,17 @@ function Screen(props: ReservationsProps) {
     searchRef.current?.focus()
   }
 
-  function applyView(view: SavedView) {
+  /** G2 fix — `touchDate` is true only when the BUTTON actually pressed was
+   *  本日 (a fresh press or its own toggle-off), never for the other five
+   *  chips: 期間 is 本日's own axis (law a), so a すべて/要対応/… press must
+   *  leave whatever period is already on screen alone rather than silently
+   *  discarding it. Without this, a chip's own displayed count (which now
+   *  reads the live period, G2(b)) would promise one number and a later
+   *  chip's OWN full reset would reveal a different one. */
+  function applyView(view: SavedView, touchDate: boolean) {
     const f = viewFilters(view)
     setChip(view)
-    setDate(f.date)
+    if (touchDate) setDate(f.date)
     setSource(f.source)
     setStatus(f.status)
     setPrice(f.price)
@@ -1101,7 +1134,7 @@ function Screen(props: ReservationsProps) {
                 data-chip={v}
                 className={`rv-seg-btn${v === 'attention' ? ' is-warn' : ''}${chip === v ? ' is-on' : ''}`}
                 aria-pressed={chip === v}
-                onClick={() => applyView(v)}
+                onClick={() => applyView(viewOnChipPress(chip, v), v === 'today')}
               >
                 {CHIP_LABEL[v]}<span className="rv-n">{counts[v]}件</span>
               </button>
@@ -1122,7 +1155,12 @@ function Screen(props: ReservationsProps) {
           <select
             className="rv-daterange"
             value={date}
-            onChange={(e) => { setDate(e.target.value as DateFilter); setSwap((n) => n + 1) }}
+            onChange={(e) => {
+              const next = e.target.value as DateFilter
+              setDate(next)
+              setChip((c) => chipAfterDateChange(c, next))
+              setSwap((n) => n + 1)
+            }}
             aria-label="期間"
           >
             <option value="all">{props.spanLabel}</option>

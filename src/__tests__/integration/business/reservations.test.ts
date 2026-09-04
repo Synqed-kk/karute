@@ -1013,3 +1013,22 @@ describe('elapsedSecondsSince — measured from the wall clock, never counted ca
     expect(elapsedSecondsSince(1_000, 999)).toBe(0)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 16. GREPTILE ROUND 1 — G2(b) · chip counts run on the period+search base
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('chipBase (G2(b)) — chipCounts runs over 期間+検索, never the chip’s own status/source/price', () => {
+  it('narrowing by the CURRENT period before counting is the whole point — すべて’s number becomes that period’s own total', async () => {
+    const rows = decorated(await load(STORE_A))
+    const full = chipCounts(rows)
+    const todayOnly = chipCounts(rows.filter((r) => r.isToday))
+    // this IS `chipBase`'s own mechanism: narrowing the rows by the current
+    // 期間 BEFORE chipCounts runs is what makes 「要対応 5件」 describe the rows
+    // that chip shows under the period on screen right now — すべて's own
+    // number, read off a 本日-narrowed base, becomes exactly what 本日's count
+    // already was off the full corpus.
+    expect(todayOnly.all).toBe(full.today)
+    expect(todayOnly.all).toBeLessThan(full.all)
+  })
+})

@@ -37,9 +37,11 @@ import {
   COLUMNS,
   acceptCommit,
   changeCommit,
+  chipAfterDateChange,
   decorate,
   focusResult,
   recordCommit,
+  viewOnChipPress,
   wireSheet,
   type ReservationRow,
   type SlotOption,
@@ -1064,5 +1066,54 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     // (:1424) ported to this effect pair.
     expect(SCREEN_CODE).toContain('const thumbMoveRef = useRef<((jump: boolean) => void) | null>(null)')
     expect(SCREEN_CODE).toContain('thumbMoveRef.current = move')
+  })
+})
+
+// ═══ GREPTILE ROUND 1 — G2(a) · 「本日」 chip and 期間 are ONE axis ══════════
+
+describe('G2(a) · the two resets — changing the period un-presses 本日, pressing it again un-sets the period', () => {
+  it('changing 期間 away from today un-presses the chip; every other chip is untouched by a period change', () => {
+    expect(chipAfterDateChange('today', 'future')).toBe('all')
+    expect(chipAfterDateChange('today', 'all')).toBe('all')
+    expect(chipAfterDateChange('today', 'today')).toBe('today')
+    expect(chipAfterDateChange('attention', 'future')).toBe('attention')
+    expect(chipAfterDateChange('all', 'future')).toBe('all')
+  })
+
+  it('pressing 本日 while it is already lit toggles it off — the dropdown shows the full span again', () => {
+    expect(viewOnChipPress('today', 'today')).toBe('all')
+    // pressing it fresh (from any other chip) sets it, unchanged
+    expect(viewOnChipPress('all', 'today')).toBe('today')
+    expect(viewOnChipPress('attention', 'today')).toBe('today')
+    // every other chip presses exactly as it always did
+    expect(viewOnChipPress('today', 'attention')).toBe('attention')
+  })
+
+  it('both are actually WIRED — a chip press reads viewOnChipPress, the dropdown reads chipAfterDateChange', () => {
+    // the two pure functions above are only the LAW; this is the call site
+    // that removes it would leave both provable and unused.
+    expect(SCREEN_CODE).toContain("onClick={() => applyView(viewOnChipPress(chip, v), v === 'today')}")
+    expect(SCREEN_CODE).toContain('setChip((c) => chipAfterDateChange(c, next))')
+    // …and only 本日's OWN press ever touches 期間 — every other chip leaves
+    // whatever period is already on screen alone (otherwise a chip's own
+    // displayed count would promise one number and a later chip's full reset
+    // would silently reveal a different one).
+    expect(SCREEN_CODE).toContain('function applyView(view: SavedView, touchDate: boolean)')
+    expect(SCREEN_CODE).toContain('if (touchDate) setDate(f.date)')
+  })
+})
+
+describe('G2(b) · chipCounts runs on chipBase — 期間+検索 applied, the chip’s own status/source/price excluded', () => {
+  it('the room hands chipCounts `chipBase` (period+search narrowed), never `all` unfiltered or the chip-narrowed `visible`', () => {
+    // `all` unfiltered would ignore the period/search actually on screen (the
+    // bug this finding fixes); `visible` (the list AFTER the lit chip's own
+    // status/source/price narrowed it) would silently collapse every OTHER
+    // chip's number to its intersection with whatever chip is pressed.
+    expect(SCREEN_CODE).toContain('const counts = useMemo(() => chipCounts(chipBase), [chipBase])')
+    expect(SCREEN_CODE).toContain(
+      "const chipBase = useMemo(\n    () => all.filter((r) => matchesFilters(r, { search, date, status: 'all', source: 'all', price: 'all' })),\n    [all, search, date],\n  )",
+    )
+    expect(SCREEN_CODE).not.toContain('chipCounts(all)')
+    expect(SCREEN_CODE).not.toContain('chipCounts(visible)')
   })
 })
