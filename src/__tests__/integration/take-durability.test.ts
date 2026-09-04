@@ -41,7 +41,7 @@ jest.mock('@/actions/recordings', () => ({
  *  segment-uploader.test.ts's whole file. Mocked rather than let run because
  *  the real one reaches the port, and the port's web arm dynamically imports an
  *  action module whose graph jest cannot parse. */
-const mockPumpSegments = jest.fn(async (_port: unknown, _takeId: string) => {})
+const mockPumpSegments = jest.fn<Promise<void>, [unknown, string]>(async () => {})
 jest.mock('@/lib/recording/segment-uploader', () => ({
   pumpSegments: (port: unknown, takeId: string) => mockPumpSegments(port, takeId),
 }))
@@ -4709,6 +4709,70 @@ describe('segments while recording — when the recorder pumps', () => {
     expect(order.indexOf('pump')).toBeGreaterThanOrEqual(0)
     expect(order.indexOf('pump')).toBeLessThan(order.indexOf('put'))
     expect(order.indexOf('pump')).toBeLessThan(order.indexOf('finalize'))
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
+    ).toEqual(expect.any(Number))
+  })
+
+  // ⚖ …AND IT WAITS FOR ITS OWN MINT FIRST (rebase round 1, R1). The pump's
+  // FIRST act is to read `recordingSessionId` off the take, and it returns at
+  // once when the start-mint has not stamped one yet (segment-uploader.ts:195)
+  // — the segment door mints against that row, so there is nothing to ask for.
+  // Placed AHEAD of the stop leg's own mint wait, the stop's pump therefore
+  // returned having sent nothing on exactly the slow-start-mint case the wait
+  // exists for, and the TAIL SEGMENT never went up at all: the head start was
+  // lost precisely on the bad link that needed it. The ordinary take is
+  // unaffected — its session is already stamped at the stop instant.
+  it('a stop whose session stamps LATE pumps AFTER the stamp, never before it', async () => {
+    let answerMint!: (v: { id: string } | null) => void
+    mockStartRecordingSession.mockReturnValueOnce(
+      new Promise<{ id: string } | null>((r) => (answerMint = r)),
+    )
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+
+    // From here the only pump that can fire is the stop leg's own.
+    order.length = 0
+    mockPumpSegments.mockClear()
+    /** What the take KNEW at the instant the pump ran — the very field the
+     *  pump's first act reads, so a null here IS the early return. */
+    const sessionAtPump: (string | null | undefined)[] = []
+    mockPumpSegments.mockImplementation(async () => {
+      sessionAtPump.push(
+        (takes().get(JSON.stringify(takeId)) as { recordingSessionId?: string | null })
+          .recordingSessionId,
+      )
+      order.push('pump')
+    })
+
+    globalRecorder.stop()
+    await drain(200)
+    // ONE pump so far, and it is the TAIL FLUSH's own — fire-and-forget, as
+    // every flush-time pump is. It ran on a take with no session, so by the
+    // pump's own first act it sent NOTHING: the tail is on disk and nowhere
+    // else. Which is the whole point — the only pump that can carry that tail
+    // is the leg's, and the leg has not reached it.
+    expect(mockPumpSegments).toHaveBeenCalledTimes(1)
+    expect(sessionAtPump[0]).toBeNull()
+    expect(order).toEqual(['pump'])
+
+    answerMint({ id: 'session-late' })
+    await drain(400)
+
+    // The stamp landed FIRST — the mint wait resolves through the same chain
+    // that writes it — so the LEG's pump had a row to mint segments against,
+    // and the whole take went up behind it in item 2's own order. Pre-change
+    // this second pump did not exist: the leg pumped ahead of the wait, saw the
+    // same null session as the flush above, and the tail segment never went up.
+    expect(mockPumpSegments).toHaveBeenCalledTimes(2)
+    expect(sessionAtPump).toEqual([null, 'session-late'])
+    expect(order).toEqual(['pump', 'pump', 'mint', 'put', 'finalize'])
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { recordingSessionId?: string | null })
+        .recordingSessionId,
+    ).toBe('session-late')
     expect(
       (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
     ).toEqual(expect.any(Number))

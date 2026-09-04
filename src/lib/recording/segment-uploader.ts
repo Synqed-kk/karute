@@ -51,7 +51,7 @@ import {
   TERMINAL_SECURE_ERRORS,
 } from '@/lib/karute/take-store'
 import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
-import { putDeadlineMs } from '@/lib/recording/storage-put'
+import { PUT_BYTES_PER_MS } from '@/lib/recording/storage-put'
 
 /** How many seqs one mint asks for. Five minutes of capture at one segment per
  *  ~5 s — the catch-up a phone that lost the network for a while owes — and it
@@ -69,6 +69,24 @@ export const SEGMENT_CONCURRENCY = 3
  *  otherwise ask twelve times a minute for the length of a session. */
 export const SEGMENT_BACKOFF_MIN_MS = 5_000
 export const SEGMENT_BACKOFF_MAX_MS = 60_000
+/** ⚖ A SEGMENT'S OWN DEADLINE FLOOR (rebase round 1, R2). `putDeadlineMs`'s
+ *  60 s floor is written for a TAKE — "never under a minute", because the same
+ *  number that mercy-kills a stalled 2 MB upload must not cut a 90-minute one
+ *  off mid-flight. A segment is ~5 s of audio, tens of kilobytes, and the stop
+ *  leg AWAITS this pump before it secures the whole take: on a dead link three
+ *  in-flight PUTs of ~30 KB would hold the stop for the full 60 s before
+ *  secureTake even started, and `awaitTakeSecured`'s 120 s belt then fires on
+ *  the in-tab reader waiting behind it. Fifteen seconds is still far past any
+ *  honest segment on the 10 KB/s rate below (150 KB — thirty times a real one),
+ *  so this shortens no upload that was going to succeed; it only stops a socket
+ *  that will never answer from spending the stop leg's minute.
+ *
+ *  The RATE is storage-put's and is imported, never re-stated: one rate, two
+ *  floors. A refused segment is never lost either — it backs off and the next
+ *  flush asks again, and the whole take goes up under its own key regardless. */
+export const SEGMENT_PUT_FLOOR_MS = 15_000
+const segmentDeadlineMs = (bytes: number) =>
+  Math.max(SEGMENT_PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
 
 /**
  * SINGLE-FLIGHT PER TAKE. The pump is fired from the flush queue and awaited by
@@ -101,11 +119,13 @@ function bumpBackoff(takeId: string): void {
 
 /** ONE segment PUT, under its own size-derived deadline.
  *
- *  `putDeadlineMs` is storage-put's shared rule (a floor of 60 s, then ~10 KB/s
- *  of the blob's own size) — the same one secure-take gives the whole take, so
- *  a segment and a take cannot drift into two timeout policies. A segment is
- *  small, so in practice this is the floor: it exists to release a socket that
- *  will never answer, not to police a slow one.
+ *  `segmentDeadlineMs` is storage-put's RATE (~10 KB/s of the blob's own size,
+ *  `PUT_BYTES_PER_MS`, imported so a segment and its take can never drift into
+ *  two upload policies) under a floor of this file's own — see
+ *  SEGMENT_PUT_FLOOR_MS for why a take's 60 s is the wrong number for ~5 s of
+ *  audio the stop leg is waiting behind. A segment is small, so in practice
+ *  this IS the floor: it exists to release a socket that will never answer, not
+ *  to police a slow one.
  *
  *  AbortController + a timer, never AbortSignal.timeout: that static is absent
  *  from jsdom (this file's own tests) and from WebViews older than Chrome 103,
@@ -118,7 +138,7 @@ function bumpBackoff(takeId: string): void {
  *  there" this path may act on. */
 async function putSegment(url: string, blob: Blob, contentType: string): Promise<boolean> {
   const deadline = new AbortController()
-  const timer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+  const timer = setTimeout(() => deadline.abort(), segmentDeadlineMs(blob.size))
   try {
     const put = await fetch(url, {
       method: 'PUT',

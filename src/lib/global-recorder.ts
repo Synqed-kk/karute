@@ -884,22 +884,6 @@ class GlobalRecorder {
             // again harmlessly, the beat cleared, the notify, stopLegs dropped),
             // so nothing waiting on this leg is left hanging.
             if (p.abandoned) return
-            // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (slice five
-            // packet C, D8 — design v2 item 2's own order: last segment PUT →
-            // whole-take PUT → finalize). AWAITED here, unlike every flush-time
-            // pump, because this is the moment the tail exists and the take is
-            // about to be sealed: the segments are what an assembler could
-            // rebuild this recording from if everything below fails, so they are
-            // worth the wait the UI is already past (`recorded` was published
-            // and notify() ran before this leg was even queued).
-            //
-            // It cannot fail the stop: pumpSegments NEVER THROWS by its own
-            // contract — one try/catch around its whole body, exactly as
-            // secureTake below carries one, which is why this leg awaits both
-            // bare. It records its own refusals on the take and touches nothing
-            // the whole-take path reads. Every step from here down failing still
-            // leaves the take on disk, plainly un-finalized, for the next drain.
-            await pumpSegments(getRecordingPipelinePort(), takeId)
             // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
             // The belt in front of the first-write-wins braces above: wait for
             // the start-mint to settle (it stamps the take before it resolves),
@@ -927,6 +911,34 @@ class GlobalRecorder {
                 clearTimeout(belt)
               }
             }
+            // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (slice five
+            // packet C, D8 — design v2 item 2's own order: last segment PUT →
+            // whole-take PUT → finalize). AWAITED here, unlike every flush-time
+            // pump, because this is the moment the tail exists and the take is
+            // about to be sealed: the segments are what an assembler could
+            // rebuild this recording from if everything below fails, so they are
+            // worth the wait the UI is already past (`recorded` was published
+            // and notify() ran before this leg was even queued).
+            //
+            // ⚖ AND IT WAITS FOR ITS OWN MINT FIRST (rebase round 1, R1). Below
+            // the belt above, not before it: the pump's FIRST act is to read
+            // `recordingSessionId` off the take, and it returns at once when the
+            // start-mint has not stamped one yet (segment-uploader.ts:195, whose
+            // own comment already says "the stop leg waits for the mint on its
+            // own account"). At the stop instant the session is usually already
+            // stamped, so on the ordinary take this changes nothing — but on a
+            // SLOW start-mint, which is the one case this order exists for, the
+            // pump placed ahead of the belt returned having sent nothing and the
+            // TAIL SEGMENT never went up at all. The wait is bounded at 10 s and
+            // the UI is long past it, so the cost is the same nothing it was.
+            //
+            // It cannot fail the stop: pumpSegments NEVER THROWS by its own
+            // contract — one try/catch around its whole body, exactly as
+            // secureTake below carries one, which is why this leg awaits both
+            // bare. It records its own refusals on the take and touches nothing
+            // the whole-take path reads. Every step from here down failing still
+            // leaves the take on disk, plainly un-finalized, for the next drain.
+            await pumpSegments(getRecordingPipelinePort(), takeId)
             await secureTake(
               getRecordingPipelinePort(),
               takeId,

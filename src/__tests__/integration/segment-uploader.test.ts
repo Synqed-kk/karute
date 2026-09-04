@@ -39,12 +39,13 @@ type UploadMeta = {
   finalizedAt?: number
   segmentError?: string
 }
-const readTakeUploadMeta = jest.fn(async (_id: string): Promise<UploadMeta | null> => null)
-const listTakeSegmentsAfter = jest.fn(
-  async (_id: string, _after: number, _limit: number): Promise<{ seq: number; blob: Blob }[]> => [],
-)
-const markSegmentsUploaded = jest.fn(async (_id: string, _seq: number) => {})
-const markSegmentError = jest.fn(async (_id: string, _code: string) => {})
+const readTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(async () => null)
+const listTakeSegmentsAfter = jest.fn<
+  Promise<{ seq: number; blob: Blob }[]>,
+  [string, number, number]
+>(async () => [])
+const markSegmentsUploaded = jest.fn<Promise<void>, [string, number]>(async () => {})
+const markSegmentError = jest.fn<Promise<void>, [string, string]>(async () => {})
 jest.mock('@/lib/karute/take-store', () => ({
   readTakeUploadMeta: (id: string) => readTakeUploadMeta(id),
   listTakeSegmentsAfter: (id: string, after: number, limit: number) =>
@@ -66,8 +67,10 @@ import {
   SEGMENT_BACKOFF_MIN_MS,
   SEGMENT_BATCH,
   SEGMENT_CONCURRENCY,
+  SEGMENT_PUT_FLOOR_MS,
   __resetSegmentPumpState,
 } from '@/lib/recording/segment-uploader'
+import { putDeadlineMs } from '@/lib/recording/storage-put'
 import { MAX_SEGMENT_BATCH } from '@/lib/app-api/record-schemas'
 
 const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
@@ -113,8 +116,8 @@ const port = { mintSegmentUrls } as unknown as RecordingPipelinePort
 let launched: number[] = []
 let inFlight = 0
 let highWater = 0
-const fetchMock = jest.fn(
-  async (_url: string, _init?: RequestInit) => ({ ok: true, status: 200 }) as unknown as Response,
+const fetchMock = jest.fn<Promise<Response>, [string, RequestInit?]>(
+  async () => ({ ok: true, status: 200 }) as unknown as Response,
 )
 
 /** A PUT that takes a real tick to answer, so overlap is observable at all: an
@@ -399,9 +402,10 @@ describe('the segment pump — the backoff window', () => {
     jest.useRealTimers()
   })
 
-  // Every PUT carries storage-put's shared size-derived deadline (a 60 s floor),
-  // so a socket that stalls releases instead of holding the pump for the page's
-  // life — and the seq is simply not landed, which is retryable.
+  // Every PUT carries a size-derived deadline — storage-put's shared RATE under
+  // this file's own floor (SEGMENT_PUT_FLOOR_MS) — so a socket that stalls
+  // releases instead of holding the pump for the page's life, and the seq is
+  // simply not landed, which is retryable.
   it('a PUT that never answers is aborted at its deadline, and stays retryable', async () => {
     fetchMock.mockImplementation(
       (_url: string, init?: RequestInit) =>
@@ -434,5 +438,52 @@ describe('the segment pump — the backoff window', () => {
     await jest.advanceTimersByTimeAsync(5 * SEGMENT_BACKOFF_MIN_MS)
     await pumpSegments(port, TAKE)
     expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚖ AND THE FLOOR IS THE SEGMENT'S OWN, NOT THE TAKE'S (rebase round 1, R2).
+  // `putDeadlineMs` floors at 60 s because it is written for a TAKE — "never
+  // under a minute", so the number that mercy-kills a stalled 2 MB upload
+  // cannot cut a 90-minute one off mid-flight. But the STOP LEG AWAITS this
+  // pump before it secures the whole take, so on a dead link three in-flight
+  // segment PUTs of a few tens of KB held the stop for that full minute before
+  // secureTake even started — and awaitTakeSecured's 120 s belt then fired on
+  // the in-tab reader waiting behind it. The RATE is unchanged and imported;
+  // only the floor is this file's.
+  it('a stalled segment PUT is cut at the SEGMENT floor, not the take’s minute', async () => {
+    fetchMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init!.signal!.addEventListener('abort', () => reject(new Error('aborted')))
+        }) as unknown as Promise<Response>,
+    )
+    let settled = false
+    const done = pumpSegments(port, TAKE).then(() => {
+      settled = true
+    })
+    for (let i = 0; i < 25; i++) await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(SEGMENT_CONCURRENCY)
+
+    // One millisecond short of the floor: still on the wire, and the stop leg
+    // behind it is still waiting.
+    await jest.advanceTimersByTimeAsync(SEGMENT_PUT_FLOOR_MS - 1)
+    expect(settled).toBe(false)
+
+    // …and the floor itself releases it — the abort, the pool and the pump's
+    // own tail all settle on microtasks from there.
+    await jest.advanceTimersByTimeAsync(1)
+    for (let i = 0; i < 25; i++) await Promise.resolve()
+    expect(settled).toBe(true)
+    await done
+
+    // The two floors, named rather than assumed: on these very bytes the TAKE's
+    // rule would still have four more times this long to run, which is exactly
+    // the minute the stop leg used to spend.
+    expect(putDeadlineMs(segBlob(0).size)).toBe(60_000)
+    expect(SEGMENT_PUT_FLOOR_MS).toBe(15_000)
+
+    // Retryable, never terminal: a stall is a moment in time, and the whole
+    // take still goes up under its own key regardless.
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    expect(markSegmentError).not.toHaveBeenCalled()
   })
 })
