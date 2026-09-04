@@ -149,11 +149,30 @@ const SRC = (f: string) => readFileSync(join(process.cwd(), HERE, f), 'utf8')
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  A decoy hidden as a TRAILING comment on a real code line survives the
- *  filter — and then it INFLATES the count, which is red the other way
- *  round. */
+ *  ⚖ BREAKER-828 F5 (MAJOR) — AND THE FIRST PASS READS EVERY LINE, NOT ONLY
+ *  the lines that are ENTIRELY a comment. A trailing comment that ends in `/*`
+ *  used to survive that pass into the block pass, which then ate everything
+ *  down to the next block close — real, compiled code, invisible to every ban
+ *  and count built on this helper (the breaker hid a second live
+ *  `computeChecks(` reader that way and 1912 tests stayed green). Each line is
+ *  cut at its first `//` OUTSIDE a string now; a `//` inside `'https://…'` is
+ *  code and stays, and the line count is preserved so slicing and counting see
+ *  the same thing. Unit-pinned in today-screen-interactions.test.ts (this is a
+ *  verbatim copy — these three suites do not import one another). */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const cutLineComment = (line: string) => {
+  let quote: string | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote != null) {
+      if (c === '\\') i++
+      else if (c === quote) quote = null
+    } else if (c === "'" || c === '"' || c === '`') quote = c
+    else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+  }
+  return line
+}
+const codeOnly = (src: string) => src.split('\n').map(cutLineComment).join('\n').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
 const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
 const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0

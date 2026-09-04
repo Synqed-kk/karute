@@ -113,6 +113,7 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
+  priceFactSets,
   proxyTimeLabel,
   restCueStarts,
   warnFaceFor,
@@ -1283,13 +1284,18 @@ export function TodayScreen(props: TodayProps) {
    *  `a.item.ticketCore != null`, and a price-less booking's ticket line is the
    *  non-null text 「価格未記録」: park it, page to another day and place it, and
    *  the 保持 row came back on the one booking T1 took it off. Every writer
-   *  below stamps the fact where the fact is known. */
-  const hasPriceFor = useMemo(() => {
-    const priced = new Set(props.pricedIds)
-    const fromServer = new Set(props.lanes.flatMap((l) => l.items).map((i) => i.caseId).filter((c): c is string => c != null))
-    const addedPriced = new Set(addedHere.filter((a) => a.priced).map((a) => a.item.caseId).filter((c): c is string => c != null))
-    return (id: string | null): boolean => hasPriceFact(id, priced, fromServer, addedPriced)
-  }, [props.pricedIds, props.lanes, addedHere])
+   *  below stamps the fact where the fact is known.
+   *
+   *  ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — AND THE SETS THEMSELVES LEFT THE
+   *  SCREEN. Building them here left the item's own rule guarded by a text pin,
+   *  and two tsc-clean edits inside this memo put the defect back (F3);
+   *  `priceFactSets` is where a truth table can be written about them. It also
+   *  reads the SHELF, which this memo never did: a chip carried to another day
+   *  is on no server lane and in no `added` row, so the same chip answered
+   *  「no price」 in the operator's hand and 「price」 after the drop (F1). These
+   *  two lines are the whole binder — the sets, then the question. */
+  const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])
+  const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
    *  One pass, ahead of the booking passes, so both the live board and the
    *  committed board see the same blocks: a 休憩 that has been dragged is where

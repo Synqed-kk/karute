@@ -91,6 +91,7 @@ import {
   proxyTimeLabel,
   withPriceFact,
   hasPriceFact,
+  priceFactSets,
   PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
@@ -188,11 +189,38 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  A decoy hidden as a TRAILING comment on a real code line survives the
- *  filter — and then it INFLATES the count, which is red the other way
- *  round. */
+ *  ⚖ BREAKER-828 F5 (MAJOR) — AND THE `//` PASS READS EVERY LINE, NOT ONLY THE
+ *  LINES IT OWNS. `codeOnly` used to strip only a line that is ENTIRELY a
+ *  comment, and then blank `/* … *\/` blocks. A TRAILING `// … /*` therefore
+ *  survived the first pass into the second, where it opened a block that ate
+ *  everything down to the next `*\/`: real code TypeScript compiles, invisible
+ *  to every ban and every count on this lane. The breaker hid a second live
+ *  `computeChecks(` reader that way — inside `checksFor`, between `) // shim /*`
+ *  and `/* *\/` — and 1912 tests plus `tsc --noEmit` stayed green, defeating the
+ *  pin this file itself calls 「the one decoy the two counts above walked past」.
+ *
+ *  So the first pass now cuts each line at its first `//` that is OUTSIDE a
+ *  string, walking `'`, `"` and backtick state with escapes honoured. A `//`
+ *  inside `'https://…'` is code and stays; a `/*` inside a whole-line comment is
+ *  cut away with the comment instead of opening a block. Line COUNT is
+ *  preserved (the cut keeps the leading indent), so `callSlice` still slices the
+ *  same thing it counts. The ceiling, said honestly: state resets per line, so a
+ *  `//` on the second line of a multi-line template literal is cut — that can
+ *  only REMOVE text from the scan, which makes a pin fail rather than pass. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+const cutLineComment = (line: string) => {
+  let quote: string | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote != null) {
+      if (c === '\\') i++
+      else if (c === quote) quote = null
+    } else if (c === "'" || c === '"' || c === '`') quote = c
+    else if (c === '/' && line[i + 1] === '/') return line.slice(0, i)
+  }
+  return line
+}
+const codeOnly = (src: string) => src.split('\n').map(cutLineComment).join('\n').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
 const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
 const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -1721,6 +1749,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "pairLanesOf,",
       "parkChipText,",
       "pinInViewport,",
+      "priceFactSets,",
       "proxyTimeLabel,",
       "restCueStarts,",
       "warnFaceFor,",
@@ -10005,6 +10034,50 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 F5 — THE ARMOUR'S OWN COMMENT STRIPPER, PINNED
+//
+// Every ban and every count in the T1, GAP-11 and T4 blocks below runs over
+// `codeOnly`, so a blind spot in it is a blind spot in all of them. The breaker
+// found one: a TRAILING `// … /*` was not a whole-line comment, so it survived
+// into the block pass and opened a block that swallowed real, compiled code.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', () => {
+  it('a trailing // that opens a block comment cannot swallow the code under it', () => {
+    // M13b's exact shape, in miniature: a live reader hidden between a trailing
+    // comment that opens a block and the `*/` that closes it.
+    const src = ['const checks = wrap(', ') // shim /*', 'const alt = readCanon(at)', 'if (alt) return alt', '/* */'].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain('const alt = readCanon(at)')
+    expect(code).toContain('if (alt) return alt')
+    // …and the comment itself is gone, so it cannot inflate a count either.
+    expect(code).not.toContain('shim')
+  })
+
+  it('a // inside a string literal is code, not a comment', () => {
+    const src = ["const u = 'https://example.test/a'", 'const v = "b//c"', 'const w = `d//e`']
+    for (const line of src) expect({ line, kept: codeOnly(line) }).toEqual({ line, kept: line })
+    // An escaped quote does not end the string, so the `//` after it is still
+    // inside one.
+    const esc = "const q = 'it\\'s //not a comment'"
+    expect(codeOnly(esc)).toBe(esc)
+  })
+
+  it('whole-line comments and /* */ blocks are still blanked, and a /* inside a // is not a block', () => {
+    // A `/*` written inside a line comment used to open a block; the line is cut
+    // at the `//` now, so there is nothing left to open one (⚖ D5).
+    const src = ['const a = 1', '  // a comment with /* in it', 'const b = 2'].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain('const a = 1')
+    expect(code).toContain('const b = 2')
+    // …while a real block still goes.
+    expect(codeOnly('const a = 1 /* gone */ + 2')).toBe('const a = 1  + 2')
+    // The line COUNT is preserved, which is what `callSlice` slices on.
+    expect(codeOnly(src).split('\n')).toHaveLength(3)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM, SO IT NEEDS A PRICE TO BE ABOUT
 //
 // canon `computeChecks` (drag-rules.ts:227) pushes the row unconditionally and
@@ -10017,6 +10090,26 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
   const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
   const CANON = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'), 'utf8')
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
+  const SETS_LINE =
+    'const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])'
+  const BIND_LINE =
+    'const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])'
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F4) — EVERY LINE ON THIS SCREEN THAT ANSWERS
+   *  「has this placement a price?」, with how many times it stands. The count
+   *  pin below sees a missing site and a doubled one; only the lines see a
+   *  suffix (`|| Boolean(1)`) or a parameter shadow. */
+  const ASK_LINES: readonly (readonly [string, number])[] = [
+    ['hasPrice: hasPriceFor(live.id),', 1],
+    ['hasPrice: hasPriceFor(chip.id),', 2],
+    ['hasPrice: hasPriceFor(pending.id),', 2],
+    ['hasPrice: hasPriceFor(ctx.id),', 3],
+    ['hasPrice: hasPriceFor(id),', 1],
+    ["{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },", 1],
+    ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
+  ]
 
   const rows = (): Check[] => [
     { ok: true, label: '時間帯の重複なし' },
@@ -10124,6 +10217,46 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
   })
 
+  // ⚖ FIX ROUND 3 (BREAKER-828 F4) — AND EACH ASK SITE BY ITS OWN LINE.
+  //
+  // The count above is blind to anything that keeps the count: the breaker
+  // suffixed one site with `|| Boolean(1)` (M09) and wrapped another in an IIFE
+  // whose PARAMETER is called `hasPriceFor` (M10) — 1912 tests and `tsc`
+  // green both times, and the 「declared exactly ONCE」 regex above reads
+  // declarations only, so a parameter binding walked straight past it. The
+  // contrast is the argument: the two raw-canon call sites ARE line-bounded and
+  // the same attack dies there (M16, RED). These eleven lines are that same
+  // boundary for the ask sites.
+  it('every hasPrice line in the screen is EXACTLY one of these, and nothing dresses it up', () => {
+    const code = codeOnly(SRC)
+    // Read as a whole multiset off the file, so a CHANGED site, an added one and
+    // a removed one are all one red that prints the block.
+    const asks = code.split('\n').filter((l) => l.includes('hasPrice:')).map((l) => l.trim()).sort()
+    const want = ASK_LINES.flatMap(([line, times]) => Array.from({ length: times }, () => line)).sort()
+    expect(asks).toEqual(want)
+    // …and each distinct line anchored and counted where it stands, which is the
+    // shape the rest of this file's armour uses.
+    for (const [line, times] of ASK_LINES) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: times })
+    }
+    // The dodges that do NOT move a count: an operator suffixed onto the real
+    // answer, the name arriving as a call argument or a parameter rather than a
+    // declaration, and a hardcoded answer spelled as a Boolean call.
+    for (const [why, re] of [
+      ['an operator suffixed onto the real answer', /hasPriceFor\([^)]*\)\s*(\|\||\?\?|&&)/],
+      ['hasPriceFor arriving inside a parameter list', /\(\s*hasPriceFor\b/],
+      ['hasPriceFor bound as an argument or a parameter', /[,(]\s*hasPriceFor\s*[,)=:]/],
+      ['hasPriceFor as an arrow parameter', /\bhasPriceFor\s*=>/],
+      ['a hardcoded yes in Boolean form', /Boolean\(1\)/],
+      ['a hardcoded no in Boolean form', /Boolean\(0\)/],
+    ] as const) {
+      expect({ why, found: re.test(code) }).toEqual({ why, found: false })
+    }
+    // …and the declared-once law now counts PARAMETER bindings too, which is
+    // the hole M10 walked through.
+    expect((code.match(/[(,]\s*hasPriceFor\s*[,)]/g) ?? []).length).toBe(0)
+  })
+
   // (f) — ⚖ FIX ROUND 1 (blind round 1, L2 F10) — AND THE ANSWER ITSELF, NOT
   // ONLY ITS WIRING. The screen's closure kept T1's whole rule and had no unit
   // pin at all: dropping the server guard inside it left 444 tests green while
@@ -10173,18 +10306,95 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     expect(hasPriceFact('apt-26', new Set(), new Set(), new Set(['apt-26']))).toBe(true)
   })
 
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F3 + F1) — THE SETS THE RULE IS ASKED WITH,
+   *  now that building them is a pure function rather than four lines inside a
+   *  component the suite cannot execute. */
+  it('priceFactSets sorts every source into the right set, and only the stamped ones into the session set', () => {
+    const item = (caseId: string | null) => ({ caseId })
+    const sets = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [
+        lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] }),
+        // A lane row that is NOT a booking (a 休憩 block carries no caseId) is
+        // not a booking the server priced, and it is not a booking at all.
+        lane({ key: 'p-02', group: 'staff', items: [booking({ key: 'c', caseId: null }, 720, 780)] }),
+      ],
+      added: [
+        { priced: true, item: item('nextvisit-1') },
+        { priced: false, item: item('nextvisit-2') },
+        // A card the create dialog minted has no booking id yet.
+        { priced: true, item: item(null) },
+      ],
+      parked: [
+        { id: 'apt-26', priced: true },
+        { id: 'apt-09', priced: false },
+      ],
+    })
+    expect([...sets.priced].sort()).toEqual(['apt-26'])
+    // Every booking the server's lanes know, priced or not — the row with no
+    // caseId is not one of them.
+    expect([...sets.fromServer].sort()).toEqual(['apt-09', 'apt-26'])
+    // The session set is the UNION of the two session writers, and it holds
+    // ONLY what a mint stamped: the unpriced added row, the null-id row and the
+    // unpriced chip are all absent.
+    expect([...sets.sessionPriced].sort()).toEqual(['apt-26', 'nextvisit-1'])
+    // Nothing invented out of nothing.
+    const empty = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [] })
+    expect([empty.priced.size, empty.fromServer.size, empty.sessionPriced.size]).toEqual([0, 0, 0])
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1) — ONE GESTURE, ONE ANSWER.
+   *
+   *  Fix round 2 stamped `ParkChip.priced` so the fact would survive a day
+   *  change, and only `placeFromShelf` read it. The two questions asked about
+   *  the chip WHILE IT IS IN THE HAND — `inHand` (the mid-drag word and the
+   *  60分配置 strip's × marks) and `chipAsk` (the release) — went on asking
+   *  `hasPriceFor(chip.id)`, which never looked at the shelf. Measured by the
+   *  breaker on day+1: apt-26 (¥6,600) answered FALSE in hand and TRUE after the
+   *  drop, so the red 置けない box's check list was missing 予約時価格を保持 and
+   *  the placed card's rows carried it again. One gesture, two answers to one
+   *  question — the disease this PR exists to remove, in the mirror direction.
+   *
+   *  The scene, as the pure pair: another day's board (both server sets empty),
+   *  the same chip asked in the hand and then as the row the drop writes. */
+  it('a chip answers the same in the hand and after the drop, on a day that knows nothing', () => {
+    for (const chip of [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }]) {
+      const held = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [chip] })
+      // `placeFromShelf` writes the row with `priced: chip.priced` — the stamp
+      // carried, never re-derived on the landing day.
+      const dropped = priceFactSets({ pricedIds: [], serverLanes: [], added: [{ priced: chip.priced, item: { caseId: chip.id } }], parked: [] })
+      expect({
+        id: chip.id,
+        inHand: hasPriceFact(chip.id, held.priced, held.fromServer, held.sessionPriced),
+        afterDrop: hasPriceFact(chip.id, dropped.priced, dropped.fromServer, dropped.sessionPriced),
+      }).toEqual({ id: chip.id, inHand: chip.priced, afterDrop: chip.priced })
+    }
+    // …and on the chip's OWN day the stamp is redundant rather than a second
+    // author: the server's record answers first, and it is the same answer.
+    const sameDay = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] })],
+      added: [],
+      parked: [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }],
+    })
+    expect(hasPriceFact('apt-26', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(true)
+    expect(hasPriceFact('apt-09', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(false)
+  })
+
   it('the screen has exactly ONE hasPriceFor, and it only binds that function', () => {
     const code = codeOnly(SRC)
     // The memo hands the three sets to the pure rule and returns its answer —
     // not a constant, and not a second copy of the rule.
-    expect(pinnedLines(SRC, 'return (id: string | null): boolean => hasPriceFact(id, priced, fromServer, addedPriced)')).toBe(1)
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
     expect((code.match(/hasPriceFact\(/g) ?? []).length).toBe(1)
     // …and the name is DECLARED once. A `const hasPriceFor = () => true`
     // dropped above any ONE of the 11 ask sites answered for that site alone
     // and every wiring pin above still passed (blind round 1, L2 F2), because
     // they only ever read the text `hasPrice: hasPriceFor(`.
     expect((code.match(/\b(?:const|let|var|function)\s+hasPriceFor\b/g) ?? []).length).toBe(1)
-    expect(pinnedLines(SRC, 'const hasPriceFor = useMemo(() => {')).toBe(1)
+    // ⚖ FIX ROUND 3 — the declaration and the binder are now ONE line, so the
+    // line pinned above is also the declaration this count is about.
+    expect((code.match(/\bconst hasPriceFor\b/g) ?? []).length).toBe(1)
     // …and it cannot arrive as an import either: no module exports that name,
     // so there is no shim to swap the one declaration for.
     expect(pinnedLines(SRC, 'hasPriceFor,')).toBe(0)
@@ -10209,13 +10419,25 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
    *  writers against the count of stamps, plus each writer's own line. */
   it('the price fact is STAMPED at every session write, and the memo only reads it', () => {
     const code = codeOnly(SRC)
-    // (1) THE MEMO READS THE STAMP — and the inference is GONE from it, not
-    // merely unused: a slice that still mentions `ticketCore` is a slice that
-    // can grow the branch back.
-    const memo = callSlice(SRC, 'const hasPriceFor = useMemo(() => {', '}, [props.pricedIds, props.lanes, addedHere])')
-    expect({ ok: memo.ok, opens: memo.opens, closes: memo.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
-    expect(pinnedLine(memo.text, 'const addedPriced = new Set(addedHere.filter((a) => a.priced).map((a) => a.item.caseId).filter((c): c is string => c != null))')).toBe(true)
-    expect(memo.text).not.toContain('ticketCore')
+    // (1) THE MEMO READS SETS IT DOES NOT BUILD — ⚖ FIX ROUND 3 (BREAKER-828
+    // F3). The set construction used to live inside this memo, where an
+    // anchored line and a `ticketCore` ban were the whole armour, and two
+    // tsc-clean edits INSIDE it re-opened T1's own defect: a wrapper-body
+    // `addedPriced.add(...)` that stamped every session row (M07), and a
+    // `priced` rebuilt off `props.lanes` so every server card counted as priced
+    // (M08). Both are dead now because the building is a pure function with a
+    // truth table — and these two lines are all that is left on the screen.
+    expect(pinnedLines(SRC, SETS_LINE)).toBe(1)
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
+    expect((code.match(/priceFactSets\(/g) ?? []).length).toBe(1)
+    // …and NOTHING stands between them. A wrapper body needs a body; this is
+    // the only place on the screen a set could be built for this question, and
+    // the four ways of building one are banned inside it.
+    const binder = callSlice(SRC, SETS_LINE, BIND_LINE)
+    expect({ ok: binder.ok, opens: binder.opens, closes: binder.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    for (const built of ['new Set(', '.add(', 'ticketCore', 'filter(']) {
+      expect({ built, at: binder.text.indexOf(built) }).toEqual({ built, at: -1 })
+    }
 
     // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
     // `AddedRow` has ONE construction shape on this screen, so the writers can

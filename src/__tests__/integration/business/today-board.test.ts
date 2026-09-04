@@ -70,7 +70,7 @@ import {
   type BuildInput,
 } from '@/business/lib/today-board'
 import * as data from '@/business/lib/data'
-import TodayPage from '@/app/[locale]/(business)/business/today/page'
+import TodayPage, { bookingProofs } from '@/app/[locale]/(business)/business/today/page'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import { customers } from '@/business/lib/fixtures'
 
@@ -1090,6 +1090,61 @@ describe('⚖ R8 T1 — the 価格保持 根拠 follows the booking’s own pric
       const fact = c.facts.find(([k]) => k === '予約時価格' || k === '請求額')!
       expect({ id: a.id, silent: fact[1] === '記録なし' }).toEqual({ id: a.id, silent: !c.proofs.includes(PROOF) })
     }
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F2) — BOTH ARMS OF THE CONDITION, WALKED.
+   *
+   *  The rule used to be spelled once per arm of `b.resourceId ? … : …`, and the
+   *  board's only price-less booking (apt-09) has NO resource — so the
+   *  with-resource arm was never walked with a price-less booking, and making it
+   *  append the 保持 line unconditionally shipped green through all 1912 tests
+   *  (M06). A booking with a bed and no recorded price would have claimed its
+   *  price was held: the exact defect T1 exists to remove. One author now, and
+   *  this is its whole table. */
+  it('bookingProofs writes the same price rule down both arms — four combinations, exact lists', () => {
+    expect(bookingProofs('ベッド1を確保', true)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保', PROOF])
+    expect(bookingProofs('ベッド1を確保', false)).toEqual(['担当の勤務時間内', '休憩と重ならない', 'ベッド1を確保'])
+    expect(bookingProofs(null, true)).toEqual(['担当の勤務時間内', '設備の割当てが未確定', PROOF])
+    expect(bookingProofs(null, false)).toEqual(['担当の勤務時間内', '設備の割当てが未確定'])
+    // The bed's own sentence is used exactly as handed over — the helper writes
+    // the rule, `bedSecuredProof` writes the room.
+    expect(bookingProofs(bedSecuredProof(resources, 'bed-01'), false)).toContain(bedSecuredProof(resources, 'bed-01'))
+    // …and the price line is the ONLY thing the second argument moves.
+    for (const proof of ['ベッド1を確保', null]) {
+      expect(bookingProofs(proof, false)).toEqual(bookingProofs(proof, true).filter((p) => p !== PROOF))
+    }
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F6) — AND THE 判断 CARDS FOLLOW THE SAME RULE.
+   *
+   *  A 判断 card's 根拠 is the fixture's own `d.proofs`, spread verbatim and
+   *  never met with `b.price`; the T1 walk above iterates BOOKINGS, so the
+   *  `dec-*` keys were never visited and nothing would catch one changing. It is
+   *  benign today — the one decision carrying the row (`dec-recovery`) points at
+   *  apt-26, which is priced — and this is what keeps it that way. */
+  it('a 判断 card never claims 価格保持 over a booking that has no price', async () => {
+    const p = await board(STORE_A)
+    let walked = 0
+    let claimed = 0
+    for (const d of decisions) {
+      const a = d.appointment_id ? today().find((x) => x.id === d.appointment_id) : undefined
+      const c = a ? p.cases[d.id] : undefined
+      if (!a || !c) continue
+      walked += 1
+      // ONE-DIRECTIONAL, and deliberately so: a 判断 card's 根拠 is the
+      // fixture's own list about the DECISION, so a priced booking's card is
+      // free to say nothing about the price (`dec-checkout` does exactly that).
+      // What it may never do is CLAIM the row over a booking that has no price —
+      // that is the sentence T1 removes, printed three lines under its own
+      // 予約時価格 記録なし.
+      if (!c.proofs.includes(PROOF)) continue
+      claimed += 1
+      expect({ id: d.id, over: a.id, priced: a.booked_price != null }).toEqual({ id: d.id, over: a.id, priced: true })
+    }
+    expect(walked).toBeGreaterThan(0)
+    // …and the walk reaches a card that DOES carry the row, so it is measuring
+    // something: `dec-recovery` over apt-26 (¥6,600).
+    expect(claimed).toBeGreaterThan(0)
   })
 
   it('the two named cases, by name: apt-09 drops the row, apt-26 keeps it', async () => {

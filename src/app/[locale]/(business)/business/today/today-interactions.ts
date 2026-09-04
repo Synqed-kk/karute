@@ -3201,6 +3201,47 @@ export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
   return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
 }
 
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F1 + F3) — THE THREE SETS THE PRICE QUESTION
+ *  IS ANSWERED FROM, built by ONE author and beside the rule that reads them.
+ *
+ *  F3 — WHY IT LEFT THE SCREEN. The memo built these inline, where an anchored
+ *  text pin was the only armour there is, and two tsc-clean edits inside it
+ *  re-opened this item's own defect: a wrapper-body `addedPriced.add(...)` that
+ *  stamped every session row whatever its mint said, and a `priced` rebuilt off
+ *  the server's LANES so every card on the board counted as priced while the
+ *  page's 根拠 list still said no. Set-building is logic; logic lives where a
+ *  truth table can be written about it.
+ *
+ *  F1 — AND THE SHELF IS A SESSION SOURCE, exactly like `added`. A chip carried
+ *  to another day (⚖ Liam 22 — `placeFromShelf` supports that on purpose) is on
+ *  none of THAT day's server lanes and in no `added` row until it lands. The two
+ *  questions asked about the same chip — the mid-drag word (`inHand`) and the
+ *  release (`chipAsk`) — therefore answered 「no price」 for a priced booking in
+ *  hand and 「price」 one gesture later, after the drop stamped the row from
+ *  `chip.priced`: one gesture, two answers to one question, which is the disease
+ *  this item exists to remove. The shelf's own park-time stamp joins the session
+ *  set, so the answer is the same in hand and after the drop.
+ *
+ *  `sessionPriced` is the UNION of the two session writers — rows this session
+ *  added ∪ chips on the shelf — and both halves are STAMPS, never a reading of
+ *  the card's ticket line. `fromServer` is every booking the server's lanes know,
+ *  priced or not: it is what tells a server card apart from a session one, and
+ *  the reason a price-less server booking cannot be answered for by the session.
+ *  Pure — no React, no props, nothing to memoise here. */
+export function priceFactSets(input: {
+  pricedIds: readonly string[]
+  serverLanes: readonly BoardLane[]
+  added: readonly { priced: boolean; item: { caseId: string | null } }[]
+  parked: readonly { id: string; priced: boolean }[]
+}): { priced: ReadonlySet<string>; fromServer: ReadonlySet<string>; sessionPriced: ReadonlySet<string> } {
+  const fromServer = new Set<string>()
+  for (const lane of input.serverLanes) for (const item of lane.items) if (item.caseId != null) fromServer.add(item.caseId)
+  const sessionPriced = new Set<string>()
+  for (const row of input.added) if (row.priced && row.item.caseId != null) sessionPriced.add(row.item.caseId)
+  for (const chip of input.parked) if (chip.priced) sessionPriced.add(chip.id)
+  return { priced: new Set(input.pricedIds), fromServer, sessionPriced }
+}
+
 /** ⚖ R8 T1, FIX ROUND 1 (blind round 1, L2 F10) — 「DOES THIS PLACEMENT HAVE A
  *  PRICE THE 保持 ROW CAN BE ABOUT?」, asked once for the whole screen.
  *
@@ -3219,7 +3260,9 @@ export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
  *    from the STAMP its mint wrote on the row (`AddedRow.priced` — the lane's
  *    定価 for a 次回予約, `null` on a lane with no 定価 (⚖ R6 D2); the chip's own
  *    park-time stamp for a shelf placement; the dialog's コース for a creation).
- *    `addedPricedIds` is exactly the ids of the rows stamped priced.
+ *  · a booking this session is HOLDING — a chip on the shelf — answers from that
+ *    same park-time stamp, before it has landed anywhere. `sessionPricedIds` is
+ *    the union of those two, and nothing else.
  *
  *  The two are told apart by whether the SERVER's lanes know the id
  *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
@@ -3230,20 +3273,28 @@ export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
  *  logic, and it is why the guard is a pinned row and not a comment.
  *
  *  ⚖ FIX ROUND 2 (Greptile on #828) — AND THE SESSION'S SIDE IS A STAMP NOW,
- *  never a reading of the card. `addedPricedIds` used to be built from
+ *  never a reading of the card. The session set used to be built from
  *  `item.ticketCore != null`, which is DISPLAY TEXT: on ANOTHER DAY, where
  *  `priced` and `fromServer` are both empty, a price-less booking placed from
  *  the shelf still carried the non-null line 「価格未記録」 and the 保持 row came
  *  back on exactly the booking T1 removed it from. Every writer now stamps
  *  `AddedRow.priced` / `ParkChip.priced` at the moment the price is known, and
- *  this function only reads. */
+ *  this function only reads.
+ *
+ *  ⚖ FIX ROUND 3 (BREAKER-828 F1) — AND THE FOURTH ARGUMENT IS THE WHOLE
+ *  SESSION, which is why it is named for the session and not for `added`. It is
+ *  the UNION of the rows this session put on the board and the CHIPS on the
+ *  shelf (`priceFactSets` above builds it): a chip is a session-held booking
+ *  that has not landed yet, and while it is in the operator's hand on another
+ *  day nothing else on that board knows its price. Reading only `added` is what
+ *  made one gesture answer twice — false in hand, true after the drop. */
 export function hasPriceFact(
   id: string | null,
   priced: ReadonlySet<string>,
   fromServer: ReadonlySet<string>,
-  addedPricedIds: ReadonlySet<string>,
+  sessionPricedIds: ReadonlySet<string>,
 ): boolean {
-  return id != null && (priced.has(id) || (!fromServer.has(id) && addedPricedIds.has(id)))
+  return id != null && (priced.has(id) || (!fromServer.has(id) && sessionPricedIds.has(id)))
 }
 
 /** One landing, as a question. Every field is something the caller already has;
