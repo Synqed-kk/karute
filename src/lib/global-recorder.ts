@@ -302,8 +302,11 @@ class GlobalRecorder {
    *  as far as every drain is concerned. One queue, one order, both places.
    *  Never rejects (the store swallows its own errors); the catch is the belt,
    *  since a rejected queue would make the NEXT flush disable persistence. */
-  private queueTakeWrite(write: () => Promise<void>): Promise<void> {
-    const done = this.persistQueue.then(write).catch(() => {})
+  private queueTakeWrite(write: () => Promise<unknown>): Promise<void> {
+    const done = this.persistQueue.then(write).then(
+      () => {},
+      () => {},
+    )
     this.persistQueue = done
     return done
   }
@@ -345,7 +348,7 @@ class GlobalRecorder {
    *  discarded. onstop must be able to tell those apart: a skipped tail means
    *  the take on disk may be SHORT, and sealing a short take under its
    *  immutable finalized key truncates it forever. */
-  private flushTake(): Promise<boolean> {
+  private flushTake(stampDurationMs?: number): Promise<boolean> {
     if (this.persistDisabled || !this.takeId) return Promise.resolve(false)
     const takeId = this.takeId
     const flushed = this.persistQueue
@@ -363,11 +366,18 @@ class GlobalRecorder {
         if (pending.length === 0) return true
         const seq = this.persistSeq
         const count = this.persistedChunkCount + pending.length
-        const ok = await appendTakeSegment(takeId, seq, new Blob(pending))
-        // The bytes landed, but this recorder is on to something else — so the
-        // caller waiting on the stop does NOT get to seal the take. It stays
-        // unstamped, which is what the launch drain reads.
-        if (this.takeId !== takeId) return false
+        // ⚖ THE STAMP RIDES THIS WRITE (fix round 18, AG3). The stop's own
+        // duration goes into the SAME transaction as the tail bytes, so the
+        // fact that the take is complete cannot lose on its own — see AG1.
+        const ok = await appendTakeSegment(takeId, seq, new Blob(pending), stampDurationMs)
+        // The recorder is on to something else — but the bytes AND the stamp
+        // are on the OLD take's row, so this answers what the write did (fix
+        // round 18): `false` here used to send the stop leg down its
+        // skipped-tail branch and mark a whole, stamped take `tailIncomplete`,
+        // a row that contradicts itself and reads 途中 to a human. The counter
+        // updates below still belong to the new take, which is why this stays
+        // exactly where it is.
+        if (this.takeId !== takeId) return ok
         if (!ok) {
           // ponytail: fail-open to memory-only — capture continues as today.
           this.persistDisabled = true
@@ -535,11 +545,34 @@ class GlobalRecorder {
       // Re-read after the store round trip: a discard (or a new start) while it
       // ran means this id belongs to a recording that is no longer here.
       if (gen !== this.recordingSessionGen) return null
+      // ⚖ …AND A MINT FOR SOMEONE ELSE'S TAKE STOPS AT ITS OWN ROW (fix round
+      // 18, AH1). The take's row stamp above IS the record — first write wins —
+      // and every caller of the review path uses this return value. Writing the
+      // field as well is what handed the NEXT reader another take's session:
+      // the recovery save through retryRecordingSessionMint, and the recorder's
+      // own stopped take at its karute save, which reads this field through
+      // awaitRecordingSessionId. An IDLE recorder (`takeId === null`) is
+      // included — a foreign mint there has no owner to speak for.
+      //
+      // `stampTakeId === null` is NOT a foreign mint: it is start()'s own mint
+      // resolving inside the window before start() has named its take
+      // (mintStampTakeId's `TakeUnknown`), and that id belongs to this
+      // recorder. Excluding it would leave the field null with the row never
+      // stamped either, and the next retry would mint a SECOND row for the
+      // recording — so it keeps today's write.
+      if (stampTakeId !== null && stampTakeId !== this.takeId) return id
       this.recordingSessionId = id
       this.notify()
       return this.recordingSessionId
     })
-    this.recordingSessionPromise = promise
+    // The same rule for the held promise (fix round 18, AH1): awaitRecording-
+    // SessionId falls back to it whenever the field is null, so a foreign mint
+    // parked here would be read by the recorder's own save just as surely.
+    // `stampTakeId` is read at RESOLUTION time by the write guard above; here
+    // only the explicit argument can be known, and it is exactly what the
+    // review path passes.
+    if (input.stampTakeId == null || input.stampTakeId === this.takeId)
+      this.recordingSessionPromise = promise
     return promise
   }
 
@@ -660,9 +693,30 @@ class GlobalRecorder {
         // committed prefix under the immutable key. Queued AHEAD of the tail
         // flush (one queue, one order), so the fact is on disk before anything
         // can release either defence, and it is cleared by the duration stamp.
-        void this.queueTakeWrite(() => markTakeStopPending(takeId))
+        // ⚖ …AND THE FIRST ACT ASKS WHETHER THE DISK IS ALREADY WHOLE (fix
+        // round 18, AG2). Evaluated INSIDE the queue, i.e. after every earlier
+        // flush has settled, which is the only moment `persistedChunkCount` is
+        // exact and `chunks` is final (onstop is the last data event; only
+        // start() and a discard reset either, and both change what this reads).
+        // Nothing left to write ⇒ this write IS the stamp, so there is no
+        // separate stamp write left to lose. A tail still owed ⇒ the stop is a
+        // fact first and the stamp rides the tail (AG3).
+        //
+        // ponytail: if this FIRST act loses, IndexedDB is refusing writes at
+        // the stop instant and the flush queued behind it will most likely lose
+        // too → persistDisabled, memory-only capture exactly as before PR3, and
+        // the row carries no fact — the next drain reads it as rounds 13/14 do.
+        // That is loss window 8, accepted; it is not the round-17 shape this
+        // round removes (a stamp lost AFTER a stop-pending write that landed).
+        void this.queueTakeWrite(() =>
+          this.takeId === takeId &&
+          !this.persistDisabled &&
+          this.chunks.length === this.persistedChunkCount
+            ? stampTakeDuration(takeId, durationMs)
+            : markTakeStopPending(takeId),
+        )
       }
-      const flushed = this.flushTake()
+      const flushed = this.flushTake(durationMs)
       this.notify()
       // ⚖ THE AUDIO BECOMES SAFE HERE, not at 録音を使用 (design R4, v2 items
       // 1-2). Deliberately last and deliberately un-awaited: `recorded` is
@@ -698,12 +752,14 @@ class GlobalRecorder {
               await this.queueTakeWrite(() => markTakeTailIncomplete(takeId))
               return
             }
-            // The measurement is stamped BEFORE the upload, and it is the only
-            // paused-aware one anyone will ever have for this take: if this stop
-            // cannot reach the server, the mount retry (and PR5's drain) reads
-            // it back instead of guessing from the flush window. After the flush
-            // so it cannot race the tail segment's own write to the same row.
-            await stampTakeDuration(takeId, durationMs)
+            // The measurement is already on the row — and it got there on the
+            // write that made the take whole (fix round 18): `flushedWholeTake`
+            // now means "whole on disk, AND stamped by that same write". Pending
+            // empty ⇒ the queued first act was the stamp; pending written ⇒ the
+            // tail segment carried it. There is no separate stamp write here
+            // any more, which is the whole of the round: it could lose on its
+            // own, and a row with `stopPendingAt` and no `durationMs` is one
+            // isStoppedTake refuses on BOTH arms for ever.
             // THE HOLD ENDS HERE (AA1): the tail is on disk and the row is
             // stamped, so there is no short blob left for anyone to seal — and
             // it must end BEFORE the call below, because secureTake asks
@@ -859,8 +915,21 @@ class GlobalRecorder {
     takeId?: string | null
     timeoutMs?: number
   }): Promise<string | null> {
-    if (this.recordingSessionId !== null) return this.recordingSessionId
+    // ⚖ THE SINGLETON ANSWERS FOR ITS OWN TAKE ONLY (fix round 18, AH1). This
+    // short-circuit used to run BEFORE `opts.takeId` was read, so the first
+    // caller to pass a FOREIGN take id — the recovery / 録音履歴 保存する path
+    // — was handed whatever session the singleton happened to be holding.
+    // Recover take A (its mint lands on the field, and nothing clears it until
+    // the next start()), then recover take B: B's save would carry A's session,
+    // the server-job path would find that row already done, and B's local audio
+    // would be deleted against A's record. It also defeated the very read this
+    // method exists for — a take the drain had already stamped was never looked
+    // at. Own-take behaviour is unchanged, the null-take case included: with no
+    // `opts.takeId` and no live take, `takeId` and `this.takeId` are both null,
+    // so `own` is true and the field still answers exactly as before.
     const takeId = opts?.takeId ?? this.takeId
+    const own = takeId === this.takeId
+    if (own && this.recordingSessionId !== null) return this.recordingSessionId
     if (!takeId) return null
     // Capture pipeline PR3: secureTake MINTS the row through the session door
     // when the start-mint failed, and stamps its id on the take before it sends
@@ -889,7 +958,13 @@ class GlobalRecorder {
       }
       return stamped
     }
+    // …and the in-flight SHARE reads the parked promise, which since AH1 is
+    // only ever the recorder's own — so it is asked for only then. A second tap
+    // on a foreign take therefore issues its own mint (the file's documented
+    // one-orphan-per-tap cost) instead of being handed a promise belonging to
+    // another take, which is the very swap this item exists to stop.
     const inFlightForThisTake =
+      own &&
       this.recordingSessionMintInFlight &&
       !this.recordingSessionMintTakeUnknown &&
       (this.recordingSessionMintTakeId ?? this.takeId) === takeId

@@ -60,13 +60,30 @@ const releaseHungWrites = () => {
 }
 /** Fail the next N writes that carry a STOP STAMP — the one write fix round 13
  *  is about. Narrower than `failWrites` on purpose: a transient IndexedDB
- *  failure hits one transaction, not the store forever, and scoping it to the
- *  stamp keeps the tail flush's own segment + meta writes out of the count. */
+ *  failure hits one transaction, not the store forever.
+ *
+ *  ⚖ SINCE FIX ROUND 18 that write can be the TAIL FLUSH'S OWN meta put: the
+ *  stamp rides the transaction that lands the tail bytes. Failing it is
+ *  therefore how the fold's atomicity is proven — the segment must roll back
+ *  with it — as well as how a lost stamp is still modelled where there is no
+ *  tail to ride (`emptyTailChunk`). */
 let failNextDurationStamps = 0
 /** …and the next N writes that carry round 16's TAIL MARK — the write that says
  *  a stop lost its tail. Same narrow shape as the stamp above, and the case it
  *  models is the same one: a transaction refusing, not the store dying. */
 let failNextTailMarks = 0
+/** A real MediaRecorder whose last timeslice ended AT the stop emits a
+ *  zero-size final chunk, and `ondataavailable` drops it — so the stop leg
+ *  finds nothing pending and the disk is already whole. That is the shape fix
+ *  round 18's first act stamps in, and the only shape in which a stop stamp can
+ *  still lose a write of its own. */
+let emptyTailChunk = false
+/** Every TAKES put that INTRODUCED a `durationMs` (the row had none before),
+ *  by the `lastSeq` it carried. The round-18 claim in one array: exactly one
+ *  write ever carries the stamp, and when a tail is owed it is the write that
+ *  carried the tail. Later puts spread the stamp forward, which is why this
+ *  counts the introduction and not the presence. */
+const stampWrites: number[] = []
 
 class FakeObjectStore {
   data = new Map<string, Row>()
@@ -117,13 +134,33 @@ class FakeIDB {
   }
   // Args ignored — the shim scopes stores per call, not per transaction.
   transaction() {
+    // ⚖ AND IT IS ALL OR NOTHING (fix round 18). Real IndexedDB ABORTS the whole
+    // transaction when one request errors and rolls back every write it already
+    // made. The shim used to leave the earlier ones standing, so "the tail bytes
+    // and the stamp land together or not at all" — the whole of AG1 — could not
+    // be proven here at all: the segment would land beside a refused stamp and
+    // the test would be pinning the shim's own leniency.
+    // ponytail: only `put` is undone. Nothing in this file deletes or clears
+    // inside a multi-write transaction, and a rollback nobody needs is code
+    // nobody reads.
+    const undo: Array<() => void> = []
+    const abortOnError =
+      <T,>(exec: () => T) =>
+      () => {
+        try {
+          return exec()
+        } catch (e) {
+          undo.splice(0).reverse().forEach((back) => back())
+          throw e
+        }
+      }
     return {
       objectStore: (n: string) => {
         const s = this.stores.get(n)!
         return {
           put: (row: Row) =>
             new FakeRequest(
-              () => {
+              abortOnError(() => {
                 if (failWrites) throw new Error('idb write failure (test)')
                 if (
                   n === TAKES_STORE &&
@@ -141,8 +178,20 @@ class FakeIDB {
                   failNextTailMarks--
                   throw new Error('idb tail-mark write failure (test)')
                 }
-                s.data.set(s.keyOf(row), row)
-              },
+                const key = s.keyOf(row)
+                const had = s.data.get(key)
+                if (
+                  n === TAKES_STORE &&
+                  (row as { durationMs?: number }).durationMs !== undefined &&
+                  (had as { durationMs?: number } | undefined)?.durationMs === undefined
+                )
+                  stampWrites.push((row as { lastSeq: number }).lastSeq)
+                undo.push(() => {
+                  if (had === undefined) s.data.delete(key)
+                  else s.data.set(key, had)
+                })
+                s.data.set(key, row)
+              }),
               slowSegmentWrites && n === SEGMENTS_STORE,
               hangSegmentWrites && n === SEGMENTS_STORE,
             ),
@@ -202,7 +251,7 @@ class FakeMediaRecorder {
     // Real MediaRecorder emits the final dataavailable BEFORE the stop event —
     // the tail chunk exercises the onstop final flush.
     if (this.state !== 'inactive') {
-      this.ondataavailable?.({ data: new Blob(['TAIL']) })
+      this.ondataavailable?.({ data: new Blob(emptyTailChunk ? [] : ['TAIL']) })
     }
     this.state = 'inactive'
     this.onstop?.()
@@ -231,6 +280,7 @@ import {
   loadTakeBlob,
   markTakeFinalized,
   markTakeSecureError,
+  markTakeStopPending,
   readTakeOutcome,
   readTakeSecureMeta,
   stampDiscardPending,
@@ -241,6 +291,7 @@ import {
   writeTakeHeartbeat,
 } from '@/lib/karute/take-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
+import { deriveInboxRows, type InboxLocalTake } from '@/lib/recordings/inbox'
 import {
   getRecordingPipelinePort,
   setRecordingPipelinePort,
@@ -425,6 +476,8 @@ beforeEach(async () => {
   releaseHungWrites()
   failNextDurationStamps = 0
   failNextTailMarks = 0
+  emptyTailChunk = false
+  stampWrites.length = 0
   delete (window as unknown as { Capacitor?: unknown }).Capacitor
   localStorage.clear()
   globalRecorder.discard()
@@ -1086,6 +1139,7 @@ describe('secure at stop', () => {
       startBoundAttempted?: boolean
       tailIncomplete?: boolean
       stopPendingAt?: number
+      lastSeq: number
       startedAt: number
       updatedAt: number
     }
@@ -2010,6 +2064,15 @@ describe('secure at stop', () => {
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
 
+    // ⚖ FIX ROUND 18 RESHAPED THIS CASE, and the reshaping is the fix. The
+    // stamp is no longer a write of its own that can lose while the take is
+    // otherwise fine — it rides the write that makes the take whole. So the one
+    // shape where it can still lose alone is the one where there is NOTHING
+    // left to write: the last timer flush caught everything, and the leg's
+    // queued first act IS the stamp (AG2). A tail that IS owed and whose fold
+    // fails is a different case now — the take is not whole either, and the
+    // test below pins it.
+    emptyTailChunk = true
     failNextDurationStamps = 3
     order.length = 0
     globalRecorder.stop()
@@ -2785,6 +2848,317 @@ describe('secure at stop', () => {
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([])
     mockUid = 'staff-A'
     expect(await listOwnStoppedUnsecuredTakeIds()).toEqual([takeId])
+  })
+
+  // ── ⚖ THE STAMP RIDES THE TAIL (fix round 18, AG1-AG3) ──────────────────
+  // Round 17 wrote the stop down before anything could lose it, and the write
+  // that CLEARS that flag — the duration stamp — was still a separate
+  // patchTakeMeta. Lose all three of its tries and the row carries
+  // `stopPendingAt` with no `durationMs`: a shape isStoppedTake refuses on BOTH
+  // arms, for ever. The take is whole on the device and no drain will ever
+  // take it. There is no separate stamp write left to lose.
+
+  it('the tail bytes and the stop stamp are ONE write — a meta put that fails takes the segment with it', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // seq 0 committed
+    expect(segments().size).toBe(1)
+
+    // The TAKES put inside appendTakeSegment's transaction refuses — and after
+    // AG1 that put is the one carrying the stamp.
+    failNextDurationStamps = 3
+    order.length = 0
+    globalRecorder.stop() // emits 'TAIL': a tail IS owed
+    await jest.advanceTimersByTimeAsync(500)
+    await drain(200)
+
+    // The transaction aborted, so the tail segment did not land on its own —
+    // split the stamp back out and this is 2 segments and lastSeq 1, with the
+    // stamp missing: the take listed by nobody, which is the strand itself.
+    expect(segments().size).toBe(1)
+    expect(metaOf(takeId).lastSeq).toBe(0)
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(stampWrites).toEqual([])
+    // …the flush answered false, so the leg took its skipped-tail exit and said
+    // so on the row.
+    expect(metaOf(takeId).tailIncomplete).toBe(true)
+    expect(order).toEqual([]) // nothing sealed short
+
+    await passGrace()
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([])
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+    // Nothing deleted: the committed bytes wait on the device for a human.
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length)
+  })
+
+  // Greptile's interleaving, closed at the shape. Nothing is pending at the
+  // stop (the last timer flush caught everything), so the first act IS the
+  // stamp — and when its write loses every try the row wears NO flag for it to
+  // have cleared. The stop-time upload then fails retryably, which is the
+  // common case the drains exist for, and the take is still reachable.
+  it('a stamp that loses every try no longer strands the take — the disk was already whole', async () => {
+    putMock.mockImplementation(async () => {
+      order.push('put')
+      return { ok: false, status: 503 } as unknown as Response
+    })
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    emptyTailChunk = true // nothing left to write at the stop
+    failNextDurationStamps = 3 // …and the stamp's own write loses all three
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(500)
+    await drain(200)
+
+    // Make the first act unconditionally markTakeStopPending and this flag is
+    // standing with no stamp to clear it — the round-17 strand.
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    // The leg still tried, with the live measurement it holds either way.
+    expect(order.at(-1)).toBe('put')
+    expect(metaOf(takeId).secureError).toBe('upload_503')
+
+    await passGrace()
+    // On the phone the take is BACK on the worklist: quiet, unstamped, whole on
+    // disk, nothing holding it — rounds 13/14's own reading, and correct here.
+    asNativeShell()
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([takeId])
+    delete (window as unknown as { Capacitor?: unknown }).Capacitor
+    // On the web AF2 leaves it to a human: the leg's `finally` cleared the
+    // beat, so there is no beat left to prove nothing is holding it.
+    expect(await listOwnStoppedUnsecuredTakeIds(true, isActive)).toEqual([])
+    // …and 録音履歴 is where that human finds it.
+    expect((await listOwnTakes()).map((t) => t.takeId)).toEqual([takeId])
+  })
+
+  it('a normal stop with a tail: the flag goes WITH the tail, on the one write that carried it', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    await drain(200)
+    // A tail is owed, so the first act was the FACT, not the stamp.
+    expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).durationMs).toBeUndefined()
+    expect(stampWrites).toEqual([])
+
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    // …and it is gone WITH the tail. Drop the stamp argument from the flush and
+    // both of these fail: no stamp on the row, and the flag left standing.
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    // ONE write introduced the stamp, and it carried the tail's own seq — the
+    // whole claim of the round in one line.
+    expect(stampWrites).toEqual([1])
+    expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'TAIL'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
+  // The id changes AFTER the write lands: the staffer starts the next customer
+  // while the tail transaction is still in flight. The bytes AND the stamp are
+  // on the OLD row, so answering `false` here would send the leg down its
+  // skipped-tail branch and mark a whole, stamped take `tailIncomplete` — a row
+  // that contradicts itself, and reads 途中 to the human looking at it.
+  it('a take id that changes AFTER the write keeps the OLD take whole, stamped and unmarked', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    await drain(200) // the tail transaction is parked on the timer
+    expect(metaOf(takeId).stopPendingAt).toEqual(expect.any(Number))
+
+    void globalRecorder.start({ target: TARGET }) // the next customer
+    await drain(200)
+    const next = globalRecorder.takeId!
+    expect(next).not.toBe(takeId)
+
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(400)
+
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
+    expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'TAIL'.length)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+    // …and the counters below the branch still belong to the NEW take: its
+    // first flush is seq 0, not a continuation of the old take's.
+    slowSegmentWrites = false // …and the queue is handed back to the next test
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(metaOf(next).lastSeq).toBe(0)
+  })
+
+  // ── ⚖ THE SINGLETON ANSWERS FOR ITS OWN TAKE ONLY (fix round 18, AH1) ────
+  // AF1 made the recovery / 録音履歴 保存する path the first caller to hand this
+  // method a FOREIGN take id, and it answered the singleton's session before it
+  // read the take it was asked about — then wrote every mint back onto that
+  // singleton. Recover A, recover B, and B's save carried A's session: the
+  // server-job path finds that row already done and deletes B's local audio
+  // against A's record. The mirror is worse still — a foreign mint parked on
+  // the singleton is what the recorder's OWN stopped take reads at its save.
+
+  /** A door that NAMES every row it mints, so "whose session is this?" is
+   *  provable rather than one constant echoed back at every caller. */
+  const namedSessions = () => {
+    let n = 0
+    mockStartRecordingSession.mockImplementation(async () => ({ id: `sess-${++n}` }))
+  }
+
+  it("a recovered take never carries another take's session — the singleton speaks for its own", async () => {
+    // Two takes from an earlier device life, neither ever stamped (the default
+    // door answers null, which is exactly why the retry path exists).
+    const a = await keptTake()
+    const b = await keptTake()
+    expect(metaOf(a).recordingSessionId).toBeFalsy()
+
+    // …and a recorder holding a session of its own, which is what the fixture
+    // was missing: the short-circuit is only reachable with a non-null field.
+    namedSessions()
+    await startAndSettle()
+    await drain(50)
+    expect(await globalRecorder.awaitRecordingSessionId()).toBe('sess-1')
+
+    const idA = await globalRecorder.retryRecordingSessionMint({
+      takeId: a,
+      customerId: 'cust-1',
+      appointmentId: null,
+    })
+    const idB = await globalRecorder.retryRecordingSessionMint({
+      takeId: b,
+      customerId: 'cust-1',
+      appointmentId: null,
+    })
+    // Restore the unconditional short-circuit and BOTH of these are 'sess-1' —
+    // the recorder's own session, handed to two other takes.
+    expect(idA).toBe('sess-2')
+    expect(idB).toBe('sess-3')
+    expect(metaOf(a).recordingSessionId).toBe('sess-2')
+    expect(metaOf(b).recordingSessionId).toBe('sess-3')
+  })
+
+  it("a recovered take's mint never becomes the RECORDER's own session", async () => {
+    const b = await keptTake()
+    // The recorder's own start-mint failed — offline, core 5xx: the case the
+    // whole retry path exists for, and the one where the field is null and its
+    // promise is settled null, so both halves of the write are readable.
+    await startAndSettle()
+    expect(await globalRecorder.awaitRecordingSessionId()).toBeNull()
+
+    namedSessions()
+    expect(
+      await globalRecorder.retryRecordingSessionMint({
+        takeId: b,
+        customerId: 'cust-1',
+        appointmentId: null,
+      }),
+    ).toBe('sess-1')
+    expect(metaOf(b).recordingSessionId).toBe('sess-1')
+
+    // Drop either half of the write guard — the field or the parked promise —
+    // and this answers 'sess-1': the live recording's karute filed against a
+    // recovered take's row.
+    expect(await globalRecorder.awaitRecordingSessionId()).toBeNull()
+  })
+
+  // AF1's own target, which the read used to defeat outright: a take the mount
+  // drain's session-first leg already stamped was never even looked at.
+  it('a take the DRAIN stamped is read from ITS row, singleton or not', async () => {
+    const b = await keptTake()
+    await stampTakeSession(b, 'rs-drained')
+
+    namedSessions()
+    await startAndSettle()
+    await drain(50)
+    expect(await globalRecorder.awaitRecordingSessionId()).toBe('sess-1')
+    const mintsBefore = mockStartRecordingSession.mock.calls.length
+
+    expect(
+      await globalRecorder.retryRecordingSessionMint({
+        takeId: b,
+        customerId: 'cust-1',
+        appointmentId: null,
+      }),
+    ).toBe('rs-drained')
+    // Nothing was minted for it — the row already answered.
+    expect(mockStartRecordingSession).toHaveBeenCalledTimes(mintsBefore)
+  })
+
+  // ── ⚖ AND 録音履歴 READS THE STOP FACTS THROUGH THE STORE (round 18, AH2) ─
+  // Both fields are optional on RecoverableTake, so listOwnTakes dropping them
+  // type-checked in silence: the refusing half of rounds 16/17 worked and the
+  // TELLING half — the sub-line a staffer reads — could never fire in
+  // production. The existing derivation tests build their takes by hand and are
+  // blind to it by construction.
+
+  /** The inbox's own read, in one line: exactly the projection
+   *  inbox-store.readLocalTakes makes from what the store hands back. */
+  const asInboxTake = (t: {
+    takeId: string
+    recordingSessionId?: string | null
+    startedAt: number
+    updatedAt: number
+    tailIncomplete?: boolean
+    stopPendingAt?: number
+  }): InboxLocalTake => ({
+    takeId: t.takeId,
+    recordingSessionId: t.recordingSessionId ?? null,
+    customerId: null,
+    customerName: null,
+    startedAt: t.startedAt,
+    updatedAt: t.updatedAt,
+    tailIncomplete: t.tailIncomplete,
+    stopPendingAt: t.stopPendingAt,
+  })
+
+  it('録音履歴 reads a lost tail THROUGH the store, not from a hand-built take', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    slowSegmentWrites = true
+    globalRecorder.stop()
+    void globalRecorder.start({ target: TARGET }) // the tail is skipped
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    expect(metaOf(takeId).tailIncomplete).toBe(true)
+
+    await passGrace()
+    const listed = (await listOwnTakes()).find((t) => t.takeId === takeId)!
+    expect(listed.tailIncomplete).toBe(true)
+    const [row] = deriveInboxRows({
+      sessions: [],
+      takes: [asInboxTake(listed)],
+      now: Date.now(),
+    })
+    expect(row.state).toBe('recoverable')
+    expect(row.reason).toBe('tailIncomplete')
+  })
+
+  it('…and a stop that never finished, the same way', async () => {
+    const takeId = await keptTake()
+    await markTakeStopPending(takeId)
+    await passGrace()
+
+    const listed = (await listOwnTakes()).find((t) => t.takeId === takeId)!
+    expect(listed.stopPendingAt).toEqual(expect.any(Number))
+    const [row] = deriveInboxRows({
+      sessions: [],
+      takes: [asInboxTake(listed)],
+      now: Date.now(),
+    })
+    expect(row.reason).toBe('tailIncomplete')
   })
 
   // Bytes are never gated on what a surface may SHOW: a discarded take still

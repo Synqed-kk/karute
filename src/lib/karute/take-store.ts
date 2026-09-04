@@ -405,11 +405,21 @@ export async function createTake(
  * for a hazard the recorder's own take id already fences in practice. Closing
  * it needs the uid resolved ONCE at start() and carried, which is a capture-path
  * change and belongs with PR5's drain, not beside a race fix.
+ *
+ * ⚖ AND THE STOP STAMP RIDES THE TAIL (fix round 18, AG1). `stampDurationMs`
+ * folds the duration stamp into the TAKES put this transaction was already
+ * making. Until now the stamp was a SEPARATE write (patchTakeMeta), so it could
+ * lose on its own — leaving a row that carries `stopPendingAt` and no
+ * `durationMs`, which isStoppedTake refuses on BOTH arms for ever: the audio is
+ * whole on disk and no drain will ever take it. One transaction removes the
+ * shape rather than guarding it: the tail bytes and the fact that the take is
+ * complete land together or not at all.
  */
 export async function appendTakeSegment(
   takeId: string,
   seq: number,
   blob: Blob,
+  stampDurationMs?: number,
 ): Promise<boolean> {
   try {
     const db = await openDb()
@@ -419,7 +429,18 @@ export async function appendTakeSegment(
     if (!meta) return false
     await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
     await req(
-      tx.objectStore(TAKES).put({ ...meta, updatedAt: Date.now(), lastSeq: seq }),
+      tx.objectStore(TAKES).put(
+        stampDurationMs === undefined
+          ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
+          : {
+              ...meta,
+              updatedAt: Date.now(),
+              lastSeq: seq,
+              durationMs: stampDurationMs,
+              // The one write that clears it, exactly as stampTakeDuration does.
+              stopPendingAt: undefined,
+            },
+      ),
     )
     return true
   } catch (err) {
@@ -873,6 +894,13 @@ export async function listOwnTakes(
         // Carried so a recovery surface can tell "the server already has this"
         // from "this is still device-only" without a second store read.
         finalizedAt: m.finalizedAt,
+        // …and the two facts a stop can leave behind (fix round 18, AH2). Both
+        // are optional on RecoverableTake, so their absence type-checked
+        // silently and `recoverableReason` could never answer 'tailIncomplete'
+        // in production — rounds 16/17 wrote the facts down and this read threw
+        // them away.
+        tailIncomplete: m.tailIncomplete,
+        stopPendingAt: m.stopPendingAt,
       })
     }
     out.sort((a, b) => b.startedAt - a.startedAt)
