@@ -270,6 +270,97 @@ describe('thin launch drain', () => {
     await settle()
   })
 
+  // ⚖ JOINING A RUN IS NOT HAVING ONE (fix round 4, G1). The shared iPad: A
+  // signs out mid-upload, B signs in while A's pass is still in flight. The
+  // single-flight guard hands B's trigger A's promise — right, one drain at a
+  // time — but A's pass is scoped to A (the worklist is owner-gated), so it
+  // never looked at B's owed takes. The memo used to be written by the
+  // SUBSCRIBER, so B's generation was marked drained by a run that was never
+  // B's, and the only heal left was the `stillOwed` tick at the end of A's pass
+  // — which a `busy` outcome also schedules and a THROW does not schedule at
+  // all. A delay standing in for a guarantee, on audio that exists nowhere else.
+  describe('a sign-in that lands DURING a run', () => {
+    /** A drain that does not answer until the case says so — A's pass, held
+     *  open across B's sign-in. */
+    function heldDrain() {
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      drainOwedTakes.mockImplementationOnce(async () => {
+        await gate
+        return { busy: false, stillOwed: false }
+      })
+      return () => release()
+    }
+
+    it('gets its OWN run when the previous staffer’s finishes — no timer, no foreground', async () => {
+      const release = heldDrain()
+      await load()
+      await authoritative('signed-in') // staffer A
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+      await authoritative('signed-in') // staffer B, while A is still working
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1) // joined A's promise
+
+      release()
+      await settle()
+      // B's own pass, immediately: nothing was foregrounded and no timer ran.
+      expect(drainOwedTakes).toHaveBeenCalledTimes(2)
+    })
+
+    it('…even when the previous staffer’s run THREW', async () => {
+      // The case with no heal at all before this round: a throw schedules no
+      // tick, so B's takes waited for a foreground cycle or a walk onto 録音.
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      let release!: () => void
+      const gate = new Promise<void>((r) => {
+        release = r
+      })
+      drainOwedTakes.mockImplementationOnce(async () => {
+        await gate
+        throw new Error('store is gone')
+      })
+
+      await load()
+      await authoritative('signed-in')
+      await authoritative('signed-in')
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+      release()
+      await settle()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(2)
+      warn.mockRestore()
+    })
+
+    it('a SAME-generation notify during a run buys no extra run', async () => {
+      // The memo moved to run(), so this is the case that proves it still does
+      // the job it was added for: one sign-in, one pass.
+      const release = heldDrain()
+      await load()
+      await authoritative('signed-in')
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+
+      notify!()
+      await settle()
+      release()
+      await settle()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+    })
+
+    it('a sign-OUT during a run starts nothing after it', async () => {
+      // Nobody to drain for; the worklist's owner gate would answer nothing.
+      const release = heldDrain()
+      await load()
+      await authoritative('signed-in')
+      await authoritative('signed-out')
+
+      release()
+      await settle()
+      expect(drainOwedTakes).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('a take STILL OWED gets exactly one more look, at the page’s own cadence', async () => {
     // The record page has this tick and the launch runner had none, so a boot
     // that drained nothing never asked again.

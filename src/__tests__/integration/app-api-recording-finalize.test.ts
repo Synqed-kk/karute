@@ -218,6 +218,22 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // ⚖ …AND recordings.viewAll DOES NOT LIFT IT (slice five fix round 4, G2).
+  // The take mint lets an owner reserve a colleague's take by design; a staged
+  // copy is never anyone's but the recorder's — the discard word-collection
+  // runs on the recorder's own device against the owner-gated take store. With
+  // a deterministic, immutable key, owner reach here was a pre-fill lever: mint
+  // the colleague's key first, PUT anything, and their device meets a size
+  // mismatch for ever. The route's existing `forbidden` mapping carries it.
+  it('…and an owner with recordings.viewAll gets the SAME 403 on this door', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
   it('…and a body naming BOTH a take and a staged copy is a 400', async () => {
     const res = await mintPOST(jreq(auth, { ...mintBody, stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(400)

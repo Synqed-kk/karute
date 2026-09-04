@@ -825,7 +825,7 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(info).toHaveBeenCalledWith(res.path)
   })
 
-  it('refuses a COLLEAGUE’s session — the same staff rule the take mint applies', async () => {
+  it('refuses a COLLEAGUE’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
     await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
       error: 'forbidden',
@@ -833,11 +833,34 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
-  it('…and an owner with recordings.viewAll may stage on one, exactly as they may reserve', async () => {
+  // ⚖ AND VIEW-ALL DOES NOT REACH THIS DOOR (slice five fix round 4, G2). This
+  // case used to assert the OPPOSITE — "an owner may stage on one, exactly as
+  // they may reserve" — on the symmetry with the take mint. The symmetry is
+  // false: reserving a colleague's take is a designed owner act, but STAGING is
+  // something the recorder's own device does (the discard word-collection reads
+  // the owner-gated take store; nothing else in the app stages at all). So
+  // view-all bought no legitimate reach and did buy a lever: the staged key is
+  // deterministic and immutable, so an owner could mint a colleague's key
+  // first, PUT anything, and that colleague's device would meet a size mismatch
+  // for ever — its discard's words never landing, its device copy never
+  // releasable.
+  it('…and NOT even with recordings.viewAll — staging is the recorder’s alone', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
     getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
-    const res = await mintOk({ stagedFor: SESSION })
-    expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    // Nothing probed and nothing signed: the refusal lands before the key is
+    // even composed, so the door is not an existence oracle over it either.
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…while the take mint KEEPS its owner reach — the two doors differ on purpose', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: null }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await mintOk(NAMED)
+    expect(res.path).toBe(OWN)
   })
 
   it('a session core does not know is not_found — nothing is signed for it', async () => {

@@ -471,8 +471,9 @@ export async function mintTakeUploadUrl(
   // but it is no longer ANONYMOUS: the key carries the session, so the
   // transcribe door can check the binding rather than accept any same-tenant
   // key as that discard's audio. The row is read only to prove the caller may
-  // record onto it, with the SAME staff rule the take mint applies: the client
-  // is tenant-scoped, so another business's session simply is not found.
+  // record onto it — and since fix round 4 (G2) that proof is STRICTER than the
+  // take mint's: the caller must BE the recorder, view-all included out. The
+  // client is tenant-scoped, so another business's session is not found at all.
   if (input.stagedFor) {
     // Nothing to attribute a staging to — the take mint's own first refusal.
     if (!actor.staffId) return { error: 'forbidden' }
@@ -486,6 +487,24 @@ export async function mintTakeUploadUrl(
     }
     const denied = assertRecorderOwnsRow(row, actor)
     if (denied) return denied
+    // ⚖ AND ONLY THE RECORDER THEMSELVES MAY STAGE (slice five fix round 4,
+    // G2). `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right
+    // for the TAKE mint — an owner reserving a colleague's take is a designed
+    // act there — and wrong here. Staging is something the RECORDER'S OWN
+    // DEVICE does: the discard word-collection reads the owner-gated take store
+    // and nothing else in the app stages at all, so view-all has no legitimate
+    // reach through this door. What it had instead was a lever: the staged key
+    // is deterministic and immutable, so a view-all holder could mint a
+    // colleague's key first, PUT anything, and that colleague's device would
+    // meet a size mismatch for ever — its discard's words never landing, its
+    // device copy never releasable. A plain equality, `canViewAll` deliberately
+    // not consulted; the tenant half stays where it is, one line above.
+    //
+    // ⚖ THE CEILING, NAMED (P3, record only): the recorder can still pre-fill
+    // their OWN session's key from outside the app. No audio is lost — the
+    // device keeps it — and the only thing denied is that staffer's own
+    // discard's words. Self-harm, out of this door's reach.
+    if (row.staff_id !== actor.staffId) return { error: 'forbidden' }
     // ⚖ THE ROW NAMES THE SLOT, NOT THE CALLER (slice five fix round 3, F4).
     // Packet B fenced the SESSION here and nothing else, so `stagedTake` was
     // interpolated into the key on a shape check alone: a `recordings.viewAll`
@@ -508,12 +527,10 @@ export async function mintTakeUploadUrl(
     // caller with, so the client's slot stands if it is a uuid and
     // composeStagedKey mints a random one if it is not (F3's cohort).
     //
-    // ⚖ THE CEILING, NAMED: a `recordings.viewAll` holder can still pre-fill
-    // the staged key of a colleague's OWN take — the row is theirs to bind and
-    // the take is the row's, so both halves are legitimate and this fence
-    // cannot see the difference. That denies the discard its words; it loses no
-    // audio (the size fence and serverHoldsTake both hold), and it is
-    // owner-level trust by construction.
+    // (Round 3 named a residual ceiling here — a view-all holder pre-filling a
+    // colleague's OWN take's key, where both halves are legitimate and this
+    // fence cannot see the difference. Fix round 4's G2 above CLOSED it at the
+    // door instead: view-all no longer reaches this branch at all.)
     const rowKey = parseRecordingKey(row.audio_storage_path, businessId)
     const rowTake = rowKey?.kind === 'take' ? rowKey.takeId : null
     if (rowTake && input.stagedTake && input.stagedTake !== rowTake) {

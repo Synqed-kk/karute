@@ -57,7 +57,12 @@ const REDRAIN_JITTER_MS = 5_000
  *  drained for, and the seed→settle pair for one staffer is still one run.
  *
  *  Null while nobody is signed in, which is what makes the same staffer signing
- *  back in on a shared iPad drain again. */
+ *  back in on a shared iPad drain again.
+ *
+ *  ⚖ AND IT IS WRITTEN BY THE RUN, NOT THE SUBSCRIBER (fix round 4, G1). "This
+ *  generation has been drained" is a claim only a pass that actually STARTED
+ *  work can make — see `run()` for the shared-iPad case where the subscriber's
+ *  version of it was false. */
 let drainedGeneration: number | null = null
 
 /** The run in flight, so a second trigger joins it instead of starting a rival
@@ -78,9 +83,30 @@ function schedule(): void {
   retryTimer = setTimeout(() => void run(), REDRAIN_MS + Math.random() * REDRAIN_JITTER_MS)
 }
 
-/** Fire-and-forget, single-flight. */
+/** Fire-and-forget, single-flight.
+ *
+ *  ⚖ JOINING A RUN IS NOT HAVING ONE (fix round 4, G1). On a shared iPad,
+ *  staffer A signs out mid-upload and B signs in while A's run is still in
+ *  flight. The single-flight guard hands B's trigger A's promise — correct, one
+ *  drain at a time — but A's pass is scoped to A: `listOwnStoppedUnsecuredTakeIds`
+ *  is owner-gated, so it never looked at B's owed takes and never will. The
+ *  memo used to be written by the SUBSCRIBER, so B's generation was marked
+ *  drained by a run that was never B's, and the only heal left was the
+ *  `stillOwed` tick at the end of A's pass (~60 s, under B's uid) — which a run
+ *  ending `busy` also schedules and a run that THROWS does not schedule at all.
+ *  A delay standing in for a guarantee, on the audio that exists nowhere else.
+ *
+ *  So the memo is written HERE, by the run that actually starts work, and the
+ *  generation is captured at that same instant. When this pass finishes, a
+ *  newer signed-in generation means somebody joined a run that was not theirs:
+ *  it gets its own, immediately, with no timer and no foreground event. */
 function run(): Promise<void> {
   if (inFlight) return inFlight
+  // The generation THIS pass belongs to, and the memo the subscriber reads.
+  // Both are set at the one moment that matters — work starting — so a
+  // generation that only ever joined someone else's run is not marked drained.
+  const gen = currentGeneration()
+  drainedGeneration = gen
   const work = (async () => {
     try {
       // The drain FIRST because it is the bytes: whole takes, the larger and
@@ -111,6 +137,12 @@ function run(): Promise<void> {
       console.warn('[launch-drain] run failed:', err)
     } finally {
       inFlight = null
+      // Somebody signed in while this pass was working and was handed this
+      // promise instead of a run of their own. Give them one now — and let IT
+      // write the memo, so a third sign-in landing inside this one is caught
+      // the same way. The `catch` above is outside this block on purpose: a
+      // pass that threw must not swallow the newer staffer's turn.
+      if (getSessionState().status === 'signed-in' && currentGeneration() !== gen) void run()
     }
   })()
   inFlight = work
@@ -138,9 +170,10 @@ subscribeSessionState(() => {
     }
     return
   }
-  const generation = currentGeneration()
-  if (generation === drainedGeneration) return
-  drainedGeneration = generation
+  // The memo is `run()`'s to write (fix round 4, G1): if this generation only
+  // JOINED a pass belonging to the previous staffer, `drainedGeneration` still
+  // names theirs, and that run's own tail fires this generation's real pass.
+  if (currentGeneration() === drainedGeneration) return
   void run()
 })
 
