@@ -528,6 +528,12 @@
 .biz .pg-coaching .cg-quote { display: block; margin: 9px 0 0; padding: 10px 13px; border-left: 2.5px solid rgba(37, 99, 235, .22); border-radius: 0 8px 8px 0; background: #fcfdff; }
 .biz .pg-coaching .cg-quote-meta { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; color: var(--quiet); font-size: 11px; line-height: 1.6; letter-spacing: .01em; }
 .biz .pg-coaching .cg-quote-meta .cg-tk { color: var(--quiet); font-weight: 400; font-size: 11px; }
+/* ⚠ AND THE TWO THAT ARE NOT TOKENS WRAP. `cg-quote-scope` is a phrase and
+   `cg-quote-date` is the RUN's own string — measured: with `nowrap` on the date
+   the 「longest」 world pushed the page 70px sideways at 1280 and 489px at 390.
+   V2-4/5 is a rule about tokens, and its ceiling is that a value is never one. */
+.biz .pg-coaching .cg-quote-scope,
+.biz .pg-coaching .cg-quote-date { min-width: 0; }
 .biz .pg-coaching .cg-quote-text { display: block; margin-top: 5px; color: var(--ink); font-size: 13px; line-height: 1.9; }
 
 /* the run's non-finding statuses */

@@ -2077,6 +2077,7 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     expect(PROPS_CODE).toContain('windowTitle: `${windowLabel}のセッションを見ています`')
     //  · the viewer paragraph (reach list and all) → the viewer chip's `title`
     expect(SCREEN_CODE).toContain('<span className="cg-chip-viewer" title={props.viewerLine}>{props.viewerChip}</span>')
+    expect(PROPS_CODE).toContain('viewerChip: `${role}として表示`')
     //  · the granted consent body → the strip's `title` AND the section's guide
     expect(SCREEN_CODE).toContain('<p className="cg-consent-strip" title={ready.consent.body}>')
     expect(SCREEN_CODE).toContain('${ready.consent.body}`}')
@@ -2745,6 +2746,19 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     expect(JSON.stringify(props)).not.toContain('設定で変更')
     expect(SCREEN_CODE).not.toContain('設定で変更')
     expect(props.viewerLine).toContain('自分のコーチングのみ')
+  })
+
+  it('the head’s two chips name the role and the window, on the real payload', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    const staff = await coachingProps(STAFF)
+    unpinClock()
+    expect(props.viewerChip).toBe('店舗管理者として表示')
+    expect(staff.props.viewerChip).toBe('スタッフとして表示')
+    expect(props.windowChip).toMatch(/^直近90日 ・ .+〜.+$/)
+    expect(props.windowTitle).toBe(`${props.windowLabel}のセッションを見ています`)
+    // the chip is the SHORT form of the line beside it — same fact, two lengths
+    expect(props.viewerLine).toContain('店舗管理者')
   })
 
   it('ALL-STAFF — the staff reader gets the BOARD, and still not one number on it', async () => {

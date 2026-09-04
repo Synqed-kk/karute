@@ -1060,9 +1060,22 @@ export function CoachingScreen(props: CoachingProps) {
                                     {f.countWarning && <p className="cg-find-warn">{f.countWarning}</p>}
                                     {f.moment && (
                                       <blockquote className="cg-quote">
+                                        {/* ⚠ V2-4/5's OWN CEILING, and the probe
+                                            found it: `nowrap` goes on a TOKEN this
+                                            room owns, NEVER on a generator value.
+                                            `speakerLabel` is one of three words
+                                            this room writes (スタッフ / お客様 /
+                                            話者不明) and it may not break in half;
+                                            the DATE is the run's own string and can
+                                            be any length, so it wraps — with a
+                                            nowrap on it the 「longest」 world pushed
+                                            the whole page sideways by 70px at 1280
+                                            and 489px at 390. The parenthetical is a
+                                            phrase rather than a token, so it wraps
+                                            too. */}
                                         <span className="cg-quote-meta">
-                                          <span className="cg-tk">そのときの会話（あなただけが見られます）</span>
-                                          <span className="cg-tk">{f.moment.date}</span>
+                                          <span className="cg-quote-scope">そのときの会話（あなただけが見られます）</span>
+                                          <span className="cg-quote-date">{f.moment.date}</span>
                                           <span className="cg-tk">{f.moment.speakerLabel}</span>
                                         </span>
                                         <span className="cg-quote-text">{f.moment.quote}</span>
