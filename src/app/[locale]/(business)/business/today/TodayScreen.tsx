@@ -91,6 +91,7 @@ import {
   guardCheckRowBesideOffer,
   guardRailsFor,
   guardVerdictAt,
+  hasPriceFact,
   blockNode,
   heldDrawnFor,
   holdPopAnchor,
@@ -112,6 +113,8 @@ import {
   pairLanesOf,
   parkChipText,
   pinInViewport,
+  priceFactSets,
+  proxyTimeLabel,
   restCueStarts,
   warnFaceFor,
   holdClock,
@@ -128,6 +131,7 @@ import {
   seedSpanIn,
   slotStartAt,
   unparkOutcome,
+  withPriceFact,
   foreignStoreRefusal,
   type GuardRail,
   type LandingFloor,
@@ -347,6 +351,12 @@ export interface TodayProps {
   nowFraction: number | null
   nowLabel: string
   lanes: BoardLane[]
+  /** ⚖ R8 T1 — the ids of today's bookings that carry a recorded 予約時価格.
+   *  A `BoardItem` has no price (today-board.ts), and canon's `computeChecks`
+   *  asserts 予約時価格を保持 over every landing regardless — so this is the fact
+   *  the screen filters that row with. Assembled in page.tsx off the same
+   *  `BoardBooking.price` the 予約時価格 fact line reads. */
+  pricedIds: string[]
   /** The dials the 販売可能枠 derivation runs on — see the header. */
   sell: { gridMin: number; nowMinute: number | null }
   /** スキマガード. `mode` is the STORE's protection policy (店舗設定); `config`
@@ -732,7 +742,7 @@ interface HoldPop {
  *  — the store's room policy, the locked lanes, the minute conversion — belongs
  *  to the board and is filled in by `verdictFor`, so no caller can ask the
  *  question under a different policy than the one the release answers under. */
-type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'vip' | 'foreignRefusal'> & {
+type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'vip' | 'foreignRefusal' | 'hasPrice'> & {
   span: { x: number; w: number }
 }
 
@@ -1257,6 +1267,35 @@ export function TodayScreen(props: TodayProps) {
     () => released.filter((r) => onShownBoard(r, board)),
     [released, board],
   )
+  /** ⚖ R8 T1 — 「DOES THIS PLACEMENT HAVE A PRICE THE 保持 ROW CAN BE ABOUT?」,
+   *  asked once for the whole screen so no gesture invents its own answer.
+   *
+   *  ⚖ FIX ROUND 1 (blind round 1, L2 F10) — THE DECISION ITSELF LIVES IN
+   *  `hasPriceFact` (today-interactions), which is where its reasoning and its
+   *  truth table are written down. This is the binder and nothing else: three
+   *  sets built once per board, handed to the pure function. It is a `useMemo`
+   *  so the sets are built once per board rather than once per gesture, and it
+   *  is declared exactly ONCE on this screen — a second `hasPriceFor` binding
+   *  anywhere is a shadow that answers for one call site, and the pin counts
+   *  this declaration.
+   *
+   *  ⚖ FIX ROUND 2 (Greptile on #828) — THE SESSION'S SET IS READ OFF THE
+   *  STAMP (`a.priced`), never off the card. It used to be
+   *  `a.item.ticketCore != null`, and a price-less booking's ticket line is the
+   *  non-null text 「価格未記録」: park it, page to another day and place it, and
+   *  the 保持 row came back on the one booking T1 took it off. Every writer
+   *  below stamps the fact where the fact is known.
+   *
+   *  ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — AND THE SETS THEMSELVES LEFT THE
+   *  SCREEN. Building them here left the item's own rule guarded by a text pin,
+   *  and two tsc-clean edits inside this memo put the defect back (F3);
+   *  `priceFactSets` is where a truth table can be written about them. It also
+   *  reads the SHELF, which this memo never did: a chip carried to another day
+   *  is on no server lane and in no `added` row, so the same chip answered
+   *  「no price」 in the operator's hand and 「price」 after the drop (F1). These
+   *  two lines are the whole binder — the sets, then the question. */
+  const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])
+  const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])
   /** ⚖ Liam flag 26 — the server's board with this session's block moves on it.
    *  One pass, ahead of the booking passes, so both the live board and the
    *  committed board see the same blocks: a 休憩 that has been dragged is where
@@ -1331,6 +1370,30 @@ export function TodayScreen(props: TodayProps) {
   const aimed = landing && landing.w > 0
     ? { laneKey: landing.laneKey, start: Math.floor(minuteOf(landing.x, hours) / 30) * 30 }
     : null
+  /** ⚖ R8 GAP-11 — THE SAME LANDING, IN MINUTES, FOR THE CARD IN HAND.
+   *
+   *  The dashed ghost above is drawn from `landing.x` and the card travelling
+   *  over it went on printing the start it came FROM, so for the whole gesture
+   *  the board and the thing in the operator's hand disagreed about where the
+   *  booking was going. This reads the ghost's OWN value — no second snapping
+   *  author, and no work per pointer frame that the render was not already
+   *  doing: `setLive` re-renders this component on every move, which is what
+   *  moves the ghost in the first place.
+   *
+   *  `null` where there is no card landing to say: nothing in flight, a card
+   *  over the shelf or off the board (`landing` is already null for both), and a
+   *  BLOCK in flight — that landing belongs to the 休憩, whose proxy carries no
+   *  ticket line and is rendered by its own branch. */
+  const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null
+  /** ⚖ FIX ROUND 1 (blind round 1, L1 F2) — THE SAME SENTENCE FOR THE BLOCK IN
+   *  HAND. A 休憩 wears a SPAN (`HH:MM〜HH:MM`, today-board :462/:472), not a
+   *  start, so its proxy needs both ends of the landing it is over — and both
+   *  are already here: `blockLive.x` is what the dashed ghost above is drawn
+   *  from and `+ w` is the same box's other edge. No new snapping author and no
+   *  work per pointer frame the render was not already doing. `null` whenever
+   *  no block is in flight, which is when the block branch is not rendered at
+   *  all. */
+  const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null
   /** ⚖ Liam flag 50(a) (2026-08-22) — THE CANDIDATE LANE IS OUTLINED WHILE THE
    *  DRAG IS OVER IT, own lane included.
    *
@@ -1541,8 +1604,8 @@ export function TodayScreen(props: TodayProps) {
         depth,
         // ⚖ R4 — ONE ADVERTISED OFFER PER BED. The reconciliation happens inside
         // `sellLayerFor`, BEFORE `buildSellLayer`, so 公開中 N枠 / 販売可能枠 N窓 /
-        // 安全な空き and the price button all count the boxes the board actually
-        // draws. It used to happen in `renderLane`, per drawn row, after the
+        // the 運営影響 stat and the price button all count the boxes the board
+        // actually draws. It used to happen in `renderLane`, per drawn row, after the
         // counts were already computed — so the header could say 22 windows while
         // one box was on screen, and a cross-row collision (p-05's hour and
         // p-06's スキマ枠 both on ベッド2) was invisible to it.
@@ -1829,6 +1892,7 @@ export function TodayScreen(props: TodayProps) {
         id: live.id,
         vip: item?.category === 'vip',
         foreignRefusal: null,
+        hasPrice: hasPriceFor(live.id),
         span: { x: live.x, w: live.w },
       }
     }
@@ -1845,11 +1909,12 @@ export function TodayScreen(props: TodayProps) {
         id: chip.id,
         vip: chip.item.category === 'vip',
         foreignRefusal: foreignStoreRefusal(chip.home, props.store),
+        hasPrice: hasPriceFor(chip.id),
         span: { x: 0, w: chip.home.w },
       }
     }
     return null
-  }, [live, proxy, parkChips, boardLanes, props.store])
+  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])
 
   /** ⚖ LIAM flag 44 + rider 75(i) — EVERY CHIP'S WORD AND ITS SENTENCE, worked
    *  out once per frame instead of once per press.
@@ -2215,14 +2280,20 @@ export function TodayScreen(props: TodayProps) {
         }
       }
       const staffLane = boardLanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === id))
-      const checks = computeChecks(at, {
-        spans,
-        bookingId: id,
-        staffName: staffLane?.label ?? '—',
-        staffUntil: staffLane?.untilLabel ?? null,
-        laneLocked: staffLane != null && locked.includes(staffLane.key),
-        minutesOf: (x) => minuteOf(x, hours),
-      })
+      // ⚖ R8 T1 — canon's rows, minus the 価格保持 assertion when this booking
+      // has no price to hold. Applied to the RAW canon list, before the store
+      // row below joins it, so the filter can only ever remove canon's own row.
+      const checks = withPriceFact(
+        computeChecks(at, {
+          spans,
+          bookingId: id,
+          staffName: staffLane?.label ?? '—',
+          staffUntil: staffLane?.untilLabel ?? null,
+          laneLocked: staffLane != null && locked.includes(staffLane.key),
+          minutesOf: (x) => minuteOf(x, hours),
+        }),
+        hasPriceFor(id),
+      )
       /** ⚖ STORE ISOLATION ON THE EXPLICIT ROOM CHOICE (Greptile #725).
        *
        *  `allocateBed` scopes the search to the booking's own store, but a
@@ -2245,7 +2316,7 @@ export function TodayScreen(props: TodayProps) {
       }
       return checks
     },
-    [boardLanes, sellDrawn.cells, hours, locked],
+    [boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],
   )
 
   /** canon `syncPendingUI` (:3673): while the board is showing a DIFFERENT day
@@ -2401,6 +2472,7 @@ export function TodayScreen(props: TodayProps) {
       id: pending.id,
       vip: item?.category === 'vip',
       foreignRefusal: null,
+      hasPrice: hasPriceFor(pending.id),
       span: { x: at.x, w: at.w },
     }
     const dur = minuteOf(at.x + at.w, hours) - start
@@ -3059,6 +3131,7 @@ export function TodayScreen(props: TodayProps) {
       id: pending.id,
       vip: item?.category === 'vip',
       foreignRefusal: null,
+      hasPrice: hasPriceFor(pending.id),
       span,
     })
     if (again.kind === 'blocked') {
@@ -3502,6 +3575,7 @@ export function TodayScreen(props: TodayProps) {
       id: ctx.id,
       vip: ctx.item.category === 'vip',
       foreignRefusal: null,
+      hasPrice: hasPriceFor(ctx.id),
       span,
     })
     wearVerdict(node, v)
@@ -3700,6 +3774,7 @@ export function TodayScreen(props: TodayProps) {
         const off: LandingAsk = {
           staffLane: null, bedLane: null, solveRoom: ctx.group !== 'beds',
           id: ctx.id, vip: item.category === 'vip', foreignRefusal: null, span,
+          hasPrice: hasPriceFor(ctx.id),
         }
         explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
           override: null,
@@ -3753,6 +3828,7 @@ export function TodayScreen(props: TodayProps) {
       id: ctx.id,
       vip: item.category === 'vip',
       foreignRefusal: null,
+      hasPrice: hasPriceFor(ctx.id),
       span,
     }
     const land = (override: string | null, at: { x: number; w: number }) => {
@@ -4557,6 +4633,7 @@ export function TodayScreen(props: TodayProps) {
       id,
       vip: item.category === 'vip',
       foreignRefusal: null,
+      hasPrice: hasPriceFor(id),
       span: next,
     }
     const land = (override: string | null) => {
@@ -4620,6 +4697,12 @@ export function TodayScreen(props: TodayProps) {
         storeLabel: props.lensLabel,
       },
       lenMin: item.endMin - item.startMin, item,
+      // ⚖ R8 FIX ROUND 2 (Greptile on #828) — AND THE PRICE FACT, ASKED HERE.
+      // This is the same-day board, the one whose `pricedIds` and lanes know
+      // the booking; the chip may be placed on 8/22, where nothing does. The
+      // landing reads this stamp instead of the card's ticket line, which says
+      // 「価格未記録」 — non-null — for a booking with no recorded price.
+      priced: hasPriceFor(id),
     }])
     setPending(null)
     show(`${item.title}様を仮置きエリアへ移動しました（仮押さえ扱い）`)
@@ -4773,6 +4856,7 @@ export function TodayScreen(props: TodayProps) {
       id: chip.id,
       vip: chip.item.category === 'vip',
       foreignRefusal: foreignStoreRefusal(chip.home, props.store),
+      hasPrice: hasPriceFor(chip.id),
       span,
     }
   }
@@ -4991,10 +5075,14 @@ export function TodayScreen(props: TodayProps) {
       caseId: id,
       label: `${hhmm(start)}–${hhmm(end)} ${p.name}様 次回予約（仮押さえ）`,
     }
+    // ⚖ R8 FIX ROUND 2 — the mint stamps its own price fact. `lane.listPrice > 0`
+    // is the SAME predicate the `ticketCore:` line above mints the ¥ face with
+    // (⚖ R6 D2 — a lane with no 定価 mints `null`), so the face the operator
+    // reads and the fact the 保持 row is judged on cannot come apart.
     setAdded((was) => [
       ...was,
-      { ...board, laneKey: lane.key, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
-      { ...board, laneKey: partner.key, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
+      { ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },
+      { ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },
     ])
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
@@ -5084,10 +5172,15 @@ export function TodayScreen(props: TodayProps) {
       label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')} / ${staffLabel} / ${bed.label} / 仮押さえ`,
     }
     setParkChips((was) => was.filter((c) => c.id !== chip.id))
+    // ⚖ R8 FIX ROUND 2 (Greptile on #828) — THE CHIP'S STAMP TRAVELS WITH IT.
+    // This lands on WHATEVER DAY is on screen, and that day's board knows
+    // nothing about the booking: the fact was taken at park time, on the board
+    // that did. Deriving it here from `landed.ticketCore` is what put the 保持
+    // row back on a price-less booking (「価格未記録」 is a non-null line).
     setAdded((was) => [
       ...was.filter((a) => a.item.caseId !== chip.id),
-      { ...board, laneKey: staff.key, fromChip: chip, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
-      { ...board, laneKey: bed.key, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
+      { ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },
+      { ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },
     ])
     setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))
     // ⚖ AMENDMENT 1, lens-3 F1 — AND THE ROOM SIDE TOO. This wrote only `moves`,
@@ -5209,9 +5302,9 @@ export function TodayScreen(props: TodayProps) {
     // Two things the render-time version could not do: it
     // filtered `onThisLane`, so p-05's hour and p-06's box both pointing at
     // ベッド2 were never compared; and it ran AFTER `buildSellLayer`, so the
-    // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), 安全な空き
-    // (:4862) and the 公開価格 button (:5077) — were computed from boxes this line
-    // then declined to draw. One box per span still holds; it is now true of the
+    // counts on four surfaces — 公開中 N枠 (:4389), 販売可能枠 N窓 (:4435), the
+    // 運営影響 stat (:4862) and the 公開価格 button (:5077) — were computed from
+    // boxes this line then declined to draw. One box per span still holds; it is now true of the
     // LAYER rather than of the paint, which is what makes those four honest.
     // ⚖ spec §1's withholding clause — `sellDrawn` is the sell layer WITHOUT the
     // hours the law is holding for a 新規 (both rows: the pair carries one staff
@@ -5335,7 +5428,12 @@ export function TodayScreen(props: TodayProps) {
               // rider — and a 配置モード armed in another store is refused by the
               // same predicate the chip is, through the one verdict.
               askGuard(
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },
+                // ⚖ R8 T1 — a 次回予約 has no booking row yet, so its price is the
+                // one the MINT will write: `placeNextVisit` gives the card a ¥ face
+                // exactly when this lane has a 定価 and `null` when it has none
+                // (⚖ R6 D2, the `ticketCore:` line in that function). Same
+                // predicate, so the landing's rows and the card it produces agree.
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },
                 at,
                 // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
                 // sentence the operator walked past, and this callback dropped
@@ -5355,7 +5453,10 @@ export function TodayScreen(props: TodayProps) {
             // dialog is for, and refusing a form over a bed nobody has chosen
             // yet would be answering a question that has not been asked.
             askGuard(
-              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, span: slot },
+              // ⚖ R8 T1 — nothing has been agreed yet: the dialog this opens is
+              // where the menu and its price are chosen, so there is no 予約時価格
+              // for a 保持 row to be about.
+              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },
               at,
               (s) => openCreateAt({ staffId: lane.key, start: s }),
             )
@@ -5832,14 +5933,14 @@ export function TodayScreen(props: TodayProps) {
   /** The card's FACE — name, tag, time, ticket line. Shared with the drag proxy
    *  so what travels under the cursor is the visual he grabbed, to the character,
    *  rather than a second rendering of the same booking that can drift from it. */
-  function cardFace(item: BoardItem, settledHere: boolean) {
+  function cardFace(item: BoardItem, settledHere: boolean, timeLabel: string = item.time) {
     return (
       <>
         <strong>
           {item.title}
           <i className="tg">{item.tag}</i>
         </strong>
-        <small className="e-time">{item.time}</small>
+        <small className="e-time">{timeLabel}</small>
         <small className="e-tkt">
           {item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
@@ -6495,7 +6596,12 @@ export function TodayScreen(props: TodayProps) {
           <div className="incident-stat"><span>影響</span><b>{props.incident.affected}</b></div>
           <div className="incident-stat"><span>未判断</span><b className="warn">{props.incident.undecided}件</b></div>
           <div className="incident-stat"><span>連絡待ち</span><b>{proposalSent ? 0 : props.incident.waitingContact}件</b></div>
-          <div className="incident-stat"><span>安全な空き</span><b>{sellDrawn.staffBands.length}枠</b></div>
+          {/* ⚖ R8 T4 — ONE LABEL PER NUMBER. This stat and the header chip
+              print the SAME `sellDrawn.staffBands.length`, and calling it 安全な空き
+              here made one count read as two facts about the same board. The
+              chip's own words are the surviving name — no new vocabulary, and
+              nothing about the number or its unit moves. */}
+          <div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
@@ -6720,8 +6826,8 @@ export function TodayScreen(props: TodayProps) {
         data={dialogs.create}
         hours={hours}
         seed={seed}
-        onCreate={(laneKey, item, message) => {
-          setAdded((was) => [...was, { ...board, laneKey, item }])
+        onCreate={(laneKey, item, message, priced) => {
+          setAdded((was) => [...was, { ...board, laneKey, item, priced }])
           show(message)
         }}
       />
@@ -7286,12 +7392,19 @@ export function TodayScreen(props: TodayProps) {
           ) : proxy.kind === 'block' ? (
             // The block's own face, not a card's: it has no ticket and no
             // customer, and a micro carries no time label on the board either.
+            // ⚖ FIX ROUND 1 (L1 F2) — but the time it prints is the one under
+            // the cursor, exactly as the card's is: a 休憩 being carried said
+            // where it came FROM for the whole gesture while the ghost under it
+            // said where it was going. Its grammar is the span, not the start.
             <>
               <strong>{proxy.item.title}</strong>
-              {!proxy.item.micro && <small>{proxy.item.time}</small>}
+              {!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}
             </>
           ) : (
-            cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))
+            // ⚖ R8 GAP-11 — the ONE difference between the card in hand and the
+            // card at rest: the time under the cursor. Everything else is the
+            // face he grabbed, to the character.
+            cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))
           )}
           {/* ⚖ LIAM flag 50(b) — 「置けない」 / 「要確認」, live, at the cursor,
               before any drop. Canon's demo hangs its own ghost off the pointer
@@ -7402,7 +7515,7 @@ function CreateDialog({
   data: TodayProps['dialogs']['create']
   hours: TodayProps['hours']
   seed: { staffId: string; start: number; nonce: number } | null
-  onCreate: (laneKey: string, item: BoardItem, message: string) => void
+  onCreate: (laneKey: string, item: BoardItem, message: string, priced: boolean) => void
 }) {
   const [tab, setTab] = useState<'book' | 'block'>('book')
   const [start, setStart] = useState(hours.open + 6 * 60 >= hours.close ? hours.open : hours.open + 6 * 60)
@@ -7508,6 +7621,12 @@ function CreateDialog({
       staffId,
       item,
       `${hhmm(start)}の${title}をこの画面の中だけに追加しました。再読み込みすると消えます`,
+      // ⚖ R8 FIX ROUND 2 — the dialog's OWN price fact, on the same predicate
+      // the `ticketCore:` line above mints the face with: a 予約 with a コース
+      // chosen has a price, a 予定ブロック never does. Inert while a created
+      // card cannot be dragged (`onCardPointerDown` returns on `!item.caseId`),
+      // and honest the day it can be.
+      tab === 'book' && menu?.price != null,
     )
   }
 

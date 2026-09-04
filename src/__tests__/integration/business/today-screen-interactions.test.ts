@@ -18,7 +18,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
-import { computeChecks, confirmCaption } from '@/business/lib/canon-logic/drag-rules'
+import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
   applyMoves,
@@ -88,6 +88,11 @@ import {
   HOLD_CANCEL_V,
   type WarnCardInput,
   pinInViewport,
+  proxyTimeLabel,
+  withPriceFact,
+  hasPriceFact,
+  priceFactSets,
+  PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
   type Moves,
@@ -184,11 +189,108 @@ const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
  *  argument to, is what closes it: a duplicate moves the count, and a move
  *  leaves the slice.
  *
- *  A decoy hidden as a TRAILING comment on a real code line survives the
- *  filter — and then it INFLATES the count, which is red the other way
- *  round. */
+ *  ⚖ BREAKER-828 F5 (MAJOR) — AND THE `//` PASS READS EVERY LINE, NOT ONLY THE
+ *  LINES IT OWNS. `codeOnly` used to strip only a line that is ENTIRELY a
+ *  comment, and then blank `/* … *\/` blocks. A TRAILING `// … /*` therefore
+ *  survived the first pass into the second, where it opened a block that ate
+ *  everything down to the next `*\/`: real code TypeScript compiles, invisible
+ *  to every ban and every count on this lane. The breaker hid a second live
+ *  `computeChecks(` reader that way — inside `checksFor`, between `) // shim /*`
+ *  and `/* *\/` — and 1912 tests plus `tsc --noEmit` stayed green, defeating the
+ *  pin this file itself calls 「the one decoy the two counts above walked past」.
+ *
+ *  So the first pass now cuts each line at its first `//` that is OUTSIDE a
+ *  string, walking `'`, `"` and backtick state with escapes honoured. A `//`
+ *  inside `'https://…'` is code and stays; a `/*` inside a whole-line comment is
+ *  cut away with the comment instead of opening a block. Line COUNT is
+ *  preserved (the cut keeps the leading indent), so `callSlice` still slices the
+ *  same thing it counts.
+ *
+ *  ⚖ BREAKER-828 DELTA G3 (MAJOR) — AND TWO PASSES CANNOT READ A STRING. F5's
+ *  fix closed the shape it was filed for and not the class. The line pass
+ *  tracked quotes PER LINE and could not tell a string from an apostrophe that
+ *  is not one, so `) /* it's fine *\/ // shim /*` left the walker believing a
+ *  string was open, the trailing `//` was never cut, its `/*` survived into the
+ *  block pass and swallowed everything down to the next closer (`N12`). And the
+ *  block pass ran over the joined source with no string state at all, so
+ *  `const OPEN = '/*'` … `const CLOSE = '*\/'` opened and closed a comment out
+ *  of two string literals with no `//` anywhere for the first pass to look at
+ *  (`N13`). Both hid a second live `computeChecks(` reader — 1920 tests and
+ *  `tsc --noEmit` green.
+ *
+ *  v3 is ONE pass. A state machine walks the whole source once: code, `'…'`,
+ *  `"…"`, `` `…` `` with `${ … }` holes that return to code at their own brace
+ *  depth, `//` to end of line, `/* … *\/` to its closer or to end of input.
+ *  Escapes inside strings are honoured; strings come back VERBATIM, delimiters
+ *  and all; comments are blanked to SPACES, so the output is the same length as
+ *  the input and every line number and column is the file's own — the two-pass
+ *  version deleted the newlines inside a block comment and moved every line
+ *  under it. Quotes only open a string from CODE state, so a `'` inside a
+ *  comment is a character.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1 — revised, the
+ *  claim below used to be wrong on both halves). A regex literal is not
+ *  parsed, and a QUOTE inside its character class is not the only thing that
+ *  leaks: because a `/` in code state is pushed as a plain character, the very
+ *  next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) takes the
+ *  block-comment branch too, closing string-blind on whichever `*\/` comes
+ *  next. And 「hiding is red」 only holds when the hidden span contains a
+ *  PINNED line — a mutant that hides only its OWN added lines moves no count
+ *  (`N31`, `N31b`: a second live `computeChecks(` reader, GREEN at 30 suites,
+ *  `tsc --noEmit` clean). The guard against that is not in the tokenizer: a
+ *  RAW count over `src` stands beside every `codeOnly(src)` single-reader
+ *  count that a hidden second reader would matter to — a regex hole can blind
+ *  the blanked count, never the raw one. ADDING is what a decoy needs, and
+ *  adding is what the counts are for.
+ *
+ *  It is duplicated verbatim in three suites — they do not import one another
+ *  and a new module is forbidden on this lane — and the last describe in each
+ *  file asserts all three copies are byte-identical, marker to marker. */
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const codeOnly = (src: string) => src.replace(/^[ \t]*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
+  }
+  return out.join('')
+}
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
 const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
 const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
 const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
@@ -1695,6 +1797,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "guardCheckRowBesideOffer,",
       "guardRailsFor,",
       "guardVerdictAt,",
+      "hasPriceFact,",
       "blockNode,",
       "heldDrawnFor,",
       "holdPopAnchor,",
@@ -1716,6 +1819,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "pairLanesOf,",
       "parkChipText,",
       "pinInViewport,",
+      "priceFactSets,",
+      "proxyTimeLabel,",
       "restCueStarts,",
       "warnFaceFor,",
       "holdClock,",
@@ -1732,6 +1837,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "seedSpanIn,",
       "slotStartAt,",
       "unparkOutcome,",
+      "withPriceFact,",
       "foreignStoreRefusal,",
       "type GuardRail,",
       "type LandingFloor,",
@@ -2144,7 +2250,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     const ask = (stagedId: string | null) =>
       landingVerdict(board, {
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
-        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null,
+        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null, hasPrice: true,
         locked: [], rooms: POLICY, minutesOf: (x) => minuteOf(x, HOURS), stagedId,
       }, null)
 
@@ -4737,7 +4843,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
       ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
       ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
-      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), span: slot },"],
+      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },"],
       ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
       ['7 minted card', face, 'category: p.category,'],
     ] as const) {
@@ -5476,6 +5582,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     end: 1020,
     span: place(960, 1020, HOURS),
     foreignRefusal: null,
+    hasPrice: true,
     locked: [] as string[],
     rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
@@ -5754,7 +5861,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
-    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store])')
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
@@ -6230,7 +6337,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
     start, end: start + dur, span: place(start, start + dur, HOURS),
-    foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+    foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
   })
 
@@ -6533,7 +6640,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // …which `landingVerdict` answers with exactly that sentence.
     const v = landingVerdict([lane({ key: 'p-01', group: 'staff' })], {
       staffLane: null, bedLane: null, solveRoom: true, id: null, vip: false,
-      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null,
+      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     }, null)
     expect(v.kind).toBe('blocked')
@@ -7048,7 +7155,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   ]
   const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
     staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
-    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null,
+    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
     locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
@@ -8767,7 +8874,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
       staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
       start: s, end: s + 90, span: place(s, s + 90, HOURS),
-      foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+      foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
       minutesOf: (x: number) => minuteOf(x, HOURS),
     }, at(s)).kind
     // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
@@ -8886,7 +8993,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
         start: s, end: s + dur, span: place(s, s + dur, HOURS),
-        foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+        foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
         minutesOf: (x: number) => minuteOf(x, HOURS),
       }, at(s)).kind
       // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
@@ -10014,5 +10121,1063 @@ describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not
     const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     expect(INTERACTIONS).toContain('packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),')
     expect(INTERACTIONS).toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 F5 + DELTA G3 — THE ARMOUR'S OWN COMMENT STRIPPER, PINNED
+//
+// Every ban and every count in the T1, GAP-11 and T4 blocks below runs over
+// `codeOnly`, so a blind spot in it is a blind spot in all of them. F5 found
+// one — a TRAILING `// … /*` was not a whole-line comment, so it survived into
+// the block pass and opened a block that swallowed real, compiled code — and
+// the DELTA found that the two-pass FIX for it closed the shape and not the
+// class: a per-line quote walker cannot tell a string from an apostrophe, and
+// the block pass read no strings at all. v3 is one state machine, and this is
+// its table: every shape the breaker has hidden a live reader behind.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', () => {
+  /** The line that stands between a trailing comment which OPENS a block and
+   *  the `*\/` that closes it — real code the type-checker compiles and every
+   *  ban and count on this lane must be able to see. */
+  const HIDDEN = 'const alt = readCanon(at)'
+
+  /** Every trailing-comment shape the breaker has used, by its own id. The last
+   *  two are the DELTA's: `N12` is one apostrophe inside a same-line block
+   *  comment, which is all it took to blind the per-line walker. */
+  const SHAPES: readonly (readonly [string, string])[] = [
+    ['R-M13b — a bare trailing // that opens a block', ') // shim /*'],
+    ['N23 — a // inside a string before the trailing comment', ") // a string with '//' in it: 'x//y' shim /*"],
+    ['N24 — an escaped quote before the trailing comment', ") /* an escaped quote: 'it\\'s' */ // shim /*"],
+    ['N25 — a // inside a template-literal expression', ") // `${'a'} // b` template shim /*"],
+    ['N12 — an apostrophe inside a SAME-LINE block comment', ") /* it's fine */ // shim /*"],
+  ]
+
+  it('a trailing // that opens a block comment cannot swallow the code under it', () => {
+    for (const [why, line] of SHAPES) {
+      const code = codeOnly(['const checks = wrap(', line, HIDDEN, 'if (alt) return alt', '/* */'].join('\n'))
+      // The hidden reader is visible…
+      expect({ why, sees: code.includes(HIDDEN), keeps: code.includes('if (alt) return alt') }).toEqual({ why, sees: true, keeps: true })
+      // …and the comment itself is gone, so it cannot inflate a count either.
+      expect({ why, shim: code.includes('shim') }).toEqual({ why, shim: false })
+    }
+  })
+
+  it('a block delimiter inside a STRING LITERAL is a character, not a comment', () => {
+    // `N13` — no `//` anywhere, so the old line pass never looked, and the old
+    // block pass ran over the joined source with no string state: `'/*'` opened
+    // a comment and `'*\/'` closed it, hiding every line between them.
+    const src = ['const checks = wrap(', ')', "const OPEN: string = '/*'", HIDDEN, 'if (alt) return alt', "const CLOSE: string = '*/'"].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain(HIDDEN)
+    expect(code).toContain('if (alt) return alt')
+    // …and the strings come back verbatim, delimiters and all.
+    expect(code).toContain("const OPEN: string = '/*'")
+    expect(code).toContain("const CLOSE: string = '*/'")
+    // The mirror shape, double-quoted, and one where the delimiters share a line.
+    expect(codeOnly('const p = "/*" + x + "*/"')).toBe('const p = "/*" + x + "*/"')
+  })
+
+  it('a // inside a string literal is code, not a comment', () => {
+    const src = ["const u = 'https://example.test/a'", 'const v = "b//c"', 'const w = `d//e`']
+    for (const line of src) expect({ line, kept: codeOnly(line) }).toEqual({ line, kept: line })
+    // An escaped quote does not end the string, so the `//` after it is still
+    // inside one.
+    const esc = "const q = 'it\\'s //not a comment'"
+    expect(codeOnly(esc)).toBe(esc)
+    // A template's `${ … }` hole is CODE and a template nested inside one is
+    // text again — the state machine walks both, so the inner `//` survives…
+    const nested = 'const t = `a${ b(`c//d`) }e`'
+    expect(codeOnly(nested)).toBe(nested)
+    // …while a real line comment INSIDE a hole is still a comment.
+    expect(codeOnly('const t = `a${ b // gone\n }`')).not.toContain('gone')
+  })
+
+  it('whole-line comments and /* */ blocks are still blanked, and a /* inside a // is not a block', () => {
+    // A `/*` written inside a line comment used to open a block; the line is cut
+    // at the `//` now, so there is nothing left to open one (⚖ D5).
+    const src = ['const a = 1', '  // a comment with /* in it', 'const b = 2'].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain('const a = 1')
+    expect(code).toContain('const b = 2')
+    // …while a real block still goes. ⚖ DELTA G3 — blanked to SPACES rather
+    // than deleted, so a slice's indices are the file's own indices.
+    expect(codeOnly('const a = 1 /* gone */ + 2').replace(/ +/g, ' ')).toBe('const a = 1 + 2')
+    expect(codeOnly('const a = 1 /* gone */ + 2')).not.toContain('gone')
+    // Which makes the whole output the same LENGTH as the input, line for line
+    // and column for column…
+    for (const s of [src, 'const a = 1 /* gone */ + 2']) {
+      expect({ s, len: codeOnly(s).length }).toEqual({ s, len: s.length })
+    }
+    // …and the line COUNT is preserved, which is what `callSlice` slices on.
+    expect(codeOnly(src).split('\n')).toHaveLength(3)
+    // The two-pass version deleted the newlines INSIDE a block comment, so
+    // every line under a JSDoc moved up. It does not any more.
+    const multi = ['const a = 1', '/* one', '   two */', 'const b = 2'].join('\n')
+    expect(codeOnly(multi).split('\n')).toHaveLength(4)
+    expect(codeOnly(multi).split('\n')[3]).toBe('const b = 2')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM, SO IT NEEDS A PRICE TO BE ABOUT
+//
+// canon `computeChecks` (drag-rules.ts:227) pushes the row unconditionally and
+// canon is frozen, so the two app callers that consume its raw rows filter it:
+// `landingVerdict` here and `checksFor` on the screen. apt-09 carries
+// `booked_price: null` by documented fixture intent — it is the scene.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const CANON = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'), 'utf8')
+
+  // ⚖ BREAKER-828 DELTA 4 — comment-STRIPPED lines, foundation's own
+  // line-prefix strip with the JSX comment opener (open-brace, slash,
+  // star) added — foundation's own form does not cover it, and a bare JSX
+  // comment line reads as code without it (RED on `B4LT` in the breaker's
+  // own delta-4 run, which pays the raw budget from a JSDoc line AND the
+  // strip budget from a JSX comment together, and over-pays: `sets` moves
+  // to 11, one BELOW its own pin). LINE-BASED ON PURPOSE: a regex-literal
+  // `/*` lid (`H1`, `/[/*]/`) opens a real block comment inside `codeOnly`,
+  // but cannot blind a strip that only asks whether a LINE begins with a
+  // comment marker. Its own ceiling, named plainly: a CODE line that
+  // begins with `*` (a tsc-clean multiplicative continuation) is dropped
+  // like a comment line too — the exact-line arrays below are the belt for
+  // that gap, not this helper.
+  const stripped = (s: string) => s.split('\n').filter((l) => !/^\s*(\{?\/\/|\*|\{?\/\*)/.test(l)).join('\n')
+
+  // ⚖ BREAKER-828 DELTA 4 — one entry per MATCH (not per line): the line the
+  // match sits on, trimmed, in file order. A line that mentions the same
+  // name several times stands several times — the `hasPriceFor` bind line
+  // mentions `sets` four times and appears four times in `SETS_SRC` below.
+  // This is the belt the strip above cannot be: ANY added line, removed
+  // line, or reworded line — even a comment — changes the array, so paying
+  // for a mutation out of a prose budget is impossible here, not merely
+  // expensive (`B7`/`B8` below are the documentation-only mutants that
+  // prove the raw counts already carry this exact cost; a failing array
+  // prints the diff, so a legitimate edit re-spells one entry).
+  const rawLineHits = (s: string, re: RegExp): string[] =>
+    s.split('\n').flatMap((l) => Array.from({ length: (l.match(re) ?? []).length }, () => l.trim()))
+
+  // ⚖ BREAKER-828 DELTA 4 — a plain substring count for the import-door belt
+  // below, spelled without a regex escape on the path's slashes: a regex
+  // literal escapes `/` as `\/`, and this repo's own import-isolation
+  // scanner (business-isolation.test.ts) reads raw text for anything
+  // shaped like `from '…'`, so an ESCAPED specifier reads back as a
+  // "bare package off the allowlist" to that unrelated suite. A plain
+  // string needle, split-counted, spells the specifier exactly as it
+  // appears in real code and is invisible to that concern.
+  const rawSubstringCount = (s: string, needle: string): number => s.split(needle).length - 1
+
+  // ⚖ BREAKER-828 DELTA 4 — the raw lines themselves, script-emitted off this
+  // tip via `rawLineHits` and pasted verbatim, never hand-retyped.
+  const COMPUTECHECKS_SRC: readonly string[] = [
+    "computeChecks,",
+    "*  A `BoardItem` has no price (today-board.ts), and canon's `computeChecks`",
+    "*  ledger and `computeChecks` are never run per pixel. */",
+    "/** canon `computeChecks` fed from the board as it currently stands. The sell",
+    "computeChecks(at, {",
+    "// ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole",
+    "*  and cannot be confirmed is still `computeChecks`' answer alone and a",
+    "*  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever",
+    "*  than `computeChecks` says; there is simply nothing to gate. ⚖ 92 fix round 8",
+    "*  literal `false`, so ⚖ 73 is intact and `computeChecks` still has no subject",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+  ]
+  const COMPUTECHECKS_INT: readonly string[] = [
+    "computeChecks,",
+    "*  reading before 確定 — as INFORMATION, not as a gate: `computeChecks` still",
+    "*  `computeChecks` alone is the gate), so it cannot earn ×, whatever the engine",
+    "/** ⚖ 73 — the ONE hard row the frozen engine emits. `computeChecks`",
+    "/** WHY, in the board's existing vocabulary — `computeChecks`' own sentence for",
+    "/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,",
+    "/** The same span in canon's percent units — `computeChecks` speaks percent. */",
+    "*  the wrong board first, then the person (重複/勤務/ロック — `computeChecks`'",
+    "computeChecks(q.span, {",
+    "*  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules",
+    "*  can legitimately carry the same one — the day `computeChecks` grows a second",
+    "*  `computeChecks`-confirmable) was walled by the dial. It was composed from",
+  ]
+  const PRICEFACTSETS_SRC: readonly string[] = [
+    "priceFactSets,",
+    "*  `priceFactSets` is where a truth table can be written about them. It also",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+  ]
+  const HASPRICEFACT_SRC: readonly string[] = [
+    "hasPriceFact,",
+    "*  `hasPriceFact` (today-interactions), which is where its reasoning and its",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+  ]
+  const SETS_SRC: readonly string[] = [
+    "*   確定/元に戻す, which are the question. Clicking the card sets this true. */",
+    "*  sets built once per board, handed to the pure function. It is a `useMemo`",
+    "*  so the sets are built once per board rather than once per gesture, and it",
+    "*  two lines are the whole binder — the sets, then the question. */",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "*  keyboard nudge sets it deliberately (Shift/Alt cannot change a start, ⚖",
+    "// rendered nothing, which is flag 3's disease exactly. Canon sets it from",
+    "{/* canon sets this as the cards' aria-description (:3865).",
+  ]
+  // ⚖ BREAKER-828 DELTA 5 C1 — THE EXACT-LINE ARRAY OVER THE BARE MODULE
+  // PATH, RAW. `C1` (a second `import` NEWLINE `* as canonRules from
+  // "…drag-rules"` with DOUBLE quotes, read through a computed key) is
+  // invisible to BOTH belts above: `rawDragImports`'s needle is
+  // quote-specific (single quotes only) and `stripDragImports` drops any
+  // line beginning with `*` — the very line the two-line form's path lands
+  // on. Quote style, one line or two, `import`/`export … from`/`require`
+  // with a CONTIGUOUS path — every static form puts the contiguous path on
+  // SOME raw line, so this array is the zero-budget closure over both
+  // belts: any added, removed or reworded line — even a comment — moves it.
+  // The one non-contiguous form (a concatenated `require`, `C5`) is shut by
+  // foundation's import inventory AND eslint's `no-require-imports` error,
+  // both outside this file — measured, not chased here.
+  const DRAGRULES_SRC: readonly string[] = [
+    "//     src/business/lib/canon-logic/drag-rules.ts. A booking that starts at 17:12",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
+  const DRAGRULES_INT: readonly string[] = [
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
+
+  // ⚖ BREAKER-828 DELTA 6 K1 — THE FILTER ITSELF HAS NO SHADOW ARMOUR. Every
+  // other name item T1 rests on is declared-once-pinned — `computeChecks`,
+  // `priceFactSets`, `hasPriceFact` above, `hasPriceFor` below — except
+  // `withPriceFact`, the one function the whole item exists to prove runs. A
+  // local `const withPriceFact = (rows, p) => (p ? rows : rows)` declared one
+  // line above the pinned wrapper line makes the wrapper a no-op: 1925 + 1
+  // green, tsc exit 0, eslint exit 0 (one new `no-unused-vars` warning — the
+  // shadow makes the import dead; the tip already carries 229, so no gate
+  // fails). `withPriceFact`'s own numbers do not fit the priceFactSets/
+  // hasPriceFact loop below (its raw mentions read 2 today, not that loop's
+  // fixed 3 — no prose mention exists yet), so this is its own small block
+  // rather than a bent loop. A legitimate new use, even in a comment, must
+  // update it.
+  const WITHPRICEFACT_SRC: readonly string[] = [
+    "withPriceFact,",
+    "const checks = withPriceFact(",
+  ]
+
+  // ⚖ BREAKER-828 DELTA 6 K2 — THE IMPORT-DOOR BELTS ABOVE ARE PER FILE, AND
+  // THE FILE NEXT DOOR IS UNSEALED. `held-committed.ts` sits in this same
+  // folder, is already imported by the screen, and is NOT in
+  // `foundation.test.ts`'s sealed inventory — so it can take a new
+  // drag-rules import with nothing watching and re-export canon's function
+  // under another name, and the screen adds one specifier to a one-line
+  // import whose specifier list nothing above pins (only
+  // `./today-interactions` is pinned specifier-by-specifier). The screen's
+  // WHOLE import header, ordered, script-emitted off this tip (15 lines) —
+  // subsumes `C1`/`C2`/`B5`/`S2`/`E3` as a by-product (all five read 16
+  // lines and change the hash) and closes the unsealed-neighbour route on
+  // THIS screen. The general answer — the five `today/` modules joining
+  // foundation's sealed inventory — is a rider on `foundation.test.ts`
+  // (untouchable from this file). Any import added, removed or reworded —
+  // even a comment on the same line — moves this array and prints the diff.
+  const SRC_FROM_LINES: readonly string[] = [
+    "import Link from 'next/link'",
+    "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+    "} from '@/business/lib/canon-logic/pricing'",
+    "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
+    "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
+    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
+    // ⚖ two entries below are split with `+` at the SAME runtime value —
+    // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
+    // `from '…'` across every file in its own territory, this test file
+    // included, and reads a literal quoted string here as if it were a real
+    // import; resolved relative to THIS file's own path (not the screen's),
+    // `../../BusinessSessionEdits` lands one level outside territory. The
+    // split changes no character of the string these lines equal — verified
+    // by `toEqual` below — only how the source spells it.
+    "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
+    "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
+    "} from './today-interactions'",
+    "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
+    "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
+    "import { heldCommittedFor } from './held-committed'",
+    "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
+    "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+  ]
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
+  const SETS_LINE =
+    'const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])'
+  const BIND_LINE =
+    'const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])'
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F4) — EVERY LINE ON THIS SCREEN THAT ANSWERS
+   *  「has this placement a price?」, with how many times it stands. The count
+   *  pin below sees a missing site and a doubled one; only the lines see a
+   *  suffix (`|| Boolean(1)`) or a parameter shadow. */
+  const ASK_LINES: readonly (readonly [string, number])[] = [
+    ['hasPrice: hasPriceFor(live.id),', 1],
+    ['hasPrice: hasPriceFor(chip.id),', 2],
+    ['hasPrice: hasPriceFor(pending.id),', 2],
+    ['hasPrice: hasPriceFor(ctx.id),', 3],
+    ['hasPrice: hasPriceFor(id),', 1],
+    ["{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },", 1],
+    ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
+  ]
+
+  const rows = (): Check[] => [
+    { ok: true, label: '時間帯の重複なし' },
+    { ok: false, label: '見本 あずさは18:00以降勤務不可' },
+    { ok: true, label: '整体資格 一致' },
+    { ok: true, label: PRICE_HOLD_ROW },
+  ]
+
+  // (b) — THE CONSTANT IS CANON'S, and canon cannot be edited to agree with it.
+  it('PRICE_HOLD_ROW is the literal canon pushes, read out of canon’s own source', () => {
+    const compute = CANON.slice(CANON.indexOf('export function computeChecks('), CANON.indexOf('export function confirmCaption('))
+    expect(compute.length).toBeGreaterThan(0)
+    expect(pinnedLine(compute, `checks.push({ ok: true, label: '${PRICE_HOLD_ROW}' })`)).toBe(true)
+    // …and it is pushed with no condition in front of it — which is WHY the app
+    // side filters rather than asking canon to stop.
+    expect((codeOnly(compute).match(/checks\.push\(\{ ok: true, label: '予約時価格を保持/g) ?? []).length).toBe(1)
+  })
+
+  // (a) — THE FILTER ITSELF.
+  it('withPriceFact drops exactly canon’s row, exactly when there is no price', () => {
+    const before = rows()
+    // A priced booking keeps every row, in canon's order, byte for byte.
+    expect(withPriceFact(before, true)).toEqual(rows())
+    expect(withPriceFact(before, true).map((c) => c.label)).toEqual(rows().map((c) => c.label))
+    // A price-less one loses THAT row and nothing else — same order, same
+    // objects, one fewer.
+    const after = withPriceFact(before, false)
+    expect(after.map((c) => c.label)).toEqual(['時間帯の重複なし', '見本 あずさは18:00以降勤務不可', '整体資格 一致'])
+    expect(after).toEqual(rows().slice(0, 3))
+    expect(after).toHaveLength(before.length - 1)
+    // It reads the LABEL, not the position: the same row anywhere in the list
+    // is the same row.
+    const shuffled = [{ ok: true, label: PRICE_HOLD_ROW }, ...rows().slice(0, 3)]
+    expect(withPriceFact(shuffled, false).map((c) => c.label)).toEqual(rows().slice(0, 3).map((c) => c.label))
+    // …and it never invents one: a list canon did not put the row in comes back
+    // unchanged under both answers.
+    const without = rows().slice(0, 3)
+    expect(withPriceFact(without, false)).toEqual(without)
+    expect(withPriceFact(without, true)).toEqual(without)
+    // The input is not mutated — the caller's list is still canon's.
+    expect(before).toHaveLength(4)
+  })
+
+  // …proven THROUGH the verdict, so the wiring is walked and not only the unit.
+  it('the one verdict carries the filter: the same landing, two prices, two lists', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }), lane({ key: 'bed-01', group: 'beds' })]
+    const q = (hasPrice: boolean) => ({
+      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
+      start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice,
+      locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+    })
+    const priced = landingVerdict(lanes, q(true), null).checks.map((c) => c.label)
+    const priceless = landingVerdict(lanes, q(false), null).checks.map((c) => c.label)
+    expect(priced).toContain(PRICE_HOLD_ROW)
+    expect(priceless).not.toContain(PRICE_HOLD_ROW)
+    // Everything else about the landing is identical — the filter took one row
+    // and changed no judgement.
+    expect(priceless).toEqual(priced.filter((l) => l !== PRICE_HOLD_ROW))
+    expect(landingVerdict(lanes, q(false), null).kind).toBe(landingVerdict(lanes, q(true), null).kind)
+  })
+
+  // (d) — BOTH RAW-CANON ENTRY POINTS GO THROUGH IT. Anchored whole lines over
+  // comment-blanked source, each bounded to the call it belongs to, each
+  // counted, with the dodges the breaker reaches for banned outright.
+  // ⚖ BREAKER-828 DELTA 3 I4 — TITLE HONESTY (pre-existing, not this PR): a
+  // third raw consumer of canon's rows exists at
+  // settings/page.tsx:244 (the 設定 room's own hypothetical sample landing) —
+  // outside this test's scope (the settings room is the release program's
+  // lane; rider filed there). This test counts the BOARD's two call sites
+  // only.
+  it('every consumer of canon’s raw rows filters them — the board’s two call sites, counted', () => {
+    for (const [where, src, open_, close_, call] of [
+      ['checksFor (screen)', SRC, 'const checks = withPriceFact(', 'hasPriceFor(id),', 'computeChecks(at, {'],
+      ['landingVerdict (interactions)', INT, 'checks = withPriceFact(', 'q.hasPrice,', 'computeChecks(q.span, {'],
+    ] as const) {
+      const slice = callSlice(src, open_, close_)
+      expect({ where, ok: slice.ok, opens: slice.opens, closes: slice.closes }).toEqual({ where, ok: true, opens: 1, closes: 1 })
+      // canon's call is INSIDE the wrapper, which is the whole claim.
+      expect({ where, wrapped: pinnedLine(slice.text, call) }).toEqual({ where, wrapped: true })
+      // …and there is exactly one of each in the file, so a second copy has
+      // nowhere to stand and a moved line leaves the slice.
+      expect({ where, calls: pinnedLines(src, call) }).toEqual({ where, calls: 1 })
+      expect({ where, wraps: pinnedLines(src, open_) }).toEqual({ where, wraps: 1 })
+      // …and canon's raw rows have exactly ONE reader in each file, counted
+      // WITHOUT the line anchor. A second call spelled `const other =
+      // computeChecks(at, {` is real code that an anchored count cannot see —
+      // it is the one decoy the two counts above walked past.
+      expect({ where, readers: (codeOnly(src).match(/computeChecks\(/g) ?? []).length }).toEqual({ where, readers: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — AND THE RAW SOURCE, BESIDE IT. `codeOnly`
+      // does not parse regex literals, and it is not only a quote that leaks:
+      // the very next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) opens a
+      // real block comment too, closing string-blind on the next `*/` — a
+      // second live `computeChecks(` reader can sit hidden in there and the
+      // blanked count above never sees it (`N31`, `N31b`: GREEN at 30 suites,
+      // `tsc --noEmit` clean). Hiding is only red when it removes a PINNED
+      // line from a count; hiding a mutant's own addition moves nothing
+      // above. The raw count cannot be blinded the same way — it reads `src`
+      // itself, never `codeOnly(src)`.
+      expect({ where, rawReaders: (src.match(/computeChecks\(/g) ?? []).length }).toEqual({ where, rawReaders: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I1 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE CALL SPELLING. `rawReaders` above matches `computeChecks(` — one
+      // spelling of a call among many (a local alias, `.call`, a spaced
+      // paren, a second import specifier, a string-built lookup all move
+      // NOTHING on that count — `A1` `A2` `A3` `A4` `A7`: 1925 tests and
+      // `tsc --noEmit` green, each a second live reader inside `checksFor`).
+      // This one reads the bare identifier: any of those five shapes adds a
+      // second `computeChecks` mention and this number moves. A legitimate
+      // new use of the name anywhere in the file — even in a comment — must
+      // update it.
+      expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: 12 })
+      // ⚖ BREAKER-828 DELTA 4 J1 — AND `rawIdents` ABOVE IS A WHOLE-FILE
+      // TOTAL THAT PROSE AND CODE SHARE. Ten of `computeChecks`'s twelve raw
+      // mentions in this file are prose; a mutant that adds one live reader
+      // inside `checksFor` and rewords one distant JSDoc mention pays for
+      // itself out of that prose budget and leaves `rawIdents` sitting at 12
+      // (`B1` `B1L`: 1925 tests, `tsc --noEmit` clean, byte-identical
+      // eslint — a second live raw-canon reader in `checksFor`). This one
+      // counts over comment-STRIPPED lines, which removes the currency:
+      // both files read 2 live mentions today — the import specifier and
+      // the pinned call. A legitimate new use, even inside a comment, must
+      // update it.
+      expect({ where, codeIdents: (stripped(src).match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, codeIdents: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // `computeChecks` in this file, trimmed, in file order (one entry per
+      // mention — a line naming it twice stands twice). Any added, removed
+      // or REWORDED line — even a comment reworded to pay `codeIdents`
+      // above — changes this array and prints the diff.
+      expect(rawLineHits(src, /\bcomputeChecks\b/g)).toEqual(where === 'checksFor (screen)' ? COMPUTECHECKS_SRC : COMPUTECHECKS_INT)
+      // ⚖ BREAKER-828 DELTA 4 J4 — THE IMPORT-DOOR RAW BELT. `B5` spells
+      // `computeChecks` NOWHERE — it reaches canon through a SECOND import
+      // statement from a module this screen already imports
+      // (`import * as canonRules from '…/drag-rules'`), read through a
+      // computed key (`bag['compute' + 'Checks']`). `foundation.test.ts`'s
+      // import inventory collects into a `Set`, so a duplicate module
+      // specifier is invisible to the door that catches a NEW module — it
+      // sees new modules, not new imports (that general fix is a rider on
+      // `foundation.test.ts`, untouchable from this file). This raw count of
+      // the quoted specifier is the in-scope substitute: zero budget on the
+      // tip today, proven by script — no comment line in either file
+      // contains the string.
+      expect({ where, rawDragImports: rawSubstringCount(src, "from '@/business/lib/canon-logic/drag-rules'") }).toEqual({ where, rawDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE SAME DOOR, OVER THE STRIP. Recorded
+      // beside the raw belt above rather than instead of it: `S2`
+      // (`B5` re-spelt as the two-line import form `import` NEWLINE
+      // `* as canonRules from '…drag-rules'`) puts the quoted specifier on a
+      // line that STARTS WITH `*` — exactly the strip's own named ceiling —
+      // so this count may stay at 1 while `S2` is still RED, on the raw
+      // belt above. That is why the raw belt exists rather than only this.
+      expect({ where, stripDragImports: (stripped(src).match(/canon-logic\/drag-rules/g) ?? []).length }).toEqual({ where, stripDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 5 C1 — AND THE EXACT LINES OVER THE BARE PATH,
+      // CLOSING THE GAP BETWEEN THE TWO BELTS ABOVE. `C1` writes a second
+      // `import` NEWLINE `* as canonRules from "…drag-rules"` with DOUBLE
+      // quotes: the raw belt's needle only matches single quotes, and the
+      // strip drops the `*`-prefixed second line — the very line the path
+      // sits on — so neither counter above moves. Quote style, one line or
+      // two, `import`/`export … from`/`require` with a contiguous path —
+      // every static form puts the contiguous path on SOME raw line, so any
+      // added, removed or reworded line — even a comment — moves this
+      // array. The only non-contiguous form (a concatenated `require`, C5)
+      // is shut outside this file, by foundation's import inventory AND
+      // eslint's `no-require-imports` error — both measured, not this pin's
+      // job.
+      expect(rawLineHits(src, /canon-logic\/drag-rules/g)).toEqual(where === 'checksFor (screen)' ? DRAGRULES_SRC : DRAGRULES_INT)
+      // ⚖ BREAKER-828 DELTA 6 K3 — THE CHEAP BELT AGAINST `eval`/`new
+      // Function`. `eval('compute' + 'Checks')` inside `checksFor` reaches
+      // the module's own `computeChecks` binding while the token
+      // `computeChecks` appears nowhere and no second import exists — every
+      // pin above is silent on it, and every column it moves is identical to
+      // CLEAN. This is a two-token denylist, not a general answer: it closes
+      // `eval(`/`new Function(` and nothing more. The real closer lives
+      // outside these files — eslint's `no-eval` / `no-implied-eval`, which
+      // this repo's config does not currently enable (measured; filed as a
+      // rider, not chased here).
+      expect({ where, evalOrFunction: (stripped(src).match(/\b(?:eval|Function)\s*\(/g) ?? []).length }).toEqual({ where, evalOrFunction: 0 })
+      // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
+      // no-op, are gone in every shape the breaker has used on this lane.
+      for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
+        expect({ where, dodge, at: codeOnly(src).indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
+    // ⚖ BREAKER-828 DELTA 6 K2 — the screen's whole import header, as an
+    // ordered exact-line array (see SRC_FROM_LINES above for the reason: the
+    // door found by the breaker is a file the belts above never watch,
+    // `held-committed.ts`, reached through an unpinned specifier on THIS
+    // line).
+    expect(SRC.split('\n').filter((l) => /\bfrom\s*['"]/.test(l)).map((l) => l.trim())).toEqual(SRC_FROM_LINES)
+  })
+
+  // (e) — AND EVERY LANDING THE SCREEN ASKS CARRIES THE FACT. `hasPrice` is a
+  // REQUIRED field, so tsc already refuses a site that forgets it; this is the
+  // count that refuses a site that answers it TWICE (a spread override beside a
+  // real one) or drops one along with its `solveRoom:`.
+  it('every ask constructor in the screen carries hasPrice — one per solveRoom', () => {
+    const code = codeOnly(SRC)
+    const solveRooms = (code.match(/solveRoom:/g) ?? []).length
+    const hasPrices = (code.match(/hasPrice:/g) ?? []).length
+    expect(solveRooms).toBeGreaterThan(0)
+    expect({ solveRooms, hasPrices }).toEqual({ solveRooms, hasPrices: solveRooms })
+    // The screen's answer is always DERIVED — never the literal `true` that
+    // would put canon's row back on a price-less booking (banned above), and
+    // never a bare `false` anywhere but the create-form ask, which opens the
+    // dialog where the price is still to be chosen.
+    expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
+  })
+
+  // ⚖ FIX ROUND 3 (BREAKER-828 F4) — AND EACH ASK SITE BY ITS OWN LINE.
+  //
+  // The count above is blind to anything that keeps the count: the breaker
+  // suffixed one site with `|| Boolean(1)` (M09) and wrapped another in an IIFE
+  // whose PARAMETER is called `hasPriceFor` (M10) — 1912 tests and `tsc`
+  // green both times, and the 「declared exactly ONCE」 regex above reads
+  // declarations only, so a parameter binding walked straight past it. The
+  // contrast is the argument: the two raw-canon call sites ARE line-bounded and
+  // the same attack dies there (M16, RED). These eleven lines are that same
+  // boundary for the ask sites.
+  it('every hasPrice line in the screen is EXACTLY one of these, and nothing dresses it up', () => {
+    const code = codeOnly(SRC)
+    // Read as a whole multiset off the file, so a CHANGED site, an added one and
+    // a removed one are all one red that prints the block.
+    const asks = code.split('\n').filter((l) => l.includes('hasPrice:')).map((l) => l.trim()).sort()
+    const want = ASK_LINES.flatMap(([line, times]) => Array.from({ length: times }, () => line)).sort()
+    expect(asks).toEqual(want)
+    // …and each distinct line anchored and counted where it stands, which is the
+    // shape the rest of this file's armour uses.
+    for (const [line, times] of ASK_LINES) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: times })
+    }
+    // The dodges that do NOT move a count: an operator suffixed onto the real
+    // answer, the name arriving as a call argument or a parameter rather than a
+    // declaration, and a hardcoded answer spelled as a Boolean call.
+    for (const [why, re] of [
+      ['an operator suffixed onto the real answer', /hasPriceFor\([^)]*\)\s*(\|\||\?\?|&&)/],
+      ['hasPriceFor arriving inside a parameter list', /\(\s*hasPriceFor\b/],
+      ['hasPriceFor bound as an argument or a parameter', /[,(]\s*hasPriceFor\s*[,)=:]/],
+      ['hasPriceFor as an arrow parameter', /\bhasPriceFor\s*=>/],
+      ['a hardcoded yes in Boolean form', /Boolean\(1\)/],
+      ['a hardcoded no in Boolean form', /Boolean\(0\)/],
+    ] as const) {
+      expect({ why, found: re.test(code) }).toEqual({ why, found: false })
+    }
+    // …and the declared-once law now counts PARAMETER bindings too, which is
+    // the hole M10 walked through.
+    expect((code.match(/[(,]\s*hasPriceFor\s*[,)]/g) ?? []).length).toBe(0)
+  })
+
+  // (f) — ⚖ FIX ROUND 1 (blind round 1, L2 F10) — AND THE ANSWER ITSELF, NOT
+  // ONLY ITS WIRING. The screen's closure kept T1's whole rule and had no unit
+  // pin at all: dropping the server guard inside it left 444 tests green while
+  // the 保持 row came back on a price-less booking — the exact defect this item
+  // exists to remove. The rule is a pure function now (`hasPriceFact`), and
+  // this is its whole truth table.
+  it('hasPriceFact reads the server’s record first and the session’s mint only second', () => {
+    // apt-26 is priced on the server; apt-09 is a server booking with
+    // `booked_price: null`; `nextvisit-*` are ids no server lane knows.
+    const priced = new Set(['apt-26'])
+    const fromServer = new Set(['apt-26', 'apt-09', 'apt-25'])
+    const minted = new Set(['nextvisit-1', 'apt-09'])
+    // A server card WITH a price — the record says so.
+    expect(hasPriceFact('apt-26', priced, fromServer, minted)).toBe(true)
+    // apt-09's shape — a server card with no recorded price.
+    expect(hasPriceFact('apt-09', priced, fromServer, new Set())).toBe(false)
+    // …and STILL none while the session is carrying that same card with its
+    // ticket line intact: `placeFromShelf` puts a real booking's own card back
+    // into the session's list carrying a non-null `ticketCore`, so a rule that
+    // read the mint FIRST would answer 「price」 for apt-09. THIS is the row the
+    // surviving mutant deleted.
+    expect(hasPriceFact('apt-09', priced, fromServer, minted)).toBe(false)
+    // A 次回予約 minted this session on a lane WITH a 定価 — no server row knows
+    // it, and the mint wrote a ¥ face onto it.
+    expect(hasPriceFact('nextvisit-1', priced, fromServer, minted)).toBe(true)
+    // The same mint on a lane with NO 定価 (⚖ R6 D2 — `ticketCore` null, so the
+    // id is not in the minted-priced set).
+    expect(hasPriceFact('nextvisit-2', priced, fromServer, minted)).toBe(false)
+    // A booking that does not exist yet (the empty-slot form ask) has no price
+    // for a row to be about.
+    expect(hasPriceFact(null, priced, fromServer, minted)).toBe(false)
+    // An empty world prices nothing, and a card that is both is still just yes.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set())).toBe(false)
+    expect(hasPriceFact('apt-26', priced, fromServer, new Set(['apt-26']))).toBe(true)
+    // ⚖ FIX ROUND 2 (Greptile on #828) — THE CROSS-DAY SCENE, both ways round.
+    // The shelf survives day navigation and `placeFromShelf` places on ANOTHER
+    // DAY by design; that day's `pricedIds` and lanes have never heard of the
+    // booking, so BOTH server sets are empty and the only thing left to answer
+    // with is the stamp the shelf took at park time. A price-less booking was
+    // not stamped, so canon's 保持 row stays off…
+    expect(hasPriceFact('apt-09', new Set(), new Set(), new Set())).toBe(false)
+    // …and its priced twin WAS stamped, so the row is still there. Before the
+    // stamp the session's side was read off `item.ticketCore`, and a price-less
+    // booking's ticket line is the NON-NULL text 「価格未記録」 (today-board.ts
+    // :409-410) — so the first of these two answered `true` and the 保持 row
+    // came back on exactly the booking T1 took it off.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set(['apt-26']))).toBe(true)
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F3 + F1) — THE SETS THE RULE IS ASKED WITH,
+   *  now that building them is a pure function rather than four lines inside a
+   *  component the suite cannot execute. */
+  it('priceFactSets sorts every source into the right set, and only the stamped ones into the session set', () => {
+    const item = (caseId: string | null) => ({ caseId })
+    const sets = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [
+        lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] }),
+        // A lane row that is NOT a booking (a 休憩 block carries no caseId) is
+        // not a booking the server priced, and it is not a booking at all.
+        lane({ key: 'p-02', group: 'staff', items: [booking({ key: 'c', caseId: null }, 720, 780)] }),
+      ],
+      added: [
+        { priced: true, item: item('nextvisit-1') },
+        { priced: false, item: item('nextvisit-2') },
+        // A card the create dialog minted has no booking id yet.
+        { priced: true, item: item(null) },
+      ],
+      parked: [
+        { id: 'apt-26', priced: true },
+        { id: 'apt-09', priced: false },
+      ],
+    })
+    expect([...sets.priced].sort()).toEqual(['apt-26'])
+    // Every booking the server's lanes know, priced or not — the row with no
+    // caseId is not one of them.
+    expect([...sets.fromServer].sort()).toEqual(['apt-09', 'apt-26'])
+    // The session set is the UNION of the two session writers, and it holds
+    // ONLY what a mint stamped: the unpriced added row, the null-id row and the
+    // unpriced chip are all absent.
+    expect([...sets.sessionPriced].sort()).toEqual(['apt-26', 'nextvisit-1'])
+    // Nothing invented out of nothing.
+    const empty = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [] })
+    expect([empty.priced.size, empty.fromServer.size, empty.sessionPriced.size]).toEqual([0, 0, 0])
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1) — ONE GESTURE, ONE ANSWER.
+   *
+   *  Fix round 2 stamped `ParkChip.priced` so the fact would survive a day
+   *  change, and only `placeFromShelf` read it. The two questions asked about
+   *  the chip WHILE IT IS IN THE HAND — `inHand` (the mid-drag word and the
+   *  60分配置 strip's × marks) and `chipAsk` (the release) — went on asking
+   *  `hasPriceFor(chip.id)`, which never looked at the shelf. Measured by the
+   *  breaker on day+1: apt-26 (¥6,600) answered FALSE in hand and TRUE after the
+   *  drop, so the red 置けない box's check list was missing 予約時価格を保持 and
+   *  the placed card's rows carried it again. One gesture, two answers to one
+   *  question — the disease this PR exists to remove, in the mirror direction.
+   *
+   *  The scene, as the pure pair: another day's board (both server sets empty),
+   *  the same chip asked in the hand and then as the row the drop writes. */
+  it('a chip answers the same in the hand and after the drop, on a day that knows nothing', () => {
+    for (const chip of [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }]) {
+      const held = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [chip] })
+      // `placeFromShelf` writes the row with `priced: chip.priced` — the stamp
+      // carried, never re-derived on the landing day.
+      const dropped = priceFactSets({ pricedIds: [], serverLanes: [], added: [{ priced: chip.priced, item: { caseId: chip.id } }], parked: [] })
+      expect({
+        id: chip.id,
+        inHand: hasPriceFact(chip.id, held.priced, held.fromServer, held.sessionPriced),
+        afterDrop: hasPriceFact(chip.id, dropped.priced, dropped.fromServer, dropped.sessionPriced),
+      }).toEqual({ id: chip.id, inHand: chip.priced, afterDrop: chip.priced })
+    }
+    // …and on the chip's OWN day the stamp is redundant rather than a second
+    // author: the server's record answers first, and it is the same answer.
+    const sameDay = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] })],
+      added: [],
+      parked: [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }],
+    })
+    expect(hasPriceFact('apt-26', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(true)
+    expect(hasPriceFact('apt-09', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(false)
+  })
+
+  it('the screen has exactly ONE hasPriceFor, and it only binds that function', () => {
+    const code = codeOnly(SRC)
+    // The memo hands the three sets to the pure rule and returns its answer —
+    // not a constant, and not a second copy of the rule.
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
+    expect((code.match(/hasPriceFact\(/g) ?? []).length).toBe(1)
+    // …and the name is DECLARED once. A `const hasPriceFor = () => true`
+    // dropped above any ONE of the 11 ask sites answered for that site alone
+    // and every wiring pin above still passed (blind round 1, L2 F2), because
+    // they only ever read the text `hasPrice: hasPriceFor(`.
+    expect((code.match(/\b(?:const|let|var|function)\s+hasPriceFor\b/g) ?? []).length).toBe(1)
+    // ⚖ FIX ROUND 3 — the declaration and the binder are now ONE line, so the
+    // line pinned above is also the declaration this count is about.
+    expect((code.match(/\bconst hasPriceFor\b/g) ?? []).length).toBe(1)
+    // …and it cannot arrive as an import either: no module exports that name,
+    // so there is no shim to swap the one declaration for.
+    expect(pinnedLines(SRC, 'hasPriceFor,')).toBe(0)
+    expect(codeOnly(INT)).not.toContain('hasPriceFor')
+    // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
+    // it, so neither can answer from a board that has moved on.
+    expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')).toBe(1)
+    expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+  })
+
+  /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
+   *  ARRIVE BY IMPORT, AND MAY NEVER BE DECLARED HERE.
+   *
+   *  Blind round 1's L2 F2 was a local `const hasPriceFor = () => true`, and fix
+   *  round 1 closed it with a declared-exactly-once count. Fix rounds 1 and 3
+   *  then moved the actual decision and the actual set-building into two
+   *  IMPORTED names — `hasPriceFact` and `priceFactSets` — and neither got that
+   *  pin. Both were guarded only by a `name(` count of one, which a declaration
+   *  does not match (`const priceFactSets = (` has a space before the paren), so
+   *  one line inserted above the memo shadowed either of them with every
+   *  anchored line, every count and the import inventory untouched:
+   *
+   *  · `N10` — a local `priceFactSets` returning every parked chip and every
+   *    session card as priced. GREEN at 1920 + 1, tsc exit 0. A price-less
+   *    booking parked and carried gets 予約時価格を保持 back — T1's own defect.
+   *  · `N11` — a local `hasPriceFact` whose body ORs the three sets, i.e. the
+   *    `!fromServer` guard removed. GREEN at 1920 + 1, tsc exit 0. Every server
+   *    booking counts as priced, apt-09 included — EXACTLY the mutation blind
+   *    round 1's F10 was raised for, re-entered through the door the fix built.
+   *
+   *  So both names get the armour `hasPriceFor` has, and then the whole
+   *  accounting: on this screen each name is mentioned exactly TWICE — its
+   *  import specifier and its one call — so a third mention of any shape, a
+   *  declaration, a parameter, an alias, is red. */
+  it('priceFactSets and hasPriceFact arrive by import and are never re-declared here', () => {
+    const code = codeOnly(SRC)
+    const INTCODE = codeOnly(INT)
+    for (const name of ['priceFactSets', 'hasPriceFact'] as const) {
+      // (1) NEVER DECLARED ON THE SCREEN — the hole N10 and N11 walked through.
+      expect({ name, declared: (code.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declared: 0 })
+      // (2) …and never bound as an argument or a parameter, which is how M10
+      //     shadowed `hasPriceFor` without declaring anything.
+      expect({ name, bound: (code.match(new RegExp('[(,][ \\t]*' + name + '[ \\t]*[,)=]', 'g')) ?? []).length })
+        .toEqual({ name, bound: 0 })
+      // (3) CALLED exactly once.
+      expect({ name, calls: (code.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, calls: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — and the RAW source beside it, same reason
+      // as the computeChecks pair above: a regex-literal `/*` can hide a
+      // second live call from the blanked count without hiding a pinned
+      // line, and the raw count reads `SRC` itself, never `codeOnly(SRC)`.
+      expect({ name, rawCalls: (SRC.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, rawCalls: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I2 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE `name(` CALL SPELLING. `rawCalls` above cannot see a shadow
+      // declaration — the test's own JSDoc already says why: `const
+      // priceFactSets = (` has a space before the paren, so it never matches
+      // `name + '('`. That is how `A8`/`A9` re-open N10/N11 under the
+      // regex-comment lid without moving `rawCalls`. This one reads every
+      // bare mention of the name in raw SRC: the import specifier, the call,
+      // and one prose mention — three today. A shadow adds a fourth and this
+      // number moves; a legitimate new mention must update it.
+      expect({ name, rawMentions: (SRC.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawMentions: 3 })
+      // ⚖ BREAKER-828 DELTA 4 J2 — AND `rawMentions` ABOVE HAS A BUDGET OF
+      // EXACTLY ONE, AND IT IS A JSDoc LINE. The pin's own comment already
+      // names the third mention as prose — that one line is the whole
+      // budget, and one line is all a shadow costs: `B2`/`B3` add the
+      // delta-3 shadow under the `/[/*]/` lid AND reword that one JSDoc
+      // mention, leaving `rawMentions` sitting at 3 (1925 tests, `tsc
+      // --noEmit` clean, one new `no-unused-vars` eslint warning per name —
+      // the tip already carries 229, so no gate fails). This one counts over
+      // comment-STRIPPED lines: both names read 2 today — the pinned
+      // specifier and the call on the pinned `SETS_LINE`/`BIND_LINE`. A
+      // shadow adds a third live mention and this number moves.
+      expect({ name, codeMentions: (stripped(SRC).match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, codeMentions: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // this name in `TodayScreen.tsx`, trimmed, in file order. Any added,
+      // removed or reworded line changes this array and prints the diff.
+      expect(rawLineHits(SRC, new RegExp('\\b' + name + '\\b', 'g'))).toEqual(name === 'priceFactSets' ? PRICEFACTSETS_SRC : HASPRICEFACT_SRC)
+      // ⚖ BREAKER-828 DELTA 4 — A CHEAP SECOND BELT FOR J2, RAW AND
+      // SHAPE-BASED RATHER THAN BUDGETED. It does NOT cover a destructured
+      // shadow (`const { priceFactSets: x } = …`) — `codeMentions` and the
+      // exact-line array above are the primary; this is a second, cheaper
+      // trip-wire on the DECLARATION shape `B2`/`B3` actually use.
+      expect({ name, rawDeclared: (SRC.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawDeclared: 0 })
+      // (4) …and it ARRIVES by import: the specifier stands in the pinned
+      //     import block above, counted.
+      expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })
+      // (5) …which is the WHOLE accounting. Two mentions: the specifier and the
+      //     call. A third is a shadow, an alias or a second reader.
+      expect({ name, mentions: (code.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, mentions: 2 })
+      // (6) …and on the other side of the import there is ONE author: exported
+      //     once, declared once, never re-bound to something else.
+      expect({ name, exported: (INTCODE.match(new RegExp('export function ' + name + '\\(', 'g')) ?? []).length })
+        .toEqual({ name, exported: 1 })
+      expect({ name, declaredThere: (INTCODE.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declaredThere: 1 })
+    }
+    // ⚖ BREAKER-828 DELTA 6 K1 — AND THE FILTER ITSELF, WHICH DOES NOT FIT
+    // THE LOOP ABOVE (its raw mentions read 2 today, not the loop's fixed 3
+    // — no prose mention exists yet). Every other name this item rests on is
+    // declared-once-pinned; `withPriceFact`, the one function the whole item
+    // exists to prove runs, was the one name that never got the treatment. A
+    // local shadow of the same name, declared one line above the pinned
+    // wrapper line, makes the wrapper a no-op with every other count and
+    // array in the file untouched — this is the belt for exactly that shape.
+    expect({ name: 'withPriceFact', wpfDeclared: (stripped(SRC).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfDeclared: 0 })
+    expect({ name: 'withPriceFact', wpfCode: (stripped(SRC).match(/\bwithPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfCode: 2 })
+    expect(rawLineHits(SRC, /\bwithPriceFact\b/g)).toEqual(WITHPRICEFACT_SRC)
+    // …and the same declared-once law on the OTHER door: `landingVerdict`'s
+    // call site has a unit that CALLS it (the test above), so that door is
+    // already closed by behaviour — this is the text belt beside it. The ONE
+    // declaration there is the export itself.
+    expect((stripped(INT).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length).toBe(1)
+  })
+
+  /** ⚖ FIX ROUND 2 (Greptile on #828) — THE FACT IS STAMPED WHERE IT IS KNOWN,
+   *  AND NEVER INFERRED FROM THE CARD.
+   *
+   *  The memo's session set was `a.item.ticketCore != null` — a price read off
+   *  DISPLAY TEXT, and 「価格未記録」 is display text. Park a price-less booking,
+   *  page to another day, drop it there (`placeFromShelf` supports exactly that
+   *  — 「on another day it may be taken」): that day's `pricedIds` and lanes know
+   *  nothing about the id, so the session branch answered, the ticket line was
+   *  non-null, and canon's 予約時価格を保持 row came back on the one booking T1
+   *  takes it off. The fix is a FIELD (`ParkChip.priced` / `AddedRow.priced`)
+   *  written by the mint that knew the answer, so this pin is the count of
+   *  writers against the count of stamps, plus each writer's own line. */
+  it('the price fact is STAMPED at every session write, and the memo only reads it', () => {
+    const code = codeOnly(SRC)
+    // (1) THE MEMO READS SETS IT DOES NOT BUILD — ⚖ FIX ROUND 3 (BREAKER-828
+    // F3). The set construction used to live inside this memo, where an
+    // anchored line and a `ticketCore` ban were the whole armour, and two
+    // tsc-clean edits INSIDE it re-opened T1's own defect: a wrapper-body
+    // `addedPriced.add(...)` that stamped every session row (M07), and a
+    // `priced` rebuilt off `props.lanes` so every server card counted as priced
+    // (M08). Both are dead now because the building is a pure function with a
+    // truth table — and these two lines are all that is left on the screen.
+    expect(pinnedLines(SRC, SETS_LINE)).toBe(1)
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
+    expect((code.match(/priceFactSets\(/g) ?? []).length).toBe(1)
+    // ⚖ BREAKER-828 DELTA G1 — AND THEY ARE ONE BLOCK, NOT TWO LINES THAT
+    // HAPPEN TO EXIST. The bans below are a DENYLIST over a slice that was
+    // allowed to be non-empty, and one line walked straight through it:
+    // `Object.assign(sets, { priced: sets.fromServer })` between the two memos
+    // — 1920 tests and `tsc --noEmit` green, every server booking counted as
+    // priced, apt-09's card carrying 予約時価格を保持 while the page's 根拠
+    // list still said no. `Object.assign` is one spelling of many; the hole was
+    // the gap, not the word. One anchored regex over the pair says line A is
+    // IMMEDIATELY followed by line B, so there is no gap to spell anything in —
+    // a line between reds, and so does a blank line, which is also a gap.
+    expect((code.match(new RegExp('^[ \\t]*' + escapeRegExp(SETS_LINE) + '$\\n^[ \\t]*' + escapeRegExp(BIND_LINE) + '$', 'gm')) ?? []).length).toBe(1)
+    // …and NOTHING stands between them. A wrapper body needs a body; this is
+    // the only place on the screen a set could be built for this question, and
+    // the four ways of building one are banned inside it.
+    const binder = callSlice(SRC, SETS_LINE, BIND_LINE)
+    expect({ ok: binder.ok, opens: binder.opens, closes: binder.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    for (const built of ['new Set(', '.add(', 'ticketCore', 'filter(']) {
+      expect({ built, at: binder.text.indexOf(built) }).toEqual({ built, at: -1 })
+    }
+    // ⚖ BREAKER-828 DELTA 3 I3 — AND THE LINE BELOW THE PAIR IS GUARDED TOO.
+    // The adjacency regex above and the slice it opens only cover the text
+    // BETWEEN `SETS_LINE` and `BIND_LINE`; nothing stopped a mutation on the
+    // line immediately AFTER the pair from adding a second writer to
+    // `sets.priced` outside the slice (`A11`: `for (const c of parkChips)
+    // (sets.priced as Set<string>).add(c.id)` — 1925 tests and `tsc --noEmit`
+    // green, byte-identical eslint). A raw count of the bare identifier
+    // `sets` catches it: any new mention anywhere in the file, in or out of
+    // the slice, moves this number. A legitimate new use of `sets` must
+    // update it.
+    expect((SRC.match(/\bsets\b/g) ?? []).length).toBe(12)
+    // ⚖ BREAKER-828 DELTA 4 J3 — AND `sets` IS AN ENGLISH VERB, AND ITS
+    // BUDGET IS FOUR UNRELATED COMMENTS. `sets` is not a rare identifier —
+    // this file uses it as an ordinary verb seven times in prose, four of
+    // those in comments about entirely different features. `B4` pays for
+    // the second writer below by trading `sets` → `marks` in a comment
+    // about card clicking 590 lines above the binder (1925 tests, `tsc
+    // --noEmit` clean, byte-identical eslint); `B4L` is the same under the
+    // `/[/*]/` lid. This one counts over comment-STRIPPED lines: one
+    // mention on `SETS_LINE`, four on `BIND_LINE` — five today. There is
+    // nothing left to spend: every mention the strip still counts sits on
+    // a line another pin already fixes whole.
+    expect((stripped(SRC).match(/\bsets\b/g) ?? []).length).toBe(5)
+    // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+    // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+    // `sets` in this file, trimmed, in file order — the bind line mentions
+    // it four times and stands four times here. Any added, removed or
+    // reworded line, even the double-trade `B4LT` pays (a JSDoc line AND
+    // the one `{/* … */}` JSX comment a bare strip reads as code), changes
+    // this array and prints the diff.
+    expect(rawLineHits(SRC, /\bsets\b/g)).toEqual(SETS_SRC)
+
+    // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
+    // `AddedRow` has ONE construction shape on this screen, so the writers can
+    // be counted — and a sixth that forgets the fact moves the second count.
+    const rows = code.split('\n').filter((l) => l.includes('{ ...board, laneKey'))
+    expect(rows).toHaveLength(5)
+    expect(rows.filter((l) => /\bpriced\b/.test(l))).toHaveLength(5)
+    // …each with its own answer, as its own whole line: the 次回予約 mint's own
+    // predicate (the one its `ticketCore:` line mints the ¥ face with, ⚖ R6
+    // D2), the chip's carried stamp, and the create dialog's コース.
+    for (const line of [
+      '{ ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },',
+      '{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },',
+      '{ ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },',
+      '{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },',
+      'setAdded((was) => [...was, { ...board, laneKey, item, priced }])',
+      "tab === 'book' && menu?.price != null,",
+    ]) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: 1 })
+    }
+    expect((code.match(/priced: chip\.priced/g) ?? []).length).toBe(2)
+    expect((code.match(/priced: lane\.listPrice > 0/g) ?? []).length).toBe(2)
+
+    // (3) THE CHIP IS STAMPED AT PARK TIME, on the same-day board — the only
+    // board that can answer — and the stamp goes INSIDE the chip the shelf
+    // keeps, so it travels with it to whatever day the drop happens on.
+    const park = callSlice(SRC, 'function park(id: string, item: BoardItem, from: Move) {', 'function unpark(id: string) {')
+    expect({ ok: park.ok, opens: park.opens, closes: park.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(park.text, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {')).toBe(true)
+    // …and the stamp is inside the CHIP LITERAL itself, not merely somewhere in
+    // the handler: a copy parked in a dead branch beside it falls outside this
+    // slice, and the file-wide count refuses a second live one.
+    const chip = callSlice(SRC, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {', '}])')
+    expect({ ok: chip.ok, opens: chip.opens, closes: chip.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(chip.text, 'priced: hasPriceFor(id),')).toBe(true)
+    expect(pinnedLines(SRC, 'priced: hasPriceFor(id),')).toBe(1)
+    // The shelf's only OTHER writer puts the WHOLE chip back — stamp and all —
+    // rather than rebuilding one that has to re-derive the fact.
+    expect(pinnedLines(SRC, 'setParkChips((was) => (was.some((c) => c.id === id) ? was : [...was, chip]))')).toBe(1)
+
+    // (4) THE DODGES: a hardcoded yes in either spelling, a spread that
+    // re-answers a stamped row, and the retired inference coming back.
+    for (const dodge of ['priced: true', 'priced: !0', 'ticketCore != null', '...{ priced']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('proxyTimeLabel speaks today-board’s grammar, and falls back to the resting label', () => {
+    // The landing's start, in the board's own 「HH:MM〜」 (start only, ⚖
+    // today-board :423) — never the origin's.
+    expect(proxyTimeLabel('10:00〜', 870)).toBe('14:30〜')
+    expect(proxyTimeLabel('10:00〜', 600)).toBe('10:00〜')
+    expect(proxyTimeLabel('10:00〜', 845)).toBe('14:05〜')
+    // Midnight-adjacent and zero are real minutes, not falsy nothings — the one
+    // arm a `liveStartMin ||` spelling would get wrong.
+    expect(proxyTimeLabel('10:00〜', 0)).toBe('00:00〜')
+    // No landing = the card keeps the face it rests with, whatever that is.
+    expect(proxyTimeLabel('10:00〜', null)).toBe('10:00〜')
+    expect(proxyTimeLabel('13:00〜14:00', null)).toBe('13:00〜14:00')
+    expect(proxyTimeLabel('', null)).toBe('')
+  })
+
+  it('the card proxy prints that label, and the board card still prints its own', () => {
+    const code = codeOnly(SRC)
+    // ONE `.e-time` author on this board, and it prints what it is handed.
+    expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
+    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // The proxy is the ONE caller that hands it anything else, and what it
+    // hands is the live landing.
+    expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
+    // TWO callers since the fix round: the card branch here and the block
+    // branch below it. Nothing else on this screen labels a thing in flight.
+    expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(2)
+    // …read off the GHOST's own landing, so the dashed preview and the card in
+    // hand can never name two different starts.
+    expect(pinnedLines(SRC, 'const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null')).toBe(1)
+    // The pre-fix spelling, and the two ways a decoy could make the label stand
+    // still, are gone.
+    expect(code).not.toContain('cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))')
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null)', 'const liveStart = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+
+  // ⚖ FIX ROUND 1 (blind round 1, L1 F2) — THE BLOCK IN HAND TOLD THE SAME LIE.
+  // A 休憩 being carried printed the time it came FROM while the ghost under it
+  // said where it was going. Same law, same seam, one grammar along: a block
+  // wears a SPAN (today-board :462/:472), not a start.
+  it('the block proxy says the span under the cursor, in the block’s own grammar', () => {
+    const code = codeOnly(SRC)
+    // Both ends known — the block's face, start AND end, from the landing.
+    expect(proxyTimeLabel('12:00〜13:00', 780, 840)).toBe('13:00〜14:00')
+    // A start with no end is the CARD's grammar, byte-unchanged.
+    expect(proxyTimeLabel('12:00〜13:00', 780)).toBe('13:00〜')
+    expect(proxyTimeLabel('12:00〜13:00', 780, null)).toBe('13:00〜')
+    // No landing at all leaves the resting face alone, end or no end — and 0 is
+    // a real minute on both ends.
+    expect(proxyTimeLabel('12:00〜13:00', null, 840)).toBe('12:00〜13:00')
+    expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
+    // The branch reads the BLOCK's own landing — the one its dashed ghost is
+    // drawn from — and the pre-fix spelling is gone from the file.
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(code).not.toContain('<small>{proxy.item.time}</small>')
+    expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
+    // The two ways a decoy could make the block's label stand still.
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null, null)', 'const blockSpan = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T4 — ONE LABEL PER NUMBER
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T4 — the incident stat and the header chip name one count once', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('both surfaces print sellDrawn.staffBands.length under the SAME words', () => {
+    const code = codeOnly(SRC)
+    // The chip and the stat, each pinned as the whole line it is.
+    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
+    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
+    // Two LABELS for one derivation, and they are the same words. (The number
+    // itself appears a third time, inside the 公開価格 button's toast — a
+    // sentence about what was just updated, not a name for the count.)
+    expect((code.match(/公開中の販売可能枠/g) ?? []).length).toBe(2)
+    expect((code.match(/sellDrawn\.staffBands\.length}枠/g) ?? []).length).toBe(3)
+    // 安全な空き was the second NAME for that one count, and it is retired —
+    // gone from the rendered board and from every comment that taught it.
+    expect(code).not.toContain('安全な空き')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })

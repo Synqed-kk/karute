@@ -107,6 +107,28 @@ function inLens<T extends { store_id?: string | null }>(rows: T[], lens: StoreLe
   return rows.filter((r) => (r.store_id == null ? nullVisible : r.store_id === id))
 }
 
+/** ⚖ 8/17 STORE ISOLATION, AT THE DOOR. `register.terminal_held` rows carry no
+ *  `store_id`, so `inLens` cannot see them and the day clamp alone let 銀座's
+ *  ¥6,600 stand on 代官山's board as 「端末保持 1件」 — a leak, and a lie about a
+ *  device in another building.
+ *
+ *  Each row names a BOOKING, and the booking is what says whose terminal is
+ *  holding it — the same reading `register.ts`'s `heldForLens` makes for the レジ
+ *  room, whose own JSDoc named this board as the second, unclamped seam. It is
+ *  fixed HERE rather than in the page because the door is the lens's one home:
+ *  both rooms then read an already-clamped plane, and the today page cannot
+ *  import `register.ts` at all (its import inventory is pinned by
+ *  foundation.test.ts). The reader's clamp stays as belt-and-braces.
+ *
+ *  ponytail: a linear scan per held row — the fixture holds one of each and the
+ *  cost is invisible; index by id if a real register ever hands this hundreds. */
+function heldInLens<T extends { appointment_id: string }>(held: T[], lens: StoreLens): T[] {
+  const id = lensStoreId(lens)
+  if (!id) return held
+  const rows = appointments(renderNow())
+  return held.filter((h) => rows.find((a) => a.id === h.appointment_id)?.store_id === id)
+}
+
 /** The stores a lens can BE — the one read with no lens argument, because it
  *  enumerates the lens itself rather than reading through it.
  *  ⚠ RECONNECT: this must return only the stores the actor may see (store
@@ -266,7 +288,13 @@ export async function readDayPlanes(lens: StoreLens, dayKey: number) {
     // today's, and the empty list is what another day genuinely holds — no
     // null arm anywhere, so the 閉店阻害 row and the 照合 dialog just have
     // nothing to show rather than showing today's.
-    register: today ? register : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
+    // ⚖ R8 T2 — and TODAY's list is clamped by STORE as well (`heldInLens`
+    // above). `refunds` and `cash_difference` are NOT: no store dimension exists
+    // on those fixture fields, so clamping them would be an invented answer
+    // rather than a stricter one (rider filed).
+    register: today
+      ? { ...register, terminal_held: heldInLens(register.terminal_held, lens) }
+      : { ...register, refunds: 0, cash_difference: 0, terminal_held: [] },
     pricingRule,
     recoverySteps: [...recoverySteps],
   }
@@ -295,7 +323,11 @@ export async function readReservationPlanes(lens: StoreLens) {
     staffQualifications,
     absence: inLens([absence], lens, false)[0] ?? null,
     sellSlots: inLens(sellSlots, lens, false),
-    register,
+    // ⚖ R8 T2, FIX ROUND 1 (blind round 1, L4 F6) — the SAME clamp as the day
+    // door's. This plane hands the register out to three rooms, and a plane
+    // that answers 「1件」 at one door and 「0件」 at the other is two answers to
+    // one question; `heldInLens` is the one reading, so both doors make it.
+    register: { ...register, terminal_held: heldInLens(register.terminal_held, lens) },
   }
 }
 
