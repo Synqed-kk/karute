@@ -252,10 +252,17 @@ export async function runDiscardTranscript(
   }
 }
 
-/** Record-page mount: finish whatever a reload left owing. A take the discard
- *  arm kicked moments ago is still stamped while its run is in flight — the
- *  in-flight guard inside runDiscardTranscript is what stops this sweep from
- *  staging it a second time. */
+/** Record-page mount (and, on the phone, the launch drain): finish whatever a
+ *  reload left owing. A take the discard arm kicked moments ago is still
+ *  stamped while its run is in flight — the in-flight guard inside
+ *  runDiscardTranscript is what stops this sweep from staging it a second time.
+ *
+ *  SEQUENTIAL BY DESIGN, and the ceiling is named: each run may wait on that
+ *  take's own stop leg, which is belted at SECURE_SETTLE_BELT_MS (120 s), so a
+ *  worklist whose first take has a hung leg holds the rest of the sweep for up
+ *  to two minutes. That is the accepted cost of one take at a time on salon
+ *  wifi — this is fire-and-forget, nothing rendered waits on it, and every
+ *  unfinished take keeps its stamp for the next sweep to pick up. */
 export async function sweepDiscardTranscripts(): Promise<void> {
   if (!discardTranscriptSupported()) return
   for (const t of await listPendingDiscardTakes()) {

@@ -350,6 +350,9 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // vendor 937,082 = 2,032,102 B — 102 B over the 2,032,000 ceiling, which is the
 // breach this raise answers. The whole PR4 stack costs the phone +7,037 B over
 // the 2,025,065 B PR3 tip above. The new ceiling leaves 7,898 B of headroom.
+// Measured again at the merged tip dc907339 (PR4 round 7 added the bound
+// staging): en 129,868 · index 965,870 · vendor 937,082 = 2,032,820 B → 7,180 B
+// of headroom.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits

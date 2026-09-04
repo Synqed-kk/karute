@@ -160,6 +160,11 @@ export interface InboxLocalTake {
    *  so nothing else can represent it — the take carries its own row, exempt
    *  from the floor. Absent on every ordinary take, which is what they are. */
   expiredUnsecured?: boolean
+  /** The stop's own measured length (take-store's `durationMs`). Optional
+   *  because a take that never reached a clean stop carries no stamp — and
+   *  that is exactly the take whose flush-window estimate is the only length
+   *  there is. */
+  durationMs?: number
 }
 
 export interface InboxRow {
@@ -425,10 +430,16 @@ function recoverableReason(take: InboxLocalTake): InboxReason {
     : 'localAudio'
 }
 
-/** Rough length from the take's own stamps — the same estimate the recovery
- *  banner shows (updatedAt is bumped on every ~5s segment flush). */
+/** The take's length. The STOP STAMP when there is one (slice five, D12) — it
+ *  is what the recorder measured, pauses subtracted — else the flush window,
+ *  which is the same rough estimate the recovery banner shows (updatedAt is
+ *  bumped on every ~5 s segment flush) and the only length an unfinished take
+ *  has. */
 function takeDuration(take: InboxLocalTake | null): number | null {
   if (!take) return null
-  const sec = Math.round((take.updatedAt - take.startedAt) / 1000)
+  const sec =
+    take.durationMs !== undefined
+      ? Math.round(take.durationMs / 1000)
+      : Math.round((take.updatedAt - take.startedAt) / 1000)
   return sec > 0 ? sec : null
 }

@@ -131,8 +131,11 @@ jest.mock('@/lib/global-recorder', () => ({
     // Fix round 17: the page asks whether a stop leg is still finishing a
     // take before it decides it has nothing left to drain.
     isSecuring: () => false,
-    // The logout-wipe test drives the REAL wipeSessionVault through this.
+    // The logout-wipe test drives the REAL wipeSessionVault through these two.
     discard: jest.fn(),
+    // ⚖ Slice five (D4): the wipe calls THIS one now — a logout is a stop that
+    // keeps the take, not a discard that deletes it.
+    abandon: jest.fn(),
   },
 }))
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'recorded'
@@ -332,5 +335,22 @@ describe('NOT WIRED — paths where the row must survive', () => {
     const { wipeSessionVault } = await import('@/lib/karute/logout-wipe')
     await wipeSessionVault()
     expect(mockDeleteRecordingSession).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND IT KEEPS THE TAKE (slice five, D4). `discard()` cut the mic without
+  // running onstop: the take was left unstamped, up to a flush interval short
+  // of what was captured, and carrying no `tailIncomplete` — a shape the native
+  // rule reads as FINISHED, so the next drain would seal the prefix under the
+  // immutable key. `abandon()` runs the real stop and publishes nothing.
+  it('…and it ABANDONS the recorder — a real stop that keeps the audio, never a discard', async () => {
+    const { globalRecorder } = jest.requireMock('@/lib/global-recorder') as {
+      globalRecorder: { abandon: jest.Mock; discard: jest.Mock }
+    }
+    globalRecorder.abandon.mockClear()
+    globalRecorder.discard.mockClear()
+    const { wipeSessionVault } = await import('@/lib/karute/logout-wipe')
+    await wipeSessionVault()
+    expect(globalRecorder.abandon).toHaveBeenCalledTimes(1)
+    expect(globalRecorder.discard).not.toHaveBeenCalled()
   })
 })

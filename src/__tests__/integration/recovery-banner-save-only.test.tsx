@@ -579,6 +579,29 @@ describe('a take whose 結果 survived the crash saves without re-asking', () =>
     expect(ctx.appointmentCustomerId).toBe('cust-1')
     expect(ctx.outcome).toEqual({ status: 'success' })
     expect(ctx.appointmentId).toBe('appt-1')
+    // The fixture carries no stop stamp, so the length is still the flush
+    // window: 05:22 → 05:45, 23 minutes. The case below is the stamped one.
+    expect(ctx.duration).toBe(1380)
+  })
+
+  // ⚖ …AND A STAMPED TAKE SAVES ITS MEASURED LENGTH (slice five, D12; §17
+  // carry-forward 1). `updatedAt - startedAt` is the FLUSH window — short by
+  // however long the tail flush took, long by every pause — and it was the only
+  // length this save could see, because listOwnTakes dropped `durationMs` on
+  // the floor. The number goes onto the karute, so the estimate was the record.
+  it('…and a take carrying its STOP STAMP saves the measured length, not the flush window', async () => {
+    grantConsent()
+    // A 23-minute window around a 25-minute recording.
+    takeOverride = { ...TAKE, durationMs: 1_500_000, outcome: { status: 'success' } }
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(screen.getByText('recoverSaveAction'))
+      for (let i = 0; i < 8; i++) await Promise.resolve()
+    })
+
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+    const ctx = mockPipelineStart.mock.calls[0][1] as Record<string, unknown>
+    expect(ctx.duration).toBe(1500)
   })
 
   // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The offer

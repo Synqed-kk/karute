@@ -14,7 +14,6 @@ import {
   deleteTake,
   getRecoverableTake,
   listOwnTakes,
-  listOwnStoppedUnsecuredTakeIds,
   loadTakeBlob,
   markDiscardTranscriptDone,
   readTakeOutcome,
@@ -30,8 +29,7 @@ import {
   runDiscardTranscript,
   sweepDiscardTranscripts,
 } from '@/lib/recording/discard-transcript'
-import { secureTake } from '@/lib/recording/secure-take'
-import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { drainOwedTakes } from '@/lib/recording/owed-drain'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
 import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
@@ -108,23 +106,6 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
 import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
-
-/** ONE mount drain at a time, ACROSS MOUNTS (capture pipeline PR3 fix round 10,
- *  P3). The loop below is sequential inside a single mount — a take is a whole
- *  recording, tens of megabytes, and three PUTs at once on salon wifi starve
- *  each other until they all time out. But "one in flight" was per MOUNT: a
- *  staffer bouncing between 記録 and this page (or React remounting under
- *  StrictMode) ran a second whole drain beside the first, which is the exact
- *  starvation the loop exists to prevent. Module-level because the two runs
- *  share no object — the same reason secure-take's own in-flight set is.
- *
- *  ponytail: a boolean that DEFERS the second run, not a queue that interleaves
- *  it — the running drain is already working the same worklist, so the loser
- *  simply asks again on the next tick. (It used to DROP the run outright, which
- *  under React's double mount left the surviving mount holding no schedule at
- *  all — fix round 11.) Upgrade path if that wait ever matters: chain the runs
- *  instead of re-reading the worklist. */
-let mountDrainRunning = false
 
 /** How long the page waits before it looks at the worklist again (fix round
  *  11). It is take-store's own SECURE_RETRY_COOLDOWN_MS: a take that just
@@ -737,11 +718,15 @@ export function RecordPageView({
     }
   }, [])
   // Capture pipeline PR3 — the retry for every stop the network missed, on its
-  // OWN read (listOwnStoppedUnsecuredTakeIds), never the recovery one below.
-  // STOPPED takes only: a take whose recorder never stopped may still be running
-  // (this tab remounting, another same-origin tab), and sealing its finalized
-  // key early would truncate it forever. Those wait for PR5's launch drain,
-  // where the single-webview shell proves nothing is live.
+  // OWN read (owed-drain's listOwnStoppedUnsecuredTakeIds), never the recovery
+  // one below. STOPPED takes only: a take whose recorder never stopped may still
+  // be running (this tab remounting, another same-origin tab), and sealing its
+  // finalized key early would truncate it forever.
+  //
+  // ⚖ AND THE WEB KEEPS THIS DRAIN (slice five, D3). The phone gets a LAUNCH
+  // drain instead (thin/data/launch-drain.ts), which the web cannot have: a
+  // browser can hold this app open in five tabs, and a drain per tab load is
+  // five runners on one worklist. The mount is the web's honest moment.
   //
   // ⚖ AND IT RUNS MORE THAN ONCE PER PAGE LIFE (fix round 11). It used to run
   // exactly once, at mount — so a take that failed retryably while the staffer
@@ -780,53 +765,21 @@ export function RecordPageView({
 
     const drain = async () => {
       if (!alive) return
-      // …and ONE drain across mounts, not one per mount — see mountDrainRunning.
-      // The other runner is already on this same worklist: ask again after it,
-      // never beside it.
-      if (mountDrainRunning) {
-        schedule()
-        return
-      }
-      mountDrainRunning = true
-      try {
-        const port = getRecordingPipelinePort()
-        // ONE AT A TIME, and this loop is the ONLY drain path (fix round 7). A
-        // take is a whole recording — tens of megabytes — and a staffer with
-        // three owed takes on salon wifi would otherwise start three PUTs at
-        // once, each starving the others (and the app's own calls) until they
-        // all time out. The recorder's own stopped take used to get a second,
-        // un-awaited call of its own here: it is already on this worklist
-        // (onstop stamps the duration the list reads), and starting it outside
-        // the loop put two whole takes on the wire at once — the exact
-        // starvation this is sequential to prevent.
-        // isActive goes to the WORKLIST too (fix round 13): inside the phone's
-        // single WebView the store may name a take whose stop stamp never
-        // landed, and the singleton is the only thing that can tell that from a
-        // take this very page is still capturing (a paused one flushes nothing
-        // and looks stale within seconds). On the web it changes nothing — the
-        // list stays stopped-only there.
-        for (const id of await listOwnStoppedUnsecuredTakeIds(false, isActive))
-          await secureTake(port, id, undefined, isActive)
-      } finally {
-        mountDrainRunning = false
-      }
-      // Keep ticking only while a take still OWES its bytes — counting the ones
-      // the cooldown is HIDING, which is what the flag asks for. The eligible
-      // list is empty both when everything is safely on the server and when
-      // everything failed a minute ago; stopping on that would end the retry at
-      // the moment it became necessary. Empty here means finalized or terminal,
-      // and neither of those is waiting for us.
-      // …and a take a stop leg is still HOLDING is owed too (fix round 17): it
-      // is deliberately absent from both lists while its tail is being written,
-      // so a drain that ran inside that window would otherwise be the last one
-      // this page ever ran — the duration stamp lands a moment later and makes
-      // it eligible with nobody looking.
-      if (
-        alive &&
-        (globalRecorder.isSecuring() ||
-          (await listOwnStoppedUnsecuredTakeIds(true, isActive)).length)
-      )
-        schedule()
+      // The loop, the lock and the "still owed?" read all live in owed-drain.ts
+      // now (slice five packet A) — the phone's launch runner calls the SAME
+      // function, so a navigation onto this page while that drain is working
+      // cannot put two whole takes on the wire. What stays here is the PAGE's
+      // half: when to ask.
+      const r = await drainOwedTakes(isActive)
+      if (!alive) return
+      // Busy = another runner holds the lock and nothing happened here, so ask
+      // again after it. Still owed = a take is waiting, cooling-down ones
+      // counted. …and a take a stop leg is still HOLDING is owed too (fix round
+      // 17): it is deliberately absent from both lists while its tail is being
+      // written, so a drain that ran inside that window would otherwise be the
+      // last one this page ever ran — the duration stamp lands a moment later
+      // and makes it eligible with nobody looking.
+      if (r.busy || globalRecorder.isSecuring() || r.stillOwed) schedule()
     }
 
     // 1. The mount — every navigation onto this page, as before.
@@ -1693,9 +1646,19 @@ export function RecordPageView({
       ? offer.take.startedAt
       : offer.draft.savedAt - (offer.draft.duration ?? 0) * 1000
     : null
+  // The take's STOP STAMP first (slice five, D12): it is what the recorder
+  // measured, pauses subtracted, and it is what this save writes onto the
+  // karute. The flush window below it is short by however long the tail flush
+  // took and long by every pause — an estimate for a take that never stopped
+  // cleanly, which is the only take that carries no stamp.
   const offerDurationSec = offer
     ? offer.kind === 'take'
-      ? Math.max(1, Math.round((offer.take.updatedAt - offer.take.startedAt) / 1000))
+      ? Math.max(
+          1,
+          Math.round(
+            (offer.take.durationMs ?? offer.take.updatedAt - offer.take.startedAt) / 1000,
+          ),
+        )
       : (offer.draft.duration ?? 0)
     : 0
   const offerDayYmd = offerStartedAt ? ymdInJst(new Date(offerStartedAt)) : null

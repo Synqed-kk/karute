@@ -37,6 +37,15 @@ const srcFiles = () =>
     .map((r) => `src/${r.split(sep).join('/')}`)
     .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
 
+/** …and every non-test source file under thin/ — the phone's own half of the
+ *  app, which the src/ walk above cannot see. Same census, one directory over
+ *  (slice five, A8: the file-set pin has to be able to say "and none there
+ *  either", or a delete door simply moves to the shell). */
+const thinFiles = () =>
+  (readdirSync(join(process.cwd(), 'thin'), { recursive: true, encoding: 'utf8' }) as string[])
+    .map((r) => `thin/${r.split(sep).join('/')}`)
+    .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
+
 /** The two components that own a take: the record page and the autosave chip.
  *  Every remaining delete door in the app's own code is in one of these. */
 const VIEW = 'src/components/karute/redesign/record/RecordPageView.tsx'
@@ -344,6 +353,52 @@ describe('what REPLACED them', () => {
     expect(store).toContain(
       'if (meta.stopPendingAt !== undefined && meta.durationMs === undefined) return true',
     )
+  })
+
+  // ⚖ THE THREE GUARD SPELLINGS DIE AT ONCE (slice five, A8 / D12). The census
+  // above pins the CALLS in the two take-owning components and the CONSTANT
+  // across src/. What neither could say is where the door may be REACHED FOR at
+  // all — and the guard has three spellings a future edit could pick from
+  // (`deleteTake(id)`, `deleteTake(id, { humanResolved })`, and the flag
+  // written as a shorthand from a variable). These two say it once, over the
+  // whole of src/ AND thin/.
+  it('deleteTake( is called from exactly these files, and NOWHERE in thin/', () => {
+    // The record page's three marked discard arms, the recorder's own discard,
+    // and the store the door lives in. global-pipeline left this list in slice
+    // five: its server-DONE arm settles through the one rule now.
+    expect(srcFiles().filter((rel) => code(rel).includes('deleteTake(')).sort()).toEqual([
+      VIEW,
+      'src/lib/global-recorder.ts',
+      'src/lib/karute/take-store.ts',
+    ])
+    // The phone shell has never had one, and must not gain one: nothing there
+    // owns a take.
+    expect(thinFiles().filter((rel) => code(rel).includes('deleteTake('))).toEqual([])
+  })
+
+  it('humanResolved is an identifier only take-store.ts may spell', () => {
+    // The flag is the ONE way past the never-delete guard, and it is computed
+    // from the take itself. A call site that could WRITE it — in any spelling,
+    // including a shorthand off a variable the constant census cannot see — is
+    // a call site that can destroy audio the server never received.
+    for (const rel of srcFiles()) {
+      if (rel === 'src/lib/karute/take-store.ts') continue
+      expect([rel, /\bhumanResolved\b/.test(code(rel))]).toEqual([rel, false])
+    }
+    for (const rel of thinFiles()) {
+      expect([rel, /\bhumanResolved\b/.test(code(rel))]).toEqual([rel, false])
+    }
+  })
+
+  // ⚖ AND A LOGOUT KEEPS THE TAKE (slice five, D4). `discard()` cut the mic
+  // without running onstop: the take was left unstamped, short of what the mic
+  // captured, and carrying no `tailIncomplete` — a shape the native rule reads
+  // as FINISHED, so the next drain would seal the prefix under the immutable
+  // key. `abandon()` runs the real stop and publishes nothing.
+  it('the logout wipe abandons the recorder — it never discards it', () => {
+    const src = code('src/lib/karute/logout-wipe.ts')
+    expect(src).toContain('globalRecorder.abandon()')
+    expect(src).not.toContain('globalRecorder.discard(')
   })
 
   it('the ONE exemption is voice enrolment, and it is fenced at runtime', () => {

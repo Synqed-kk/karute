@@ -95,8 +95,19 @@ let failNextTailMarks = 0
  *  ONLY way a stop can end with a tail it did not write: the stop→start and
  *  stop→discard shapes that used to report a "skipped" tail no longer do, because
  *  the take's own array and counters go with the take. So every skipped-tail
- *  case below is re-based on this — the honest one. */
+ *  case below is re-based on this — the honest one.
+ *
+ *  ⚖ AND SINCE SLICE FIVE ONE REFUSAL IS NOT ENOUGH (packet A, A7). The flush
+ *  retries a THROWN write STAMP_WRITE_TRIES times, exactly as patchTakeMeta
+ *  does, so "the tail is lost" is now three refusals — a store that is not
+ *  coming back — and a single one is the momentary blip the retry exists to
+ *  ride out. Every skipped-tail case below therefore fails ALL THREE. */
 let failNextSegmentWrites = 0
+/** STAMP_WRITE_TRIES' two backoffs (STAMP_RETRY_MS · 1 + · 2 = 150 ms) plus
+ *  slack, advanced on the fake clock so a refused flush can reach its last try.
+ *  Kept as a local literal rather than an import: take-store does not export
+ *  either constant, and this is the TEST's window, not the store's policy. */
+const SEGMENT_RETRY_WINDOW_MS = 200
 /** A real MediaRecorder whose last timeslice ended AT the stop emits a
  *  zero-size final chunk, and `ondataavailable` drops it — so the stop leg
  *  finds nothing pending and the disk is already whole. That is the shape fix
@@ -2577,6 +2588,24 @@ describe('secure at stop', () => {
       expect(metaOf(takeId).finalizedPath).toBeUndefined()
     })
 
+    // A10 (slice five, D12): a LEGACY take written with no container at all.
+    // An empty string composes no extension, so the recomposed key would not be
+    // the one the mint reserved — the mint's own default is what it was.
+    it('a take with an empty mimeType composes the WEBM key — the mint’s own default', async () => {
+      const takeId = await stoppedOwedTake()
+      await markTakeFinalized(takeId, 'app_biz_x.webm')
+      const row = metaOf(takeId) as Record<string, unknown>
+      delete row.finalizedPath
+      row.mimeType = ''
+      composing.finalizedKey.mockClear()
+
+      const meta = (await readTakeSecureMeta(takeId))!
+      await expect(ensureFinalizedPath(takeId, meta, composing)).resolves.toBe(
+        `app_biz_${takeId}.audio/webm`,
+      )
+      expect(composing.finalizedKey).toHaveBeenCalledWith(takeId, 'audio/webm')
+    })
+
     it('a world that cannot say (the phone) writes nothing at all', async () => {
       const takeId = await stoppedOwedTake()
       await markTakeFinalized(takeId, 'app_biz_x.webm')
@@ -3008,10 +3037,10 @@ describe('secure at stop', () => {
     // …and the recorder's own tail chunk ('TAIL', 4 more) arrives at the stop
     // below, so the whole recording is 7 bytes and the disk holds 3 of them.
 
-    failNextSegmentWrites = 1 // the tail write itself is refused
+    failNextSegmentWrites = 3 // the tail write is refused on every try
     globalRecorder.stop()
     await drain(200)
-    await jest.advanceTimersByTimeAsync(0)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
     await drain(200)
 
     expect(metaOf(takeId).durationMs).toBeUndefined()
@@ -3154,6 +3183,36 @@ describe('secure at stop', () => {
     await drain(400)
   })
 
+  // ⚖ …AND ONE REFUSAL IS NOT A LOST TAIL ANY MORE (slice five, A7). The case
+  // above is a store that is not coming back — three refusals. A SINGLE one is
+  // a transaction the browser aborted under memory pressure, a store locked by
+  // another tab, a quota blip: a moment, at the worst possible instant, and it
+  // used to cost the whole tail AND the stop stamp riding it. The take was then
+  // marked `tailIncomplete`, which no drain will ever take.
+  it('ONE refused tail write is RIDDEN OUT — the tail lands on the retry and the stamp rides it', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000) // 3 bytes committed
+    // …and the recorder's own tail chunk ('TAIL', 4 more) arrives at the stop.
+
+    failNextSegmentWrites = 1 // one blip, then the store answers
+    globalRecorder.stop()
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
+    await drain(200)
+
+    // The whole recording is on disk…
+    expect((await loadTakeBlob(takeId))?.size).toBe('aaa'.length + 'TAIL'.length)
+    // …the stop stamp rode the tail's own transaction (fix round 18)…
+    expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+    expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+    // …and nothing was written down as lost.
+    expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+    // Pre-A7 this take was tailIncomplete, unstamped and 要対応 for a human.
+    // Now it is an ordinary finished take, and the leg secured it.
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+  })
+
   // …and the same protection when round 16's OWN write is the one that fails.
   // The marker is written from inside the leg, so a store that refuses it
   // leaves the `finally` releasing the hold and clearing the beat over a take
@@ -3165,10 +3224,10 @@ describe('secure at stop', () => {
     await jest.advanceTimersByTimeAsync(5_000) // 3 of the take's 7 bytes
 
     failNextTailMarks = 3 // the write and both its retries: the store says no
-    failNextSegmentWrites = 1 // …and the tail write that provoked it
+    failNextSegmentWrites = 3 // …and the tail write that provoked it, all three
     globalRecorder.stop()
     await drain(200)
-    await jest.advanceTimersByTimeAsync(0)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
     await drain(200)
     await jest.advanceTimersByTimeAsync(400) // the mark's two backoffs
     await drain(200)
@@ -3795,10 +3854,10 @@ describe('secure at stop', () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
-    failNextSegmentWrites = 1 // the tail write is refused: the tail is skipped
+    failNextSegmentWrites = 3 // the tail write is refused: the tail is skipped
     globalRecorder.stop()
     await drain(200)
-    await jest.advanceTimersByTimeAsync(0)
+    await jest.advanceTimersByTimeAsync(SEGMENT_RETRY_WINDOW_MS)
     await drain(200)
     expect(metaOf(takeId).tailIncomplete).toBe(true)
 
@@ -4020,6 +4079,127 @@ describe('secure at stop', () => {
   // take with no finalized key, the pipeline stages a row-less copy, the save
   // succeeds from it — and the constant then destroyed the only audio anything
   // could still seal.
+  // ── ⚖ LOGOUT KEEPS THE TAKE (slice five, D4) ──────────────────────────────
+  // `wipeSessionVault` used to call `globalRecorder.discard()`, which is the
+  // right shared-device hygiene and the wrong doctrine: it killed the
+  // MediaRecorder WITHOUT running onstop. A take live at the sign-out instant
+  // was therefore left up to a flush interval short of what the mic captured,
+  // unstamped, and carrying no `tailIncomplete` — nothing said it was
+  // truncated. On the native shell that shape reads as a FINISHED recording
+  // (fix round 13), so the next drain would seal the committed prefix under the
+  // IMMUTABLE finalized key with the rest of the session nowhere left to land.
+  describe('⚖ a logout STOPS the take, it does not throw it away', () => {
+    it('a logout mid-recording lands the tail, stamps the take, secures NOTHING and publishes NOTHING', async () => {
+      const takeId = await startAndSettle()
+      pushChunk('aaa')
+      await jest.advanceTimersByTimeAsync(5_000)
+      pushChunk('bbb')
+      await jest.advanceTimersByTimeAsync(5_000)
+      pushChunk('ccc')
+      await jest.advanceTimersByTimeAsync(5_000)
+      expect(metaOf(takeId).lastSeq).toBe(2)
+      // …and the recorder's own tail chunk ('TAIL', 4 more bytes) arrives at
+      // the stop below, un-flushed. Pre-change that is the chunk that died with
+      // the recorder: `discard()` nulled ondataavailable/onstop and stopped the
+      // MediaRecorder, so it was never emitted and never written.
+
+      // Driven through the REAL caller — wipeSessionVault is UNMOCKED here, so
+      // this exercises the whole sign-out composition (recorder + pipeline +
+      // draft + take-store), which is where the change actually is.
+      order.length = 0
+      await wipeSessionVault({ uid: 'staff-A' })
+      await drain(200)
+      await jest.advanceTimersByTimeAsync(0)
+      await drain(200)
+
+      // THE TAIL LANDED. Every chunk is on disk and lastSeq covers it.
+      expect(metaOf(takeId).lastSeq).toBe(3)
+      expect((await loadTakeBlob(takeId))?.size).toBe(
+        'aaa'.length + 'bbb'.length + 'ccc'.length + 'TAIL'.length,
+      )
+      // …and the stop stamp rode it, so the take reads as FINISHED — which is
+      // what makes the next sign-in's drain able to take it at all.
+      expect(metaOf(takeId).durationMs).toEqual(expect.any(Number))
+      expect(metaOf(takeId).stopPendingAt).toBeUndefined()
+      expect(metaOf(takeId).tailIncomplete).toBeUndefined()
+
+      // NOTHING was uploaded: by now the cookie is gone and the mint would
+      // answer the TERMINAL `forbidden`, marking the take unretryable for good.
+      expect(order).toEqual([])
+      expect(metaOf(takeId).finalizedAt).toBeUndefined()
+      expect(metaOf(takeId).secureError).toBeUndefined()
+
+      // …and nothing is published to whoever signs in next.
+      expect(globalRecorder.state).toBe('idle')
+      expect(globalRecorder.result).toBeNull()
+      expect(globalRecorder.target).toBeNull()
+      expect(globalRecorder.takeId).toBeNull()
+
+      // The row and its audio are still there for that drain.
+      expect(takes().size).toBe(1)
+      expect(await listOwnStoppedUnsecuredTakeIds(false, isActive)).toEqual([takeId])
+    })
+
+    it('a logout while the take is RECORDED with its leg in flight deletes nothing, and the leg still lets go', async () => {
+      const takeId = await stoppedTake()
+      expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+
+      globalRecorder.abandon()
+      await drain(200)
+
+      expect(takes().size).toBe(1) // no deleteTake — the settle decides that
+      expect(globalRecorder.state).toBe('idle')
+      expect(globalRecorder.takeId).toBeNull()
+      // The leg's `finally` cleared stopLegs, so a reader is never left waiting.
+      await expect(globalRecorder.awaitTakeSecured(takeId)).resolves.toBeUndefined()
+    })
+
+    it('a logout while IDLE is a reset, not a throw and not a delete', async () => {
+      expect(globalRecorder.state).toBe('idle')
+      expect(() => globalRecorder.abandon()).not.toThrow()
+      await drain(50)
+      expect(globalRecorder.state).toBe('idle')
+      expect(takes().size).toBe(0)
+    })
+  })
+
+  // ── ⚖ THE STOP LEG WAITS ON ITS OWN MINT (slice five, D5) ─────────────────
+  // The wait used to read `this.recordingSessionPromise` at RUN time — i.e.
+  // after the tail flush resolved, which is an IndexedDB write long enough for
+  // a staffer to stop and start the next customer inside it. Take A's leg then
+  // waited the full ten seconds on take B's mint, holding A's upload behind a
+  // network call that has nothing to do with it.
+  it('a stop whose own session already settled does not wait on the NEXT take’s mint', async () => {
+    mockStartRecordingSession.mockImplementationOnce(async () => ({ id: 'session-A' }))
+    const takeId = await startAndSettle()
+    expect(globalRecorder.recordingSessionId).toBe('session-A')
+    pushChunk('aaa')
+    hangSegmentWrites = true // park the queue so the stop leg cannot finish…
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(50)
+    hangSegmentWrites = false
+    order.length = 0
+
+    emptyTailChunk = true // nothing pending at the stop: the disk IS whole
+    globalRecorder.stop()
+    await drain(200) // the first act + tail flush queue BEHIND the hang
+
+    // …and the next customer is started inside that window, with a mint that
+    // never answers. Pre-change this promise is what A's leg raced.
+    mockStartRecordingSession.mockImplementationOnce(() => new Promise<never>(() => {}))
+    void globalRecorder.start({ target: TARGET })
+    await drain(200)
+    expect(globalRecorder.takeId).not.toBe(takeId)
+
+    releaseHungWrites()
+    await drain(400)
+
+    // NO clock advance at all — A's leg went straight to its upload.
+    expect(order).toEqual(['mint', 'put', 'finalize'])
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).recordingSessionId).toBe('session-A')
+  })
+
   describe('⚖ what a save may settle', () => {
     it('a RETRYABLY-unsecured take SURVIVES it — and the drain still seals it under its OWN key', async () => {
       putMock.mockImplementation(async () => {

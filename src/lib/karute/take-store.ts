@@ -462,6 +462,21 @@ export async function createTake(
  * shape rather than guarding it: the tail bytes and the fact that the take is
  * complete land together or not at all. The gate above is what round 18 named
  * as the fold's one cost — a stamp riding an ungated write — and it is paid.
+ *
+ * ⚖ AND A LOST WRITE GETS TWO MORE TRIES (slice five, D12 — the "3-try final
+ * flush"). Exactly patchTakeMeta's loop, for exactly its reason, and this is
+ * the write that needed it most: since round 18 the STOP STAMP rides the tail
+ * flush's own transaction, so a momentary IndexedDB refusal at the stop instant
+ * — a transaction the browser aborted under memory pressure, a store locked by
+ * another tab's transaction, a quota blip — used to cost the whole tail AND the
+ * stamp. The take is marked `tailIncomplete` for that, and that mark is
+ * permanent: no drain will ever take the take, and a human has to finish it off
+ * 要対応. Three tries and two short pauses, because the failures worth catching
+ * here are momentary by nature.
+ *
+ * Only a THROWN write retries. Every settled `false` below is a settled ANSWER
+ * — no store, the meta row is gone, another staffer owns it — and re-asking
+ * those costs time and changes nothing.
  */
 export async function appendTakeSegment(
   takeId: string,
@@ -469,43 +484,47 @@ export async function appendTakeSegment(
   blob: Blob,
   stampDurationMs?: number,
 ): Promise<boolean> {
-  try {
-    const db = await openDb()
-    if (!db) return false
-    // ⚖ A TRANSIENT NULL SESSION MUST NEVER COST AUDIO (fix round 3). The uid
-    // is COMPARED, never required: `getSession()` answers null on a FAILED
-    // refresh too (auth-js 2.99.1), so a long recording that crosses its token
-    // expiry while the network is down used to fail this write, latch the
-    // recorder's `p.disabled`, go memory-only and be marked tailIncomplete at
-    // the stop — permanently unsecurable, for a blip. The gate is here for
-    // FOREIGN callers, and a known mismatch is still refused; the only caller
-    // is the recorder's own flush, with the take id it minted this session. The
-    // read paths are all gated on their own, so nothing a null-uid flush writes
-    // is ever visible to a colleague.
-    const uid = await currentUserId()
-    const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta || (uid && meta.ownerUid !== uid)) return false
-    await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
-    await req(
-      tx.objectStore(TAKES).put(
-        stampDurationMs === undefined
-          ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
-          : {
-              ...meta,
-              updatedAt: Date.now(),
-              lastSeq: seq,
-              durationMs: stampDurationMs,
-              // The one write that clears it, exactly as stampTakeDuration does.
-              stopPendingAt: undefined,
-            },
-      ),
-    )
-    return true
-  } catch (err) {
-    console.error('[take-store] appendTakeSegment failed:', err)
-    return false
+  for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
+    try {
+      const db = await openDb()
+      if (!db) return false
+      // ⚖ A TRANSIENT NULL SESSION MUST NEVER COST AUDIO (fix round 3). The uid
+      // is COMPARED, never required: `getSession()` answers null on a FAILED
+      // refresh too (auth-js 2.99.1), so a long recording that crosses its token
+      // expiry while the network is down used to fail this write, latch the
+      // recorder's `p.disabled`, go memory-only and be marked tailIncomplete at
+      // the stop — permanently unsecurable, for a blip. The gate is here for
+      // FOREIGN callers, and a known mismatch is still refused; the only caller
+      // is the recorder's own flush, with the take id it minted this session. The
+      // read paths are all gated on their own, so nothing a null-uid flush writes
+      // is ever visible to a colleague.
+      const uid = await currentUserId()
+      const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
+      const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+      if (!meta || (uid && meta.ownerUid !== uid)) return false
+      await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
+      await req(
+        tx.objectStore(TAKES).put(
+          stampDurationMs === undefined
+            ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
+            : {
+                ...meta,
+                updatedAt: Date.now(),
+                lastSeq: seq,
+                durationMs: stampDurationMs,
+                // The one write that clears it, exactly as stampTakeDuration does.
+                stopPendingAt: undefined,
+              },
+        ),
+      )
+      return true
+    } catch (err) {
+      console.error('[take-store] appendTakeSegment failed:', err)
+      if (attempt < STAMP_WRITE_TRIES)
+        await new Promise((resolve) => setTimeout(resolve, STAMP_RETRY_MS * attempt))
+    }
   }
+  return false
 }
 
 /** Stamp the server-minted recording_sessions id once the mint resolves.
@@ -655,7 +674,10 @@ export async function ensureFinalizedPath(
 ): Promise<string | null> {
   if (meta.finalizedPath) return meta.finalizedPath
   if (!meta.finalizedAt) return null
-  const key = await port.finalizedKey(takeId, meta.mimeType)
+  // The MINT's own default (secure-take's DEFAULT_MIME) for a legacy take that
+  // was written with no container — an empty string composes no extension, so
+  // the recomposed key would not be the one the mint reserved.
+  const key = await port.finalizedKey(takeId, meta.mimeType || 'audio/webm')
   if (!key) return null
   await patchTakeMeta(takeId, { finalizedPath: key })
   return key
@@ -1141,6 +1163,13 @@ export async function listOwnTakes(
         // Carried so a recovery surface can tell "the server already has this"
         // from "this is still device-only" without a second store read.
         finalizedAt: m.finalizedAt,
+        // ⚖ THE STOP STAMP REACHES THE SURFACES (slice five, D12; §17
+        // carry-forward 1). It is the ONE measured length a take has —
+        // `updatedAt - startedAt` is the flush WINDOW, which is short by
+        // however long the tail took and long by however long a pause ran.
+        // Every reader was deriving from those two stamps because this
+        // projection dropped the real one on the floor.
+        durationMs: m.durationMs,
         // …and the two facts a stop can leave behind (fix round 18, AH2). Both
         // are optional on RecoverableTake, so their absence type-checked
         // silently and `recoverableReason` could never answer 'tailIncomplete'
