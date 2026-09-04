@@ -126,6 +126,29 @@ export const SessionMintSchema = z
 // clause: mimeType requires a takeId OR a stagedFor. A takeId still requires
 // mimeType (the take shape is unchanged in both directions), and a bare
 // mimeType that names neither act is still refused.
+//
+// ⚖ AND THE THIRD ACT: SEGMENTS (slice five packet C, D6). `seqs` asks this one
+// door for a BATCH of segment keys under a take that is still being recorded —
+// the bytes that reach the server before the whole take can (design v1 §3 R1).
+// It is the take shape plus a list, never a shape of its own: a segment hangs
+// under a take the row has already reserved, so `seqs` REQUIRES `takeId` (and
+// through the pair rules above, therefore mimeType and recordingSessionId too),
+// and it is NEVER sent with `stagedFor` — a staged copy is not a take and has
+// no segments. Both halves are refused here rather than in the mint, because
+// this schema is the one parse both doors run.
+//
+// The three numbers on the list are each a ceiling this file's .max() law asks
+// for. 0..999999 is the key grammar's own six-digit seq range (key-grammar.ts
+// #composeSegmentKey), so a value outside it is bad_input one fence earlier
+// than the composition. 60 is the batch cap — five minutes of capture at one
+// segment per 5 s, which is what a phone that has been offline for a while owes
+// — and it bounds the storage probes the mint makes per call. At least one,
+// because an empty list is a request that asks for nothing. DUPLICATES are
+// refused for the same reason a take is minted once: two entries for one seq
+// would probe and sign the same immutable key twice in one answer, and the
+// caller could only PUT one of them.
+export const MAX_SEGMENT_SEQ = 999_999
+export const MAX_SEGMENT_BATCH = 60
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
@@ -133,6 +156,11 @@ export const UploadUrlMintSchema = z
     recordingSessionId: z.string().uuid().nullish(),
     stagedFor: z.string().uuid().nullish(),
     stagedTake: z.string().max(MAX_STAGED_SLOT_CHARS).nullish(),
+    seqs: z
+      .array(z.number().int().min(0).max(MAX_SEGMENT_SEQ))
+      .min(1)
+      .max(MAX_SEGMENT_BATCH)
+      .nullish(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
@@ -150,6 +178,18 @@ export const UploadUrlMintSchema = z
   .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType) || Boolean(v.mimeType && v.stagedFor), {
     message: 'mimeType belongs to a takeId or a stagedFor, and a takeId needs one',
     path: ['mimeType'],
+  })
+  .refine((v) => !(v.seqs && !v.takeId), {
+    message: 'seqs name the segments of a take — they need takeId',
+    path: ['seqs'],
+  })
+  .refine((v) => !(v.seqs && v.stagedFor), {
+    message: 'a staged copy is not a take, and has no segments',
+    path: ['seqs'],
+  })
+  .refine((v) => !v.seqs || new Set(v.seqs).size === v.seqs.length, {
+    message: 'each seq may appear once — a segment key is minted once',
+    path: ['seqs'],
   })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".

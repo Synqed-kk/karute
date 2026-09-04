@@ -5,6 +5,7 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { pumpSegments } from '@/lib/recording/segment-uploader'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
@@ -428,6 +429,13 @@ class GlobalRecorder {
         }
         p.seq = seq + 1
         p.count = count
+        // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
+        // forget off the persist queue: the pump has its own single-flight and
+        // its own per-PUT deadlines, so this cannot pile up and the queue never
+        // waits on the network — which is the one rule this whole layer has
+        // (persistence must never affect capture). Every failure inside it is
+        // recorded on the take; nothing it can do reaches back here.
+        void pumpSegments(getRecordingPipelinePort(), takeId)
         return true
       })
       .catch(() => {
@@ -876,6 +884,22 @@ class GlobalRecorder {
             // again harmlessly, the beat cleared, the notify, stopLegs dropped),
             // so nothing waiting on this leg is left hanging.
             if (p.abandoned) return
+            // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (slice five
+            // packet C, D8 — design v2 item 2's own order: last segment PUT →
+            // whole-take PUT → finalize). AWAITED here, unlike every flush-time
+            // pump, because this is the moment the tail exists and the take is
+            // about to be sealed: the segments are what an assembler could
+            // rebuild this recording from if everything below fails, so they are
+            // worth the wait the UI is already past (`recorded` was published
+            // and notify() ran before this leg was even queued).
+            //
+            // It cannot fail the stop: pumpSegments NEVER THROWS by its own
+            // contract — one try/catch around its whole body, exactly as
+            // secureTake below carries one, which is why this leg awaits both
+            // bare. It records its own refusals on the take and touches nothing
+            // the whole-take path reads. Every step from here down failing still
+            // leaves the take on disk, plainly un-finalized, for the next drain.
+            await pumpSegments(getRecordingPipelinePort(), takeId)
             // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
             // The belt in front of the first-write-wins braces above: wait for
             // the start-mint to settle (it stamps the take before it resolves),
