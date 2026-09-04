@@ -111,10 +111,21 @@ const inFlight = new Map<string, Promise<void>>()
  * item 2's order (last segment PUT → whole-take PUT) quietly stops holding on
  * exactly the slow link it was written for.
  *
- * `fresh: true` therefore means a run that STARTS AFTER any run already in
- * flight. ONE follow-up, never a queue: a second `fresh` caller during the same
- * run gets the same follow-up, because one run that starts after this one is
- * all any of them asked for.
+ * ⚖ THE INVARIANT `fresh` GIVES, in full (fix round 3, N1): a run that STARTS
+ * after everything in flight has settled, AND ATTEMPTS — ignoring the backoff
+ * window. Both halves are load-bearing, and the second is why this is a run of
+ * our own rather than a join. Fix round 2 had the follow-up re-read the slot
+ * and JOIN whatever run held it, on the reasoning that a run which began after
+ * the previous one settled had read the store after it. True, and not enough:
+ * that run was started by a FLUSH, so it honours the backoff window, and a
+ * flush-time run that began inside one returns at once having read nothing.
+ * The stop leg would then await a promise that resolves without the tail ever
+ * being attempted — the same void promise this whole option exists to remove,
+ * reached by a longer road.
+ *
+ * So the follow-up WAITS, then RUNS. ONE per take, never a queue: a second
+ * `fresh` caller during the wait gets this same follow-up, because one run that
+ * starts after everything in flight is all any of them asked for.
  */
 const pendingFresh = new Map<string, Promise<void>>()
 
@@ -218,12 +229,9 @@ async function putSegment(url: string, blob: Blob, contentType: string): Promise
  * may be failed by an upload: every refusal here is recorded on the take (or in
  * the backoff map) and the take carries on exactly as it would have.
  *
- * `fresh: true` asks for a run that STARTS after any run already in flight —
- * the stop leg's ask, and only its ask (see `pendingFresh`). Without it, an
- * overlapping call joins the running one, which is what every flush-time
- * trigger wants. It also skips the backoff window, for the reason written at
- * that check: the stop is the one moment the tail is a PROMISE rather than a
- * retry.
+ * `fresh: true` is the stop leg's ask, and only its ask (see `pendingFresh` for
+ * the whole of it). Without it, an overlapping call joins the running one,
+ * which is what every flush-time trigger wants.
  */
 export async function pumpSegments(
   port: RecordingPipelinePort,
@@ -235,31 +243,25 @@ export async function pumpSegments(
   if (!opts?.fresh) return running
   const waiting = pendingFresh.get(takeId)
   if (waiting) return waiting
-  const followUp = running
-    // pumpOnce never rejects — one try/catch around its whole body — and this
-    // keeps that true of the composed promise the stop leg awaits bare.
-    .catch(() => {})
-    .then(() => {
-      // Cleared as the follow-up STARTS, not when it ends. A `fresh` caller
-      // arriving from here on is asking for a run that starts after THIS one,
-      // and handing it this one would be the very join the option refuses.
-      pendingFresh.delete(takeId)
-      // ⚖ AND THE SLOT IS STILL OWNED BY EXACTLY ONE RUN (fix round 2, M3).
-      // The run this followed cleared `inFlight` in a `.finally` that fires
-      // BEFORE this callback, so a flush-time call landing in that gap has
-      // already started a run of its own. Starting a second one here would put
-      // TWO runs on the same take: the same seqs minted twice, the same
-      // immutable keys PUT twice, the loser reading a 409 as a refusal and
-      // arming a backoff on a take that is doing fine.
-      //
-      // THE INVARIANT, stated: `inFlight` holds at most one run per take at any
-      // instant, and what `fresh` promises is a START-AFTER, not a run of its
-      // own. A run found here necessarily started after the previous one
-      // settled, so it read the store after it — which is exactly the property
-      // the stop leg needs, and joining it satisfies the ask.
+  // WAIT, THEN RUN — never join (fix round 3, N1; see `pendingFresh` for why).
+  const followUp = (async () => {
+    for (;;) {
       const live = inFlight.get(takeId)
-      return live ?? startPump(port, takeId, opts)
-    })
+      if (!live) break
+      // pumpOnce never rejects — one try/catch around its whole body — and this
+      // keeps that true of the promise the stop leg awaits bare. The loop
+      // re-reads the slot afterwards rather than assuming it is free: a
+      // flush-time call can have taken it while we were waiting.
+      await live.catch(() => {})
+    }
+    pendingFresh.delete(takeId)
+    // ⚖ AND THE HANDOFF WINDOW IS CLOSED BY THE SAME MICROTASK. `startPump`
+    // writes `inFlight` SYNCHRONOUSLY, and this line runs in the same microtask
+    // as the empty read that let the loop out — so there is no instant between
+    // "the slot is free" and "the slot is ours" for another caller to slip into.
+    // `opts` carries `fresh`, so this run ignores the backoff window.
+    return startPump(port, takeId, opts)
+  })()
   pendingFresh.set(takeId, followUp)
   return followUp
 }

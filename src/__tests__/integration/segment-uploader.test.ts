@@ -449,20 +449,39 @@ describe('the segment pump — when it does nothing at all', () => {
   // that is doing fine. What `fresh` promises is a START-AFTER, and a run that
   // began after the previous one settled read the store after it, so joining it
   // is the promise kept.
-  it('a plain call landing in the handoff window is JOINED, never raced', async () => {
+  // ⚖ …AND A RUN OF ITS OWN IS STILL ONE AT A TIME (fix round 3, N1 — this case
+  // used to assert "exactly two runs", which was fix round 2's JOIN and is not
+  // the contract any more). The follow-up waits for everything in flight and
+  // then runs; a flush-time call that takes the slot in the handoff window is
+  // waited for, not inherited. What must never happen is two runs ON THE WIRE
+  // at once — the same seqs minted twice and the same immutable keys PUT twice.
+  it('a plain call landing in the handoff window is WAITED FOR — never two runs at once', async () => {
     slowPut(() => ({ ok: true, status: 200 }), 10)
-    const finished: string[] = []
+    let live = 0
+    let peak = 0
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => {
+      live++
+      peak = Math.max(peak, live)
+      await new Promise((r) => setTimeout(r, 5))
+      live--
+      return {
+        segments: seqs.map((seq) => ({
+          seq,
+          path: segPath(seq),
+          url: segUrl(seq),
+          contentType: 'audio/webm',
+        })),
+      }
+    })
 
     // THE HANDOFF WINDOW, hit deliberately: run A clears the single-flight slot
-    // in a `.finally` that fires BEFORE the follow-up's own callback, so a
+    // in a `.finally` that fires BEFORE the follow-up's next read of it, so a
     // flush-time call in those few microtasks starts a run of its own. Fired
     // from run A's last awaited store write, three microtasks on — measured
-    // against both builds, and the window is four hops wide. Land outside it
-    // and the call simply joins whichever run holds the slot, which is the same
-    // answer by a duller route: this case is only interesting inside it.
+    // against both builds. Land outside it and the call simply joins whichever
+    // run holds the slot; this case is only interesting inside it.
     let inWindow: Promise<void> | undefined
     markSegmentsUploaded.mockImplementation(async () => {
-      finished.push('run')
       if (inWindow) return
       let hop = Promise.resolve()
       for (let i = 0; i < 3; i++) hop = hop.then(() => {})
@@ -474,15 +493,61 @@ describe('the segment pump — when it does nothing at all', () => {
     const a = pumpSegments(port, TAKE)
     const fresh = pumpSegments(port, TAKE, { fresh: true })
 
-    // The fresh caller waited for the run that took the slot, not for A: both
-    // marks are in by the time its promise settles, and there is no third.
+    await a
     await fresh
-    expect(finished).toEqual(['run', 'run'])
+    await inWindow
 
-    await Promise.all([a, inWindow])
-    // TWO runs, not three: A, and the one that landed in the window.
-    expect(listTakeSegmentsAfter).toHaveBeenCalledTimes(2)
+    // THREE runs — A, the one that took the window, and the follow-up's own —
+    // and never more than ONE of them at the door at any instant.
+    expect(peak).toBe(1)
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(3)
+  })
+
+  // ⚖ AND THE FOLLOW-UP ATTEMPTS — IT NEVER INHERITS A NO-OP (fix round 3, N1).
+  // The whole of what `fresh` promises: a run that starts after everything in
+  // flight AND asks the door, ignoring the backoff window. Fix round 2 had the
+  // follow-up adopt whatever run held the slot, reasoning that a run which
+  // began after the previous one settled had read the store after it. True, and
+  // not enough: that run was started by a FLUSH, so it honours the window — and
+  // a flush-time run that begins inside one returns at once having read
+  // nothing. The stop leg would then await a promise that resolves with the
+  // tail never attempted, which is the void promise this option exists to
+  // remove, reached by a longer road.
+  it('a fresh follow-up ATTEMPTS the tail, even when the take is inside its backoff window', async () => {
+    /** The flush-time call that takes the slot in the handoff window — five
+     *  microtasks after run A's refusal answers, measured against both builds:
+     *  that is where a call lands between A clearing the slot and the follow-up
+     *  reading it again. */
+    let inWindow: Promise<void> | undefined
+    // Run A refuses, slowly enough to be genuinely in flight — and its refusal
+    // arms the window every flush-time caller after it must honour.
+    mintSegmentUrls.mockImplementationOnce(async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      let hop = Promise.resolve()
+      for (let i = 0; i < 5; i++) hop = hop.then(() => {})
+      void hop.then(() => {
+        inWindow = pumpSegments(port, TAKE)
+      })
+      return { error: 'mint_502' }
+    })
+
+    const a = pumpSegments(port, TAKE)
+    const fresh = pumpSegments(port, TAKE, { fresh: true })
+
+    await a
+    await fresh
+
+    // TWO door calls: A's refusal, and the follow-up's own. The one in between
+    // — the flush-time run that took the slot — was inside the window and
+    // returned without reaching the door at all, which is exactly right for a
+    // flush and exactly wrong for the stop leg to inherit.
     expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+    // …and the fresh caller's promise settled only after the tail was actually
+    // sent.
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+
+    await inWindow
   })
 
   // With nothing in flight there is nothing to start after: `fresh` is the
