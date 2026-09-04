@@ -1093,7 +1093,12 @@ function Screen(props: ReservationsProps) {
                         <div className="rv-cf-body">
                           <div className="rv-cf-txt">
                             <span className="rv-cf-pick">
-                              選んだ枠：{picked ? `${openRow.dateLabel} ${hhmm(picked.start)}–${hhmm(picked.start + openRow.durationMinutes)} / ${picked.staffName} + ${picked.resourceName}` : '—'}
+                              {/* FINAL-FRESH F-2 — wrapped past 1440 (a
+                                  candidate near midnight plus an overnight
+                                  duration): the honest read is 「00:30」, never
+                                  「24:30」. `hhmm` itself stays byte-faithful to
+                                  shift windows, which legitimately print 24:00. */}
+                              選んだ枠：{picked ? `${openRow.dateLabel} ${hhmm(picked.start)}–${hhmm(((picked.start + openRow.durationMinutes) % 1440 + 1440) % 1440)} / ${picked.staffName} + ${picked.resourceName}` : '—'}
                             </span>
                             <span className="rv-cf-hold">
                               受付価格 {openRow.priceLabel} を保持（現在の公開価格 {openRow.currentPriceLabel}）

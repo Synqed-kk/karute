@@ -19,6 +19,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { toggleColumn, wireColumnsPopover } from '@/business/lib/column-config'
+import { hhmm } from '@/business/lib/today-board'
 import {
   CHIP_LABEL,
   CHIP_VIEWS,
@@ -1166,6 +1167,30 @@ describe('FINAL-FRESH F-1 · rail sub-label says 全期間 — the badge stays q
     expect(SCREEN_CODE).toContain(
       'data-guide="対応期限の早い順に、期間や検索で一覧を絞っていても全件を並べています。カードを押すと、判断の根拠と次の操作がその場で開きます。"',
     )
+  })
+})
+
+// ═══ FINAL-FRESH F-2 · the picker confirm's end-time wraps past 1440 ═══════
+
+describe('FINAL-FRESH F-2 · picker confirm end-time wraps past midnight — 24:30 reads 00:30', () => {
+  it('the wrap formula sits at the ONE call site the lens named — `hhmm` itself stays untouched', () => {
+    expect(SCREEN_CODE).toContain(
+      'hhmm(((picked.start + openRow.durationMinutes) % 1440 + 1440) % 1440)',
+    )
+    // the candidate rows (Evidence) and changeCommit's own timeLabel are OUT
+    // OF SCOPE for this fix (the packet names one site only) — still unwrapped.
+    expect(SCREEN_CODE).toContain('hhmm(s.start + row.durationMinutes)')
+    expect(SCREEN_CODE).toContain('hhmm(slot.start + row.durationMinutes)')
+  })
+
+  it('a 23:30 start + 60 minute candidate reads 「23:30–00:30」, never 「24:30」', () => {
+    const wrap = (m: number) => ((m % 1440) + 1440) % 1440
+    const start = 23 * 60 + 30
+    const duration = 60
+    expect(hhmm(start)).toBe('23:30')
+    expect(hhmm(wrap(start + duration))).toBe('00:30')
+    // the unwrapped formula the mutant restores is what the lens actually saw
+    expect(hhmm(start + duration)).toBe('24:30')
   })
 })
 
