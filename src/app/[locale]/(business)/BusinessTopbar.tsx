@@ -82,14 +82,16 @@ const CRUMB: Record<string, string> = {
  *  claiming one. A segment with no entry keeps the default, so no existing
  *  room's crumb moves a byte.
  *
- *  ⚠ AI相談 IS THE SECOND (Greptile G-1 on #808). The rail files it under
- *  記録・AI, so without an entry here its crumb claimed 店舗フロア — the topbar
- *  disagreeing with the navigation the reader just used. 録音 and カルテ are in
- *  that same rail group and still fall through to the default; they are two
- *  other rooms' pins, so they ride a follow-up rather than this room's diff. */
+ *  ⚠ AI相談 IS THE SECOND (Greptile G-1 on #808) and コーチング IS THE THIRD
+ *  (S16). The rail files both under 記録・AI, so without an entry here the crumb
+ *  claimed 店舗フロア — the topbar disagreeing with the navigation the reader had
+ *  just used. 録音 and カルテ are in that same rail group and still fall through
+ *  to the default; they are two other rooms' pins, so they ride a follow-up
+ *  rather than this room's diff. */
 const GROUP: Record<string, string> = {
   settings: '設定',
   'ask-ai': '記録・AI',
+  coaching: '記録・AI',
 }
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {

@@ -1369,7 +1369,10 @@ describe('the shell one-liners', () => {
     const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string> = {'))
     const groupKeys = groupBody.slice(0, groupBody.indexOf('}')).match(/^\s*'?([\w-]+)'?:/gm)!
       .map((k) => k.trim().replace(/'|:/g, ''))
-    expect(groupKeys.sort()).toEqual(['ask-ai', 'settings'])
+    // ⚠ RE-DERIVED AT S16: コーチング joined the map with its own room's diff
+    // (the rail files it under 記録・AI too). 録音 and カルテ still fall through,
+    // which is the half this census is really guarding.
+    expect(groupKeys.sort()).toEqual(['ask-ai', 'coaching', 'settings'])
   })
 
   it('the loading string exists, so the route’s own convention has copy', () => {
