@@ -145,7 +145,7 @@ export async function createAppointmentCore(
       actorType: 'staff',
       businessId: deps.actor.businessId,
       targetType: 'customer',
-      targetId: appt.customer_id,
+      targetId: appt.customer_id ?? undefined,
       storeId: appt.store_id ?? undefined,
       detail: { appointment_id: appt.id, customer_id: appt.customer_id, store_id: appt.store_id },
       requestId: deps.actor.requestId,
@@ -272,7 +272,7 @@ export async function cancelAppointmentCore(
     // ONE read, reused by the burn path below (no second get()) — see the
     // contract-change note above.
     const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
+    if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
     }
@@ -312,7 +312,7 @@ export async function cancelAppointmentCore(
       // Same ordering contract as the no-show burn: status FIRST, burn LAST —
       // a failed burn can never strand a spent ticket, and the partial
       // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      burnError = await executeGuardedBurn(synqed, appt, appointmentId, burnTarget, actor.idempotencyKey)
+      burnError = await executeGuardedBurn(synqed, appt as typeof appt & { customer_id: string }, appointmentId, burnTarget, actor.idempotencyKey)
     }
     // 自動消化 parity (packet 11 fix round, blind-round F4) — the SAME rider the
     // no-show path got at L1#6, and the settings copy is why it matters: it
@@ -346,7 +346,7 @@ export async function cancelAppointmentCore(
       actorType: 'staff',
       businessId: actor.businessId,
       targetType: 'customer',
-      targetId: updated.customer_id,
+      targetId: updated.customer_id ?? undefined,
       storeId: updated.store_id ?? undefined,
       severity: bookingAuditSeverity('cancel', input?.reason),
       detail: {
@@ -388,7 +388,7 @@ export async function restoreAppointmentCore(
     // staff already restored and started (SCHEDULED → IN_PROGRESS) back to
     // SCHEDULED with no error. Mirrors markNoShowCore's read-check.
     const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
+    if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (!isTerminalStatus(appt.status)) {
       return { error: 'This booking is already active.' }
     }
@@ -410,7 +410,7 @@ export async function restoreAppointmentCore(
       actorType: 'staff',
       businessId: actor.businessId,
       targetType: 'customer',
-      targetId: appt.customer_id,
+      targetId: appt.customer_id ?? undefined,
       storeId: appt.store_id ?? undefined,
       detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },
       requestId: actor.requestId,
@@ -443,7 +443,7 @@ export async function markNoShowAppointmentCore(
 ): Promise<MarkNoShowResult> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
+    if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     // Already CANCELLED/NO_SHOW (double-open race, stale agenda): refuse
     // rather than re-mark — re-marking is harmless but a second burn is not.
     if (isTerminalStatus(appt.status)) {
@@ -474,7 +474,7 @@ export async function markNoShowAppointmentCore(
     )
 
     let burnError = target
-      ? await executeGuardedBurn(synqed, appt, appointmentId, target, actor.idempotencyKey)
+      ? await executeGuardedBurn(synqed, appt as typeof appt & { customer_id: string }, appointmentId, target, actor.idempotencyKey)
       : null
     // 自動消化 correction (packet 11 rider, L1#6). With auto mode on, a booking
     // the cron already burned can still be corrected to NO_SHOW afterwards. The
@@ -503,7 +503,7 @@ export async function markNoShowAppointmentCore(
       actorType: 'staff',
       businessId: actor.businessId,
       targetType: 'customer',
-      targetId: appt.customer_id,
+      targetId: appt.customer_id ?? undefined,
       storeId: appt.store_id ?? undefined,
       severity: bookingAuditSeverity('no_show'),
       detail: {
@@ -547,7 +547,7 @@ export async function updateAppointmentCore(
     // restoreAppointmentCore's read-check so a stale sheet can't silently
     // reschedule/reassign a booking that's already cancelled or no-show.
     const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
+    if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
     if (isTerminalStatus(appt.status)) {
       return { error: 'A cancelled or no-show booking cannot be edited.' }
     }
@@ -588,7 +588,7 @@ export async function updateAppointmentCore(
       actorType: 'staff',
       businessId: actor.businessId,
       targetType: 'customer',
-      targetId: updated.customer_id,
+      targetId: updated.customer_id ?? undefined,
       storeId: updated.store_id ?? undefined,
       detail: {
         appointment_id: appointmentId,
@@ -622,7 +622,7 @@ export async function deleteAppointmentCore(
 ): Promise<{ success: true } | { error: string }> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
+    if (!appt || !appt.customer_id) return { error: 'Booking not found.' }
 
     // Burn-dedup guard (FIX 8, Fable fix-round finding, 2026-07-27): the burn
     // history keys on appointment_id, so a delete-then-recreate would mint a
@@ -654,7 +654,7 @@ export async function deleteAppointmentCore(
       actorType: 'staff',
       businessId: actor.businessId,
       targetType: 'customer',
-      targetId: appt.customer_id,
+      targetId: appt.customer_id ?? undefined,
       storeId: appt.store_id ?? undefined,
       severity: 'notice',
       detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },

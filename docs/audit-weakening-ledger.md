@@ -249,3 +249,33 @@
   and the new customer.deletion.cancel key is a LIVE FACADE_AUDIT_MAP mutation
   row emitting privacy.customer_delete_canceled · Liam (same ruling and packet
   as the entry above)
+- 2026-09-03 · map:recordings.uploadUrl · Capture pipeline PR2 fix round 7 (J6). The row
+  stays a deliberate skip; only its coveredBy citation moves, from
+  `src/actions/karute.ts#createOrUpdateKaruteRecord` to
+  `src/lib/recording/mint-take-url.ts#auditTakeNamed`. STRICTLY MORE HONEST, not weaker:
+  the old citation named the karute save at the far end of a flow this endpoint merely
+  feeds — an act performed by a different door, on a different day, that would be equally
+  true of half the recording routes. What this endpoint actually WRITES is the take's
+  reservation on its recording row, and the emit that dominates every writing path of
+  that write is auditTakeNamed (recording.take_named), the same symbol AUDITED_CORES
+  already registers for this file. The endpoint's coverage therefore goes from "something
+  downstream eventually files a row" to "this endpoint's own write files its own row" ·
+  Liam (⚖ 8/17 ids-only doc law, packet PACKET-PR2-FIX-ROUND-7.md, karute-field-issues lane)
+- 2026-09-03 · SDK_WRITE_ALLOWLIST:src/lib/recording/session-mint.ts::recordings.create · a
+  FILE MOVE of the src/actions/recordings.ts entry above (fresh-eyes #7 fix
+  round 11), not a new write. startRecordingSessionWithClient came out of
+  src/actions/recordings.ts because that file carries 'use server': every
+  top-level export of such a file is a client-invokable server action, so this
+  function was reachable directly with a caller-supplied businessId — the
+  exact escape mint-take-url.ts's own header warns against, since businessId
+  decides the composed key's tenant prefix. The new home carries no
+  'use server', same rule as mint-take-url.ts / discard.ts /
+  session-cleanup.ts / staged-audio.ts. The recordings.create call itself is
+  STRICTLY NARROWER than what it replaced, never wider: the SAME fresh-eyes
+  round adds an objectExists(key) fence before it, so a row born reserved can
+  no longer be created pointing at bytes this caller's row never wrote (a
+  hard-deleted sibling row's finalized object staying on storage was the gap —
+  session-cleanup deletes the row, never the object). The old entry
+  (src/actions/recordings.ts::recordings.create) is pruned rather than left
+  dead — that call site no longer exists · Liam (fresh-eyes round #7, packet
+  PACKET-PR2-FIX-ROUND-11.md, karute-field-issues lane)
