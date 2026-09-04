@@ -2913,6 +2913,12 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     expect(trend).toContain('className="cg-honesty"')
     expect(trend).toContain('data-guide-title="この数字の出し方"')
     expect(roi).not.toMatch(/\{props\.roi\.honestyNote && /)
+    // ⚠ AND IT IS THE TREND CARD'S LAST CHILD — its FOOTER, not a sibling parked
+    // between two cards. A slice that only asked 「before the lifts」 would stay
+    // green while the note sat outside the card whose numbers it describes
+    // (mutant M62 lived in exactly that gap until this line).
+    const afterNote = roi.slice(roi.indexOf('</section>', roi.indexOf('{props.roi.honestyNote}')) + '</section>'.length)
+    expect(afterNote.trimStart().startsWith('</section>')).toBe(true)
     // ⚖-ADJ O — SOURCE ORDER IS THE ARGUMENT: claim → evidence → detail → money
     const order = ['cg-roi-hero', 'cg-roi-trend', 'cg-honesty', 'cg-roi-lifts', 'cg-pitch', 'cg-roi-withheld']
     const at = order.map((c) => roi.indexOf(c))
