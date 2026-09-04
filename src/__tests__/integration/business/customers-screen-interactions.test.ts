@@ -419,6 +419,11 @@ describe('顧客 V2 — the refusals and the doors (⚖-ADJ A / ⚖-ADJ B)', () 
     // the family's word for the room is カルテ (the sidebar's own label)
     expect(SCREEN_SRC).toContain('カルテを開く')
     expect(SCREEN_SRC).not.toContain('Karuteを開く')
+    // ⚠ A LABEL PROMISES ONLY WHAT ITS DESTINATION DOES. 受信トレイ cannot open on
+    // this customer (registry ①), so BOTH doors say 開く rather than 連絡 —
+    // 「連絡」 would name an action the room it opens cannot perform.
+    expect(SCREEN_CODE.match(/受信トレイを開く/g)).toHaveLength(2)
+    expect(SCREEN_CODE).not.toContain('受信トレイで連絡')
     // no 準備中 door survives this round
     expect(SCREEN_SRC).not.toContain('（準備中）')
   })

@@ -857,8 +857,12 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
             <span className="cu-sp" />
             {/* ⚖-ADJ B — the 受信トレイ room exists on main, so this stops being
                 a greyed 準備中 and becomes the door it always described. */}
+            {/* ⚠ THE LABEL PROMISES ONLY WHAT THE DOOR DOES. 受信トレイ cannot open
+                on this customer yet (registry ①), so 「連絡」 would promise an
+                action the destination cannot perform — the link OPENS the room,
+                and says so. カルテを開く already read this way. */}
             <Link className="cu-btn" href={inboxHref} data-press>
-              受信トレイで連絡
+              受信トレイを開く
             </Link>
             <button className="cu-btn cu-btn-solid" type="button" onClick={openCreate} data-press>
               顧客を追加
@@ -1511,7 +1515,7 @@ function InspectorBody({
             カルテを開く
           </Link>
           <Link className="cu-qbtn" href={inboxHref} data-press>
-            受信トレイで連絡
+            受信トレイを開く
           </Link>
         </div>
       </div>
