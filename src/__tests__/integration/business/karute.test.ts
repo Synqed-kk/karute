@@ -1364,7 +1364,9 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // Derived, not copied: if a neighbour ever states a bare rule on a name this
     // room renders, it appears here and the fence has to grow in the same pass.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
+      // ⚠ RE-DERIVED on the stitched preview tree (2026-09-04): 予約一覧 V2 and
+      // 顧客 V2 both retired their bare `.biz .btn` / `.biz .page .btn` rules, so
+      // this DERIVED list is empty with both rooms present.
     ])
     // …and this room states its own value for each of them, at FOUR levels, so a
     // sibling's three-level rule cannot win on insertion order.

@@ -1052,7 +1052,10 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
         if (names.length && names.every((n) => styled.has(n))) reachable.add(sel)
       }
     }
-    expect([...reachable].sort()).toEqual(['.biz .page .btn'])
+    // ⚠ RE-DERIVED on the stitched preview tree (2026-09-04): 予約一覧 V2 and 顧客
+    // V2 both retired their bare button rules, so nothing of a sibling's reaches
+    // this room any more.
+    expect([...reachable].sort()).toEqual([])
     // …and every one of them is answered at FOUR levels, which beats a
     // sibling's three and removes the insertion-order coin flip.
     //
@@ -1117,7 +1120,9 @@ describe('the sheet cannot reach another room, and no other room can reach it', 
     // fence. `.page.pg-inbox`/`.page.pg-inbox h1` stay in inbox.css as this
     // room's own styling; they just answer no sibling collision any more.
     const pairs: Array<[string, string]> = [
-      ['.page .btn', '.biz .page.pg-inbox .btn {'],
+      // ⚠ RE-DERIVED on the stitched preview tree (2026-09-04): both `.page .btn`
+      // (顧客 V2) and `.btn`/`.btn.primary` (予約一覧 V2) left the sibling sheets, so
+      // there is nothing left to fence. This room's own fences are untouched.
     ]
     for (const [sibling, fence] of pairs) {
       const props = declared.get(sibling) ?? new Set<string>()
