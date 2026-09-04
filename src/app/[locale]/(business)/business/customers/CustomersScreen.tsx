@@ -527,7 +527,10 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       sp.jump(el.getBoundingClientRect().height)
       sp.set(open ? el.scrollHeight : 0)
       return () => sp.stop()
-    }, [ref, open])
+      // `reduced` rides along like every other spring effect in this file: a
+      // reader who turns reduced motion on mid-session gets a re-seated spring
+      // rather than one still constructed with the old answer.
+    }, [ref, open, reduced])
   }
   useCollapse(ownPanelRef, ownOpenFor !== null && ownOpenFor === current?.id)
   useCollapse(footPanelRef, footOpen)
@@ -622,8 +625,13 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     }
     if (!wasTour.current) return
     wasTour.current = false
-    helpRef.current?.focus()
-  }, [tourOpen])
+    // ⚠ THE ? IS NOT ALWAYS REACHABLE WHEN THE WALK ENDS. Closing the tour while
+    // the compare drawer is still up leaves `.cu-view` inert, so the `?` inside
+    // it cannot take focus — and a reader would be dropped at `<body>` in front
+    // of an open drawer. Focus goes to whichever layer still owns the screen.
+    if (drawerOpen) drawerCloseRef.current?.focus()
+    else helpRef.current?.focus()
+  }, [tourOpen, drawerOpen])
 
   /** ONE KEYBOARD LISTENER for everything that can be open, INNERMOST FIRST:
    *  the tour owns Escape while it is up (and the arrows walk its ring), then
@@ -632,6 +640,12 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
   useEffect(() => {
     if (!tourOpen && !drawerOpen && !sheetOpen) return
     const onKey = (e: KeyboardEvent) => {
+      // ⚠ THE 表示する列 POPOVER OWNS ESCAPE WHILE IT IS OPEN (⚖ FIX-3 P2). Its
+      // listener lives in the shared `column-config.ts`, which is frozen, and it
+      // sits on the SAME node as this one — `stopPropagation` cannot reach a
+      // sibling listener on that node, so both used to fire and one Escape shut
+      // two layers. Yielding here is the fix that belongs to this room.
+      if (colsOpen) return
       if (tourOpen) {
         if (e.key === 'Escape') setTourIdx(-1)
         if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
@@ -647,15 +661,39 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [tourOpen, drawerOpen, sheetOpen])
+  }, [tourOpen, drawerOpen, sheetOpen, colsOpen])
 
-  // Focus moves INTO the drawer when it opens and back to whatever opened it
-  // when it closes — a reader tabbing after a close must not land at <body>.
+  /** Focus moves INTO an overlay when it opens and back to whatever opened it
+   *  when it closes — a reader tabbing after a close must not land at `<body>`.
+   *
+   *  ⚠ THE RETURN HAPPENS IN AN EFFECT, NOT IN THE CLOSE HANDLER. The opener
+   *  lives inside `.cu-view`, which is `inert` while an overlay is up: calling
+   *  `.focus()` from the handler runs BEFORE React commits the removal of that
+   *  attribute, so the focus lands on an inert element and is silently dropped.
+   *  The effect runs after the commit, when the curtain is really gone. */
+  const drawerWasOpen = useRef(false)
   useEffect(() => {
-    if (drawerOpen) drawerCloseRef.current?.focus()
+    if (drawerOpen) {
+      drawerWasOpen.current = true
+      drawerCloseRef.current?.focus()
+      return
+    }
+    if (!drawerWasOpen.current) return
+    drawerWasOpen.current = false
+    drawerOpenerRef.current?.focus()
+    drawerOpenerRef.current = null
   }, [drawerOpen])
+  const sheetWasOpen = useRef(false)
   useEffect(() => {
-    if (sheetOpen) sheetCloseRef.current?.focus()
+    if (sheetOpen) {
+      sheetWasOpen.current = true
+      sheetCloseRef.current?.focus()
+      return
+    }
+    if (!sheetWasOpen.current) return
+    sheetWasOpen.current = false
+    sheetOpenerRef.current?.focus()
+    sheetOpenerRef.current = null
   }, [sheetOpen])
 
   function openCompare(id: string, opener: HTMLElement | null) {
@@ -663,15 +701,13 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
     setSelected(id)
     setCompareOf(id)
   }
+  // The two closers only change state; the focus return is the effect above,
+  // which runs once the inert curtain is actually down.
   function closeCompare() {
     setCompareOf(null)
-    drawerOpenerRef.current?.focus()
-    drawerOpenerRef.current = null
   }
   function closeSheet() {
     setSheetOpen(false)
-    sheetOpenerRef.current?.focus()
-    sheetOpenerRef.current = null
   }
 
   /** A refused control, spelled ONCE. `aria-disabled` rather than `disabled`:
@@ -772,7 +808,14 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
           measured its own padded content box would answer every threshold ~40px
           early, which is exactly the class of defect HARNESS-GEOMETRY exists to
           catch. `cu-inner` holds the 1416 cap and the page's own side padding. */}
-      <div className="cu-view">
+      {/* ⚠ THE BACKGROUND IS LOCKED WHILE AN OVERLAY OWNS THE SCREEN (⚖ FIX-3 P1).
+          Focus already moves INTO the drawer's ✕ and the tour's 次へ and returns
+          to the opener on close, but nothing stopped a reader tabbing straight
+          back out into the list behind them. The scrim, the drawer, the dialog,
+          the toast and the four tour layers are all SIBLINGS of this box, so they
+          stay live; the tour's catcher sits above it and `spotHitIndex` reads
+          RECTS rather than pointer events, so the walk still jumps anywhere. */}
+      <div className="cu-view" inert={drawerOpen || tourOpen}>
         <div className="cu-inner">
         {/* ⚖ ONE COMPACT TITLE ROW (Liam F-1「kill the dead space」). The head
             declares itself like every other section, so the walk opens on what
@@ -798,7 +841,14 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
               aria-haspopup="dialog"
               aria-expanded={tourOpen}
               aria-controls="cuTour"
-              onClick={() => setTourIdx(0)}
+              onClick={() => {
+                // ⚖ ONE TRANSIENT SURFACE AT A TIME (lessons §A-4). The reverse
+                // cannot happen: while the tour is up its catcher covers this
+                // button, so 表示設定 is unreachable and only this direction needs
+                // stating.
+                setColsOpen(false)
+                setTourIdx(0)
+              }}
               data-press
             >
               ?
@@ -1077,6 +1127,13 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
             <aside
               className={`cu-insp${sheetOpen ? ' is-sheet-on' : ''}`}
               ref={inspRef}
+              /* ⚠ A HIDDEN SHEET IS NOT REACHABLE (⚖ FIX-3 P1). In the phone band
+                 the inspector is a full-viewport sheet parked off-screen, and a
+                 parked sheet still held its ✕, its two links and its collapse in
+                 the tab order — a keyboard reader tabbed into a panel nobody can
+                 see. Only in that band: at a desk it is a real column. */
+              inert={phone && !sheetOpen}
+              aria-hidden={phone && !sheetOpen}
               aria-labelledby="detailTitle"
               data-guide-title="選んだ顧客の内容"
               data-guide="選んだ顧客の詳しい内容です。回数券・預かり残高・累計支払は、この店舗の記録だけを集めた数字です。本人情報や同意のもとになる記録は顧客プロフィールが持っています。"
@@ -1145,6 +1202,8 @@ export function CustomersScreen({ rows, lensLabel, grouped, inboxHref, karuteHre
       <section
         className="cu-drawer"
         ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
         aria-hidden={!drawerOpen}
         inert={!drawerOpen}
         aria-labelledby="cuDrawerTitle"

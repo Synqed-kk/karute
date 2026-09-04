@@ -554,7 +554,7 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     for (const t of allTexts) expect(t.length).toBeGreaterThan(20)
     // …and the ? opens the TOUR, never a popover of its own
     expect(SCREEN_CODE).toContain('aria-controls="cuTour"')
-    expect(SCREEN_CODE).toContain('onClick={() => setTourIdx(0)}')
+    expect(SCREEN_CODE).toContain('setTourIdx(0)')
   })
 
   it('⚖ R13 — nothing pressable in this room is a dark fill, and selected is a wash', () => {
@@ -676,6 +676,63 @@ describe('顧客 V2 — the room’s structure (⚖ page-scroll · ⚖ tour · �
     expect(SCREEN_CODE).not.toMatch(/useState\(false\)[\s\S]{0,40}ownOpen\b/)
     // …the same shape 本人関係 already uses, rather than a second mechanism.
     expect(SCREEN_CODE).toContain('const [openParty, setOpenParty] = useState<string | null>(null)')
+  })
+
+  it('⚖ FIX-3 — nothing behind an overlay is reachable, and a hidden sheet is not either', () => {
+    // The drawer and the tour own the screen while they are up, so the content
+    // box behind them is inert; the phone sheet is inert while it is parked.
+    expect(SCREEN_CODE).toContain('<div className="cu-view" inert={drawerOpen || tourOpen}>')
+    expect(SCREEN_CODE).toContain('inert={phone && !sheetOpen}')
+    expect(SCREEN_CODE).toContain('aria-hidden={phone && !sheetOpen}')
+    // …and the drawer names itself a modal dialog, like the room's other two.
+    expect(SCREEN_CODE).toMatch(/className="cu-drawer"[\s\S]{0,120}role="dialog"[\s\S]{0,40}aria-modal="true"/)
+    // …and the collapse spring re-seats when the motion preference changes.
+    expect(SCREEN_CODE).toContain('}, [ref, open, reduced])')
+  })
+
+  it('⚖ FIX-3 P2 — ONE Escape closes ONE layer when the 表示設定 popover is open', () => {
+    // The popover's own listener lives in the frozen `column-config.ts` and sits
+    // on the SAME node as the room's, so `stopPropagation` cannot reach it and
+    // both used to fire. Driven here with a real keydown against both listeners.
+    const pop = document.createElement('div')
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    pop.appendChild(box)
+    const trigger = document.createElement('button')
+    document.body.append(pop, trigger)
+    const closed: string[] = []
+    const cleanup = wireColumnsPopover(pop, trigger, () => closed.push('popover'))
+    // ⚠ THE FLAG IS A SNAPSHOT, because that is what the room really has: the
+    // effect closes over the `colsOpen` of the render that created it, so it
+    // cannot see the popover's own handler flip the state mid-event. A mutable
+    // variable here would be a driver the product does not have — and it read
+    // green for the wrong reason on the first run of this pin.
+    const roomKey = (colsOpen: boolean) => (e: KeyboardEvent) => {
+      if (colsOpen) return
+      if (e.key === 'Escape') closed.push('tour')
+    }
+    const whileOpen = roomKey(true)
+    document.addEventListener('keydown', whileOpen)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(closed).toEqual(['popover'])
+    document.removeEventListener('keydown', whileOpen)
+
+    // …and the NEXT Escape, on the render where the popover is closed, reaches
+    // the room and closes exactly one more layer.
+    const whileClosed = roomKey(false)
+    document.addEventListener('keydown', whileClosed)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(closed).toEqual(['popover', 'popover', 'tour'])
+
+    document.removeEventListener('keydown', whileClosed)
+    cleanup()
+    pop.remove()
+    trigger.remove()
+    // …and the shipped listener carries the same yield, so the driver above is
+    // not a second implementation.
+    expect(SCREEN_CODE).toContain('if (colsOpen) return')
+    // opening the tour closes the popover first — one transient surface at a time
+    expect(SCREEN_CODE).toMatch(/setColsOpen\(false\)\s*\n\s*setTourIdx\(0\)/)
   })
 
   it('there is ONE keydown listener, and it closes ONE layer per Escape', () => {
