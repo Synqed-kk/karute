@@ -1874,8 +1874,9 @@ describe('the provenance panel', () => {
     // the attention strip's headline and its comparison sentence
     expect(panel).toContain(p.provenance!.monthRow.value)
     expect(panel).toContain(p.provenance!.monthRow.value)
-    // the target strip's trace, now a real link
-    expect(p.tiles![3].link!.label).toBe('設定で変更')
+    // the target strip's trace, now a real link (P1 fix: the label stopped
+    // promising an edit 設定 cannot do yet)
+    expect(p.tiles![3].link!.label).toBe('設定を開く')
     // the 内訳 panel's 平均単価 row, now tile 3's footer
     expect(p.tiles![2].foot).toContain('平均単価')
     // the trailing footnote paragraph, now the panel's own lead (§K)

@@ -701,7 +701,11 @@ export async function analyticsProps({
       foot: targetFoot,
       // ONE TRUTH FOR 目標 (§4): the room READS `planes.target` and points at
       // the room that owns it. Never a second field, never a hardcoded yen.
-      link: { href: settingsHref, label: '設定で変更' },
+      // ⚖ Fable ruling (Greptile P1 fix round): 設定 holds the store's
+      // reservation/protection dials only — the 目標 editor is a queued
+      // registry item, not built yet. The link stays real (settings DOES
+      // resolve), the wording just stops promising an edit it can't do.
+      link: { href: settingsHref, label: '設定を開く', note: '目標の編集は準備中' },
       bar: target > 0 ? Math.min(pace, 100) : null,
       guide: null,
       calc: null,
@@ -884,7 +888,7 @@ export async function analyticsProps({
       tabs: '推移・ランキング・日報 の3つを切り替えます。右の「内訳を見る」を押すと、推移の中の 売上の内訳 まで一気に移動します。',
       chart: `直近${LEDGER_MONTHS}か月の ${totalEntry.label}（青）と ${nwEntry.label}（ピンク）です。${target > 0 ? `点線が${word('target')}。` : ''}斜線の月は途中の月で、まだ月全体ではありません。棒を押すと、その月の表示に切り替わります。`,
       decide: 'グラフから読み取れることを1文にしています。数字を自分で見比べなくても、いまの立ち位置がわかります。',
-      table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押すと、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は${LEDGER_MONTHS}か月の合計と平均です。`,
+      table: `${LEDGER_MONTHS}か月ぶんの内訳です。数字の下の ▲▼ は、同じ列の前の月との差。行を押す（Enterキーでも開きます）と、リピート率・稼働率・LTV・新規LTV も開きます。いちばん下の 統計 は${LEDGER_MONTHS}か月の合計と平均です。`,
       mix: 'この月の売上を メニュー別 と 予約経路別 に分けたものです。色の帯か、下のボタンを押すと、その1つだけを強調します。',
       tickets: '回数券の、まだ使われていない残りと、この月に消化されたぶんです。回数券を扱っていない店舗では表示されません。',
       footnote: 'この画面のどの数字が、どこから来ているかの一覧です。まだつないでいないものも「未接続」として並べています。',

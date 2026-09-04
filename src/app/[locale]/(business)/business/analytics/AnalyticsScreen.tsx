@@ -88,7 +88,10 @@ export interface TileProps {
    *  with its comparand did not go up (L2 B2-7). */
   chip: { text: string; tone: 'up' | 'down' | 'gap' | 'neutral' } | null
   foot: string | null
-  link: { href: string; label: string } | null
+  /** `note` sits beside the link, always — the one truth about 目標 (§4): a
+   *  settings link that promises an editor which does not exist yet is a
+   *  broken promise dressed as a working feature. */
+  link: { href: string; label: string; note: string } | null
   /** 0–100 for the goal bar, `null` when the tile has no bar. */
   bar: number | null
   /** ⚖ Liam 8/23 — a tile that deserves its OWN step of the 画面の説明 walk
@@ -457,7 +460,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
   const fnPanelRef = useRef<HTMLDivElement>(null)
   const landRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
+  const rowRefs = useRef<Record<number, HTMLTableRowElement | null>>({})
   const helpRef = useRef<HTMLButtonElement>(null)
   const tourCardRef = useRef<HTMLDivElement>(null)
   const tourNextRef = useRef<HTMLButtonElement>(null)
@@ -566,7 +569,7 @@ export function AnalyticsScreen(props: AnalyticsProps) {
     if (pulseFor === null) return
     const row = props.trend?.rows.find((r) => r.selected)
     if (!row || row.monthsAgo !== pulseFor) return
-    rowRefs.current.get(pulseFor)?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
+    rowRefs.current[pulseFor]?.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
     const id = window.setTimeout(() => setPulseFor(null), 780)
     return () => window.clearTimeout(id)
   }, [pulseFor, props.trend, reduced])
@@ -792,9 +795,12 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                   )}
                   {t.foot && <span>{t.foot}</span>}
                   {t.link && (
-                    <Link className="an-tlink" href={t.link.href}>
-                      {t.link.label}
-                    </Link>
+                    <>
+                      <Link className="an-tlink" href={t.link.href}>
+                        {t.link.label}
+                      </Link>
+                      <span>{t.link.note}</span>
+                    </>
                   )}
                 </div>
                 {t.calc && (
@@ -1088,16 +1094,34 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                   <tr className="an-tnote" role="row">
                     <td role="cell" colSpan={trend.metrics.length + 1}>{trend.emptyBefore}</td>
                   </tr>
-                  {trend.rows.map((r) => (
+                  {trend.rows.map((r) => {
+                    const rowId = `an-trow-${r.monthsAgo}`
+                    const isOpen = openRow === r.monthsAgo
+                    const toggle = () => setOpenRow((was) => (was === r.monthsAgo ? null : r.monthsAgo))
+                    return (
                     <tr
                       key={r.monthsAgo}
+                      id={rowId}
                       role="row"
                       ref={(el) => {
-                        if (el) rowRefs.current.set(r.monthsAgo, el)
-                        else rowRefs.current.delete(r.monthsAgo)
+                        rowRefs.current[r.monthsAgo] = el
                       }}
-                      className={`an-trow an-trow-body${r.partial ? ' is-partial' : ''}${r.selected ? ' is-sel' : ''}${openRow === r.monthsAgo ? ' is-open' : ''}${pulseFor === r.monthsAgo && r.selected ? ' is-pulse' : ''}`}
-                      onClick={() => setOpenRow((was) => (was === r.monthsAgo ? null : r.monthsAgo))}
+                      // ⚠ KEYBOARD PARITY (Greptile P1): the row is the only
+                      // control that reveals the shed metrics, so it needs its
+                      // own focus stop and Enter/Space handling, not just a
+                      // pointer handler. `aria-controls` names ITSELF —
+                      // there is no separate detail element, the same row's
+                      // cells widen in place when it opens.
+                      tabIndex={0}
+                      aria-expanded={isOpen}
+                      aria-controls={rowId}
+                      className={`an-trow an-trow-body${r.partial ? ' is-partial' : ''}${r.selected ? ' is-sel' : ''}${isOpen ? ' is-open' : ''}${pulseFor === r.monthsAgo && r.selected ? ' is-pulse' : ''}`}
+                      onClick={toggle}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        e.preventDefault()
+                        toggle()
+                      }}
                     >
                       <td role="cell" className="an-mo">
                         {r.label}
@@ -1116,7 +1140,8 @@ export function AnalyticsScreen(props: AnalyticsProps) {
                         </td>
                       ))}
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
                 {/* ⚖ THE TOTALS STICK TO THE VIEWPORT, not to an inner scroller
                     — there is none (⚖ PAGE-SCROLL). A sticky `<tfoot>` is the
