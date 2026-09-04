@@ -339,7 +339,7 @@
 .biz .pg-reservations .rv-search {
   width: 168px; height: 32px; padding: 0 10px;
   border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); background: #fff; color: var(--rv-ink);
-  font-size: 12.5px; outline: none;
+  font-size: 12.5px;
   transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
 }
 .biz .pg-reservations .rv-search::placeholder { color: var(--rv-ink-4); }

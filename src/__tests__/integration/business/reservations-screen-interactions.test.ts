@@ -820,6 +820,10 @@ describe('⚖ the sheet carries this round’s own laws', () => {
     expect(CSS).not.toContain('.app')
   })
 
+  it('⚖ K1 · the room never restates `outline: none` — focus has ONE home, the shell’s `.biz input:focus-visible` ring (business-shell.css:107-111)', () => {
+    expect(CSS).not.toMatch(/outline:\s*(none|0)\b/)
+  })
+
   it('⚖-ADJ K · the rail becomes a strip from the SIXTH card, at every width', () => {
     expect(SCREEN_CODE).toContain('const railStrip = queue.length > 5')
     expect(SCREEN_CODE).toContain("`rv-railcards${railStrip ? ' is-strip' : ''}`")
