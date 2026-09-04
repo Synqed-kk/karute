@@ -1127,17 +1127,31 @@ describe('G2(b) · chipCounts runs on chipBase — 期間+検索 applied, the ch
 
 // ═══ GREPTILE ROUND 1 — G4 · the guided tour traps focus inside its overlay ══
 
-describe('G4 · the tour card is a real modal — inert page root, Tab trap, existing Escape/focus-restore', () => {
-  it('the page root carries `inert` while the tour is open, and the tour layers render OUTSIDE that subtree', () => {
+describe('G4 · the tour card is a real modal — inert `.rv-view`, Tab trap, existing Escape/focus-restore', () => {
+  it('`.rv-view` carries `inert` while the tour is open, the page root carries none, and the tour layers render INSIDE the root, after the toast', () => {
     // scoped to the live screen's OWN root — the M-87 LoadFailure branch has
     // an unrelated `pg-reservations` div earlier in the file, with neither
     // `ref` nor `inert`.
     const rootOpen = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<div className="page pg-reservations" ref={rootRef}'))
     const rootTag = rootOpen.slice(0, rootOpen.indexOf('>') + 1)
-    expect(rootTag).toContain('inert={tourOpen}')
-    // the tour block sits AFTER the page root's last real child (the toast) —
-    // i.e. outside the root's own closing tag, not inside it
-    expect(SCREEN_CODE.indexOf('{tourOpen && (')).toBeGreaterThan(SCREEN_CODE.indexOf('rv-toast'))
+    expect(rootTag).not.toContain('inert')
+    // `.rv-view` — the CONTENT wrapper — carries the `inert` instead, so the
+    // tour's own overlay layers (siblings of `.rv-view`, not descendants)
+    // stay reachable while everything the tour must fence is contained.
+    const viewOpen = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<div className="rv-view" ref={viewRef}'))
+    const viewTag = viewOpen.slice(0, viewOpen.indexOf('>') + 1)
+    expect(viewTag).toContain('inert={tourOpen}')
+    // the tour block sits AFTER the toast AND before the Screen function's
+    // OWN closing `</div>\n  )\n}` — i.e. INSIDE the page root, not a sibling
+    // fragment outside it (the G4 bug: reservations.css's `.pg-reservations
+    // .rv-spot-*` rules stopped matching an unstyled, dumped-at-the-bottom
+    // tour card).
+    const screenFnIdx = SCREEN_CODE.indexOf('function Screen(props: ReservationsProps)')
+    const catchIdx = SCREEN_CODE.indexOf('className="rv-spot-catch"')
+    const rootCloseIdx = SCREEN_CODE.indexOf('    </div>\n  )\n}', screenFnIdx)
+    expect(catchIdx).toBeGreaterThan(SCREEN_CODE.indexOf('rv-toast'))
+    expect(rootCloseIdx).toBeGreaterThan(-1)
+    expect(catchIdx).toBeLessThan(rootCloseIdx)
   })
 
   it('reuses the SHEET’s own trap — trapSheetTab over SHEET_FOCUSABLE, no second mechanism', () => {

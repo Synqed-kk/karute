@@ -948,14 +948,14 @@ function Screen(props: ReservationsProps) {
   )
 
   return (
-    <>
-    {/* G4 fix — `inert` while the tour is open, matching this room's own
-        `rv-raildetail`/`rv-confirm` pattern above. The tour's own overlay
-        layers (spot-catch/spot-hover/spot-hole/spot-card, below) render OUTSIDE
-        this subtree — a page root inert-ing its own tour would break
-        tap-to-learn along with everything else. */}
-    <div className="page pg-reservations" ref={rootRef} inert={tourOpen}>
-      <div className="rv-view" ref={viewRef}>
+    <div className="page pg-reservations" ref={rootRef}>
+      {/* G4 fix — `inert` while the tour is open sits on the CONTENT wrapper,
+          not the page root, matching this room's own `rv-raildetail`/`rv-confirm`
+          pattern above. The tour's own overlay layers (spot-catch/spot-hover/
+          spot-hole/spot-card, below) render as siblings of this wrapper, still
+          inside `.pg-reservations` (reservations.css's tour rules keep
+          matching) and outside the inert subtree (tap-to-learn still works). */}
+      <div className="rv-view" ref={viewRef} inert={tourOpen}>
         {/* ⚖ ONE COMPACT TITLE ROW (the mock's `.titlerow`). The old subtitle and
             the summary band's sentence are not cut — they are the head's own
             tour text, which is where a sentence about the whole screen belongs. */}
@@ -1425,15 +1425,15 @@ function Screen(props: ReservationsProps) {
       <div className={`rv-toast${toast ? ' is-on' : ''}`} role="status" aria-live="polite" aria-atomic="true">
         {toast}
       </div>
-    </div>
 
-    {/* ⚖ Liam 8/23 — 画面の説明. Four layers, in the family's own order: the
-        click catcher (which is what makes every declared region jumpable), the
-        hover outline, the spotlight hole, and the card. G4 fix — this whole
-        block is a SIBLING of the page root, never a descendant of it, so the
-        root's `inert` (while the tour is open) cannot reach in and disable
-        tap-to-learn or the card itself. */}
-    {tourOpen && (
+      {/* ⚖ Liam 8/23 — 画面の説明. Four layers, in the family's own order: the
+          click catcher (which is what makes every declared region jumpable), the
+          hover outline, the spotlight hole, and the card. G4 fix — this whole
+          block is a SIBLING of `.rv-view`, never a descendant of it, so
+          `.rv-view`'s own `inert` (while the tour is open) cannot reach in and
+          disable tap-to-learn or the card itself; it stays inside
+          `.pg-reservations` so reservations.css's tour rules keep matching. */}
+      {tourOpen && (
         <>
           <div
             className="rv-spot-catch"
@@ -1479,7 +1479,7 @@ function Screen(props: ReservationsProps) {
           </div>
         </>
       )}
-    </>
+    </div>
   )
 }
 
