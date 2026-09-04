@@ -443,10 +443,12 @@
   background: rgba(255, 255, 255, .94);
 }
 .biz .pg-reservations .rv-pin-btn { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; text-align: center; white-space: nowrap; }
-/* P2 — two buttons: the primary takes the whole first line (the outline link
-   drops beneath, full width); one button (settled rows) stays as it was, a
-   single full-width button, because :only-child never matches this rule. */
-.biz .pg-reservations .rv-pin-btn.primary:not(:only-child) { flex: 1 1 100%; }
+/* P2 — any two-button pin row: both buttons take a full line each (the action
+   first, 今日の運営で見る beneath) — the greyed 準備中 outline actions (settle /
+   propose / contact) were the case the primary-only guard missed; one button
+   (settled rows) stays as it was, a single full-width button, because
+   :only-child never matches this rule. */
+.biz .pg-reservations .rv-pin-btn:not(:only-child) { flex: 1 1 100%; }
 .biz .pg-reservations .rv-insp-body { animation: rvRise 260ms var(--rv-ease); }
 @keyframes rvRise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 .biz .pg-reservations .rv-insp-hd { padding: 9px 14px; border-bottom: 1px solid var(--rv-line-soft); background: var(--rv-wash); }
