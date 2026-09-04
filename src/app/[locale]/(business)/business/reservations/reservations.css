@@ -439,10 +439,14 @@
    sticky so it stays beside the list while the page scrolls past it. */
 .biz .pg-reservations .rv-insp { position: sticky; top: calc(var(--rv-topbar) + 10px); align-self: start; min-width: 0; }
 .biz .pg-reservations .rv-insp-pin {
-  display: flex; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--rv-line-soft);
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--rv-line-soft);
   background: rgba(255, 255, 255, .94);
 }
-.biz .pg-reservations .rv-pin-btn { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; text-align: center; }
+.biz .pg-reservations .rv-pin-btn { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; text-align: center; white-space: nowrap; }
+/* P2 — two buttons: the primary takes the whole first line (the outline link
+   drops beneath, full width); one button (settled rows) stays as it was, a
+   single full-width button, because :only-child never matches this rule. */
+.biz .pg-reservations .rv-pin-btn.primary:not(:only-child) { flex: 1 1 100%; }
 .biz .pg-reservations .rv-insp-body { animation: rvRise 260ms var(--rv-ease); }
 @keyframes rvRise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 .biz .pg-reservations .rv-insp-hd { padding: 9px 14px; border-bottom: 1px solid var(--rv-line-soft); background: var(--rv-wash); }
@@ -639,6 +643,7 @@
     border-right: 0; border-bottom: 1px solid var(--rv-line-soft); padding: 0 0 5px;
   }
   .biz .pg-reservations .rv-rl-h { font-size: 10px; }
+  .biz .pg-reservations .rv-rl-h br { display: none; }
   .biz .pg-reservations .rv-rcard { flex: 0 0 226px; }
   .biz .pg-reservations .rv-rd-body { flex-direction: column; gap: 9px; padding: 10px 12px 12px; }
   .biz .pg-reservations .rv-rd-left { flex: 0 0 auto; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 7px; }

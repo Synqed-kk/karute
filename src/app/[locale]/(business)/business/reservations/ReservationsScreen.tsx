@@ -356,7 +356,7 @@ function LoadFailure() {
           <div className="rv-raillabel">
             <span className="rv-rl-t">要対応</span>
             <span className="rv-rl-c">—</span>
-            <span className="rv-rl-h">対応期限の早い順</span>
+            <span className="rv-rl-h">対応期限の<br />早い順</span>
           </div>
           <div className="rv-railcards">
             <div className="rv-railempty">
@@ -906,7 +906,7 @@ function Screen(props: ReservationsProps) {
           <div className="rv-raillabel">
             <span className="rv-rl-t">要対応</span>
             <span className="rv-rl-c">{queue.length}件</span>
-            <span className="rv-rl-h">{queue.length ? '対応期限の早い順' : 'この画面で今日決めることはありません'}</span>
+            <span className="rv-rl-h">{queue.length ? <>対応期限の<br />早い順</> : 'この画面で今日決めることはありません'}</span>
           </div>
           {queue.length === 0 ? (
             <div className="rv-railcards">
