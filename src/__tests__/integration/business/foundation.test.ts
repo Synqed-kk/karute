@@ -309,7 +309,11 @@ describe('the fixture data door', () => {
       // the board's 本日の売上.
       'src/business/lib/analytics.ts': ['./clock', './fixtures', './fixtures-analytics', './today-board'],
       'src/business/lib/today-board.ts': ['./clock', './fixtures', './fixtures-today'],
-      'src/business/lib/reservations.ts': ['./fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
+      // A2 fix (Greptile round 1B addendum) — `shiftWarningOf`'s overage half
+      // reads real instants (`jstMidnight`/`jstMinuteOfDay`) rather than bare
+      // minute-of-day numbers, the same reason `data.ts`/`today-board.ts` above
+      // import `./clock`.
+      'src/business/lib/reservations.ts': ['./clock', './fixtures', './fixtures-reservations', './fixtures-today', './today-board'],
       // The 表示する列 primitive canon keeps in fable-shared.js. Pure DOM +
       // arrays, shared by 顧客 and 予約一覧, so it imports nothing at all.
       'src/business/lib/column-config.ts': [],
@@ -492,18 +496,42 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/loading.tsx': ['@/business/i18n'],
+      // ⚖ THE ROOM-3 F1 LAW, NOW ON THIS ROOM TOO (V2). Everything between the
+      // admission gate and the render moved to `reservations-props.ts`, so the
+      // evidence harness renders the SAME assembly the route does. The page
+      // keeps four imports: the screen, its props, its sheet and the gate.
       'src/app/[locale]/(business)/business/reservations/page.tsx': [
         './ReservationsScreen',
+        './reservations-props',
         './reservations.css',
         '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/reservations/reservations-props.ts': [
+        './ReservationsScreen',
         '@/business/lib/clock',
         '@/business/lib/data',
+        // ⚠ TYPE-ONLY, BOTH OF THEM, and the reason is the harness: the world
+        // overrides this assembly accepts are exactly the shapes the fixture
+        // modules export, so a synthetic proof world is a compile error when it
+        // stops matching the demo world. No fixture VALUE is read here — every
+        // row still arrives through the lens-clamped data door.
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-reservations',
         '@/business/lib/reservations',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/reservations/ReservationsScreen.tsx': [
         '@/business/lib/column-config',
+        // ⚖ Liam 8/23 — the 画面の説明 tour's engine, ONE shared home; the room
+        // wires its own trigger and its own overlay to it (V2).
+        '@/business/lib/guide',
         '@/business/lib/reservations',
+        // ⚠ ONE SPRING INTEGRATOR FOR THE WHOLE FAMILY. It is the accepted
+        // mock's own `makeSpring`, ported rather than re-invented: the rail's
+        // detail, the picker's confirm, the segmented thumb and the phone sheet
+        // all ride it, and a second easing written by hand beside them would be
+        // a second motion language on one page (V2).
+        '@/business/lib/spring',
         '@/business/lib/today-board',
         'next/link',
         'react',

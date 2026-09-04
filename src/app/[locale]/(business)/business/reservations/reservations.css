@@ -1,409 +1,731 @@
-/* 予約一覧 — LIFTED from the canon mock's own <style>
-   (codex-design-round-2026-08-03/fable-store-reservations.html:52 + sections
-   H and I) under ⚖ Liam's transplant ruling: same look, same layout, same
-   class names. The shell primitives (.btn, .pill, .badge-col, .fx-scroll,
-   tokens) live in ../../business-shell.css and are NOT restated here.
+/* 予約一覧 — the room's sheet, rebuilt on the ACCEPTED DESKTOP MOCK
+   (RESERVATIONS-MOCK-v1.html: the deadline rail first, counts-as-filters, the
+   day-grouped 48px table, the inspector kept). Every value below is the mock's
+   own unless a law overrides it, and where one does the rule says which.
 
-   THREE DELIBERATE REWRITES, everything else is byte-faithful:
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
 
-   1. Every rule gains the `.biz` scope, exactly as the shell sheet does — the
-      canon page owns a whole document; this one rides a route segment inside
-      an app whose phone UI already owns :root.
+   OUTGOING (this sheet reaching another room). Every rule sits under
+   `.pg-reservations`, and the screen puts that class on exactly one node — so
+   nothing here can restyle 今日の運営 / 顧客 / 売上分析 / 録音 / スタッフ・シフト /
+   受信トレイ / 売上・レジ / カルテ / 設定 after a client-side navigation leaves
+   this sheet in the document.
 
-   2. Canon's page-local token spellings (--ink2 / --ink3 / --line2) become the
-      shell's (--ink-2 / --ink-3 / --line-2). Same values, one vocabulary.
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-reservations` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on exactly the
+   names canon's 予約 page used (`.panel`, `.empty`, `.toast`, `.price`,
+   `.proof`, `.row`, `.chip`, `.cell`, `.spot-card`…).
 
-   3. Canon's `.pill.bad` becomes `.pill.alert` — the repo's existing red pill,
-      now in the shell sheet. Same paint, one declaration.
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries an `rv-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   FOUR shell names are still used and all four are fenced below at FOUR levels
+   (`.biz .page.pg-reservations …`), because a sibling's own three-level rule
+   (`.biz .page .btn`, customers.css:23) ties at three and a tie is decided by
+   whichever sheet App Router happened to insert last:
+     `page` · `h1` · `btn` (+ `.btn.primary`) · `pill` (left to the shell on
+   purpose — one pill, one declaration, family-wide).
+   The room's own suite DERIVES the collision list from the nine sibling route
+   sheets and this screen's markup, freshly, on every run.
 
-   The column-width contract is canon's: ONE custom property (--fx-cols) is the
-   source for both the header row and every booking row, so the two can never
-   drift apart, and the 1320px media query swaps that one value. */
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice). The PAGE owns vertical scrolling and
+   nothing in this room does — no `max-height` on a list or panel wrapper, no
+   `overflow-y`, no `overscroll-behavior` — with ONE named exception, `.rv-sheet`,
+   the phone/one-column inspector. That exception is an OVERLAY rather than a
+   page wrapper: it is `position: fixed` over the page, it exists only while it
+   is open, and a bounded overlay is the family's own list-is-the-page answer
+   (the same shape 顧客 and the 録音 room ship). The room's suite and its probe
+   both pin the census by name. The mock's own `.tscroll` inner scroller is
+   MOCK-ONLY and is not carried.
 
-.biz .page.page-reservations { padding: 24px 28px 42px; }
+   ⚠ AND THE TABLE CARD CARRIES NO `overflow: hidden`. Sticky dies under one,
+   and this room's column head and its day headers are sticky against the PAGE
+   scroll. The rounded corners a clip would give are stated on the corner
+   children instead — which is also the room-3 F2 lesson (a focus ring painted
+   5px outside a control inside a clipped card is not a ring).
 
-/* ⚖ BUTTON-WEIGHT RULING (PACKET-PARITY-WAVE ADDENDUM 2): the canon pages
-   disagree on button weight, and parity means each screen matches ITS OWN canon
-   page. The shared sheet carries 今日の運営's values; this page's canon declares
-   `.btn{…font-weight:700}` — the whole family, outline buttons included, not
-   just the primaries — so the override lives here, scoped to this screen only.
-   Canon itself shipped per-page CSS copies; per-screen weights ARE canon
-   behavior. (The .btn half was caught by the mechanical computed-style diff,
-   not by eye: 表示設定 read 500 against canon's 700.)
-   `.btn.primary` is named too: the shell sets the primary weight at .btn.primary
-   specificity, which a bare .btn here would lose to. */
-.biz .btn, .biz .btn.primary { font-weight: 700; }
+   ⚖ NOTHING IS `position: fixed` INSIDE `.rv-view`. That wrapper carries
+   `container-type: inline-size`, which implies layout containment and would make
+   it the containing block for every fixed descendant — so the toast, the two
+   dialogs, the sheet, its scrim and the four tour layers are page-root siblings
+   of it. Same structure the 録音 room ships, same reason.
 
-/* Canon section I / A3: the head's CTA stays on one line and the description is
-   the side that shrinks — decided by wrap permission, not by width. */
-.biz .page-reservations .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 15px; }
-.biz .page-head > div { min-width: 0; }
-.biz .page-head .btn { white-space: nowrap; flex-shrink: 0; }
-.biz .page-reservations .eyebrow { margin-bottom: 4px; color: var(--indigo); font-size: 12px; font-weight: 800; letter-spacing: .06em; }
-/* Canon section I / A4: the same letter-spacing as the sibling screens. */
-.biz .page.page-reservations h1 { margin: 0; font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
-.biz .page-reservations .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 14px; }
+   ⚖ R13 — no black-filled interactive element anywhere. Selected reads as a
+   light accent wash with an inset ring; a commit is the solid accent, and the
+   accent is the FAMILY's `--indigo` / `--select-*` rather than the mock's own
+   #2563eb. That is this room's standing adjudication (WO-3b (b), 8/20): every
+   selected control in Business is painted from one token, and repointing this
+   one screen would make it the only blue that disagrees. */
 
-.biz .page-reservations .summary {
-  display: grid;
-  grid-template-columns: 1.45fr repeat(3, minmax(128px, .6fr));
-  margin-bottom: 14px;
-  border: 1px solid var(--proof-border);
-  border-radius: 11px;
-  background: var(--proof);
-  overflow: hidden;
+/* ── the fence: the shell names this room still uses ───────────────────────── */
+.biz .page.pg-reservations { padding: 16px 28px 40px; font-size: 13px; line-height: 1.55; }
+.biz .page.pg-reservations h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; font-weight: 700; }
+.biz .page.pg-reservations .btn { min-height: 34px; padding: 0 13px; font-size: 12.5px; font-weight: 500; }
+.biz .page.pg-reservations .btn.primary { font-weight: 700; }
+
+/* ── ⚖ F-R1 · THE 1180px FLOOR IS LIFTED FROM THE SHELL'S OWN LIST ───────────
+   This room owes the ⚖ ALL-SCREEN ladder — 390 to 2560, zero page h-scroll — so
+   it joins `business-shell.css`'s `:has()` opt-in list (:137) like the four
+   rooms before it. The selector is SHELL-OWNED on purpose: its own comment says
+   「no route sheet can ever reach up and lift its own floor」, and a room-side
+   copy of that rule would be exactly that reach, however carefully scoped. The
+   shell one-liner is this round's ONE shared-seam touch, named in the PR body. */
+
+/* ── the mock's tokens, mapped onto this room's own family ─────────────────── */
+.biz .page.pg-reservations {
+  --rv-blue: var(--indigo);
+  --rv-blue-ink: var(--commit-hover);
+  --rv-blue-wash: var(--select-bg);
+  --rv-blue-line: #c9d1fb;
+
+  --rv-green: var(--green-dark);
+  --rv-green-wash: var(--green-soft);
+
+  --rv-amber: var(--orange);
+  --rv-amber-wash: var(--orange-soft);
+  --rv-amber-line: #f0dcb4;
+
+  --rv-red: var(--red);
+  --rv-red-wash: var(--red-soft);
+  --rv-red-line: #f0c9c5;
+
+  --rv-ink: var(--ink);
+  --rv-ink-2: var(--ink-2);
+  --rv-ink-3: var(--ink-3);
+  --rv-ink-4: var(--quiet);
+
+  --rv-line: var(--line);
+  --rv-line-soft: var(--line-2);
+  --rv-wash: #f7f8fa;
+
+  --rv-r-lg: 14px;
+  --rv-r-md: 10px;
+  --rv-r-sm: 8px;
+  --rv-shadow-1: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 1px rgba(16, 24, 40, .03);
+  --rv-shadow-2: 0 4px 14px rgba(16, 24, 40, .07), 0 1px 3px rgba(16, 24, 40, .04);
+  --rv-shadow-3: 0 10px 28px rgba(16, 24, 40, .12), 0 2px 6px rgba(16, 24, 40, .06);
+  --rv-ease: cubic-bezier(.22, .9, .24, 1);
+
+  /* ⚖ THE ULTRA-WIDE LAW (Liam, and the mock's own number). ONE width token for
+     the whole page, repeated on every card as the backstop: past it the extra
+     width becomes SYMMETRIC PAGE PADDING rather than stretching a card, so the
+     title, the rail, the filter row, the table and the inspector share one pair
+     of edges at 1416px and at 2560px alike. */
+  --rv-maxw: 1416px;
+
+  /* The shell's real topbar height. 62px is the DESK value and the
+     pre-measurement default only — the screen corrects it on mount from the bar
+     itself, because the shell's topbar wraps to ~87px on a narrow window and a
+     sticky header hung off a typed number lands in the wrong place there
+     (⚖ HARNESS-GEOMETRY). */
+  --rv-topbar: 62px;
 }
-.biz .page-reservations .summary-main { padding: 13px 15px; border-left: 3px solid var(--indigo); }
-.biz .page-reservations .summary-main strong { display: block; font-size: 15px; }
-.biz .page-reservations .summary-main span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
-.biz .page-reservations .summary-stat { display: grid; align-content: center; padding: 10px 12px; border-left: 1px solid #e5e9f7; }
-.biz .page-reservations .summary-stat span { color: var(--muted); font-size: 12px; }
-.biz .page-reservations .summary-stat b { display: block; margin-top: 2px; font-size: 20px; font-variant-numeric: tabular-nums; }
-.biz .summary-stat b.warn { color: var(--orange); }
 
-/* 保存した表示 (M-83). Criteria, never a cached row set: pressing one sets the
-   filters below and the list re-derives. Selected = the light wash, never a
-   solid fill (R13). */
-.biz .saved-views {
+/* ══ THE READING COLUMN, AND IT IS THE CONTAINER THE LADDER ASKS ═════════════
+   THE HAZARD, in the shell's own numbers: the rail is 264px at ≥1024 with the
+   sidebar open and 76px everywhere else (business-shell.css:630 forces the
+   collapsed column below 1024), so the page a room is given is
+
+       viewport ≤ 1023  →  page = viewport − 76
+       viewport ≥ 1024  →  page = viewport − 264
+
+   and PAGE WIDTH FALLS BY 188px as the viewport crosses 1024. A rule that
+   decided a COLUMN COUNT from a viewport width would be deciding it from the
+   wrong number — two columns on a 760px page at 1024 with the rail open, one
+   column on a 948px page at 1023 with it collapsed, and a flip on a 1px drag.
+
+   THE FIX IS STRUCTURAL RATHER THAN ARITHMETIC: this wrapper is the page's own
+   content box, and every column decision below is a `@container` query against
+   IT. Monotonic by construction — one width, one answer, and a page that grows
+   can never lose a column. What is left on `@media` is what genuinely belongs
+   to the VIEWPORT: the page's outer padding and the ≥44px touch floor.
+
+   BROWSER SUPPORT: container queries are Safari 16 / Chrome 105, inside this
+   bundle's own baseline (Tailwind v4's floor is Safari 16.4), exactly as the
+   shell argues for `:has()`. */
+.biz .pg-reservations .rv-view {
+  container-type: inline-size;
+  container-name: rvpage;
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 10px;
-  /* Canon's own card treatment (w2-bookings-customers.css:456) — the chip row
-     is a bordered slate panel, not chips floating on the page. Caught by the
-     mechanical diff after the first extraction under-sampled the container. */
-  padding: 9px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 9px;
-  background: #f8fafc;
-}
-.biz .saved-views > span { margin-right: 2px; color: #334155; font-size: 12px; font-weight: 700; }
-.biz .saved-view {
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.biz .saved-view:hover { background: #fafafb; }
-/* Canon's own pressed chip (w2-bookings-customers.css:196): the accent wash
-   plus an inset ring that thickens the border without moving the box. Never a
-   solid fill — a saved view is a selected STATE, not a commit (R13). */
-.biz .saved-view[aria-pressed="true"] {
-  border-color: var(--select-line);
-  background: var(--select-bg);
-  color: var(--select-ink);
-  box-shadow: inset 0 0 0 1px var(--select-line);
-}
-
-.biz .page-reservations .filters {
-  display: grid;
-  grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(150px, .6fr)) auto;
+  flex-direction: column;
   gap: 8px;
-  margin-bottom: 12px;
-}
-.biz .filters input, .biz .filters select {
   width: 100%;
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid #d4d4da;
-  border-radius: 8px;
-  background: #fff;
-  color: var(--ink);
-  font-size: 14px;
+  max-width: var(--rv-maxw);
+  margin-inline: auto;
+  min-width: 0;
 }
-
-.biz .page-reservations .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 14px; align-items: start; }
-.biz .page-reservations .panel { border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
-.biz .page-reservations .panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 62px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line-2);
-  background: #fafafb;
-}
-.biz .page-reservations .panel-head strong { display: block; font-size: 15px; }
-.biz .page-reservations .panel-head span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-/* Scoped INSIDE .panel-head on purpose: the head's own `span` rule is one
-   element-selector more specific than a bare `.result-count`, so the count was
-   quietly inheriting the muted description colour. Canon defends the same spot
-   with `!important`; the extra class does it without one. */
-.biz .panel-head .result-count {
-  display: inline-flex;
-  align-items: center;
-  min-height: 29px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: var(--row);
-  color: var(--ink-2);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-/* Canon section I / A4 + the 配線契約: --fx-cols is the ONE source of the five
-   column tracks, read by the header and by every row. Names and staff names are
-   identifiers with nowhere to break, so their tracks take a min-content floor
-   (measured by the browser, never a px guess); 受付元 is the column that absorbs
-   the remainder and drops an unbreakable Latin token inside itself with
-   overflow-wrap. No truncation, no ellipsis — that is this page's rule.
-
-   表示設定 makes the column SET a user choice, so the two track lists ride in
-   from the screen as --fx-wide / --fx-narrow (built from the visible columns
-   only) and this media query still picks between them — one property, one
-   source, canon's contract intact under a hidden column. */
-.biz #bookingPanel { --fx-cols: var(--fx-wide); }
-.biz .page-reservations .list-head {
-  display: grid;
-  grid-template-columns: var(--fx-cols);
-  gap: 10px;
-  padding: 9px 13px;
-  border-bottom: 1px solid var(--line-2);
-  color: var(--quiet);
-  font-size: 12px;
-  font-weight: 800;
-}
-.biz .booking-list { min-height: 465px; }
-.biz .booking-row {
-  display: grid;
-  grid-template-columns: var(--fx-cols);
-  gap: 10px;
-  align-items: center;
+.biz .pg-reservations .rv-card {
   width: 100%;
-  min-height: 82px;
-  padding: 10px 13px;
-  border: 0;
-  border-bottom: 1px solid var(--row);
+  max-width: var(--rv-maxw);
+  border: 1px solid var(--rv-line);
+  border-radius: var(--rv-r-lg);
   background: #fff;
-  color: var(--ink);
-  text-align: left;
+  box-shadow: var(--rv-shadow-1);
 }
-.biz .booking-row:hover { background: #fafafb; }
-.biz .booking-row.selected { background: var(--indigo-soft); box-shadow: inset 3px 0 0 var(--indigo); }
-/* Keyed to the COLUMN, not the position: with 表示設定 able to hide any of the
-   five, nth-child would hand 受付元's wrapping rule to whichever cell slid into
-   slot 4. */
-.biz .booking-row .cell[data-col="who"] > strong, .biz .booking-row .cell[data-col="staff"] > strong { white-space: nowrap; }
-.biz .booking-row .cell[data-col="source"] > strong { overflow-wrap: anywhere; }
-.biz .page-reservations .cell strong { display: block; font-size: 14px; }
-.biz .page-reservations .cell span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.biz .pg-reservations .rv-sp { flex: 1; min-width: 6px; }
 
-/* 店舗ラベル — rendered only under viewAll. For a branch actor it would be a
-   constant that advertises other stores exist (isolation law). */
-.biz .page-reservations .w2-provenance { display: block; margin-top: 3px; color: var(--quiet); font-size: 11px; }
+/* ── 1. ONE COMPACT TITLE ROW ─────────────────────────────────────────────── */
+.biz .pg-reservations .rv-titlerow { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; }
+.biz .pg-reservations .rv-eyebrow { color: var(--rv-ink-4); font-size: 11.5px; white-space: nowrap; }
+.biz .pg-reservations .rv-range { color: var(--rv-ink-3); font-size: 12.5px; white-space: nowrap; }
+/* the ? is a HAIRLINE circle, never a filled one (⚖ R13) */
+.biz .pg-reservations .rv-help {
+  display: flex; align-items: center; justify-content: center;
+  flex: 0 0 22px; width: 22px; height: 22px; padding: 0;
+  border: 1px solid var(--rv-line); border-radius: 50%;
+  background: #fff; color: var(--rv-ink-3); font-size: 12px;
+}
+.biz .pg-reservations .rv-help:hover { border-color: var(--rv-blue-line); background: var(--rv-blue-wash); color: var(--rv-blue); }
+.biz .pg-reservations .rv-cta { white-space: nowrap; }
 
-.biz .page-reservations .empty { min-height: 330px; display: grid; place-content: center; padding: 28px; text-align: center; }
-.biz .page-reservations .empty strong { font-size: 16px; }
-.biz .page-reservations .empty span { margin-top: 5px; color: var(--muted); font-size: 13px; }
+/* ── 2. ⚖-ADJ A · the 要対応 deadline rail, at the TOP ─────────────────────── */
+/* scroll target (toggleAtt 'rail'): the shell's topbar is sticky, so the row needs the same clearance the sticky headers use */
+.biz .pg-reservations .rv-railrow { display: flex; align-items: stretch; gap: 8px; padding: 6px 8px; scroll-margin-top: calc(var(--rv-topbar) + 10px); }
+.biz .pg-reservations .rv-raillabel {
+  flex: 0 0 76px; display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  border-right: 1px solid var(--rv-line-soft); padding-right: 8px; min-width: 0;
+}
+.biz .pg-reservations .rv-rl-t { font-size: 12.5px; font-weight: 700; line-height: 1.3; }
+.biz .pg-reservations .rv-rl-c { font-size: 15px; font-weight: 700; color: var(--rv-amber); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-rl-h { font-size: 9.5px; color: var(--rv-ink-4); line-height: 1.25; }
+.biz .pg-reservations .rv-railcards { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
 
-/* 状態列 = two axes. Top = the lifecycle pill (7 fixed words, longest
-   予約元で管理); below = modifier flags, which wrap. Packing two facts into one
-   chip is what originally overflowed this column, so the guard is structural:
-   the track is wide enough for the longest flag to wrap inside it, and the flag
-   side always falls inward via overflow-wrap. No truncate, no ellipsis. */
-.biz .state-cell { display: grid; justify-items: start; gap: 4px; min-width: 0; max-width: 100%; }
-.biz .state-flags { display: flex; flex-wrap: wrap; gap: 2px 7px; min-width: 0; max-width: 100%; }
-.biz .state-flags .flag { color: var(--muted); font-size: 11.5px; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
-.biz .state-flags .flag.over { color: var(--orange); font-weight: 700; }
+/* ⚖-ADJ K · ANY-ROSTER-SIZE on the QUEUE dimension. From six cards the grid
+   becomes the mock's own horizontal STRIP at every width — a surface's own
+   container may pan sideways (⚖ PAGE-SCROLL) — and the label's count still
+   names the total. Never a second row of cards, never a vertical scroller. */
+.biz .pg-reservations .rv-railcards.is-strip {
+  display: flex; grid-template-columns: none;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; scroll-snap-type: x proximity;
+}
+.biz .pg-reservations .rv-railcards.is-strip::-webkit-scrollbar { height: 0; }
+.biz .pg-reservations .rv-railcards.is-strip .rv-rcard { flex: 0 0 214px; scroll-snap-align: start; }
 
-/* ── inspector ─────────────────────────────────────────────────────────── */
-.biz .page-reservations .inspector { position: sticky; top: 80px; max-height: calc(100vh - 96px); overflow: auto; }
-.biz .page-reservations .inspector-head { padding: 15px; border-bottom: 1px solid var(--line-2); background: #fafafb; }
-.biz .page-reservations .inspector-kicker { color: var(--indigo); font-size: 12px; font-weight: 800; }
-.biz .page-reservations .inspector-head h2 { margin: 5px 0 3px; font-size: 21px; }
-.biz .page-reservations .inspector-head p { margin: 0; color: var(--muted); font-size: 13px; }
-.biz .page-reservations .inspector-body { padding: 14px 15px 17px; }
-.biz .page-reservations .status-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 10px; }
-.biz .page-reservations .source { color: var(--muted); font-size: 12px; }
+.biz .pg-reservations .rv-rcard {
+  position: relative; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  padding: 7px 9px 6px; text-align: left;
+  border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); background: #fff; color: var(--rv-ink);
+  transition: background 160ms ease-out, border-color 160ms ease-out, box-shadow 160ms ease-out, transform 150ms var(--rv-ease);
+}
+.biz .pg-reservations .rv-rcard:hover { box-shadow: var(--rv-shadow-2); transform: translateY(-1px); }
+.biz .pg-reservations .rv-rcard .rv-dl {
+  align-self: flex-start; max-width: 100%; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--rv-amber-line); background: var(--rv-amber-wash); color: var(--rv-amber);
+  font-size: 10px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.biz .pg-reservations .rv-rcard .rv-cd { font-size: 13px; font-weight: 700; color: var(--rv-amber); font-variant-numeric: tabular-nums; line-height: 1.35; }
+.biz .pg-reservations .rv-ti { font-size: 11.5px; font-weight: 600; color: var(--rv-ink); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-rcard .rv-mt { font-size: 10px; color: var(--rv-ink-4); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-cv { position: absolute; right: 7px; bottom: 4px; color: var(--rv-ink-4); font-size: 12px; line-height: 1; transition: transform 240ms var(--rv-ease); }
+/* 期限超過 is the ONE place red is spent on this rail (with 来店なし on a row) */
+.biz .pg-reservations .rv-rcard.is-over { border-color: var(--rv-red-line); background: #fffbfb; }
+.biz .pg-reservations .rv-rcard.is-over .rv-dl { border-color: var(--rv-red-line); background: var(--rv-red-wash); color: var(--rv-red); }
+.biz .pg-reservations .rv-rcard.is-over .rv-cd { color: var(--rv-red); }
+/* selected = the light accent wash plus an inset ring, never a fill (⚖ R13) */
+.biz .pg-reservations .rv-rcard.is-sel { border-color: var(--select-line); background: var(--select-bg); box-shadow: inset 0 0 0 1px var(--select-line); }
+.biz .pg-reservations .rv-rcard.is-sel .rv-cv { transform: rotate(180deg); color: var(--select-ink); }
+.biz .pg-reservations .rv-rcard.is-over.is-sel { border-color: var(--rv-red-line); background: #fff4f3; }
 
-/* 予約元で管理 の読み取り専用理由 — the same vocabulary as the page's other
-   quiet notes, tinted on the external-source side. */
-.biz .readonly-note {
-  margin-top: 10px;
-  padding: 10px 11px;
-  border-left: 3px solid var(--indigo);
-  background: var(--indigo-soft);
-  color: var(--ink-2);
-  font-size: 12px;
-  line-height: 1.55;
+.biz .pg-reservations .rv-railempty { display: grid; place-content: center; gap: 3px; padding: 14px 12px; text-align: center; }
+.biz .pg-reservations .rv-railempty strong { font-size: 13px; }
+.biz .pg-reservations .rv-railempty span { color: var(--rv-ink-3); font-size: 11.5px; }
+
+/* ── 3. the detail card, springing open IN PLACE under the rail ────────────── */
+.biz .pg-reservations .rv-raildetail { height: 0; overflow: hidden; flex: 0 0 auto; }
+.biz .pg-reservations .rv-collapse-inner {
+  opacity: 0; transform: translateY(-3px);
+  transition: opacity 170ms ease-out, transform 200ms var(--rv-ease);
+}
+.biz .pg-reservations .rv-collapse-inner.is-in { opacity: 1; transform: none; }
+.biz .pg-reservations .rv-rd-body { display: flex; gap: 14px; align-items: flex-start; padding: 11px 14px 12px; }
+.biz .pg-reservations .rv-rd-left { flex: 0 0 176px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.biz .pg-reservations .rv-rd-left .rv-dl {
+  align-self: flex-start; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--rv-amber-line); background: var(--rv-amber-wash); color: var(--rv-amber);
+  font-size: 11px; font-weight: 700;
+}
+.biz .pg-reservations .rv-rd-left .rv-cd { font-size: 14px; font-weight: 700; color: var(--rv-amber); font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-rd-left.is-over .rv-dl { border-color: var(--rv-red-line); background: var(--rv-red-wash); color: var(--rv-red); }
+.biz .pg-reservations .rv-rd-left.is-over .rv-cd { color: var(--rv-red); }
+.biz .pg-reservations .rv-rd-left .rv-mt { font-size: 11.5px; color: var(--rv-ink-3); line-height: 1.5; }
+/* two spans rather than a <br>: the phone band puts them back on one line and
+   needs its separator back with them (the mock's own D6 fix — a <br> there left
+   「R-48319月4日」) */
+.biz .pg-reservations .rv-m1, .biz .pg-reservations .rv-m2 { display: block; }
+.biz .pg-reservations .rv-rd-mid { flex: 1; min-width: 0; }
+.biz .pg-reservations .rv-rd-mid h3 { margin: 0 0 7px; font-size: 14px; font-weight: 700; line-height: 1.4; }
+.biz .pg-reservations .rv-rd-act { flex: 0 0 190px; display: flex; flex-direction: column; gap: 7px; }
+.biz .pg-reservations .rv-rd-act .btn { width: 100%; }
+
+/* the evidence rows — every line read off the row or a plane, nothing written */
+.biz .pg-reservations .rv-ev {
+  display: flex; gap: 12px; align-items: flex-start; margin-bottom: 5px; padding: 6px 11px;
+  border-left: 3px solid var(--rv-blue); border-radius: 0 var(--rv-r-sm) var(--rv-r-sm) 0;
+  background: var(--rv-blue-wash);
+}
+.biz .pg-reservations .rv-ev.is-warn { border-left-color: var(--orange-line); background: var(--rv-amber-wash); }
+.biz .pg-reservations .rv-ev-k { flex: 0 0 92px; font-size: 11.5px; color: var(--rv-ink-3); line-height: 1.6; }
+.biz .pg-reservations .rv-ev.is-warn .rv-ev-k { color: var(--rv-amber); }
+.biz .pg-reservations .rv-ev-v { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 700; color: var(--rv-ink); line-height: 1.6; overflow-wrap: anywhere; }
+.biz .pg-reservations .rv-ev.is-warn .rv-ev-v { color: var(--rv-amber); }
+.biz .pg-reservations .rv-ev-n { display: block; font-weight: 400; font-size: 12px; color: var(--rv-ink-2); }
+
+/* ⚖-ADJ B · the slot rows. Only the CHANGE card's 空き枠候補 are buttons; every
+   other slot is read-only or the honest empty state, so a card never implies an
+   action its data cannot carry. */
+.biz .pg-reservations .rv-slots { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 1px; font-weight: 400; }
+.biz .pg-reservations .rv-slot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 9px; max-width: 460px; text-align: left;
+  padding: 5px 10px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); background: #fff; color: var(--rv-ink);
+  transition: background 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+.biz .pg-reservations .rv-mark { flex: 0 0 13px; width: 13px; height: 13px; position: relative; border: 1.5px solid #cdd4e0; border-radius: 50%; transition: border-color 150ms ease-out, background 150ms ease-out; }
+.biz .pg-reservations .rv-sl-t { font-size: 12.5px; font-weight: 700; color: var(--rv-ink); }
+.biz .pg-reservations .rv-sl-s { font-size: 12px; color: var(--rv-ink-2); min-width: 0; }
+/* sits directly after its data, never pushed to the row's far edge (ULTRA-WIDE) */
+.biz .pg-reservations .rv-sl-pick { font-size: 11.5px; font-weight: 700; color: var(--select-ink); white-space: nowrap; }
+.biz .pg-reservations button.rv-slot:hover { background: var(--rv-blue-wash); border-color: var(--rv-blue-line); }
+.biz .pg-reservations button.rv-slot:hover .rv-mark { border-color: var(--rv-blue); }
+.biz .pg-reservations .rv-slot.is-on { background: var(--select-bg); border-color: var(--select-line); box-shadow: inset 0 0 0 1px var(--select-line); }
+.biz .pg-reservations .rv-slot.is-on .rv-mark { border-color: var(--select-line); background: var(--select-line); }
+.biz .pg-reservations .rv-slot.is-on .rv-mark::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #fff; }
+.biz .pg-reservations .rv-slot.is-ro { background: var(--rv-wash); border-color: var(--rv-line-soft); }
+.biz .pg-reservations .rv-slot.is-empty { background: transparent; border-style: dashed; }
+.biz .pg-reservations .rv-slot.is-empty .rv-sl-t { color: var(--rv-ink-3); }
+.biz .pg-reservations .rv-ev.is-warn .rv-slot .rv-sl-t { color: var(--rv-amber); }
+
+/* the honest confirm — springs open under the picked slot */
+.biz .pg-reservations .rv-confirm { height: 0; overflow: hidden; }
+.biz .pg-reservations .rv-cf-body {
+  max-width: 560px; margin-top: 7px; padding: 8px 11px 9px;
+  border: 1px solid var(--rv-blue-line); border-radius: var(--rv-r-sm); background: var(--rv-blue-wash);
+}
+.biz .pg-reservations .rv-cf-txt { font-size: 12px; color: var(--rv-ink-2); line-height: 1.65; }
+.biz .pg-reservations .rv-cf-pick { display: block; font-size: 12.5px; font-weight: 700; color: var(--rv-ink); }
+.biz .pg-reservations .rv-cf-hold { display: block; font-weight: 700; color: var(--rv-blue-ink); }
+.biz .pg-reservations .rv-cf-reason { display: grid; gap: 4px; margin-top: 8px; font-size: 12px; font-weight: 700; }
+.biz .pg-reservations .rv-cf-reason select { min-height: 34px; padding: 4px 8px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); background: #fff; color: var(--rv-ink); font-size: 12.5px; }
+/* ⚠ THE REFUSAL IS READABLE AND IT CHANGES NOTHING (⚖ §A7). It is a quiet card
+   rather than an alarm: nothing went wrong, a write simply is not connected. */
+.biz .pg-reservations .rv-cf-refusal {
+  margin: 8px 0 0; padding: 8px 10px;
+  border-left: 3px solid var(--orange-line); border-radius: 0 var(--rv-r-sm) var(--rv-r-sm) 0;
+  background: var(--rv-amber-wash); color: #71380f; font-size: 12px; line-height: 1.65;
+}
+.biz .pg-reservations .rv-cf-act { display: flex; gap: 7px; margin-top: 8px; }
+
+/* ── 4. ⚖-ADJ D · the counts ARE the filters ──────────────────────────────── */
+.biz .pg-reservations .rv-filterrow { display: flex; align-items: center; gap: 9px; padding: 5px 9px; flex-wrap: wrap; row-gap: 6px; }
+.biz .pg-reservations .rv-seg {
+  position: relative; display: inline-flex; gap: 2px; flex: 0 0 auto;
+  padding: 3px; border: 1px solid var(--rv-line); border-radius: 999px; background: var(--rv-wash);
+}
+.biz .pg-reservations .rv-seg-thumb {
+  position: absolute; top: 3px; left: 0; height: calc(100% - 6px); width: 100px;
+  border: 1px solid var(--select-line); border-radius: 999px; background: #fff; box-shadow: var(--rv-shadow-1);
+  transform-origin: left center; will-change: transform; pointer-events: none;
+}
+.biz .pg-reservations .rv-seg-btn {
+  position: relative; z-index: 1; padding: 4px 9px; border: 0; border-radius: 999px;
+  background: none; color: var(--rv-ink-3); font-size: 12px; white-space: nowrap;
+  transition: color 180ms ease-out;
+}
+.biz .pg-reservations .rv-seg-btn.is-on { color: var(--select-ink); font-weight: 700; }
+.biz .pg-reservations .rv-seg-btn.is-warn.is-on { color: var(--rv-amber); }
+.biz .pg-reservations .rv-seg-btn .rv-n { margin-left: 4px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-searchwrap { position: relative; flex: 0 0 auto; }
+.biz .pg-reservations .rv-search {
+  width: 168px; height: 32px; padding: 0 10px;
+  border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); background: #fff; color: var(--rv-ink);
+  font-size: 12.5px;
+  transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.biz .pg-reservations .rv-search::placeholder { color: var(--rv-ink-4); }
+.biz .pg-reservations .rv-search:focus { border-color: var(--rv-blue-line); }
+.biz .pg-reservations .rv-daterange {
+  height: 32px; padding: 0 8px; flex: 0 0 auto;
+  border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); background: #fff; color: var(--rv-ink-2); font-size: 12.5px;
+}
+.biz .pg-reservations .rv-clear { flex: 0 0 auto; height: 32px; min-height: 32px; }
+
+/* ── 5. the work grid: the day-grouped table + the inspector ───────────────── */
+.biz .pg-reservations .rv-workgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; align-items: start; min-width: 0; }
+/* ⚠ NO `overflow: hidden` HERE — sticky dies under one, and this card's column
+   head and day headers are sticky against the PAGE scroll. */
+.biz .pg-reservations .rv-tablecard { display: flex; flex-direction: column; min-width: 0; --rv-cols: var(--rv-wide); }
+.biz .pg-reservations .rv-tbl-hd { display: flex; align-items: center; gap: 9px; padding: 7px 12px 6px; border-bottom: 1px solid var(--rv-line-soft); flex-wrap: wrap; row-gap: 2px; }
+.biz .pg-reservations .rv-ttl { font-size: 13px; font-weight: 700; white-space: nowrap; }
+.biz .pg-reservations .rv-sub { font-size: 11px; color: var(--rv-ink-4); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.biz .pg-reservations .rv-cnt {
+  padding: 2px 10px; border: 1px solid var(--rv-line); border-radius: 999px; background: var(--rv-wash);
+  color: var(--rv-ink-2); font-size: 11.5px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.biz .pg-reservations .rv-colswrap { position: relative; }
+.biz .pg-reservations .rv-colsbtn { min-height: 28px; padding: 0 10px; font-size: 12px; }
+
+/* the column head and the day headers stick against the PAGE scroll, hung off
+   the shell's REAL topbar height (measured on mount, see `--rv-topbar`) */
+.biz .pg-reservations .rv-thead {
+  position: sticky; top: var(--rv-topbar); z-index: 4;
+  display: grid; grid-template-columns: var(--rv-cols); gap: 10px; align-items: center;
+  height: 26px; padding: 0 12px;
+  background: rgba(247, 248, 250, .95); backdrop-filter: saturate(180%) blur(10px);
+  border-bottom: 1px solid var(--rv-line-soft);
+  color: var(--rv-ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+}
+.biz .pg-reservations .rv-th-right { text-align: right; }
+.biz .pg-reservations .rv-grouping { display: contents; }
+.biz .pg-reservations .rv-dayhd {
+  position: sticky; top: calc(var(--rv-topbar) + 26px); z-index: 3;
+  display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px;
+  background: rgba(255, 255, 255, .95); backdrop-filter: saturate(180%) blur(10px);
+  border-top: 1px solid var(--rv-line-soft); border-bottom: 1px solid var(--rv-line-soft);
+}
+.biz .pg-reservations .rv-d { font-size: 12px; font-weight: 700; color: var(--rv-ink); white-space: nowrap; }
+.biz .pg-reservations .rv-dayhd .rv-n { font-size: 11px; color: var(--rv-ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-ln { flex: 1; height: 1px; background: var(--rv-line-soft); }
+
+/* the rows fade in ONCE on a filter swap (the mock's own one-shot) */
+.biz .pg-reservations .rv-rowsbox { animation: rvFadeIn 200ms ease-out; }
+@keyframes rvFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+.biz .pg-reservations .rv-row {
+  position: relative; display: grid; grid-template-columns: var(--rv-cols); gap: 10px; align-items: center;
+  width: 100%; min-height: 48px; padding: 5px 12px; text-align: left;
+  border: 0; border-bottom: 1px solid var(--rv-line-soft); background: #fff; color: var(--rv-ink);
+  transition: background 150ms ease-out;
+}
+.biz .pg-reservations .rv-row:hover { background: var(--rv-wash); }
+/* selected = the accent wash and a 3px left rule, never a fill (⚖ R13) */
+.biz .pg-reservations .rv-row.is-sel { background: var(--select-bg); }
+.biz .pg-reservations .rv-row.is-sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--select-line); }
+.biz .pg-reservations .rv-rowsbox .rv-grouping:last-child .rv-row:last-child { border-bottom: 0; border-radius: 0 0 var(--rv-r-lg) var(--rv-r-lg); }
+.biz .pg-reservations .rv-cell { min-width: 0; }
+.biz .pg-reservations .rv-tm { display: block; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; white-space: nowrap; }
+.biz .pg-reservations .rv-l1 { display: block; font-size: 12px; color: var(--rv-ink-2); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-l2 { display: block; font-size: 10.5px; color: var(--rv-ink-4); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-nm { display: block; font-size: 13px; font-weight: 600; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-prov { display: block; margin-top: 2px; color: var(--rv-ink-4); font-size: 11px; }
+.biz .pg-reservations .rv-attnmark {
+  display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 5px;
+  border: 1px solid var(--rv-amber-line); border-radius: 50%; background: var(--rv-amber-wash); color: var(--rv-amber);
+  font-size: 9px; font-weight: 700; vertical-align: -2px;
+}
+/* ⚖ rider #3 — the memory tag says WHAT it counts, and it is grey: a fact about
+   the customer, never a verdict about them. */
+.biz .pg-reservations .rv-noshow { margin-left: 6px; color: var(--rv-ink-4); font-size: 10.5px; font-weight: 500; }
+.biz .pg-reservations .rv-st { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+/* the flags, joined into ONE line. They WRAP inside their own track rather than
+   truncating — the note is the reason a row needs a human. */
+.biz .pg-reservations .rv-note { font-size: 10px; color: var(--rv-ink-4); line-height: 1.3; text-align: right; max-width: 100%; overflow-wrap: anywhere; }
+.biz .pg-reservations .rv-note.is-warn { color: var(--rv-amber); font-weight: 700; }
+/* the second line the narrow and phone bands fall back to; hidden at a desk */
+.biz .pg-reservations .rv-mline { display: none; font-size: 10.5px; color: var(--rv-ink-4); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.biz .pg-reservations .rv-m-sd { margin-right: 9px; }
+.biz .pg-reservations .rv-m-sp { display: none; }
+
+.biz .pg-reservations .rv-emptybox { padding: 26px 16px; text-align: center; font-size: 12.5px; color: var(--rv-ink-3); line-height: 1.8; }
+.biz .pg-reservations .rv-emptybox strong { display: block; }
+.biz .pg-reservations .rv-demonote {
+  margin: 8px 12px 0; padding: 7px 11px;
+  border: 1px dashed #dfe3ea; border-radius: var(--rv-r-sm); background: var(--rv-wash);
+  color: var(--rv-ink-3); font-size: 11.5px; line-height: 1.6;
 }
 
-.biz .page-reservations .facts { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .page-reservations .fact { padding: 9px 10px; border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
-.biz .fact:nth-child(even) { border-right: 0; }
-.biz .fact:nth-last-child(-n+2) { border-bottom: 0; }
-.biz .page-reservations .fact span { display: block; color: var(--muted); font-size: 12px; }
-.biz .page-reservations .fact b { display: block; margin-top: 3px; font-size: 13px; }
-
-.biz .page-reservations .section-title { margin: 14px 0 7px; color: var(--ink-3); font-size: 12px; font-weight: 800; letter-spacing: .04em; }
-
-/* 本人関係 (⚖ cut #7): one line per party, detail on click, a chip only where a
-   party deviates. The exploded five-party box never renders. Same treatment the
-   顧客 screen carries, so the two read as one product. */
-.biz .page-reservations .party-list { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.biz .page-reservations .party-row {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  border-bottom: 1px solid var(--line-2);
-  background: #fff;
-  color: var(--ink);
-  text-align: left;
-  font-size: 13px;
+/* ── 6. the inspector — KEPT, restyled ────────────────────────────────────── */
+/* NO max-height and NO overflow: the PAGE reveals it (⚖ PAGE-SCROLL). It is
+   sticky so it stays beside the list while the page scrolls past it. */
+.biz .pg-reservations .rv-insp { position: sticky; top: calc(var(--rv-topbar) + 10px); align-self: start; min-width: 0; }
+.biz .pg-reservations .rv-insp-pin {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--rv-line-soft);
+  background: rgba(255, 255, 255, .94);
 }
-.biz .party-row:hover { background: #fafafb; }
-.biz .page-reservations .party-row:last-of-type { border-bottom: 0; }
-.biz .party-row > span:first-child { min-width: 84px; color: var(--muted); font-size: 12px; }
-.biz .page-reservations .party-row b { font-size: 13px; }
-.biz .page-reservations .party-row .pill { margin-left: auto; }
-.biz .page-reservations .party-note { padding: 9px 10px; border-top: 1px solid var(--line-2); background: #fafafb; color: var(--muted); font-size: 12px; line-height: 1.55; }
-
-.biz .price { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--proof-border); border-radius: 9px; background: var(--proof); overflow: hidden; }
-.biz .price div { padding: 10px; border-right: 1px solid var(--proof-border); }
-.biz .price div:last-child { border-right: 0; }
-.biz .price span { display: block; color: var(--muted); font-size: 12px; }
-.biz .price b { display: block; margin-top: 3px; font-size: 16px; }
-.biz .proof { padding: 11px 12px; border-left: 3px solid var(--indigo); background: var(--proof); color: var(--ink-3); font-size: 12px; line-height: 1.55; }
-
-.biz .page-reservations .history { border-top: 1px solid var(--line-2); }
-.biz .page-reservations .history-row { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--row); }
-.biz .page-reservations .history-row time { color: var(--quiet); font-size: 12px; }
-.biz .page-reservations .history-row strong { display: block; font-size: 13px; }
-.biz .page-reservations .history-row > span > span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
-
-.biz .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
-.biz .actions .btn { width: 100%; }
-.biz .actions .wide { grid-column: 1 / -1; }
-
-/* Canon section I / A1: when the selected booking has fallen outside the
-   filters, the correct state is "no highlighted row" — a quiet line of body
-   text saying why, with no surface and no colour added. It is an echo of the
-   list, not an error. */
-.biz .page-reservations .w2-off-list { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
-
-/* Canon section I / A2: a failed load is LOUD. A quiet blank with static
-   placeholders is a broken screen that looks like normal operation, and the
-   numbers left standing on it are the dangerous part — so the panels are
-   replaced by this strip and every figure drops to 「—」. */
-.biz .load-error {
-  margin: 0 0 14px;
-  padding: 14px 15px;
-  border: 1px solid #eec4bf;
-  border-left: 3px solid var(--red);
-  border-radius: 11px;
-  background: var(--red-soft);
-  color: var(--red-dark);
-  font-size: 14px;
-  line-height: 1.6;
+.biz .pg-reservations .rv-pin-btn { flex: 1; min-width: 0; padding: 0 6px; font-size: 12px; text-align: center; white-space: nowrap; }
+/* P2 — any two-button pin row: both buttons take a full line each (the action
+   first, 今日の運営で見る beneath) — the greyed 準備中 outline actions (settle /
+   propose / contact) were the case the primary-only guard missed; one button
+   (settled rows) stays as it was, a single full-width button, because
+   :only-child never matches this rule. */
+.biz .pg-reservations .rv-pin-btn:not(:only-child) { flex: 1 1 100%; }
+.biz .pg-reservations .rv-insp-body { animation: rvRise 260ms var(--rv-ease); }
+@keyframes rvRise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+.biz .pg-reservations .rv-insp-hd { padding: 9px 14px; border-bottom: 1px solid var(--rv-line-soft); background: var(--rv-wash); }
+.biz .pg-reservations .rv-rid { font-size: 12px; font-weight: 700; color: var(--select-ink); }
+.biz .pg-reservations .rv-insp-nm { margin-top: 1px; font-size: 18px; font-weight: 700; letter-spacing: -.012em; line-height: 1.3; }
+.biz .pg-reservations .rv-insp-mt { margin-top: 1px; font-size: 11.5px; color: var(--rv-ink-3); line-height: 1.5; }
+.biz .pg-reservations .rv-offlist { margin: 8px 14px 0; color: var(--rv-ink-3); font-size: 11.5px; line-height: 1.55; }
+.biz .pg-reservations .rv-toprow { display: flex; align-items: center; gap: 8px; padding: 8px 14px 0; }
+.biz .pg-reservations .rv-src { margin-left: auto; font-size: 11.5px; color: var(--rv-ink-3); white-space: nowrap; }
+.biz .pg-reservations .rv-insp-sec { padding: 8px 14px 0; }
+.biz .pg-reservations .rv-sk { display: block; margin-bottom: 4px; font-size: 12px; font-weight: 700; }
+.biz .pg-reservations .rv-kv2 { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); }
+.biz .pg-reservations .rv-kv2 > div { padding: 6px 10px 7px; border-right: 1px solid var(--rv-line); border-bottom: 1px solid var(--rv-line); min-width: 0; }
+.biz .pg-reservations .rv-kv2 > div:nth-child(2n) { border-right: 0; }
+.biz .pg-reservations .rv-kv2 > div:nth-last-child(-n+2) { border-bottom: 0; }
+.biz .pg-reservations .rv-k2 { display: block; font-size: 10.5px; color: var(--rv-ink-3); line-height: 1.5; }
+.biz .pg-reservations .rv-v2 { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.45; overflow-wrap: anywhere; }
+.biz .pg-reservations .rv-readonly {
+  margin: 8px 14px 0; padding: 8px 10px;
+  border-left: 3px solid var(--rv-blue); background: var(--select-bg); color: var(--rv-ink-2);
+  font-size: 11.5px; line-height: 1.55;
 }
-
-/* ── 要対応 queue (canon section H) ─────────────────────────────────────── */
-.biz .queue { margin-bottom: 14px; }
-.biz .queue-card {
-  display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) 214px;
-  gap: 14px;
-  align-items: start;
-  padding: 14px;
-  border-bottom: 1px solid var(--row);
+.biz .pg-reservations .rv-party { border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); }
+.biz .pg-reservations .rv-party-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; text-align: left;
+  border: 0; border-bottom: 1px solid var(--rv-line-soft); background: #fff; color: var(--rv-ink); font-size: 12.5px;
 }
-.biz .queue-card:last-child { border-bottom: 0; }
-/* Only the case with no way out (no safe reassignment) is lifted a step, and by
-   a surface — not by shouting with a filled button. The state stays a pale
-   wash; it is the decision that moves forward. */
-.biz .queue-card.escalate { background: #fffaf6; box-shadow: inset 3px 0 0 var(--orange); }
-.biz .queue-when { display: grid; justify-items: start; gap: 4px; min-width: 0; }
-.biz .queue-when .pill.wrap { white-space: normal; }
-.biz .queue-left { font-size: 13px; font-weight: 800; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.biz .queue-left.over { color: var(--orange); }
-.biz .queue-ref { color: var(--muted); font-size: 12px; line-height: 1.45; }
-.biz .queue-body { min-width: 0; }
-.biz .queue-body > strong { display: block; font-size: 15px; line-height: 1.45; }
-.biz .evidence { display: grid; gap: 5px; margin: 9px 0 0; padding: 9px 11px; border-left: 3px solid var(--indigo); background: var(--proof); list-style: none; }
-.biz .evidence + .evidence { margin-top: 7px; }
-.biz .evidence li { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 9px; font-size: 12px; line-height: 1.5; }
-.biz .evidence li > span { color: var(--muted); }
-.biz .evidence li > b { min-width: 0; color: var(--ink-2); font-weight: 700; overflow-wrap: anywhere; }
-.biz .evidence li > b i { display: block; margin-top: 2px; color: var(--muted); font-style: normal; font-weight: 500; }
-.biz .evidence.risk { border-left-color: var(--orange-line); background: var(--orange-soft); }
-.biz .evidence.risk li > span { color: #74441f; }
-.biz .evidence.risk li > b { color: #71380f; }
-.biz .queue-act { display: grid; gap: 7px; }
-.biz .queue-act .btn { width: 100%; }
-/* An empty queue is quiet and honest — not one unit of urgency is manufactured
-   here; every card is derived. */
-.biz .queue-empty { display: grid; place-content: center; gap: 5px; padding: 34px 20px; text-align: center; }
-.biz .queue-empty strong { font-size: 16px; }
-.biz .queue-empty span { color: var(--muted); font-size: 13px; }
+.biz .pg-reservations .rv-party-row .rv-k2 { flex: 0 0 74px; }
+.biz .pg-reservations .rv-party-row:hover { background: var(--rv-wash); }
+.biz .pg-reservations .rv-party-row:last-of-type { border-bottom: 0; }
+.biz .pg-reservations .rv-party-row .pill { margin-left: auto; }
+.biz .pg-reservations .rv-party-note { padding: 8px 10px; border-top: 1px solid var(--rv-line-soft); background: var(--rv-wash); color: var(--rv-ink-3); font-size: 11.5px; line-height: 1.55; }
+.biz .pg-reservations .rv-price { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--rv-line); border-radius: var(--rv-r-md); background: var(--rv-wash); }
+.biz .pg-reservations .rv-price > div { padding: 6px 10px 8px; border-right: 1px solid var(--rv-line); min-width: 0; }
+.biz .pg-reservations .rv-price > div:last-child { border-right: 0; }
+.biz .pg-reservations .rv-price .rv-v2 { font-size: 17px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.biz .pg-reservations .rv-provbox {
+  margin-top: 9px; padding: 7px 11px;
+  border-left: 3px solid var(--rv-blue); border-radius: 0 var(--rv-r-sm) var(--rv-r-sm) 0; background: var(--rv-blue-wash);
+}
+.biz .pg-reservations .rv-prov-t { font-size: 12px; font-weight: 700; color: var(--rv-blue-ink); }
+.biz .pg-reservations .rv-prov-b { font-size: 11.5px; color: var(--rv-ink-2); line-height: 1.65; }
+.biz .pg-reservations .rv-histline { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rv-line-soft); }
+.biz .pg-reservations .rv-dash { flex: 0 0 46px; color: var(--rv-ink-4); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-tx { min-width: 0; font-size: 12.5px; font-weight: 700; }
+.biz .pg-reservations .rv-hd { display: block; margin-top: 2px; color: var(--rv-ink-3); font-size: 11.5px; font-weight: 400; line-height: 1.5; }
+.biz .pg-reservations .rv-insp-foot { display: flex; gap: 7px; padding: 9px 14px 12px; }
+.biz .pg-reservations .rv-insp-foot .btn { flex: 1; min-width: 0; padding: 0 4px; font-size: 11.5px; }
 
-/* ── dialogs + toast ───────────────────────────────────────────────────── */
-.biz .page-reservations dialog {
-  /* ⚖ Liam flag 32 — same fix, same cause as `.biz-dialog` in today.css:
-     Tailwind's preflight zeroes the margin on every element, <dialog> included,
-     which kills the UA's `dialog:modal { margin: auto }` centering. Every native
-     dialog in Business territory needs this line back. */
+/* ── 7. the fixed layers — page-root siblings of the contained view ────────── */
+
+/* ⚖-ADJ F · the phone / one-column inspector. THE ONE NAMED SCROLLER IN THIS
+   ROOM, and it is an OVERLAY rather than a page wrapper: it renders only while
+   it is open, it sits over the page, and it is the family's own list-is-the-page
+   answer. The ⚖ 8/22 page-scroll ruling targets BOARD and LIST wrappers — a
+   reader hunting a row inside a box — which this is not. */
+.biz .pg-reservations .rv-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 85;
+  max-height: 86vh; overflow-y: auto;
+  border-radius: 16px 16px 0 0; background: #fff; box-shadow: var(--rv-shadow-3);
+  transform: translateY(100%); padding-bottom: 14px;
+}
+.biz .pg-reservations .rv-sheet-grip { position: absolute; top: 6px; left: 50%; margin-left: -17px; width: 34px; height: 4px; border-radius: 2px; background: #dfe3ea; }
+.biz .pg-reservations .rv-sheet-close { position: absolute; top: 12px; right: 10px; z-index: 1; min-height: 40px; width: 44px; padding: 0; }
+.biz .pg-reservations .rv-sheet .rv-insp-pin { padding-top: 16px; padding-right: 60px; }
+.biz .pg-reservations .rv-scrim { position: fixed; inset: 0; z-index: 80; background: rgba(17, 24, 39, .34); }
+
+.biz .pg-reservations .rv-toast {
+  position: fixed; left: 50%; bottom: 22px; z-index: 100;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 9px 18px; border: 1px solid var(--rv-line); border-radius: 999px; background: #fff;
+  box-shadow: var(--rv-shadow-3); color: var(--rv-ink-2); font-size: 12.5px;
+  opacity: 0; transform: translate(-50%, 10px); pointer-events: none;
+  transition: opacity 180ms ease-out, transform 260ms var(--rv-ease);
+}
+.biz .pg-reservations .rv-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── 8. the two dialogs that stayed (⚖-ADJ C) ─────────────────────────────── */
+.biz .pg-reservations dialog.rv-dlg {
+  /* ⚖ Liam flag 32 — Tailwind's preflight zeroes the margin on every element,
+     <dialog> included, which kills the UA's `dialog:modal { margin: auto }`
+     centring. Every native dialog in Business territory needs this line back. */
   margin: auto;
   width: min(650px, calc(100vw - 48px));
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  color: var(--ink);
-  font-family: var(--font);
-  box-shadow: 0 20px 55px rgba(24, 24, 27, .2);
+  padding: 0; border: 1px solid var(--rv-line); border-radius: 12px;
+  background: #fff; color: var(--rv-ink); font-family: var(--font); font-size: 13px;
+  box-shadow: var(--rv-shadow-3);
 }
-.biz .page-reservations dialog::backdrop { background: rgba(24, 24, 27, .46); }
-.biz .page-reservations .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line-2); }
-.biz .page-reservations .dialog-head h2 { margin: 0; font-size: 20px; }
-.biz .page-reservations .dialog-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
-.biz .page-reservations .close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.biz .page-reservations .dialog-body { padding: 16px; }
-.biz .dialog-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.biz .dialog-fact { padding: 11px; border: 1px solid var(--line); border-radius: 8px; }
-.biz .dialog-fact span { display: block; color: var(--muted); font-size: 12px; }
-.biz .dialog-fact b { display: block; margin-top: 3px; font-size: 14px; }
-.biz .dialog-fact.warn { grid-column: 1 / -1; border-color: #f1cba9; border-left: 3px solid var(--orange); background: var(--orange-soft); }
-.biz .dialog-fact.warn span { color: #74441f; }
-.biz .dialog-fact.warn b { color: #71380f; }
-.biz .field { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; font-weight: 800; }
-.biz .field select { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-.biz .confirm { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
-.biz .confirm input { width: 21px; height: 21px; accent-color: var(--indigo); }
-.biz .page-reservations .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line-2); background: #fafafb; }
+.biz .pg-reservations .rv-dlg::backdrop { background: rgba(24, 24, 27, .46); }
+.biz .pg-reservations .rv-dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--rv-line-soft); }
+.biz .pg-reservations .rv-dlg-head h2 { margin: 0; font-size: 18px; }
+.biz .pg-reservations .rv-dlg-head p { margin: 3px 0 0; color: var(--rv-ink-3); font-size: 12px; }
+.biz .pg-reservations .rv-dlg-close { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); background: #fff; color: var(--rv-ink-2); }
+.biz .pg-reservations .rv-dlg-body { padding: 16px; }
+.biz .pg-reservations .rv-dlg-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.biz .pg-reservations .rv-dlg-fact { padding: 11px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); min-width: 0; }
+.biz .pg-reservations .rv-dlg-fact span { display: block; color: var(--rv-ink-3); font-size: 12px; }
+.biz .pg-reservations .rv-dlg-fact b { display: block; margin-top: 3px; font-size: 13px; overflow-wrap: anywhere; }
+.biz .pg-reservations .rv-dlg-fact.is-warn { grid-column: 1 / -1; border-color: #f1cba9; border-left: 3px solid var(--orange-line); background: var(--rv-amber-wash); }
+.biz .pg-reservations .rv-dlg-fact.is-warn span { color: #74441f; }
+.biz .pg-reservations .rv-dlg-fact.is-warn b { color: #71380f; }
+.biz .pg-reservations .rv-field { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; font-weight: 700; }
+.biz .pg-reservations .rv-field select { min-height: 44px; padding: 8px 10px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); background: #fff; color: var(--rv-ink); }
+.biz .pg-reservations .rv-confirmbox { display: flex; align-items: flex-start; gap: 9px; margin-top: 13px; padding: 11px; border: 1px solid var(--rv-line); border-radius: var(--rv-r-sm); font-size: 13px; }
+.biz .pg-reservations .rv-confirmbox input { width: 21px; height: 21px; accent-color: var(--select-line); }
+.biz .pg-reservations .rv-dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--rv-line-soft); background: var(--rv-wash); }
 
-.biz .page-reservations .toast {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 40;
-  max-width: 430px;
-  padding: 12px 15px;
-  border-radius: 9px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--green);
-  color: var(--ink);
-  font-size: 13px;
-  opacity: 0;
-  transform: translateY(8px);
-  pointer-events: none;
-  transition: .16s;
+/* ── 9. M-87's loud failure ────────────────────────────────────────────────── */
+.biz .pg-reservations .rv-loaderror {
+  padding: 14px 15px; border: 1px solid #eec4bf; border-left: 3px solid var(--rv-red); border-radius: var(--rv-r-lg);
+  background: var(--rv-red-wash); color: var(--red-dark); font-size: 13px; line-height: 1.6;
 }
-.biz .page-reservations .toast.show { opacity: 1; transform: none; }
+.biz .pg-reservations .rv-loaderror strong { display: block; font-size: 15px; }
 
-@media (max-width: 1320px) {
-  .biz .page.page-reservations { padding-left: 20px; padding-right: 20px; }
-  .biz .page-reservations .workspace { grid-template-columns: minmax(0, 1fr) 330px; gap: 10px; }
-  .biz #bookingPanel { --fx-cols: var(--fx-narrow); }
-  .biz .queue-card { grid-template-columns: 168px minmax(0, 1fr) 190px; gap: 11px; }
+/* ── 10. ⚖ Liam 8/23 — 画面の説明 (the guided tour's four layers) ──────────── */
+/* Every name is `rv-`-prefixed like the rest of this room: 今日の運営 states BARE
+   `.biz .spot-*` rules on all five of these names, and App Router leaves its
+   sheet in the document after a soft-nav. NO SCROLLER, NO HEIGHT CAP. */
+.biz .pg-reservations .rv-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s var(--rv-ease), left .24s var(--rv-ease), width .24s var(--rv-ease), height .24s var(--rv-ease);
+}
+.biz .pg-reservations .rv-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-reservations .rv-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-reservations .rv-spot-card {
+  position: fixed; z-index: 72; width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px; border: 1.5px solid var(--control); border-radius: 12px; background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3); font-size: 12.5px; line-height: 1.65; color: var(--rv-ink-2);
+}
+.biz .pg-reservations .rv-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; color: var(--rv-ink); }
+.biz .pg-reservations .rv-spot-text { display: block; }
+.biz .pg-reservations .rv-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; }
+.biz .pg-reservations .rv-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-reservations .rv-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-reservations .rv-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--rv-ink-2); font: inherit; font-size: 12px; font-weight: 600; }
+.biz .pg-reservations .rv-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-reservations .rv-spot-foot button:disabled { opacity: .4; }
+.biz .pg-reservations .rv-spot-foot .rv-spot-done { margin-left: auto; }
+
+/* ── 11. press states, one document listener, one rule ─────────────────────── */
+.biz .pg-reservations [data-press] { transition: transform 100ms ease-out; }
+.biz .pg-reservations [data-press].is-pressed { transform: scale(.97); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   THE LADDER — asked of the PAGE, three bands, derived in
+   `src/business/lib/reservations.ts` (`PAGE_BANDS`, with the arithmetic) and
+   spelled here once. The room's suite pins that the two agree.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── narrow desk (page ≤ 1015): the table sheds 担当・設備 into the row's own
+      second line BEFORE anything squashes, and the inspector narrows ───────── */
+@container rvpage (max-width: 1015px) {
+  .biz .pg-reservations .rv-workgrid { grid-template-columns: minmax(0, 1fr) 264px; }
+  .biz .pg-reservations .rv-tablecard { --rv-cols: var(--rv-narrow); }
+  .biz .pg-reservations .rv-thead [data-col="staff"],
+  .biz .pg-reservations .rv-row .rv-cell[data-col="staff"] { display: none; }
+  .biz .pg-reservations .rv-mline { display: block; }
+  .biz .pg-reservations .rv-search { width: 152px; }
+}
+
+/* ── one column (page ≤ 891): the rail becomes the strip, the table takes the
+      whole width, and ⚖-ADJ F makes the inspector the SHEET from here down.
+      A detail card under a page-scrolled list is off-screen after 18 rows on
+      every row click, which is a dead lever by another name. ───────────────── */
+@container rvpage (max-width: 891px) {
+  .biz .pg-reservations .rv-workgrid { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-reservations .rv-insp { display: none; }
+  .biz .pg-reservations .rv-railcards {
+    display: flex; grid-template-columns: none;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity;
+  }
+  .biz .pg-reservations .rv-railcards::-webkit-scrollbar { height: 0; }
+  .biz .pg-reservations .rv-rcard { flex: 0 0 214px; scroll-snap-align: start; }
+  /* the hover lift's shadow would be clipped by the strip — hover becomes a wash */
+  .biz .pg-reservations .rv-rcard:hover { transform: none; box-shadow: none; background: var(--rv-wash); }
+  .biz .pg-reservations .rv-rcard.is-over:hover { background: #fffbfb; }
+  .biz .pg-reservations .rv-rcard.is-sel:hover { background: var(--select-bg); }
+  .biz .pg-reservations .rv-rd-body { flex-wrap: wrap; }
+  .biz .pg-reservations .rv-rd-act { flex: 1 1 100%; flex-direction: row; }
+  /* the chips get their own line so search + range + クリア stay one group */
+  .biz .pg-reservations .rv-filterrow > .rv-sp { flex: 1 0 100%; height: 0; min-width: 0; }
+}
+
+/* ── phone (page ≤ 699): the booking list IS the page. Title wraps, the CTA
+      takes its own line, the rail's label goes on top of its strip, the chips
+      get their own scroller, the column head goes away and every row becomes a
+      card. ─────────────────────────────────────────────────────────────────── */
+@container rvpage (max-width: 699px) {
+  .biz .pg-reservations .rv-cta { flex-basis: 100%; }
+  .biz .pg-reservations .rv-railrow { flex-direction: column; gap: 6px; padding: 7px 9px 8px; }
+  .biz .pg-reservations .rv-raillabel {
+    flex: 0 0 auto; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 7px;
+    border-right: 0; border-bottom: 1px solid var(--rv-line-soft); padding: 0 0 5px;
+  }
+  .biz .pg-reservations .rv-rl-h { font-size: 10px; }
+  .biz .pg-reservations .rv-rl-h br { display: none; }
+  .biz .pg-reservations .rv-rcard { flex: 0 0 226px; }
+  .biz .pg-reservations .rv-rd-body { flex-direction: column; gap: 9px; padding: 10px 12px 12px; }
+  .biz .pg-reservations .rv-rd-left { flex: 0 0 auto; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 7px; }
+  .biz .pg-reservations .rv-m1, .biz .pg-reservations .rv-m2 { display: inline; }
+  .biz .pg-reservations .rv-m1::after { content: " / "; }
+  .biz .pg-reservations .rv-ev-k { flex: 0 0 78px; }
+  .biz .pg-reservations .rv-filterrow { padding: 6px 8px 7px; gap: 7px; }
+  .biz .pg-reservations .rv-filterrow > .rv-sp { display: none; }
+  .biz .pg-reservations .rv-seg { display: flex; flex: 1 1 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .biz .pg-reservations .rv-seg::-webkit-scrollbar { height: 0; }
+  .biz .pg-reservations .rv-seg-btn { flex: 0 0 auto; }
+  .biz .pg-reservations .rv-searchwrap { flex: 1 1 100%; }
+  .biz .pg-reservations .rv-search { width: 100%; }
+  .biz .pg-reservations .rv-daterange { flex: 1 1 auto; min-width: 0; }
+  .biz .pg-reservations .rv-tbl-hd { padding: 8px 11px 7px; }
+  .biz .pg-reservations .rv-tbl-hd > .rv-sp { display: none; }
+  .biz .pg-reservations .rv-cnt { margin-left: auto; }
+  .biz .pg-reservations .rv-sub { order: 5; flex: 1 1 100%; white-space: normal; overflow: visible; }
+  .biz .pg-reservations .rv-thead { display: none; }
+  .biz .pg-reservations .rv-dayhd { top: var(--rv-topbar); }
+  .biz .pg-reservations .rv-row {
+    grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; row-gap: 2px; align-items: start;
+    margin: 6px 9px; padding: 8px 10px; border: 1px solid var(--rv-line-soft); border-radius: var(--rv-r-md);
+  }
+  .biz .pg-reservations .rv-row.is-sel { border-color: var(--select-line); }
+  .biz .pg-reservations .rv-row.is-sel::before { left: -1px; top: -1px; bottom: -1px; border-radius: var(--rv-r-md) 0 0 var(--rv-r-md); }
+  .biz .pg-reservations .rv-row .rv-cell[data-col="when"] { grid-row: 1; grid-column: 1; display: flex; align-items: baseline; gap: 8px; }
+  .biz .pg-reservations .rv-row .rv-cell[data-col="who"] { grid-row: 2; grid-column: 1 / span 2; }
+  .biz .pg-reservations .rv-row .rv-cell[data-col="source"] { display: none; }
+  .biz .pg-reservations .rv-st { display: contents; }
+  .biz .pg-reservations .rv-st .pill { grid-row: 1; grid-column: 2; align-self: center; justify-self: end; }
+  .biz .pg-reservations .rv-st .rv-note { grid-row: 3; grid-column: 1 / span 2; text-align: left; max-width: none; }
+  .biz .pg-reservations .rv-m-sp { display: inline; }
+  /* ⚠ AND A RUN WITH NO BREAK POINT BREAKS ANYWAY. Once these two wrap, a
+     54-character latin token (a menu code, a name typed in romaji) has nowhere
+     to break and simply leaves its box — clipped, so the reader sees the line
+     end mid-word with nothing to say it did. `anywhere` makes it fold instead.
+     Found by the hostile-string world at 440. */
+  .biz .pg-reservations .rv-l2, .biz .pg-reservations .rv-mline { white-space: normal; overflow-wrap: anywhere; }
+  .biz .pg-reservations .rv-rowsbox .rv-grouping:last-child .rv-row:last-child { border-bottom: 1px solid var(--rv-line-soft); border-radius: var(--rv-r-md); }
+  .biz .pg-reservations .rv-demonote { margin: 8px 9px 0; }
+}
+
+/* ══ what genuinely belongs to the VIEWPORT: the page's outer padding, and the
+      ≥44px touch floor. Every COLUMN decision is a container query above. ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-reservations { padding-left: 32px; padding-right: 32px; }
+}
+@media (max-width: 1279px) {
+  .biz .page.pg-reservations { padding-left: 20px; padding-right: 20px; }
+}
+/* ⚖ ALL-SCREEN — ≥44px on every pressable at phone widths. */
+@media (max-width: 743px) {
+  .biz .page.pg-reservations { padding-left: 10px; padding-right: 10px; }
+  .biz .page.pg-reservations .btn { min-height: 44px; }
+  .biz .pg-reservations .rv-help { flex-basis: 44px; width: 44px; height: 44px; font-size: 15px; }
+  .biz .pg-reservations .rv-seg-btn { min-height: 44px; padding: 0 12px; }
+  .biz .pg-reservations .rv-search,
+  .biz .pg-reservations .rv-daterange,
+  .biz .pg-reservations .rv-clear { height: 44px; min-height: 44px; }
+  .biz .pg-reservations .rv-colsbtn { min-height: 44px; }
+  .biz .pg-reservations .rv-slot { min-height: 44px; }
+  .biz .pg-reservations .rv-party-row { min-height: 44px; }
+  .biz .pg-reservations .rv-cf-reason select { min-height: 44px; }
+  .biz .pg-reservations .rv-spot-foot button { min-height: 44px; }
+  .biz .pg-reservations .rv-dlg-close { width: 44px; height: 44px; }
+}
+
+/* ── reduced motion: the springs jump (a constructor argument on each one), and
+      every keyframe and lift stands down. The COUNTDOWN keeps ticking — it is
+      information, not decoration. ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-reservations .rv-rowsbox,
+  .biz .pg-reservations .rv-insp-body { animation: none; }
+  .biz .pg-reservations .rv-rcard,
+  .biz .pg-reservations .rv-rcard:hover { transform: none; box-shadow: none; transition: background 120ms linear; }
+  .biz .pg-reservations .rv-collapse-inner { transition: opacity 120ms linear; transform: none; }
+  .biz .pg-reservations .rv-cv { transition: none; }
+  .biz .pg-reservations .rv-spot-hole { transition: none; }
+  .biz .pg-reservations .rv-toast { transition: opacity 120ms linear; transform: translate(-50%, 0); }
+  .biz .pg-reservations [data-press],
+  .biz .pg-reservations [data-press].is-pressed { transition: opacity 120ms linear; transform: none; }
 }

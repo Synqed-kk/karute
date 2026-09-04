@@ -3957,12 +3957,16 @@ describe('the confirm comes to the card, and the consult goes back to the placem
 
     // ⚖ flag 69 — the page scope may sit between `.biz` and `dialog` now
     // (`.biz .page-customers dialog`). The pin still DISCOVERS its dressers by
-    // walking; it just knows the scoped spelling.
-    const DRESSER = /^\.biz(?:[ -])(?:\.page-[\w-]+ )?dialog\s*\{/m
+    // walking; it just knows the scoped spelling. The family moved from
+    // `page-` to `pg-`, and a dresser can now be a classed dialog element
+    // (`dialog.rv-dlg`) rather than the bare type selector — the widened
+    // regex sees both without losing its job (discovery, not enforcement).
+    const DRESSER = /^\.biz(?:[ -])(?:\.(?:page|pg)-[\w-]+ )?dialog(?:\.[\w-]+)?\s*\{/m
     const dressers = sheets.filter(([, css]) => DRESSER.test(css))
     expect(dressers.map(([f]) => f).sort()).toEqual([
       'customers/customers.css',
       'reservations/reservations.css',
+      'shifts/shifts.css',
       'today/today.css',
     ])
     for (const [file, raw] of dressers) {
@@ -6836,7 +6840,15 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
   /** Selector heads of every rule, at any depth. @media is transparent. */
   function selectorsOf(css: string): Set<string> {
-    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    // ⚠ `@keyframes` STOPS ARE NOT SELECTORS — the repo already ruled this for
+    // the route-css audit (1e95647cc); this local copy of the walk had not
+    // learned it. It only surfaced once TWO of the three sheets defined
+    // keyframes (予約一覧 and 顧客 both do now), at which point `from` and `to`
+    // read as a selector defined in two route stylesheets. Stripped whole,
+    // before the walk, so a stop can never be mistaken for a rule head.
+    const clean = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
     const found = new Set<string>()
     let head = ''
     for (const ch of clean) {
@@ -6858,11 +6870,13 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     // The hook the scoping hangs on. One token per screen, and the CI guard
     // below is what stops the next room from forgetting it.
     expect(read(SCREENS.today)).toContain('<div className="page page-today">')
-    expect(read(SCREENS.reservations)).toContain('<div className="page page-reservations">')
+    expect(read(SCREENS.reservations)).toContain('<div className="page pg-reservations">')
     expect(read(SCREENS.customers)).toContain('<div className="page page-customers">')
     // The LoadFailure fallback is a page too — a broken screen that keeps the
-    // neighbour's grid is still the bug.
-    expect(read(SCREENS.reservations).match(/<div className="page page-reservations">/g)).toHaveLength(2)
+    // neighbour's grid is still the bug. The live root also carries `ref=
+    // {rootRef}` (the container-query/tour anchor the fallback doesn't need),
+    // so the count tolerates trailing attributes rather than an exact tag.
+    expect(read(SCREENS.reservations).match(/<div className="page pg-reservations"[^>]*>/g)).toHaveLength(2)
   })
 
   it('no selector is defined in two route stylesheets — the whole family, not just .workspace', () => {
@@ -6890,8 +6904,15 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     for (const [name, path] of Object.entries(SHEETS)) {
       if (name === 'today') continue
       const sheet = read(path)
-      // The sibling's two-column grid still exists — scoped to its own page.
-      expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      if (name === 'reservations') {
+        // 予約一覧 retired the shared name outright (flag 69's own ask) — the
+        // stronger truth is not a scoped grid, it is NO `.workspace` selector
+        // anywhere in the sheet, so it can never re-enter the tie.
+        expect(sheet).not.toMatch(/\.workspace\b/)
+      } else {
+        // The sibling's two-column grid still exists — scoped to its own page.
+        expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      }
       // …and it can never name today's page.
       expect(sheet).not.toContain('.page-today')
     }
