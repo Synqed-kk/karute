@@ -50,14 +50,19 @@ class ActorSynqedClient extends SynqedClient {
  * NOT a cookie — so a mobile request is scoped to its own tenant deterministically.
  * Env vars are read lazily so module imports in build envs without runtime env
  * don't crash.
+ *
+ * accessToken = the HUMAN actor's Supabase access token, forwarded as
+ * Authorization: Bearer for core's actor-gated writes (actor-auth-contract G1,
+ * core #81); reads and creates ignore it; without it, PUT /v1/recordings/:id
+ * answers 401 since 2026-09-04.
  */
-export function newSynqedClient(businessId: string) {
+export function newSynqedClient(businessId: string, accessToken?: string) {
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
   if (!baseUrl || !apiKey) {
     throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
   }
-  return new ActorSynqedClient({ baseUrl, apiKey, businessId })
+  return new ActorSynqedClient({ baseUrl, apiKey, businessId }, accessToken)
 }
 
 /**

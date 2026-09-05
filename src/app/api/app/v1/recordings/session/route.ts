@@ -19,6 +19,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import {
@@ -66,7 +67,7 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
 
   // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is

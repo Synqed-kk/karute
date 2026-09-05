@@ -101,6 +101,7 @@ const identity = { current: 'staff-A' as string | null }
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => identity.current),
+  getCurrentAccessToken: jest.fn(async () => 'web-cookie-token'),
   staffListByBusinessOrThrow: jest.fn(async () => []),
 }))
 jest.mock('@/lib/auth/require-permission', () => {
