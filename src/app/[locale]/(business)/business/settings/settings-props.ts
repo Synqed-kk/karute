@@ -476,6 +476,11 @@ const BOOKING_GUARD_GUIDE =
 /** #812's two lead paragraphs, verbatim and in order — the section's own lead. */
 const BOOKING_GUARD_LEAD =
   '予約と確保のルールを、ここでまとめて決めます。まずは3つのプリセットから選び、直したいところだけ詳細設定で変えられます。右のカードは、いまの設定でスタッフの画面に出てくるものです。'
+/** ⚖ mock D4 — ONE CHARACTER, and it is label truth rather than polish. The card
+ *  is on the RIGHT only where the sticky stack fits (the ③ composition); below
+ *  that it rides above the panel, and a lead pointing right would be pointing at
+ *  nothing. Both forms ship and the sheet shows the true one. */
+const BOOKING_GUARD_LEAD_NARROW = BOOKING_GUARD_LEAD.replace('右のカード', '下のカード')
 
 function bookingGuard(base: SectionBase): SettingsSection {
   return {
@@ -483,6 +488,7 @@ function bookingGuard(base: SectionBase): SettingsSection {
     kicker: '店舗運営',
     title: '予約と確保',
     lead: BOOKING_GUARD_LEAD,
+    leadNarrow: BOOKING_GUARD_LEAD_NARROW,
     guide: BOOKING_GUARD_GUIDE,
     // ⚠ NO BLOCKS, AND THAT IS THE POINT. A second copy of these dials in this
     // file's vocabulary would be exactly the two-rooms-one-path problem the fold

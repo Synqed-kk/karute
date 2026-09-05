@@ -365,6 +365,12 @@
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
 }
 .biz .pg-settings .st-lead { margin: 0; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+/* ⚖ mock D4 — the lead that points at the live card tells the truth at BOTH
+   widths. The ③ form ("右のカード") is shown only inside the ③ query below; the
+   narrow form is the base, because the base is where the card is not on the
+   right. Both are in the DOM; neither is chosen in JS. */
+.biz .pg-settings .st-lead-wide { display: none; }
+.biz .pg-settings .st-lead-narrow { display: inline; }
 
 .biz .pg-settings .st-main { container: st-main / inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
@@ -826,6 +832,9 @@
   .biz .pg-settings .st-jump-note { display: block; }
   .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; }
   .biz .pg-settings .st-save-card .st-foot { display: block; }
+  /* …and the lead may finally say 「右のカード」, because here it is. */
+  .biz .pg-settings .st-lead-wide { display: inline; }
+  .biz .pg-settings .st-lead-narrow { display: none; }
 }
 
 /* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
@@ -923,10 +932,16 @@
      put このページの中身 under the head and the save bar at the bottom of the
      screen without rendering either of them twice. */
   .biz .pg-settings .st-side { display: contents; }
-  .biz .pg-settings .st-side-card { order: 3; }
-  .biz .pg-settings .st-jump { order: 4; }
+  /* ⚠ ON A PHONE THE CARD GOES UNDER THE DIALS, NOT OVER THEM. The mock made it
+     a collapsible row above the presets; on a 390px screen that is either a tall
+     picture standing between a manager and the thing they opened the section
+     for, or one more press before they can start. Below the dials it is a
+     reference they scroll to after changing something — which is when they want
+     to see what their staff will see — and it costs no press at all. */
+  .biz .pg-settings .st-jump { order: 3; }
   .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { order: 5; }
+  .biz .pg-settings .st-boundary { order: 4; }
+  .biz .pg-settings .st-side-card { order: 5; }
   .biz .pg-settings .st-save-card {
     order: 6;
     position: sticky; bottom: 0; z-index: 3;

@@ -683,7 +683,21 @@ export function SettingsScreen(props: SettingsScreenProps) {
               >
                 <span className="st-kicker">{section.kicker}</span>
                 <h2>{section.title}</h2>
-                {section.lead && <p className="st-lead">{section.lead}</p>}
+                {section.lead && (
+                  <p className="st-lead">
+                    {section.leadNarrow ? (
+                      <>
+                        {/* ⚖ mock D4 — both forms ship and the SHEET picks; see
+                            `SettingsSection.leadNarrow`. Nothing is chosen in JS,
+                            so the server and the browser cannot disagree. */}
+                        <span className="st-lead-wide">{section.lead}</span>
+                        <span className="st-lead-narrow">{section.leadNarrow}</span>
+                      </>
+                    ) : (
+                      section.lead
+                    )}
+                  </p>
+                )}
               </div>
 
               {section.gate === 'no-rights' ? (

@@ -297,6 +297,21 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(SHELL_SCREEN_CODE).toContain('card={slots.card}')
     expect(SHELL_SCREEN_CODE).toContain('save={slots.save}')
     expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>')
+    // ⚖ mock D4 — AND THE LEAD TELLS THE TRUTH AT BOTH WIDTHS. #812's sentence
+    // points at 「右のカード」, and the card is on the right ONLY in the ③
+    // composition; below it the card rides above the panel. One character
+    // changes, BOTH forms ship, and the SHEET picks — nothing is decided in JS,
+    // so the server and the browser cannot disagree about which one rendered.
+    expect(SHELL_SCREEN_CODE).toContain('<span className="st-lead-wide">{section.lead}</span>')
+    expect(SHELL_SCREEN_CODE).toContain('<span className="st-lead-narrow">{section.leadNarrow}</span>')
+    expect(read(`${ROOM_DIR}/settings-props.ts`)).toContain("BOOKING_GUARD_LEAD.replace('右のカード', '下のカード')")
+    // the narrow form is the BASE, because the base is where the card is not on
+    // the right; the ③ query is the only place the wide form is shown.
+    expect(CSS).toMatch(/\.st-lead-wide \{ display: none; \}/)
+    expect(CSS).toMatch(/\.st-lead-narrow \{ display: inline; \}/)
+    const three = CSS.slice(CSS.indexOf('@container st-body (min-width: 960px)'))
+    expect(three).toMatch(/\.st-lead-wide \{ display: inline; \}/)
+    expect(three).toMatch(/\.st-lead-narrow \{ display: none; \}/)
     expect(SCREEN_CODE).toContain('if (props.tourOpen) setAdvOpen(true)')
     expect(SCREEN_CODE).toContain('}, [props.tourOpen])')
     // …and the shell's own ? is what sets `tourOpen`, so the chain is closed.

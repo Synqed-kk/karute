@@ -513,6 +513,16 @@ export interface SettingsSection {
    *  carrying a page-head declaration of its own) states it here instead of the
    *  screen growing a second engine to hold it. */
   guide?: string
+  /** ⚖ S17 · mock D4 — THE SAME SENTENCE AT A WIDTH WHERE IT WOULD BE FALSE.
+   *
+   *  予約と確保's lead says 「右のカードは…」, and the card is on the right ONLY in
+   *  the ③ composition. Below it the card rides above the panel, so the sentence
+   *  would be pointing at nothing. One character changes — 「下のカード」 — and
+   *  BOTH forms ship, because which one is true is a fact about the reader's
+   *  window and the server cannot know it. The screen renders both and the sheet
+   *  shows one; nothing is chosen in JS, so there is no hydration to get wrong.
+   *  `undefined` on every section whose lead points at nothing. */
+  leadNarrow?: string
   blocks: SettingsBlock[]
   aside: { title: string; lines: Array<{ label: string; value: string }>; note: string } | null
   /** `local` = this section's values round-trip through the reader's own

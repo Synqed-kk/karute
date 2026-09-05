@@ -1305,6 +1305,24 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(controlOf(props, 'reserve.noshow').control.kind).toBe('segment')
   })
 
+  it('⚖ mock D4 — the lead that points at the live card is TRUE at both widths', async () => {
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'booking-guard')
+    // ⚠ THE PAYLOAD IS WHAT THIS PIN IS ABOUT, and the mutant that found the gap
+    // proved why: the screen's fallback (`section.leadNarrow ? … : section.lead`)
+    // renders perfectly well with the narrow form MISSING, so a source-only pin
+    // stays green while the sentence goes back to pointing at nothing below ③.
+    expect(sec.lead).toContain('右のカード')
+    expect(sec.leadNarrow).toBeDefined()
+    expect(sec.leadNarrow).toContain('下のカード')
+    expect(sec.leadNarrow).not.toContain('右のカード')
+    // …and the two are the SAME SENTENCE apart from that one word, so the pair
+    // cannot drift into two different explanations of one card.
+    expect(sec.leadNarrow!.replace('下のカード', '右のカード')).toBe(sec.lead)
+    // …and no other section claims a narrow form it does not need.
+    expect(props.sections.filter((x) => x.leadNarrow !== undefined).map((x) => x.id)).toEqual(['booking-guard'])
+  })
+
   it('⚖ mock review v2-3 — a DOOR is a wash pill; the solid accent is for COMMITS only', () => {
     // A door opens a page. A commit changes something. The family gives the
     // solid accent to the second and the wash to the first, and the mock's own
