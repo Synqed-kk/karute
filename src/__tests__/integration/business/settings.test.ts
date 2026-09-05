@@ -1255,10 +1255,22 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
     const coll = block.collection!
     expect(block.title).toBe('臨時休業')
-    // ⚠ 特別営業 IS GONE FROM THE PAGE. Core has no field for it (registry ⑨
-    // `special_open_days`), and a control that offers a value the store cannot
-    // save is a lie with a picture on it.
+    // ⚠ 特別営業 IS GONE FROM THE PAGE, AND FROM THE PLANE BEHIND IT. Core has no
+    // field for it (registry ⑨ `special_open_days`), and a control that offers a
+    // value the store cannot save is a lie with a picture on it. The `kind`
+    // discriminator went with it, so a later round cannot quietly re-derive the
+    // option from data that is still there.
     expect(JSON.stringify(block)).not.toContain('特別営業')
+    expect(JSON.stringify(storeDials)).not.toContain('特別営業')
+    expect(JSON.stringify(storeDials)).not.toContain("'extra'")
+    // …and no closure's REASON describes the opposite of a closure. A row that
+    // says 「10:00〜22:00（通常より延長）」 under a 臨時休業 heading is a sentence
+    // about being open, on a list of days the store is shut (⚖ demo data is
+    // product truth).
+    for (const item of coll.items) {
+      expect({ id: item.id, note: /延長|営業時間を延ばす/.test(item.note) }).toEqual({ id: item.id, note: false })
+      expect(item.note.length).toBeGreaterThan(0)
+    }
 
     const rows = coll.items
     expect(rows.length).toBeGreaterThan(0)
@@ -1441,10 +1453,20 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // the three-across grids (`st-main`). ⚠ ONE BLOCK EACH: two blocks at one
     // threshold are two places to read the same number, which is the thing this
     // pin exists to stop.
+    // ⚠ AND THE ORDER IS PART OF THE PIN, because it is what makes ③ WIN. A
+    // container query and a media query carry the SAME specificity, so at 1280
+    // with the shell's rail open — where ②'s `@media (min-width: 900px)` and ③'s
+    // `@container st-body (min-width: 960px)` both match — the winner is
+    // whichever is written LAST. Written first, ③'s column lost to ②'s strip at
+    // the exact width this product is read on, and only the shot showed it (the
+    // jump list rendered as a row of chips inside the right column). `st-main`
+    // is the three-across grid and sits above both, where nothing competes.
     expect(queries.map((q) => q.join(' '))).toEqual([
-      'st-body min-width: 960px',
       'st-main min-width: 640px',
+      'st-body min-width: 960px',
     ])
+    expect(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
+      .toBeGreaterThan(CSS_CODE.indexOf('@media (min-width: 900px)'))
     // ⚠ NO `max-width` CONTAINER QUERY ANYWHERE. A max-width band can be left and
     // re-entered on the way up, which is exactly the non-monotonic ladder the
     // gate forbids; every composition here is gained once and never given back.

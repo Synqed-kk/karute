@@ -65,9 +65,11 @@ export interface StoreProfile {
 
 /** 臨時休業・特別営業. `dayOffset` is days from the render's own today, so the
  *  demo is populated on any real date and no absolute date lives in a plane. */
+/** ⚖ S17 · C2 — 臨時休業 ONLY. `kind` is gone with 特別営業, which core has no
+ *  field for at all (registry ⑨ `special_open_days`, on the Anthony column
+ *  list). A closure is a DATE and a REASON, which is exactly `StoreClosedDay`. */
 export interface StoreClosure {
   dayOffset: number
-  kind: 'off' | 'extra'
   note: string
 }
 
@@ -286,8 +288,14 @@ export interface StoreDials {
 const ginza: StoreDials = {
   profile: { address: '東京都中央区銀座見本1-2-3 3F', phone: '03-0000-0001', photo: null },
   closures: [
-    { dayOffset: 8, kind: 'off', note: '設備メンテナンスのため' },
-    { dayOffset: 15, kind: 'extra', note: '10:00〜22:00（通常より延長）' },
+    { dayOffset: 8, note: '設備メンテナンスのため' },
+    // ⚠ THIS ROW'S REASON HAD TO CHANGE WITH C2. It used to be a 特別営業 entry
+    // (`kind: 'extra'`, 「10:00〜22:00（通常より延長）」); under a block that is now
+    // 臨時休業 ONLY, an extended-hours note reads as a closure whose reason is
+    // 「we were open longer」 — a sentence about the opposite of what the row
+    // says. ⚖ demo data is product truth: a store closes for a staff day, so
+    // that is what the row says.
+    { dayOffset: 15, note: '全スタッフ研修のため' },
   ],
   menuVisible: { 'menu-01': true, 'menu-02': true, 'menu-03': false, 'menu-06': true },
   tickets: [
@@ -396,7 +404,7 @@ const ginza: StoreDials = {
 const daikanyama: StoreDials = {
   ...ginza,
   profile: { address: '東京都渋谷区代官山見本4-5-6 1F', phone: '03-0000-0002', photo: null },
-  closures: [{ dayOffset: 5, kind: 'off', note: '内装工事のため' }],
+  closures: [{ dayOffset: 5, note: '内装工事のため' }],
   menuVisible: { 'menu-04': true, 'menu-05': true, 'menu-06': false },
   tickets: [{ name: 'テストヘッドケア45分 回数券（10回）', unitPrice: 5800, menuId: 'menu-05' }],
   staffActive: { 'p-02': true, 'p-05': true, 'c-03': true },

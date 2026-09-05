@@ -788,7 +788,43 @@
 
 /* ── ⚖ ALL-SCREEN ADAPTIVITY — the three compositions ──────────────────────── */
 
-/* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header. ═══ */
+/* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
+   capability grid is eight facts that read as a grid or not at all. ═══ */
+@container st-main (min-width: 640px) {
+  .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ═══ ② STRIP — ≥900 viewport, `.st-body` under 960. The stack has nowhere to
+   stand, so it becomes a band above the panel. ═══ */
+@media (min-width: 900px) {
+  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  /* Source order is back → head → main → side; `order` puts the band where a
+     reader meets it, without a second DOM for a second width. */
+  .biz .pg-settings .st-back { order: 1; }
+  .biz .pg-settings .st-sec-head { order: 2; }
+  .biz .pg-settings .st-side { order: 3; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { order: 4; }
+  .biz .pg-settings .st-side-card { flex: 1 1 100%; max-width: 560px; }
+  .biz .pg-settings .st-jump { flex: 1 1 320px; min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
+  .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
+  .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
+  .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
+  .biz .pg-settings .st-jump-note { display: none; }
+  .biz .pg-settings .st-save-card { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; }
+  .biz .pg-settings .st-save-card .st-foot { display: none; }
+}
+
+/* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header.
+   ⚠ IT MUST COME AFTER ②'s BAND, AND THAT IS NOT A TIDINESS PREFERENCE. A
+   container query and a media query carry the SAME specificity, so at 1280 with
+   the shell's rail open — where BOTH match — the winner is whichever is written
+   last. Written first, ③'s column lost to ②'s strip at the exact width this
+   product is read on, and the shot showed it: the jump list rendered as a row of
+   chips inside the right column. Ordered last, ③ is the composition that wins
+   wherever it applies, which is what a ladder means. ═══ */
 @container st-body (min-width: 960px) {
   .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
   .biz .pg-settings .st-panel { grid-template-columns: minmax(var(--st-main-min), 1fr) var(--st-side-w); }
@@ -835,35 +871,6 @@
   /* …and the lead may finally say 「右のカード」, because here it is. */
   .biz .pg-settings .st-lead-wide { display: inline; }
   .biz .pg-settings .st-lead-narrow { display: none; }
-}
-
-/* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
-   capability grid is eight facts that read as a grid or not at all. ═══ */
-@container st-main (min-width: 640px) {
-  .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-/* ═══ ② STRIP — ≥900 viewport, `.st-body` under 960. The stack has nowhere to
-   stand, so it becomes a band above the panel. ═══ */
-@media (min-width: 900px) {
-  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
-  /* Source order is back → head → main → side; `order` puts the band where a
-     reader meets it, without a second DOM for a second width. */
-  .biz .pg-settings .st-back { order: 1; }
-  .biz .pg-settings .st-sec-head { order: 2; }
-  .biz .pg-settings .st-side { order: 3; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { order: 4; }
-  .biz .pg-settings .st-side-card { flex: 1 1 100%; max-width: 560px; }
-  .biz .pg-settings .st-jump { flex: 1 1 320px; min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
-  .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
-  .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-  .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
-  .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
-  .biz .pg-settings .st-jump-note { display: none; }
-  .biz .pg-settings .st-save-card { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; }
-  .biz .pg-settings .st-save-card .st-foot { display: none; }
 }
 
 /* ═══ ≥1440 — big displays: the rail and the stack take their full width and
