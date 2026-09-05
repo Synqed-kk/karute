@@ -79,6 +79,7 @@ import {
   isJobOwnedStatus,
   isStorageNotFound,
   statusOf,
+  storageMessageKind,
   warnStorageUnknown,
 } from '@/lib/recording/take-binding'
 
@@ -151,17 +152,26 @@ export type MintTakeUrlResult =
       recordingSessionId: string | null
     }
   /**
-   * ⚖ THE OBJECT IS ALREADY THERE, AND NOTHING IS SIGNED (fix round 2). Only
-   * the STAGED branch answers this: a staged key is composable in advance now
-   * (slice five packet B), so "an object exists at this key" stopped being
-   * proof that the device put it there. No `url` and no `token` — deliberately
-   * absent rather than empty strings, so a caller cannot PUT against this
-   * answer at all, and every consumer must NARROW before it reaches for one.
+   * ⚖ THE OBJECT IS ALREADY THERE, AND NOTHING IS SIGNED (fix round 2). The
+   * STAGED branch and — since the 2026-09-05 hotfix — the TAKE branch both
+   * answer this: a staged key is composable in advance now (slice five packet
+   * B), so "an object exists at this key" stopped being proof that the device
+   * put it there. No `url` and no `token` — deliberately absent rather than
+   * empty strings, so a caller cannot PUT against this answer at all, and
+   * every consumer must NARROW before it reaches for one.
    *
-   * `existingSize` is what the caller compares against its OWN blob: equal
-   * means this really is its own copy (the retry whose markTakeStaged was
-   * lost), and ONLY that adopts the key. `null` means storage answered without
-   * a size, which proves nothing and must never be adopted.
+   * `existingSize` is what the STAGED caller compares against its OWN blob:
+   * equal means this really is its own copy (the retry whose markTakeStaged
+   * was lost), and ONLY that adopts the key. `null` means storage answered
+   * without a size, which proves nothing and must never be adopted.
+   *
+   * ⚖ ON THE TAKE ARM IT IS DIAGNOSTIC ONLY (hotfix 2026-09-05). The client
+   * does not compare it and must not: a take's key is reserved on the
+   * caller's OWN row, and FINALIZE re-proves the object's size server-side
+   * against the row it is handed — when storage reports one; a `size_unknown`
+   * answer there still proceeds, just with `size_verified: false` — a second
+   * proof the staged and segment consumers do not have. So this arm's `null`
+   * costs nothing there.
    */
   | {
       path: string
@@ -271,8 +281,11 @@ function auditTakeNamed(
  * backoff, never `seg_mismatch` — because there the mark is terminal for the
  * take's whole life, and a storage version that stopped reporting sizes would
  * otherwise switch every take's pump off fleet-wide on a fact about the API
- * rather than about anybody's audio. Finalize splits the same two off this same
- * read (`size_unknown` vs `size_mismatch`).
+ * rather than about anybody's audio. For the TAKE arm's retry exit (hotfix
+ * 2026-09-05) it costs NOTHING at all: the value is diagnostic only there, and
+ * finalize re-proves the size server-side regardless of what this read said.
+ * Finalize splits the same two off this same read (`size_unknown` vs
+ * `size_mismatch`).
  *
  * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
  * size dropped, so the two questions can never drift into two probes.
@@ -298,14 +311,26 @@ export async function objectSize(
  * (session-mint.ts) runs this SAME check before its own create — a
  * hard-deleted sibling row's object staying on storage while its row is gone
  * is exactly the gap a second, independent "does this exist" spelling would
- * eventually drift from. One home, four callers.
+ * eventually drift from. One home, three callers (the hotfix took
+ * planReservation off this list — it now reads objectSize directly).
  */
 export async function objectExists(key: string): Promise<boolean | 'unknown'> {
   const answer = await objectSize(key)
   return answer === 'unknown' ? 'unknown' : answer.exists
 }
 
-type ReservationPlan = { kind: 'update'; row: Recording } | { kind: 'retry'; row: Recording }
+type ReservationPlan =
+  | { kind: 'update'; row: Recording }
+  /** ⚖ THE PROBE'S ANSWER IS KEPT (hotfix 2026-09-05). A retry plan used to
+   *  throw away what storage had just said, so the take arm signed over an
+   *  object that was already there — and a non-upsert sign IS a create, which
+   *  storage refuses. `existing` carries that answer to the one caller that
+   *  has to branch on it. */
+  | {
+      kind: 'retry'
+      row: Recording
+      existing: { exists: true; size: number | null } | { exists: false }
+    }
 
 /**
  * The FENCES and the exists check — everything that can refuse a client-named
@@ -361,9 +386,12 @@ async function planReservation(
   // meet an existing object here is the one whose own row already reserved this
   // exact key (the legitimate retry: the PUT landed, the answer was lost) — and
   // by the line above, this row's pointer is now either null or exactly `key`.
-  const exists = await objectExists(key)
-  if (exists === 'unknown') return { error: 'upstream' }
-  if (exists && pointer === null) return { error: 'exists' }
+  // objectSize, not objectExists: the SIZE half is what the retry exit below
+  // answers with. ⚠ It is an OBJECT — `{ exists: false }` is truthy, so the
+  // refusal has to read the field, never the answer itself.
+  const probe = await objectSize(key)
+  if (probe === 'unknown') return { error: 'upstream' }
+  if (probe.exists && pointer === null) return { error: 'exists' }
 
   // LEGACY ONLY (fix round 10): a row minted before sessions were born reserved.
   // Every row this app version creates for a client-named take already carries
@@ -373,7 +401,7 @@ async function planReservation(
   // fix round 10) or the legitimate retry (the PUT landed, the answer was lost):
   // the binding is already exactly what this call would write, so commit writes
   // nothing and audits nothing.
-  return { kind: 'retry', row }
+  return { kind: 'retry', row, existing: probe }
 }
 
 /**
@@ -471,13 +499,33 @@ type SignedUpload = { path: string; url: string; token: string; contentType: str
  *  caller attaches it once the reservation (if any) has actually landed. */
 async function signUpload(
   composed: { key: string; ext: string; contentType: string },
+  where: 'staged' | 'take-server-named' | 'take' | 'segment',
 ): Promise<SignedUpload | { error: 'upstream' }> {
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage
     .from('recordings')
     .createSignedUploadUrl(composed.key)
 
-  if (error || !data?.signedUrl) return { error: 'upstream' }
+  if (error || !data?.signedUrl) {
+    // THE ALARM THIS DOOR LACKED (hotfix 2026-09-05). A silent 'upstream' here
+    // is what hid the missing already-there arm for a day: every refused sign
+    // became a facade 502 with nothing in the logs saying why. House style =
+    // take-binding's own `storage_probe_unknown` line (one JSON object,
+    // status/flags only — never the raw message, which embeds the key).
+    // `where` names WHICH of the four call sites refused, mirroring
+    // warnStorageUnknown's own `where` argument (take-binding.ts).
+    const e = (error ?? {}) as { status?: unknown; statusCode?: unknown }
+    console.warn(
+      JSON.stringify({
+        evt: 'sign_upload_refused',
+        where,
+        status: e.status,
+        statusCode: e.statusCode,
+        messageKind: storageMessageKind(error),
+      }),
+    )
+    return { error: 'upstream' }
+  }
   return {
     path: composed.key,
     url: data.signedUrl,
@@ -495,9 +543,14 @@ async function signUpload(
  * a same-tenant staffer who names another recorder's take id overwrites that
  * take's finalized audio, and an audit row does not undo an overwrite.
  *
- * The legitimate retry (the PUT landed, the finalize call was lost) still
- * works: 409 is the client's SUCCESS signal — "the object is already there" —
- * and it proceeds to finalize, which verifies size and ownership.
+ * The legitimate retry (the PUT landed, the finalize call was lost) is
+ * answered BEFORE anything is signed (hotfix 2026-09-05): the sign is itself a
+ * create, so storage refuses it for a key that already holds bytes and the
+ * take could never be finalized at all. This door now takes the already-there
+ * exit below — no url, nothing to PUT — and the client goes straight to
+ * finalize, which verifies size and ownership. A 409 at a freshly signed PUT
+ * remains a race this probe did not see a moment earlier, and the client still
+ * reads it as the landing it is.
  *
  * Known ceiling: a FIRST upload that landed with the WRONG bytes cannot be
  * replaced under this key. Finalize refuses on the size mismatch and the take
@@ -634,7 +687,7 @@ export async function mintTakeUploadUrl(
         existingSize: existing.size,
       }
     }
-    const signed = await signUpload(composed)
+    const signed = await signUpload(composed, 'staged')
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: input.stagedFor }
   }
@@ -673,7 +726,7 @@ export async function mintTakeUploadUrl(
   // A SERVER-NAMED take: a fresh uuid nobody could have claimed, bound to no
   // row and claiming nothing. Signed and returned exactly as before this round.
   if (!input.takeId) {
-    const signed = await signUpload(composed)
+    const signed = await signUpload(composed, 'take-server-named')
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: null }
   }
@@ -699,7 +752,31 @@ export async function mintTakeUploadUrl(
   }
   if ('error' in plan) return plan
 
-  const signed = await signUpload(composed)
+  // ⚖ THE OBJECT IS ALREADY THERE, AND IT IS THIS ROW'S OWN (hotfix
+  // 2026-09-05). The pointer named this exact key and storage holds it: the
+  // PUT landed and only the finalize was lost. Signing here is what stranded
+  // such a take for ever — a non-upsert sign is a CREATE, and the unique
+  // (bucket_id, name) refuses it, so the door answered a silent 'upstream' on
+  // every retry. There is nothing left to do: a 'retry' plan writes nothing at
+  // commit (the pointer is already this key) and audits nothing, so the exit
+  // loses none of the reservation the signed arm would have made — `plan.row.id`
+  // is the same id it returns. The segment arm and the staged arm have had this
+  // exit since fix round 2; the take arm was the one door without it.
+  //
+  // GIVEN UP ON PURPOSE: commitReservation's own re-reservation of a pointer
+  // CLEARED between plan and commit (fix round 9, above) never runs on this
+  // exit — no app code clears audio_storage_path, so that window is not one
+  // this retry can meet, and a pointer that somehow WAS cleared would surface
+  // as `not_reserved` at finalize rather than silently re-binding here.
+  if (plan.kind === 'retry' && plan.existing.exists)
+    return {
+      path: composed.key,
+      contentType: composed.contentType,
+      recordingSessionId: plan.row.id,
+      existingSize: plan.existing.size,
+    }
+
+  const signed = await signUpload(composed, 'take')
   if ('error' in signed) return signed
 
   let reservation: { recordingSessionId: string } | { error: MintErrorCode }
@@ -745,7 +822,7 @@ async function mintOneSegment(one: {
       contentType: one.contentType,
       existingSize: existing.size,
     }
-  const signed = await signUpload(one)
+  const signed = await signUpload(one, 'segment')
   if ('error' in signed) return signed
   return { seq: one.seq, ...signed }
 }

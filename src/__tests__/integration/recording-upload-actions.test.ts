@@ -10,6 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 const can = jest.fn(async (_c: string) => true)
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
@@ -70,7 +71,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 // storage-js's single-object probe. Default: the key is FREE — the bucket has
 // never held this take, which is every ordinary first mint.
-const notFoundError = { message: 'Object not found', status: 404 }
+const notFoundError = { ...OBJECT_NOT_FOUND }
 const info = jest.fn(
   async (
     _key: string,
@@ -78,13 +79,14 @@ const info = jest.fn(
     data: { size?: number } | null
     // `status` matters: storage saying "no such object" and storage failing to
     // ANSWER are different facts, and only the first frees the key.
-    error: { message: string; status?: number } | null
+    error: { message: string; status?: number; statusCode?: string } | null
   }> => ({ data: null, error: notFoundError }),
 )
-const createSignedUploadUrl = jest.fn(async (p: string) => ({
-  data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
-  error: null as { message: string } | null,
-}))
+/** What the fake bucket HOLDS — the store `info` above answers for, and the
+ *  one thing a non-upsert sign may never be given (helpers/storage-fakes.ts). */
+const held = new Set<string>()
+const uploadUrl = (p: string) => `https://proj.supabase.co/upload/${p}?token=t`
+const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, uploadUrl))
 const createSignedUrl = jest.fn(async (p: string, _ttl: number) => ({
   data: { signedUrl: `https://proj.supabase.co/read/${p}?token=r` },
   error: null as { message: string } | null,
@@ -222,14 +224,16 @@ beforeEach(() => {
   resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
-  info.mockResolvedValue({ data: null, error: notFoundError })
+  info.mockImplementation(async (key: string) =>
+    held.has(key)
+      ? { data: { size: 2048 }, error: null }
+      : { data: null, error: { ...OBJECT_NOT_FOUND } },
+  )
+  held.clear()
   get.mockResolvedValue(row())
   create.mockResolvedValue(row({ id: 'sess-new' }))
   update.mockImplementation(async (id: string) => row({ id }))
-  createSignedUploadUrl.mockImplementation(async (p: string) => ({
-    data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}?token=t`, token: 'tok-1' },
-    error: null,
-  }))
+  createSignedUploadUrl.mockImplementation(fakeCreateSignedUploadUrl(held, uploadUrl))
   createSignedUrl.mockImplementation(async (p: string, _ttl: number) => ({
     data: { signedUrl: `https://proj.supabase.co/read/${p}?token=r` },
     error: null,
@@ -521,11 +525,18 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     )
   })
 
+  // HOTFIX 2026-09-05: this retry now takes the ALREADY-THERE arm. The object
+  // is at this row's own reserved key, and a non-upsert sign would be refused
+  // by storage — so the door answers the size instead of a URL. Everything the
+  // case was named for is unchanged: nothing written, nothing audited, the
+  // claim still reported. (The signed retry — the PUT that never landed — is
+  // the case below, and the whole-arm proof is mint-take-already-there.test.ts.)
   it('a RETRY of the same take writes nothing and audits nothing — still reports the claim', async () => {
     get.mockResolvedValue(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
     // The PUT landed last time; storage says the object is there.
     info.mockResolvedValue({ data: { size: 2048 }, error: null })
-    const res = await mintOk(named)
+    held.add(OWN)
+    const res = await mintExisting(named)
     expect(update).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
     expect(res.recordingSessionId).toBe(SESSION)
@@ -671,7 +682,9 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     get
       .mockResolvedValueOnce(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
       .mockResolvedValue(row({ audio_storage_path: OTHER_KEY, status: 'UPLOADING' }))
-    info.mockResolvedValue({ data: { size: 2048 }, error: null })
+    // The object has NOT landed yet, so this retry still SIGNS — which is what
+    // opens the plan-to-commit window this case is about (hotfix 2026-09-05: a
+    // retry whose object IS there takes the already-there exit before signing).
     await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'reserved_elsewhere' })
     expect(update).not.toHaveBeenCalled()
   })
@@ -687,7 +700,8 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     get
       .mockResolvedValueOnce(row({ audio_storage_path: OWN, status: 'UPLOADING' }))
       .mockResolvedValue(row({ audio_storage_path: null, status: 'RECORDING' }))
-    info.mockResolvedValue({ data: { size: 2048 }, error: null })
+    // Same as the case above: the object is not there yet, so this retry signs
+    // and reaches the commit whose re-read is what this case is about.
     const res = await mintOk(named)
     expect(res.recordingSessionId).toBe(SESSION)
     expect(update).toHaveBeenCalledWith(SESSION, {
