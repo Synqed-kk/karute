@@ -767,6 +767,52 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  // ⚖ S17 · F15 — 予約と確保'S EIGHT DIALS SPEAK THE ROOM'S ROW GRAMMAR.
+  // The section arrived from #812 as a stacked block at EVERY width — label over
+  // control over three or four description lines, 12px/11px against the room's
+  // 13px/12px — so the one section a manager reads a rule and its consequence in
+  // was the one place the round's own row improvement was never applied.
+  // ⚖ Studio / codex-dashboard-architect §10: use the same grammar on new
+  // screens; ⚖ apple-design §16.6: the common path first, the rest one level
+  // deeper.
+  it('⚖ F15 — the eight dials are the room’s two-track row, with 詳しく and <h3> sub-headings', () => {
+    const rows = [...SECTION_CODE.matchAll(/className="st-row st-dial"/g)]
+    expect(rows).toHaveLength(8)
+    // …the room's own two tracks, its label block and its description class…
+    expect((SECTION_CODE.match(/className="st-dial-what"/g) ?? []).length).toBe(8)
+    expect((SECTION_CODE.match(/className="st-dial-ctl(?: st-dial-ctl-stack)?"/g) ?? []).length).toBe(8)
+    expect((SECTION_CODE.match(/className="st-dial-desc"/g) ?? []).length).toBe(8)
+    // …every dial title is an <h3> inside the room's label block (L1: the eight
+    // appeared in no heading outline at all), and none is a bare <p> any more…
+    expect((SECTION_CODE.match(/<div className="st-dial-label"><h3 id="st[A-Za-z]+Label">/g) ?? []).length).toBe(8)
+    expect(SECTION_CODE).not.toMatch(/<p className="st-ctrl-l" id="st(Perm|Lock|Hold|Strict|Gaps|Minutes|Rank|Slot)Label">/)
+    // …the caveat lines fold behind the room's own disclosure rather than
+    // standing between two dials…
+    const folded = (SECTION_CODE.match(/<Collapse open=\{detOpen\['[a-z]+'\] === true\}/g) ?? []).length
+    expect(folded).toBe(6)
+    expect((SECTION_CODE.match(/<DetailToggle open=\{detOpen\['[a-z]+'\] === true\}/g) ?? []).length).toBe(folded)
+    // …and the room's disclosure, not a second one: same component, same spring.
+    expect(SECTION_CODE).toContain("from './Collapse'")
+    expect(SECTION_CODE).not.toContain('<details className="st-row')
+    // ⚠ WHAT DOES NOT FOLD, and this is the half a later hand will get wrong: a
+    // WARNING and a LIVE RESULT stay on the face. 詳しく holds context a manager
+    // opens WHILE changing a dial; 「why can I not do this」 and 「this is what
+    // your change just did」 are read before and at the press. A live region
+    // inside a closed panel is also announced to one reader and invisible to the
+    // other.
+    for (const live of [
+      '{lastOneStanding && <p className="st-ctrl-d warn">',
+      '{guardOff && <p className="st-ctrl-d warn">',
+      'aria-live="polite"',
+    ]) {
+      expect({ live, onFace: SECTION_CODE.includes(live) }).toEqual({ live, onFace: true })
+    }
+    // …and the sheet gives that face line both tracks, so it is not squeezed
+    // into the control column.
+    expect(CSS_SRC).toContain('.biz .pg-settings .st-dial > .st-ctrl-d { grid-column: 1 / -1; }')
+    expect(CSS_SRC).toContain('.biz .pg-settings .st-dial-label h3 {')
+  })
+
   // ⚖ S17 · F8 — ONE DIAL, TWO CONSEQUENCES, AND THE ROOM SAYS BOTH.
   // 確保枠を早めに売りに戻せる役職 edits `opsConfig.releaseHeldRoles`, and THAT
   // list is 予約と確保's save gate (`store-policy-props.ts:265` →

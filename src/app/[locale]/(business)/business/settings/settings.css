@@ -916,9 +916,33 @@
 .biz .pg-settings .st-sum-d { font-size: 11px; font-weight: 500; color: var(--muted); }
 
 /* One dial per row, and each row is its own <section> so the ?-tour picks it up
-   by declaring rather than by anyone maintaining a steps table (⚖ 8/23). */
+   by declaring rather than by anyone maintaining a steps table (⚖ 8/23).
+
+   ⚖ S17 fix round 1 · F15 — AND EACH ROW IS ALSO AN `.st-dial`, which is the
+   ROOM'S row: two tracks (label + one-line description | control) at desk
+   widths, one track in the touch band, the room's 13px/12px scale, and 詳しく
+   for everything else. This section arrived from #812 as a stacked block at
+   every width — label over control over three or four description lines, 12px
+   over 11px — so the densest section of the page read a notch smaller and a
+   notch denser than the twenty-two around it. ⚖ Studio / codex-dashboard-
+   architect §10: 「use the same grammar on new screens」. The class stays
+   alongside so this section keeps its own spacing rhythm (18px rows, because
+   its rows carry more than a switch) and every pin on `.st-row` still lands. */
 .biz .pg-settings .st-row { padding: 18px 0; border-top: 1px solid var(--line-2); }
 .biz .pg-settings .st-row:first-of-type { padding-top: 4px; border-top: 0; }
+/* the room's heading scale, on the sub-headings L1 asked for (`<h3>` — the eight
+   dials were `<p>`, so the section appeared in no heading outline at all) */
+.biz .pg-settings .st-dial-label h3 {
+  margin: 0;
+  font-size: 13px; font-weight: 600; line-height: 1.45; letter-spacing: .01em; color: var(--ink);
+}
+/* Anything the row keeps on its FACE beside those two tracks — a live result, a
+   warning — spans both, under them. `.st-det-wrap` and `.st-why` already do. */
+.biz .pg-settings .st-dial > .st-ctrl-d { grid-column: 1 / -1; }
+/* 名指しロック is the one dial whose control is two stacked groups (the chips and
+   the picker), so its track stacks rather than flowing inline. */
+.biz .pg-settings .st-dial-ctl-stack { display: block; }
+.biz .pg-settings .st-dial-ctl-stack .st-lockadd { margin-top: 8px; }
 
 /* ── control grammar: label → control → description ───────────────────────── */
 .biz .pg-settings .st-ctrl-l { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.4; letter-spacing: .01em; }

@@ -56,8 +56,17 @@ import {
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const SRC = readFileSync(join(process.cwd(), `${ROOM_DIR}/SettingsScreen.tsx`), 'utf8')
 const CSS = readFileSync(join(process.cwd(), `${ROOM_DIR}/settings.css`), 'utf8')
+/** ⚠ D-20 (⚖ S17 fix round 1 · F15) — THE 詳しく DISCLOSURE MOVED TO ITS OWN
+ *  FILE, and three pins below follow it there rather than being deleted.
+ *  予約と確保 adopted the room's row grammar, which means it needs the room's
+ *  disclosure — and it may not import `SettingsScreen` (that file already
+ *  imports the section, so it would be a cycle). One home, two readers; the
+ *  alternative was a second disclosure grammar on one page. The CLAIMS are
+ *  unchanged, only the file they are read from. */
 
 const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '')
+const stripLineComments = (src: string) => stripComments(src).replace(/^\s*\/\/.*$/gm, '')
+const DISCLOSURE = stripLineComments(readFileSync(join(process.cwd(), `${ROOM_DIR}/Collapse.tsx`), 'utf8'))
 const SRC_CODE = stripComments(SRC).replace(/^\s*\/\/.*$/gm, '')
 const CSS_CODE = stripComments(CSS)
 
@@ -140,9 +149,12 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // guardrail · 業種 · 出どころ lines are BEHIND it: a reader who cannot press
     // it cannot read the guardrail on the dial they are changing. A `span` with
     // an onClick renders identically to a mouse and does not exist to a keyboard.
-    expect(SRC_CODE).toMatch(
-      /<button\s+type="button"\s+className="st-det-btn"\s+aria-expanded=\{open\}\s+aria-controls=\{detailId\}\s+onClick=\{onToggle\}/,
+    // D-20: read from `Collapse.tsx` now — one button, used by the room's rows
+    // AND by 予約と確保's eight dials, so neither can drift into a `span`.
+    expect(DISCLOSURE).toMatch(
+      /<button\s+type="button"\s+className="st-det-btn"\s+aria-expanded=\{open\}\s+aria-controls=\{controls\}\s+onClick=\{onToggle\}/,
     )
+    expect(SRC_CODE).toContain('<DetailToggle open={open} controls={detailId} onToggle={onToggle} />')
     // …and the same for the four other new controls, each by its own shape.
     expect(SRC_CODE).toMatch(/<input\s+className="st-search-field"\s+type="search"/)
     expect(SRC_CODE).toContain('aria-label="設定を検索"')
@@ -162,8 +174,10 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain("if (e.key === 'Escape') setTourIdx(-1)")
     // …a disclosure states what it controls and whether it is open, or a screen
     // reader is told there is a button and nothing about what it does.
-    expect(SRC_CODE).toContain('aria-expanded={open}')
-    expect(SRC_CODE).toContain('aria-controls={detailId}')
+    // D-20: the disclosure's own file states both, and the room hands it the id.
+    expect(DISCLOSURE).toContain('aria-expanded={open}')
+    expect(DISCLOSURE).toContain('aria-controls={controls}')
+    expect(SRC_CODE).toContain('controls={detailId}')
     // …and the jump list moves the CARET as well as the page: a control that
     // only scrolls leaves a keyboard reader standing in the list.
     expect(SRC_CODE).toContain("head?.focus({ preventScroll: true })")
@@ -193,7 +207,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // `overflow: hidden` hides content from EYES and from nobody else — a
     // collapsed disclosure whose body is still in the accessibility tree means
     // four guardrail sentences read aloud for every row of this page, always.
-    expect(SRC_CODE).toContain(`data-open={open ? 'true' : 'false'}`)
+    expect(DISCLOSURE).toContain(`data-open={open ? 'true' : 'false'}`)  // D-20
     expect(CSS_CODE).toMatch(/\.st-det-wrap \{[^}]*visibility: hidden/)
     expect(CSS_CODE).toMatch(/\.st-det-wrap\[data-open="true"\] \{ visibility: visible/)
     // …and the delay is on the way DOWN only, or the height animation would be
@@ -256,7 +270,7 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // an effect keyed on it, or explicitly rebuilt when it differs.
     expect(SRC_CODE).not.toMatch(/if \(!xRef\.current\)/)
     expect(SRC_CODE).not.toMatch(/if \(!springRef\.current\) \{\s*\n\s*springRef\.current = makeSpring/)
-    expect(SRC_CODE).toContain('builtWith.current !== reduced')
+    expect(DISCLOSURE).toContain('builtWith.current !== reduced')  // D-20
     // …and each rebuild STOPS the old pair rather than leaking a live rAF.
     expect(SRC_CODE).toContain('xRef.current?.stop()')
     expect(SRC_CODE).toContain('springRef.current?.stop()')

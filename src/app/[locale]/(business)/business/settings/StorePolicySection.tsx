@@ -42,6 +42,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { Collapse, DetailToggle } from './Collapse'
 import { MINUTE_CHOICES, sceneKeyFor, type GapGuardMode, type NewClientMinutes } from './store-policy-seam'
 
 /** The 確保 verdict + capacity at ONE pair of dial values, evaluated on the
@@ -122,6 +123,11 @@ export interface StorePolicyProps {
  *  the page. The walk opens the section it is about to explain. */
 export type StorePolicySectionProps = StorePolicyProps & {
   tourOpen: boolean
+  /** ⚖ S17 fix round 1 · F15 — the reader's own motion preference, handed down
+   *  exactly as it is to every row of the twenty-two sections: the 詳しく panels
+   *  in here run on the room's ONE spring, and a spring that cannot see the
+   *  preference is a spring that ignores it. */
+  reduced: boolean
   /** ⚖ S17 STEP 1 — THREE SLOTS, PLACED BY THE ROOM. See the note above `main`
    *  at the bottom of the component: 設定 puts the dials in the panel, the live
    *  card at the top of its sticky stack and the 保存 block in the save slot, and
@@ -255,6 +261,14 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   const [slotWarn, setSlotWarn] = useState(false)
   const [locks, setLocks] = useState<string[]>(policy.lockedOut)
   const [lockPick, setLockPick] = useState('')
+  /** ⚖ S17 fix round 1 · F15 — WHICH DIALS HAVE THEIR 詳しく OPEN.
+   *  The room's own rows fold 初期値・決まり・出どころ behind 詳しく and keep the
+   *  ONE-LINE description on the face; these eight stacked three and four
+   *  caveat lines under every control at every width instead, so the section
+   *  read a notch denser and a notch smaller than the twenty-two around it.
+   *  Same grammar now, same spring, same closed-by-default. */
+  const [detOpen, setDetOpen] = useState<Record<string, boolean>>({})
+  const toggleDet = (id: string) => setDetOpen((was) => ({ ...was, [id]: !was[id] }))
   // The preview's sample operator — the mock's 見本の操作者 segment.
   const [op, setOp] = useState<'staff' | 'manager'>('staff')
   /** ⚖ 9/1 (fix round 1 F12) — 詳細設定 IS CONTROLLED, so the tour can open it.
@@ -551,16 +565,22 @@ export function StorePolicySection(props: StorePolicySectionProps) {
 
           {/* a. 上書きの権限 */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stPermLabel"
             data-guide-title="上書きの権限"
             data-guide="確保枠を壊す場所に、誰が自分の権限で置けるかを決めます。下の「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます。ONにすると、権限のないスタッフは確定できなくなります。"
           >
-            <p className="st-ctrl-l" id="stPermLabel">上書きの権限</p>
-            <div className="sp-seg" role="group" aria-labelledby="stPermLabel">
-              <button type="button" className={perm === 'staff' ? 'on' : undefined} aria-pressed={perm === 'staff'} onClick={() => setPerm('staff')}>スタッフOK</button>
-              <button type="button" className={perm === 'approve' ? 'on' : undefined} aria-pressed={perm === 'approve'} onClick={() => setPerm('approve')}>店長の承認</button>
-              <button type="button" className={perm === 'manager' ? 'on' : undefined} aria-pressed={perm === 'manager'} onClick={() => setPerm('manager')}>店長のみ</button>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stPermLabel">上書きの権限</h3></div>
+              <p className="st-dial-desc">確保枠を壊す場所に、誰が自分の権限で置けるか</p>
+              <DetailToggle open={detOpen['perm'] === true} controls="st-det-bg.perm" onToggle={() => toggleDet('perm')} />
+            </div>
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stPermLabel">
+                <button type="button" className={perm === 'staff' ? 'on' : undefined} aria-pressed={perm === 'staff'} onClick={() => setPerm('staff')}>スタッフOK</button>
+                <button type="button" className={perm === 'approve' ? 'on' : undefined} aria-pressed={perm === 'approve'} onClick={() => setPerm('approve')}>店長の承認</button>
+                <button type="button" className={perm === 'manager' ? 'on' : undefined} aria-pressed={perm === 'manager'} onClick={() => setPerm('manager')}>店長のみ</button>
+              </div>
             </div>
             {/* ⚖ 9/1 (fix round 1 F1) — AND IT SAYS WHAT THIS DIAL DOES IN
                 BOTH STRICT STATES. 「誰が置けるか」 was false at the loosened
@@ -569,20 +589,28 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 authority the record carries. It becomes a wall only when the
                 dial below is ON, and that is the half worth naming — a
                 manager reading one sentence about two states deserves both. */}
-            <p className="st-ctrl-d">確保枠を壊す場所に、誰が自分の権限で置けるか</p>
-            <p className="st-ctrl-d dim">下の「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます（操作した人の名前が記録に残ります）。ONにすると、権限のないスタッフは確定できなくなります</p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>「店長の承認」の承認フローは、近日追加予定です</p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <Collapse open={detOpen['perm'] === true} id="st-det-bg.perm" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-rail">下の「店長のみでも警告を止める」がOFFのあいだは、権限のないスタッフも確認のうえで置けます（操作した人の名前が記録に残ります）。ONにすると、権限のないスタッフは確定できなくなります</li>
+                <li className="st-det-src"><span className="st-chip">準備中</span>「店長の承認」の承認フローは、近日追加予定です</li>
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
 
           {/* b. 名指しロック */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stLockLabel"
             data-guide-title="名指しロック"
             data-guide="いつも注意が必要な場所に置いてしまうスタッフを、名前で指定して止められます。プリセットでは変わらない、個人ごとの例外です。"
           >
-            <p className="st-ctrl-l" id="stLockLabel">名指しロック</p>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stLockLabel">名指しロック</h3></div>
+              <p className="st-dial-desc">名指しされたスタッフは、注意が必要な場所に置けなくなります</p>
+              <DetailToggle open={detOpen['lock'] === true} controls="st-det-bg.lock" onToggle={() => toggleDet('lock')} />
+            </div>
+            <div className="st-dial-ctl st-dial-ctl-stack">
             <div className="st-locks">
               {shownLocks.length === 0
                 ? <span className="st-locks-empty">まだ誰も指定していません</span>
@@ -613,91 +641,125 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 追加
               </button>
             </div>
-            <p className="st-ctrl-d">名指しされたスタッフは、注意が必要な場所に置けなくなります</p>
-            <p className="st-ctrl-d dim">名指しロックは、プリセットとは別の個人ごとの例外です</p>
+            </div>
+            {/* ⚠ A WARNING STAYS ON THE FACE. 詳しく folds CONTEXT a manager opens
+                while changing a dial; 「why can I not do this」 is read before the
+                press — the room's own M5 law for a lock reason, applied to the
+                one line here that is a refusal rather than a note. */}
             {lastOneStanding && <p className="st-ctrl-d warn">全員を名指しロックにはできません。少なくとも一人は置ける人が必要です</p>}
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <Collapse open={detOpen['lock'] === true} id="st-det-bg.lock" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-rail">名指しロックは、プリセットとは別の個人ごとの例外です</li>
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
 
           {/* c. 長押しで確定 */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stHoldLabel"
             data-guide-title="長押しで確定"
             data-guide="注意が必要な場所に置くときだけ、確定を長押しにします。ふつうの確定はどの設定でもタップのままです。"
           >
-            <p className="st-ctrl-l" id="stHoldLabel">長押しで確定</p>
-            <div className="sp-seg" role="group" aria-labelledby="stHoldLabel">
-              <button type="button" className={hold ? 'on' : undefined} aria-pressed={hold} onClick={() => setHold(true)}>ON</button>
-              <button type="button" className={!hold ? 'on' : undefined} aria-pressed={!hold} onClick={() => setHold(false)}>OFF</button>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stHoldLabel">長押しで確定</h3></div>
+              {/* The sentence ⚖ 92 wrote for this dial, in `fixtures-today.ts`,
+                  carried word for word so the settings round does not invent a
+                  second description of one switch. */}
+              <p className="st-dial-desc">注意が必要な場所への配置に、0.6秒の長押しを求めます</p>
+              <DetailToggle open={detOpen['hold'] === true} controls="st-det-bg.hold" onToggle={() => toggleDet('hold')} />
             </div>
-            {/* The sentence ⚖ 92 wrote for this dial, in `fixtures-today.ts`,
-                carried word for word so the settings round does not invent a
-                second description of one switch. */}
-            <p className="st-ctrl-d">注意が必要な場所への配置に、0.6秒の長押しを求めます</p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stHoldLabel">
+                <button type="button" className={hold ? 'on' : undefined} aria-pressed={hold} onClick={() => setHold(true)}>ON</button>
+                <button type="button" className={!hold ? 'on' : undefined} aria-pressed={!hold} onClick={() => setHold(false)}>OFF</button>
+              </div>
+            </div>
+            <Collapse open={detOpen['hold'] === true} id="st-det-bg.hold" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
 
           {/* d. 店長のみでも警告を止める — core `gap_guard_mode` STRICT */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stStrictLabel"
             data-guide-title="店長のみでも警告を止める"
             data-guide="ONにすると、権限のないスタッフは注意が必要な場所に確定できなくなります。カードには安全な時間の提案と元に戻すだけが残ります。"
           >
-            <p className="st-ctrl-l" id="stStrictLabel">店長のみでも警告を止める</p>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stStrictLabel">店長のみでも警告を止める</h3></div>
+              <p className="st-dial-desc">ONにすると、権限のないスタッフは注意が必要な場所に確定できなくなります（安全な時間の提案と元に戻すだけになります）</p>
+            </div>
             {/* ⚖ 9/1 (fix round 1 F4) — THREE STATES, TWO BUTTONS, AND NO
                 FABRICATED POSITION. A store whose guard is OFF is neither ON
                 nor OFF on this dial, so neither button is pressed and the
                 line below says why — rather than lighting OFF, which would
                 read as 「the guard is running, without the wall」 and would
                 quietly turn the guard ON the moment anything saved. */}
-            <div className="sp-seg" role="group" aria-labelledby="stStrictLabel">
-              <button type="button" className={mode === 'STRICT' ? 'on' : undefined} aria-pressed={mode === 'STRICT'} onClick={() => setMode('STRICT')}>ON</button>
-              <button type="button" className={mode === 'STANDARD' ? 'on' : undefined} aria-pressed={mode === 'STANDARD'} onClick={() => setMode('STANDARD')}>OFF</button>
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stStrictLabel">
+                <button type="button" className={mode === 'STRICT' ? 'on' : undefined} aria-pressed={mode === 'STRICT'} onClick={() => setMode('STRICT')}>ON</button>
+                <button type="button" className={mode === 'STANDARD' ? 'on' : undefined} aria-pressed={mode === 'STANDARD'} onClick={() => setMode('STANDARD')}>OFF</button>
+              </div>
             </div>
-            <p className="st-ctrl-d">ONにすると、権限のないスタッフは注意が必要な場所に確定できなくなります（安全な時間の提案と元に戻すだけになります）</p>
             {guardOff && <p className="st-ctrl-d warn">いまこの店舗は、確保枠の見張りそのものを止めています。ONとOFFのどちらを押しても、見張りは動き出します</p>}
           </section>
 
           {/* e. すき間の販売 */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stGapsLabel"
             data-guide-title="すき間の販売"
             data-guide="予約と予約のあいだに残った短い空き時間を、そのまま予約枠として売るかどうかです。"
           >
-            <p className="st-ctrl-l" id="stGapsLabel">すき間の販売</p>
-            <div className="sp-seg" role="group" aria-labelledby="stGapsLabel">
-              <button type="button" className={gaps ? 'on' : undefined} aria-pressed={gaps} onClick={() => setGaps(true)}>ON</button>
-              <button type="button" className={!gaps ? 'on' : undefined} aria-pressed={!gaps} onClick={() => setGaps(false)}>OFF</button>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stGapsLabel">すき間の販売</h3></div>
+              <p className="st-dial-desc">短い空き時間も予約枠として販売します</p>
+              <DetailToggle open={detOpen['gaps'] === true} controls="st-det-bg.gaps" onToggle={() => toggleDet('gaps')} />
             </div>
-            <p className="st-ctrl-d">短い空き時間も予約枠として販売します</p>
-            {/* ⚖ S17 · C12 — the receipt, not a second dial. 店舗情報・営業時間's
-                own 販売可能な最小の長さ control moved here as this ON/OFF; the
-                number it was set to is still the number 今日の運営 uses, so the
-                row says it instead of leaving the manager to wonder from how
-                short a gap counts. */}
-            <p className="st-ctrl-d dim">販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）</p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stGapsLabel">
+                <button type="button" className={gaps ? 'on' : undefined} aria-pressed={gaps} onClick={() => setGaps(true)}>ON</button>
+                <button type="button" className={!gaps ? 'on' : undefined} aria-pressed={!gaps} onClick={() => setGaps(false)}>OFF</button>
+              </div>
+            </div>
+            <Collapse open={detOpen['gaps'] === true} id="st-det-bg.gaps" reduced={props.reduced}>
+              <ul className="st-det">
+                {/* ⚖ S17 · C12 — the receipt, not a second dial. 店舗情報・営業時間's
+                    own 販売可能な最小の長さ control moved here as this ON/OFF; the
+                    number it was set to is still the number 今日の運営 uses, so the
+                    row says it instead of leaving the manager to wonder from how
+                    short a gap counts. */}
+                <li className="st-det-src">販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）</li>
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
 
           {/* f. 新規のお客様の確保 — core `new_client_session_minutes` */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stMinutesLabel"
             data-guide-title="新規のお客様の確保"
             data-guide="新規のお客様のために空けておく施術時間の長さです。長くするほど一枠は取りやすくなりますが、1日に確保できる枠の数は減ります。下の行がその数を教えてくれます。"
           >
-            <p className="st-ctrl-l" id="stMinutesLabel">新規のお客様の確保</p>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stMinutesLabel">新規のお客様の確保</h3></div>
+              <p className="st-dial-desc">新規のお客様のために確保する施術時間の長さ</p>
+            </div>
             {/* ⚖ 1b RULED — three fixed choices, because the wire's own type
                 is `60 | 75 | 90`. The mock's stepper is superseded. */}
-            <div className="sp-seg" role="group" aria-labelledby="stMinutesLabel">
-              {MINUTE_CHOICES.map((m) => (
-                <button key={m} type="button" className={minutes === m ? 'on' : undefined} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m}分</button>
-              ))}
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stMinutesLabel">
+                {MINUTE_CHOICES.map((m) => (
+                  <button key={m} type="button" className={minutes === m ? 'on' : undefined} aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m}分</button>
+                ))}
+              </div>
             </div>
-            <p className="st-ctrl-d">新規のお客様のために確保する施術時間の長さ</p>
             {/* ⚖ THE GUARDRAIL, from the store's real day through the guard
                 engine's own `protectedCapacity` — never a count this room
                 derives. ⚖ 8/25 — the number says WHAT it counts. */}
@@ -710,29 +772,43 @@ export function StorePolicySection(props: StorePolicySectionProps) {
 
           {/* g. 確保枠の会員ランク開放 */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stRankLabel"
             data-guide-title="確保枠の会員ランク開放"
             data-guide="新規のお客様のために空けている枠を、選んだランク以上の常連さんにもネット予約で開放するかどうかです。既定では開放しません。"
           >
-            <p className="st-ctrl-l" id="stRankLabel">確保枠の会員ランク開放</p>
-            <div className="sp-seg" role="group" aria-labelledby="stRankLabel">
-              {RANK_OPTIONS.map(([value, label]) => (
-                <button key={value} type="button" className={rank === value ? 'on' : undefined} aria-pressed={rank === value} onClick={() => setRank(value)}>{label}</button>
-              ))}
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stRankLabel">確保枠の会員ランク開放</h3></div>
+              <p className="st-dial-desc">確保枠の標準枠を、選んだランク以上のお客様のネット予約に開放します</p>
+              <DetailToggle open={detOpen['rank'] === true} controls="st-det-bg.rank" onToggle={() => toggleDet('rank')} />
             </div>
-            <p className="st-ctrl-d">確保枠の標準枠を、選んだランク以上のお客様のネット予約に開放します</p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <div className="st-dial-ctl">
+              <div className="sp-seg" role="group" aria-labelledby="stRankLabel">
+                {RANK_OPTIONS.map(([value, label]) => (
+                  <button key={value} type="button" className={rank === value ? 'on' : undefined} aria-pressed={rank === value} onClick={() => setRank(value)}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <Collapse open={detOpen['rank'] === true} id="st-det-bg.rank" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
 
           {/* h. 予約の刻み */}
           <section
-            className="st-row"
+            className="st-row st-dial"
             aria-labelledby="stSlotLabel"
             data-guide-title="予約の刻み"
             data-guide="予約カードが動く時間の単位です。30分なら、予約は10:00・10:30…にそろいます。数字以外は保存されません。"
           >
-            <p className="st-ctrl-l" id="stSlotLabel">予約の刻み</p>
+            <div className="st-dial-what">
+              <div className="st-dial-label"><h3 id="stSlotLabel">予約の刻み</h3></div>
+              <p className="st-dial-desc">予約がそろう時間の単位</p>
+              <DetailToggle open={detOpen['slot'] === true} controls="st-det-bg.slot" onToggle={() => toggleDet('slot')} />
+            </div>
+            <div className="st-dial-ctl">
             <div className="st-step">
               <div className="st-step-g">
                 <button type="button" aria-label="5分減らす" onClick={() => setSlotText(String(clampSlot(dials.slot - SLOT_MIN)))}>−</button>
@@ -761,18 +837,25 @@ export function StorePolicySection(props: StorePolicySectionProps) {
               </div>
               <span className="st-step-u">分</span>
             </div>
-            <p className="st-ctrl-d">予約がそろう時間の単位</p>
+            </div>
             {/* ⚖ 9/1 (fix round 1 F10) — THE REJECTION IS SAID, NOT ONLY
                 COLOURED. A polite live region whose TEXT never changes
                 announces nothing, so the only signal that a keystroke was
                 thrown away was quiet→orange: WCAG 1.4.1, colour as the sole
                 carrier of information, on the one field in this room an
                 operator actually types into. The sentence itself changes now,
-                inside the region that was already there. */}
+                inside the region that was already there.
+                ⚠ AND IT STAYS ON THE FACE (⚖ F15): a live region folded into a
+                closed 詳しく is announced to a screen reader and invisible to
+                everyone else — the two readers would be told different things. */}
             <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">
               {slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}
             </p>
-            <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
+            <Collapse open={detOpen['slot'] === true} id="st-det-bg.slot" reduced={props.reduced}>
+              <ul className="st-det">
+                <li className="st-det-src"><span className="st-chip">準備中</span>{PENDING_NOTE}</li>
+              </ul>
+            </Collapse>
           </section>
         </details>
       </div>

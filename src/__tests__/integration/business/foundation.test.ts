@@ -750,7 +750,17 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures-today',
         '@/business/lib/settings',
       ],
+      // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
+      // own file. Both the shell room and 予約と確保 need it, and the section may
+      // not import the screen (the screen already imports the section, so that
+      // would be a cycle). Its own inventory is the spring and react — the same
+      // one integrator every moving thing in this room runs on.
+      'src/app/[locale]/(business)/business/settings/Collapse.tsx': [
+        '@/business/lib/spring',
+        'react',
+      ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
+        './Collapse',
         // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
         './StorePolicySection',
         '@/business/lib/guide',
@@ -771,6 +781,10 @@ describe('the fixture data door', () => {
       // absence of `@/business/lib/guide` here is the pin on that.
       'src/app/[locale]/(business)/business/settings/StorePolicySection.tsx': [
         '../today/today-interactions',
+        // ⚖ S17 fix round 1 · F15 — the room's row grammar includes the room's
+        // 詳しく, so the eight dials fold their caveat lines the same way the
+        // twenty-two sections do rather than stacking them at every width.
+        './Collapse',
         './store-policy-seam',
         '@/business/lib/canon-logic/pricing',
         'react',
