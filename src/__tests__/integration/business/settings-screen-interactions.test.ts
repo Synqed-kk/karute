@@ -99,6 +99,27 @@ function openingTags(src: string, tag: string): Array<{ text: string; at: number
   return out
 }
 
+/** ⚖ S17 fix round 1 · F20 — every `=> { … }` body removed, by brace matching.
+ *  A slice-bound pin asks 「is the rebuild reached」; a `return` inside a nested
+ *  closure is not an answer to that question. */
+function withoutInnerFns(src: string): string {
+  let out = ''
+  let i = 0
+  while (i < src.length) {
+    const at = src.indexOf('=> {', i)
+    if (at < 0) { out += src.slice(i); break }
+    out += src.slice(i, at + 2)
+    let depth = 0
+    let j = at + 3
+    for (; j < src.length; j += 1) {
+      if (src[j] === '{') depth += 1
+      else if (src[j] === '}') { depth -= 1; if (depth === 0) break }
+    }
+    i = j + 1
+  }
+  return out
+}
+
 const DECLARATIONS = [...SRC_CODE.matchAll(/data-guide-title=(?:"([^"]*)"|\{([^}]*)\})\s*\n?\s*data-guide=(?:"([^"]*)"|\{([^}]*)\})/g)]
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -291,12 +312,56 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // change after the first pass — the effect re-runs and the guard refuses to
     // rebuild. Every spring that takes `reduced` is now built UNCONDITIONALLY in
     // an effect keyed on it, or explicitly rebuilt when it differs.
-    expect(SRC_CODE).not.toMatch(/if \(!xRef\.current\)/)
-    expect(SRC_CODE).not.toMatch(/if \(!springRef\.current\) \{\s*\n\s*springRef\.current = makeSpring/)
-    expect(DISCLOSURE).toContain('builtWith.current !== reduced')  // D-20
-    // …and each rebuild STOPS the old pair rather than leaking a live rAF.
-    expect(SRC_CODE).toContain('xRef.current?.stop()')
-    expect(SRC_CODE).toContain('springRef.current?.stop()')
+    // ⚠ D-22 RE-PIN (⚖ S17 fix round 1 · F20), AND THE BATTERY IS WHY.
+    // The two assertions here banned ONE SPELLING of the guard
+    // (`if (!xRef.current)`) and looked for `xRef.current?.stop()` ANYWHERE in a
+    // 2 000-line file. `M-y` wrote the logically identical `if (xRef.current)
+    // return` and deleted the two `stop()` calls, and BOTH stayed green — the
+    // `toContain` was satisfied by the UNMOUNT cleanup at the bottom of the same
+    // component, a real line that had moved into a dead scope for this claim
+    // (⚖ 9/3 R7's own decoy). It survived the battery, full jest AND the probe.
+    // So the reads are SLICE-BOUND now: each `[reduced]` effect body is cut out
+    // and the claim is made INSIDE it. No spelling is banned; the shape is
+    // required.
+    const sliceOf = (src: string, from: string, to: string) => {
+      const a = src.indexOf(from)
+      expect({ marker: from, found: a >= 0 }).toEqual({ marker: from, found: true })
+      const b = src.indexOf(to, a)
+      expect({ marker: to, found: b > a }).toEqual({ marker: to, found: true })
+      return src.slice(a, b)
+    }
+    const rebuilds = [
+      // Segment — the pair of thumb springs
+      { what: 'Segment', slice: sliceOf(SRC_CODE, 'const paint = () => {', '}, [reduced])'), stops: ['xRef.current?.stop()', 'wRef.current?.stop()'] },
+      // Switch — one thumb spring
+      { what: 'Switch', slice: sliceOf(SRC_CODE, 'springRef.current?.stop()', '}, [reduced])'), stops: ['springRef.current?.stop()'] },
+      // Collapse — the 詳しく height, in its own file (D-20)
+      { what: 'Collapse', slice: sliceOf(DISCLOSURE, 'if (!springRef.current || builtWith.current !== reduced)', 'const spring = springRef.current'), stops: ['springRef.current?.stop()'] },
+    ]
+    for (const r of rebuilds) {
+      // the OLD spring is stopped INSIDE the rebuild, not somewhere else…
+      for (const stop of r.stops) {
+        expect({ what: r.what, stop, inside: r.slice.includes(stop) }).toEqual({ what: r.what, stop, inside: true })
+      }
+      // …and the rebuild is REACHED: nothing returns, and no condition stands
+      // between the top of the body and the first `makeSpring(`.
+      // ⚠ NESTED HELPERS ARE CUT OUT FIRST. `Segment` declares a `paint()`
+      // closure above its springs, and that closure's own `if (!thumb) return`
+      // is not a guard on the effect — reading it as one would make this pin
+      // fail on correct code, which is the other way a pin lies.
+      const upto = withoutInnerFns(r.slice.slice(0, r.slice.indexOf('makeSpring(')))
+      expect({ what: r.what, unreachable: /\breturn\b/.test(upto) }).toEqual({ what: r.what, unreachable: false })
+      expect({ what: r.what, guarded: /\bif\s*\(/.test(upto.replace('if (!springRef.current || builtWith.current !== reduced)', '')) })
+        .toEqual({ what: r.what, guarded: false })
+    }
+    // …and the reader who changes their mind MID-SESSION is heard: the hook
+    // subscribes, so a rebuild has something to be triggered by at all. (The
+    // probe measures the behaviour — S6d flips the preference for real.)
+    const sub = sliceOf(SRC_CODE, 'function useNarrow', 'return narrow')
+    expect(sub).toBeTruthy()
+    const motionHook = sliceOf(SRC_CODE, 'function useReducedMotion', 'return reduced')
+    expect(motionHook).toContain("mq.addEventListener('change', apply)")
+    expect(motionHook).toContain("mq.removeEventListener('change', apply)")
     // …and re-seats, so a rebuilt spring places its thumb instead of sliding it
     // in from zero.
     expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(2)
