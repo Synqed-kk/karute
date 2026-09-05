@@ -16,6 +16,7 @@ import {
   karuteSummaryToBullets,
 } from '@/lib/adapters/karute-detail'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { computeAge, jpGender } from '@/lib/customers/demographics'
 import { formatJoinDate } from '@/lib/customers/list-enrich'
@@ -50,6 +51,22 @@ export interface KaruteDetailScreenHeader {
   lastVisitDate: string | null
 }
 
+/**
+ * The recording AS THE VIEWER MAY HEAR IT — the same rule `transcript` obeys
+ * one field down, so the player's presence is decided SERVER-side and a viewer
+ * who may not hear this take is never handed a reason to try.
+ *
+ * `status` is a plain string, not core's RecordingStatus union, for the same
+ * degrade-not-fail reason the outcome value is one (see the DTO's OutcomeSchema
+ * note): a baked shell must render a status it has never heard of, not fail the
+ * whole screen's parse over it.
+ */
+export interface KaruteDetailRecording {
+  audioPresent: boolean
+  durationSeconds: number | null
+  status: string
+}
+
 export interface KaruteDetailScreen {
   karuteId: string
   customerId: string | null
@@ -70,6 +87,9 @@ export interface KaruteDetailScreen {
   consentOnFile: boolean
   transcriptDurationLabel: string | null
   transcriptRestricted: boolean
+  /** null = no player, and the card says NOTHING about one (⚖ 9/3, frame F5).
+   *  See `recordingRow` on the args below for every reason it can be null. */
+  recording: KaruteDetailRecording | null
   /** F4: records.reassign gate — the 顧客を変更 entry point. Additive field,
    *  same staffCanDeletePhotos threading pattern (RecordPageView.tsx). */
   staffCanReassignRecords: boolean
@@ -83,6 +103,23 @@ export interface BuildKaruteDetailScreenArgs {
   /** Recording-privacy ACL inputs (#4). */
   viewerStaffId: string | null
   canViewAllRecordings: boolean
+  /** The core recording row behind this karute's session, or null when there is
+   *  no session id, the row is gone, or the read FAILED (D-8: an accessory read
+   *  that blipped costs the player, never the karute). The CALLER fetches — this
+   *  builder stays pure. */
+  recordingRow: {
+    audio_storage_path: string | null
+    duration_seconds: number | null
+    status: string
+  } | null
+  /** May this viewer hear EVERY staff's audio: `recordings.viewAll` OR
+   *  `business.manage` (the owner floor, silently — ⚖ 9/3: no on-screen
+   *  sentence, no staff ping). A SEPARATE input from canViewAllRecordings on
+   *  purpose: the owner floor must not widen the existing TRANSCRIPT rule. */
+  canHearAll: boolean
+  /** The caller's verified tenant — the key grammar's fence needs it (web:
+   *  getBusinessId(); facade: ctx.identity.businessId). */
+  businessId: string
   /** F4: records.reassign gate, resolved by the caller (web: can(); facade:
    *  ctx.identity.capabilities.has()) — same threading chokepoint as the
    *  recording-privacy inputs above. */
@@ -103,6 +140,9 @@ export function buildKaruteDetailScreen(
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    recordingRow,
+    canHearAll,
+    businessId,
     staffCanReassignRecords,
     contact,
     consentResult,
@@ -128,6 +168,31 @@ export function buildKaruteDetailScreen(
   })
   const visibleTranscript = canSeeTranscript ? transcript : null
   const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
+
+  // THE PLAYER'S PRESENCE (slice ①). One predicate for the words and the sound
+  // — whoever may read the raw transcript of this karute may hear its audio —
+  // with the OWNER floor OR'd in through `canHearAll` (kept out of the
+  // transcript input above so the two rules stay separable).
+  //
+  // The key fence is `isOwnRecordingKey`, never a prefix: it is TAKE-only, so a
+  // null path, a discarded take's `stg/` staged copy and another tenant's key
+  // are all the same answer — no player, nothing said. Widening it here would
+  // widen every other fence's meaning too (key-grammar.ts's own note).
+  const canHearRecording = canViewTranscript({
+    ownerStaffId,
+    viewerStaffId,
+    canViewAll: canHearAll,
+  })
+  const recording =
+    recordingRow &&
+    canHearRecording &&
+    isOwnRecordingKey(recordingRow.audio_storage_path, businessId)
+      ? {
+          audioPresent: true,
+          durationSeconds: recordingRow.duration_seconds,
+          status: recordingRow.status,
+        }
+      : null
 
   // Sequential per-tenant number from the shared customer list — matches the
   // karute list and customer profile (#00007).
@@ -185,6 +250,7 @@ export function buildKaruteDetailScreen(
     consentOnFile,
     transcriptDurationLabel: null,
     transcriptRestricted,
+    recording,
     staffCanReassignRecords,
   }
 }

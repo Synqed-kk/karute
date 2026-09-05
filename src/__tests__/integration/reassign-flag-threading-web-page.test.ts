@@ -12,11 +12,22 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
   resolveUserId: jest.fn(async () => 'user-1'),
 }))
+const karuteRow = { current: { client_id: 'cust-9', summary: null } as Record<string, unknown> }
 jest.mock('@/lib/supabase/karute', () => ({
-  getKaruteRecord: jest.fn(async (id: string) => ({ id, client_id: 'cust-9', summary: null })),
+  getKaruteRecord: jest.fn(async (id: string) => ({ id, ...karuteRow.current })),
 }))
 jest.mock('@/lib/karute/outcome', () => ({ getKaruteOutcome: jest.fn(async () => null) }))
-jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(async () => ({})) }))
+// Slice ①: the page reads the recording behind the karute for the player's
+// presence. `recordings.get` only fires when the karute carries a session id.
+const recordingsGet = jest.fn(async () => ({
+  id: 'sess-1',
+  audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+  duration_seconds: 90,
+  status: 'COMPLETED',
+}))
+jest.mock('@/lib/synqed/client', () => ({
+  getSynqedClient: jest.fn(async () => ({ recordings: { get: () => recordingsGet() } })),
+}))
 jest.mock('@/lib/synqed/staff-map', () => ({
   lookupProfileIdForSynqedStaffId: jest.fn(async () => null),
 }))
@@ -68,6 +79,13 @@ beforeEach(() => {
     summary: null,
   })
   grantedCaps.current = new Set()
+  karuteRow.current = { client_id: 'cust-9', summary: null }
+  recordingsGet.mockResolvedValue({
+    id: 'sess-1',
+    audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+    duration_seconds: 90,
+    status: 'COMPLETED',
+  })
 })
 
 describe('KaruteDetailPage — staffCanReassignRecords (pin 8b, web half)', () => {
@@ -84,5 +102,56 @@ describe('KaruteDetailPage — staffCanReassignRecords (pin 8b, web half)', () =
     expect(buildSpy).toHaveBeenCalledWith(
       expect.objectContaining({ staffCanReassignRecords: true, canViewAllRecordings: false }),
     )
+  })
+})
+
+// Slice ① (the player), web half: the page resolves the playback inputs and
+// hands them to the SAME chokepoint. The facade half is pinned in
+// app-api-karute-detail-screen.test.ts.
+describe('KaruteDetailPage — playback inputs (canHearAll · businessId · recordingRow)', () => {
+  it('canHearAll is false for a plain staffer, and businessId is the cookie tenant', async () => {
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(buildSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ canHearAll: false, businessId: 'biz-1' }),
+    )
+  })
+
+  it('business.manage alone raises canHearAll WITHOUT raising canViewAllRecordings (the silent owner floor)', async () => {
+    grantedCaps.current = new Set(['business.manage'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(buildSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ canHearAll: true, canViewAllRecordings: false }),
+    )
+  })
+
+  it('recordings.viewAll also raises canHearAll', async () => {
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ canHearAll: true }))
+  })
+
+  it('no recording_session_id → recordingRow null and the row is never read', async () => {
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ recordingRow: null }))
+  })
+
+  it('a session id threads the fetched row through', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, recording_session_id: 'sess-1' }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(recordingsGet).toHaveBeenCalledTimes(1)
+    expect(buildSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingRow: expect.objectContaining({ duration_seconds: 90, status: 'COMPLETED' }),
+      }),
+    )
+  })
+
+  // D-8: an accessory read that blipped must cost the player, never the page.
+  it('a failed recordings.get degrades to recordingRow null and the page still renders', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, recording_session_id: 'sess-1' }
+    recordingsGet.mockRejectedValue(new Error('boom'))
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ recordingRow: null }))
   })
 })

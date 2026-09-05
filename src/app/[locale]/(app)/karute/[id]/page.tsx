@@ -20,7 +20,7 @@ import {
   AIOutreachPreview,
 } from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
@@ -40,23 +40,52 @@ export default async function KaruteDetailPage({
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
   const synqedPromise = getSynqedClient()
-  const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings, canReassign] =
-    await Promise.all([
-      getKaruteRecord(id),
-      // Page to completion so the karute number resolves for an overflow customer.
-      synqedPromise.then((synqed) =>
-        listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-      ),
-      getKaruteOutcome(id),
-      // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
-      // may read every staff's raw recordings (owner/manager). Both independent
-      // of the karute, so fan them out in the same wave.
-      getCurrentUserStaffId(),
-      can('recordings.viewAll'),
-      // F4: records.reassign gate — the 顧客を変更 entry point.
-      can('records.reassign'),
-    ])
+  const [
+    karute,
+    allCustomers,
+    outcome,
+    viewerStaffId,
+    canViewAllRecordings,
+    canReassign,
+    canManageBusiness,
+    businessId,
+  ] = await Promise.all([
+    getKaruteRecord(id),
+    // Page to completion so the karute number resolves for an overflow customer.
+    synqedPromise.then((synqed) =>
+      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+    ),
+    getKaruteOutcome(id),
+    // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
+    // may read every staff's raw recordings (owner/manager). Both independent
+    // of the karute, so fan them out in the same wave.
+    getCurrentUserStaffId(),
+    can('recordings.viewAll'),
+    // F4: records.reassign gate — the 顧客を変更 entry point.
+    can('records.reassign'),
+    // The PLAYBACK owner floor (slice ①): an owner hears every take, silently.
+    // Resolved separately from recordings.viewAll so the transcript rule above
+    // is not widened by it.
+    can('business.manage'),
+    // The tenant the key grammar's take fence is checked against.
+    getBusinessId(),
+  ])
   if (!karute) notFound()
+
+  // The recording behind this karute — the player's presence probe. Fired
+  // alongside the customer wave below (it needs only the session id, which the
+  // karute read just gave us) and EVERY failure degrades to null: an accessory
+  // read that blipped must cost the player, never the whole karute (D-8, the
+  // photos precedent).
+  const recordingSessionId = karute.recording_session_id
+  const recordingPromise = recordingSessionId
+    ? synqedPromise
+        .then((synqed) => synqed.recordings.get(recordingSessionId))
+        .catch((err: unknown) => {
+          console.warn('[karute-detail] recording read failed — no player', err)
+          return null
+        })
+    : Promise.resolve(null)
 
   // Recorder-lock fix (⚖ Liam 8/22): the karute's staff_profile_id sometimes
   // carries a synqed-core staff CARD id (not a Supabase profile id) — those
@@ -80,6 +109,7 @@ export default async function KaruteDetailPage({
         getCustomer(customerId).catch(() => null),
       ])
     : [null, null, null]
+  const recordingRow = await recordingPromise
 
   // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
   // and thin can never derive a different view-model from the same raw wave.
@@ -89,6 +119,9 @@ export default async function KaruteDetailPage({
     outcome,
     viewerStaffId,
     canViewAllRecordings,
+    recordingRow,
+    canHearAll: canViewAllRecordings || canManageBusiness,
+    businessId,
     staffCanReassignRecords: canReassign,
     contact,
     consentResult,
