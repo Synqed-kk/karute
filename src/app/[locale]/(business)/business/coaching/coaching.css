@@ -140,7 +140,9 @@
 .biz .page.pg-coaching {
   --cg-accent: #2563eb;                       /* globals.css:99 --primary (⚖ R13) */
   --cg-accent-wash: rgba(37, 99, 235, .08);   /* ⚖ R13's selected recipe: /8, never a fill */
-  --cg-accent-ink: #1d4ed8;                   /* the accent, one step down, for text on a wash */
+  --cg-accent-ink: #1d4ed8;                   /* blue-700 — the accent one step down, for text on a wash */
+  --cg-accent-chip: #dbeafe;                  /* blue-100 — CLAUDE.md's approved icon-chip wash */
+  --cg-accent-line: rgba(37, 99, 235, .18);   /* the accent as a LINE tint, for a non-pressable card */
   --cg-panel: #fff;
   --cg-panel-line: #e4e4e9;                   /* shell --line */
   --cg-soft: #f7f7f9;
@@ -431,7 +433,6 @@
 .biz .pg-coaching .cg-panel { display: flex; flex-direction: column; gap: var(--cg-card-gap); }
 .biz .pg-coaching .cg-spine,
 .biz .pg-coaching .cg-focus,
-.biz .pg-coaching .cg-findings,
 .biz .pg-coaching .cg-trend,
 .biz .pg-coaching .cg-outcomes,
 .biz .pg-coaching .cg-skills,
@@ -460,7 +461,13 @@
 .biz .pg-coaching .cg-sec-title { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
 .biz .pg-coaching .cg-sec-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; }
 .biz .pg-coaching .cg-sec-head .cg-sec-title { margin-bottom: 0; }
+/* ⚠ R2-14 — THE LOCK IS FLUSHED RIGHT WHEN IT IS THE HEAD'S LAST ELEMENT, and
+   it stays beside the title when an action follows it: the button is the
+   rightmost thing on a head that has one (the mock's own five cards). Read off
+   the DOM with `:last-child` rather than from a list of which cards have a
+   button — a list would go stale the moment a card gains one. */
 .biz .pg-coaching .cg-sec-head > .btn { margin-left: auto; }
+.biz .pg-coaching .cg-sec-head > .cg-lock:last-child { margin-left: auto; }
 
 /* A kicker and a category name — the two quiet labels this room repeats. Both
    are NEUTRAL: they name a thing, they are not pressable (the one-way accent
@@ -540,9 +547,17 @@
 .biz .pg-coaching .cg-basis { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
 
 /* ── the single next move ──────────────────────────────────────────────────── */
-.biz .pg-coaching .cg-focus { border-color: #e7dcc6; background: linear-gradient(180deg, #fdf8ef 0%, #fff 62%); }
+/* ⚖ R2-8 — THE DECISION CARD IS NOT A WARNING. It wore the room's PRIORITY
+   amber — pixel-identical in tone to a 重点 finding — so 「the one move to make
+   next」 read as 「something is wrong」. The mock's own grammar separates them:
+   blue is the decision, amber is the problem. A soft WASH on a non-pressable
+   card is the legal tier of the one-way accent law (CLAUDE.md names washes and
+   *-100 tints explicitly), and the kicker takes the approved icon-chip recipe —
+   blue-100 behind blue-700 — rather than saturated accent text on plain prose.
+   NO SOLID ACCENT FILL ANYWHERE ON THIS CARD. */
+.biz .pg-coaching .cg-focus { border-color: var(--cg-accent-line); background: linear-gradient(180deg, var(--cg-accent-wash) 0%, #f7faff 100%); }
 .biz .pg-coaching .cg-focus-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; }
-.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--cg-accent-ink); }
 .biz .pg-coaching .cg-focus .cg-sec-title { font-size: 19px; line-height: 1.4; letter-spacing: -.012em; margin-bottom: 5px; }
 .biz .pg-coaching .cg-focus-desc { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
 
@@ -580,6 +595,18 @@
 .biz .pg-coaching .cg-roigrid { gap: var(--cg-card-gap); }
 
 /* ── the findings, with their receipts ─────────────────────────────────────── */
+/* ⚖ R2-9 — THE SECTION KEEPS ITS DECLARATION AND ITS TITLE ROW, AND LOSES ITS
+   PANEL. The mock's three findings are standalone cards; a bordered, filled
+   panel around bordered, filled cards renders card-in-card on the desk. What
+   the section is FOR — the tour step, the run-status title, and the ONE privacy
+   marker that covers the group — is untouched; only its chrome goes.
+   ⚠ AND THE LADDER FOLLOWS IT. With the panel's 20px padding and 1px borders
+   gone, a finding card is the findings column's full width, so the receipt's
+   own threshold is reached 42px earlier — which is what lets `--cg-main-min`
+   come down far enough for the desk's supporting column to keep its three
+   tiles (threshold ④ / ⑤ / ⑥, re-derived above). */
+.biz .pg-coaching .cg-findings { width: 100%; max-width: var(--cg-maxw); }
+.biz .pg-coaching .cg-findings > .cg-sec-head { margin-bottom: 11px; }
 .biz .pg-coaching .cg-find-list { display: flex; flex-direction: column; gap: 12px; }
 /* ⚠ THE ARTICLE IS ITS OWN CONTAINER (threshold ⑤). What decides whether a
    recommendation and a quoted moment fit beside each other is the CARD's width —
@@ -798,9 +825,10 @@
    the reader here; without it the shell's sticky topbar lands on the card's own
    heading, which is a link that appears not to have worked. */
 .biz .pg-coaching .cg-module { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; scroll-margin-top: 84px; }
-/* The module the reader's OWN focus run named — the same warm treatment the
-   次の一手 card gets, because it is the same recommendation seen from the
-   catalog side. */
+/* The module the reader's OWN focus run named. ⚠ IT KEEPS THE WARM TREATMENT
+   the 次の一手 card wore before R2-8: inside a CATALOG of neutral cards the warm
+   tint is what says 「this one is yours」, and the accent wash is now spoken for
+   by the decision card at the top of the page. Two different jobs, two tones. */
 .biz .pg-coaching .cg-module.is-mine { border-color: #e7dcc6; background: #fffdf9; }
 .biz .pg-coaching .cg-module-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .biz .pg-coaching .cg-module.is-mine .cg-kicker { background: var(--cg-priority-soft); color: var(--cg-priority); }
@@ -840,7 +868,11 @@
    is INK rather than the brand blue, so nothing here reads as pressable. */
 .biz .pg-coaching .cg-chart-control { stroke: var(--muted); stroke-width: 1.8; stroke-dasharray: 3 3; }
 .biz .pg-coaching .cg-chart-treated { stroke: var(--cg-strength); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.biz .pg-coaching .cg-chart-mark { position: absolute; top: 0; bottom: 12px; width: 0; border-left: 1.5px dashed var(--cg-priority); }
+/* ⚠ R2-12 — NEUTRAL GREY, because 「coaching started here」 is a fact on a
+   timeline and not a flag. Everywhere else in this room this amber means
+   priority / omitted / needs-support, so spending it on a date made a neutral
+   marker read as a warning (the mock's own rule is a grey dashed line). */
+.biz .pg-coaching .cg-chart-mark { position: absolute; top: 0; bottom: 12px; width: 0; border-left: 1.5px dashed var(--muted); }
 .biz .pg-coaching .cg-chart-axis-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
 .biz .pg-coaching .cg-roi-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-roi-legend li { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 11.5px; line-height: 1.7; }
@@ -1052,6 +1084,15 @@
     gap: var(--cg-cols-gap);
   }
   .biz .pg-coaching .cg-side { grid-template-columns: minmax(0, 1fr); }
+  /* ⚖ R2-7 — A ONE-CARD MAIN STACK KEEPS THE FOLD'S SHAPE AT EVERY WIDTH. The
+     screen sets `is-thin` when the run produced no findings and no focus, so
+     the desk's 7/5 would put the status card alone beside a full supporting
+     column. The fold grammar — full width, then the pair, with the same
+     no-orphan rule — is the composition that reads right, and it is stated
+     ONCE, here, rather than as a second ladder. */
+  .biz .pg-coaching .cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-coaching .cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .biz .pg-coaching .cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--cg-cols-gap); }
   .biz .pg-coaching .cg-teamgrid {
     grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr);
@@ -1124,7 +1165,6 @@
   .biz .pg-coaching .cg-row-act { width: 100%; }
   .biz .pg-coaching .cg-spine,
   .biz .pg-coaching .cg-focus,
-  .biz .pg-coaching .cg-findings,
   .biz .pg-coaching .cg-trend,
   .biz .pg-coaching .cg-outcomes,
   .biz .pg-coaching .cg-skills,

@@ -1289,9 +1289,9 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // ADDED here, so nobody can introduce a bare name the fence has not been
     // reasoned about. The look-fix round adds four: the ROI chart's two data
     // series, the catalog's 「this one is yours」 card, and the two columns of
-    // the visibility wall.
+    // the visibility wall. R2-7 adds `is-thin`, the desk's one-card collapse.
     expect([...rendered].filter((n) => n.startsWith('is-')).sort())
-      .toEqual(['is-control', 'is-mine', 'is-on', 'is-support', 'is-theirs', 'is-treated'])
+      .toEqual(['is-control', 'is-mine', 'is-on', 'is-support', 'is-theirs', 'is-thin', 'is-treated'])
   })
 
   it('every `is-` state modifier is stated COMPOUNDED with a cg- class, never alone', () => {
@@ -1316,7 +1316,7 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     expect([...isNames].sort()).toEqual([
       'is-building', 'is-control', 'is-declined', 'is-early', 'is-enter', 'is-granted', 'is-mature',
       'is-mine', 'is-none', 'is-on', 'is-priority', 'is-strength', 'is-support', 'is-theirs',
-      'is-treated', 'is-unset', 'is-watch',
+      'is-thin', 'is-treated', 'is-unset', 'is-watch',
     ])
     // …and no neighbour states a bare rule on any of them.
     /** ⚠ COMPOUND-AWARE, re-derived at the 2026-09-05 fold. BARE means the
@@ -3298,6 +3298,94 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
   it('R2-3 · 絞り込む is spelled in kanji, as every sibling room spells it', () => {
     expect(SCREEN_CODE).toContain('aria-label="区分で絞り込む"')
     expect(SCREEN_SRC).not.toContain('しぼり込')
+  })
+
+  it('R2-7 · a ONE-CARD main stack keeps the FOLD composition at every width', () => {
+    // A run with no findings AND no focus (routine_excellence) leaves the left
+    // column holding the status card alone; 7fr of white beside a seven-card
+    // supporting column is a hole, not a composition.
+    expect(SCREEN_CODE).toContain('const thinDesk = ready !== null && !hasFindings && !ready.focus[0]')
+    expect(SCREEN_CODE).toContain('<div className={`cg-cols${thinDesk ? \' is-thin\' : \'\'}`}>')
+    // …and the sheet answers it INSIDE the desk container query, with the fold's
+    // own grammar — including the no-orphan rule the pair grid carries.
+    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
+    expect(desk).toContain('.cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }')
+    expect(desk).toContain('.cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    expect(desk).toContain('.cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    // the library row is untouched — it has two real columns either way
+    expect(desk).toContain('.cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);')
+  })
+
+  it('R2-8 · the 次の一手 card wears the ACCENT WASH, never the warning family', () => {
+    // The decision card is the one move to make next, not a warning; it wore the
+    // room's PRIORITY amber, pixel-identical to a 重点 finding.
+    expect(CSS_CODE).toContain('.cg-focus { border-color: var(--cg-accent-line); background: linear-gradient(180deg, var(--cg-accent-wash) 0%, #f7faff 100%); }')
+    expect(CSS_CODE).toContain('.cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--cg-accent-ink); }')
+    // the two tokens are declared, and they are CLAUDE.md's own icon-chip pair
+    expect(CSS_CODE).toContain('--cg-accent-chip: #dbeafe;')
+    expect(CSS_CODE).toContain('--cg-accent-line: rgba(37, 99, 235, .18);')
+    // ⚠ NO SOLID ACCENT FILL ANYWHERE ON THE CARD — the wash tier only.
+    const focus = CSS_CODE.slice(CSS_CODE.indexOf('.cg-focus {'), CSS_CODE.indexOf('.cg-linkchip {'))
+    expect(focus).not.toContain('background: var(--cg-accent);')
+    expect(focus).not.toContain('var(--cg-priority)')
+  })
+
+  it('R2-9 · the 気づき section keeps its declaration and loses its panel', () => {
+    // The mock's three findings are standalone cards; a bordered panel around
+    // bordered cards renders card-in-card on the desk.
+    const panel = CSS_CODE.slice(CSS_CODE.indexOf('.biz .pg-coaching .cg-spine,\n'), CSS_CODE.indexOf('.cg-sec-title {'))
+    expect(panel).not.toContain('.cg-findings,')
+    expect(CSS_CODE).toContain('.cg-findings { width: 100%; max-width: var(--cg-maxw); }')
+    // …and it is STILL a declared section with the run-status title and ONE lock
+    expect(SCREEN_CODE).toContain('className="cg-findings"')
+    expect(SCREEN_CODE).toContain('data-guide-title="気づき"')
+    const sec = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-findings"'), SCREEN_CODE.indexOf('cg-find-list'))
+    expect([...sec.matchAll(/\{lock\}/g)].length).toBe(1)
+    // ⚠ S16-D10 — PER-CARD privacy markers are DECLINED: one element from one
+    // prop is what keeps the promise from coming apart card by card.
+    const card = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className={`cg-find is-'), SCREEN_CODE.indexOf('</article>'))
+    expect(card).not.toContain('{lock}')
+  })
+
+  it('R2-11 · the deletion row reads its own sentence BEFORE its lever', () => {
+    const rowBlock = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-data-actions"'), SCREEN_CODE.indexOf('</div>', SCREEN_CODE.indexOf('cg-delete-btn')))
+    expect(rowBlock.indexOf('cg-delete-body')).toBeLessThan(rowBlock.indexOf('cg-delete-btn'))
+  })
+
+  it('R2-12 · the coaching-start marker is a DATA marker, not a flag', () => {
+    expect(CSS_CODE).toContain('border-left: 1.5px dashed var(--muted);')
+    const mark = CSS_CODE.slice(CSS_CODE.indexOf('.cg-chart-mark {'), CSS_CODE.indexOf('.cg-chart-axis-labels'))
+    expect(mark).not.toContain('--cg-priority')
+  })
+
+  it('R2-13 · 全スタッフ表示 opens on a TITLED card, and the census stays green', () => {
+    const framing = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-framing"'), SCREEN_CODE.indexOf('className="cg-board"'))
+    expect(framing.indexOf('<h2 className="cg-sec-title">スタッフの状況</h2>')).toBeGreaterThan(-1)
+    expect(framing.indexOf('スタッフの状況')).toBeLessThan(framing.indexOf('cg-framing-line'))
+    // the board keeps its own declaration and simply loses the duplicate heading
+    const board = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-board"'), SCREEN_CODE.indexOf('className="cg-rail"'))
+    expect(board).toContain('data-guide-title="スタッフの状況"')
+    expect(board).not.toContain('<h2')
+    // …and the title is stated exactly ONCE on that tab
+    expect([...SCREEN_CODE.matchAll(/>スタッフの状況</g)].length).toBe(1)
+  })
+
+  it('R2-14 · the lock sits at the right edge when the head has no action', () => {
+    expect(CSS_CODE).toContain('.cg-sec-head > .cg-lock:last-child { margin-left: auto; }')
+    expect(CSS_CODE).toContain('.cg-sec-head > .btn { margin-left: auto; }')
+    // read off the DOM with :last-child, never from a list of which heads have a
+    // button — a list goes stale the moment a card gains one
+    expect(CSS_CODE).not.toMatch(/\.cg-(spine|strengths|trend|outcomes|skills|share) \.cg-lock/)
+  })
+
+  it('R2-15 · the sheet states no rule for a class the room does not render', () => {
+    // `.cg-railnote` was a rule nothing could match. Re-derived rather than
+    // spot-fixed: every `cg-` class the SHEET selects must be one the screen or
+    // the props file really produces.
+    const selected = new Set([...CSS_CODE.matchAll(/\.(cg-[\w-]+)/g)].map((m) => m[1]))
+    const produced = new Set([...`${SCREEN_SRC}${PROPS_SRC}`.matchAll(/cg-[\w-]+/g)].map((m) => m[0]))
+    expect([...selected].filter((n) => !produced.has(n)).sort()).toEqual([])
+    expect(CSS_CODE).not.toContain('cg-railnote')
   })
 
   it('R2-17 · CONSENT GATES THE BOARD — no band, no area, no action without it', () => {

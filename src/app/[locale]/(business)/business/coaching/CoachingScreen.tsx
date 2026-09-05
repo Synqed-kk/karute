@@ -694,6 +694,15 @@ export function CoachingScreen(props: CoachingProps) {
   // metrics are the door's own facts, not the run's.
   const hasFindings = ready !== null && ready.status === 'findings' && ready.findings.length > 0
 
+  /** ⚖ R2-7 — WHEN THE LEFT STACK IS ONE CARD, THERE IS NO DESK TO SPLIT. A run
+   *  with no findings AND no focus (`routine_excellence` — a quiet, good window)
+   *  leaves the main column holding the status card alone, and 7fr of white
+   *  beside a seven-card supporting column is not a composition, it is a hole.
+   *  The desk then collapses to the FOLD's own grammar at every width: the
+   *  status card full width, the supporting cards two-across beneath it. The
+   *  library row is unchanged — it has two real columns either way. */
+  const thinDesk = ready !== null && !hasFindings && !ready.focus[0]
+
   /** ⚖-ADJ D — 練習するもの, as a real link to the module card the title names,
    *  and NOTHING ON TOP OF IT (S16-D12 / R2-19).
    *
@@ -1003,7 +1012,7 @@ export function CoachingScreen(props: CoachingProps) {
                       tore a ~230px hole above 気づき at 1280–1440, because 成績
                       is the taller card — so the two stacks pack independently
                       and the columns end where their own content ends. */}
-                  <div className="cg-cols">
+                  <div className={`cg-cols${thinDesk ? ' is-thin' : ''}`}>
                     <div className="cg-main">
                       {ready.focus[0] && (
                         <section
@@ -1483,6 +1492,13 @@ export function CoachingScreen(props: CoachingProps) {
                       data-guide-title="全スタッフ表示の見かた"
                       data-guide="一人ひとりの成約率や回数は表示しません。本人のこれまでと比べてどうかという区分だけを出し、サポートが必要な人には必ずできることを一つ添えています。区分のタイルを押すと、その区分の人だけが下に残ります。もう一度押すと全員に戻ります。"
                     >
+                      {/* ⚠ R2-13 — THE BOARD'S TITLE LEADS THE CARD, as the mock
+                          has it: 全スタッフ表示 used to open on an untitled panel
+                          because the h2 sat one card lower, under the framing
+                          line and the tiles. The two sections keep their own
+                          declarations (§3.4 — no section added or removed); only
+                          the heading moved to the top of the pair. */}
+                      <h2 className="cg-sec-title">スタッフの状況</h2>
                       <p className="cg-framing-line">{team.framingLine}</p>
                       {/* ⚖-ADJ C — THE COUNTS ARE THE FILTER (the ④ 顧客 grammar).
                           Real `<button>`s, so Tab reaches them and Enter or Space
@@ -1514,7 +1530,6 @@ export function CoachingScreen(props: CoachingProps) {
                       data-guide-title="スタッフの状況"
                       data-guide="スタッフごとの区分です。順位はつけません。数字も出しません。サポートが必要と出ている人には、その場でできることが並びます。回数が足りない人と、コーチングを受けていない人は、どちらも「まだ判断できません」になります。どちらなのかは表示しません。"
                     >
-                      <h2 className="cg-sec-title">スタッフの状況</h2>
                       {/* ⚠ ONE CALL, RENDERED TWICE (⚖ A8). A row's support state is
                           the PRESENCE of its paired action and nothing else — a
                           second boolean read alongside it is exactly the 「chip said
@@ -1816,14 +1831,18 @@ export function CoachingScreen(props: CoachingProps) {
                 whole of the consent text is on this page, immediately above. A
                 control that takes the reader to where the reader already is is not
                 a feature this room is missing. */}
+            {/* ⚠ R2-11 — THE SENTENCE READS FIRST. A deletion CTA standing to the
+                left of the sentence that says what would be deleted is the
+                opposite of the reading order the mock gives the one legally
+                loaded control on this page. Title and scope, then the lever. */}
             <div className="cg-data-actions">
-              <button {...refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')}>
-                {props.transparency.deletionCta}
-              </button>
               <p className="cg-delete-body">
                 <b>{props.transparency.deletionTitle}</b>
                 {props.transparency.deletionBody}
               </p>
+              <button {...refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')}>
+                {props.transparency.deletionCta}
+              </button>
             </div>
           </div>
         )}
