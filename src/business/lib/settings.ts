@@ -553,7 +553,16 @@ export interface RailRow {
 export interface SettingsProps {
   dateline: string
   lensLabel: string
+  /** ⚖ S17 fix round 4 · H3 — TWO FORMS, BECAUSE THE PAGE HAS TWO SHAPES.
+   *
+   *  The subtitle said 「左の一覧から…右にその中身が出ます」 at EVERY width, and
+   *  at ≤899 this room has no columns at all: the list IS the page and a section
+   *  replaces it. The room already solved exactly this for 予約と確保's lead
+   *  (`leadNarrow`) and its page-level sentence was left behind. Same mechanism,
+   *  same reason: BOTH forms ship and the SHEET picks, because which one is true
+   *  is a fact about the reader's window and the server cannot know it. */
   subtitle: string
+  subtitleNarrow: string
   rail: RailRow[]
   railHeading: string
   sections: SettingsSection[]

@@ -126,6 +126,15 @@ const SETTLE_MS = 500
  *  and `settings.ts`'s RAIL is where the id itself is declared. */
 const BOOKING_GUARD_ID = 'booking-guard'
 
+/** ⚖ S17 fix round 4 · H3 — what the ? says about this page, in each shape it
+ *  has. Only the middle sentence differs, and it is the one that points at a
+ *  column: at ≤899 there is no left and no right, so the walk says what a phone
+ *  reader can actually see. */
+const HEAD_GUIDE_WIDE =
+  'お店の決まりごとと、自分の見え方を変える画面です。左の一覧から見たい設定を選ぶと、右にその中身が出ます。上の検索は、一覧の名前とページの中の見出しの両方をしぼりこみます。'
+const HEAD_GUIDE_NARROW =
+  'お店の決まりごとと、自分の見え方を変える画面です。下の一覧から見たい設定を選ぶと、その中身が開きます。上の検索は、一覧の名前とページの中の見出しの両方をしぼりこみます。'
+
 /** ⚖ S17 · F13 — the search terms of the ONE section that renders itself. Asked
  *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
  *  special case in this file rather than two. */
@@ -881,10 +890,16 @@ export function SettingsScreen(props: SettingsScreenProps) {
       {/* ⚖ IMPROVEMENT 1 — ONE COMPACT ROW. The dateline, the title, the ? and
           the one-line subtitle sit on one band; the old two-line lead folds into
           the head's own tour text, where a reader asks for it. */}
+      {/* ⚖ S17 fix round 4 · H3 — THE HEAD'S OWN SENTENCE HAS TWO FORMS TOO.
+          The ?-walk reads this attribute out loud, so a phone reader was TAUGHT
+          「左の一覧…右に」 about a room that has no columns. An attribute can be
+          swapped from JS where a rendered sentence cannot: `narrow` is false on
+          the server and on the client's first render, so this matches the SSR
+          markup and only moves after the browser has measured its own window. */}
       <header
         className="st-head"
         data-guide-title="設定"
-        data-guide="お店の決まりごとと、自分の見え方を変える画面です。左の一覧から見たい設定を選ぶと、右にその中身が出ます。上の検索は、一覧の名前とページの中の見出しの両方をしぼりこみます。"
+        data-guide={narrow ? HEAD_GUIDE_NARROW : HEAD_GUIDE_WIDE}
       >
         <div className="st-eyebrow">{props.dateline}</div>
         <div className="st-titleline">
@@ -904,7 +919,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
           >
             ?
           </button>
-          <p className="st-sub">{props.subtitle}</p>
+          {/* ⚖ H3 — both forms in the DOM, one shown by the band. Nothing is
+              chosen in JS, exactly as the section leads do it (mock D4), so the
+              server and the browser cannot disagree about the page's own
+              description. */}
+          <p className="st-sub">
+            <span className="st-sub-wide">{props.subtitle}</span>
+            <span className="st-sub-narrow">{props.subtitleNarrow}</span>
+          </p>
         </div>
       </header>
 

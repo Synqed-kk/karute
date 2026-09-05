@@ -184,6 +184,10 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     lensLabel,
     subtitle:
       'お店の決まりごとと、自分の見え方をここでまとめて変えます。左の一覧から見たい設定を選ぶと、右にその中身が出ます。',
+    // ⚖ H3 — and the same sentence where the room is one column deep, told the
+    // way it is actually true there: the list is above, and the section OPENS.
+    subtitleNarrow:
+      'お店の決まりごとと、自分の見え方をここでまとめて変えます。下の一覧から見たい設定を選ぶと、その中身が開きます。',
     rail: RAIL.map<RailRow>((entry) => ({
       id: entry.id,
       group: entry.group,

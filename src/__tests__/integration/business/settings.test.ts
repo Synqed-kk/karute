@@ -1866,6 +1866,40 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(props.sections.filter((x) => x.leadNarrow !== undefined).map((x) => x.id)).toEqual(['booking-guard'])
   })
 
+  it('⚖ S17 fix round 4 · H3 — the PAGE’s own subtitle gets the same treatment, and so does the ? walk', async () => {
+    // ⚠ THE ROOM SOLVED THIS ONCE AND LEFT ITS OWN HEADER OUT. 予約と確保's lead
+    // got `leadNarrow` for exactly this reason, while the page subtitle went on
+    // saying 「左の一覧から見たい設定を選ぶと、右にその中身が出ます」 at 390 —
+    // where the list IS the page and a section REPLACES it. Same pair, same rule.
+    const props = await room({ store: STORE_A })
+    expect(props.subtitle).toContain('左の一覧')
+    expect(props.subtitle).toContain('右にその中身が出ます')
+    expect(props.subtitleNarrow).toContain('下の一覧から見たい設定を選ぶと、その中身が開きます')
+    for (const word of ['左の一覧', '右に']) expect(props.subtitleNarrow).not.toContain(word)
+    // …and the two are the same sentence up to the clause that points at a
+    // column, so the pair cannot drift into two descriptions of one page.
+    const stem = (s: string) => s.slice(0, s.indexOf('。') + 1)
+    expect(stem(props.subtitleNarrow)).toBe(stem(props.subtitle))
+    // BOTH forms are in the DOM and the SHEET picks — never JS, or the server
+    // and the browser would disagree about the page's own description.
+    expect(SCREEN_CODE).toContain('<span className="st-sub-wide">{props.subtitle}</span>')
+    expect(SCREEN_CODE).toContain('<span className="st-sub-narrow">{props.subtitleNarrow}</span>')
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-sub-wide { display: none; }')
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-sub-narrow { display: inline; }')
+    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@media (min-width: 900px)'))
+    expect(wide).toContain('.biz .pg-settings .st-sub-wide { display: inline; }')
+    expect(wide).toContain('.biz .pg-settings .st-sub-narrow { display: none; }')
+    // …and the ?-WALK's own head text, which is an ATTRIBUTE and therefore may
+    // be swapped after mount: the tour was TEACHING the two-column sentence to
+    // a reader who has one column.
+    expect(SCREEN_CODE).toContain('data-guide={narrow ? HEAD_GUIDE_NARROW : HEAD_GUIDE_WIDE}')
+    const guideWide = /const HEAD_GUIDE_WIDE =\s*\n\s*'([^']+)'/.exec(SCREEN_CODE)?.[1] ?? ''
+    const guideNarrow = /const HEAD_GUIDE_NARROW =\s*\n\s*'([^']+)'/.exec(SCREEN_CODE)?.[1] ?? ''
+    expect(guideWide).toContain('左の一覧')
+    expect(guideNarrow).toContain('下の一覧から見たい設定を選ぶと、その中身が開きます')
+    for (const word of ['左の一覧', '右に']) expect(guideNarrow).not.toContain(word)
+  })
+
   it('⚖ mock review v2-3 — a DOOR is a wash pill; the solid accent is for COMMITS only', () => {
     // A door opens a page. A commit changes something. The family gives the
     // solid accent to the second and the wash to the first, and the mock's own

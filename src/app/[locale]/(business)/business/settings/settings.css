@@ -261,6 +261,14 @@
 /* The subtitle rides the title's own line and gives way first: it is context,
    never the sentence a reader came for. */
 .biz .pg-settings .st-sub { margin: 0; min-width: 0; flex: 1 1 320px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+/* ⚖ S17 fix round 4 · H3 — the page's own description tells the truth at BOTH
+   widths, the way the section leads already do (mock D4). The NARROW form is
+   the base, because the base is where the room has no columns; the ② strip
+   query below hands it back to the wide one, at the same 900 where the rail and
+   the panel really do stand side by side. Both are in the DOM; neither is
+   chosen in JS, so there is no hydration to get wrong. */
+.biz .pg-settings .st-sub-wide { display: none; }
+.biz .pg-settings .st-sub-narrow { display: inline; }
 
 /* ⚠ FEEDBACK LIVES ON THE PRESS, NOT THE RELEASE (apple-design §1). A control
    that only answers on release feels a frame late on every device; a 100ms
@@ -1442,6 +1450,10 @@
   /* …and the lead may finally say 「右のカード」, because here it is. */
   .biz .pg-settings .st-lead-wide { display: inline; }
   .biz .pg-settings .st-lead-narrow { display: none; }
+  /* …and the page's own subtitle may say 「左の一覧…右に」, for the same reason:
+     from here up the rail is a column beside the panel. */
+  .biz .pg-settings .st-sub-wide { display: inline; }
+  .biz .pg-settings .st-sub-narrow { display: none; }
 }
 
 /* ═══ ≥1440 — big displays: the rail and the stack take their full width and
