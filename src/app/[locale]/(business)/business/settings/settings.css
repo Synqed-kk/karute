@@ -345,7 +345,9 @@
 .biz .pg-settings .st-search-field::-webkit-search-cancel-button { display: none; }
 .biz .pg-settings .st-search-clear {
   position: absolute; right: 6px; top: 50%; translate: 0 -50%;
-  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  /* ⚖ S17 fix round 4 · L3 — 24, the WCAG 2.5.8 floor, at a desk too. It fits
+     inside the 34px field it sits in, and the touch band still takes it to 32. */
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 999px; background: var(--st-soft); color: var(--muted);
   font-size: 10px; line-height: 1; cursor: pointer;
 }
@@ -1093,7 +1095,10 @@
 }
 .biz .pg-settings .st-lockchip button {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 17px; height: 17px; border: 0; border-radius: 50%;
+  /* ⚖ S17 fix round 4 · L3 — AND THE LOCK CHIP'S ✕ AT A DESK. F14 fixed it at
+     ≤1023 (34 → 44) and left 17px standing above 1023: the same defect, one band
+     up, and invisible to any sweep that never puts a lock on screen. */
+  width: 24px; height: 24px; border: 0; border-radius: 50%;
   background: #fff; color: var(--red-dark); font-family: inherit; font-size: 11px; line-height: 1; cursor: pointer;
 }
 .biz .pg-settings .st-lockchip button:hover { background: #fde8e8; }

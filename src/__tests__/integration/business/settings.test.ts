@@ -1732,19 +1732,36 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // it. The numbers are read out of the SHEET (fix round 2 · P3's lesson: a
     // pin that reads a number cannot be argued with) and the probe measures the
     // rendered boxes at 1280 and 1024.
+    /** The first block for `sel` that STATES `prop`. ⚠ NOT the first block for
+     *  `sel`: a control can carry two rules with the same selector — the
+     *  `.st-search-clear` transition group is written above its own box — and
+     *  reading the first one reports 「the sheet does not state a width」 about a
+     *  sheet that states it eight lines down. */
     const decl = (sel: string, prop: string): number => {
-      const at = CSS_CODE.indexOf(sel)
+      const re = new RegExp(`${prop}:\\s*(\\d+(?:\\.\\d+)?)px`)
+      let at = CSS_CODE.indexOf(sel)
       expect({ sel, found: at >= 0 }).toEqual({ sel, found: true })
-      const body = CSS_CODE.slice(at, CSS_CODE.indexOf('}', at))
-      const m = new RegExp(`${prop}:\\s*(\\d+(?:\\.\\d+)?)px`).exec(body)
-      expect({ sel, prop, stated: m !== null }).toEqual({ sel, prop, stated: true })
-      return Number(m![1])
+      while (at >= 0) {
+        const m = re.exec(CSS_CODE.slice(at, CSS_CODE.indexOf('}', at)))
+        if (m) return Number(m[1])
+        at = CSS_CODE.indexOf(sel, at + sel.length)
+      }
+      expect({ sel, prop, stated: false }).toEqual({ sel, prop, stated: true })
+      return 0
     }
     expect(decl('.biz .pg-settings .st-help {', 'width')).toBeGreaterThanOrEqual(24)
     expect(decl('.biz .pg-settings .st-help {', 'height')).toBeGreaterThanOrEqual(24)
     expect(decl('.biz .pg-settings .st-det-btn {', 'min-height')).toBeGreaterThanOrEqual(26)
     expect(decl('.biz .pg-settings .st-pick {', 'min-height')).toBeGreaterThanOrEqual(28)
     expect(decl('.biz .pg-settings .st-select,', 'min-height')).toBeGreaterThanOrEqual(28)
+    // …and the two a width sweep can never MEET (⚖ F14's own lesson): the
+    // search's ✕ exists only once something is typed, and 名指しロック's ✕ only
+    // once a lock is on screen. Both were under 24 at a desk — the second is the
+    // same defect F14 fixed at ≤1023 (34 → 44), one band up.
+    expect(decl('.biz .pg-settings .st-search-clear {', 'width')).toBeGreaterThanOrEqual(24)
+    expect(decl('.biz .pg-settings .st-search-clear {', 'height')).toBeGreaterThanOrEqual(24)
+    expect(decl('.biz .pg-settings .st-lockchip button {', 'width')).toBeGreaterThanOrEqual(24)
+    expect(decl('.biz .pg-settings .st-lockchip button {', 'height')).toBeGreaterThanOrEqual(24)
   })
 
   it('⚖ S17 fix round 4 · M6 — filtering past the OPEN section keeps its row, marked 表示中, and the count still counts matches', () => {
