@@ -393,7 +393,24 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           onKeyDown={(e) => {
             if (SEEK_KEYS.has(e.key)) scrubbing.current = true
           }}
-          onChange={(e) => setElapsed(Number(e.target.value))}
+          // ⚖ AN ASSISTIVE ADJUST MOVES THE AUDIO (fix round 6, accessibility
+          // floor). A VoiceOver/AT slider adjust fires `change` with no pointer
+          // and no key phase, so it never reaches a release — which meant the
+          // display moved and the sound did not: the control simply did not
+          // work for that user. With no gesture in progress there is no drag to
+          // batch, so this IS the release: seek now.
+          //
+          // It does not reopen per-pixel seeking. A finger drag always sends
+          // pointerdown first and a keyboard seek always sends a SEEK_KEYS
+          // keydown first, so `scrubbing` is already true for both and they
+          // keep committing once, on release.
+          onChange={(e) => {
+            const next = Number(e.target.value)
+            setElapsed(next)
+            if (scrubbing.current) return
+            const audio = audioRef.current
+            if (audio && Number.isFinite(next)) audio.currentTime = next
+          }}
           onPointerUp={commitSeek}
           // An interrupted drag (the finger leaves the surface, a call arrives)
           // must release the thumb too — otherwise the display freezes for good.

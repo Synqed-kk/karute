@@ -402,11 +402,70 @@ describe('the controls', () => {
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
     const audio = audioEl()
     fireEvent.change(range, { target: { value: '400' } })
+    // ⚖ …and it MOVED THE AUDIO (fix round 6). With no gesture in progress
+    // there is no drag to batch, so the change IS the release.
+    expect(audio.currentTime).toBe(400)
+    // The thumb was never claimed, so the playhead still owns the display.
     audio.currentTime = 200
     await act(async () => {
       fireEvent.timeUpdate(audio)
     })
     expect(range.value).toBe('200')
+  })
+
+  // ⚖ FIX ROUND 6 — the accessibility floor, ruled after round 5 recorded it as
+  // a carve-out. A VoiceOver/AT slider adjust fires `change` with no pointer and
+  // no key phase, so it never reached a release: the display moved and the sound
+  // did not. The control did not work for that user at all.
+  it('an assistive adjust seeks the audio EXACTLY once, with no gesture at all', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.change(range, { target: { value: '300' } })
+    expect(seeks).toEqual([300])
+  })
+
+  // The other half of the same ruling: a real drag must NOT start seeking per
+  // step just because the AT path now seeks on change.
+  it('a pointer drag still batches — zero seeks until release, then exactly one', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.pointerDown(range)
+    for (const v of ['100', '150', '200', '250', '300']) {
+      fireEvent.change(range, { target: { value: v } })
+    }
+    expect(seeks).toEqual([])
+    fireEvent.pointerUp(range)
+    expect(seeks).toEqual([300])
+  })
+
+  // …and so must a keyboard seek, which claims the thumb on its own keydown.
+  it('a keyboard seek still batches — nothing until key up', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.keyDown(range, { key: 'ArrowRight' })
+    fireEvent.change(range, { target: { value: '90' } })
+    fireEvent.change(range, { target: { value: '105' } })
+    expect(seeks).toEqual([])
+    fireEvent.keyUp(range, { key: 'ArrowRight' })
+    expect(seeks).toEqual([105])
   })
 
   // The belt for what is left: an arrow key DID claim the thumb, and then focus
