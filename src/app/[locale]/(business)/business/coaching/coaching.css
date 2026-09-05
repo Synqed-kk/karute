@@ -687,7 +687,30 @@
    ⚠ BOTH ARE MEASURED ON THE BAND, so a page threshold can never open a narrower
    box for them than the one they were derived against (④'s second condition, one
    level down). Rows STRETCH, so the columns of a row end at the same y by
-   construction — the hole law is satisfied here by the grid, not by luck. */
+   construction — the hole law is satisfied here by the grid, not by luck.
+
+   ⚠ V2-2 — AND A STRETCHED ROW STILL HAS TO BE FILLED. The hole law says the
+   COLUMNS end together; it says nothing about what is inside a cell, and this
+   band was the one place that mattered: 根拠 ended ~130px above its row at 1280
+   and ~140px at 1920 while やること's four steps set the height. Two changes,
+   both from the plane rather than from padding:
+     · the 根拠 column carries the finding's own CLAIM above the count, so it
+       reads claim → count → quote (the screen's (c) block);
+     · the three tracks are weighted 1.1fr / 1.1fr / .8fr instead of
+       1.15fr / 1fr / 1fr, which makes 根拠 the NARROWEST of the three, so its
+       receipt wraps taller in the same row instead of leaving the space blank.
+   THE MINIMA DO NOT MOVE, so ⑧'s sum does not either: 300 + 260 + 260 + 28 =
+   848, and 860 still ships it. What the weights change is the split ABOVE the
+   floors — the .8fr share reaches 根拠's own 260 floor at
+       260 × 3.0 ÷ .8  =  975 of tracks  +  28 of gaps  =  1003
+   so between 860 and 1003 the split is FLOOR-driven (260 | 315 | 315 at the
+   wave's own 1280) and above 1003 it is fr-driven. Both are the SAME three
+   columns, so nothing is gained, lost and gained again across a drag — the
+   monotonicity ④'s second condition is about is untouched.
+   THE VERDICT ON THIS REGION IS INTERIOR SLACK, measured by the probe at
+   1280 / 1440 / 1920 in both rail states: in each of the three cells, the blank
+   BELOW the last content child — past the cell's own bottom padding — is ≤20%
+   of the cell's height. */
 .biz .pg-coaching .cg-sheet { container: cg-sheet / inline-size; }
 .biz .pg-coaching .cg-sheet > .cg-sec-head { margin-bottom: 12px; }
 .biz .pg-coaching .cg-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-sheet-gap); }
@@ -697,7 +720,7 @@
 }
 @container cg-sheet (min-width: 860px) {
   .biz .pg-coaching .cg-sheet-cols {
-    grid-template-columns: minmax(var(--cg-move-min), 1.15fr) minmax(var(--cg-step-min), 1fr) minmax(var(--cg-why-min), 1fr);
+    grid-template-columns: minmax(var(--cg-move-min), 1.1fr) minmax(var(--cg-step-min), 1.1fr) minmax(var(--cg-why-min), .8fr);
   }
   .biz .pg-coaching .cg-sheet-move { grid-column: auto; }
 }
@@ -716,6 +739,10 @@
 .biz .pg-coaching .cg-sheet-coltitle { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
 .biz .pg-coaching .cg-sheet-modtitle { margin: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.75; }
 .biz .pg-coaching .cg-sheet-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* ⚠ V2-2 — THE CLAIM WEARS THE FINDING CARD'S OWN REGISTER (`.cg-find-impact`),
+   half a step down for the block it sits in: it is the SAME sentence, so it may
+   not read as a different kind of statement in the two places it appears. */
+.biz .pg-coaching .cg-sheet-claim { margin: 0 0 9px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
 /* The count wears the receipt's own shape, on the block's own paper. */
 .biz .pg-coaching .cg-sheet-count { margin: 0; padding: 9px 12px; border: 1px solid var(--cg-panel-line); border-radius: 9px; background: #fff; }
 .biz .pg-coaching .cg-sheet .cg-module-steps { margin-top: 9px; }

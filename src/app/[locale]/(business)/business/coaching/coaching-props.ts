@@ -699,6 +699,14 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
                   moduleEmpty: sheetModule ? null : SHEET.moduleEmpty,
                   receipt: sheetFinding
                     ? {
+                        // ⚖ A8 / V2-2 — THE CLAIM IS THE FINDING'S OWN SENTENCE,
+                        // resolved HERE from the SAME finding the count and the
+                        // quote come from. It is the string that finding's card
+                        // prints under its title (`impact`), rendered once more
+                        // in the sheet so the 根拠 column opens on WHAT was
+                        // counted rather than on the arithmetic — one home, two
+                        // places it is read.
+                        claim: sheetFinding.impact,
                         countLabel: sheetFinding.countLabel,
                         countWarning: sheetFinding.countChecks ? null : COUNT_WARNING,
                         moment: sheetFinding.moment

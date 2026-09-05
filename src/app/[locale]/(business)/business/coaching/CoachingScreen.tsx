@@ -176,8 +176,13 @@ export interface CoachingSheet {
   module: { title: string; durationLabel: string; steps: Array<{ step: number; title: string; detail: string }> } | null
   /** Said out loud when the focus run named no module — never an empty column. */
   moduleEmpty: string | null
-  /** The finding that evidences the move: its count, and its quoted moment. */
-  receipt: { countLabel: string; countWarning: string | null; moment: CoachingMoment | null } | null
+  /** The finding that evidences the move: what it CLAIMS, its count, and its
+   *  quoted moment — in that order, because that is the order the claim is
+   *  earned in. ⚖ A8 / V2-2 — `claim` is the finding's own one-sentence impact,
+   *  the same string its card prints under its title; the props file resolves it
+   *  from the SAME finding the count and the quote come from, so the receipt
+   *  cannot end up describing one finding and counting another. */
+  receipt: { claim: string; countLabel: string; countWarning: string | null; moment: CoachingMoment | null } | null
   receiptEmpty: string | null
 }
 
@@ -1284,15 +1289,24 @@ export function CoachingScreen(props: CoachingProps) {
                         </div>
 
                         {/* (c) 根拠 — the receipt of the finding this move came
-                            from: the run's own count, and the reader's own quoted
-                            moment. An absence is SAID, exactly as it is everywhere
-                            else in this room. */}
+                            from: what it CLAIMS, the run's own count, and the
+                            reader's own quoted moment. An absence is SAID,
+                            exactly as it is everywhere else in this room.
+                            ⚠ V2-2 — THE CLAIM LEADS THE COLUMN. Measured on the
+                            parent tip, this cell ended ~130px above its row at
+                            1280 and ~140px at 1920: it opened on an arithmetic
+                            (「12回中8回」) that answers a question the column had
+                            not asked yet. The finding's own sentence says WHAT
+                            was counted, so the column now reads claim → count →
+                            quote, which is the order a receipt is read in — and
+                            the cell fills the row it was already sharing. */}
                         <div className="cg-sheet-why">
                           <div className="cg-sheet-colhead">
                             <h3 className="cg-sheet-coltitle">{ready.sheet.whyTitle}</h3>
                           </div>
                           {ready.sheet.receipt ? (
                             <>
+                              <p className="cg-sheet-claim">{ready.sheet.receipt.claim}</p>
                               <p className="cg-sheet-count">
                                 <span className="cg-tk">該当した回数</span>
                                 <span className="cg-find-count-value">{ready.sheet.receipt.countLabel}</span>

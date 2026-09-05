@@ -3760,6 +3760,11 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(sheet.receipt!.countLabel).toBe(linked.countLabel)
     expect(sheet.receipt!.moment!.quote).toBe(linked.moment!.quote)
     expect(sheet.receiptEmpty).toBeNull()
+    // ⚖ A8 / V2-2 — and the CLAIM is that same finding's own sentence, the one
+    // its card prints under its title. Equality against the FINDING rather than
+    // against a literal, or the pin would only prove somebody typed it twice.
+    expect(sheet.receipt!.claim).toBe(linked.impact)
+    expect(sheet.receipt!.claim.length).toBeGreaterThan(0)
     // …and the category strings really are incomparable, or the fallback above
     // would be a claim rather than an arithmetic fact.
     expect(self.findings.some((f) => f.category === self.focus[0].category)).toBe(false)
@@ -3813,6 +3818,48 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(PROPS_CODE).toContain("doTitle: 'やること'")
     expect(PROPS_CODE).toContain("whyTitle: '根拠'")
     expect(SCREEN_CODE).not.toContain("'今週の練習'")
+  })
+
+  it('⚖ V2-2 · the 根拠 column reads claim → count → quote, and it is the NARROWEST of the three tracks', () => {
+    // THE ORDER, read off the source: the claim is above the count, and the
+    // count is above the quote. A receipt that opens on 「12回中8回」 answers a
+    // question the column has not asked yet.
+    const why = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-sheet-why"'), SCREEN_CODE.indexOf('</section>', SCREEN_CODE.indexOf('className="cg-sheet-why"')))
+    expect(why).toContain('<p className="cg-sheet-claim">{ready.sheet.receipt.claim}</p>')
+    expect(why.indexOf('cg-sheet-claim')).toBeLessThan(why.indexOf('cg-sheet-count'))
+    expect(why.indexOf('cg-sheet-count')).toBeLessThan(why.indexOf('cg-quote'))
+    // …and the SCREEN composes nothing: the sentence is resolved in the props
+    // file, from the same finding the count and the quote come from.
+    expect(PROPS_CODE).toContain('claim: sheetFinding.impact,')
+    // THE THREE TRACKS. 根拠 is the .8, which is what makes its receipt wrap
+    // taller in a row it was already sharing rather than leaving it blank.
+    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-sheet (min-width: 860px)'))
+    expect(wide.slice(0, 400)).toContain(
+      'grid-template-columns: minmax(var(--cg-move-min), 1.1fr) minmax(var(--cg-step-min), 1.1fr) minmax(var(--cg-why-min), .8fr);',
+    )
+    // ⑧ / ⑨ — THE MINIMA DID NOT MOVE, so neither threshold does. Parsed, not
+    // remembered (the room-6 B4-1 law).
+    const num = (name: string) => Number(new RegExp(`--${name}:\\s*(\\d+)px`).exec(CSS_CODE)![1])
+    const [move, step, why2, gap] = [num('cg-move-min'), num('cg-step-min'), num('cg-why-min'), num('cg-sheet-gap')]
+    expect({ move, step, why: why2, gap }).toEqual({ move: 300, step: 260, why: 260, gap: 14 })
+    const sheetThresholds = [...CSS_CODE.matchAll(/@container cg-sheet \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
+    expect(sheetThresholds).toEqual([580, 860])
+    expect(move + step + why2 + gap * 2).toBe(848)
+    expect(sheetThresholds[1]).toBeGreaterThanOrEqual(move + step + why2 + gap * 2)
+    expect(sheetThresholds[1] - (move + step + why2 + gap * 2)).toBeLessThanOrEqual(16)
+    expect(step + why2 + gap).toBe(534)
+    expect(sheetThresholds[0]).toBeGreaterThanOrEqual(step + why2 + gap)
+    // MONOTONIC: at ⑧ the .8 share is BELOW 根拠's own floor, so the split is
+    // floor-driven there and fr-driven from 1003 up — the SAME three columns on
+    // both sides, so no composition is gained, lost and gained again.
+    const shareAtThreshold = ((sheetThresholds[1] - gap * 2) * 0.8) / 3.0
+    expect(shareAtThreshold).toBeLessThan(why2)
+    const frGoverns = Math.ceil((why2 * 3.0) / 0.8) + gap * 2
+    expect(frGoverns).toBe(1003)
+    expect(frGoverns).toBeGreaterThan(sheetThresholds[1])
+    // …and every one of the three floors still fits at the threshold, or the
+    // 「floor-driven」 reading above would be a track overflowing instead.
+    expect(move + step + why2).toBeLessThanOrEqual(sheetThresholds[1] - gap * 2)
   })
 
   it('⚖ I-3 · 成績 IS A STRIP and the trend lives INSIDE the number it is a trend of', async () => {
