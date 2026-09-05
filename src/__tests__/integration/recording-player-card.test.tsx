@@ -125,7 +125,7 @@ describe('the card’s states', () => {
     card({ transcript: null, recording: { ...REC, status: 'PROCESSING' } })
     expect(playButton()).toBeTruthy()
     expect(screen.getByText('処理中')).toBeTruthy()
-    expect(screen.getByText('サーバーで文字起こし中')).toBeTruthy()
+    expect(screen.getByText('自動で文字起こし中')).toBeTruthy()
     expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
   })
 
@@ -181,8 +181,8 @@ describe('the controls', () => {
   it('the speed chip cycles 1 → 1.5 → 2 → 3 → 1 and sets playbackRate', () => {
     card()
     const chip = screen.getByRole('button', { name: '再生速度' })
-    expect(chip.textContent).toBe('1×')
-    for (const expected of ['1.5×', '2×', '3×', '1×']) {
+    expect(chip.textContent).toBe('1倍')
+    for (const expected of ['1.5倍', '2倍', '3倍', '1倍']) {
       fireEvent.click(chip)
       expect(chip.textContent).toBe(expected)
     }
@@ -192,7 +192,7 @@ describe('the controls', () => {
   it('±15 clamps to [0, duration]', () => {
     card()
     const audio = audioEl()
-    fireEvent.click(screen.getByRole('button', { name: '15秒戻す' }))
+    fireEvent.click(screen.getByRole('button', { name: '15秒戻る' }))
     expect(audio.currentTime).toBe(0)
     fireEvent.click(screen.getByRole('button', { name: '15秒進む' }))
     expect(audio.currentTime).toBe(15)
