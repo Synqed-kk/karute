@@ -277,11 +277,30 @@
 .biz .pg-settings .st-save:not(:disabled):active,
 .biz .pg-settings .st-act:active,
 .biz .pg-settings .st-link:active,
+/* ⚠ AND THE FIVE THIS LIST FORGOT (⚖ S17 fix round 1 · F18). 取り消す, the ?
+   that opens the walk, 詳細設定's own summary and the walk's three footer
+   buttons are pressables like every other one here — a control that answers only
+   on release feels a frame late, and a page where SOME controls answer the
+   finger and some do not reads as broken rather than as restrained. `.st-coll-del`
+   is the second miss of its kind on one element: the probe already caught it out
+   of the ≤1023 touch list. */
+.biz .pg-settings .st-coll-del:active,
+.biz .pg-settings .st-help:active,
+.biz .pg-settings .st-adv > summary:active,
+.biz .pg-settings .st-spot-prev:active,
+.biz .pg-settings .st-spot-next:active,
+.biz .pg-settings .st-spot-done:active,
 .biz .pg-settings .st-search-clear:active { transform: scale(.97); }
 .biz .pg-settings .st-rail-item,
 .biz .pg-settings .st-back,
 .biz .pg-settings .st-jump-item,
 .biz .pg-settings .st-det-btn,
+.biz .pg-settings .st-coll-del,
+.biz .pg-settings .st-help,
+.biz .pg-settings .st-adv > summary,
+.biz .pg-settings .st-spot-prev,
+.biz .pg-settings .st-spot-next,
+.biz .pg-settings .st-spot-done,
 .biz .pg-settings .st-opt,
 .biz .pg-settings .st-pick,
 .biz .pg-settings .st-swatch,
@@ -1556,6 +1575,12 @@
   .biz .pg-settings .st-back,
   .biz .pg-settings .st-jump-item,
   .biz .pg-settings .st-det-btn,
+  .biz .pg-settings .st-coll-del,
+  .biz .pg-settings .st-help,
+  .biz .pg-settings .st-adv > summary,
+  .biz .pg-settings .st-spot-prev,
+  .biz .pg-settings .st-spot-next,
+  .biz .pg-settings .st-spot-done,
   .biz .pg-settings .st-opt,
   .biz .pg-settings .st-pick,
   .biz .pg-settings .st-swatch,
@@ -1568,6 +1593,13 @@
   .biz .pg-settings .st-back:active,
   .biz .pg-settings .st-jump-item:active,
   .biz .pg-settings .st-det-btn:active,
+  .biz .pg-settings .st-coll-del:active,
+  .biz .pg-settings .st-help:active,
+  .biz .pg-settings .st-adv > summary:active,
+  .biz .pg-settings .st-spot-prev:active,
+  .biz .pg-settings .st-spot-next:active,
+  .biz .pg-settings .st-spot-done:active,
+
   /* ⚠ THE SELECTORS MIRROR THE LIVE ONES EXACTLY, `:not()` included. A bare
      `.st-opt:active` here would state a press rule for a LOCKED option — which
      is the one thing the press law forbids — even though its effect is to turn

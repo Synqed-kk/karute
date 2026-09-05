@@ -767,6 +767,59 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  // ⚖ S17 · F18 — EVERY PRESSABLE ANSWERS THE FINGER, NOT THE RELEASE.
+  // Five did not: 取り消す, the ? that opens the walk, 詳細設定's own summary and
+  // the walk's three footer buttons. ⚖ apple-design §1 — feedback lives on
+  // pointer-down; a page where some controls answer and some do not reads as
+  // broken rather than restrained. `.st-coll-del` is the SECOND miss of its kind
+  // on one element (the probe already caught it out of the ≤1023 touch list),
+  // which is why this pin is derived from the sheet rather than listed.
+  it('⚖ F18 — every class the sheet styles as a pressable has a press rule, and reduced motion removes it', () => {
+    const pressables = new Set<string>()
+    for (const rule of CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/cursor:\s*pointer/.test(rule[2])) continue
+      for (const one of rule[1].split(',')) {
+        const cls = one.match(/\.[a-z][a-z0-9-]*/g)
+        if (cls) pressables.add(cls[cls.length - 1])
+      }
+    }
+    expect(pressables.size).toBeGreaterThan(15)
+    // every rule in the sheet that states a press, whatever block it lives in
+    const pressed = new Set<string>()
+    for (const rule of CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/transform:\s*scale/.test(rule[2])) continue
+      for (const one of rule[1].split(',')) {
+        if (!one.includes(':active')) continue
+        const cls = one.match(/\.[a-z][a-z0-9-]*/g)
+        if (cls) pressed.add(cls[cls.length - 1])
+      }
+    }
+    const EXEMPT = new Set([
+      '.pg-settings',
+      // the tour's own scrim: a full-page catch layer, not a control
+      '.st-spot-catch',
+      // the ✕ inside the 44px search field presses with the field
+      '.st-search-clear',
+      // a chip's ✕ presses with its chip, and the stepper group with its buttons
+      '.st-lockchip', '.st-step-g',
+      // a container whose CHILDREN are the buttons (they carry their own rules)
+      '.st-spot-foot',
+    ])
+    expect([...pressables].filter((c) => !EXEMPT.has(c) && !pressed.has(c))).toEqual([])
+    // …and the five this round added are really in the grouped rule…
+    const group = CSS_CODE.slice(CSS_CODE.indexOf('.st-rail-item:active'), CSS_CODE.indexOf('{ transform: scale(.97); }'))
+    for (const sel of ['.st-coll-del', '.st-help', '.st-adv > summary', '.st-spot-prev', '.st-spot-next', '.st-spot-done']) {
+      expect({ sel, presses: group.includes(sel) }).toEqual({ sel, presses: true })
+    }
+    // …and the reduced-motion mirror removes every one of them, `:not()` and all
+    // (⚖ apple-design §14 — the press becomes a colour change, not a scale).
+    const reduce = CSS_CODE.slice(CSS_CODE.lastIndexOf('@media (prefers-reduced-motion: reduce)'))
+    const off = reduce.slice(reduce.indexOf('.st-rail-item:active'), reduce.indexOf('{ transform: none; }'))
+    for (const sel of ['.st-coll-del', '.st-help', '.st-adv > summary', '.st-spot-prev', '.st-spot-next', '.st-spot-done']) {
+      expect({ sel, stilled: off.includes(sel) }).toEqual({ sel, stilled: true })
+    }
+  })
+
   // ⚖ S17 · F16 — SECTION CHANGE HAS MOTION, ON THE ROOM'S ONE SPRING.
   // It had none: the old panel was replaced on the frame, on the room's most
   // frequent transition (22 rail rows, and the purpose sentence has a manager
