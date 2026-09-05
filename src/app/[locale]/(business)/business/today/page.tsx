@@ -325,8 +325,31 @@ export default async function TodayPage({
       statusTone,
       source: `${b.source} / ${b.displayNo}`,
       facts: [
+        // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
+        // The card, the inspector and the accessible name described one booking
+        // three different ways and only the card mentioned the room rule.
+        //
+        // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c) — IN THE BOOKING'S
+        // ROW, NOT THE ROOM'S. A parenthetical after a room name describes THAT
+        // ROOM: 「ベッド3（個室のみ）」 reads as 「bed 3 is private-room-only」, which
+        // is F4's own defect one surface later — and on any row the allocator did
+        // not choose (an imported booking carrying a standard bed, or none yet) it
+        // was 「ベッド1（個室のみ）」, flatly false. 予約種別 is about the booking, and
+        // 「個室のみ・単発」 is the shape the accessible name already ships.
+        //
+        // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE WORD
+        // COMES FROM THE TABLE. The open-coded ternary collapsed everything that
+        // was not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking read
+        // 新規 on its card and in its accessible name and 単発 here — a
+        // contradiction between two rows of one screen, and the shape fix round 2
+        // gave this line is what made it visible. `CATEGORY_WORD` is this file's
+        // own 予約種別 vocabulary and already feeds the 精算 dialog's sub-line.
+        // ⚠ It is NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+        // `CATEGORY_LABEL.repeat` is 再来, and which of the two a 予約種別 row
+        // should say is a ruled rider (one word, one home). This change only
+        // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],
@@ -480,11 +503,6 @@ export default async function TodayPage({
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },
-    // ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The bed the board hands a landing is an
-    // allocation, and these two dials are the whole of its judgement. They come
-    // from the store's own config for the same reason the guard's do: one place,
-    // read by everything, changed in 設定 rather than in code.
-    rooms: planes.opsConfig.roomPolicy,
     // ⚖ flag 77 — the dial itself, not what today happens to have on it.
     bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
     // ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM. `bedCleanupOn` is a sentence

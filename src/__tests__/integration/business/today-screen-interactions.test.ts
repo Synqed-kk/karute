@@ -18,6 +18,9 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
+import { appointments, customers, STORE_A } from '@/business/lib/fixtures'
+import { jstDayKey } from '@/business/lib/clock'
+import * as data from '@/business/lib/data'
 import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
@@ -61,7 +64,7 @@ import {
   parkChipText,
   proxyTransform,
   reasonLine,
-  roomFitsClass,
+  roomFitsNeed,
   sellLayerFor,
   seedSpanIn,
   sidesAt,
@@ -78,7 +81,8 @@ import {
   holdSummary,
   bedClassCell,
   nearestFreeStarts,
-  needsPrivateRoom,
+  orderRooms,
+  sellResourceLanes,
   overrideLevelFor,
   lossOf,
   warnFaceFor,
@@ -92,6 +96,7 @@ import {
   proxyTimeLabel,
   windowsEatenBy,
   withPriceFact,
+  factsRowsShown,
   hasPriceFact,
   priceFactSets,
   PRICE_HOLD_ROW,
@@ -107,7 +112,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
 import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
-import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { buildLanes, dayBookings, minuteOf, place, yen, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
@@ -127,10 +132,6 @@ if (typeof HTMLDialogElement.prototype.close !== 'function') {
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
 const STEP = stepPct(9)
-/** ⚠SETTINGS-BATCH — the store's shipped room policy (opsConfig.roomPolicy).
- *  The tests that care about the dials set their own. */
-const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
-
 /** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
  *
  *  The breaker commented the verdict's protected door OUT, left the pinned text
@@ -630,6 +631,21 @@ describe('the 仮置きエリア chip', () => {
   it('a card with no ticket line says only its length', () => {
     const item = booking({ key: 'a', caseId: 'apt-1', ticketCat: null, ticketCore: null }, 660, 750)
     expect(parkChipText(item, HOURS, '本日').line1).toBe('90分')
+  })
+
+  it('⚖ ROOM RULE — and a 個室のみ card says so, because the shelf is where it is re-placed', () => {
+    // ⚖ FIX ROUND 2 (delta lens 4 N3 · L2 S3). The shelf is exactly where the
+    // operator picks a parked card back up, so the one fact that will REFUSE the
+    // drop has to be readable there. It shipped in fix round 1 with no test of
+    // either kind under it — all four existing `parkChipText` cases use an
+    // untagged card, so the clause was dead in every one and a single token
+    // would have removed it with the whole battery green.
+    const item = booking({ key: 'a', caseId: 'apt-1', ticketCat: null, ticketCore: null }, 660, 750)
+    expect(parkChipText({ ...item, requiresPrivateRoom: true }, HOURS, '本日').line1).toBe('90分・個室のみ')
+    expect(parkChipText({ ...item, requiresPrivateRoom: false }, HOURS, '本日').line1).toBe('90分')
+    // …and it rides AFTER the ticket line rather than replacing any of it.
+    const tkt = booking({ key: 'b', caseId: 'apt-2' }, 660, 720)
+    expect(parkChipText({ ...tkt, requiresPrivateRoom: true }, HOURS, '本日').line1).toBe('60分・単発 ¥6,600・個室のみ')
   })
 })
 
@@ -1356,18 +1372,27 @@ describe('the 配置ガイド rail', () => {
     // — so no sentence anywhere can re-format one and drift from this grammar.
     expect(CODE.match(/\$\{clockOf\(s\)\}〜\$\{clockOf\(s \+ protectedDur\)\}/g)).toHaveLength(1)
     expect(INT.match(/\$\{clockOf\(s\)\}〜\$\{clockOf\(s \+ protectedDur\)\}/g)).toHaveLength(1)
-    // MEASURED, not assumed: the HH:MM〜HH:MM shape has five homes in this file
+    // MEASURED, not assumed: the HH:MM〜HH:MM shape has SIX homes in this file
     // and every one of them names a DIFFERENT window — the clause's protected 90,
     // the reserved chip's own span, the judged chip's span, the landing summary's
-    // from→to, and the full-house refusal's span. A sixth is a new author.
-    expect(CODE.match(/〜\$\{clockOf\(/g)).toHaveLength(5)
-    expect(INT.match(/〜\$\{clockOf\(/g)).toHaveLength(5)
+    // from→to, the full-house refusal's span — plus, ⚖ ROOM RULE, the refusal's
+    // OCCUPANT clock (「いつまで」 was the one fact the staff had to go hunt the
+    // card for). A seventh is a new author.
+    //
+    // ⚖ FIX ROUND 1 — SIX, NOT SEVEN, and the sixth is NAMED. The occupant clock
+    // shipped as two copies of one grammar (a 仮押さえ arm and a plain arm), so
+    // the count moved 5 → 7 while this enumeration stayed at five: two homes were
+    // counted and never located, which is the count-follows-the-code failure this
+    // block exists against. One `when` template now, listed below like the rest.
+    expect(CODE.match(/〜\$\{clockOf\(/g)).toHaveLength(6)
+    expect(INT.match(/〜\$\{clockOf\(/g)).toHaveLength(6)
     for (const home of [
       '  const named = windows.slice(0, 3).map((s) => `${clockOf(s)}〜${clockOf(s + protectedDur)}`).join(\'・\')',
       '  `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`',
       '  const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`',
       '  const window = `${clockOf(start)}〜${clockOf(end)}`',
-      "  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`",
+      "  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'}${bedLane ? ` / ${moved}${bedLane.label}` : ''}`",
+      '  const when = (i: BoardItem) => `${clockOf(i.startMin)}〜${clockOf(i.endMin)}`',
     ]) expect([home, pinnedLines(INT, home)]).toEqual([home, 1])
     // The composer may not go back to a bare count at any of the three sites —
     // the exact pre-flag-90 sentences, gone from the file.
@@ -1556,7 +1581,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
   const railIn = (lanes: BoardLane[] | null, over: Partial<Parameters<typeof guardRailsFor>[1]> = {}) => ({
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD, ...over,
-    placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null, POLICY) : undefined,
+    placementFeasible: lanes ? bedFeasibility(lanes, over.excludeId ?? null) : undefined,
   })
   /** ⚖ FIX-4 (blind round, 2026-08-25) — EVERY SCENE BELOW RUNS BOTH DOORS.
    *
@@ -1575,7 +1600,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const askerId = over.excludeId ?? null
     const book = at({
       ...railIn(lanes, over),
-      placementFeasible: bedDoor(bedViewsFor(lanes, POLICY, bookFrame, askerId), lanes, askerId),
+      placementFeasible: bedDoor(bedViewsFor(lanes, bookFrame, askerId), lanes, askerId),
     })
     expect([minute, book]).toEqual([minute, legacy])
     return legacy
@@ -1635,7 +1660,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // ENDS where the booking begins never overlapped it, and one that clears the
     // busy tail is feasible again. (Both starts are outside the shift, so the
     // predicate is asked directly — the guard has its own answer for those.)
-    const feasible = bedFeasibility(board, null, POLICY)!
+    const feasible = bedFeasibility(board, null)!
     expect(feasible(board[0], 600, 60)).toBe(false)
     expect(feasible(board[0], 570, 60)).toBe(true)
     expect(feasible(board[0], 660, 60)).toBe(true)
@@ -1646,7 +1671,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // canon's own `SCENARIO.needsBed === false` switch (:7261). A store that has
     // configured no resources is not a store that cannot sell.
     const board = [staff()]
-    expect(bedFeasibility(board, null, POLICY)).toBeUndefined()
+    expect(bedFeasibility(board, null)).toBeUndefined()
     expect(guardRailsFor(board, railIn(board))).toEqual(guardRailsFor(board, railIn(null)))
   })
 
@@ -1702,7 +1727,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       bed('bed-01', [booking({ key: 'b1', caseId: 'x1' }, 600, 660)]),
       bed('bed-02', [booking({ key: 'b2', caseId: 'x2' }, 600, 660)]),
     ]
-    const feasible = bedFeasibility(rooms, null, POLICY)!
+    const feasible = bedFeasibility(rooms, null)!
     const c = cellAt(rooms, 600)
     expect(c.alternatives.length).toBeGreaterThan(0)
     for (const s of c.alternatives) expect(feasible(rooms[0], s, 60)).toBe(true)
@@ -1846,9 +1871,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // advisor answering off a board it has NOT taken the block out of, which is
     // ⚖ 39's whole reason for existing.
     for (const line of [
-      '() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),',
-      '[boardLanes, props.rooms, ledgerFrame, handId],',
-      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+      '() => bedViewsFor(boardLanes, ledgerFrame, handId),',
+      '[boardLanes, ledgerFrame, handId],',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -2006,11 +2031,11 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
     // nowhere to be.
     expect(
-      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, props.rooms, ledger, ledgerFrame, handId],').lines,
+      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, ledger, ledgerFrame, handId],').lines,
     ).toEqual([
       'const bedDoorFor = useCallback(',
       '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
-      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),',
     ])
 
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
@@ -2117,6 +2142,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "gapKindOf,",
       "gapLayerFor,",
       "gapPackingDials,",
+      "factsRowsShown,",
       "guardCheckRow,",
       "guardCheckRowBesideOffer,",
       "guardRailsFor,",
@@ -2134,7 +2160,6 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "lossOf,",
       "bedClassCell,",
       "nearestFreeStarts,",
-      "needsPrivateRoom,",
       "offerableCell,",
       "nextSpan,",
       "onlineOffers,",
@@ -2172,7 +2197,6 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type OverrideLevel,",
       "type PairLanes,",
       "type RailCell,",
-      "type RoomPolicy,",
       "type SellDrop,",
       "type WarnCardModel,",
     ])
@@ -2266,7 +2290,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'utf8',
     )
     expect(WRAPPER.split('bookOf(').length - 1).toBe(1)
-    expect(WRAPPER).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    expect(WRAPPER).toContain('bookOf(mask.lanes, frame, null).world')
     expect(WRAPPER).not.toContain('./TodayScreen')
   })
 })
@@ -2281,7 +2305,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
  * refused 満室 on a start the board had just advertised.
  *
  * EVERY SCENE BELOW IS A PAIR. The BEFORE leg drives the door this round
- * deleted (`bedFeasibility(lanes, stagedId, POLICY)` + `excludeId: stagedId`),
+ * deleted (`bedFeasibility(lanes, stagedId)` + `excludeId: stagedId`),
  * which is the red-run: it is what the board did, asserted so a regression that
  * brought it back could not pass quietly. The AFTER leg drives the shipped one
  * (`bedDoor` out of `bedViewsFor`, `excludeId: handId`).
@@ -2317,10 +2341,10 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     })
   /** THE DOOR THIS ROUND DELETED — the red-run leg. */
   const before = (lanes: BoardLane[], stagedId: string, nowMinute: number | null = null) =>
-    railsWith(lanes, stagedId, bedFeasibility(lanes, stagedId, POLICY), nowMinute)
+    railsWith(lanes, stagedId, bedFeasibility(lanes, stagedId), nowMinute)
   /** THE DOOR THIS ROUND SHIPS. `handId` is null at rest — that is the round. */
   const after = (lanes: BoardLane[], handId: string | null = null, nowMinute: number | null = null) =>
-    railsWith(lanes, handId, bedDoor(bedViewsFor(lanes, POLICY, { ...FRAME, nowMin: nowMinute ?? HOURS.open }, handId), lanes, handId), nowMinute)
+    railsWith(lanes, handId, bedDoor(bedViewsFor(lanes, { ...FRAME, nowMin: nowMinute ?? HOURS.open }, handId), lanes, handId), nowMinute)
   const cell = (rails: ReturnType<typeof railsWith>, laneKey: string, start: number) =>
     rails.find((r) => r.laneKey === laneKey)!.cells.find((c) => c.start === start)!
 
@@ -2377,22 +2401,28 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     expect(cell(after(board), 'p-01', 690).label).toBe('△11:30')
   })
 
-  // ── the VIP axis: ⚖ 51's 個室 floor is what the two askers disagree about ──
-  it('a staged VIP: the strip stops answering as the VIP and answers as a new client', () => {
-    // 個室 bed-02 is busy 10:00–11:00 with somebody else; the staged VIP sits in
-    // it later, at 11:40. The standard room is free the whole time.
+  // ── the room axis: the 個室のみ tag is what the two askers disagree about ──
+  //
+  // ⚖ ROOM RULE (2026-09-05) — THE AXIS MOVED, THE CLAIM DID NOT. This scene was
+  // written on the customer's VIP badge; a VIP is now seated like anyone else,
+  // so the staged card carries the BOOKING's own 個室のみ tag instead. Everything
+  // this test proves — the strip answers its own question, not the staged card's
+  // — is unchanged, and the tag reproduces the narrow candidate set exactly.
+  it('a staged 個室のみ booking: the strip stops answering as it and answers as a new client', () => {
+    // 個室 bed-02 is busy 10:00–11:00 with somebody else; the staged tagged
+    // booking sits in it later, at 11:40. The standard room is free the whole time.
     const board = [
       staff('p-01'),
-      staff('p-02', { items: [booking({ key: 'v-staff', caseId: 'staged', category: 'vip', title: 'テスト えいた' }, 700, 760)] }),
+      staff('p-02', { items: [booking({ key: 'v-staff', caseId: 'staged', requiresPrivateRoom: true, title: 'テスト えいた' }, 700, 760)] }),
       bed('bed-01'),
       bed('bed-02', [
-        booking({ key: 'o1', caseId: 'other', title: '見本 さくら', category: 'vip' }, 600, 660),
-        booking({ key: 'v-bed', caseId: 'staged', category: 'vip', title: 'テスト えいた' }, 700, 760),
+        booking({ key: 'o1', caseId: 'other', title: '見本 さくら' }, 600, 660),
+        booking({ key: 'v-bed', caseId: 'staged', requiresPrivateRoom: true, title: 'テスト えいた' }, 700, 760),
       ], { roomClass: 'private', sub: '個室' }),
     ]
-    // THE RED-RUN: bound to the staged VIP, the 個室 floor narrowed the候補 to
-    // bed-02 alone — busy at 10:00 — so the strip refused a start at which a
-    // NEW client could perfectly well have started, in the free 施術室.
+    // THE RED-RUN: bound to the staged booking, the 個室のみ tag narrows the
+    // candidates to bed-02 alone — busy at 10:00 — so the strip refused a start
+    // at which a NEW client could perfectly well have started, in the free 施術室.
     const was = cell(before(board, 'staged'), 'p-01', 600)
     expect(was.state).toBe('blocked')
     expect(was.sentence).toBe('この開始ではベッドを60分確保できません')
@@ -2400,9 +2430,9 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // here」 — and bed-01 answers it.
     expect(cell(after(board), 'p-01', 600).state).toBe('degraded')
     expect(cell(after(board), 'p-01', 600).label).toBe('△10:00')
-    // The floor itself is untouched: asked ABOUT that VIP, the answer is still no.
-    const asVip = bedDoor(bedViewsFor(board, POLICY, FRAME, 'staged'), board, 'staged')!
-    expect(asVip(board[0], 600, 60)).toBe(false)
+    // The floor itself is untouched: asked ABOUT that booking, the answer is no.
+    const asTagged = bedDoor(bedViewsFor(board, FRAME, 'staged'), board, 'staged')!
+    expect(asTagged(board[0], 600, 60)).toBe(false)
   })
 
   // ── NOW-TRUNCATED (guard-round requirement): an off-lattice clock ──────────
@@ -2456,10 +2486,10 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
   // ── the door's own contract (the mutation targets) ────────────────────────
   it('bedDoor picks its world by WHO is asking, never by who is standing there', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, POLICY, FRAME, 'staged')
+    const views = bedViewsFor(board, FRAME, 'staged')
     // A hand exists, so the second world exists — and only then.
     expect(views.worldMinusHand).not.toBeNull()
-    expect(bedViewsFor(board, POLICY, FRAME, null).worldMinusHand).toBeNull()
+    expect(bedViewsFor(board, FRAME, null).worldMinusHand).toBeNull()
     // The HAND is answered out of the lifted world: its own room is free to it.
     expect(bedDoor(views, board, 'staged')!(board[0], 600, 60)).toBe(true)
     // A hypothetical is answered out of the ONE world: both rooms are taken.
@@ -2468,7 +2498,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // not count as its own obstacle, and it does not vanish for anybody else.
     // (Asking the lifted world about it would lift a second card; the book
     // refuses that, and this is the wiring that never asks.)
-    const atRest = bedViewsFor(board, POLICY, FRAME, null)
+    const atRest = bedViewsFor(board, FRAME, null)
     expect(bedDoor(atRest, board, 'staged')!(board[0], 600, 60)).toBe(true)
     expect(bedDoor(atRest, board, 'other')!(board[0], 600, 60)).toBe(true)
     expect(bedDoor(atRest, board, null)!(board[0], 600, 60)).toBe(false)
@@ -2492,7 +2522,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
    *  stated out loud instead of being an unpinned survivor in a mutation run. */
   it('the lift is a whole-answer no-op for the hand — kept for what it forbids, not what it changes', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, POLICY, FRAME, 'staged')
+    const views = bedViewsFor(board, FRAME, 'staged')
     const lifted = bedDoor(views, board, 'staged')!
     const unlifted = bedDoor({ ...views, worldMinusHand: null }, board, 'staged')!
     let asked = 0
@@ -2505,27 +2535,27 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     expect(asked).toBe(2 * ((HOURS.close - HOURS.open - 60) / 5 + 1))
     // …and the world it CANNOT be talked into: asked about anybody but the hand,
     // the lifted book refuses rather than lifting a second card.
-    expect(() => views.worldMinusHand!.bedFor(600, 660, { id: 'other', currentBed: null, vip: false, stores: ['store-a'] }))
+    expect(() => views.worldMinusHand!.bedFor(600, 660, { id: 'other', currentBed: null, requiresPrivate: false, stores: ['store-a'] }))
       .toThrow(/would lift a second card/)
   })
 
   it('an empty id is NOBODY, and a store with no rooms has no door at all', () => {
     const board = shotBoard()
-    const views = bedViewsFor(board, POLICY, FRAME, null)
+    const views = bedViewsFor(board, FRAME, null)
     // `bedFeasibility` read `excludeId` for truthiness; '' meant "exclude
     // nobody" there and it means the same here, or the two are not the same
     // question.
     expect(bedDoor(views, board, '')!(board[0], 600, 60)).toBe(bedDoor(views, board, null)!(board[0], 600, 60))
     // canon's own `SCENARIO.needsBed === false` switch: absent, not false.
     const noRooms = board.filter((l) => l.group !== 'beds')
-    expect(bedDoor(bedViewsFor(noRooms, POLICY, FRAME, null), noRooms, null)).toBeUndefined()
+    expect(bedDoor(bedViewsFor(noRooms, FRAME, null), noRooms, null)).toBeUndefined()
     // ⚖ FIX-5 (blind round) — AND THE SEAM AGREES ON BOTH SIDES. The book throws
     // on an empty hand id (rightly: a hand with no id is a bug in the caller,
     // not an empty world), so `bedViewsFor` normalises it to "no hand" before
     // that throw can reach a render — the same truthiness `bedDoor` reads.
-    expect(() => bedViewsFor(board, POLICY, FRAME, '')).not.toThrow()
-    expect(bedViewsFor(board, POLICY, FRAME, '').worldMinusHand).toBeNull()
-    expect(bedViewsFor(board, POLICY, FRAME, '').handId).toBeNull()
+    expect(() => bedViewsFor(board, FRAME, '')).not.toThrow()
+    expect(bedViewsFor(board, FRAME, '').worldMinusHand).toBeNull()
+    expect(bedViewsFor(board, FRAME, '').handId).toBeNull()
   })
 
   it('the hypothetical door answers PER LENGTH, not once for the first one asked', () => {
@@ -2536,7 +2566,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       staff('p-01'),
       bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
     ]
-    const door = bedDoor(bedViewsFor(board, POLICY, FRAME, null), board, null)!
+    const door = bedDoor(bedViewsFor(board, FRAME, null), board, null)!
     expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
     expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
     expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
@@ -2551,7 +2581,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       staff('p-02', { items: [booking({ key: 's', caseId: 'staged' }, 900, 960)] }),
       bed('bed-01', [booking({ key: 'b1', caseId: 'other' }, 630, 660)]),
     ]
-    const door = bedDoor(bedViewsFor(board, POLICY, FRAME, 'staged'), board, 'staged')!
+    const door = bedDoor(bedViewsFor(board, FRAME, 'staged'), board, 'staged')!
     expect(door(board[0], 600, 60)).toBe(false) // 10:00–11:00 straddles the booking
     expect(door(board[0], 600, 30)).toBe(true) // 10:00–10:30 clears it
     expect(door(board[0], 600, 60)).toBe(false) // …and the first answer is still right
@@ -2562,7 +2592,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // so the second one has to be the first one — including the two-world split.
     const board = shotBoard()
     const runs = [null, 'staged'].map((handId) =>
-      [bedViewsFor(board, POLICY, FRAME, handId), bedViewsFor(board, POLICY, FRAME, handId)].map((views) =>
+      [bedViewsFor(board, FRAME, handId), bedViewsFor(board, FRAME, handId)].map((views) =>
         railsWith(board, handId, bedDoor(views, board, handId)).map((r) => r.cells.map((c) => `${c.state}|${c.label}|${c.sentence}`)),
       ),
     )
@@ -2576,9 +2606,9 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     const board = shotBoard()
     const ask = (stagedId: string | null) =>
       landingVerdict(board, {
-        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
         start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null, hasPrice: true,
-        locked: [], rooms: POLICY, minutesOf: (x) => minuteOf(x, HOURS), stagedId,
+        locked: [], minutesOf: (x) => minuteOf(x, HOURS), stagedId,
       }, null)
 
     it('the staged card is named as the operator’s own, and the room is still 満室', () => {
@@ -2587,13 +2617,18 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       // ⚖ 73 — a full house is a FACT, so it stays `hard-room` and offers no
       // 「注意して配置」. Naming the occupant does not soften the floor.
       expect(v.floor).toBe('hard-room')
-      expect(v.reason).toBe('10:00〜11:00はベッドに空きがありません。bed-01が使用中（見本 さくら様）、bed-02が使用中（仮押さえ中：見本 いつき様）')
+      // ⚖ FIX ROUND 1 — NO CLOCK HERE, and that is the point of the change: both
+      // occupants run exactly the judged 10:00〜11:00, so repeating it twice more
+      // was noise that buried the one occupant who ever runs past the window.
+      // 「仮押さえ中の」 binds the marker to one name (a 〜中： read as a label over
+      // the whole ・-joined list).
+      expect(v.reason).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（仮押さえ中の見本 いつき様）が使用中です')
     })
 
     it('…and every other blocker keeps flags 44 + 51 wording exactly', () => {
       // Nothing staged: the sentence is byte-identical to the one this board
       // shipped before R3.
-      expect(ask(null).reason).toBe('10:00〜11:00はベッドに空きがありません。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
+      expect(ask(null).reason).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（見本 いつき様）が使用中です')
       // A staged id that is not on this board changes nothing either.
       expect(ask('somebody-else').reason).toBe(ask(null).reason)
     })
@@ -2616,16 +2651,16 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     it('solveBed’s leg says it too — a 次回予約 into a full house names the staged move', () => {
       const staffLane = board.find((l) => l.key === 'p-01')!
       const solved = allocateBed(board, {
-        id: null, currentBed: null, stores: staffLane.stores, vip: false,
-        start: 600, end: 660, policy: POLICY, stagedId: 'staged',
+        id: null, currentBed: null, stores: staffLane.stores, requiresPrivate: false,
+        start: 600, end: 660, stagedId: 'staged',
       })
       expect(solved.laneKey).toBeNull()
-      expect(solved.refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01が使用中（見本 さくら様）、bed-02が使用中（仮押さえ中：見本 いつき様）')
+      expect(solved.refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（仮押さえ中の見本 いつき様）が使用中です')
       // …and nothing staged is byte-identical to what this leg shipped before.
       expect(allocateBed(board, {
-        id: null, currentBed: null, stores: staffLane.stores, vip: false,
-        start: 600, end: 660, policy: POLICY,
-      }).refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01が使用中（見本 さくら様）、bed-02が使用中（見本 いつき様）')
+        id: null, currentBed: null, stores: staffLane.stores, requiresPrivate: false,
+        start: 600, end: 660,
+      }).refusal).toBe('10:00〜11:00はベッドに空きがありません。bed-01（見本 さくら様）、bed-02（見本 いつき様）が使用中です')
     })
 
     /** ⚖ FIX-3 (blind round) — THE ORPHANING WRITE IS GATED, AND THE ASK IS NOT.
@@ -2724,7 +2759,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
       // The alternative design (hide the operator's own card from the sentence)
       // would have to hide it from the COUNT as well, and then a full house would
       // read as a free room. Both rooms are named, and the verdict is 置けない.
-      expect(ask('staged').reason).toContain('bed-02が使用中')
+      expect(ask('staged').reason).toContain('bed-02（仮押さえ中の見本 いつき様）')
       expect(ask('staged').bedLane).toBeNull()
     })
   })
@@ -3287,12 +3322,15 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
     ]
     const staff = [lane({ key: 'p-01', group: 'staff' })]
     const solve = (start: number, end: number, lanes = [...staff, ...beds]) =>
-      allocateBed(lanes, { id: null, currentBed: null, stores: null, vip: false, start, end, policy: POLICY })
+      allocateBed(lanes, { id: null, currentBed: null, stores: null, requiresPrivate: false, start, end })
     // 15:00–16:00: both beds are busy → the placement is refused outright, and
     // the sentence names the window and both rooms with who is in them.
     expect(solve(900, 960)).toEqual({
       laneKey: null,
-      refusal: '15:00〜16:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（見本 あかり様）',
+      // ⚖ FIX ROUND 1 — かえる runs the judged window exactly and says nothing
+      // about it; あかり runs 14:50〜16:40 and the clock is what the operator acts
+      // on. That contrast IS the rule the differs-only test states.
+      refusal: '15:00〜16:00はベッドに空きがありません。ベッド1（見本 かえる様）、ベッド2（見本 あかり様 14:50〜16:40）が使用中です',
       blockers: solve(900, 960).blockers,
     })
     // ⚖ 44 — and the occupants the sentence just named, handed out as values.
@@ -3452,7 +3490,7 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // RENEGOTIATED (batch-9, ⚖ 50(d)): the solve carries whether this landing was
     // placed THROUGH a 置けない — an override has to reach the room too, or the
     // escalation is refused a second time behind a decision already made.
-    expect(body).toContain("const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)")
+    expect(body).toContain('const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)')
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -3755,7 +3793,7 @@ describe('the shelf family, enumerated against canon rather than against the fla
       lane({ key: 'bed-02', group: 'beds' }),
     ]
     const solve = (lanes: BoardLane[], currentBed: string | null = null) =>
-      allocateBed(lanes, { id: null, currentBed, stores: null, vip: false, start: 900, end: 960, policy: POLICY })
+      allocateBed(lanes, { id: null, currentBed, stores: null, requiresPrivate: false, start: 900, end: 960 })
     expect(solve([lane({ key: 'p-01', group: 'staff' }), ...beds]).laneKey).toBe('bed-02')
     // A parked card holds no ground, so its own bed reads free and comes back.
     expect(solve([lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })], 'bed-01').laneKey).toBe('bed-01')
@@ -4705,7 +4743,6 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // …and the promises it reconciles against are the gap layer's own cells,
     // never a second derivation of them.
     expect(sell).toContain('claims: gapClaims,')
-    expect(sell).toContain('rooms: props.rooms,')
     expect(sell).toContain('cleanupMinutesByBed: props.bedCleanupMinutes,')
     expect(SRC).toContain('const gapClaims = useMemo(() => [...gap.packed, ...gap.scraps], [gap])')
     // Proven arithmetically here too: the span a staged move VACATES is free for
@@ -5095,19 +5132,27 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  over SEVEN hops — the intent's field, the prop, page.tsx, the arming, the
    *  landing, the solve, and the CARD the placement mints.
    *
-   *  The 配置モード landing hardcoded `vip: false`, so a VIP's 次回予約 placed from
-   *  the board was solved onto whatever bed `privateIsLastResort` reached first,
-   *  with no word said — the silent path ⚖ 51 exists to prevent, on the one
-   *  gesture that never had a card to read the category off. The truth was one
-   *  hop away the whole time: `page.tsx`'s `inStore` IS a booking row, and a
-   *  booking row carries `category`. It was being dropped on the way into props.
+   *  THE DEFECT, IN THE WORDS OF ITS OWN AXIS (⚖ FIX ROUND 1 — the mechanical
+   *  rename left this paragraph describing the SHIPPED code as the bug, which
+   *  reads as an open defect to the next author): the 配置モード landing hardcoded
+   *  the CUSTOMER's category away, so a 次回予約 placed from the board was solved
+   *  and drawn as a plain repeat with no word said — the silent path ⚖ 51 exists
+   *  to prevent, on the one gesture that never had a card to read the category
+   *  off. The truth was one hop away the whole time: `page.tsx`'s `inStore` IS a
+   *  booking row, and a booking row carries `category`. It was being dropped on
+   *  the way into props.
+   *
+   *  The ROOM half of the same landing is a different story and is correct as it
+   *  stands: `NEXT_VISIT_REQUIRES_PRIVATE` is `false` BY RULING, because a
+   *  次回予約 has no menu yet and therefore no room need to carry.
    *
    *  Pinned as the WHOLE CHAIN rather than at the landing alone: a category that
    *  arrives at the intent and is not read, or is read from an intent nothing
    *  fills, is the same silence with a longer path to it.
    *
    *  ⚠ AND THE SOLVE ASKS IT TOO. `placeNextVisit` calls `solveBed` with its own
-   *  `vip` argument, which was also a hardcoded `false`. Fixing the verdict alone
+   *  room argument (`vip` when this was written, `requiresPrivate` since the room
+   *  rule), which was also a hardcoded `false`. Fixing the verdict alone
    *  would have made the word and the release disagree BY CONSTRUCTION — the
    *  verdict solving the 個室 and the placement putting the VIP somewhere else —
    *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
@@ -5137,11 +5182,12 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  chain was seven `toContain`s, and the breaker reverted hops 4, 5 and 7
    *  together with a comment decoy per hop and a re-spelling that walked past
    *  each negative: `category: 'repeat' as BookingCategory,` at the arming and
-   *  at the card (neither is `'repeat' as const`), and `vip: !1,` at the landing
-   *  (which is not `vip: false`). Chain green, VIP back on a standard bed with
-   *  nothing said. So each hop must BE a line, and three counts close the room a
-   *  decoy needs: one `category:` line in the minted card, one `solveBed(` in
-   *  `placeNextVisit`, one `vip:` in the landing. The dodges themselves are
+   *  at the card (neither is `'repeat' as const`), and `requiresPrivate: !1,` at the landing
+   *  (which is not `requiresPrivate: false`). Chain green, VIP back on a standard bed with
+   *  nothing said. So each hop must BE a line, and four counts close the room a
+   *  decoy needs: one `category:` line in the arming, one in the minted card, one
+   *  `solveBed(` in `placeNextVisit`, one `requiresPrivate:` in the landing (the
+   *  field the room rule renamed `vip` to). The dodges themselves are
    *  banned outright in the three slices, which is cheap and says out loud what
    *  was tried. */
   it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
@@ -5171,9 +5217,16 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
       ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
       ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
-      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },"],
-      ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
+      ['5 landing', landing, '{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },'],
+      ['6 solve', place_, 'const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))'],
       ['7 minted card', face, 'category: p.category,'],
+      // ⚖ FIX ROUND 1 (blind lens 4 F5) — AND THE MINTED CARD'S ROOM NEED. Hop 7
+      // pinned only the category, so the one line that carries the tag onto the
+      // card every later gesture reads was unpinned anywhere in the tree. It is
+      // behaviourally inert TODAY — the constant is `false` and the field is
+      // optional — which is exactly why deleting it would cost nothing until the
+      // constant learns the menu, the one moment it must not be missing.
+      ['7 minted tag', face, 'requiresPrivateRoom: NEXT_VISIT_REQUIRES_PRIVATE,'],
     ] as const) {
       // ⚖ BREAKER-827 §DELTA — the LINE rides in the failure object, not only
       // the hop label: a red used to print `{"hop": "4 arming"}` and send the
@@ -5196,7 +5249,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       ['category: lines in the arming', (codeOnly(armed).match(/^.*category:.*$/gm) ?? []).length, 1],
       ['category: lines in the minted card', (codeOnly(face).match(/^.*category:.*$/gm) ?? []).length, 1],
       ['solveBed( calls in placeNextVisit', (codeOnly(place_).match(/solveBed\(/g) ?? []).length, 1],
-      ['vip: keys in the landing', (codeOnly(landing).match(/vip:/g) ?? []).length, 1],
+      ['requiresPrivate: keys in the landing', (codeOnly(landing).match(/requiresPrivate:/g) ?? []).length, 1],
     ] as const) {
       expect({ where, n }).toEqual({ where, n: want })
     }
@@ -5205,7 +5258,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     // `BookingCategory` field without `as const`; `!1` / `!0` are how `false` /
     // `true` get past a negative that spells the word.
     expect(armed).not.toContain('category: props.inStore.category,')
-    expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
+    expect(SRC).not.toContain('solveRoom: true, id: null, requiresPrivate: false,')
     expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
     expect(place_).not.toContain("category: 'repeat' as const,")
     for (const [where, slice] of [
@@ -5532,7 +5585,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     }),
   ]
   const solve = (lanes: BoardLane[], over: Partial<Parameters<typeof allocateBed>[1]> = {}) =>
-    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', stores: null, vip: false, start: 960, end: 1020, policy: POLICY, ...over })
+    allocateBed(lanes, { id: 'apt-nagi', currentBed: 'bed-03', stores: null, requiresPrivate: false, start: 960, end: 1020, ...over })
 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
@@ -5553,7 +5606,10 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     })
     expect(solve(full)).toEqual({
       laneKey: null,
-      refusal: '16:00〜17:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）、ベッド2が使用中（清掃）、ベッド3が使用中（見本 あかり様）',
+      // ⚖ FIX ROUND 1 — and the 清掃 is the row that GAINED a clock: a 30-minute
+      // turnaround and a 60-minute session are opposite decisions, and the
+      // sentence used to hide which one was in the way.
+      refusal: '16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様）、ベッド2（清掃 16:00〜16:30）、ベッド3（見本 あかり様）が使用中です',
       blockers: solve(full).blockers,
     })
     // ⚖ 44 — the walk the sentence was composed from, handed out beside it: the
@@ -5562,25 +5618,6 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(full).blockers.map((i) => [i.title, i.kind])).toEqual([
       ['見本 かえる', 'booking'], ['清掃', 'cleanup'], ['見本 あかり', 'booking'],
     ])
-  })
-
-  it('a VIP never silently leaves the 個室 — a busy 個室 IS 満室 for it', () => {
-    // 施術室A is wide open, and that is not an answer for a VIP: the policy says
-    // the room is part of what was sold.
-    expect(solve(scene(), { vip: true, currentBed: 'bed-03' })).toEqual({
-      laneKey: null,
-      refusal: '16:00〜17:00は個室に空きがありません。ベッド3が使用中（見本 あかり様）',
-      blockers: solve(scene(), { vip: true, currentBed: 'bed-03' }).blockers,
-    })
-    expect(solve(scene(), { vip: true, currentBed: 'bed-03' }).blockers.map((i) => i.title)).toEqual(['見本 あかり'])
-    // …and with the 個室 free it goes there, never into a 施術室.
-    expect(solve(scene({ bed3: [] }), { vip: true, currentBed: null }).laneKey).toBe('bed-03')
-    // A store with no 個室 at all says that instead of naming rooms it has not.
-    expect(solve([lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })], { vip: true, currentBed: null })).toEqual({
-      laneKey: null,
-      refusal: '16:00〜17:00に使える個室がありません',
-      blockers: [],
-    })
   })
 
   it('a regular booking takes the 個室 only when no 施術室 is free', () => {
@@ -5599,17 +5636,6 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(solve(privateFirst, { currentBed: null }).laneKey).toBe('bed-02')
   })
 
-  it('both dials are the STORE’s, and both actually steer the solve', () => {
-    // ⚠SETTINGS-BATCH: overturnable defaults, so the code must read them rather
-    // than know them. Flip each one and the answer changes.
-    expect(solve(scene(), { vip: true, policy: { vipStaysPrivate: false, privateIsLastResort: true } }).laneKey).toBe('bed-01')
-    const privateFirst = [
-      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
-      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', roomClass: 'standard' }),
-    ]
-    expect(solve(privateFirst, { currentBed: null, policy: { vipStaysPrivate: true, privateIsLastResort: false } }).laneKey).toBe('bed-03')
-  })
-
   it('the booking and its OWN 清掃 travel with it; anyone else’s 清掃 is busy room', () => {
     // A card moving 30 minutes later on its own bed must not be thrown out of
     // the room by its own turnaround — the 清掃 is derived FROM the booking
@@ -5623,7 +5649,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         ],
       }),
     ]
-    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }))
+    expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, requiresPrivate: false, start: 960, end: 1020 }))
       .toEqual({ laneKey: 'bed-02', refusal: null, blockers: [] })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
@@ -5633,7 +5659,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
         items: [{ ...booking({ key: 'apt-other-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' }],
       }),
     ]
-    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, vip: false, start: 960, end: 1020, policy: POLICY }).laneKey)
+    expect(allocateBed(theirs, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, requiresPrivate: false, start: 960, end: 1020 }).laneKey)
       .toBeNull()
   })
 
@@ -5654,7 +5680,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     ]
     const solved = allocateBed(viewAll, {
       id: 'apt-nagi', currentBed: null, stores: ['store-a'],
-      vip: false, start: 960, end: 1020, policy: POLICY,
+      requiresPrivate: false, start: 960, end: 1020,
     })
     // 満室 — and the refusal names store-a's room, never offers store-b's.
     expect(solved.laneKey).toBeNull()
@@ -5666,19 +5692,19 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     const withOwnFree = [...viewAll, lane({ key: 'bed-a2', group: 'beds', label: 'A・ベッド2', stores: ['store-a'] })]
     expect(allocateBed(withOwnFree, {
       id: 'apt-nagi', currentBed: null, stores: ['store-a'],
-      vip: false, start: 960, end: 1020, policy: POLICY,
+      requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-a2')
 
     // A floating staff member (`stores: null`) pairs with any room, and a
     // floating ROOM takes anyone — canon `canPair`'s two null cases, both ways.
     expect(allocateBed(viewAll, {
       id: 'apt-nagi', currentBed: null, stores: null,
-      vip: false, start: 960, end: 1020, policy: POLICY,
+      requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-b1')
     const floatingRoom = [lane({ key: 'bed-any', group: 'beds', label: 'どこでも', stores: null })]
     expect(allocateBed(floatingRoom, {
       id: 'apt-nagi', currentBed: null, stores: ['store-a'],
-      vip: false, start: 960, end: 1020, policy: POLICY,
+      requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-any')
 
     // A room shared by two stores is reachable from either — the array is
@@ -5686,7 +5712,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     const shared = [lane({ key: 'bed-sh', group: 'beds', label: '共用', stores: ['store-b', 'store-a'] })]
     expect(allocateBed(shared, {
       id: 'apt-nagi', currentBed: null, stores: ['store-a'],
-      vip: false, start: 960, end: 1020, policy: POLICY,
+      requiresPrivate: false, start: 960, end: 1020,
     }).laneKey).toBe('bed-sh')
   })
 
@@ -5816,35 +5842,36 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // seed the carried room through `seedBed`, because `sidesAt` reads the
       // board as it stands and that board is the STAGED one once a change is
       // open. The other two are first landings and are byte-untouched.
-      // RENEGOTIATED ONE LAST TIME (⚖ 51, R7): and 次回予約 joins its three
-      // siblings. It was the only landing whose `vip` was a hardcoded `false` —
-      // not by ruling but because it is the one gesture with no card on the
-      // board to read a category off, and the ご来店中 customer's own category
-      // was being dropped between page.tsx and the props. It rides the intent
-      // now (`PlacingIntent.category`), so all four landings ask the allocator
-      // the same question out of the same field.
-      "solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-      "solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-      "solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
-      "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      // RENEGOTIATED ONE LAST TIME (⚖ ROOM RULE, 2026-09-05): the fourth argument
+      // is the BOOKING's own 個室のみ tag, never the customer's VIP badge. The
+      // three card landings read it off the card; 次回予約 has no card and no menu
+      // yet, so both of its legs read the one named constant they share.
+      'solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
+      'solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      'solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect(SRC).toContain(call)
     }
-    // The policy is DATA, read from the store, never a literal in the solve.
-    expect(SRC).toContain('policy: props.rooms')
+    // ⚖ ROOM RULE — and NO room policy reaches the solve any more: the two store
+    // dials are deleted, so there is no `props.rooms` left to forward.
+    expect(SRC).not.toContain('props.rooms')
     expect(INT).not.toContain("'個室 / VIP対応'")
     expect(INT).not.toContain('施術室')
   })
 
-  it('the SHIPPED store states its room classes and its policy as data', () => {
+  it('the SHIPPED store states its room classes as data, and has NO room dials', () => {
     // The allocator is only as honest as the config it reads: if 個室 is not
     // stated private, every rule above is right about the wrong board.
     expect(resources.filter((r) => r.room_class === 'private').map((r) => r.name)).toEqual(['ベッド3'])
-    expect(resources.find((r) => r.id === 'bed-03')?.note).toContain('個室')
+    expect(resources.find((r) => r.id === 'bed-03')?.note).toBe('個室')
     expect(resources.filter((r) => r.room_class === 'standard').map((r) => r.id)).toEqual(['bed-01', 'bed-02', 'bed-04'])
-    expect(opsConfig.roomPolicy).toEqual({ vipStaysPrivate: true, privateIsLastResort: true })
-    // (the lane's own carry of it is pinned in today-board.test.ts, against the
-    // REAL buildLanes rather than against this file's lane fixture)
+    // ⚖ ROOM RULE — the store config carries NO room policy at all. 「VIPは個室
+    // から出さない」 was overturned and 「個室は最後」 is law for every store, so a
+    // dial for either is the dead lever this board keeps removing.
+    expect('roomPolicy' in opsConfig).toBe(false)
+    // (the lane's own carry of the class is pinned in today-board.test.ts,
+    // against the REAL buildLanes rather than against this file's lane fixture)
   })
 
   it('⚖ 53 — 「ドラッグ中のみ」 is no longer a dead lever', () => {
@@ -5905,14 +5932,13 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     bedLane: 'bed-01',
     solveRoom: true,
     id: 'apt-1',
-    vip: false,
+    requiresPrivate: false,
     start: 960,
     end: 1020,
     span: place(960, 1020, HOURS),
     foreignRefusal: null,
     hasPrice: true,
     locked: [] as string[],
-    rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
@@ -5983,7 +6009,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     const v = verdict(full, {}, cellOf('safe', ''))
     expect(v.kind).toBe('blocked')
     expect(v.reason).toContain('16:00〜17:00はベッドに空きがありません')
-    expect(v.reason).toContain('ベッド1が使用中（見本 かえる様）')
+    expect(v.reason).toContain('ベッド1（見本 かえる様）')
   })
 
   it('a landing past the shift end is 置けない, in computeChecks’ own words', () => {
@@ -6033,81 +6059,54 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // put a 個室クラス booking anywhere but a 個室, and until now the bed-row drag
     // walked straight past that — same store, so `sharesStore` waved it through,
     // and nothing else on that path asked.
-    const v = verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', ''))
+    const v = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
     expect(v.kind).toBe('blocked')
     expect(v.label).toBe('置けない')
-    // The explanation names the POLICY, in the check rows' own voice — 「配置でき
-    // ません」 with no reason is the unreadable error of flag 54.
-    expect(v.reason).toBe('VIP・個室クラスのご予約です: ベッド1は個室ではありません')
+    // The explanation names the RULE, in the check rows' own voice — 「配置でき
+    // ません」 with no reason is the unreadable error of flag 54 — and ⚖ FIX ROUND
+    // 1 gives it the way out in the same breath, in the register the rest of this
+    // board uses (bare 予約, 。 rather than a halfwidth colon).
+    expect(v.reason).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
+    // ⚖ ROOM RULE — and the floor is `hard`, not `policy`: a tag is a FACT about
+    // what the treatment needs, so there is no 「注意して配置」 to mint. The way
+    // past it is clearing the tag on the booking.
+    expect(v.floor).toBe('hard')
     // …and the 個室 itself is still a clean landing for the same booking, so the
     // sentence is a floor and not a ban on bed-row drags.
-    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-03', vip: true }, cellOf('safe', '')).kind).toBe('clean')
-  })
-
-  it('⚖ 51 — the floor is the policy’s, not the board’s: OFF, and a non-VIP, are silent', () => {
-    // The dial is store DATA (⚠SETTINGS-BATCH). A store that does not run its
-    // 個室 that way gets no verdict at all…
-    const off = { solveRoom: false, bedLane: 'bed-01', vip: true, rooms: { vipStaysPrivate: false, privateIsLastResort: true } }
-    expect(verdict(board(), off, cellOf('safe', '')).kind).toBe('clean')
-    // …and a regular booking on a standard bed never sees the sentence.
-    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
-  })
-
-  /** ⚖ 51 (R7) — THE SAME FLOOR ON THE SOLVED PATH, which is the shape 配置モード
-   *  asks in: no room named, no booking yet (`solveRoom: true, id: null`).
-   *
-   *  Until R7 that question was asked with `vip: false` hardcoded, so the one
-   *  landing gesture with no card to read a category off walked past the floor
-   *  every other gesture obeys. Now it carries the ご来店中 customer's category
-   *  and the allocator answers it as a VIP.
-   *
-   *  ⚠ THE SENTENCE IS THE ALLOCATOR'S, NOT THE BED-ROW'S. On the explicit
-   *  bed-row path the 個室 rule speaks as 「VIP・個室クラスのご予約です…」 (the two
-   *  tests above), and that sentence is guarded by `!q.solveRoom` — it is
-   *  unreachable from here by construction. On the SOLVED path the rule is a
-   *  FILTER: no compatible room survives it, so the refusal is `fullRoomsRefusal`
-   *  with its `needsPrivate` branch, which names 個室 in the store's own 満室
-   *  grammar. Same floor, same ⚖ 51, one spelling per path — and both are the
-   *  existing shipped wording. No new operator-facing string exists in R7. */
-  it('⚖ 51 — the SOLVED landing, which is 配置モード’s own shape, asks the room floor as a VIP too', () => {
-    // A board whose only bed over the span is a standard one.
-    const standardOnly = board({ beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })] })
-    const placingShape = { solveRoom: true, id: null, bedLane: null }
-    const asVip = verdict(standardOnly, { ...placingShape, vip: true }, cellOf('safe', ''))
-    expect(asVip.kind).toBe('blocked')
-    // ⚖ 73 — a room floor is a FACT about the rooms, so it is `hard-room` and
-    // carries no 「注意して配置」: there is no room for an escalation to buy.
-    expect(asVip.floor).toBe('hard-room')
-    expect(asVip.reason).toBe('16:00〜17:00に使える個室がありません')
-    // …and the identical question for a non-VIP lands, so the sentence is the
-    // floor doing its job and not 配置モード refusing everything.
-    expect(verdict(standardOnly, { ...placingShape, vip: false }, cellOf('safe', '')).kind).toBe('clean')
-    // …and with the 個室 on the board the VIP lands too — into it.
-    const withPrivate = verdict(board(), { ...placingShape, vip: true }, cellOf('safe', ''))
-    expect({ kind: withPrivate.kind, bedLane: withPrivate.bedLane }).toEqual({ kind: 'clean', bedLane: 'bed-03' })
+    expect(verdict(board(), { solveRoom: false, bedLane: 'bed-03', requiresPrivate: true }, cellOf('safe', '')).kind).toBe('clean')
   })
 
   it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {
     const standard = lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })
     const priv = lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' })
-    expect(roomFitsClass(standard, true, POLICY)).toBe(false)
-    expect(roomFitsClass(priv, true, POLICY)).toBe(true)
-    expect(roomFitsClass(standard, false, POLICY)).toBe(true)
-    expect(roomFitsClass(standard, true, { vipStaysPrivate: false, privateIsLastResort: true })).toBe(true)
-    // The auto path is UNCHANGED and still routes through the same predicate —
-    // a VIP is solved into the 個室 and never into the free standard bed.
-    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], vip: true, start: 960, end: 1020, policy: POLICY }).laneKey).toBe('bed-03')
+    expect(roomFitsNeed(standard, true)).toBe(false)
+    expect(roomFitsNeed(priv, true)).toBe(true)
+    // ⚖ ROOM RULE — and an UNTAGGED booking fits BOTH. The class is an ORDER,
+    // never a filter, so the 個室 is a candidate for anyone.
+    expect(roomFitsNeed(standard, false)).toBe(true)
+    expect(roomFitsNeed(priv, false)).toBe(true)
+    // The auto path routes through the same predicate — a 個室のみ booking is
+    // solved into the 個室 and never into the free standard bed.
+    expect(allocateBed(board(), { id: null, currentBed: null, stores: ['store-a'], requiresPrivate: true, start: 960, end: 1020 }).laneKey).toBe('bed-03')
     // Structurally one home: the allocator's filter IS this function, so the two
     // paths cannot drift into two answers (the defect this test exists for).
-    expect(INT).toContain('const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)')
-    expect(INT).toContain('if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {')
-    // Exactly two readings of `roomClass` survive in the whole file: this
-    // predicate, and the 個室-last ORDERING (a different rule about spending the
-    // room, not about needing it). A third is the rule re-spelled somewhere.
+    expect(INT).toContain('const compatible = (l: BoardLane) => roomFitsNeed(l, opts.requiresPrivate)')
+    // ⚖ FIX ROUND 1 (blind lens 1 F1) — AND THE BED ROW ASKS THE FUNCTION, rather
+    // than re-spelling it inline. The two forms answered the same, so this was
+    // never a behaviour bug — it was Greptile #744 P1 re-opened by the round that
+    // names it, with this file's own one-home doc claiming a caller the code did
+    // not have. The test that exists to forbid the second spelling used to PIN it.
+    expect(INT).toContain('if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {')
+    expect(INT).not.toContain("bed && q.requiresPrivate && bed.roomClass !== 'private'")
+    // Exactly THREE readings of `roomClass` survive in the whole file, and each
+    // one is a different sentence: the NEED (`roomFitsNeed`) and the ORDER's two
+    // halves (`orderRooms`). A fourth is the rule re-spelled somewhere. The
+    // bed-row TEST used to be the fourth; it is the NEED's caller now.
     expect(INT.match(/roomClass === 'private'/g)).toHaveLength(2)
+    expect(INT.match(/roomClass !== 'private'/g)).toHaveLength(1)
   })
 
-  it('⚖ 50(d) — the VIP floor is a red like any other, so it carries the gated override', () => {
+  it('⚖ 50(d) — the 個室のみ floor is a red like any other, so it carries the gated override', () => {
     // Nothing special was built for it: it is `blocked`, and every blocked
     // landing on every gesture ending goes to `explainBlocked`, whose 「注意して
     // 配置」 exists only where the store's overridePolicy put it.
@@ -6322,23 +6321,24 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(CSS).toContain('.biz .holdbar-checks .ck.warn::before { content: "△";')
   })
 
-  it('⚖ 50(d) — the escalation reaches the ROOM too, and the VIP floor still holds', () => {
+  it('⚖ 50(d) — the escalation reaches the ROOM too, and the 個室のみ floor still holds', () => {
     const full = [
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
       lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
     ]
-    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020, policy: POLICY }
+    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020 }
     // Without the escalation it is 満室, naming the rooms (⚖ 51, unchanged).
-    expect(allocateBed(full, { ...opts, vip: false }).laneKey).toBeNull()
+    expect(allocateBed(full, { ...opts, requiresPrivate: false }).laneKey).toBeNull()
     // With it, the allocator names the room it WOULD have chosen — 個室 last for
     // a regular booking, exactly as when the rooms are free.
-    expect(allocateBed(full, { ...opts, vip: false, allowBusy: true }).laneKey).toBe('bed-01')
-    expect(allocateBed(full, { ...opts, vip: false, allowBusy: true }).refusal).toBeNull()
-    // The VIP floor is a rule about what the treatment NEEDS, not about who is
-    // in the way: an escalation still may not walk a VIP out of the 個室.
-    expect(allocateBed(full, { ...opts, vip: true, allowBusy: true }).laneKey).toBe('bed-03')
+    expect(allocateBed(full, { ...opts, requiresPrivate: false, allowBusy: true }).laneKey).toBe('bed-01')
+    expect(allocateBed(full, { ...opts, requiresPrivate: false, allowBusy: true }).refusal).toBeNull()
+    // The 個室のみ floor is a rule about what the treatment NEEDS, not about who
+    // is in the way: an escalation may buy a busy room, never a wrong one, so a
+    // tagged booking is still answered with the 個室 and never a standard bed.
+    expect(allocateBed(full, { ...opts, requiresPrivate: true, allowBusy: true }).laneKey).toBe('bed-03')
     // A move keeps the room it carries rather than being re-solved onto another.
-    expect(allocateBed(full, { ...opts, currentBed: 'bed-03', vip: false, allowBusy: true }).laneKey).toBe('bed-03')
+    expect(allocateBed(full, { ...opts, currentBed: 'bed-03', requiresPrivate: false, allowBusy: true }).laneKey).toBe('bed-03')
   })
 
   // ── THE AGREEMENT PROPERTY, walked ───────────────────────────────────────
@@ -6485,19 +6485,26 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     const lanes = [staff, free]
     // `currentBed: null` is the contract — it is how `placeNextVisit` calls it.
     const solved = allocateBed(lanes, {
-      id: 'apt-akari', currentBed: null, stores: ['store-a'], vip: false,
-      start: 780, end: 840, policy: POLICY,
+      id: 'apt-akari', currentBed: null, stores: ['store-a'], requiresPrivate: false,
+      start: 780, end: 840,
     })
     expect(solved.refusal).toBeNull()
     expect(solved.laneKey).toBe('bed-01')
-    // The em-dash is `holdSummary` reading a board with no bed drawing at all —
-    // which is exactly what the skipped solve produced.
+    // The missing room is `holdSummary` reading a board with no bed drawing at
+    // all — which is exactly what the skipped solve produced.
+    //
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M1) — AND IT IS AN ABSENCE, NOT AN EM-DASH.
+    // The line used to end 「/ —」, the shape Liam rejected on 8/22; the summary
+    // now states what it can and leaves out what it cannot, so the rest of the
+    // sentence — the customer, the window, the staff member — survives a landing
+    // with no room. The `/` count is the pin: three segments become two.
     const at = { laneKey: 'p-06', ...place(780, 840, HOURS) }
     const noBed = holdSummary(
       [{ ...staff, items: [booking({ key: 's', caseId: 'apt-akari' }, 780, 840)] }, free],
       'apt-akari', at, HOURS,
     )
-    expect(noBed).toContain('/ —')
+    expect(noBed).not.toContain('—')
+    expect(noBed).toBe('見本 はなこ様 → 13:00〜14:00 / 担当 見本 あずさ')
     // …and with the room drawn, the confirm names it (⚖ 51's own law).
     const withBed = holdSummary(
       [
@@ -6663,9 +6670,9 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     alternatives: [], alternativeKind: null, ackAllowed: state !== 'blocked',
   })
   const askAt = (start: number, dur = 60) => ({
-    staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+    staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
     start, end: start + dur, span: place(start, start + dur, HOURS),
-    foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
+    foreignRefusal: null, hasPrice: true, locked: [] as string[],
     minutesOf: (x: number) => minuteOf(x, HOURS),
   })
 
@@ -6970,9 +6977,9 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     expect(SRC).toContain("staffLane: ctx.offLane ? null : sides.staffLane,")
     // …which `landingVerdict` answers with exactly that sentence.
     const v = landingVerdict([lane({ key: 'p-01', group: 'staff' })], {
-      staffLane: null, bedLane: null, solveRoom: true, id: null, vip: false,
+      staffLane: null, bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
       start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null, hasPrice: true,
-      locked: [], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+      locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
     }, null)
     expect(v.kind).toBe('blocked')
     expect(v.reason).toBe('予約を置く行の中で離してください')
@@ -7485,9 +7492,9 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     ]),
   ]
   const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
-    staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
+    staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', requiresPrivate: false,
     start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
-    locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+    locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
   const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) =>
@@ -7513,9 +7520,14 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
       ['時間帯が重複', verdict(board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] } }), {}, cellOf('safe', '')), 'hard'],
       ['満室', verdict(board({ beds: busyBeds }), {}, cellOf('safe', '')), 'hard-room'],
       ['R-UNAVAILABLE (engine floor)', verdict(board(), {}, cellOf('blocked', 'この開始には既存90分を配置できません')), 'hard'],
+      // ⚖ ROOM RULE — a 個室のみ booking on a standard bed is a FACT about what
+      // the treatment needs, so it is `hard`: no 「注意して配置」 exists for it and
+      // the way past is placing it on a 個室 row. ⚖ FIX ROUND 1 (blind lens 4
+      // F10): filed HERE, under FACTS, where it belongs — it sat under the
+      // JUDGEMENTS heading with an inline comment saying the opposite.
+      ['個室のみ', verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', '')), 'hard'],
       // JUDGEMENTS. The store decided these, so a manager it trusts may say
       // "it happens anyway" — the mistake-proofing law's manager class.
-      ['VIP・個室', verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', '')), 'policy'],
       ['勤務時間外', verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), {}, cellOf('safe', '')), 'policy'],
       ['シフトロック', verdict(board(), { locked: ['p-01'] }, cellOf('safe', '')), 'policy'],
     ]
@@ -7607,13 +7619,23 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // permission layer. There is still exactly ONE consumption of `canOverride`.
     expect(SRC).toContain("override: props.canOverride && escalate && v.floor === 'policy' ? () => { setAdvice(null); escalate() } : null,")
     expect(SRC.match(/props\.canOverride/g)).toHaveLength(1) // ONE consumption, still
-    // TWO readings of the class, and BOTH live inside `explainBlocked` — the
-    // escalation's existence and (⚖ 74) whether this box carries facts about a
-    // landing that can happen. One function, one question, asked where the
-    // surface is built; not one gate here and another at a render site.
-    expect(SRC.match(/v\.floor === 'policy'/g)).toHaveLength(2)
+    // ⚖ FIX ROUND 1 (blind lens 4 F1) — ONE reading of the class now, not two.
+    // The second was ⚖ 74's facts strip, and gating the ROWS on the floor was a
+    // mistake the room rule's floor change exposed: `hard` took the rows away
+    // from the 個室のみ box silently. Rows are a fact about what was checked, so
+    // they ask `checks.length`; the FLOOR only ever answers a question about
+    // AUTHORITY, and there is exactly one of those. Both still live inside
+    // `explainBlocked` — one function, asked where the surface is built.
+    expect(SRC.match(/v\.floor === 'policy'/g)).toHaveLength(1)
     const explain = SRC.slice(SRC.indexOf('function explainBlocked('), SRC.indexOf('function cancelDrag('))
-    expect(explain.match(/v\.floor === 'policy'/g)).toHaveLength(2)
+    expect(explain.match(/v\.floor === 'policy'/g)).toHaveLength(1)
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — and the ROWS question left this function
+    // entirely, because a rule spelled inside a closure the suite never renders
+    // can only ever be pinned by its own characters — which lens 2 proved worth
+    // nothing, walking three different gates through the whole battery green. It
+    // is `factsRowsShown` now, asked ONCE here and proved on behaviour in the
+    // A1-5 family below. Still one question about authority, one about the rows.
+    expect(explain.match(/factsRowsShown\(/g)).toHaveLength(1)
     // …and the button still inherits the gate rather than testing anything.
     expect(SRC).toContain('{advice.kind === \'blocked\' && advice.override && (')
     // The authority is still DATA, never a literal on the board (⚠SETTINGS-BATCH).
@@ -7641,7 +7663,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const full = [
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
     ]
-    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020, policy: POLICY, vip: false }
+    const opts = { id: null, currentBed: null, stores: ['store-a'], start: 960, end: 1020, requiresPrivate: false }
     expect(allocateBed(full, opts).laneKey).toBeNull()
     expect(allocateBed(full, { ...opts, allowBusy: true }).laneKey).toBe('bed-01')
     expect(INT).toContain('allowBusy?: boolean')
@@ -7723,13 +7745,13 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     )
     // T5 — the room WORD is the solve's own, one spelling, so the offer line and
     // the 満室 sentence above it can never name different rooms.
-    expect(needsPrivateRoom(true, POLICY)).toBe(true)
-    expect(needsPrivateRoom(false, POLICY)).toBe(false)
-    expect(needsPrivateRoom(true, { vipStaysPrivate: false, privateIsLastResort: true })).toBe(false)
-    expect(INT).toContain('const needsPrivate = needsPrivateRoom(opts.vip, policy)')
-    expect(SRC).toContain("roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',")
+    expect(SRC).toContain("roomWord: ask.requiresPrivate ? '個室' : 'ベッド',")
+    // …and the WORD and the SEARCH read the same field, so the offer line can
+    // never say ベッド over a 個室 hunt.
+    expect(INT).toContain("const room = requiresPrivate ? '個室' : 'ベッド'")
+    expect(INT).toContain('fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null)')
     // A VIP hunting a 個室 is told about 個室, not about ベッド.
-    expect(verdict(board({ beds: busyBeds }), { vip: true }, cellOf('safe', '')).reason).toContain('個室に空きがありません')
+    expect(verdict(board({ beds: busyBeds }), { requiresPrivate: true }, cellOf('safe', '')).reason).toContain('個室に空きがありません')
   })
 
   // ── 74: the one box ──────────────────────────────────────────────────────
@@ -7777,20 +7799,65 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Wired from the verdict's own room, never re-solved at the surface.
     expect(SRC).toContain('bedLane: v.bedLane,')
     expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
-    expect(SRC).toContain('checks: v.checks,')
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — THE ANTI-DRIFT PINS ON THE WIRING, and
+    // the rule itself is proved by behaviour next door (`factsRowsShown`, the
+    // A1-5 family). Lens 2 mutated this gate three different ways and walked all
+    // three through the whole battery green by editing four copies of its own
+    // source text, so the text is a drift alarm here and nothing more.
+    //
+    // ⚖ FIX ROUND 4 (delta3 lens 2 §c) — THE ARGUMENT LOST ITS SEAM. The call
+    // used to hand a bare `ask.solveRoom`, and lens 2 inverted it to
+    // `!ask.solveRoom` — three of five landing scenes flipped and the whole
+    // battery stayed green, because the call site lives inside a component this
+    // suite never renders. The rule takes the ASK now, so inverting it means
+    // constructing a fake ask rather than typing a `!`. Asked ONCE and consumed
+    // twice, so the check rows and the guard row cannot answer differently.
+    // ⚖ BREAKER-843 F1 (2026-09-06) — `toContain` is comment-blind: a `//` or
+    // `/* */` copy of a pinned line keeps a raw `toContain` green while the
+    // live line is deleted. Re-pinned with `pinnedLine`/`pinnedLines`, which
+    // read `codeOnly(SRC)` the way every neighbouring pin in this file does.
+    expect(pinnedLine(SRC, 'const rows = factsRowsShown(v, ask)')).toBe(true)
+    expect(pinnedLines(SRC, 'const rows = factsRowsShown(v, ask)')).toBe(1)
+    expect(pinnedLine(SRC, 'checks: rows ? v.checks : [],')).toBe(true)
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E1) — AND THE OUTER GATE IS PINNED AGAIN.
+    // Fix round 3 replaced four byte-exact copies of the whole expression with
+    // one pin on the INNER line and left the outer half — the gate that keeps the
+    // release-over-no-lane from composing a facts strip at all — carrying no
+    // armour. Delete it and nothing reddens; what ships is 「16:00〜17:00 / 担当
+    // —」 on the one box with neither a lane nor a span.
+    expect(pinnedLine(SRC, 'const facts =\n      v.checks.length > 0')).toBe(true)
     // ⚖ FIX-6 (blind round, 2026-08-25) — this box has an OFFER LINE under it,
     // so it takes the row built for surfaces-with-offers. The hold popover has
     // no offer line and keeps the whole sentence. Same verdict, same cell, one
     // home for the split (`guardCheckRowBesideOffer`, today-interactions).
-    expect(SRC).toContain('guardRow: guardCheckRowBesideOffer(v.cell),')
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2) — and it stands down WITH the check rows:
+    // a lone △ about loss, under a sentence about rooms, is ⚖ 73's rider one line
+    // below where the rider already closed it.
+    expect(pinnedLine(SRC, 'guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,')).toBe(true)
     expect(SRC.match(/checksFor\(/g)).toHaveLength(2) // the two confirm-side readers, and NOT the box
   })
 
-  it('⚖ 74 — the facts belong to a landing that can actually happen', () => {
-    // A hard floor has no 注意して配置, so describing its time/person/room would
-    // be the details of a placement that is never going to occur — the
-    // wrong-question defect in another costume.
-    expect(SRC).toContain("const facts =\n      v.floor === 'policy'\n        ? {")
+  it('⚖ 74 — the facts belong to a landing the board actually CHECKED', () => {
+    // ⚖ FIX ROUND 1 (blind lens 4 F1) — RE-DERIVED. The original claim was 「a
+    // hard floor has no 注意して配置, so its details are a placement that will
+    // never occur」, and it was gated on the floor. That reasoning does not
+    // survive ⚖ 74 itself: the whole point of reading the rows BEFORE the
+    // explicit-room stops is that a bed-row refusal carries them. The room rule
+    // then moved that stop from `policy` to `hard` and the rows vanished from the
+    // 個室のみ box with nothing recording it. The honest question is whether any
+    // row was read, so that is the one the gate asks.
+    //
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — AND THE QUESTION IS ASKED ON A SEAM.
+    // The gate spent two rounds inside a closure this suite never renders, so
+    // its only armour was four copies of its own source text; lens 2 rewrote the
+    // expression three different ways, edited the four strings to match, and the
+    // whole battery stayed green on all three. `factsRowsShown` is the rule with
+    // a door on it — and the FLOOR is still not what it asks: a `hard` bed-row
+    // stop keeps its rows, and a landing that read nothing shows nothing.
+    const bedRowStop = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
+    expect(bedRowStop.floor).toBe('hard')
+    expect(factsRowsShown(bedRowStop, { solveRoom: false })).toBe(true)
+    expect(factsRowsShown({ bedLane: 'bed-01', checks: [] }, { solveRoom: false })).toBe(false)
     expect(SRC).toContain('{advice.facts && (')
     expect(SRC).toContain('<div className="gp-facts">')
     // ⚖ 52's glyphs have ONE home, and the box reads it rather than minting a
@@ -8042,7 +8109,14 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // LENS-1 F4. They hung off `attempt`, which exists only where a CARD can sit
     // at the landing (flag 57's paint) — so the keyboard nudge, 配置モード and the
     // shelf all staged with no facts at all. `ask` is what every path has.
-    expect(SRC).toContain("const facts =\n      v.floor === 'policy'\n        ? {")
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — AND THE ROWS ASK THE QUESTION, not the
+    // verdict. ONE verdict, both answers: 新規予約を作成 hands the same `policy`
+    // stop with no room in it, and whether its rows render turns entirely on
+    // whether the ASK wanted a room. Nothing on the board can tell them apart.
+    const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
+    expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
+    expect(factsRowsShown(form, { solveRoom: false })).toBe(true)
+    expect(factsRowsShown(form, { solveRoom: true })).toBe(false)
     expect(SRC).toContain('summary: holdSummary(boardLanes, ask.id ?? \'\', { laneKey, ...span }, hours, ask.bedLane, {')
     expect(SRC).toContain('staffLane: ask.staffLane,')
     // …and it is decoupled from the ghost, so flag 57's own contract is untouched.
@@ -8110,14 +8184,40 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC.match(/heldName/g)).toHaveLength(2)
   })
 
-  it('⚖ A1-5 — the bed-row stops carry their rows, and an empty strip never renders', () => {
+  it('⚖ A1-5 — the bed-row stops carry their rows onto the SCREEN, and offer nothing about time', () => {
     // LENS-1 F5. The two explicit-room stops returned before `computeChecks`, so
-    // a VIP box printed a row of NOTHING under its sentence — which reads as "no
-    // checks were run", the opposite of what the box is for.
-    const vip = verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: true }, cellOf('safe', ''))
-    expect(vip.floor).toBe('policy')
-    expect(vip.checks.length).toBeGreaterThan(0)
-    expect(vip.checks.some((c) => c.label === '整体資格 一致')).toBe(true)
+    // a 個室のみ box printed a row of NOTHING under its sentence — which reads as
+    // "no checks were run", the opposite of what the box is for.
+    const tagged = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
+    // ⚖ ROOM RULE — `hard`, not `policy`: a tag is a fact, and a fact gets no
+    // escalation button. The ROWS are the half this test is about and they stay.
+    expect(tagged.floor).toBe('hard')
+    expect(tagged.checks.length).toBeGreaterThan(0)
+    expect(tagged.checks.some((c) => c.label === '整体資格 一致')).toBe(true)
+    // ⚖ FIX ROUND 1 (blind lens 4 F1) — AND THE CLAIM IS ABOUT WHAT RENDERS, not
+    // about the verdict alone. `floor` moving to `hard` was true of the verdict
+    // and false of the box: `facts` was gated on `policy`, so the strip this test
+    // exists for was gone while the test still passed. The two gates the strip
+    // actually passes through are pinned here beside the verdict that feeds them.
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — asked of the rule rather than of the
+    // characters that used to spell it: this is the box the round exists for and
+    // its rows are the half being claimed.
+    expect(factsRowsShown(tagged, { solveRoom: false })).toBe(true)
+    expect(SRC).toContain('{advice.facts && (')
+    // ⚖ FIX ROUND 1 (blind lens 3 F1) — AND NO OFFER LINE UNDER IT. A room
+    // refusal is true at every start on the lane, so the guard's 「この区間に、
+    // より損の少ない開始はありません」 sent the operator hunting for a start time
+    // over a problem that is not about time. `cell: null` is the board's own word
+    // for 「nothing to offer」 and both offer surfaces are gated on it.
+    expect(tagged.cell).toBeNull()
+    expect(SRC).toContain('{advice.cell && (\n            <div className="gp-offer">')
+    expect(SRC).toContain('{advice.cell && advice.cell.alternatives.length > 0 && (')
+    // …and the way out rides in the SENTENCE instead, which is why removing the
+    // offer line does not leave the operator with nowhere to go.
+    expect(tagged.reason).toContain('個室の行に置いてください')
+    // The 満室 box, by contrast, keeps its cell: that refusal IS about the clock,
+    // and 「個室の空く開始」 is the line it earns.
+    expect(verdict(board({ beds: busyBeds }), { requiresPrivate: true }, cellOf('safe', '')).cell).not.toBeNull()
     // The store-mismatch stop too — same block, same reason.
     const cross = landingVerdict(
       [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }), lane({ key: 'bed-09', group: 'beds', label: 'ベッド9', stores: ['store-b'] })],
@@ -8130,8 +8230,148 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC).toContain('{(advice.facts.checks.length > 0 || advice.facts.guardRow) && (')
     // Reading the rows early did not move the ANSWER: each stop still returns
     // its own sentence, in the same order.
-    expect(vip.reason).toBe('VIP・個室クラスのご予約です: ベッド1は個室ではありません')
+    expect(tagged.reason).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
     expect(cross.reason).toBe('担当と店舗が異なります: 見本 あずさ / ベッド9')
+  })
+
+  it('⚖ FIX ROUND 3 — the refusal box keeps its IDENTITY line and stands its rows down', () => {
+    // DELTA2 LENS 3 M1 + LENS 2 F1. Fix round 2 answered the 「/ 担当 見本 あずさ /
+    // —」 Liam rejected on 8/22 by deleting the WHOLE strip on a room refusal —
+    // which took the customer, the window and the staff member with it, under two
+    // buttons that COMMIT a placement, on the two landings that have no card
+    // drawn to read (an armed 配置モード and a shelf chip). ⚖ AMENDMENT 3's own
+    // defect, one class over.
+    //
+    // The two halves are now two questions, and BOTH have a seam. `holdSummary`
+    // omits the room it cannot name, so the em-dash goes at the source and the
+    // sentence survives; `factsRowsShown` decides the rows alone. Lens 2 mutated
+    // the old in-component gate three different ways and walked all three through
+    // the whole battery green by editing the four copies of its source text that
+    // were its only proof — so every claim below is asked of the rule.
+    const at = { laneKey: 'p-01', ...place(960, 1020, HOURS) }
+    const held = booking({ key: 's', caseId: 'apt-1', title: 'テスト なぎ' }, 960, 1020)
+    const summaryOf = (lanes: BoardLane[], bedLane: string | null) =>
+      holdSummary(lanes, 'apt-1', at, HOURS, 'bed-01', { staffLane: 'p-01', bedLane })
+
+    // S-A · 満室 — asked for a room, got none. Rows down, identity intact.
+    const fullLanes = board({ staff: { items: [held] }, beds: busyBeds })
+    const full = verdict(fullLanes, {}, cellOf('safe', ''))
+    expect([full.floor, full.bedLane, full.checks.length > 0]).toEqual(['hard-room', null, true])
+    expect(factsRowsShown(full, { solveRoom: true })).toBe(false)
+    expect(summaryOf(fullLanes, full.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
+    expect(summaryOf(fullLanes, full.bedLane)).not.toContain('—')
+    expect(summaryOf(fullLanes, full.bedLane)).not.toContain('ベッド')
+
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2) — AND THE GUARD ROW GOES WITH THEM. The
+    // 満室 stop keeps its cell whenever a room exists and is merely BUSY, so on a
+    // degraded lane `guardCheckRowBesideOffer` had a real row to draw — and with
+    // the checks stood down it drew it ALONE: one 「ここに置くと…」 in the same
+    // `span.ck` a check wears, about LOSS, under a sentence about ROOMS.
+    // Both halves are one answer now, so the whole strip is empty here and the
+    // F5 gate closes the container. Two facts make the claim, and neither is a
+    // copy of the wiring: the rule says no rows, and the row it stands down is a
+    // REAL one rather than a null that was never going to render.
+    const fullDegraded = verdict(fullLanes, {}, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(fullDegraded.cell).not.toBeNull()
+    expect(guardCheckRowBesideOffer(fullDegraded.cell)).not.toBeNull()
+    expect(factsRowsShown(fullDegraded, { solveRoom: true })).toBe(false)
+
+    // …and a CLASH whose room ALSO failed reads the same: it returns first, so
+    // its `bedLane` is null too.
+    const clashLanes = board({ staff: { items: [held, booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }, beds: busyBeds })
+    const clash = verdict(clashLanes, {}, cellOf('safe', ''))
+    expect([clash.floor, clash.bedLane, clash.checks.length > 0]).toEqual(['hard', null, true])
+    expect(factsRowsShown(clash, { solveRoom: true })).toBe(false)
+    expect(summaryOf(clashLanes, clash.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
+
+    // S-B · the 個室のみ bed-row stop — the operator NAMED the room, so the rows
+    // are about a room that was really checked and the summary says which.
+    const taggedLanes = board({ staff: { items: [held] } })
+    const tagged = verdict(taggedLanes, { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
+    expect([tagged.floor, tagged.bedLane, tagged.checks.length > 0]).toEqual(['hard', 'bed-01', true])
+    expect(factsRowsShown(tagged, { solveRoom: false })).toBe(true)
+    expect(summaryOf(taggedLanes, tagged.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+    // …and its guard row is untouched — the same answer that keeps the checks.
+    const taggedDegraded = verdict(taggedLanes, { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(factsRowsShown(taggedDegraded, { solveRoom: false })).toBe(true)
+
+    // S-D · an ordinary staged placement stopped by policy — the allocator solved
+    // a room, so nothing is suppressed and the room is in the sentence.
+    const policyLanes = board({ staff: { items: [held], untilLabel: '16:30', window: { from: 600, until: 990 } } })
+    const policy = verdict(policyLanes, {}, cellOf('safe', ''))
+    expect([policy.floor, policy.bedLane, policy.checks.length > 0]).toEqual(['policy', 'bed-01', true])
+    expect(factsRowsShown(policy, { solveRoom: true })).toBe(true)
+    expect(summaryOf(policyLanes, policy.bedLane)).toContain('/ ベッド1')
+    // S-D's guard row too: a solved room means nothing is being suppressed, so
+    // 「ここに置くと…」 still rides at the end of a real list of checks.
+    const policyDegraded = verdict(policyLanes, {}, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(guardCheckRowBesideOffer(policyDegraded.cell)).not.toBeNull()
+    expect(factsRowsShown(policyDegraded, { solveRoom: true })).toBe(true)
+
+    // S-C · 新規予約を作成 opens a FORM — the dialog is where the menu and the
+    // resource are chosen — so it deliberately asks nothing about a bed. It
+    // carries no room and solves none, its rows have been there since ⚖ 74
+    // shipped, and its summary simply stops after 担当 rather than trailing 「/ —」.
+    expect(SRC).toContain('{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },')
+    const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
+    expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
+    expect(factsRowsShown(form, { solveRoom: false })).toBe(true)
+    expect(holdSummary(board(), '', at, HOURS, null, { staffLane: 'p-01', bedLane: null }))
+      .toBe('16:00〜17:00 / 担当 見本 あずさ')
+  })
+
+  it('⚖ FIX ROUND 2 — the no-room DEAD END offers no start; a busy room still does', () => {
+    // DELTA LENS 3 N1. At a store that owns no 個室 the box's last line before
+    // 「やめる」 was 「この区間に、個室の空く開始はありません」 — the clock's own
+    // question answered under a refusal that has nothing to do with the clock,
+    // and a quiet contradiction of the sentence above it. There is no 個室 to
+    // free up at any start. This is F1's defect surviving in the sibling branch.
+    const dead = verdict(board({ beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })] }), { requiresPrivate: true }, cellOf('safe', ''))
+    expect([dead.floor, dead.reason]).toEqual(['hard-room', 'この店舗には個室がありません。個室のある店舗へ移してください'])
+    expect(dead.cell).toBeNull()
+    // …and it is the EXISTENCE branch alone that earns it — no blockers means the
+    // candidate list was empty. A room that exists and is BUSY frees up at some
+    // start, and 「個室の空く開始を選べます」 plus its buttons is the good surface.
+    const busy = verdict(board({ beds: busyBeds }), { requiresPrivate: true }, cellOf('safe', ''))
+    expect(busy.floor).toBe('hard-room')
+    expect(busy.cell).not.toBeNull()
+    expect(INT).toContain("if (solved.refusal) return stop(solved.refusal, 'hard-room', solved.blockers.length === 0 ? null : cell)")
+  })
+
+  it('⚖ FIX ROUND 2 — 「チケット・価格」 hides the money, and the placement rule stays', () => {
+    // DELTA LENS 3 N5. The toggle is named after ticket and price, and it was
+    // hiding the whole `.e-tkt` line — taking 個室のみ (the fact that REFUSES the
+    // drop) and 保持 with it. The operator turns prices off for a dense afternoon
+    // and loses the one thing that decides where a card may go.
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt::before,\n.biz .timeline.hide-tkt .e-tkt .tkt-cat,\n.biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }')
+    expect(CSS).not.toContain('.biz .timeline.hide-tkt .e-tkt { display: none; }')
+    expect(CSS).toContain('.biz .timeline.hide-time .e-time { display: none; }')
+    // ⚖ FIX ROUND 4 (delta3 lens 3 X1) — AND 密度→コンパクト IS NOT THE SAME DIAL.
+    // Fix round 3 gave コンパクト the same three-node hide, so 個室のみ and 保持
+    // would survive it too — and the 52px lane has 36px of content box (47px
+    // card once the lane's own 1px bottom border is counted; 37px only on a
+    // group's last lane) for 47.8px of three lines. `.biz .event` is
+    // absolutely positioned with `overflow: hidden`, so the surviving note
+    // was SLICED: the top fifth of a run of kanji, on exactly the two cards
+    // the change was written for. This
+    // dial drops the whole line again, INTENTIONALLY — the tag still reads off
+    // the accessible name, the inspector, the shelf chip and every refusal.
+    expect(CSS).toContain('.biz.board-compact .event small.e-tkt { display: none; }')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt::before,')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt .tkt-core')
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M4) — and the note that survives 「チケット・
+    // 価格」 starts at the left margin, because the money is hidden rather than
+    // removed and `.tkt-note`'s 5px was the gap after it. The gap is kept only
+    // where it still separates two notes. THIS DIAL ONLY: コンパクト has no
+    // surviving note to align, so it carries no margin rule either.
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note { margin-left: 0; }')
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note { margin-left: 5px; }')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt .tkt-note')
+    // The two notes are siblings of the two hidden nodes inside that one line, so
+    // 「what the toggle hides」 is decided by the class each span wears.
+    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')
+    expect(SRC).toContain('{item.held && <span className="tkt-note">保持</span>}')
+    expect(SRC).toContain('<span className="tkt-core">{settledHere ? \'精算済\' : item.ticketCore}</span>')
   })
 
   it('⚖ A1-7 — nearestFreeStarts cannot hang on an operator’s zero step', () => {
@@ -8931,7 +9171,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
    *  a deletion of the `l.group === 'staff'` filter from BOTH of them passed the
    *  whole suite: lane keys are unique only WITHIN a group, and an unfiltered
    *  find can answer with a bed lane that happens to share a staff lane's key —
-   *  handing the guard's ask, and the press's, a `vip: false` nobody checked.
+   *  handing the guard's ask, and the press's, a `requiresPrivate: false` nobody checked.
    *
    *  Pinned per SITE, not per file: each lookup is read out of its own enclosing
    *  block, so losing the filter at EITHER one goes red on its own. */
@@ -9130,7 +9370,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
       + '      }),')
     // …and the level leaves the dep list with the arm that read it: nothing in
     // the memo asks the dial any more.
-    expect(SRC).toContain('props.guard.bookingStepMin, props.rooms])')
+    expect(SRC).toContain('props.guard.bookingStepMin])')
     expect(SRC).not.toContain("if (props.overrideLevel === 'refuse')")
     // …and the RAW engine list the split reads is threaded out of the memo, for
     // the press to mirror it with (⚖ 92 fix round 6 X2).
@@ -9203,9 +9443,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const lanes = boardOf([booking({ key: 'a', caseId: 'apt-a' }, 600, 645)])
     const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
     const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
-      staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+      staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
       start: s, end: s + 90, span: place(s, s + 90, HOURS),
-      foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
+      foreignRefusal: null, hasPrice: true, locked: [] as string[],
       minutesOf: (x: number) => minuteOf(x, HOURS),
     }, at(s)).kind
     // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
@@ -9322,9 +9562,9 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     const gateFor = (lanes: BoardLane[], rail: typeof railIn, dur: number) => {
       const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
       const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
-        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: false,
         start: s, end: s + dur, span: place(s, s + dur, HOURS),
-        foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
+        foreignRefusal: null, hasPrice: true, locked: [] as string[],
         minutesOf: (x: number) => minuteOf(x, HOURS),
       }, at(s)).kind
       // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
@@ -10753,8 +10993,8 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     ['hasPrice: hasPriceFor(pending.id),', 2],
     ['hasPrice: hasPriceFor(ctx.id),', 3],
     ['hasPrice: hasPriceFor(id),', 1],
-    ["{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },", 1],
-    ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
+    ['{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },', 1],
+    ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
   ]
 
   const rows = (): Check[] => [
@@ -10803,9 +11043,9 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
   it('the one verdict carries the filter: the same landing, two prices, two lists', () => {
     const lanes = [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }), lane({ key: 'bed-01', group: 'beds' })]
     const q = (hasPrice: boolean) => ({
-      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
+      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', requiresPrivate: false,
       start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice,
-      locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+      locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
     })
     const priced = landingVerdict(lanes, q(true), null).checks.map((c) => c.label)
     const priceless = landingVerdict(lanes, q(false), null).checks.map((c) => c.label)
@@ -11510,5 +11750,603 @@ describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', 
     for (const b of blocks.slice(1)) {
       expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ ROOM RULE (Liam 2026-09-05) — THE INVARIANTS
+//
+// Liam's ruling, in one line each: beds are ALLOCATED (施術室 first, the 個室
+// kept back); the 個室 is never a WALL for anyone; sitting in it means nothing;
+// the ONLY lock is a 個室のみ tag on the BOOKING; when it cannot be honoured the
+// board says who is in the room and until when.
+//
+// Every pin below is one of those sentences. They live together because the
+// defect this round exists to remove — a CUSTOMER trait answering a ROOM
+// question — could only be seen by reading three readers side by side.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const LEDGER = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/capacity-ledger.ts'), 'utf8')
+  const FALLBACK = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/fallback-cells.ts'), 'utf8')
+  const BOARD = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+
+  const staffLane = (over: Partial<BoardLane> = {}) =>
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], ...over })
+  const bed = (key: string, roomClass: 'standard' | 'private', items: BoardItem[] = [], stores = ['store-a']) =>
+    lane({ key, group: 'beds', label: key === 'bed-03' ? 'ベッド3' : 'ベッド1', roomClass, items, stores })
+  const solve = (lanes: BoardLane[], requiresPrivate: boolean, stores: string[] | null = ['store-a']) =>
+    allocateBed(lanes, { id: null, currentBed: null, stores, requiresPrivate, start: 960, end: 1020 })
+
+  // I1 — NO BED-SOLVING CODE READS THE CUSTOMER. The whole defect in one grep:
+  // 20 sites asked `category === 'vip'` a ROOM question. `customer.vip` keeps
+  // its four other jobs (colour, chip, label, 保護対象 count) and reaches none of
+  // the four room readers.
+  it('I1 — no room reader consults the customer’s VIP badge', () => {
+    for (const [name, text] of [['today-interactions', INT], ['capacity-ledger', LEDGER], ['fallback-cells', FALLBACK]] as const) {
+      expect({ name, hits: (text.match(/category === 'vip'/g) ?? []).length }).toEqual({ name, hits: 0 })
+      expect({ name, hits: (text.match(/customer\.vip/g) ?? []).length }).toEqual({ name, hits: 0 })
+    }
+    // The screen keeps `vip` in exactly two places, and neither is a room: the
+    // card COLOUR map and the legend. Every landing, every solve and the bed
+    // door read `requiresPrivateRoom`.
+    expect((SRC.match(/category === 'vip'/g) ?? []).length).toBe(0)
+    // ⚖ FIX ROUND 1 (blind lens 4, weak-pin list) — A NUMBER, not `> 0`. A
+    // `toBeGreaterThan(0)` on a field this round exists to introduce proves close
+    // to nothing: one surviving mention passes it. Fifteen sites, all code.
+    //
+    // ⚖ FIX ROUND 2 (delta lens 4 N4) — COUNTED OVER `codeOnly`, like I6. A raw
+    // count is satisfied by a COMMENT mention, which is the first entry in the
+    // ⚠ 9/3 R7 decoy set: delete one code site, write the word in a comment, and
+    // the number never moves. I6 was moved in fix round 1 for exactly this and
+    // these two were left raw beside it.
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(15)
+    // …and the board model is where the field is born, in ONE place per shape.
+    // Six mentions: the two type declarations, the read off the appointment row,
+    // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind
+    // lens 3 F5 — the accessible name, which is the surface a keyboard or
+    // screen-reader operator is refused by and was never told about.
+    expect((codeOnly(BOARD).match(/requiresPrivateRoom/g) ?? []).length).toBe(6)
+    // ⚖ FIX ROUND 1 (L2 N2) — AND THE SAMPLE BOARD CAN TELL THE TWO FACTS APART.
+    // While the one tagged row was also the one VIP customer, a model that went
+    // back to reading `customer.vip` answered this board identically and only a
+    // source-text pin could see the difference. The tagged row is NOT a VIP now
+    // and the VIP row is NOT tagged, so both readers disagree on both rows and
+    // every pin in this describe has behaviour under it. Executed end-to-end on
+    // the REAL board in today-board.test.ts 「⚖ ROOM RULE — the sample board
+    // separates the 個室のみ tag from the VIP badge」.
+    const vips = new Set(customers.filter((c) => c.vip).map((c) => c.id))
+    const taggedRows = appointments().filter((a) => a.requires_private_room === true)
+    expect(taggedRows.map((a) => a.id)).toEqual(['apt-29'])
+    expect(taggedRows.every((a) => !vips.has(a.customer_id))).toBe(true)
+    expect(appointments().filter((a) => vips.has(a.customer_id) && a.requires_private_room === true)).toEqual([])
+  })
+
+  // I2 — THE 個室 IS NEVER A WALL. The shipped fixture's own defect: STORE_B has
+  // one standard bed and answered 「使える個室がありません」 to a VIP all day. An
+  // untagged booking is never refused while any same-store bed is free.
+  it('I2 — an untagged booking is never refused while a same-store bed is free', () => {
+    const storeB = [staffLane({ stores: ['store-b'] }), bed('bed-04', 'standard', [], ['store-b'])]
+    expect(solve(storeB, false, ['store-b'])).toEqual({ laneKey: 'bed-04', refusal: null, blockers: [] })
+    // …at every hour of the day, not just this one.
+    for (let start = 600; start + 60 <= 1140; start += 30) {
+      const at = allocateBed(storeB, { id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start, end: start + 60 })
+      expect([start, at.laneKey]).toEqual([start, 'bed-04'])
+    }
+    // …and on a board whose ONLY free room is the 個室, the plain booking takes it.
+    const onlyPrivateFree = [
+      staffLane(),
+      bed('bed-01', 'standard', [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)]),
+      bed('bed-03', 'private'),
+    ]
+    expect(solve(onlyPrivateFree, false).laneKey).toBe('bed-03')
+  })
+
+  // I3 — WHEN IT CANNOT BE HONOURED, THE BOARD SAYS WHO AND UNTIL WHEN, and a
+  // store with no 個室 gets the way OUT rather than a dead end.
+  it('I3 — the refusal names the occupant, and the clock ONLY when it differs; a 0-個室 store gets the way out', () => {
+    const taken = [
+      staffLane(),
+      bed('bed-01', 'standard'),
+      bed('bed-03', 'private', [booking({ key: 'b3', caseId: 'x3', title: '見本 あかり' }, 990, 1080)]),
+    ]
+    expect(solve(taken, true).refusal).toBe('16:00〜17:00は個室に空きがありません。ベッド3（見本 あかり様 16:30〜18:00）が使用中です')
+    // ⚖ FIX ROUND 1 (blind lens 4 F8) — and the occupants the sentence just named,
+    // handed out as VALUES beside it, on the tagged path too. The untagged path
+    // has carried this pin since BATCH-8; the tagged one lost it when the VIP
+    // test was deleted, and the two share one `rows.flatMap`.
+    expect(solve(taken, true).blockers.map((i) => i.title)).toEqual(['見本 あかり'])
+
+    // ⚖ FIX ROUND 1 (blind lens 3 F2/F10) — THE CLOCK IS THE EXCEPTION, NOT THE
+    // RULE. It is 「いつまで」, so it earns its place only where it answers that:
+    // an occupant running exactly the judged window says nothing about the clock,
+    // one running past it says so, and a 清掃 is judged on the same terms as a
+    // booking — a 30-minute turnaround and a 60-minute session are opposite
+    // decisions and the sentence used to hide which one was in the way.
+    const sameWindow = [staffLane(), bed('bed-01', 'standard', [booking({ key: 's1', caseId: 'y1', title: '見本 かえる' }, 960, 1020)])]
+    expect(solve(sameWindow, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様）が使用中です')
+    const wider = [staffLane(), bed('bed-01', 'standard', [booking({ key: 's2', caseId: 'y2', title: '見本 かえる' }, 950, 1080)])]
+    expect(solve(wider, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様 15:50〜18:00）が使用中です')
+    const cleaning = [staffLane(), bed('bed-01', 'standard', [
+      { ...booking({ key: 'c1-cleanup', caseId: null }, 960, 990), kind: 'cleanup' as const, title: '清掃' },
+    ])]
+    expect(solve(cleaning, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（清掃 16:00〜16:30）が使用中です')
+    const cleaningSame = [staffLane(), bed('bed-01', 'standard', [
+      { ...booking({ key: 'c2-cleanup', caseId: null }, 960, 1020), kind: 'cleanup' as const, title: '清掃' },
+    ])]
+    expect(solve(cleaningSame, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（清掃）が使用中です')
+
+    // ⚖ FIX ROUND 2 (delta lens 4 N7 · L2 S1) — THE OTHER THREE ARMS OF THE ONE
+    // PREDICATE. `i.startMin === start && i.endMin === end` is symmetric and
+    // kind-blind, and the family pinned only the end-differs and both-differ
+    // directions on plain occupants. A start that differs, a 予定ブロック and a
+    // 仮押さえ occupant each earn the clock on exactly the same terms — the last
+    // one is the occupant the operator is most likely to be able to MOVE, so its
+    // 「いつまで」 is the one that must not go quiet.
+    const startDiffers = [staffLane(), bed('bed-01', 'standard', [booking({ key: 's4', caseId: 'y4', title: '見本 かえる' }, 950, 1020)])]
+    expect(solve(startDiffers, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様 15:50〜17:00）が使用中です')
+    const blocked = [staffLane(), bed('bed-01', 'standard', [
+      { ...booking({ key: 'blk1', caseId: null }, 990, 1080), kind: 'block' as const, title: '設備点検' },
+    ])]
+    expect(solve(blocked, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（設備点検 16:30〜18:00）が使用中です')
+    const staged = (items: BoardItem[]) =>
+      allocateBed([staffLane(), bed('bed-01', 'standard', items)], {
+        id: null, currentBed: null, stores: ['store-a'], requiresPrivate: false, start: 960, end: 1020, stagedId: 'staged',
+      }).refusal
+    expect(staged([booking({ key: 's5', caseId: 'staged', title: '見本 いつき' }, 950, 1080)]))
+      .toBe('16:00〜17:00はベッドに空きがありません。ベッド1（仮押さえ中の見本 いつき様 15:50〜18:00）が使用中です')
+    expect(staged([booking({ key: 's6', caseId: 'staged', title: '見本 いつき' }, 960, 1020)]))
+      .toBe('16:00〜17:00はベッドに空きがありません。ベッド1（仮押さえ中の見本 いつき様）が使用中です')
+
+    // ⚖ FIX ROUND 2 (delta lens 4 N6) — AND TWO OCCUPANTS IN ONE ROOM, so the
+    // ・-joined shape is recorded rather than discovered. A bed lane carries
+    // bookings, 清掃 AND 予定ブロック, and a block can overlap a booking.
+    const twoInOne = [staffLane(), bed('bed-01', 'standard', [
+      booking({ key: 's7', caseId: 'y7', title: '見本 かえる' }, 960, 1020),
+      { ...booking({ key: 'blk2', caseId: null }, 990, 1080), kind: 'block' as const, title: '設備点検' },
+    ])]
+    expect(solve(twoInOne, false).refusal).toBe('16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様・設備点検 16:30〜18:00）が使用中です')
+
+    // The way out — ⚖ FIX ROUND 1 (blind lens 3 F6): ONE move, and one the
+    // operator can actually make. 「個室のみの指定を外す」 named a control that
+    // exists nowhere in this product, and 予約する is not what someone placing an
+    // already-existing booking is doing.
+    const noPrivate = [staffLane(), bed('bed-01', 'standard')]
+    expect(solve(noPrivate, true)).toEqual({
+      laneKey: null,
+      refusal: 'この店舗には個室がありません。個室のある店舗へ移してください',
+      blockers: [],
+    })
+    expect(INT).not.toContain('個室のみの指定を外すか')
+    // …and an untagged booking on a store with no bed AT ALL answers the SAME
+    // question in the same shape (⚖ FIX ROUND 2, delta lens 3 N8): both arms are
+    // 「does a usable room exist here?」, and a window on the answer sent the
+    // operator hunting the clock for a room that exists at no hour.
+    expect(solve([staffLane()], false).refusal).toBe('この店舗には使えるベッドがありません')
+  })
+
+  // I4 — THE CLASS IS AN ORDER, NEVER A FILTER, AND THE ORDER IS LAW. No dial,
+  // in either direction, on any board shape.
+  it('I4 — standard first, private last, ALWAYS — and there is no dial to say otherwise', () => {
+    // Private bed FIRST in board order: the order still puts it last.
+    const privateFirst = [bed('bed-03', 'private'), bed('bed-01', 'standard')]
+    expect(orderRooms(privateFirst).map((l) => l.key)).toEqual(['bed-01', 'bed-03'])
+    // Stable within a class, so board order still decides between two 施術室.
+    const two = [bed('bed-02', 'standard'), bed('bed-01', 'standard'), bed('bed-03', 'private')]
+    expect(orderRooms(two).map((l) => l.key)).toEqual(['bed-02', 'bed-01', 'bed-03'])
+    expect(solve([staffLane(), ...privateFirst], false).laneKey).toBe('bed-01')
+    // A tagged booking gets the private room only.
+    expect(solve([staffLane(), ...privateFirst], true).laneKey).toBe('bed-03')
+    // ONE HOME: the allocator and the fallback walk call the SAME function, and
+    // nothing anywhere reads a store dial to decide the order.
+    expect(INT).toContain('const ordered = orderRooms(candidates)')
+    expect(FALLBACK).toContain('return orderRooms(lanes.filter((l) => l.group === \'beds\' && sharesStore(staff.stores, l.stores)))')
+    for (const [name, text] of [['today-interactions', INT], ['capacity-ledger', LEDGER], ['fallback-cells', FALLBACK], ['TodayScreen', SRC]] as const) {
+      expect({ name, dials: (text.match(/privateIsLastResort|vipStaysPrivate|RoomPolicy/g) ?? []).length }).toEqual({ name, dials: 0 })
+    }
+  })
+
+  // I5 — THE THREE READERS AGREE IN EVERY CELL. The matrix that started this
+  // round found 4 of 24 cells where the allocator, the guard's bed door and the
+  // bed-row test disagreed — always because the ASK's VIP-ness and the DRAWN
+  // CARD's category were two different facts. There is one fact now, so the
+  // disagreement is unsayable: this walks the same shape and counts it.
+  it('I5 — allocator, bed door and bed-row test agree in every cell (0 DISAGREE)', () => {
+    const disagree: string[] = []
+    // The cell table is EMITTED rather than described, so the round's evidence is
+    // this run's own output: `ROOM_A_MATRIX=1 npx jest … -t I5`.
+    const rows: string[] = []
+    for (const requiresPrivate of [false, true]) {
+      for (const stdBusy of [false, true]) {
+        for (const privBusy of [false, true]) {
+          // The asker is a REAL CARD on the board, drawn OUTSIDE the judged span
+          // (08:00 is before the day the rooms are busy), and it carries the tag.
+          // That is what makes the door read the CARD rather than a hypothetical
+          // — the exact site the matrix caught disagreeing with the allocator.
+          const asker = booking({ key: 'ask-staff', caseId: 'ask', requiresPrivateRoom: requiresPrivate, title: '見本 あずさ' }, 600, 660)
+          const board = [
+            staffLane({ items: [asker] }),
+            bed('bed-01', 'standard', stdBusy ? [booking({ key: 'b1', caseId: 'x1', title: 'A' }, 960, 1020)] : []),
+            bed('bed-03', 'private', privBusy ? [booking({ key: 'b3', caseId: 'x3', title: 'B' }, 960, 1020)] : []),
+          ]
+          const cell = `tag=${requiresPrivate} std=${stdBusy ? 'busy' : 'free'} priv=${privBusy ? 'busy' : 'free'}`
+          // reader 1 — the allocator, asked for the card
+          const allocator = allocateBed(board, {
+            id: 'ask', currentBed: null, stores: ['store-a'], requiresPrivate, start: 960, end: 1020,
+          }).laneKey !== null
+          // reader 2 — the guard's bed door, through the capacity book, asked for
+          // the SAME card by id: it reads the room need off the drawn item.
+          const door = bedDoor(bedViewsFor(board, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null), board, 'ask')!
+          const doorSays = door(board[0], 960, 60)
+          // reader 3 — the bed-row test, on the room the allocator would pick
+          const named = requiresPrivate ? 'bed-03' : 'bed-01'
+          const row = landingVerdict(board, {
+            staffLane: 'p-01', bedLane: named, solveRoom: false, id: 'ask', requiresPrivate,
+            start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+            locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+          }, null)
+          const roomRefusal = (v: ReturnType<typeof landingVerdict>) => v.reason?.startsWith('個室のみの予約です') ?? false
+          const rowSaysRoomIsWrong = roomRefusal(row)
+          // ⚖ FIX ROUND 1 (blind lens 4 F4) — AND A CELL THE THIRD READER CAN
+          // ACTUALLY FAIL. Asked only about the room the allocator itself would
+          // choose, `rowSaysRoomIsWrong` is false for EVERY implementation of the
+          // bed-row test, correct or broken: the matrix compared two readers and
+          // the title claimed three. So the row is also asked about the WRONG
+          // class — bed-01 while the tag is on — where a working test must refuse
+          // and a broken one waves it through.
+          const wrongClass = landingVerdict(board, {
+            staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: 'ask', requiresPrivate,
+            start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+            locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+          }, null)
+          const wrongClassRefused = roomRefusal(wrongClass)
+          rows.push(`${cell} | allocateBed=${allocator ? 'placed' : 'refused'} | door=${doorSays} | bed-row=${rowSaysRoomIsWrong ? 'refused' : row.kind} | bed-row@bed-01=${wrongClassRefused ? 'refused' : wrongClass.kind}`)
+          if (allocator !== doorSays) disagree.push(`${cell}: allocator=${allocator} door=${doorSays}`)
+          // reader 3 may only object where the NAMED room is the wrong class —
+          // which, on the room the allocator itself would choose, is never.
+          if (rowSaysRoomIsWrong) disagree.push(`${cell}: bed-row refused the allocator's own room`)
+          // …and it MUST object there, exactly when the tag is on.
+          if (wrongClassRefused !== requiresPrivate) {
+            disagree.push(`${cell}: bed-row on the wrong class said ${wrongClassRefused} for tag=${requiresPrivate}`)
+          }
+        }
+      }
+    }
+    if (process.env.ROOM_A_MATRIX) {
+      console.log(['# ⚖ ROOM RULE matrix — requiresPrivate is the only input', ...rows, `# DISAGREE: ${disagree.length}`].join('\n'))
+    }
+    expect(disagree).toEqual([])
+  })
+
+  // I6 — THE id-LESS PATH ASKS THE DOOR AND THE ALLOCATOR THE SAME QUESTION.
+  // The one latent disagreement the matrix found in the SHIPPED UI: 次回予約
+  // asked the allocator as a VIP and the door as a new client.
+  it('I6 — the 次回予約 / id-less path gives both legs the same answer', () => {
+    // One named constant, read by BOTH legs, so they cannot drift.
+    // ⚖ FIX ROUND 1 (blind lens 4 F5) — COUNTED OVER `codeOnly`. Five raw
+    // mentions, but one of them is a COMMENT — and 「comment forms」 is the first
+    // entry in the ⚖ 9/3 R7 decoy set, which this file already carries a helper
+    // for. FOUR real sites: the declaration, the solve, the minted card, the
+    // landing. A fifth is a new reader; a comment is not one.
+    expect((codeOnly(SRC).match(/NEXT_VISIT_REQUIRES_PRIVATE/g) ?? []).length).toBe(4)
+    expect(SRC).toContain('const NEXT_VISIT_REQUIRES_PRIVATE = false')
+    // …and the door's own id-less query says the same thing.
+    expect(LEDGER).toContain('isSubject(asker) ? asker : { id: null, currentBed: null, requiresPrivate: false, stores: asker.stores }')
+    // Behaviourally: on a board whose only free room is the 個室, an id-less
+    // placement is FEASIBLE — a hypothetical takes the private room like anyone.
+    const onlyPrivateFree = [
+      staffLane(),
+      bed('bed-01', 'standard', [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)]),
+      bed('bed-03', 'private'),
+    ]
+    const door = bedDoor(bedViewsFor(onlyPrivateFree, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null), onlyPrivateFree, null)!
+    expect(door(onlyPrivateFree[0], 960, 60)).toBe(true)
+    expect(solve(onlyPrivateFree, false).laneKey).toBe('bed-03')
+  })
+
+  // I7 — A HYPOTHETICAL NEVER NEEDS THE ROOM. An advertisement is not a booking,
+  // and only a booking can carry a tag — which is what keeps the capacity book's
+  // flat-array cache key complete.
+  it('I7 — every hypothetical asks with requiresPrivate: false, and says why', () => {
+    // ⚖ FIX ROUND 1 (L2 N3) — THE LINES, NOT A TALLY. `…length).toBe(2)` passes
+    // for any two sites: flip the WRONG one of the two to `true` and the count is
+    // still two. Each hypothetical is anchored to the comment that explains why
+    // it is one, so a site can only be added or removed, never quietly swapped.
+    expect(INT).toContain('// ⚖ ROOM RULE — a hypothetical never needs the private room. A window is')
+    expect(pinnedLines(INT, '        requiresPrivate: false,')).toBe(1) // the offer re-bedding, and only it
+    expect(LEDGER).toContain('isSubject(asker) ? asker : { id: null, currentBed: null, requiresPrivate: false, stores: asker.stores }')
+    expect(LEDGER).toContain('A HYPOTHETICAL NEVER NEEDS THE PRIVATE ROOM')
+    expect(SRC).toContain('const NEXT_VISIT_REQUIRES_PRIVATE = false')
+    // ⚖ FIX ROUND 1 (blind lens 1 F3) — AND THE RAIL PROBE IS NO LONGER ONE. It
+    // used to hardcode `false` even with a card in hand, so the strip beside a
+    // 個室のみ card answered a different question than the drop would. A null hand
+    // is still a genuine hypothetical and still reads `false`.
+    expect(INT).toContain('requiresPrivate: handItem?.requiresPrivateRoom === true,')
+    expect(INT).toContain('opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)')
+  })
+
+  // I8 — THE SELL SEAM HANDS CANON ITS ROOMS STANDARD-FIRST. Canon's `bedLedger`
+  // knows no room class and takes the first free lane in ARRAY order, so 個室-last
+  // held on the money surface only by the fixture's own ordering luck.
+  it('I8 — sellResourceLanes emits standard rooms first, private last', () => {
+    const lanes = [staffLane(), bed('bed-03', 'private'), bed('bed-01', 'standard')]
+    expect(sellResourceLanes(lanes).map((r) => r.key)).toEqual(['bed-01', 'bed-03'])
+    // …and it is the ONE ordering, not a second copy of the rule.
+    expect(INT).toContain('return orderRooms(lanes.filter((l) => l.group === \'beds\'))')
+  })
+
+  // I9 — today-board.ts CARRIES THE FIELD AND NOTHING ELSE. The board model is a
+  // MODEL: it must never grow a room decision of its own, which is how a second
+  // allocator gets born.
+  it('I9 — the board model carries the field and no room logic', () => {
+    expect(BOARD).toContain('requiresPrivateRoom: a.requires_private_room === true,')
+    // The SEAM ITSELF, whole. A ban list cannot see a room decision written in
+    // words it does not know — `tag === 'ベッド3'` carries none of them — so the
+    // one function the field passes through is pinned byte-for-byte instead.
+    const seam = BOARD.slice(BOARD.indexOf('function bookingItem('), BOARD.indexOf('export const STATE_LABEL'))
+    expect(seam.split('\n').slice(0, 9).map((l) => l.trimEnd())).toEqual([
+      'function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: string): BoardItem {',
+      '  const c = chip(b)',
+      '  return {',
+      '    key: `${b.id}-${keySuffix}`,',
+      "    kind: 'booking',",
+      '    state: b.state,',
+      '    category: b.category,',
+      '    requiresPrivateRoom: b.requiresPrivateRoom,',
+      '    ...place(b.startMinute, b.endMinute, hours),',
+    ])
+    // (the word 個室 is NOT banned here: `BoardLane.roomClass`'s own doc has
+    //  carried it since flag 51, and a doc word is not a decision.)
+    for (const banned of ['allocateBed', 'roomFitsNeed', 'orderRooms', 'roomClass ===', 'roomClass !==']) {
+      expect({ banned, at: BOARD.indexOf(banned) }).toEqual({ banned, at: -1 })
+    }
+    // ⚖ FIX ROUND 1 (blind lens 3 F5) — AND THE ACCESSIBLE NAME CARRIES THE TAG,
+    // inside the CATEGORY segment so the five-part skeleton the room re-label
+    // depends on (`parts.length === 5`, today-interactions) is untouched.
+    expect(BOARD).toContain("label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,")
+    expect(INT).toContain('const label = room != null && parts.length === 5 ?')
+  })
+
+  // I10 — THE CARD SAYS 個室のみ WITHOUT EATING THE CATEGORY WORD. `.tg` carries
+  // the PARTNER's name and a card wearing 【ベッド3】 while its twin stands on
+  // ベッド2 is the impossible state ⚖ 51 exists to stop, so the tag rides the
+  // NOTE slot beside 保持 — not the category badge.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F3/F4). It shipped in `.tkt-cat`, REPLACING the
+  // category word, and which word it ate depended on the category: 「個室 月額」
+  // reads as a room fee this salon does not charge and 「個室 残り8回」 loses
+  // 回数券 — the word that decides whether the receptionist burns a ticket or
+  // takes money (⚖ 8/25: a number says what it counts). And it said 個室, which
+  // beside the card's own 【ベッド3】 reads as where the booking IS rather than
+  // what it needs — plainly wrong on any card sitting in a standard bed.
+  // 個室のみ is the exact phrase both refusals use, so the badge and the sentence
+  // that refuses the drop are one vocabulary.
+  it('I10 — a tagged card wears 個室のみ in the NOTE slot, its category badge intact, .tg untouched', () => {
+    expect(SRC).toContain('{item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}')
+    expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')
+    expect(SRC).toContain('<i className="tg">{item.tag}</i>')
+    // The category word can no longer be eaten by the tag: the old spelling is
+    // gone in both of the forms it had.
+    expect(SRC).not.toContain("item.requiresPrivateRoom === true ? '個室' : item.ticketCat")
+    expect(SRC).not.toContain('item.requiresPrivateRoom === true || item.ticketCat')
+    // ⚖ FIX ROUND 1 (blind lens 3 F11 · L2 N2) — AND THE DEMO SHOWS BOTH FACTS ON
+    // TWO ROWS. One row where the tag and the VIP badge are both true is exactly
+    // the row that cannot separate them. apt-29 (テスト なぎ, 14:05〜15:05,
+    // already seated in the 個室) is the tagged row and is NOT a VIP; apt-25 is
+    // the VIP and is NOT tagged, so Liam's own scene places freely. The rendered
+    // pair is asserted on the REAL board in today-board.test.ts 「⚖ ROOM RULE —
+    // the sample board separates the 個室のみ tag from the VIP badge」.
+    const tagged = appointments().filter((a) => a.requires_private_room === true)
+    expect(tagged.map((a) => a.id)).toEqual(['apt-29'])
+    expect(customers.find((c) => c.id === tagged[0].customer_id)?.vip).toBe(false)
+    expect(tagged[0].resource_id).toBe('bed-03') // ⚖ 8/9 — the sample day is legal as it stands
+    const vipRow = appointments().find((a) => a.id === 'apt-25')!
+    expect(customers.find((c) => c.id === vipRow.customer_id)?.vip).toBe(true)
+    expect(vipRow.requires_private_room).toBe(false) // `slot()` normalises absent → false
+  })
+
+  // I11 — DROPPING A TAGGED BOOKING ON A STANDARD BED IS `hard`, NEVER `policy`;
+  // an UNTAGGED booking gets no room stop at all. A tag is a FACT about what the
+  // treatment needs, and ⚖ 73 already says a fact gets no escalation button.
+  it('I11 — the bed-row stop is hard for a tagged booking and silent for an untagged one', () => {
+    const board = [staffLane(), bed('bed-01', 'standard'), bed('bed-03', 'private')]
+    const rowAt = (bedLane: string, requiresPrivate: boolean) =>
+      landingVerdict(board, {
+        staffLane: 'p-01', bedLane, solveRoom: false, id: null, requiresPrivate,
+        start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+        locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+      }, null)
+    const tagged = rowAt('bed-01', true)
+    expect([tagged.kind, tagged.floor]).toEqual(['blocked', 'hard'])
+    expect(tagged.reason).toBe('個室のみの予約です。ベッド1は個室ではないので、個室の行に置いてください')
+    // …and the 個室 itself is a clean landing for the same booking.
+    expect(rowAt('bed-03', true).kind).toBe('clean')
+    // Sitting in the 個室 means NOTHING: an untagged booking moves to any bed
+    // with no verdict, in either direction.
+    expect(rowAt('bed-01', false).kind).toBe('clean')
+    expect(rowAt('bed-03', false).kind).toBe('clean')
+    // The dead sentence is gone from the tree, and the tag's floor is never
+    // `policy` — which is the floor 「注意して配置」 grows on.
+    expect(INT).not.toContain('VIP・個室クラスのご予約です')
+    expect(INT).toContain("return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)")
+    // ⚖ FIX ROUND 1 (blind lens 3 F1) — and it OFFERS NOTHING about start times.
+    // A room refusal is true at every start on the lane, so the guard's own
+    // 「より損の少ない開始」 ranking under it answered the wrong question out loud.
+    // Asked WITH a cell in hand, so the null is the stop's own answer and not the
+    // caller's (`rowAt` passes none; the vacuous version of this assertion would
+    // pass against the shipped defect).
+    const offered: RailCell = {
+      start: 960, state: 'safe', label: '', sentence: '', reason: null,
+      alternatives: [], alternativeKind: null, ackAllowed: true,
+    }
+    const withCell = landingVerdict(board, {
+      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: true,
+      start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+      locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+    }, offered)
+    expect(withCell.cell).toBeNull()
+    // …and a stop that IS about the clock keeps the cell it was handed — the room
+    // refusal earns an exception, it does not become the default.
+    const clockFloor = landingVerdict(board, {
+      staffLane: null, bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: false,
+      start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+      locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+    }, offered)
+    expect(clockFloor.cell).toBe(offered)
+    expect(INT).toContain('const stop = (reason: string, floor: LandingFloor, offer: RailCell | null = cell): LandingVerdict =>')
+  })
+
+  // I12 — THE SOLVED LANDING'S OWN FLOOR AND ITS SUCCESS BRANCH.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 4 F2). The deleted 「⚖ 51 — the SOLVED landing…」
+  // test took two live claims with it: that a tagged booking refused by the
+  // ALLOCATOR carries `hard-room` (not `hard`), and that the success branch of
+  // `solveRoom: true` + a tag actually lands in the 個室. `hard-room` is
+  // load-bearing twice — it selects the offer line 「個室の空く開始を選べます」 and
+  // it is the only floor `bedClassCell` computes alternatives for — and nothing
+  // exercised the solved tagged path at all after the deletion.
+  it('I12 — a SOLVED tagged landing is hard-room when it refuses, and takes the 個室 when it does not', () => {
+    const solved = (privItems: BoardItem[]) =>
+      landingVerdict(
+        [staffLane(), bed('bed-01', 'standard'), bed('bed-03', 'private', privItems)],
+        {
+          staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, requiresPrivate: true,
+          start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+          locked: [], minutesOf: (x) => minuteOf(x, HOURS),
+        },
+        null,
+      )
+    const busy = solved([booking({ key: 'b3', caseId: 'x3', title: '見本 あかり' }, 960, 1020)])
+    expect([busy.kind, busy.floor]).toEqual(['blocked', 'hard-room'])
+    expect(busy.reason).toContain('個室に空きがありません')
+    // …and the free board is a CLEAN landing in the 個室 — never the free 施術室
+    // sitting first in board order.
+    const free = solved([])
+    expect([free.kind, free.bedLane]).toEqual(['clean', 'bed-03'])
+  })
+
+  // I13 — KEEP-IF-FREE IS A KEEP, NEVER A LICENCE.
+  //
+  // ⚖ FIX ROUND 1 (L2 F1, the mutation lens's one survivor). Dropping
+  // `compatible(current)` from the keep-if-free line left all 2143 tests green,
+  // because every room-rule test asked the allocator with `currentBed: null` —
+  // the compatibility half of that rule was never exercised. What it allows is
+  // the solve-path twin of the defect this round exists to close: a 個室のみ
+  // booking drawn on a standard bed is KEPT there with no verdict, and is not
+  // even refused when the 個室 is busy. Latent on the fixture (the tagged row
+  // sits in the 個室), live in the model — nothing in `src/` cross-checks the tag
+  // against the resource's class, and core stamps the two columns independently.
+  it('I13 — a tagged booking sitting in a standard bed is retargeted, never kept', () => {
+    const inHand = booking({ key: 'ask-bed', caseId: 'ask', requiresPrivateRoom: true, title: '見本 あずさ' }, 960, 1020)
+    const stuck = (privItems: BoardItem[]) => [
+      staffLane({ items: [{ ...inHand, key: 'ask-staff' }] }),
+      bed('bed-01', 'standard', [inHand]),
+      bed('bed-03', 'private', privItems),
+    ]
+    const from = (lanes: BoardLane[]) =>
+      allocateBed(lanes, { id: 'ask', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: true, start: 960, end: 1020 })
+    // 個室 free → it MOVES, exactly as a fresh landing would.
+    expect(from(stuck([])).laneKey).toBe('bed-03')
+    // 個室 busy → it REFUSES, rather than being left in the room its tag forbids.
+    const busy = from(stuck([booking({ key: 'b3', caseId: 'x3', title: '見本 あかり' }, 960, 1020)]))
+    expect(busy.laneKey).toBeNull()
+    expect(busy.refusal).toContain('個室に空きがありません')
+    // The rule, spelled: the room in hand is the first CANDIDATE, not an
+    // exemption from being one.
+    expect(INT).toContain('if (current && compatible(current) && free(current))')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BLANK-SAFE (Liam 2026-09-06 02:2x) — §1 claims 2, 3 (chip + inspector) and
+// 4, pinned on the SCREEN side. Claim 1's board-level proof (dayBookings / the
+// BoardItem reading absent-undefined-null as strict `false`) is pinned in
+// today-board.test.ts; here ONE item is built from a blank row — the real
+// `dayBookings` + `buildLanes` pipe, never a hand-typed `false` — and that
+// item's own field is threaded through `allocateBed`, the shelf chip and
+// `landingVerdict`, the same way the ROOM RULE describe's I2/I4/I11 pins do.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged booking', () => {
+  const apt12 = appointments().find((a) => a.id === 'apt-12')!
+  const dayKey = jstDayKey(apt12.starts_at)
+  const blankRow = { ...apt12, id: 'apt-blank-screen' }
+  delete blankRow.requires_private_room
+
+  /** The one built item claims 2-4 read `requiresPrivateRoom` off — proof it
+   *  came from `dayBookings`, matching `boardFor` in today-board.test.ts. */
+  async function blankItem(): Promise<BoardItem> {
+    const lens = STORE_A
+    const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+      data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+      data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+      data.listStoreOptions(), data.readStaffStores(lens),
+    ])
+    const input: BuildInput = {
+      appointments: [blankRow], customers: custs, menus, staff: staffList, resources: beds,
+      shifts: planes.shifts, qualifications: planes.staffQualifications,
+      staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+      blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+      hours: planes.operatingHours, dayKey,
+      operatorStaffId: shell.operator.staff_id,
+      storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+      crossStore: false,
+    }
+    const lanes = buildLanes(input, dayBookings(input))
+    return lanes.flatMap((l) => l.items).find((i) => i.caseId === blankRow.id)!
+  }
+
+  // the BATCH-9/11 board shape, re-used: one staff lane, one standard bed,
+  // one 個室 — never re-invented per describe.
+  const board = (over: { beds?: BoardLane[] } = {}): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+    ...(over.beds ?? [
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+    ]),
+  ]
+  const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
+    staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: false,
+    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+    locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
+    ...over,
+  })
+  const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) => landingVerdict(lanes, ask(over), cell)
+
+  it('claim 2 — allocateBed takes a free standard bed first, and the 個室 last, never refusing for the room', async () => {
+    const item = await blankItem()
+    const solve = (lanes: BoardLane[]) =>
+      allocateBed(lanes, { id: null, currentBed: null, stores: ['store-a'], requiresPrivate: item.requiresPrivateRoom === true, start: 960, end: 1020 })
+    expect(solve(board()).laneKey).toBe('bed-01')
+    const onlyPrivateFree = board({
+      beds: [
+        lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1' }, 960, 1020)] }),
+        lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+      ],
+    })
+    const at = solve(onlyPrivateFree)
+    expect(at.laneKey).toBe('bed-03')
+    expect(at.refusal).toBeNull()
+  })
+
+  it('claim 3 — the shelf chip carries no 個室のみ for the blank item, and the inspector seam is unchanged', async () => {
+    const item = await blankItem()
+    expect(item.requiresPrivateRoom).toBe(false)
+    expect(parkChipText(item, HOURS, '本日').line1).not.toContain('個室のみ')
+    // The inspector's 予約種別 row reads the SAME `b.requiresPrivateRoom` this
+    // claim just proved is a real `false` at this layer — the seam
+    // today-board.test.ts's 「⚖ ROOM RULE — the inspector says 個室のみ about
+    // the BOOKING」 pins is unchanged here too.
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+  })
+
+  it('claim 4 — the bed-row drop is silent for the blank item: no room stop, floor never hard or hard-room', async () => {
+    const item = await blankItem()
+    const v = verdict(board(), { requiresPrivate: item.requiresPrivateRoom === true })
+    expect(v.kind).toBe('clean')
+    expect(v.floor).not.toBe('hard')
+    expect(v.floor).not.toBe('hard-room')
+    expect(v.reason).toBeNull()
   })
 })

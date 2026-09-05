@@ -25,7 +25,7 @@ import {
   type OfferInput,
   type Subject,
 } from '@/app/[locale]/(business)/business/today/capacity-ledger'
-import { allocateBed, type RoomPolicy } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { allocateBed } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
   cleanupBlocks,
   hhmm,
@@ -42,7 +42,6 @@ const OPEN = 540 // 09:00
 const CLOSE = 1080 // 18:00 — 540 minutes, 108 lattice slots
 const HOURS: Hours = { open: OPEN, close: CLOSE }
 const FRAME = { openMin: OPEN, closeMin: CLOSE, nowMin: 600 }
-const POLICY: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
 const SLOTS = (CLOSE - OPEN) / LATTICE_STEP_MIN
 
 /** The two hypothetical askers the single-store fixture uses. Every question
@@ -53,7 +52,7 @@ const FLOATING: NewClient = { stores: null }
 
 /** The book, for one board. `bedTruthViews` is the only door — the battery goes
  *  through it exactly as production will. */
-const truthOn = (lanes: BoardLane[], frame = FRAME) => bedTruthViews(lanes, POLICY, frame, null).world
+const truthOn = (lanes: BoardLane[], frame = FRAME) => bedTruthViews(lanes, frame, null).world
 
 /** Deterministic pseudo-randomness — a plain LCG. No Date.now, no Math.random:
  *  a fixture that changes between runs cannot pin anything. */
@@ -98,6 +97,10 @@ interface SyntheticBooking {
   bedLabel: string
   customerName: string
   category: BookingCategory
+  /** ⚖ ROOM RULE — 個室のみ. Its own axis: the category no longer decides a room,
+   *  so the board needs a tagged booking of its own to exercise the private-only
+   *  search at all. Every seventh, which is where the VIP used to sit. */
+  requiresPrivateRoom: boolean
   start: number
   end: number
 }
@@ -134,11 +137,14 @@ export function syntheticBookings(spec: BoardSpec): SyntheticBooking[] {
       const start = openMin + Math.floor(next() * (steps + 1)) * 30
       const span = { start, end: start + dur }
       const category: BookingCategory = (i + n) % 7 === 0 ? 'vip' : (i + n) % 3 === 0 ? 'new' : 'repeat'
-      // ⚖ 51 — a VIP is never drawn in a room the rule says they cannot be in;
-      // impossible states get fixed at the DATA, never displayed and explained.
+      // ⚖ ROOM RULE — the TAG picks the room, and the customer's badge does not.
+      // A 個室のみ booking is never drawn in a standard room; impossible states
+      // get fixed at the DATA, never displayed and explained. A VIP customer is
+      // now drawn wherever the day put them.
+      const requiresPrivateRoom = (i + n) % 7 === 0
       const candidates: number[] = []
       for (let j = 0; j < beds; j += 1) {
-        if (category === 'vip' && POLICY.vipStaysPrivate && !isPrivate(j)) continue
+        if (requiresPrivateRoom && !isPrivate(j)) continue
         if (storeOfBed(j) !== storeOfStaff(i)) continue
         candidates.push(j)
       }
@@ -155,6 +161,7 @@ export function syntheticBookings(spec: BoardSpec): SyntheticBooking[] {
         bedLabel: `ベッド${bedIdx + 1}`,
         customerName: `顧客 ${pad(i)}-${n}`,
         category,
+        requiresPrivateRoom,
         start,
         end: start + dur,
       })
@@ -191,6 +198,7 @@ function bookingItem(b: SyntheticBooking, hours: Hours, tag: string, keySuffix: 
     kind: 'booking',
     state: 'confirmed',
     category: b.category,
+    requiresPrivateRoom: b.requiresPrivateRoom,
     ...place(b.start, b.end, hours),
     title: b.customerName,
     tag: `【${tag}】`,
@@ -317,22 +325,21 @@ describe('1 — the book wraps the one bed search and never disagrees with it', 
           ? {
               id: pick(next, ids),
               currentBed: next() < 0.5 ? pick(next, ['bed-01', 'bed-02', 'bed-03']) : null,
-              vip: next() < 0.3,
+              requiresPrivate: next() < 0.3,
               stores: next() < 0.8 ? ['store-a'] : null,
             }
           : next() < 0.5
             ? HERE
             : FLOATING
       const book = truth.bedFor(start, start + dur, asker)
-      const q = 'id' in asker ? asker : { id: null, currentBed: null, vip: false, stores: asker.stores }
+      const q = 'id' in asker ? asker : { id: null, currentBed: null, requiresPrivate: false, stores: asker.stores }
       const direct = allocateBed(lanes, {
         id: q.id,
         currentBed: q.currentBed,
         stores: q.stores,
-        vip: q.vip,
+        requiresPrivate: q.requiresPrivate,
         start,
         end: start + dur,
-        policy: POLICY,
       })
       expect({ laneKey: book.laneKey, refusal: book.refusal }).toEqual({ laneKey: direct.laneKey, refusal: direct.refusal })
       if (book.laneKey === null) refusals += 1
@@ -382,15 +389,19 @@ describe('2 — 満室 and 「使える部屋がない」 are different answers'
     expect(a.refusal).toContain('に空きがありません')
   })
 
-  it('a VIP on a board with no 個室 → no compatible room exists at all', () => {
+  it('a 個室のみ booking on a board with no 個室 → no compatible room exists at all', () => {
+    // ⚖ ROOM RULE — the same shape, on the new axis. It used to be a VIP
+    // CUSTOMER who could not be seated here; a VIP is now seated like anyone
+    // else, and the only thing that can empty the candidate set is the
+    // booking's own 個室のみ tag.
     const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' }), lane({ key: 'bed-02', group: 'beds' })]
     const truth = truthOn(lanes)
-    const vip: Subject = { id: 'apt-x', currentBed: null, vip: true, stores: ['store-a'] }
-    const a = truth.bedFor(600, 660, vip)
+    const tagged: Subject = { id: 'apt-x', currentBed: null, requiresPrivate: true, stores: ['store-a'] }
+    const a = truth.bedFor(600, 660, tagged)
     expect(a.laneKey).toBeNull()
     expect(a.compatibleRoomsExist).toBe(false)
-    // The same board, same empty rooms, for a non-VIP: the rooms exist AND are free.
-    const b = truth.bedFor(600, 660, { ...vip, vip: false })
+    // The same board, same empty rooms, untagged: the rooms exist AND are free.
+    const b = truth.bedFor(600, 660, { ...tagged, requiresPrivate: false })
     expect(b.compatibleRoomsExist).toBe(true)
     expect(b.laneKey).toBe('bed-01')
   })
@@ -528,16 +539,16 @@ describe('2b — a hypothetical booking asks on ITS store’s rooms, never on th
     expect(truth.freeBedKeys(600, 660, strayId)).toEqual([])
   })
 
-  it('a half-object never inherits a VIP exemption from an absent field', () => {
-    // `vip` arriving `undefined` on a Subject read would make `vip && policy`
-    // false and walk a 個室 booking onto a standard room, past the ⚖ 51 floor.
+  it('a half-object never inherits a 個室のみ claim from an absent field', () => {
+    // `requiresPrivate` arriving `undefined` on a Subject read would walk a
+    // 個室のみ booking onto a standard room, past the one room floor left.
     const lanes = [lane({ key: 'p-01', group: 'staff' }), lane({ key: 'bed-01', group: 'beds' })]
     const truth = truthOn(lanes)
-    const halfVip = { id: 'zz', vip: true, stores: ['store-a'] } as unknown as NewClient
-    // Read as the hypothetical it is: a plain new booking, no VIP claim either way.
-    expect(truth.bedFor(600, 660, halfVip)).toEqual(truth.bedFor(600, 660, HERE))
-    // And a REAL VIP subject on the same board is still refused the standard room.
-    expect(truth.bedFor(600, 660, { id: 'zz', currentBed: null, vip: true, stores: ['store-a'] }).laneKey).toBeNull()
+    const halfTagged = { id: 'zz', requiresPrivate: true, stores: ['store-a'] } as unknown as NewClient
+    // Read as the hypothetical it is: a plain new booking, no room claim either way.
+    expect(truth.bedFor(600, 660, halfTagged)).toEqual(truth.bedFor(600, 660, HERE))
+    // And a REAL tagged subject on the same board is still refused the standard room.
+    expect(truth.bedFor(600, 660, { id: 'zz', currentBed: null, requiresPrivate: true, stores: ['store-a'] }).laneKey).toBeNull()
   })
 
   it('a half-object stays on the memoised path instead of paying for a search each time', () => {
@@ -553,7 +564,7 @@ describe('2b — a hypothetical booking asks on ITS store’s rooms, never on th
   it('the excluded world takes a half-object as a hypothetical, not as a second lift', () => {
     const spec = { ...DENSE_25, beds: 3 }
     const hand = syntheticBookings(spec)[0]
-    const views = bedTruthViews(syntheticBoard(spec), POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
     const strayId = { id: 'apt-02-1', stores: ['store-a'] } as NewClient
     // Fail-safe: a half-object is a hypothetical, so it cannot lift anything
     // and there is nothing to throw about.
@@ -692,7 +703,7 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     const spec = { ...DENSE_25, beds: 4 }
     const hand = firstOnItsBed(spec)
     const lanes = syntheticBoard(spec)
-    const views = bedTruthViews(lanes, POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
     expect(views.worldMinusHand).not.toBeNull()
     sameAnswers(views.worldMinusHand!, truthOn(lanesWithout(lanes, hand.id)))
   })
@@ -704,7 +715,7 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     // The board really does carry the hand's own 清掃 block — otherwise this
     // pin would prove nothing about the second exclusion.
     expect(lanes.flatMap((l) => l.items).some((i) => i.key === `${hand.id}-cleanup`)).toBe(true)
-    const views = bedTruthViews(lanes, POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
     sameAnswers(views.worldMinusHand!, truthOn(lanesWithout(lanes, hand.id)))
   })
 
@@ -715,34 +726,34 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     // `excludedWorld`; this pin claims the equality only where it holds.
     const spec = { ...DENSE_25, beds: 4, cleanupMinutes: 15 }
     const hand = firstOnItsBed(spec)
-    const views = bedTruthViews(syntheticBoard(spec), POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
     sameAnswers(views.worldMinusHand!, truthOn(syntheticBoard({ ...spec, omit: [hand.id] })))
   })
 
   it('the world itself keeps the card: staged is real for every reader', () => {
     const spec = { ...DENSE_25, beds: 2 }
     const hand = firstOnItsBed(spec)
-    const views = bedTruthViews(syntheticBoard(spec), POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
     sameAnswers(views.world, truthOn(syntheticBoard(spec)))
     expect(views.world.freeBedKeys(hand.start, hand.end, HERE)).not.toContain(hand.bedKey)
     expect(views.worldMinusHand!.freeBedKeys(hand.start, hand.end, HERE)).toContain(hand.bedKey)
   })
 
   it('no hand, no second world', () => {
-    const views = bedTruthViews(syntheticBoard(SMALL_6), POLICY, FRAME, null)
+    const views = bedTruthViews(syntheticBoard(SMALL_6), FRAME, null)
     expect(views.worldMinusHand).toBeNull()
     expect(views.world.bedFor(600, 660, HERE).laneKey).not.toBeUndefined()
   })
 
   it('a hand with no id is not a hand — it throws rather than deleting nothing', () => {
-    expect(() => bedTruthViews(syntheticBoard(SMALL_6), POLICY, FRAME, { id: '' })).toThrow(/live gesture/)
+    expect(() => bedTruthViews(syntheticBoard(SMALL_6), FRAME, { id: '' })).toThrow(/live gesture/)
   })
 
   it('a pending id is not expressible: the hand is an object, not a loose string', () => {
     // @ts-expect-error — a bare id is exactly the binding (`live ?? pending`)
     // that produced the three-world board; the type is the guard, and
     // `npm run type-check` is where this line is proved.
-    expect(() => bedTruthViews(syntheticBoard(SMALL_6), POLICY, FRAME, 'apt-01-0')).toThrow()
+    expect(() => bedTruthViews(syntheticBoard(SMALL_6), FRAME, 'apt-01-0')).toThrow()
   })
 
   it('ONE lift per world: asking the excluded world about a second booking throws', () => {
@@ -750,14 +761,14 @@ describe('3 — exactly two worlds, and the second one needs a hand', () => {
     const bookings = syntheticBookings(spec)
     const hand = bookings[0]
     const other = bookings.find((b) => b.id !== hand.id)!
-    const views = bedTruthViews(syntheticBoard(spec), POLICY, FRAME, { id: hand.id })
-    const asOther: Subject = { id: other.id, currentBed: other.bedKey, vip: false, stores: ['store-a'] }
+    const views = bedTruthViews(syntheticBoard(spec), FRAME, { id: hand.id })
+    const asOther: Subject = { id: other.id, currentBed: other.bedKey, requiresPrivate: false, stores: ['store-a'] }
     // allocateBed excludes the subject's own card, so this would lift a SECOND
     // one — the three-world board rebuilt by composition.
     expect(() => views.worldMinusHand!.bedFor(600, 660, asOther)).toThrow(/second card/)
     expect(() => views.worldMinusHand!.freeBedKeys(600, 660, asOther)).toThrow(/second card/)
     // The hand's own question, and any hypothetical, are answered normally.
-    const asHand: Subject = { id: hand.id, currentBed: hand.bedKey, vip: false, stores: ['store-a'] }
+    const asHand: Subject = { id: hand.id, currentBed: hand.bedKey, requiresPrivate: false, stores: ['store-a'] }
     expect(() => views.worldMinusHand!.bedFor(600, 660, asHand)).not.toThrow()
     expect(() => views.worldMinusHand!.bedFor(600, 660, HERE)).not.toThrow()
     // …and the un-lifted world takes any subject, as it always could.
@@ -811,17 +822,17 @@ describe('5 — memoised answers equal unmemoised ones, across both views', () =
     const spec = { ...SMALL_6, cleanupMinutes: 10 }
     const lanes = syntheticBoard(spec)
     const handId = lanes.flatMap((l) => l.items).find((i) => i.caseId != null)!.caseId!
-    const memo = bedTruthViews(lanes, POLICY, FRAME, { id: handId })
+    const memo = bedTruthViews(lanes, FRAME, { id: handId })
     const next = rng(505)
     for (let n = 0; n < 300; n += 1) {
       const start = pick(next, lattice(90))
       const dur = pick(next, [30, 60, 90])
       const inHand = n % 2 === 0
       const asker: Subject | NewClient =
-        next() < 0.35 ? { id: handId, currentBed: 'bed-01', vip: next() < 0.4, stores: ['store-a'] } : next() < 0.5 ? HERE : FLOATING
+        next() < 0.35 ? { id: handId, currentBed: 'bed-01', requiresPrivate: next() < 0.4, stores: ['store-a'] } : next() < 0.5 ? HERE : FLOATING
       // The unmemoised twin: a book built for this ONE question, so nothing it
       // returns can have come from a cache.
-      const fresh = bedTruthViews(lanes, POLICY, FRAME, { id: handId })
+      const fresh = bedTruthViews(lanes, FRAME, { id: handId })
       const asked = inHand ? memo.worldMinusHand! : memo.world
       const virgin = inHand ? fresh.worldMinusHand! : fresh.world
       expect(asked.bedFor(start, start + dur, asker)).toEqual(virgin.bedFor(start, start + dur, asker))
@@ -833,7 +844,7 @@ describe('5 — memoised answers equal unmemoised ones, across both views', () =
     const spec = { ...DENSE_25, beds: 3 }
     const lanes = syntheticBoard(spec)
     const hand = syntheticBookings(spec)[0]
-    const views = bedTruthViews(lanes, POLICY, FRAME, { id: hand.id })
+    const views = bedTruthViews(lanes, FRAME, { id: hand.id })
     const staff = staffLanesOf(lanes)[0]
     // Each view is compared against a FRESHLY BUILT book on the lanes that view
     // is supposed to be reading — not against itself.
@@ -1213,8 +1224,8 @@ describe('9 — the cost of the book, measured rather than asserted in prose', (
     const mask = truth.newClientMask(lane, ninth)
     for (let start = OPEN; start + ninth <= CLOSE; start += LATTICE_STEP_MIN) {
       const direct = allocateBed(lanes, {
-        id: null, currentBed: null, stores: lane.stores, vip: false,
-        start, end: start + ninth, policy: POLICY,
+        id: null, currentBed: null, stores: lane.stores, requiresPrivate: false,
+        start, end: start + ninth,
       })
       expect([start, mask(start)]).toEqual([start, direct.laneKey !== null])
       expect([start, truth.bedFor(start, start + ninth, { stores: lane.stores }).laneKey])

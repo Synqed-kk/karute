@@ -74,7 +74,6 @@ import {
   type GuardRail,
   type RailCell,
   type RailInput,
-  type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { freePockets, type GapCell } from '@/business/lib/canon-logic/availability'
@@ -443,7 +442,6 @@ interface World {
   lanes: BoardLane[]
   hours: Hours
   now: number | null
-  rooms: RoomPolicy
   cleanup: Record<string, number>
   minSellableMin: number
 }
@@ -462,7 +460,6 @@ const fixtureWorld = (): World => ({
   lanes: REAL.lanes,
   hours: REAL.hours,
   now: REAL.sell.nowMinute,
-  rooms: REAL.rooms,
   cleanup: REAL.bedCleanupMinutes,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -472,7 +469,6 @@ const syntheticWorld = (): World => ({
   lanes: board({ staff: 8, beds: 3, seed: 4242, perLane: 3 }),
   hours: SYNTH_HOURS,
   now: null,
-  rooms: REAL.rooms,
   cleanup: SYNTH_CLEANUP,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -555,7 +551,7 @@ function priceOf() {
 }
 
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
-const bookOf = (w: World, lanes: BoardLane[] = w.lanes): BedTruth => bedViewsFor(lanes, w.rooms, frameOf(w), null).world
+const bookOf = (w: World, lanes: BoardLane[] = w.lanes): BedTruth => bedViewsFor(lanes, frameOf(w), null).world
 
 const maskOf = (w: World, c: Combo, book: BedTruth = bookOf(w)): readonly ReservedLaneMask[] =>
   reservedMaskFor({
@@ -614,7 +610,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
-    reconcile: { claims, rooms: w.rooms, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
+    reconcile: { claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
     held,
   })
   const fallback = held
@@ -625,7 +621,6 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
         survivors: sell.cells,
         claims,
         cleanupMinutesByBed: w.cleanup,
-        rooms: w.rooms,
         held,
         // ⚖ Greptile #815 — the same `locked: []` this composer already hands
         // `gap`/`sell` above (this file's worlds model no locked lanes).
@@ -661,7 +656,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]): Door {
  *  by side is pinning two functions of two inputs; one builder makes the claim
  *  structural. `rails` below is unchanged in behaviour and in every argument. */
 function railInputFor(w: World, c: Combo, kind: 'raw' | 'lattice' | 'bed', book: BedTruth = bookOf(w)): RailInput {
-  const views = bedViewsFor(w.lanes, w.rooms, frameOf(w), null)
+  const views = bedViewsFor(w.lanes, frameOf(w), null)
   return {
     open: w.hours.open,
     close: w.hours.close,
@@ -933,7 +928,7 @@ describe('1 — the round gate', () => {
     // …and the committed world's book has exactly ONE door and one hand: the
     // wrapper walks it once, with `null`, because prices read the settled board.
     expect(SRC('held-committed.ts').split('bookOf(').length - 1).toBe(1)
-    expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    expect(SRC('held-committed.ts')).toContain('bookOf(mask.lanes, frame, null).world')
     // …and the door it is handed is the screen's one wrapper, not a second one.
     expect(screen).toContain('bookOf: bedViewsFor,')
     const sites: readonly (readonly [string, string])[] = [
@@ -1017,7 +1012,6 @@ function explainOf(
   const map = explainRails(rs, w.lanes, {
     dur: REAL.guard.standardSessionMin,
     handId: null,
-    rooms: w.rooms,
     stagedId: null,
     sellCells: d.sell.cells,
     claims: d.drawnClaims,
@@ -1873,11 +1867,11 @@ describe('5 — a held window explains itself, and is not explained away', () =>
     const base = { gridMin: c.gridMin, nowMinute: w.now, locked: [], showPrice: true, hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth, held }
     const withDrops = sellLayerFor(w.lanes, w.hours, {
       ...base,
-      reconcile: { claims: door(w, c, held).claims, rooms: w.rooms, cleanupMinutesByBed: w.cleanup, onDrop: (d) => seen.push(d) },
+      reconcile: { claims: door(w, c, held).claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => seen.push(d) },
     })
     const without = sellLayerFor(w.lanes, w.hours, {
       ...base,
-      reconcile: { claims: door(w, c, held).claims, rooms: w.rooms, cleanupMinutesByBed: w.cleanup },
+      reconcile: { claims: door(w, c, held).claims, cleanupMinutesByBed: w.cleanup },
     })
     expect(withDrops).toEqual(without)
     expect(seen.length).toBeGreaterThan(0)
