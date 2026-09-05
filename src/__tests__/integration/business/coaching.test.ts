@@ -113,6 +113,14 @@ function unpinClock() { global.Date = RealDate }
 
 const GINZA = { locale: 'ja', store: STORE_A }
 
+/** ⚖ I-2 — the CARD classes the self screen composes into columns. Named here so
+ *  the hole-law assignment pin reads the desk's decision rather than every span
+ *  inside it. */
+const SECTION_CARDS = [
+  'cg-sheet', 'cg-spine', 'cg-findings', 'cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-share',
+  'cg-patterns', 'cg-modules',
+]
+
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
   it('the owner’s payload carries BANDS and nothing a number could hide in', async () => {
@@ -1066,25 +1074,27 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
     const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 560px)'))
     expect(five.slice(0, 400)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
-    // ⚖ R2-27 — AND THE FOURTH PAGE THRESHOLD HAS A SECOND CONDITION, which is
-    // exactly what the 成績 card's gained-lost-gained band was. At container 940
-    // the desk hands the supporting column 5/12 of the row, and that share has
-    // to clear the 成績 card's OWN 3-up threshold plus the card's own box (40 of
-    // padding, 2 of border) — otherwise crossing INTO the desk costs a tile
-    // column that comes back 18px later, in both rail states. A `cg-page`
-    // threshold that opens a NARROWER box for a child re-crosses the child's
-    // threshold, and that is the shape this arithmetic exists to forbid.
+    // ⚖ R2-27 — AND THE FOURTH PAGE THRESHOLD HAS A SECOND CONDITION: a `cg-page`
+    // threshold may not open a NARROWER box for a child than the child's own
+    // threshold needs, or crossing INTO the desk costs a composition that comes
+    // back a few pixels later. ⚖ I-3 RE-DERIVES IT ON THE NEW SHAPE: the 成績
+    // card is a full-width STRIP now, so its box is the CONTAINER minus its own
+    // 40 of padding rather than 5/12 of a row — which is what makes the tile row
+    // 5-across at the desk threshold instead of the 3-up it used to fall to.
     const row940 = distinct[2] - colsGap
     const mainAtThreshold = (row940 * 7) / 12
     const sideAtThreshold = (row940 * 5) / 12
     // the findings min must NOT bind at the threshold, or it takes the share back
     expect(main).toBeLessThan(mainAtThreshold)
-    expect(sideAtThreshold - 42).toBeGreaterThanOrEqual(spineThresholds[0])
+    // the STRIP clears ⑥'s five-across threshold at the desk threshold and above
+    expect(distinct[2] - 42).toBeGreaterThanOrEqual(spineThresholds[1])
+    // …and every one of those five tiles still clears the tile's own tight floor,
+    // so no value breaks in half at the desk's narrowest band
+    expect((distinct[2] - 42 - statGap * 4) / 5).toBeGreaterThanOrEqual(statTight)
+    // the supporting column clears its own minimum without the min binding
+    expect(sideAtThreshold).toBeGreaterThanOrEqual(side)
     // …and the fr-driven findings column is still wide enough for the receipt
     expect(mainAtThreshold - 32).toBeGreaterThanOrEqual(cardThresholds[0])
-    // 3-up tiles at that share still clear the tile's own tight floor, so no
-    // value breaks in half at the desk's narrowest band
-    expect((sideAtThreshold - 42 - statGap * 2) / 3).toBeGreaterThanOrEqual(statTight)
     // ⑦ THE VALUE'S SIZE FOLLOWS THE TILE, not the card. 3-up and 5-up produce
     // very different tiles out of the same card, so a step keyed on the CARD got
     // one of them wrong every time and 「4.3 / 5.0」 broke in half. The tile is
@@ -2994,11 +3004,12 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     const rowAtReference = container - num('cg-cols-gap')
     const mainAtReference = Math.max(num('cg-main-min'), (rowAtReference * 7) / 12)
     expect(mainAtReference - 32).toBeGreaterThanOrEqual(480)
-    // ⚖ R2-27 — AND THE SUPPORTING COLUMN AT THE REFERENCE WIDTH STILL HOLDS ITS
-    // THREE TILES. This is the width the wave is judged at, so the card that
-    // lost a tile column at 940 is measured here too.
+    // ⚖ I-3 — AND THE 成績 STRIP AT THE REFERENCE WIDTH TAKES ALL FIVE FACTS IN
+    // ONE ROW. This is the width the wave is judged at, and the strip is the page
+    // column wide, so its own box is the container minus its 40 of padding.
     const sideAtReference = rowAtReference - mainAtReference
-    expect(sideAtReference - 42).toBeGreaterThanOrEqual(332)
+    expect(sideAtReference).toBeGreaterThanOrEqual(num('cg-side-min'))
+    expect(container - 42).toBeGreaterThanOrEqual(560)
   })
 
   it('⚖ R1-2 · `aria-controls` names only an element that is MOUNTED', () => {
@@ -3906,6 +3917,75 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
     const ids = new Set(cards.map((c) => c.moduleId))
     for (const f of self.focus) if (f.moduleAnchor) expect(ids.has(f.moduleAnchor)).toBe(true)
+  })
+
+  it('⚖ I-2 · THE HOLE LAW — its constant, and the ROW-STRETCH mechanism that makes it 0 by construction', () => {
+    // The law is stated ONCE, in the sheet's own header, with the measured breach
+    // that named it — so a reader of the CSS meets the rule before the rules.
+    const header = CSS_SRC.slice(0, CSS_SRC.indexOf('/* ── the fence'))
+    expect(header).toContain('≤ 0.20')
+    expect(header).toContain('the tallest column')
+    // EVERY multi-column region except the desk keeps its LAST ROW FULL, so its
+    // columns end at the same y whatever the content is. Region by region, the
+    // rule that does it — and the arithmetic each one answers to: a grid of N
+    // items in C columns leaves N mod C cells empty on the last row, and every
+    // region below can have N mod C ≠ 0.
+    const ROW_REGIONS = [
+      { region: '.cg-side', can: 'five supporting cards, or four', rule: '.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
+      { region: '.cg-sheet-cols', can: 'three columns paired two-up', rule: '.cg-sheet-move { grid-column: 1 / -1; }' },
+      { region: '.cg-shelves', can: 'five shelves in two columns', rule: '.cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
+      { region: '.cg-module-list', can: 'three modules in two columns', rule: '.cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
+    ]
+    for (const r of ROW_REGIONS) {
+      expect({ region: r.region, fills: CSS_CODE.includes(r.rule) }).toEqual({ region: r.region, fills: true })
+      // …and nothing stops the cells stretching to their row's height, which is
+      // what makes a FULL row a LEVEL row.
+      const at = CSS_CODE.indexOf(`${r.region} {`)
+      expect({ region: r.region, found: at > 0 }).toEqual({ region: r.region, found: true })
+      const block = CSS_CODE.slice(at, CSS_CODE.indexOf('}', at))
+      expect({ region: r.region, stretches: !/align-items:\s*(start|flex-start|baseline|center)/.test(block) })
+        .toEqual({ region: r.region, stretches: true })
+    }
+    // …and the counts those rules exist for are the counts the room really has:
+    // FIVE shelves and THREE modules, both odd against two columns.
+    expect(PATTERN_CATEGORIES.length % 2).toBe(1)
+    expect(learningModules.length % 2).toBe(1)
+  })
+
+  it('⚖ I-2 · THE DESK IS TWO PACKED STACKS, and the ASSIGNMENT is what balances them', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const panel = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelSelf"'), SCREEN_CODE.indexOf('id="cgPanelTeam"'))
+    // ⚠ THE BOUNDARY IS THE NEXT CARD, not a comment: `SCREEN_CODE` has its block
+    // comments stripped, so a slice that ended at one would end at −1 and quietly
+    // read the whole panel — which is how this pin first passed the two library
+    // sections off as members of the supporting column.
+    const desk = panel.slice(panel.indexOf('className={`cg-cols'), panel.indexOf('className="cg-patterns"'))
+    const main = desk.slice(desk.indexOf('className="cg-main"'), desk.indexOf('className="cg-side"'))
+    const side = desk.slice(desk.indexOf('className="cg-side"'))
+    // LEFT: the evidence, and nothing else. RIGHT: the four cards that support
+    // reading it. Move one across and the hole reopens — which is exactly the
+    // regression this pin exists to catch, because the probe measures the pixels
+    // and this measures the DECISION.
+    const cardsIn = (src: string) =>
+      [...src.matchAll(/className="(cg-[a-z-]+)"/g)].map((m) => m[1]).filter((c) => SECTION_CARDS.includes(c))
+    expect(cardsIn(main)).toEqual(['cg-findings'])
+    expect(cardsIn(side)).toEqual(['cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-share'])
+    // the two full-width bands are OUTSIDE the desk, which is what let the two
+    // stacks come level at all: 成績 and 今週の練習 used to be in a column.
+    expect(cardsIn(desk)).not.toContain('cg-spine')
+    expect(cardsIn(desk)).not.toContain('cg-sheet')
+    // the stacks really do pack independently — `align-items: start`, so a column
+    // ends where its own content ends rather than being stretched level.
+    expect(CSS_CODE).toMatch(/\.cg-cols,[\s\S]{0,200}?align-items: start;/)
+    // …and the four supporting cards all really render in this world, or the
+    // assignment above would be balanced against cards that are not there.
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.strengths.length).toBeGreaterThan(0)
+    expect(self.outcomes.reasons.length).toBeGreaterThan(0)
+    expect(self.categories.length).toBeGreaterThan(0)
+    expect(self.share.stateLine.length).toBeGreaterThan(0)
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

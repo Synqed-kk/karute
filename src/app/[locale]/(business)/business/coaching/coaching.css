@@ -38,6 +38,27 @@
        for and the reason it is that shape. A fold is not a narrow desktop and an
        iPad is not a big phone.
 
+   (e) ⚖ THE HOLE LAW (S16C, Liam 9/5: 「big blank spaces … not very optimized」).
+       IN EVERY MULTI-COLUMN REGION, AT EVERY WIDTH:
+           (the lowest column's bottom − the highest column's bottom)
+           ────────────────────────────────────────────────────────  ≤ 0.20
+                        the tallest column's height
+       The measured breach that named it: at ≥1280 the self desk's left column
+       ended 390–460px above the right one, and the board's rail ended ~380px
+       above the board. TWO MECHANISMS keep it, and only two:
+         · ROW-STRETCH — a grid whose cells stretch to their row's height, with a
+           rule that keeps the LAST row full (`:last-child:nth-child(odd)`, or a
+           move that spans). Column bottoms are then equal BY CONSTRUCTION and
+           the ratio is 0, whatever the content is. Every region in this room
+           except the desk works this way.
+         · PACKED — two stacks that end where their own content ends. Only the
+           DESK does, and there the ratio is a fact about WHAT IS IN EACH COLUMN.
+           So it is balanced by ASSIGNMENT — 気づき alone on the left, the four
+           supporting cards on the right — and never by stretching a card, which
+           would trade a hole for a slab.
+       The assignment is pinned in the suite; the RATIO is measured by the probe,
+       every region, at every ladder width, in both rail states.
+
    (d) ⚖ NOTHING IS HIDDEN, EVER (⚖-ADJ A / S16-3). There is no `display: none`,
        no `visibility: hidden`, no `max-height` clip and no `overflow: hidden`
        anywhere in this sheet. A surface a reader cannot see is a surface that is
