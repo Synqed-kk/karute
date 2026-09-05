@@ -548,8 +548,14 @@ export function maturityNote(sessions: number): string | null {
 /** personal-findings.ts:146-155 — the four statuses, each with its own honest
  *  sentence. `capture_gap` is a RECORDER problem, not a coaching one, and
  *  saying so is the point of the enum. */
+/** ⚖ I-11 (S16C) — THE FOUR TITLES READ AS ONE SENTENCE: what to do (今週の練習)
+ *  → why (うまくいっている理由 · 伸びしろの理由) → the numbers (あなたの成績) →
+ *  how they moved (the sparkline and the 差 chips inside them). 「気づき」 has not
+ *  been cut — it is the word the section's own guide, the 気づきを作り直す lever
+ *  and every refusal sentence still use; what changed is the HEADING, which now
+ *  says what the list is FOR rather than what it is called. */
 export const STATUS_TITLE: Record<SelfView['status'], string> = {
-  findings: '気づき',
+  findings: '伸びしろの理由',
   routine_excellence: '今回は、直したほうがいいくせは見つかりませんでした',
   capture_gap: '会話の記録が足りず、分析できませんでした',
   insufficient_data: 'まだ分析できる回数に届いていません',

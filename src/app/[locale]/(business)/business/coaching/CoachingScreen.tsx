@@ -223,6 +223,8 @@ export interface CoachingSelfReady {
    *  the props file: 「6月 38% → 9月 52%」. It is what the sparkline SAYS, so the
    *  picture is never the only place the movement exists. */
   trendCaption: string
+  /** ⚖ I-11 (S16C) — 「先月より +8pt」, or null when there is no movement to state. */
+  trendDelta: string | null
   trend: Array<{ label: string; value: number; display: string }>
   findings: CoachingFinding[]
   /** staff-focus.ts:163-176 FOCUS_L1, resolved — the WHOLE list (≤3), not just
@@ -230,6 +232,8 @@ export interface CoachingSelfReady {
   focus: Array<{ category: string; categoryLabel: string; label: string; description: string; confidenceNote: string | null; moduleTitle: string | null; moduleAnchor: string | null }>
   /** ⚖ I-1 — the practice sheet, or `null` when the run named no next move. */
   sheet: CoachingSheet | null
+  /** ⚖ I-11 — 「うまくいっている理由」, the heading's own words. */
+  strengthsTitle: string
   /** staff-focus.ts:200-204 — strengths, each citing its evidencing metric. */
   strengths: Array<{ label: string; detail: string }>
   outcomes: { title: string; reasons: Array<{ reason: string; label: string; count: number }>; pendingLine: string | null }
@@ -672,6 +676,20 @@ export function CoachingScreen(props: CoachingProps) {
     if (!body) return
     return enter(body, [body])
   }, [noticeOpen, reduced])
+
+  /** ⚖ I-11 (S16C) — THE BARS GROW ONCE, WHEN THE SCREEN ARRIVES. A skill bar
+   *  and a sparkline that are simply THERE read as a picture; drawn in, they read
+   *  as a measurement that moved — which is the whole difference between a page a
+   *  stylist checks once and one they open on purpose. The SAME mount-class the
+   *  rows and the notice already use, so no new mechanism and no new easing:
+   *  transform only (`scaleX`/`scaleY` from 0), dropped two frames later, and
+   *  under reduced motion not applied at all. */
+  useLayoutEffect(() => {
+    if (reduced) return
+    const root = rootRef.current
+    if (!root) return
+    return enter(root, root.querySelectorAll('.cg-skill-fill, .cg-bar-fill'))
+  }, [reduced, tab])
 
   // ⚖ Liam 8/23 — 画面の説明. A section joins the walk by DECLARING
   // `data-guide-title` + `data-guide` ON ITSELF, so there is no list to keep in
@@ -1324,6 +1342,12 @@ export function CoachingScreen(props: CoachingProps) {
                         <div className="cg-stat" key={s.key}>
                           <div className="cg-stat-label">{s.label}</div>
                           <div className="cg-stat-value">{s.value}</div>
+                          {/* ⚖ I-11 — THE STEP THE READER TOOK, beside the number
+                              it is a step in. A page a stylist wants to open daily
+                              is built from real movement, not from a badge. */}
+                          {s.key === 'closingRate' && ready.trendDelta && (
+                            <span className="cg-stat-delta">{ready.trendDelta}</span>
+                          )}
                           {/* ⚠ THE PICTURE IS A PICTURE, and it says so: the bars
                               are one `role="img"` whose name is the retired card's
                               own title plus the sentence beside it, so a screen
@@ -1362,8 +1386,8 @@ export function CoachingScreen(props: CoachingProps) {
                     <div className="cg-main">
                       <section
                         className="cg-findings"
-                        data-guide-title="気づき"
-                        data-guide="良かった点も、直したほうがいい点も、そのまま出しています。左が「次にやること」、右がその根拠です。「何回中何回」という実際の回数と、そのときの会話の引用があります。引用はあなただけが見られます。"
+                        data-guide-title="伸びしろの理由"
+                        data-guide="気づきです。良かった点も、直したほうがいい点も、そのまま出しています。左が「次にやること」、右がその根拠です。「何回中何回」という実際の回数と、そのときの会話の引用があります。引用はあなただけが見られます。"
                       >
                         <div className="cg-sec-head">
                           <h2 className="cg-sec-title">{ready.statusTitle}</h2>
@@ -1487,11 +1511,11 @@ export function CoachingScreen(props: CoachingProps) {
                       {ready.strengths.length > 0 && (
                         <section
                           className="cg-strengths"
-                          data-guide-title="あなたの強み"
-                          data-guide="うまくいっている点です。ほめるためではなく、何が効いているのかを続けられるように、根拠になった数字を必ず添えています。"
+                          data-guide-title="うまくいっている理由"
+                          data-guide="あなたの強みです。ほめるためではなく、何が効いているのかを続けられるように、根拠になった数字を必ず添えています。"
                         >
                           <div className="cg-sec-head">
-                            <h2 className="cg-sec-title">あなたの強み</h2>
+                            <h2 className="cg-sec-title">{ready.strengthsTitle}</h2>
                             {lock}
                           </div>
                           <ul className="cg-strength-list">

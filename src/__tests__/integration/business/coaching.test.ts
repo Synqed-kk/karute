@@ -3506,7 +3506,9 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(CSS_CODE).toContain('.cg-findings { width: 100%; max-width: var(--cg-maxw); }')
     // …and it is STILL a declared section with the run-status title and ONE lock
     expect(SCREEN_CODE).toContain('className="cg-findings"')
-    expect(SCREEN_CODE).toContain('data-guide-title="気づき"')
+    // ⚖ I-11 — the HEADING says what the list is for; 「気づき」 stays the word the
+    // section's own guide, its regenerate lever and every refusal sentence use.
+    expect(SCREEN_CODE).toContain('data-guide-title="伸びしろの理由"')
     const sec = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-findings"'), SCREEN_CODE.indexOf('cg-find-list'))
     expect([...sec.matchAll(/\{lock\}/g)].length).toBe(1)
     // ⚠ S16-D10 — PER-CARD privacy markers are DECLINED: one element from one
@@ -4143,6 +4145,61 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(CSS_CODE).toContain('.cg-lift-list { grid-template-columns: repeat(2, minmax(var(--cg-lift-min), 1fr)); }')
     expect(CSS_CODE).toContain('.cg-lift-list { grid-template-columns: repeat(4, minmax(var(--cg-lift-min), 1fr)); }')
     expect(props.roi!.lifts.length).toBe(4)
+  })
+
+  it('⚖ I-11 · PROGRESS IS THE SPINE — real movement, real reasons, and nothing invented', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    // the movement is the RUN's own two last points, with its sign spelled
+    const h = coachingStaff.find((r) => r.staffId === 'p-06')!.history
+    expect(self.trendDelta).toBe(`先月より +${Math.round((h[h.length - 1] - h[h.length - 2]) * 100)}pt`)
+    // …and a negative step really prints a minus, because a page that can only
+    // show good news is not a measurement (the sign is always spelled).
+    const falling = await coachingProps({
+      ...GINZA,
+      world: { rows: coachingStaff.map((r) => (r.staffId === 'p-06' ? { ...r, history: [0.5, 0.5, 0.52, 0.44] } : r)) },
+    })
+    const down = falling.props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(down.trendDelta).toBe('先月より −8pt')
+    // the FOUR titles read as one sentence: what to do → why → the numbers → how
+    // they moved. Every retired heading is the first words of its own guide.
+    expect(SCREEN_CODE).toContain('data-guide-title="今週の練習"')
+    expect(SCREEN_CODE).toContain('data-guide-title="うまくいっている理由"')
+    expect(SCREEN_CODE).toContain('data-guide-title="伸びしろの理由"')
+    expect(SCREEN_CODE).toContain('data-guide-title="あなたの成績"')
+    expect(SCREEN_CODE).toContain('data-guide="あなたの強みです。')
+    expect(SCREEN_CODE).toContain('data-guide="気づきです。')
+    expect(self.statusTitle).toBe('伸びしろの理由')
+    expect(self.strengthsTitle).toBe('うまくいっている理由')
+    // 「気づき」 is still the word every LEVER and every refusal uses, so nothing
+    // on this page calls one thing two names.
+    expect(SCREEN_CODE).toContain("refused('気づきを作り直す'")
+    expect(props.refusals.regenerate).toContain('気づき')
+    // ⚠ NOTHING INVENTED: no streak, no badge, no score, no goal the plane does
+    // not hold — in the payload OR in the screen.
+    const blob = JSON.stringify(props)
+    // ⚠ 'レベル' IS NOT ON THIS LIST, and the reason is worth stating: the phone's
+    // own legally-reviewed transparency copy says 「カテゴリーレベル」 — 「at the
+    // category level」 — which is the opposite of a game level. A ban on the
+    // substring would have flagged a sentence lawyers wrote. 「レベルアップ」 is
+    // the thing this room may not grow.
+    for (const word of ['連続', 'バッジ', 'ランク', 'レベルアップ', '目標', 'ポイント獲得', 'スコア']) {
+      expect({ word, inPayload: blob.includes(word) }).toEqual({ word, inPayload: false })
+    }
+    // the bars arrive ONCE, through the room's own mount class — transform only,
+    // no keyframe, no new easing, and nothing at all under reduced motion.
+    expect(SCREEN_CODE).toContain("return enter(root, root.querySelectorAll('.cg-skill-fill, .cg-bar-fill'))")
+    expect(CSS_CODE).toContain('.cg-skill-fill.is-enter { transform: scaleX(0); }')
+    expect(CSS_CODE).toContain('.cg-bar-fill.is-enter { transform: scaleY(0); }')
+    expect(CSS_CODE).not.toContain('@keyframes')
+    const still = CSS_CODE.slice(CSS_CODE.indexOf('@media (prefers-reduced-motion: reduce)'))
+    expect(still).toContain('.cg-bar-fill { transition: none; }')
+    expect(still).toContain('.cg-bar-fill.is-enter { transform: none; }')
+    // …and the only easing curves in the sheet are the two it already had
+    const curves = new Set([...CSS_CODE.matchAll(/cubic-bezier\([^)]*\)/g)].map((m) => m[0]))
+    expect([...curves].sort()).toEqual(['cubic-bezier(.2, .7, .1, 1)', 'cubic-bezier(.22, .9, .24, 1)'])
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

@@ -626,6 +626,11 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             trendCaption: trendCaption(
               self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', display: pct(v) })),
             ),
+            // ⚖ I-11 — HOW IT MOVED, in one phrase. The sparkline shows the shape;
+            // this says the step the reader took last month, with its sign always
+            // spelled. Null with fewer than two points — there is no movement to
+            // state, and printing 0 would be a claim the run cannot make.
+            trendDelta: trendDelta(self.view.history),
             trend: self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', value: v, display: pct(v) })),
             findings: self.view.findings.map((f) => ({
               id: f.id,
@@ -660,6 +665,9 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             // metric/pattern」, and the plane has carried this since the build
             // round while the room rendered nothing (audit §5 rank 4). Honest,
             // not sweet: a strength here is a strength with a receipt attached.
+            // ⚖ I-11 — 「うまくいっている理由」. The heading says what the card is FOR;
+            // 「あなたの強み」 stays as the first words of its own guide sentence.
+            strengthsTitle: 'うまくいっている理由',
             strengths: self.view.strengths.map((s) => ({ label: s.label, detail: s.detail })),
             focus: self.view.focus.map((f) => ({
               category: f.category,
@@ -983,6 +991,15 @@ const pct = (r: number) => `${Math.round(r * 100)}%`
 /** ⚖ I-3 — 「6月 38% → 9月 52%」. The FIRST and the LAST point the run really
  *  carries, never a window this plane did not scope: with fewer than two points
  *  there is no movement to state and the sparkline does not render either. */
+/** ⚖ I-11 — 「先月より +8pt」. Points, because the metric is a rate and the
+ *  difference between two rates is a difference in points rather than a percent
+ *  of a percent — the same unit the ROI screen's own lifts are stated in. */
+const trendDelta = (history: number[]): string | null => {
+  if (history.length < 2) return null
+  const step = Math.round((history[history.length - 1] - history[history.length - 2]) * 100)
+  return `先月より ${step >= 0 ? '+' : '−'}${Math.abs(step)}pt`
+}
+
 const trendCaption = (points: Array<{ label: string; display: string }>) => {
   if (points.length < 2) return ''
   const a = points[0]

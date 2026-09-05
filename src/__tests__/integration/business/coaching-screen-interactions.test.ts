@@ -166,10 +166,13 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       // ⚖ I-5 — 「上位層から学ぶ」 and 「トップパフォーマーのパターン」 were the same
       // subject said twice; they are ONE section (「上位層のやり方」) now, and the
       // retired card's heading is its footer's own sub-heading.
-      'あなたの成績', '今週の練習', '気づき', '不成約の理由', '会話スキル',
+      // ⚖ I-11 — the four titles read as one sentence: what to do → why → the
+      // numbers → how they moved. 「気づき」 and 「あなたの強み」 are the words their
+      // own guide sentences open with, so neither is cut.
+      'あなたの成績', '今週の練習', '伸びしろの理由', '不成約の理由', '会話スキル',
       'マネージャーへの共有', 'まだ表示できないもの',
       // …and the look-fix round's own self-tab sections
-      'コーチングを受けることへの同意', 'あなたの強み',
+      'コーチングを受けることへの同意', 'うまくいっている理由',
       '上位層のやり方', '学習モジュール',
       // 全スタッフ表示
       // ⚖ I-8 — 「店舗全体のサポートエリア」 and 「共有の状況」 were two cards in a

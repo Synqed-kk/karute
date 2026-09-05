@@ -806,11 +806,19 @@
    tile the movement is part of the number rather than a second reading of it.
    ⚠ THE ROOM'S ONE DATA ACCENT IS STILL THE LAST BAR — the month the reader is
    in (CLAUDE.md's own chart/data carve-out; nothing else here is accent). */
+/* ⚖ I-11 — THE STEP, beside the number it is a step in. Neutral: a movement is
+   a fact, and the room spends its one accent on the last BAR (the month you are
+   in) rather than on a word. */
+.biz .pg-coaching .cg-stat-delta { display: inline-block; margin-top: 4px; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-spark { display: block; margin-top: 7px; }
 .biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-bar { display: flex; flex-direction: column; justify-content: flex-end; flex: 1 1 0; min-width: 0; }
 .biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 26px; border-radius: 4px; background: #fff; }
-.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 4px; background: #9db4e8; }
+.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 4px; background: #9db4e8; transform-origin: bottom center; transition: transform 420ms cubic-bezier(.22, .9, .24, 1); }
+/* ⚖ I-11 — THE ARRIVAL, and it is the room's OWN mount class rather than a new
+   mechanism: transform only, no keyframe, no new easing (this curve is already
+   the chevron's and the spotlight's), and nothing at all under reduced motion. */
+.biz .pg-coaching .cg-bar-fill.is-enter { transform: scaleY(0); }
 .biz .pg-coaching .cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }
 .biz .pg-coaching .cg-spark-cap { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.6; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
 
@@ -831,7 +839,8 @@
    family — no threshold tone on a per-person number). */
 .biz .pg-coaching .cg-skill-gap { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: var(--section); color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-skill-track { position: relative; display: block; height: 7px; border-radius: 999px; background: var(--section); }
-.biz .pg-coaching .cg-skill-fill { display: block; height: 100%; border-radius: 999px; background: #9db4e8; }
+.biz .pg-coaching .cg-skill-fill { display: block; height: 100%; border-radius: 999px; background: #9db4e8; transform-origin: left center; transition: transform 420ms cubic-bezier(.22, .9, .24, 1); }
+.biz .pg-coaching .cg-skill-fill.is-enter { transform: scaleX(0); }
 .biz .pg-coaching .cg-skill-mark { position: absolute; top: -3px; width: 2px; height: 13px; border-radius: 2px; background: var(--ink-3); }
 .biz .pg-coaching .cg-skill-note { color: var(--muted); font-size: 11px; line-height: 1.6; }
 
@@ -1466,5 +1475,11 @@
   .biz .pg-coaching .cg-notice-body { transition: none; }
   .biz .pg-coaching .cg-row.is-enter,
   .biz .pg-coaching .cg-notice-body.is-enter { opacity: 1; transform: none; }
+  /* ⚖ I-11 — the bars are simply THERE for a reader who asked for less motion:
+     the class is not applied at all, and the transition is off either way. */
+  .biz .pg-coaching .cg-skill-fill,
+  .biz .pg-coaching .cg-bar-fill { transition: none; }
+  .biz .pg-coaching .cg-skill-fill.is-enter,
+  .biz .pg-coaching .cg-bar-fill.is-enter { transform: none; }
   .biz .pg-coaching .cg-notice-chevron { transition: none; }
 }
