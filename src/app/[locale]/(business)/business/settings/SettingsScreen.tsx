@@ -592,9 +592,17 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  between two bookings — and it had no motion at all: the old panel was
    *  replaced on the frame. The packet asks for a cross-fade plus a 6px rise on
    *  the room's ONE spring (⚖ Studio: no second easing, no `@keyframes` for
-   *  state), and `prefers-reduced-motion` reduces it to the cross-fade alone
-   *  (⚖ apple-design §14 — reduced motion is a gentler equivalent, not the
-   *  absence of feedback).
+   *  state).
+   *
+   *  ⚠ UNDER `prefers-reduced-motion` THE PANEL SWAPS IN PLACE — it does not
+   *  cross-fade, and saying otherwise would be a claim this code does not make.
+   *  The FROZEN `spring.ts` applies every `set` instantly when `reduced` is on
+   *  (`spring.ts:107-112`), so the seat at 0 and the target at 1 land in the
+   *  same synchronous block and the browser never paints the 0. The transform
+   *  is not written at all there, so nothing travels either. That IS the
+   *  gentler equivalent ⚖ apple-design §14 asks for — the state changes, it
+   *  simply does not move — and the room's colour transitions still carry the
+   *  feedback.
    *
    *  ⚠ IT STARTS FROM THE PRESENTATION VALUE, not from zero (⚖ apple-design §3).
    *  A manager clicking down the rail faster than the spring settles would

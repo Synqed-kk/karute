@@ -876,9 +876,14 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   // was written around a cross-fade that did not exist.
   // ⚖ apple-design §3 (start from the presentation value — a fast rail-clicker
   // must not see each panel restart from invisible), §7 (one axis, so the path
-  // in and the path out are the same line), §14 (reduced motion = the fade
-  // alone, never the absence of feedback).
-  it('⚖ F16 — the panel cross-fades and rises on section change, and only cross-fades under reduce', () => {
+  // in and the path out are the same line), §14 (the reduced equivalent is
+  // gentler, never the absence of feedback).
+  // ⚠ AND UNDER REDUCE IT SWAPS IN PLACE, not cross-fades: the FROZEN spring
+  // applies every `set` instantly when `reduced` is on (`spring.ts:107-112`), so
+  // the seat at 0 and the target at 1 land in the same synchronous block and the
+  // browser never paints the 0. Written down because the first cut of this pin
+  // claimed a fade that the code does not perform.
+  it('⚖ F16 — the panel cross-fades and rises on section change, and swaps in place under reduce', () => {
     expect(SCREEN_CODE).toContain('const SPRING_PANEL = 0.32')
     expect(SCREEN_CODE).toContain('<div className="st-panel" ref={panelRef}>')
     const eff = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const panelSpring = useRef'))
