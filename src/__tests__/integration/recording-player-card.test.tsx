@@ -293,6 +293,8 @@ describe('the controls', () => {
       get: () => seeks[seeks.length - 1] ?? 0,
       set: (v: number) => void seeks.push(v),
     })
+    // A real drag STARTS with pointerdown — that is what claims the thumb.
+    fireEvent.pointerDown(range)
     for (const v of ['100', '150', '200', '250', '300']) {
       fireEvent.change(range, { target: { value: v } })
     }
@@ -315,6 +317,7 @@ describe('the controls', () => {
     })
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
     const audio = audioEl()
+    fireEvent.pointerDown(range)
     fireEvent.change(range, { target: { value: '400' } })
     expect(range.value).toBe('400')
     audio.currentTime = 12
@@ -333,6 +336,7 @@ describe('the controls', () => {
     })
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
     const audio = audioEl()
+    fireEvent.pointerDown(range)
     fireEvent.change(range, { target: { value: '400' } })
     fireEvent.pointerUp(range)
     // The drag is over — a tick may move the display again.
@@ -353,6 +357,7 @@ describe('the controls', () => {
       get: () => seeks[seeks.length - 1] ?? 0,
       set: (v: number) => void seeks.push(v),
     })
+    fireEvent.pointerDown(range)
     fireEvent.change(range, { target: { value: '250' } })
     fireEvent.pointerUp(range)
     fireEvent.touchEnd(range)
@@ -365,9 +370,75 @@ describe('the controls', () => {
     expect(screen.getByLabelText('再生位置').className).toContain('touch-pan-y')
   })
 
+  // ⚠ THE STRANDED-CLAIM CLASS (fix round 5, delta lens NEW-1 — a round-3
+  // regression of mine). The `scrubbing` ref had exactly four ways out, all of
+  // them events ON the range. Two ordinary paths claimed it and never reached
+  // one: Tab moves focus on KEYDOWN so the keyup lands on the next element, and
+  // an assistive value adjust fires `change` with no pointer or key phase at
+  // all. Either left `onTimeUpdate` muted for the rest of the listen — the
+  // thumb, the fill and the clock frozen while the audio played on correctly,
+  // which from the staffer's side is indistinguishable from a hang.
+  it('tabbing off the scrub while playing does not freeze the position display', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    fireEvent.keyDown(range, { key: 'Tab' })
+    fireEvent.keyUp(document.body, { key: 'Tab' })
+    audio.currentTime = 200
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('200')
+  })
+
+  it('a value change with no release event at all (assistive adjust) frees up again', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    fireEvent.change(range, { target: { value: '400' } })
+    audio.currentTime = 200
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('200')
+  })
+
+  // The belt for what is left: an arrow key DID claim the thumb, and then focus
+  // moved before its keyup (Tab away mid-seek, a shortcut, an AT moving on).
+  it('losing focus releases the thumb, and commits nothing', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    const seeks: number[] = []
+    Object.defineProperty(audio, 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.keyDown(range, { key: 'ArrowRight' })
+    fireEvent.change(range, { target: { value: '400' } })
+    fireEvent.blur(range) // focus moved; the keyup never lands here
+    expect(seeks).toEqual([]) // blur commits nothing
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('0') // …and the playhead has its thumb back
+  })
+
   it('a keyboard user’s seek commits on key up', () => {
     card()
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    // A value-moving key claims the thumb; Tab and friends never do.
+    fireEvent.keyDown(range, { key: 'ArrowRight' })
     fireEvent.change(range, { target: { value: '120' } })
     fireEvent.keyUp(range, { key: 'ArrowRight' })
     expect(audioEl().currentTime).toBe(120)

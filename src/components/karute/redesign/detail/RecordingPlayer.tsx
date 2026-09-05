@@ -34,6 +34,20 @@ const SPEEDS = [1, 1.5, 2, 3] as const
 const SKIP_S = 15
 /** How long an inline notice stays before the row goes quiet again. */
 const NOTICE_MS = 3000
+/** The keys that MOVE a range's value. Everything else — Tab above all — leaves
+ *  the value alone, so it must never claim the thumb (fix round 5): Tab's
+ *  default action moves focus on KEYDOWN, so the matching keyup lands on the
+ *  next element and the claim would never be released. */
+const SEEK_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+])
 
 /** What the total reads before anything is known (F10). A job-owned row can
  *  carry a null duration, and `preload="none"` means no metadata loads until
@@ -365,21 +379,33 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           value={Math.min(elapsed, total || 0)}
           disabled={total <= 0}
           // The drag moves the DISPLAY only; the element is seeked on release.
+          //
+          // ⚠ ONLY A REAL GESTURE CLAIMS THE THUMB (fix round 5). Round 3 also
+          // claimed it on any keydown and on a bare `change`, and neither has a
+          // release that reliably comes back: Tab moves focus on KEYDOWN so the
+          // keyup lands on the next element, and an assistive value adjust
+          // fires `change` with no pointer or key phase at all. Either one left
+          // the claim standing, `onTimeUpdate` muted, and the thumb, the fill
+          // and the elapsed clock frozen for the rest of the listen — the audio
+          // playing on correctly behind a display that looked hung.
           onPointerDown={() => void (scrubbing.current = true)}
           onTouchStart={() => void (scrubbing.current = true)}
-          onKeyDown={() => void (scrubbing.current = true)}
-          // Belt: a synthetic change with no pointer/key phase (a test, an
-          // assistive tool) still claims the thumb for the duration of the drag.
-          onChange={(e) => {
-            scrubbing.current = true
-            setElapsed(Number(e.target.value))
+          onKeyDown={(e) => {
+            if (SEEK_KEYS.has(e.key)) scrubbing.current = true
           }}
+          onChange={(e) => setElapsed(Number(e.target.value))}
           onPointerUp={commitSeek}
           // An interrupted drag (the finger leaves the surface, a call arrives)
           // must release the thumb too — otherwise the display freezes for good.
           onPointerCancel={commitSeek}
           onTouchEnd={commitSeek}
           onKeyUp={commitSeek}
+          // The belt for every remaining way a claim could be stranded: focus
+          // loss is the one event they all share (Tab after an arrow key, a
+          // shortcut that moves focus, an assistive tool moving on). It commits
+          // nothing — a keyboard seek has already committed on its own keyup
+          // long before blur — it only gives the playhead its thumb back.
+          onBlur={() => void (scrubbing.current = false)}
           aria-label={t('transcript.seek')}
           className={cn(
             // ⚠ `touch-pan-y` is load-bearing (fix round 3). F8 made this a

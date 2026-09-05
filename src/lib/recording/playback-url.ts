@@ -2,24 +2,29 @@
 // into a short-lived signed READ url for the audio behind it (build 23 slice ①,
 // the play button inside the 文字起こし card).
 //
-// THE FALSIFIABLE CLAIMS THIS FILE MAKES, in the order it checks them:
-//   1. THE FENCE, AND THEN THE OBJECT. The key must be a TAKE of the caller's
-//      own tenant with the row's own receipt on it (`serverHoldsTakeRow`,
-//      take-binding.ts) — and then storage is ASKED, because that helper is a
-//      heuristic and its own header says so: a reasoned discard stamps a
-//      client-reported duration on the row with no object proof, and the
-//      ordinary discard leaves the row on its TAKE key. A null pointer, an
-//      unlanded take, a `stg/` staged copy, another tenant's key and a row
-//      whose object is simply not there are ONE answer: no_audio. One storage
-//      probe per LISTEN is the price; per VIEW it would not be, which is why
-//      the card keeps the heuristic and this door keeps the proof.
+// THE FALSIFIABLE CLAIMS THIS FILE MAKES, in the order it checks them —
+// fence → ACL → object → signature → audit row:
+//   1. THE FENCE. The key must be a TAKE of the caller's own tenant with the
+//      row's own receipt on it (`serverHoldsTakeRow`, take-binding.ts). A null
+//      pointer, an unlanded take, a `stg/` staged copy and another tenant's key
+//      are one answer: no_audio.
 //   2. THE ACL. Whoever may read the RAW TRANSCRIPT of this karute may hear its
 //      audio — canViewTranscript, on the SAME input the words use
 //      (`recordings.viewAll`, which this repo hard-strips to the owner). One
 //      rule, one place, literally: there is no second capability that reaches
 //      the sound. A record with no owner keeps its shared answer for the sound
 //      exactly as for the words.
-//   3. ONE ROW PER MINT. Every successful mint writes exactly one
+//   3. AND ONLY THEN, THE OBJECT. Storage is asked whether the bytes are really
+//      there, because the fence's helper is a heuristic and its own header says
+//      so: a reasoned discard stamps a client-reported duration on the row with
+//      no object proof, and the ordinary discard leaves the row on its TAKE
+//      key. A row whose object is simply gone joins the same no_audio answer.
+//      It runs AFTER the ACL (fix round 3) so this really is one storage probe
+//      per LISTEN rather than per attempt, and so a caller who may not hear the
+//      take learns nothing about whether its bytes exist. Per VIEW it would not
+//      be affordable at all — which is why the card keeps the heuristic and
+//      this door keeps the proof.
+//   4. ONE ROW PER MINT. Every successful mint writes exactly one
 //      `recording.play` audit row and every refusal writes none — the audit
 //      call lexically dominates the single success return (CP7), and each
 //      refusal is an `{ error }` literal that returns before it.
@@ -136,7 +141,7 @@ export async function mintPlaybackUrlWithClient(
     return { error: upstreamStatus(err) === 404 ? 'no_audio' : 'upstream' }
   }
 
-  // 3. THE FENCE (claim 1), first half: take-only by the shared grammar, plus
+  // 3. THE FENCE (claim 1): take-only by the shared grammar, plus
   //    the row's own receipt — the same predicate the card's presence uses, so
   //    a player never appears for audio this door would not even consider.
   if (!serverHoldsTakeRow(row, actor.businessId)) return { error: 'no_audio' }
@@ -163,7 +168,7 @@ export async function mintPlaybackUrlWithClient(
     return { error: 'forbidden' }
   }
 
-  // 5. ASK STORAGE — the fence's second half, and it runs AFTER the ACL (fix
+  // 5. ASK STORAGE (claim 3) — and it runs AFTER the ACL (fix
   //    round 3). The row is only a heuristic (see the helper's own header: a
   //    reasoned discard stamps an unproven duration, and the ordinary discard
   //    keeps the take key), so the only honest fact about whether these bytes
@@ -208,7 +213,7 @@ export async function mintPlaybackUrlWithClient(
     return { error: 'upstream' }
   }
 
-  // 7. ONE ROW PER MINT (claim 3). Legal hygiene, never a notification: an
+  // 7. ONE ROW PER MINT (claim 4). Legal hygiene, never a notification: an
   //    owner listening to a staffer's take is `breakGlass`, and nobody is told.
   //    ⚖ 8/17 doc law keeps content out of details — ids and the TTL only.
   audit({

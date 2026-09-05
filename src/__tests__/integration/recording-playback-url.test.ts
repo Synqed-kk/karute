@@ -279,7 +279,12 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
     expect(lines.filter((l) => l.action === 'recording.play')).toHaveLength(0)
   })
 
-  it('the probe runs on the row’s OWN key, after the ACL and before anything is signed', async () => {
+  // ⚠ TITLE = WHAT THIS BODY CHECKS (fix round 5, delta lens NEW-3). It used to
+  // say "after the ACL" too, which its assertions cannot fail on — it passes
+  // unchanged against the pre-round-3 file where the probe ran first. The ACL
+  // half is carried by its sibling below ('a caller the ACL refuses never
+  // probes storage at all'), which DOES red when the order is wrong.
+  it('the probe runs on the row’s OWN key, before anything is signed', async () => {
     await mint()
     expect(info).toHaveBeenCalledWith(TAKE_KEY)
     expect(info.mock.invocationCallOrder[0]).toBeLessThan(
