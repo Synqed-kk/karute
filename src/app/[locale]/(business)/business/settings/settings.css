@@ -1,16 +1,17 @@
-/* 設定 — the room's sheet. A CATEGORY RAIL and ONE SECTION AT A TIME, wearing
-   the family's clothes and canon's own settings IA.
+/* 設定 — the room's sheet. A CATEGORY RAIL, ONE SECTION AT A TIME, and a sticky
+   stack beside it that says where you are and what is unsaved.
 
    THE SHAPE, IN THE ORDER THE PAGE READS:
-     · the head — what this page is, with the ? that opens 画面の説明;
-     · the rail — canon's five groups and twenty-one entries, each carrying its
-       own state (権限がありません / 自分だけ);
+     · the head — ONE compact row: the dateline, 設定, the ? that opens 画面の説明,
+       and a one-line subtitle;
+     · the rail — a 設定を検索 field over canon's five groups and twenty-two
+       entries, each carrying its own state (権限がありません / 自分だけ);
      · the panel — one section: its kicker, title and lead, then its BLOCKS (a
        block is canon's own `<section class="block">`: a head, its rows, its
-       facts, its preview, its links), then (on a desk) the trace card beside
-       them saying where every value came from;
-     · the save bar and the standing 「保存はこの画面の中だけに反映されます」 line,
-       on store sections only.
+       facts, its preview, its links);
+     · the sticky stack — 予約と確保's live card (that section only), then
+       このページの中身 (the section's blocks, the one in view highlighted, a dot
+       on any block holding an unsaved change), then the save state.
 
    ── ⚖ THE LAWS THIS ROOM WAS DESIGNED UNDER ────────────────────────────────
 
@@ -22,103 +23,122 @@
        gap, closed in the markup rather than by positional discipline.
 
    (b) EVERYTHING MOVES, SO THE ACCENT MOVES WITH IT (⚖ R13 + the one-way accent
-       law). In the first cut almost every control was refused and the accent was
-       spent only on the rail; now every control is LIVE, so a selected option
-       carries R13's own recipe — an 8% accent wash, accent border, accent text,
-       never a solid fill. The two SOLID accent fills on the page are the COMMIT
-       actions (保存する, and a block's own action button), which is exactly what
-       R13 reserves a solid fill for. A control canon itself locks stays neutral,
+       law). Every control on this page is LIVE, so a selected option carries
+       R13's own recipe — an 8% accent wash, accent border, accent text, never a
+       solid fill. The SOLID accent fills on the page are the COMMIT actions
+       (保存する, and a block's own action button), which is exactly what R13
+       reserves a solid fill for. A DOOR — 予約と確保を開く, 「…で →」, 変更の記録を
+       見る — is a wash pill, never a fill: it opens a page, it does not commit
+       anything (⚖ mock review v2-3). A control canon itself locks stays neutral,
        because nothing happens when it is pressed. No black fills anywhere.
 
-   (c) EVERY BAND IS ITS OWN COMPOSITION (⚖ Liam 9/1). Three deliberate
-       compositions, named below with the width each is for and the reason it is
-       that shape.
+   (c) EVERY BAND IS ITS OWN COMPOSITION (⚖ Liam 9/1, ⚖ ALL-SCREEN 8/23). Three
+       deliberate compositions, named below with the width each is for and the
+       reason it is that shape.
 
    ── THE THREE COMPOSITIONS, AND THE TWO THRESHOLDS BETWEEN THEM ─────────────
 
-   ① STACKED (`.st-main` < 410 — phones in portrait, and split view at 744)
-      The label, the control, the guardrails and the notes each take the full
-      width, in reading order. Touch targets ≥44px from 1023 down, because every
-      one of these is a finger on glass.
+   ① LIST-IS-THE-PAGE (viewport ≤ 899 — phones, folded cover screens, iPad
+      portrait and every split view)
+      The rail IS the page. A row opens its section as its own screen with a real
+      「‹ 設定」 back control, and the back control returns focus to the row it was
+      opened from. このページの中身 rides under the head as a short list; the save
+      state sticks to the bottom of the screen, where a thumb already is. Touch
+      targets ≥44px from 1023 down, because 744–1023 is a finger on glass exactly
+      as 743 is (room 8's C8-7).
 
-   ② LEVEL (`.st-main` ≥ 410 — iPads in portrait, foldables, laptops)
-      The label and its control sit on ONE line, canon's own `.set-row` shape,
-      with the description and the guardrail lines beneath them. A setting is
-      read as 「this thing → is set to that」, and that sentence wants one line.
+   ② STRIP (`.st-body` < 960 and viewport ≥ 900 — narrow laptops, an iPad in
+      landscape, any window with the shell's rail open at 1024–1272)
+      Rail and panel share the page; the sticky stack has nowhere to stand, so it
+      becomes a BAND above the panel — the jump titles as a horizontal chip run,
+      the save state beside them, and (予約と確保 only) the live card full width
+      under them. Nothing is lost, it is re-laid.
 
-   ③ DESK (`.st-panel` ≥ 720 — laptops and externals; ② still holds inside it)
-      The trace card moves from under the blocks to BESIDE them, so 「the value」
-      and 「where the value comes from」 are one glance apart instead of a scroll.
-      ⚖ 8/30, desktop surpasses phone: the width buys the reader the receipts,
-      not more rows.
+   ③ SIDE COLUMN (`.st-body` ≥ 960 — the reference laptop upward)
+      Rail | panel | sticky stack. This is the composition the room was designed
+      for: the value on the left, where you are and what is unsaved on the right,
+      one glance apart.
 
    ── THE ARITHMETIC, STATED SO IT CAN BE READ RATHER THAN REMEMBERED ─────────
    (the room-6 B4-1 law: a literal threshold goes stale the moment one of its
    terms moves, and the suite parses these numbers and asserts each threshold
    against their SUM.)
 
-     THRESHOLD ①→② (stacked → level), on `.st-main`:
-         140  the label column
-       +  16  the gap between label and control
-       + 250  the widest single-choice segment — MEASURED, not derived: the
-              four-option 販売可能な最小の長さ segment is 245.83px in the real
-              cascade (予定ブロックの移動単位 is 236.58, 共有の方針 242.97),
-              rounded up to 250 so a different system font cannot land the row
-              on the wrong side of it.
+     THRESHOLD ②→③ (strip → side column), on `.st-body`:
+         200  the rail at its narrowest shipping width (`--st-rail-w`)
+       +  16  rail → panel gap (`--st-gap`)
+       + 440  the reading column's floor (`--st-main-min`) — a block card with a
+              row label, its description and its control on one band
+       +  16  panel → stack gap (`--st-gap`)
+       + 288  the sticky stack (`--st-side-w`) — the widest block title in the
+              room, 「スタッフが見るカード」, on two lines inside the jump list
        ─────
-         406  the width at which the level SHAPE first fits
-         410  ships — 406 plus 4px of slack, so a fractional page (zoom, a
-              scrollbar) cannot land the row on the wrong side of an equality.
+         960  the width at which the three-column shape first fits, and what
+              ships. ⚠ IT IS MEASURED ON `.st-body` RATHER THAN ON THE VIEWPORT,
+              and that is the whole point: the shell's own rail is 264px at
+              ≥1024 and 76px below it, so a viewport rule decides this from the
+              wrong number. At 1280 with the shell rail OPEN the body is 968 —
+              eight pixels of headroom, deliberately, because 1280-with-the-rail
+              is the width this product is actually read on. The fold round's
+              own D-2 is exactly this arithmetic going wrong by 52px in the
+              other direction.
 
-     ⚠ AND THE TOKEN IS REALLY SPENT (DS9-2, and it stays spent). The control
-     track states `minmax(var(--st-ctl-min), max-content)`, so the threshold is a
-     statement about whether the ROW FITS rather than about three numbers adding
-     up. A `minmax(0, …)` floor once let the column squeeze to 198 and wrap an
-     orphan chip across 744–791 while the suite stayed green.
-
-     ⚠ AND A CONTROL WIDER THAN THE FLOOR IS NOT ALLOWED TO EXIST AS A SEGMENT
-     (S9L-3). canon states some choices as segmented controls whose labels are
-     far wider than any column this room can give them — 「割引型（定価から引く）」,
-     「120分前まで」, five 分 options. Raising `--st-ctl-min` to fit them would
-     push iPad portrait (main 416) back into the STACKED composition to serve a
-     handful of rows. So those rows use canon's OTHER shape, the select, which
-     canon already uses on eight of its own rows. The geometry law stays a law
-     rather than an aspiration.
-
-     THRESHOLD ②→③ (level → desk), on `.st-panel`:
-         440  the block column, with a guardrail sentence readable inside it
-       +  20  the gap between the columns
-       + 250  the trace card (a label/value list, two words per line)
+     THRESHOLD FOR THE THREE-ACROSS GRIDS, on `.st-main`:
+         200  a preset card narrow enough to still read as a card
+       ×   3  the three presets, which are a set and never a torn half-row
+       +  24  the two 12px gaps between them
        ─────
-         710  the width at which the master–detail SHAPE first fits
-         720  ships — 710 plus 10px of slack.
-              ⚠ 780 SHIPPED FIRST AND WAS WRONG BY 52px, which only the shots
-              showed: at 1280 with the shell's own rail OPEN the panel is 728, so
-              the reference laptop — the width this product is actually read on —
-              lost the trace card to a scroll.
+         624  the width at which three across fits
+         640  ships — 624 plus 16px of slack.
+              Below it the presets STACK, and so does the capability grid drop
+              from four columns to two. ⚠ AT 1280 THE MAIN COLUMN IS 408px AND
+              THE PRESETS STACK, WHICH IS THE POINT: the fold's D-2 measured
+              three preset cards crushed to ~85px each at that width, with their
+              text stacking into strips. Stacked, each card gets the whole
+              column and reads.
 
-     MONOTONIC IN THE WIDTH THAT DECIDES IT, WHICH IS THE PANEL AND NOT THE
-     VIEWPORT. `.st-main` is the panel minus the 220px rail and its 20px gap from
-     744 up, and the whole page below it; `.st-panel` is the same minus nothing.
-     ⚠ READ 743 AND 744 TOGETHER RATHER THAN AS A REVERSAL. At 743 the rail IS
-     the page and a chosen section gets the WHOLE width (main 639, ②); at 744 the
-     rail moves back beside it and the panel is suddenly 247px narrower (main 392,
-     ①). The composition follows the width it is given, which is the ladder
-     working: sorted by the width that decides it, every shape is gained once and
-     never given back.
+     ⚠ THE ROW SHAPE HAS NO THRESHOLD ANY MORE, AND THAT IS A SIMPLIFICATION
+     RATHER THAN AN OMISSION. The first cut needed one (140px label + 16 + a
+     250px control floor = 410) because the label track was a fixed column that
+     could not give way. The row's track is now `minmax(0, min(240px, 42%))`
+     beside `minmax(min-content, 1fr)`: the label track's MINIMUM is zero, so a
+     wide dial takes the width it needs and the label yields, and the shape holds
+     at every width the panel can be. What used to be a threshold is now a
+     property of the grid — which is why ①'s stack is a MEDIA band (a phone is
+     held differently) rather than a container one.
+
+     ⚠ AND A CONTROL WIDER THAN THE COLUMN IS STILL NOT ALLOWED TO BE A SEGMENT
+     (S9L-3, KEPT). canon states some choices as segmented controls whose labels
+     are far wider than any column this room can give them — 「割引型（定価から
+     引く）」, 「120分前まで」, five 分 options. Those rows use canon's OTHER shape,
+     the select, which canon already uses on eight of its own rows. The
+     `min-content` floor means such a segment would no longer OVERFLOW; it would
+     eat the label instead, which is a worse row rather than a broken one.
 
    ── THE ONE MEDIA-DRIVEN SWAP, AND WHY IT IS NOT A CONTAINER QUESTION ───────
-   ⚖ ALL-SCREEN's ≤743 clause is 「list-is-the-page, detail as its own screen with
-   back」. That is a DEVICE law about how a phone is held, not a question about
-   how much room a box has, so it is a media query: below 744 the rail is the
-   page and a chosen section replaces it, with a ← back. From 744 up both are on
-   screen at once. No container rule disagrees with it, because the container
-   rules only ever decide what happens INSIDE the panel.
+   ⚖ ALL-SCREEN's phone clause is 「list-is-the-page, detail as its own screen
+   with back」. That is a DEVICE law about how a phone is held, not a question
+   about how much room a box has, so it is a media query: at ≤899 the rail is the
+   page and a chosen section replaces it, with a ‹ back. ⚠ 899 RATHER THAN THE
+   FIRST CUT'S 743, on purpose: at 744–899 the rail and the panel together left
+   the panel under 400px, which is narrower than the phone's own full-width
+   section — the composition that was supposed to be the richer one was the
+   poorer one. From 900 up both are on screen at once and the panel has room to
+   be worth having.
+
+   ── THE TWO CONTAINERS, AND WHY NEITHER IS THE PAGE ROOT ────────────────────
+   `container-type: inline-size` computes to `contain: layout style inline-size`,
+   and `contain: layout` makes an element the containing block for its
+   `position: fixed` descendants. The ?-tour's four layers are fixed and are
+   children of the page root, so a container on the ROOT would pin the spotlight
+   to the page instead of to the viewport — the hole would drift on every scroll.
+   So the containers are `.st-body` (which the tour layers are siblings of, never
+   children) and `.st-main` inside it. Exactly two, one query each.
 
    ── TYPOGRAPHY (apple-design §15) ──────────────────────────────────────────
-   Tracking is SIZE-SPECIFIC, never one value for all sizes: the 26px title
+   Tracking is SIZE-SPECIFIC, never one value for all sizes: the 22px title
    carries −.02em because letters read too far apart as they grow, section titles
-   −.01em, body 0, and the 11.5px labels +.01em because small text needs the
+   −.01em, body 0, and the 10.5px group labels +.06em because small caps need the
    opposite correction. Leading runs inversely to size — 1.25 on the title, 1.85
    on the guardrail sentences, which are the lines a manager has to actually
    read. The face is the shell's own system stack.
@@ -145,15 +165,23 @@
    ⚖ FOCUS IS THE SHELL'S (business-shell.css, 3px ring at 2px offset,
    :focus-visible only) and is deliberately NOT restated — a second home for one
    verdict. ⚠ …but a ring the room CLIPS is not a ring (the room-3 F2 lesson), so
-   no container here uses `overflow: hidden`.
+   no container here uses `overflow: hidden` around a focusable.
 
-   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns an
-   axis. No height cap, no overflow-y, no overscroll-behavior, no overflow-x. The
-   rail grows down the page and the PAGE scrolls. */
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): the PAGE is what scrolls. The panel
+   sits in normal flow and grows down the page exactly as it always has.
+   ⚠ TWO NAMED EXCEPTIONS, AND THEY ARE THE SAME EXCEPTION TWICE: `.st-rail` and
+   `.st-side` are PINNED TO THE VIEWPORT at ③, and a box pinned to the viewport
+   that is taller than the viewport can never show its own last row — the page
+   scroll cannot reach it, because the box is not moving with the page. So each
+   is capped at the viewport's own height and scrolls INSIDE itself. Both caps
+   exist ONLY inside the ③ query, where the stickiness that makes them necessary
+   also lives; at ① and ② neither is sticky and neither owns an axis. This is the
+   ② room's `.rv-sheet` precedent — one named exception, stated where it is made.
+   (The mock's answer was the same one: ⚖ mock review v2-2.) */
 
 /* ── the fence: the three shared names this room states ────────────────────── */
 .biz .page.pg-settings { padding: 24px 28px 40px; }
-.biz .page.pg-settings h1 { margin: 0; font-size: 26px; line-height: 1.25; letter-spacing: -.02em; font-weight: 700; }
+.biz .page.pg-settings h1 { margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -.02em; font-weight: 700; }
 .biz .page.pg-settings .btn { font-weight: 500; }
 .biz .page.pg-settings .btn.primary { font-weight: 600; }
 
@@ -173,493 +201,726 @@
   --st-current-line: #c9c9d2;
 
   /* THE LADDER'S TERMS. Read the arithmetic in the header; the suite parses
-     these and asserts 410 = 140+16+250+4 and 720 = 440+20+250+10, and that
-     `--st-ctl-min` is REALLY SPENT by the control track. */
-  --st-what-min: 140px;
-  --st-what-gap: 16px;
-  --st-ctl-min: 250px;
+     these and asserts 960 = 200+16+440+16+288 and 640 = 200×3+24+16. */
+  --st-rail-w: 200px;
+  --st-gap: 16px;
   --st-main-min: 440px;
-  --st-cols-gap: 20px;
-  --st-aside-min: 250px;
+  --st-side-w: 288px;
+  --st-preset-min: 200px;
+  /* The row's two tracks. The label track's MAX; its min is 0, which is what
+     lets a wide dial take the width it needs (⚖ mock review v2-1 / D14–D15). */
+  --st-label-w: 240px;
+  --st-label-gap: 16px;
+  --st-ctl-max: 440px;
+
+  /* The shell's real topbar height — the pre-measurement default only. The
+     screen corrects it on mount from the bar itself, because the shell's topbar
+     wraps to ~87px on a narrow window and a sticky column hung off a typed
+     number lands in the wrong place there (⚖ HARNESS-GEOMETRY). */
+  --st-topbar: 62px;
+
+  /* ⚖ ULTRA-WIDE LAW. The work column stops at 1416px and centres, so the extra
+     width of a big external display becomes symmetric page margin rather than a
+     stretched row. */
+  --st-maxw: 1416px;
 
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 
   /* ⚠ ONE UNBROKEN LATIN RUN PUSHES THE WHOLE PAGE SIDEWAYS, and an all-Japanese
      demo hides it completely: Japanese breaks at any character, so every fixture
      string in this room wraps by luck. A language tag, a colour value, a long
-     address — any of them is a single unbreakable word wider than a 140px label
+     address — any of them is a single unbreakable word wider than a label
      column. `anywhere` rather than `break-word` on purpose: `anywhere` also lets
      the break count toward the element's MIN-CONTENT width, so a grid track can
      shrink past the long word instead of being sized by it. */
   overflow-wrap: anywhere;
 }
 
-/* ── the head ──────────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-head { display: flex; flex-direction: column; gap: 6px; }
-.biz .pg-settings .st-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
-.biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* ── the head: ONE compact row ─────────────────────────────────────────────── */
+.biz .pg-settings .st-head { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: var(--st-maxw); margin-inline: auto; }
+.biz .pg-settings .st-eyebrow { color: var(--quiet); font-size: 11.5px; letter-spacing: .02em; }
+.biz .pg-settings .st-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
 .biz .pg-settings .st-help {
+  flex: none; width: 22px; height: 22px; min-width: 22px;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; min-width: 26px;
-  border: 1.5px solid var(--control); border-radius: 50%;
-  background: #fff; color: var(--ink-3);
-  font-size: 13px; font-weight: 700; line-height: 1;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--muted);
+  font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer;
 }
-.biz .pg-settings .st-help:hover { border-color: var(--st-accent); color: var(--st-accent); }
-.biz .pg-settings .st-help[aria-expanded="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); }
-.biz .pg-settings .st-sub { margin: 0; max-width: 72ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.8; }
+.biz .pg-settings .st-help:hover { border-color: var(--st-accent); color: var(--st-accent); background: var(--st-accent-wash); }
+.biz .pg-settings .st-help[aria-expanded="true"] { border-color: var(--st-accent); color: var(--st-accent); background: var(--st-accent-wash); }
+/* The subtitle rides the title's own line and gives way first: it is context,
+   never the sentence a reader came for. */
+.biz .pg-settings .st-sub { margin: 0; min-width: 0; flex: 1 1 320px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 
 /* ⚠ FEEDBACK LIVES ON THE PRESS, NOT THE RELEASE (apple-design §1). A control
-   that only changes on `click` reads as dead for the length of the press.
-   100ms, `ease-out`, on `transform` only (a compositor property, §11).
-   ⚠ A LOCKED CONTROL GETS NONE, DELIBERATELY: nothing happens when it is
-   pressed, so nothing should look like it did. */
+   that only answers on release feels a frame late on every device; a 100ms
+   scale on `:active` answers the finger. It is a TRANSFORM, so it costs no
+   layout, and `prefers-reduced-motion` removes it whole (below). */
 .biz .pg-settings .st-rail-item:active,
 .biz .pg-settings .st-back:active,
+.biz .pg-settings .st-jump-item:active,
+.biz .pg-settings .st-det-btn:active,
 .biz .pg-settings .st-opt:not([aria-disabled="true"]):active,
+.biz .pg-settings .st-pick:not([aria-disabled="true"]):active,
 .biz .pg-settings .st-swatch:not([aria-disabled="true"]):active,
 .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
-.biz .pg-settings .st-save:active,
+.biz .pg-settings .st-save:not(:disabled):active,
 .biz .pg-settings .st-act:active,
 .biz .pg-settings .st-link:active,
-.biz .pg-settings .st-help:active { transform: scale(.98); transition: transform 100ms ease-out; }
+.biz .pg-settings .st-search-clear:active { transform: scale(.97); }
+.biz .pg-settings .st-rail-item,
+.biz .pg-settings .st-back,
+.biz .pg-settings .st-jump-item,
+.biz .pg-settings .st-det-btn,
+.biz .pg-settings .st-opt,
+.biz .pg-settings .st-pick,
+.biz .pg-settings .st-swatch,
+.biz .pg-settings .st-switch,
+.biz .pg-settings .st-save,
+.biz .pg-settings .st-act,
+.biz .pg-settings .st-link,
+.biz .pg-settings .st-search-clear { transition: transform 100ms cubic-bezier(0, 0, .2, 1), background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
 
-/* ── the body: rail + panel ────────────────────────────────────────────────── */
-.biz .pg-settings .st-body { display: grid; grid-template-columns: 1fr; gap: var(--st-cols-gap); align-items: start; }
+/* ── the body: THE CONTAINER, and the grid inside it ───────────────────────── */
+/* ⚠ TWO ELEMENTS FOR ONE JOB, ON PURPOSE: an element cannot answer a container
+   query about itself, so the box that MEASURES (`.st-body`) and the box that
+   RE-LAYS (`.st-grid`) have to be different boxes. See the header for why the
+   measuring box is not the page root. */
+.biz .pg-settings .st-body { container: st-body / inline-size; width: 100%; max-width: var(--st-maxw); margin-inline: auto; }
+.biz .pg-settings .st-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--st-gap); align-items: start; }
 
 /* ── the rail ──────────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-rail {
+.biz .pg-settings .st-rail { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+/* the 設定を検索 field — improvement 1 */
+.biz .pg-settings .st-search { position: relative; flex: none; }
+.biz .pg-settings .st-search-field {
+  width: 100%; min-height: 34px; padding: 6px 30px 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--ink);
+  font: inherit; font-size: 12.5px; line-height: 1.5;
+}
+.biz .pg-settings .st-search-field::placeholder { color: var(--quiet); }
+.biz .pg-settings .st-search-field::-webkit-search-cancel-button { display: none; }
+.biz .pg-settings .st-search-clear {
+  position: absolute; right: 6px; top: 50%; translate: 0 -50%;
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 999px; background: var(--st-soft); color: var(--muted);
+  font-size: 10px; line-height: 1; cursor: pointer;
+}
+.biz .pg-settings .st-search-clear:hover { background: var(--st-current-bg); color: var(--ink-2); }
+
+.biz .pg-settings .st-rail-list {
   border: 1px solid var(--st-line); border-radius: 13px;
   background: var(--st-panel-bg);
-  align-self: start;
+  padding: 4px 0;
 }
-.biz .pg-settings .st-rail-head { padding: 13px 16px; border-bottom: 1px solid var(--line-2); font-size: 14.5px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; }
-.biz .pg-settings .st-rail-label { padding: 12px 16px 5px; color: var(--quiet); font-size: 11.5px; font-weight: 700; letter-spacing: .04em; }
+.biz .pg-settings .st-rail-label { padding: 11px 14px 4px; color: var(--quiet); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; }
 .biz .pg-settings .st-rail-item {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  width: 100%; min-height: 44px; padding: 6px 16px;
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 34px; padding: 5px 14px;
   border: 0; border-left: 3px solid transparent;
   background: transparent; color: var(--ink-2);
-  font-size: 13.5px; font-weight: 600; line-height: 1.5; text-align: left;
+  font: inherit; font-size: 12.5px; font-weight: 500; line-height: 1.45; text-align: left;
+  cursor: pointer;
 }
 .biz .pg-settings .st-rail-item:hover { background: var(--row); }
 /* ⚖ THE RAIL IS REAL NAVIGATION, so it carries the accent (law (b)). */
-.biz .pg-settings .st-rail-item.is-on { border-left-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); }
-.biz .pg-settings .st-rail-name { flex: 1 1 auto; min-width: 0; }
+.biz .pg-settings .st-rail-item.is-on { border-left-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); font-weight: 700; }
+.biz .pg-settings .st-rail-name { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+/* The block title that explains why a filtered row survived. */
+.biz .pg-settings .st-rail-hit { color: var(--st-accent); font-size: 10.5px; font-weight: 700; line-height: 1.5; }
+.biz .pg-settings .st-rail-empty { margin: 0; padding: 16px 14px; color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-settings .st-rail-foot { margin: 0; padding: 0 4px; color: var(--quiet); font-size: 11px; line-height: 1.6; }
 .biz .pg-settings .st-flag {
-  padding: 2px 8px; border-radius: 999px;
+  flex: none;
+  padding: 1px 7px; border-radius: 999px;
   background: var(--section); color: var(--ink-3);
-  font-size: 10.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
+  font-size: 10px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
 }
 .biz .pg-settings .st-flag.is-rights { background: var(--st-soft); color: var(--muted); }
 .biz .pg-settings .st-flag.is-self { background: var(--green-soft); color: var(--green-dark); }
 .biz .pg-settings .st-flag.is-soon { background: var(--section); color: var(--ink-3); }
 .biz .pg-settings .st-rail-group + .st-rail-group { border-top: 1px solid var(--line-2); }
 
-/* ── the panel ─────────────────────────────────────────────────────────────── */
+/* ── the panel, which is also the grid that carries the sticky stack ───────── */
 .biz .pg-settings .st-panel {
-  container: st-panel / inline-size;
-  display: flex; flex-direction: column; gap: 16px;
-  min-width: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: 14px var(--st-gap);
+  align-content: start; min-width: 0;
 }
-/* The back button belongs to the phone band; it is rendered always and hidden
+/* The back control belongs to the phone band; it is rendered always and hidden
    here, never conditionally mounted — a target that appears with a resize is a
    target that moves under a thumb. */
 .biz .pg-settings .st-back { display: none; }
 
-.biz .pg-settings .st-sec-head { display: flex; flex-direction: column; gap: 6px; }
-.biz .pg-settings .st-sec-head h2 { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.4; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-settings .st-sec-head { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
+.biz .pg-settings .st-sec-head h2 { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.35; letter-spacing: -.01em; color: var(--ink); }
 .biz .pg-settings .st-kicker {
-  align-self: flex-start;
-  padding: 3px 9px; border-radius: 999px;
+  padding: 2px 9px; border-radius: 999px;
   background: var(--section); color: var(--ink-3);
-  font-size: 11.5px; font-weight: 700; letter-spacing: .01em;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
 }
-.biz .pg-settings .st-lead { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+.biz .pg-settings .st-lead { margin: 0; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 
-/* ③ DESK lives here — one rule, one threshold. Below it the trace card simply
-   follows the blocks down the page, which needs no rule of its own. */
-.biz .pg-settings .st-cols { display: grid; grid-template-columns: 1fr; gap: var(--st-cols-gap); align-items: start; }
-.biz .pg-settings .st-main { container: st-main / inline-size; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
-
-@container st-panel (min-width: 720px) {
-  .biz .pg-settings .st-cols {
-    grid-template-columns: minmax(var(--st-main-min), 2.2fr) minmax(var(--st-aside-min), 1fr);
-  }
-  /* ⚠ D-2 (S17) — 予約と確保's DESK composition, #812's own `1fr 420px` with its
-     sticky preview column. It rides THIS query rather than opening a second
-     `st-panel` block of its own: one threshold, one home (the ladder pin). The
-     rules it belongs with are in the appended 予約と確保 block below. */
-  .biz .pg-settings .st-wrap { grid-template-columns: minmax(0, 1fr) 420px; }
-  .biz .pg-settings .st-col-presets { grid-column: 1; grid-row: 1; }
-  .biz .pg-settings .st-col-preview { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: 78px; }
-  .biz .pg-settings .st-col-adv { grid-column: 1; grid-row: 2; min-width: 0; }
-}
+.biz .pg-settings .st-main { container: st-main / inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
 /* ── a block ───────────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-block,
-.biz .pg-settings .st-boundary,
-.biz .pg-settings .st-aside {
-  padding: 16px 18px;
-  border: 1px solid var(--st-line); border-radius: 12px;
+.biz .pg-settings .st-block {
+  padding: 12px 14px 13px;
+  border: 1px solid var(--st-line); border-radius: 13px;
   background: var(--st-panel-bg);
+  /* The jump list lands a block under the shell's sticky topbar, not behind it. */
+  scroll-margin-top: calc(var(--st-topbar) + 12px);
 }
-.biz .pg-settings .st-block { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .biz .pg-settings .st-block-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.biz .pg-settings .st-block-head h3 { margin: 0; font-size: 15.5px; font-weight: 700; line-height: 1.45; letter-spacing: -.005em; color: var(--ink); }
-.biz .pg-settings .st-block-note { margin: -6px 0 0; max-width: 68ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-settings .st-block-head h3 { margin: 0; font-size: 14px; font-weight: 700; line-height: 1.4; letter-spacing: -.005em; color: var(--ink); }
+/* ⚠ THE HEADING IS A FOCUS TARGET, NOT A TAB STOP (`tabIndex={-1}`), so a jump
+   moves the caret with the page. It must not draw a ring for a pointer press
+   it did not ask for — the shell's `:focus-visible` ring is the only ring, and
+   `outline: none` here would remove that too, so nothing is stated. */
+.biz .pg-settings .st-block-note { margin: 3px 0 0; max-width: 76ch; color: var(--ink-3); font-size: 12px; line-height: 1.7; }
 .biz .pg-settings .st-rights {
-  margin: 0; padding: 9px 12px;
-  border-left: 2.5px solid var(--st-current-line); border-radius: 0 8px 8px 0;
-  background: var(--st-soft); color: var(--ink-3);
-  font-size: 12px; line-height: 1.8;
+  margin: 8px 0 0; padding: 8px 11px;
+  border: 1px solid var(--orange-line, var(--line)); border-radius: 9px;
+  background: var(--orange-soft); color: var(--orange);
+  font-size: 11.5px; font-weight: 600; line-height: 1.7;
 }
+/* A block the reader has just jumped to says so for a moment. */
+.biz .pg-settings .st-block.is-hit { border-color: var(--st-accent); box-shadow: 0 0 0 1px var(--st-accent-wash); }
 
-/* ── a row ─────────────────────────────────────────────────────────────────── */
-/* ① STACKED is the base — the whole row is one column, no query needed. */
+/* ── a row: label + description on the left, the control beside it ─────────── */
+/* ⚖ IMPROVEMENT 2, and ⚖ THE ULTRA-WIDE LAW IN ONE GRID (mock review v2-1).
+   The label track is bounded — `min(240px, 42%)` — so the control's left edge is
+   bounded too, and a 2560px display becomes page white on the right instead of
+   400px of dead space between a label and the field it names. Its MINIMUM is 0
+   and the control's minimum is `min-content`, so a wide dial takes what it needs
+   and the label yields rather than the dial clipping (D15). */
 .biz .pg-settings .st-dial {
-  display: grid; grid-template-columns: 1fr; gap: 10px;
-  padding: 12px 0 0; border-top: 1px solid var(--line-2);
+  display: grid;
+  grid-template-columns: minmax(0, min(var(--st-label-w), 42%)) minmax(min-content, 1fr);
+  column-gap: var(--st-label-gap);
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--line-2);
 }
-.biz .pg-settings .st-block > .st-dial:first-of-type { padding-top: 0; border-top: 0; }
-.biz .pg-settings .st-dial-what { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.biz .pg-settings .st-dial-what b { font-size: 14.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
-.biz .pg-settings .st-dial-desc { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.8; max-width: 46em; }
-/* ⚠ 事業全体 / この店舗 / 自分だけ — the one label a manager must not have to infer. */
-.biz .pg-settings .st-scope,
-.biz .pg-settings .st-meta {
-  align-self: flex-start;
-  padding: 2px 8px; border-radius: 6px;
+.biz .pg-settings .st-block .st-dial:first-of-type { padding-top: 4px; border-top: 0; }
+/* A DOOR row is one sentence and one pill; it has no label track to keep. */
+.biz .pg-settings .st-dial.is-door { grid-template-columns: minmax(0, 1fr); row-gap: 8px; align-items: start; }
+.biz .pg-settings .st-dial-what { min-width: 0; }
+.biz .pg-settings .st-dial-label { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.biz .pg-settings .st-dial-label b { font-size: 13px; font-weight: 600; line-height: 1.45; letter-spacing: .01em; color: var(--ink); }
+.biz .pg-settings .st-scope {
+  flex: none;
+  padding: 0 6px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--st-soft); color: var(--ink-3);
-  font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap;
+  font-size: 10px; font-weight: 700; line-height: 1.6; white-space: nowrap;
 }
-.biz .pg-settings .st-meta { font-weight: 600; color: var(--muted); }
-.biz .pg-settings .st-dial-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.biz .pg-settings .st-dial-meta { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+.biz .pg-settings .st-meta {
+  padding: 0 6px; border: 1px solid var(--line-2); border-radius: 7px;
+  background: var(--st-soft); color: var(--ink-3);
+  font-size: 10.5px; line-height: 1.7;
+}
+.biz .pg-settings .st-dial-desc { margin: 2px 0 0; max-width: 66ch; color: var(--ink-3); font-size: 12px; line-height: 1.66; }
+.biz .pg-settings .st-dial-ctl {
+  display: flex; align-items: center; justify-content: flex-start;
+  gap: 7px; flex-wrap: wrap; min-width: 0; max-width: var(--st-ctl-max);
+}
 
-/* ② LEVEL — the label and its control on one line. The description and the
-   guardrails stay full width beneath, because they are sentences and a sentence
-   in a 140px column is a column of syllables.
-   ⚠ EVERY CHILD IS PLACED EXPLICITLY, never by `order` or `display: contents`.
-   Auto-placement plus `order` is the arrangement that looks right until one row
-   has a two-line label, and then a description quietly moves into the control's
-   column; explicit rows and columns cannot do that at any string length. */
-@container st-main (min-width: 410px) {
-  /* ⚠ THE SECOND TRACK HAS A REAL FLOOR, AND THAT FLOOR IS THE THRESHOLD'S OWN
-     TERM (DS9-2). With `minmax(0, …)` the control column was free to squeeze
-     below what a four-option 分 segment needs, so the row 「fitted」 at 380 by
-     wrapping a chip onto a second line. The floor is what makes the threshold a
-     statement about the ROW rather than about three numbers. */
-  .biz .pg-settings .st-dial {
-    grid-template-columns: minmax(var(--st-what-min), 1fr) minmax(var(--st-ctl-min), max-content);
-    column-gap: var(--st-what-gap);
-    align-items: start;
-  }
-  .biz .pg-settings .st-dial > .st-dial-what { grid-column: 1; grid-row: 1; }
-  .biz .pg-settings .st-dial > .st-dial-ctl { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  /* ⚠ A WRAP THAT CANNOT BE PREVENTED MUST STILL NOT ORPHAN-LEFT. The control
-     column is flex-END, so a control set wrapping flex-START would put the spare
-     chip under the FIRST one — a ragged L. When a wrap is unavoidable (a chip
-     set, a row with three controls) the second line now sits under the LAST
-     chips as a tidy block. */
-  .biz .pg-settings .st-dial > .st-dial-ctl .st-seg { justify-content: flex-end; }
-  .biz .pg-settings .st-dial > .st-dial-desc { grid-column: 1 / -1; grid-row: 2; }
-  .biz .pg-settings .st-dial > .st-trio { grid-column: 1 / -1; grid-row: 3; }
-  .biz .pg-settings .st-dial > .st-why { grid-column: 1 / -1; grid-row: 4; }
+/* ── 詳しく: the four lines that used to stand between two dials ───────────── */
+.biz .pg-settings .st-det-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 4px; padding: 1px 9px 1px 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: #fff; color: var(--ink-3);
+  font: inherit; font-size: 11px; font-weight: 700; line-height: 1.7; cursor: pointer;
 }
+.biz .pg-settings .st-det-btn:hover { border-color: var(--st-accent); color: var(--st-accent); background: var(--st-accent-wash); }
+.biz .pg-settings .st-det-caret { display: inline-block; font-size: 9px; line-height: 1; transition: transform 220ms cubic-bezier(.22, .9, .24, 1); }
+.biz .pg-settings .st-det-btn[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
+/* ⚠ THE WRAPPER'S HEIGHT IS DRIVEN BY THE SPRING, NEVER BY A TRANSITION — one
+   integrator for every moving thing in this room. `overflow: hidden` is safe
+   here because the panel holds NO focusable: it is four sentences. */
+.biz .pg-settings .st-det-wrap { grid-column: 1 / -1; height: 0; overflow: hidden; }
+.biz .pg-settings .st-det-inner { opacity: 0; transform: translateY(-3px); transition: opacity 170ms ease-out, transform 200ms cubic-bezier(.22, .9, .24, 1); }
+.biz .pg-settings .st-det-inner.is-in { opacity: 1; transform: none; }
+.biz .pg-settings .st-det {
+  margin: 6px 0 2px; padding: 9px 12px;
+  list-style: none;
+  border: 1px solid var(--line-2); border-radius: 9px; background: var(--st-soft);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.biz .pg-settings .st-det li { font-size: 11.5px; line-height: 1.8; color: var(--ink-2); }
+/* ⚖ 8/21 — the guardrail is the line a manager can hurt their own shop by not
+   reading, so it is the one that carries weight. */
+.biz .pg-settings .st-det-rail { color: var(--ink); font-weight: 500; }
+.biz .pg-settings .st-det-type { color: var(--ink-3); }
+.biz .pg-settings .st-det-src { color: var(--muted); }
+.biz .pg-settings .st-det-why { color: var(--orange); }
+
+/* ── 営業時間 as a week ────────────────────────────────────────────────────── */
+.biz .pg-settings .st-week { margin-top: 6px; border: 1px solid var(--line-2); border-radius: 10px; max-width: 720px; }
+.biz .pg-settings .st-week-head,
+.biz .pg-settings .st-week-row {
+  display: grid; grid-template-columns: 72px 96px minmax(0, 140px) minmax(0, 140px);
+  align-items: center; column-gap: 9px; padding: 6px 11px;
+}
+.biz .pg-settings .st-week-head { background: var(--st-soft); border-radius: 9px 9px 0 0; }
+.biz .pg-settings .st-week-h { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.biz .pg-settings .st-week-row { border-top: 1px solid var(--line-2); }
+.biz .pg-settings .st-week-day { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.biz .pg-settings .st-week-cell { min-width: 0; display: flex; align-items: center; }
+.biz .pg-settings .st-week-cell .st-input.is-time { width: 100%; }
+/* 定休日 greys the times without hiding them: the store's own hours are still
+   what they were, and turning the day back on must not look like a fresh form. */
+.biz .pg-settings .st-week-row.is-off .st-week-day { color: var(--ink-3); }
+.biz .pg-settings .st-week-row.is-off .st-input.is-time { opacity: .45; }
 
 /* ── the controls ──────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-seg { display: flex; gap: 5px; flex-wrap: wrap; }
+/* ⚖ R13 — no black-filled interactive anywhere. Selected = the light accent wash
+   + accent text; the solid accent is for COMMITS only. */
+
+/* a segmented control, with a thumb that travels on the room's own spring */
+.biz .pg-settings .st-seg {
+  position: relative; display: inline-flex; gap: 2px; max-width: 100%;
+  padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--st-soft);
+}
+.biz .pg-settings .st-seg-thumb {
+  position: absolute; top: 3px; left: 0; height: calc(100% - 6px); width: 0;
+  border: 1px solid var(--select-line, var(--st-accent)); border-radius: 999px;
+  background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  pointer-events: none; will-change: transform;
+}
 .biz .pg-settings .st-opt {
-  min-height: 34px; padding: 0 12px;
-  border: 1px solid var(--control); border-radius: 8px;
+  position: relative; z-index: 1;
+  padding: 4px 12px; min-height: 26px;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink-3);
+  font: inherit; font-size: 12px; font-weight: 500; line-height: 1.5; white-space: nowrap; cursor: pointer;
+}
+.biz .pg-settings .st-opt:hover { color: var(--ink-2); }
+.biz .pg-settings .st-opt.is-on { color: var(--st-accent); font-weight: 700; }
+.biz .pg-settings .st-opt[aria-disabled="true"] { cursor: default; color: var(--muted); }
+
+/* multi-select picks. ⚠ NOT `.st-chip`: that name is the 予約と確保 block's
+   non-interactive 準備中 / 表示のみ / カスタム label, and one name cannot be both
+   a thing you press and a thing you cannot. */
+.biz .pg-settings .st-chips { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-start; }
+/* The capability set is EIGHT FIXED FACTS about one person, so it is a grid
+   rather than a rag: four across where the column can hold four, two below that.
+   Ragged wrapping is what the round is fixing (⚖ mock D9). */
+.biz .pg-settings .st-chips.is-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+.biz .pg-settings .st-chips.is-grid .st-pick { width: 100%; text-align: center; white-space: normal; padding: 4px 7px; }
+.biz .pg-settings .st-pick {
+  padding: 4px 12px; min-height: 26px;
+  border: 1px solid var(--line); border-radius: 999px;
   background: #fff; color: var(--ink-2);
-  font-size: 13px; font-weight: 600; white-space: nowrap;
+  font: inherit; font-size: 11.5px; font-weight: 500; line-height: 1.5; white-space: nowrap; cursor: pointer;
 }
-.biz .pg-settings .st-opt:hover { background: #fafafb; }
-/* ⚖ R13'S OWN SELECTED RECIPE — a wash and accent text, never a solid fill. */
-.biz .pg-settings .st-opt[aria-pressed="true"] { background: var(--st-accent-wash); border-color: var(--st-accent); color: var(--st-accent); font-weight: 700; }
-/* …and a control canon LOCKS goes neutral: nothing happens when it is pressed. */
-.biz .pg-settings .st-opt[aria-disabled="true"] { cursor: default; }
-.biz .pg-settings .st-opt[aria-disabled="true"]:hover { background: #fff; }
-.biz .pg-settings .st-opt[aria-disabled="true"][aria-pressed="true"] { background: var(--st-current-bg); border-color: var(--st-current-line); color: var(--st-current-ink); }
-.biz .pg-settings .st-opt[aria-disabled="true"][aria-pressed="true"]:hover { background: var(--st-current-bg); }
+.biz .pg-settings .st-pick:hover { background: var(--st-soft); }
+.biz .pg-settings .st-pick.is-on { border-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); font-weight: 700; }
+.biz .pg-settings .st-pick[aria-disabled="true"] { cursor: default; color: var(--muted); }
 
-.biz .pg-settings .st-switchline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-.biz .pg-settings .st-state { color: var(--ink-2); font-size: 12.5px; font-weight: 700; line-height: 1.5; }
-.biz .pg-settings .st-state.is-on { color: var(--ink); }
+/* colour swatches */
+.biz .pg-settings .st-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
+.biz .pg-settings .st-swatch {
+  width: 26px; height: 26px; padding: 0;
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.biz .pg-settings .st-swatch.is-on { box-shadow: 0 0 0 2px #fff inset, 0 0 0 2px var(--st-accent); }
+
+/* a switch, with a thumb that rides the same spring */
+.biz .pg-settings .st-switchline { display: inline-flex; align-items: center; gap: 9px; flex-wrap: nowrap; }
+.biz .pg-settings .st-state { color: var(--ink-3); font-size: 12px; line-height: 1.5; white-space: nowrap; }
+.biz .pg-settings .st-state.is-on { color: var(--ink); font-weight: 600; }
 .biz .pg-settings .st-switch {
-  position: relative; flex-shrink: 0;
-  width: 52px; height: 30px; padding: 0;
-  border: 1px solid var(--control); border-radius: 999px;
-  background: #e9e9ee;
+  position: relative; flex: none;
+  width: 42px; height: 24px; padding: 0;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: #e6e8ee; cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease;
 }
-.biz .pg-settings .st-switch::after {
-  content: ""; position: absolute; top: 2px; left: 2px;
-  width: 24px; height: 24px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px rgba(24, 24, 27, .25);
+.biz .pg-settings .st-switch[aria-checked="true"] { border-color: var(--st-accent); background: var(--st-accent-wash); }
+.biz .pg-settings .st-switch-thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(16, 24, 40, .18);
+  pointer-events: none; will-change: transform;
 }
-/* ⚖ R13: a switch that is ON is a SELECTED state, so it takes the wash recipe's
-   own colour family rather than a solid dark fill. */
-.biz .pg-settings .st-switch[aria-checked="true"] { background: var(--st-accent-wash); border-color: var(--st-accent); }
-.biz .pg-settings .st-switch[aria-checked="true"]::after { left: 24px; }
+.biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
 .biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
-.biz .pg-settings .st-switch[aria-disabled="true"][aria-checked="true"] { background: var(--st-current-bg); border-color: var(--st-current-line); }
 
+/* fields */
 .biz .pg-settings .st-select,
 .biz .pg-settings .st-input {
-  min-height: 34px; padding: 5px 10px; max-width: 100%;
-  border: 1px solid var(--control); border-radius: 8px;
+  min-height: 30px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 9px;
   background: #fff; color: var(--ink);
-  font-size: 13px; font-weight: 500; font-family: inherit;
+  font: inherit; font-size: 12.5px; line-height: 1.5;
 }
-.biz .pg-settings .st-select { min-width: 0; }
-.biz .pg-settings .st-input.is-num { width: 116px; text-align: right; font-variant-numeric: tabular-nums; }
-.biz .pg-settings .st-input.is-time { width: 118px; font-variant-numeric: tabular-nums; }
-.biz .pg-settings .st-input.is-empty { border-color: var(--red); }
-.biz .pg-settings .st-timepair { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.biz .pg-settings .st-select { max-width: 100%; }
+.biz .pg-settings .st-input { max-width: 320px; }
+.biz .pg-settings .st-input.is-num { width: 120px; text-align: right; }
+.biz .pg-settings .st-input.is-time { width: 128px; }
+.biz .pg-settings .st-input.is-empty { border-color: var(--orange); }
+.biz .pg-settings .st-textline { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; max-width: 320px; }
+.biz .pg-settings .st-textline .st-input { width: 100%; }
+.biz .pg-settings .st-field-msg { color: var(--orange); font-size: 11px; line-height: 1.6; }
+.biz .pg-settings .st-numline { display: inline-flex; align-items: center; gap: 6px; }
+.biz .pg-settings .st-unit { color: var(--ink-3); font-size: 11.5px; }
+.biz .pg-settings .st-timepair { display: inline-flex; align-items: center; gap: 6px; }
 .biz .pg-settings .st-timepart { display: inline-flex; align-items: center; gap: 6px; }
-.biz .pg-settings .st-tilde { color: var(--muted); font-size: 12px; font-weight: 600; }
-.biz .pg-settings .st-numline,
-.biz .pg-settings .st-textline { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
-.biz .pg-settings .st-textline { flex: 1 1 200px; }
-.biz .pg-settings .st-textline .st-input { flex: 1 1 180px; min-width: 0; }
-.biz .pg-settings .st-unit { color: var(--muted); font-size: 12px; font-weight: 600; }
-.biz .pg-settings .st-field-msg { flex: 1 1 100%; color: var(--red-dark); font-size: 11.5px; line-height: 1.7; text-align: right; }
-
-.biz .pg-settings .st-swatches { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.biz .pg-settings .st-swatch {
-  width: 30px; height: 30px; padding: 0;
-  border: 1px solid var(--control); border-radius: 8px;
+.biz .pg-settings .st-tilde { color: var(--quiet); font-size: 11px; }
+.biz .pg-settings .st-readout {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 3px 11px; border: 1px dashed var(--line); border-radius: 9px; background: var(--st-soft);
 }
-.biz .pg-settings .st-swatch.is-on { border: 2px solid var(--st-accent); box-shadow: 0 0 0 2px var(--st-accent-wash); }
-
-.biz .pg-settings .st-readout { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
-.biz .pg-settings .st-readout b { color: var(--ink); font-size: 20px; font-weight: 700; line-height: 1.25; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-/* ⚠ A PHRASE IS NOT A FIGURE (apple-design §15: hierarchy is weight + size +
-   leading as a SET). 「¥0」 at 20px is the number a manager scans for; 「お客様が
-   選択（日本語 / English）」 at 20px is a headline shouting over the section
-   title — which is exactly how the スタッフ管理 shot read before this rule. */
-.biz .pg-settings .st-readout.is-phrase b { font-size: 14px; line-height: 1.6; letter-spacing: -.005em; }
-.biz .pg-settings .st-readout span { color: var(--muted); font-size: 11.5px; line-height: 1.6; letter-spacing: .01em; }
-
-/* ── the mistake-proofing trio, and a locked control's reason ──────────────── */
-/* ⚠ NO CODES, AND THAT IS A RULE RATHER THAN A TASTE. The sentences already name
-   themselves (「初期値: …」, 「業種による初期値…」), so the hierarchy does the rest
-   of the work: the GUARDRAIL is the line a manager must not miss, so it is the
-   darkest and carries the rule's own marker; the default is quiet; the 業種 note
-   is quieter still. Weight + colour + leading as a SET, never a decoder ring. */
-.biz .pg-settings .st-trio { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.biz .pg-settings .st-trio li { font-size: 12px; line-height: 1.85; }
-.biz .pg-settings .st-trio-base { color: var(--ink-3); font-weight: 600; }
-.biz .pg-settings .st-trio-rail { padding-left: 11px; border-left: 2px solid var(--st-current-line); color: var(--ink-2); }
-.biz .pg-settings .st-trio-type { color: var(--muted); }
-.biz .pg-settings .st-why {
-  margin: 0; padding: 9px 12px;
-  border-left: 2.5px solid var(--section); border-radius: 0 8px 8px 0;
-  background: var(--st-soft); color: var(--ink-3);
-  font-size: 11.5px; line-height: 1.85;
-}
+.biz .pg-settings .st-readout b { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.biz .pg-settings .st-readout.is-phrase b { font-size: 12.5px; font-weight: 600; }
+.biz .pg-settings .st-readout span { color: var(--ink-3); font-size: 11.5px; }
 
 /* ── a block's other parts ─────────────────────────────────────────────────── */
-.biz .pg-settings .st-list { padding: 11px 13px; border-radius: 10px; background: var(--st-soft); }
-.biz .pg-settings .st-list b { display: block; margin-bottom: 6px; font-size: 12.5px; color: var(--ink); }
-.biz .pg-settings .st-list ul { margin: 0; padding-left: 18px; }
-.biz .pg-settings .st-list li { color: var(--ink-2); font-size: 12px; line-height: 1.85; }
+.biz .pg-settings .st-list { margin-top: 8px; padding: 9px 12px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--st-soft); }
+.biz .pg-settings .st-list b { font-size: 11.5px; font-weight: 700; color: var(--ink-2); }
+.biz .pg-settings .st-list ul { margin: 4px 0 0; padding-left: 16px; }
+.biz .pg-settings .st-list li { color: var(--ink-3); font-size: 11.5px; line-height: 1.75; }
 
-.biz .pg-settings .st-table { display: flex; flex-direction: column; border: 1px solid var(--st-line); border-radius: 10px; }
-.biz .pg-settings .st-tr { display: grid; grid-template-columns: 1fr; gap: 2px; padding: 9px 12px; border-top: 1px solid var(--line-2); }
-.biz .pg-settings .st-tr:first-child { border-top: 0; }
-.biz .pg-settings .st-tr.is-head { background: var(--st-soft); border-radius: 10px 10px 0 0; }
-.biz .pg-settings .st-th { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
-.biz .pg-settings .st-td { color: var(--ink-2); font-size: 12.5px; line-height: 1.7; }
-.biz .pg-settings .st-empty { margin: 0; padding: 14px 12px; color: var(--muted); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-settings .st-table { margin-top: 8px; border: 1px solid var(--line-2); border-radius: 9px; }
+.biz .pg-settings .st-tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 7px 11px; border-top: 1px solid var(--line-2); }
+.biz .pg-settings .st-tr.is-head { border-top: 0; background: var(--st-soft); border-radius: 8px 8px 0 0; }
+.biz .pg-settings .st-th { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.biz .pg-settings .st-td { color: var(--ink-2); font-size: 11.5px; line-height: 1.6; min-width: 0; }
+.biz .pg-settings .st-empty { margin: 0; padding: 14px 11px; color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
 
-.biz .pg-settings .st-preview { padding: 12px 14px; border: 1px solid var(--st-line); border-radius: 10px; background: var(--st-soft); }
-.biz .pg-settings .st-pv-note { margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
-.biz .pg-settings .st-pv-text { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
-.biz .pg-settings .st-pv-board { margin-top: 10px; }
-.biz .pg-settings .st-pv-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 12px; margin-bottom: 8px;
-  border: 1px solid var(--st-line); border-radius: 9px; background: #fff;
-  color: var(--ink-2); font-size: 12.5px; line-height: 1.6;
+.biz .pg-settings .st-preview {
+  margin-top: 9px; padding: 9px 12px;
+  border: 1px solid var(--select-line, var(--st-accent)); border-radius: 9px;
+  background: var(--select-bg, var(--st-accent-wash));
+  box-shadow: inset 3px 0 0 var(--st-accent);
 }
-.biz .pg-settings .st-pv-row:last-child { margin-bottom: 0; }
-/* ⚠ THE PREVIEW REALLY CHANGES SHAPE (the dead-lever law). The two attributes
-   below are written by the screen from the reader's own saved preference, so
-   pressing 密度 changes what is on screen rather than only what it says. */
-.biz .pg-settings .st-preview[data-density="compact"] .st-pv-row { padding: 6px 10px; margin-bottom: 5px; }
-.biz .pg-settings .st-preview[data-density="spacious"] .st-pv-row { padding: 15px 14px; margin-bottom: 11px; }
-.biz .pg-settings .st-preview[data-emphasis="subtle"] .st-pv-row { border-color: var(--line-2); }
-.biz .pg-settings .st-preview[data-emphasis="strong"] .st-pv-row { border-width: 2px; border-color: var(--st-current-line); }
+.biz .pg-settings .st-pv-note { color: var(--st-accent-dark); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+.biz .pg-settings .st-pv-text { margin: 2px 0 0; color: var(--ink-2); font-size: 12px; line-height: 1.75; }
+.biz .pg-settings .st-pv-board { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; }
+.biz .pg-settings .st-pv-row { display: flex; justify-content: space-between; gap: 10px; color: var(--ink-3); font-size: 11px; line-height: 1.6; }
 
-.biz .pg-settings .st-fact { margin: 0; max-width: 68ch; color: var(--ink-3); font-size: 12px; line-height: 1.85; }
-.biz .pg-settings .st-links { display: flex; flex-wrap: wrap; gap: 8px; }
-/* ⚖ A LINK IS A PRESSABLE, so the accent is legal on it (law (b), one-way). */
+.biz .pg-settings .st-fact { margin: 6px 0 0; padding-left: 13px; position: relative; color: var(--ink-3); font-size: 11.5px; line-height: 1.75; }
+.biz .pg-settings .st-fact::before { content: "·"; position: absolute; left: 4px; color: var(--quiet); font-weight: 700; }
+
+.biz .pg-settings .st-links { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+/* ⚖ A DOOR IS A WASH PILL (mock review v2-3). It opens a page; a solid accent
+   fill is what this family reserves for a commit, and a door that wears one
+   promises a decision it cannot make. */
 .biz .pg-settings .st-link {
-  min-height: 32px; padding: 0 11px;
-  border: 1px solid var(--st-line); border-radius: 999px;
-  background: #fff; color: var(--st-accent);
-  font-size: 12px; font-weight: 600; text-align: left;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; min-height: 26px;
+  border: 1px solid var(--st-accent); border-radius: 999px;
+  background: var(--st-accent-wash); color: var(--st-accent);
+  font: inherit; font-size: 11.5px; font-weight: 700; line-height: 1.5; cursor: pointer;
 }
-.biz .pg-settings .st-link:hover { border-color: var(--st-accent); background: var(--st-accent-wash); }
+.biz .pg-settings .st-link:hover { background: var(--select-bg, var(--st-accent-wash)); border-color: var(--st-accent-dark); color: var(--st-accent-dark); }
 
-.biz .pg-settings .st-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-/* ⚖ R13'S COMMIT RECIPE: a solid accent fill with its own text colour, and a
-   hover that DARKENS within the accent rather than lightening toward the page. */
-.biz .pg-settings .st-act,
-.biz .pg-settings .st-save {
-  min-height: 36px; padding: 0 16px;
+.biz .pg-settings .st-action { margin-top: 9px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+/* ⚖ R13 — the two solid fills on this page are COMMITS, and this is one. */
+.biz .pg-settings .st-act {
+  padding: 6px 15px; min-height: 30px;
   border: 1px solid var(--st-accent); border-radius: 9px;
   background: var(--st-accent); color: #fff;
-  font-size: 13px; font-weight: 600;
+  font: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
 }
-.biz .pg-settings .st-act:hover,
-.biz .pg-settings .st-save:hover { background: var(--st-accent-dark); border-color: var(--st-accent-dark); }
-.biz .pg-settings .st-save:disabled { border-color: var(--control); background: var(--st-current-bg); color: var(--muted); cursor: default; }
-.biz .pg-settings .st-act-error { color: var(--red-dark); font-size: 12px; line-height: 1.7; }
-.biz .pg-settings .st-act-result { color: var(--ink-2); font-size: 12px; line-height: 1.7; }
-.biz .pg-settings .st-audit { margin: 0; color: var(--quiet); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-settings .st-act:hover { background: var(--st-accent-dark); border-color: var(--st-accent-dark); }
+.biz .pg-settings .st-act-error { color: var(--orange); font-size: 11.5px; font-weight: 600; line-height: 1.6; }
+.biz .pg-settings .st-act-result { color: var(--green-dark); font-size: 11.5px; line-height: 1.6; }
+.biz .pg-settings .st-audit { margin: 8px 0 0; color: var(--quiet); font-size: 11px; line-height: 1.6; }
 
-/* ── the trace card ────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-aside { background: var(--st-soft); }
-.biz .pg-settings .st-aside h3 { margin: 0 0 9px; font-size: 13.5px; font-weight: 700; line-height: 1.45; letter-spacing: -.005em; color: var(--ink); }
-.biz .pg-settings .st-trace { display: flex; flex-direction: column; gap: 8px; margin: 0; }
-.biz .pg-settings .st-trace-row { display: flex; flex-direction: column; gap: 2px; }
-.biz .pg-settings .st-trace-row dt { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
-.biz .pg-settings .st-trace-row dd { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.7; }
-.biz .pg-settings .st-aside-note { margin: 11px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
-
-/* ── the boundary, the save bar and the standing line ──────────────────────── */
-.biz .pg-settings .st-boundary { background: var(--st-soft); }
-.biz .pg-settings .st-boundary p { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
-.biz .pg-settings .st-savebar {
-  display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap;
-  padding: 12px 16px;
-  border: 1px solid var(--st-line); border-radius: 12px;
-  background: var(--st-panel-bg);
+/* ── the boundary ──────────────────────────────────────────────────────────── */
+.biz .pg-settings .st-boundary {
+  padding: 18px 16px;
+  border: 1px solid var(--orange-line, var(--line)); border-radius: 13px;
+  background: var(--orange-soft);
 }
-.biz .pg-settings .st-save-note { flex: 1 1 200px; color: var(--ink-3); font-size: 12.5px; line-height: 1.7; }
-.biz .pg-settings .st-foot { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.biz .pg-settings .st-boundary p { margin: 0; max-width: 70ch; color: var(--orange); font-size: 12.5px; line-height: 1.85; }
+
+/* ══ THE STICKY STACK — improvement 3 ══════════════════════════════════════ */
+.biz .pg-settings .st-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.biz .pg-settings .st-side-card { min-width: 0; }
+
+.biz .pg-settings .st-jump {
+  padding: 10px 11px 11px;
+  border: 1px solid var(--st-line); border-radius: 13px; background: var(--st-panel-bg);
+}
+.biz .pg-settings .st-jump-head { padding: 0 2px 5px; color: var(--quiet); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+.biz .pg-settings .st-jump-list { display: flex; flex-direction: column; gap: 1px; }
+.biz .pg-settings .st-jump-item {
+  display: flex; align-items: center; gap: 7px;
+  width: 100%; min-height: 28px; padding: 5px 8px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--ink-2);
+  font: inherit; font-size: 12px; line-height: 1.45; text-align: left; cursor: pointer;
+}
+.biz .pg-settings .st-jump-item:hover { background: var(--row); }
+.biz .pg-settings .st-jump-item.is-on { background: var(--st-accent-wash); color: var(--st-accent); font-weight: 700; }
+.biz .pg-settings .st-jump-name { flex: 1 1 auto; min-width: 0; }
+/* ⚠ THE DOT IS DECORATION AND SAYS SO (`aria-hidden`); the same fact reaches a
+   screen reader as the row's own visually-hidden sentence, because a colour is
+   not a message (WCAG 1.4.1). */
+.biz .pg-settings .st-jump-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); opacity: 0; transition: opacity 200ms ease; }
+.biz .pg-settings .st-jump-item.is-dirty .st-jump-dot { opacity: 1; }
+.biz .pg-settings .st-jump-note { margin: 6px 2px 0; color: var(--quiet); font-size: 10.5px; line-height: 1.65; }
+
+.biz .pg-settings .st-save-card {
+  padding: 11px 12px 12px;
+  border: 1px solid var(--st-line); border-radius: 13px; background: var(--st-panel-bg);
+  display: flex; flex-direction: column; gap: 8px;
+  will-change: transform;
+}
+.biz .pg-settings .st-save-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.biz .pg-settings .st-save-count { font-size: 12.5px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+.biz .pg-settings .st-save-count.is-none { color: var(--ink-3); font-weight: 500; }
+.biz .pg-settings .st-save-state { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
+/* ⚖ R13 — the page's other solid fill, and it is the commit this page is for. */
+.biz .pg-settings .st-save {
+  padding: 7px 15px; min-height: 32px;
+  border: 1px solid var(--st-accent); border-radius: 9px;
+  background: var(--st-accent); color: #fff;
+  font: inherit; font-size: 12.5px; font-weight: 700; line-height: 1.5; cursor: pointer;
+}
+.biz .pg-settings .st-save:hover:not(:disabled) { background: var(--st-accent-dark); border-color: var(--st-accent-dark); }
+.biz .pg-settings .st-save:disabled { border-color: var(--line); background: #dfe3ea; color: var(--muted); cursor: default; }
+.biz .pg-settings .st-foot { margin: 0; color: var(--quiet); font-size: 10.5px; line-height: 1.7; }
+
+/* Visually hidden, still read aloud — the dirty dot's sentence. */
+.biz .pg-settings .st-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 
 /* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ────────────────────────────── */
-/* z-indices sit above the shell's sticky topbar (z 5); one room's overlay is
-   never on screen with another's (the ⚖ sibling-sheet fence). NO SCROLLER, NO
-   HEIGHT CAP (⚖ page-scroll). */
+.biz .pg-settings .st-spot-catch { position: fixed; inset: 0; z-index: 60; background: rgba(15, 23, 42, .34); }
 .biz .pg-settings .st-spot-hole {
-  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
-  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
-  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+  position: fixed; z-index: 61; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, .34), 0 0 0 2px var(--st-accent);
+  background: transparent;
 }
-.biz .pg-settings .st-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
-.biz .pg-settings .st-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-settings .st-spot-hover { position: fixed; z-index: 61; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, .6); }
 .biz .pg-settings .st-spot-card {
-  position: fixed; z-index: 72;
-  width: 300px; max-width: calc(100vw - 20px);
-  padding: 12px 14px 10px;
-  border: 1.5px solid var(--control); border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
-  font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+  position: fixed; z-index: 62; width: 300px; max-width: calc(100vw - 20px);
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 13px 15px 11px;
+  border: 1px solid var(--line); border-radius: 13px; background: #fff;
+  box-shadow: 0 10px 28px rgba(16, 24, 40, .16);
 }
-.biz .pg-settings .st-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
-.biz .pg-settings .st-spot-text { display: block; }
-.biz .pg-settings .st-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
-.biz .pg-settings .st-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
-.biz .pg-settings .st-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.biz .pg-settings .st-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
-.biz .pg-settings .st-spot-foot button:hover { background: #f4f4f5; }
-.biz .pg-settings .st-spot-foot button:disabled { opacity: .4; cursor: default; }
-.biz .pg-settings .st-spot-foot .st-spot-done { margin-left: auto; }
+.biz .pg-settings .st-spot-card b { font-size: 13px; font-weight: 700; line-height: 1.4; }
+.biz .pg-settings .st-spot-text { color: var(--ink-2); font-size: 12px; line-height: 1.75; }
+.biz .pg-settings .st-spot-hint { color: var(--quiet); font-size: 10.5px; line-height: 1.6; }
+.biz .pg-settings .st-spot-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.biz .pg-settings .st-spot-foot button {
+  padding: 4px 11px; min-height: 28px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.biz .pg-settings .st-spot-next { border-color: var(--st-accent) !important; background: var(--st-accent-wash) !important; color: var(--st-accent) !important; }
+.biz .pg-settings .st-spot-foot button:disabled { color: var(--quiet); cursor: default; }
+.biz .pg-settings .st-spot-count { margin-left: auto; color: var(--quiet); font-size: 11px; font-variant-numeric: tabular-nums; }
 
-/* ⚖ REDUCED MOTION IS NOT NO FEEDBACK — it is a gentler equivalent
-   (apple-design §14). The spotlight still MOVES to the next section, because
-   where it lands is the information; what goes is the 240ms travel across the
-   page, which is the vestibular part. The press feedback stays: it is a
-   transform on a control the reader is touching, not a journey across a screen. */
-@media (prefers-reduced-motion: reduce) {
-  .biz .pg-settings .st-spot-hole { transition: none; }
+/* ── ⚖ ALL-SCREEN ADAPTIVITY — the three compositions ──────────────────────── */
+
+/* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header. ═══ */
+@container st-body (min-width: 960px) {
+  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  .biz .pg-settings .st-panel { grid-template-columns: minmax(var(--st-main-min), 1fr) var(--st-side-w); }
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-sec-head,
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { grid-column: 1; }
+  /* ⚠ NAMED EXCEPTION 1 of 2 (see the header): a box pinned to the viewport that
+     is taller than the viewport can never reveal its own last row, because the
+     page scroll no longer moves it. Capped at the viewport and scrolling inside
+     itself is the only shape that keeps it whole. */
+  .biz .pg-settings .st-side {
+    grid-column: 2; grid-row: 1 / -1; align-self: start;
+    position: sticky; top: calc(var(--st-topbar) + 12px);
+    max-height: calc(100vh - var(--st-topbar) - 24px);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* ⚠ NAMED EXCEPTION 2 of 2, same exception, same reason. */
+  .biz .pg-settings .st-rail {
+    position: sticky; top: calc(var(--st-topbar) + 12px);
+    max-height: calc(100vh - var(--st-topbar) - 24px);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
 }
 
-/* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the bands ─────────────────── */
-/* Only the PAGE's own rules live here; the shell's bands (`.biz .app`'s 1180px
-   floor, the rail, the topbar) are the family CSS sweep's, and this room joins
-   the floor's opt-in list in business-shell.css. The three COMPOSITIONS are the
-   container queries above, once each — never restated in a media band, so a
-   viewport rule can never disagree with the shape the container decided. */
+/* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
+   capability grid is eight facts that read as a grid or not at all. ═══ */
+@container st-main (min-width: 640px) {
+  .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 
-/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
-@media (min-width: 1400px) {
-  .biz .page.pg-settings { padding-left: 28px; padding-right: 28px; }
+/* ═══ ② STRIP — ≥900 viewport, `.st-body` under 960. The stack has nowhere to
+   stand, so it becomes a band above the panel. ═══ */
+@media (min-width: 900px) {
+  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  /* Source order is back → head → main → side; `order` puts the band where a
+     reader meets it, without a second DOM for a second width. */
+  .biz .pg-settings .st-back { order: 1; }
+  .biz .pg-settings .st-sec-head { order: 2; }
+  .biz .pg-settings .st-side { order: 3; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { order: 4; }
+  .biz .pg-settings .st-side-card { flex: 1 1 100%; max-width: 560px; }
+  .biz .pg-settings .st-jump { flex: 1 1 320px; min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
+  .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
+  .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
+  .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
+  .biz .pg-settings .st-jump-note { display: none; }
+  .biz .pg-settings .st-save-card { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; }
+  .biz .pg-settings .st-save-card .st-foot { display: none; }
+}
+
+/* At ③ the band goes back to being a column — one rule undoing the strip, in
+   the query that owns the composition. */
+@container st-body (min-width: 960px) {
+  .biz .pg-settings .st-side { flex-direction: column; align-items: stretch; gap: 8px; }
+  .biz .pg-settings .st-jump { display: block; padding: 10px 11px 11px; }
+  .biz .pg-settings .st-jump-head { padding: 0 2px 5px; }
+  .biz .pg-settings .st-jump-list { flex-direction: column; gap: 1px; overflow: visible; }
+  .biz .pg-settings .st-jump-item { width: 100%; border: 0; border-radius: 7px; padding: 5px 8px; white-space: normal; }
+  .biz .pg-settings .st-jump-note { display: block; }
+  .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; }
+  .biz .pg-settings .st-save-card .st-foot { display: block; }
+}
+
+/* ═══ ≥1440 — big displays: the rail and the stack take their full width and
+   the reading lines are capped. ═══ */
+@media (min-width: 1440px) {
+  .biz .page.pg-settings { --st-rail-w: 240px; --st-side-w: 300px; --st-gap: 20px; padding-left: 28px; padding-right: 28px; }
   .biz .pg-settings .st-lead,
   .biz .pg-settings .st-dial-desc,
-  .biz .pg-settings .st-why,
   .biz .pg-settings .st-fact,
   .biz .pg-settings .st-block-note,
   .biz .pg-settings .st-boundary p { max-width: 66ch; }
 }
 
-/* ═══ ≤1399 — laptops. The page keeps a 24px gutter so the rail never touches
-   the shell's own rail. ═══ */
-@media (max-width: 1399px) {
-  .biz .page.pg-settings { padding-left: 24px; padding-right: 24px; }
-}
-
 /* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone (room 8's C8-7). ⚖
-   ALL-SCREEN names ≥44px at ≤743, and that is its FLOOR rather than its
-   ceiling: 744–1023 is the iPad portrait / mini / opened-foldable band, which is
-   a finger on glass exactly as 743 is. ═══ */
+   ALL-SCREEN names ≥44px at the phone, and that is its FLOOR rather than its
+   ceiling: 900–1023 is the iPad landscape / opened-foldable band, which is a
+   finger on glass exactly as 390 is. ═══ */
 @media (max-width: 1023px) {
   .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
-  .biz .pg-settings .st-opt { min-height: 44px; }
-  .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
-  .biz .pg-settings .st-switch { height: 44px; width: 68px; border-radius: 999px; }
-  .biz .pg-settings .st-switch::after { top: 8px; width: 26px; height: 26px; }
-  .biz .pg-settings .st-switch[aria-checked="true"]::after { left: 33px; }
-  .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
-  .biz .pg-settings .st-select,
-  .biz .pg-settings .st-input { min-height: 44px; }
-  .biz .pg-settings .st-back { min-height: 44px; }
-  .biz .pg-settings .st-link { min-height: 44px; }
+  .biz .pg-settings .st-opt,
+  .biz .pg-settings .st-pick,
+  .biz .pg-settings .st-jump-item,
+  .biz .pg-settings .st-rail-item,
+  .biz .pg-settings .st-det-btn,
+  .biz .pg-settings .st-link,
   .biz .pg-settings .st-act,
-  .biz .pg-settings .st-save { min-height: 44px; }
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-save,
+  .biz .pg-settings .st-select,
+  .biz .pg-settings .st-input,
   .biz .pg-settings .st-spot-foot button { min-height: 44px; }
+  .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
+  .biz .pg-settings .st-search-field { min-height: 44px; }
+  .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
+  .biz .pg-settings .st-switch { width: 68px; height: 44px; }
+  .biz .pg-settings .st-switch-thumb { top: 4px; left: 4px; width: 34px; height: 34px; }
+  .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
 }
 
-/* ═══ ≤743 — phone / folded cover screen. ⚖ list-is-the-page: the rail IS the
+/* ═══ ① ≤899 — LIST IS THE PAGE. ⚖ ALL-SCREEN's device clause: the rail IS the
    page, and a chosen section replaces it with a way back. This is the ONE
-   media-driven composition swap in the room, and it is a device law rather than
-   a width question — see the sheet's header. ═══ */
-@media (max-width: 743px) {
-  .biz .page.pg-settings { padding: 18px 14px 32px; }
-  .biz .page.pg-settings h1 { font-size: 22px; letter-spacing: -.018em; }
+   media-driven composition swap in the room — see the header. ═══ */
+@media (max-width: 899px) {
+  .biz .page.pg-settings { padding: 16px 14px 32px; gap: 12px; }
   .biz .pg-settings .st-panel { display: none; }
   .biz .pg-settings.is-detail .st-rail { display: none; }
-  .biz .pg-settings.is-detail .st-panel { display: flex; }
+  .biz .pg-settings.is-detail .st-panel { display: grid; }
   .biz .pg-settings .st-back {
-    display: inline-flex; align-items: center; align-self: flex-start;
-    min-height: 44px; padding: 0 14px;
-    border: 1px solid var(--control); border-radius: 9px;
-    background: #fff; color: var(--ink-2);
-    font-size: 13px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; order: 1;
+    padding: 4px 14px 4px 11px;
+    border: 1px solid var(--st-accent); border-radius: 999px;
+    background: var(--st-accent-wash); color: var(--st-accent);
+    font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
   }
-  .biz .pg-settings .st-block,
-  .biz .pg-settings .st-boundary,
-  .biz .pg-settings .st-aside { padding: 14px 13px; }
-  .biz .pg-settings .st-savebar { padding: 12px 13px; }
+  .biz .pg-settings .st-sec-head { order: 2; }
+  /* ⚠ `display: contents` DISSOLVES THE STACK so its three children become grid
+     items of the panel in their own right — which is the only way one DOM can
+     put このページの中身 under the head and the save bar at the bottom of the
+     screen without rendering either of them twice. */
+  .biz .pg-settings .st-side { display: contents; }
+  .biz .pg-settings .st-side-card { order: 3; }
+  .biz .pg-settings .st-jump { order: 4; }
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { order: 5; }
+  .biz .pg-settings .st-save-card {
+    order: 6;
+    position: sticky; bottom: 0; z-index: 3;
+    margin: 0 -14px -32px; border-radius: 13px 13px 0 0; border-bottom: 0;
+    padding: 10px 14px 14px;
+    background: rgba(255, 255, 255, .96);
+    backdrop-filter: saturate(180%) blur(12px);
+    box-shadow: 0 -4px 14px rgba(16, 24, 40, .06);
+  }
+  /* A row stacks: the label and its description over the control, in reading
+     order, with the control filling the line rather than leaving half of it
+     empty. */
+  .biz .pg-settings .st-dial { grid-template-columns: minmax(0, 1fr); row-gap: 8px; padding: 11px 0; }
+  .biz .pg-settings .st-dial-ctl { max-width: none; width: 100%; }
+  .biz .pg-settings .st-dial-ctl > .st-select,
+  .biz .pg-settings .st-dial-ctl > .st-textline { width: 100%; max-width: none; }
+  .biz .pg-settings .st-dial-ctl > .st-seg { width: 100%; }
+  .biz .pg-settings .st-dial-ctl > .st-seg .st-opt { flex: 1 1 0; text-align: center; }
+  /* The week loses its head and pairs its times under the day. */
+  .biz .pg-settings .st-week-head { display: none; }
+  .biz .pg-settings .st-week-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
+  .biz .pg-settings .st-week-day { grid-column: 1; grid-row: 1; }
+  .biz .pg-settings .st-week-cell:nth-of-type(2) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .biz .pg-settings .st-week-cell:nth-of-type(3) { grid-column: 1; grid-row: 2; }
+  .biz .pg-settings .st-week-cell:nth-of-type(4) { grid-column: 2; grid-row: 2; }
+  .biz .pg-settings .st-block { padding: 12px 12px 13px; }
+  .biz .pg-settings .st-tr { grid-template-columns: minmax(0, 1fr) !important; }
 }
 
-/* ═══ ≥744 — the rail and the panel share the page. ═══ */
-@media (min-width: 744px) {
-  .biz .pg-settings .st-body { grid-template-columns: 220px minmax(0, 1fr); }
-  /* A data table earns its columns once there is room for them; below this the
-     cells stack, which is the only honest way a four-column record reads on a
-     phone. `--st-cols` is written by the row itself from its own cell count. */
+/* ═══ ≥900 — the rail and the panel share the page, and a data table earns its
+   columns once there is room for them. ═══ */
+@media (min-width: 900px) {
   .biz .pg-settings .st-tr { grid-template-columns: repeat(var(--st-cols, 1), minmax(0, 1fr)); gap: 10px; }
 }
 
+/* ── reduced motion: the state still changes, it simply stops travelling ──── */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-rail-item,
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-jump-item,
+  .biz .pg-settings .st-det-btn,
+  .biz .pg-settings .st-opt,
+  .biz .pg-settings .st-pick,
+  .biz .pg-settings .st-swatch,
+  .biz .pg-settings .st-switch,
+  .biz .pg-settings .st-save,
+  .biz .pg-settings .st-act,
+  .biz .pg-settings .st-link,
+  .biz .pg-settings .st-search-clear { transition: background-color 120ms linear, border-color 120ms linear, color 120ms linear; }
+  .biz .pg-settings .st-rail-item:active,
+  .biz .pg-settings .st-back:active,
+  .biz .pg-settings .st-jump-item:active,
+  .biz .pg-settings .st-det-btn:active,
+  .biz .pg-settings .st-opt:active,
+  .biz .pg-settings .st-pick:active,
+  .biz .pg-settings .st-swatch:active,
+  .biz .pg-settings .st-switch:active,
+  .biz .pg-settings .st-save:active,
+  .biz .pg-settings .st-act:active,
+  .biz .pg-settings .st-link:active,
+  .biz .pg-settings .st-search-clear:active { transform: none; }
+  .biz .pg-settings .st-det-caret,
+  .biz .pg-settings .st-det-inner,
+  .biz .pg-settings .st-jump-dot { transition: opacity 120ms linear; transform: none; }
+}
 
 /* ══ ── 予約と確保 (from #812, PR #812's own rules, re-homed) ── ═══════════════
    ⚖ S17 FOLD (PACKET-ROOM9-S17 §A9). Every rule below is #812's own, appended
@@ -699,20 +960,21 @@
    NO SCROLLER, NO HEIGHT CAP (⚖ page-scroll): the page scrolls, the preview
    column is `position: sticky` and nothing owns `overflow-y`. */
 
-/* ── the two columns: dials left, the live card sticky right ──────────────── */
-/* ⚠ D-2 (S17) — THE ONE RULE THAT CHANGED SHAPE, and the reason is the room it
-   moved into. #812's grid was a FIXED `minmax(0, 1fr) 420px`, correct for a
-   route whose only floor was the shell's 1180px; this section now lives inside
-   `.st-panel`, which this room takes all the way down to 390 (⚖ 8/23, every
-   Business page adapts). A fixed 420px second column overflows the panel below
-   ~760px and the page grows a horizontal scrollbar — ⚖ PAGE-SCROLL. So the two
-   columns are the DESK case and the STACK is the base, in source order (presets
-   → preview → 詳細設定). Values are #812's, untouched.
-   ⚠ The desk half is NOT stated here: it lives in this sheet's own
-   `@container st-panel (min-width: 720px)` block, above, because the room's
-   ladder is ONE QUERY PER CONTAINER and a second `st-panel` block at the same
-   threshold would be a second place to read the same threshold. */
-.biz .pg-settings .st-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; align-items: start; }
+/* ── the dials' own column ─────────────────────────────────────────────────── */
+/* ⚠ D-2 (S17 fold) IS CLOSED HERE, AND THE ROOM CLOSED IT. #812's grid was a
+   FIXED `minmax(0, 1fr) 420px` — the dials with the live card beside them —
+   which was right for a route whose only floor was the shell's 1180px. The fold
+   made it a stack with the desk half riding the room's `st-panel` query, and
+   carried forward the defect that shape had at 1280 with the shell's rail open:
+   the panel is 728px there, so the preview column left the three preset cards
+   ~85px wide and their text stacked into strips.
+   The S17 build removes the second column from this element entirely. The live
+   card is no longer inside `.st-wrap` at all — the room's sticky stack holds it
+   (⚖ improvement 3), from ONE place, for every section that has one. What is
+   left here is what it always was underneath: プリセット over 詳細設定, in source
+   order, filling the reading column. The presets' own three-across is now the
+   `st-main` container's question, not this element's — see the sheet's ladder. */
+.biz .pg-settings .st-wrap { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 
 /* ── section headings ─────────────────────────────────────────────────────── */
 .biz .pg-settings .st-sec-h { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
@@ -730,7 +992,12 @@
 .biz .pg-settings .st-chip.custom { border-color: var(--orange); background: var(--orange-soft); color: var(--orange); }
 
 /* ── presets ──────────────────────────────────────────────────────────────── */
-.biz .pg-settings .st-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+/* ⚠ STACKED IS THE BASE, THREE ACROSS IS EARNED. The three presets are a SET —
+   a torn half-row reads as two options and a mistake — so they go three across
+   only where three cards are each still wide enough to read, which is the
+   `st-main` ≥ 640 query in the sheet above (⚖ mock §2.5). At 1280 the reading
+   column is 408px and they stack, which is the fold's own D-2, fixed. */
+.biz .pg-settings .st-presets { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .biz .pg-settings .st-pcard {
   display: flex; flex-direction: column; gap: 7px; text-align: left;
   padding: 14px 15px 13px;
@@ -1059,3 +1326,10 @@
    never a fill of this room's inventing (⚖ R13). `.biz button:disabled` already
    dims and re-cursors it, so the refused state needs nothing said twice. */
 .biz .pg-settings .sp-save .btn { min-height: 38px; }
+
+/* ⚖ S17 STEP 1 — the jump list's landing pad inside 予約と確保. Every other
+   anchor is a heading the caret can land on; プリセット's own label is a `<p>`
+   that already carries the section's accessible name through `aria-labelledby`,
+   so a second name on it would be read twice. An empty, hidden, zero-size span
+   is the smallest thing that can hold the caret without saying anything. */
+.biz .pg-settings .st-anchor { display: inline-block; width: 0; height: 0; }

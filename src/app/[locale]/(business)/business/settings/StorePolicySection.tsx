@@ -39,7 +39,7 @@
 // ¥) is decided by that function and by nothing here, which is what makes the
 // preview an honest answer to 「what will my staff actually see?」.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
 import { MINUTE_CHOICES, sceneKeyFor, type GapGuardMode, type NewClientMinutes } from './store-policy-seam'
@@ -117,7 +117,48 @@ export interface StorePolicyProps {
  *  manager who folded 詳細設定 away and then pressed ? was walked through three
  *  steps instead of twelve, with the count reading 「1 / 3」 as though that were
  *  the page. The walk opens the section it is about to explain. */
-export type StorePolicySectionProps = StorePolicyProps & { tourOpen: boolean }
+export type StorePolicySectionProps = StorePolicyProps & {
+  tourOpen: boolean
+  /** ⚖ S17 STEP 1 — THREE SLOTS, PLACED BY THE ROOM. See the note above `main`
+   *  at the bottom of the component: 設定 puts the dials in the panel, the live
+   *  card at the top of its sticky stack and the 保存 block in the save slot, and
+   *  a component cannot return three trees to three parents. Every dial's state
+   *  stays inside this section, which is ⚖ A12 — a store switch remounts it and
+   *  the dials re-seed from the new store. */
+  render: (slots: StorePolicySlots) => ReactNode
+}
+
+/** ⚖ S17 STEP 1 — THIS SECTION'S OWN ANCHORS, for the room's このページの中身.
+ *
+ *  Every other section's jump list is built from its BLOCKS, which this section
+ *  deliberately has none of: a second copy of these dials in the rail room's
+ *  block vocabulary is exactly the two-rooms-at-one-path problem the fold
+ *  existed to end. So the section names its own two anchors, and renders the
+ *  ids on them, and the room asks the same list it renders.
+ *
+ *  ⚠ TWO ANCHORS, NOT NINE. The eight dials live inside the 詳細設定 disclosure,
+ *  which a reader may have folded away — a jump item that lands on a collapsed
+ *  panel is a control that does nothing, which is the dead lever this room's own
+ *  census exists to catch. The card is not an anchor either: it is IN the stack
+ *  that holds the list. */
+export const STORE_POLICY_ANCHORS: ReadonlyArray<{ id: string; title: string }> = [
+  { id: 'bg.presets', title: 'プリセット' },
+  { id: 'bg.adv', title: '詳細設定' },
+]
+
+/** What the section hands back for the room to position. */
+export interface StorePolicySlots {
+  /** プリセット + 詳細設定 — the panel's own reading column. */
+  main: ReactNode
+  /** スタッフが見るカード — the sticky stack's top on a desk, the band above the
+   *  panel below it. */
+  card: ReactNode
+  /** #812's own 保存 block, for the save slot every section ends in (⚖ A3). */
+  save: ReactNode
+  /** `STORE_POLICY_ANCHORS`, handed back so the room never reaches past the
+   *  section for a list the section owns. */
+  jump: ReadonlyArray<{ id: string; title: string }>
+}
 
 // ── the mock's own presets ───────────────────────────────────────────────────
 
@@ -312,18 +353,27 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   const shownLocks = locks.filter((id) => rosterIds.has(id))
   const nameOf = (id: string) => props.roster.find((s) => s.id === id)?.name ?? id
 
-  return (
-    <>
-    <div className="st-wrap">
-      {/* ============ presets ============ */}
+  // ⚖ S17 STEP 1 — THE SECTION HANDS BACK THREE SLOTS, and the room places
+  // them. #812 shipped as a whole route, so its presets, its live card and its
+  // 保存 block were one tree in one column; inside 設定 they belong in three
+  // different places — the dials in the panel, the card at the top of the
+  // sticky stack beside it, the 保存 block in the save slot every section ends
+  // in. A component cannot return three trees to three parents, and lifting the
+  // dial state out would break ⚖ A12 (the state is the section's, and remounts
+  // with it), so the section keeps ALL of its state and hands the room the three
+  // nodes to position. Nothing about what each node CONTAINS changed.
+  /* ============ presets ============ */
+  const presets = (
       <section
         className="st-col-presets"
+        id="st-blk-bg.presets"
         aria-labelledby="stPresetsLabel"
         data-guide-title="プリセット"
         data-guide="よくある決め方を3つ用意しています。押すと下の詳細設定がまとめて切り替わります。名指しロックだけは個人ごとの例外なので、プリセットでは変わりません。"
       >
         <div className="st-sec-h">
           <p className="st-sec-l" id="stPresetsLabel">プリセット</p>
+          <span id="st-blkh-bg.presets" tabIndex={-1} className="st-anchor" aria-hidden="true" />
           {activePreset === null && <span className="st-chip custom">カスタム</span>}
         </div>
         <p className="st-sec-d">よくある決め方を3つ用意しました。選ぶと、下の詳細設定がまとめて変わります。</p>
@@ -343,8 +393,10 @@ export function StorePolicySection(props: StorePolicySectionProps) {
           ))}
         </div>
       </section>
+  )
 
-      {/* ============ the live card preview ============ */}
+  /* ============ the live card preview ============ */
+  const cardSlot = (
       <section
         className="st-col-preview"
         aria-labelledby="stPreviewLabel"
@@ -458,11 +510,13 @@ export function StorePolicySection(props: StorePolicySectionProps) {
         <p className="st-pv-cap">設定を変えると、スタッフが見るカードがその場で変わります</p>
         <p className="st-pv-cap dim">すき間の販売・会員ランク・予約の刻みは、このカードには出ません</p>
       </section>
+  )
 
-      {/* ============ 詳細設定 ============ */}
-      <div className="st-col-adv">
+  /* ============ 詳細設定 ============ */
+  const adv = (
+      <div className="st-col-adv" id="st-blk-bg.adv">
         <details className="st-adv" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>
-          <summary><span className="st-caret" aria-hidden="true" />詳細設定<span className="st-sum-d">一つずつ変えられます</span></summary>
+          <summary id="st-blkh-bg.adv"><span className="st-caret" aria-hidden="true" />詳細設定<span className="st-sum-d">一つずつ変えられます</span></summary>
 
           {/* a. 上書きの権限 */}
           <section
@@ -685,16 +739,16 @@ export function StorePolicySection(props: StorePolicySectionProps) {
           </section>
         </details>
       </div>
-    </div>
+  )
 
-      {/* ⚖ A3 — THE SAVE GRAMMAR. #812's own 保存 control, in the shell room's
-          save-bar slot, so every section of 設定 ends in one bar shape. The
-          shell's generic dirty/保存 bar and its 「保存はこの画面の中だけに反映
-          されます」 footnote are NOT rendered for this section: the seam's
-          `saveRefusal` is the gate's ANSWER, and a demo-local commit here would
-          contradict the seam this section imports. */}
-      <div className="st-savebar">
-        {/* i. 保存 — ⚖ THE HQ GATE, and an honest refusal.
+  /* ⚖ A3 — THE SAVE GRAMMAR. #812's own 保存 control, in the shell room's save
+     slot, so every section of 設定 ends in one shape. The shell's generic
+     dirty/保存 bar and its 「保存はこの画面の中だけに反映されます」 footnote are NOT
+     rendered for this section: the seam's `saveRefusal` is the gate's ANSWER,
+     and a demo-local commit here would contradict the seam this section
+     imports. */
+  const save = (
+        /* i. 保存 — ⚖ THE HQ GATE, and an honest refusal.
             The control is REFUSED rather than hidden, and its own reason
             rides its accessible DESCRIPTION: per accname the button's text
             content wins the NAME (この設定を保存), and `title` supplies the
@@ -709,7 +763,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             BusinessSidebar's 事業切替) is 「disabled with the reason, never a
             button that pretends」 (⚖ L-7). Who MAY save is the store's own
             manager-level list, decided on the server and named here so a
-            refused operator knows who to ask rather than just being stopped. */}
+            refused operator knows who to ask rather than just being stopped. */
         <section
           className="st-row sp-save"
           aria-labelledby="stSaveLabel"
@@ -728,9 +782,21 @@ export function StorePolicySection(props: StorePolicySectionProps) {
           {props.save.refusal !== null && <p className="st-ctrl-d warn">{props.save.refusal}</p>}
           <p className="st-ctrl-d dim">保存できるのは{props.save.roles.join('・')}です</p>
         </section>
-      </div>
-    </>
   )
+
+  /* `.st-wrap` STAYS, and it is no longer a grid. #812 used it to put the
+     preview column beside the dials; the room's own composition does that now,
+     from one place, for every section. What it holds is the same two children in
+     the same order, so the sheet's rule for it is a stack and main's own pin on
+     the name still lands on the element it named. */
+  const main = (
+    <div className="st-wrap">
+      {presets}
+      {adv}
+    </div>
+  )
+
+  return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>
 }
 
 /** 予約の刻み's clamp. `!(x >= SLOT_MIN)` rather than `x < SLOT_MIN` for the one

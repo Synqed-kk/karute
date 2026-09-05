@@ -360,8 +360,13 @@ export type ControlKind =
   | { kind: 'text'; placeholder?: string; maxLength?: number; required?: boolean }
   | { kind: 'number'; min: number; max: number; step: number; unit: string }
   | { kind: 'time' }
-  /** Multi-select. `value` is a string[]. */
-  | { kind: 'chips'; options: ControlOption[] }
+  /** Multi-select. `value` is a string[].
+   *  `grid` = these options are a FIXED SET OF FACTS about one subject (the
+   *  capability rulebook's eight-per-person switches), so they lay out as a grid
+   *  rather than ragging across the column. It is a property of the DATA — the
+   *  set is closed and the same for every person — which is why it is declared
+   *  here and not guessed from the control's id. */
+  | { kind: 'chips'; options: ControlOption[]; grid?: boolean }
   | { kind: 'swatch'; options: ControlOption[] }
   /** ⚠ `numeric` IS A LAYOUT FACT, NOT A TYPE HINT. A readout carries either a
    *  MEASURE (¥0, 61日, 12か月, 20回) — which wants the big tabular figure a
@@ -411,6 +416,20 @@ export interface SettingsRow {
   meta: string[]
   controls: RowControl[]
   trio?: Trio
+  /** ⚖ S17 STEP 1 — THE RECEIPT, BESIDE THE VALUE IT IS A RECEIPT FOR.
+   *
+   *  The room used to answer 「where did this number come from?」 in ONE trace
+   *  card standing beside the whole section, which meant the reader had to hold
+   *  a row in their head while they walked a list looking for its line. The
+   *  card leaves the right column in this round (the jump list and the save
+   *  state earn that width instead), and every receipt that names a row moves
+   *  INTO that row, behind its 詳しく — evidence one line under the value.
+   *
+   *  ⚠ ONLY A RECEIPT THAT NAMES A ROW MOVES. A section-level fact (「このページ
+   *  の権限」, 「保存先」) is not about any single row, and forcing it into one
+   *  would put a true sentence under a false heading. Those stay in the
+   *  section's own folded card — see `SettingsSection.aside`. */
+  source?: string
 }
 
 export interface SettingsBlock {
@@ -419,6 +438,19 @@ export interface SettingsBlock {
   note: string
   /** 準備中 / 適用範囲: 組織全体 / 本部設定 — canon's own block-head chip. */
   flag?: string
+  /** ⚖ S17 STEP 1 — the ONE block whose rows are a WEEK rather than a list.
+   *
+   *  営業時間 is seven rows that all answer the same three questions (営業する ·
+   *  開始 · 終了), and stacked as ordinary rows that is twenty-one controls with
+   *  no column to compare down. `week` renders the same rows as a seven-line
+   *  table with 曜日 · 営業 · 開始 · 終了 heads, so a manager checking 「are we
+   *  open on Thursdays」 reads one column instead of scanning seven rows.
+   *
+   *  It is a LAYOUT fact, so it lives on the block rather than in the screen: a
+   *  second block that is a week states it here and gets the same shape. The
+   *  rows themselves are unchanged — same ids, same controls, same order — so
+   *  the value plane and every pin on it are untouched by the shape. */
+  layout?: 'week'
   /** canon's inline 権限がありません strip, when the PAGE is open but the block
    *  is not (録音設定's org block, データ入出力's export). */
   rightsNote?: string
@@ -494,6 +526,15 @@ export interface SettingsProps {
   selfSaveLine: string
   boundaryFallback: string
   roleLabel: string
+  /** ⚖ S17 STEP 1 — THE SAVE STAMP'S CLOCK, FORMATTED ON THE SERVER.
+   *
+   *  「保存しました」 without a time is a sentence a reader cannot check twice: it
+   *  looks identical after the second save. The stamp needs an HH:MM, and this
+   *  room's own family law is that the screen holds no clock and no formatter —
+   *  so the PAGE'S pinned render clock is formatted here and the screen prints
+   *  it. It also makes the shot deterministic, which a `new Date()` in the
+   *  browser never is. */
+  saveStampTime: string
 }
 
 // ── the value helpers the screen renders through ────────────────────────────
@@ -539,6 +580,79 @@ export function sameValue(a: RowValue | undefined, b: RowValue | undefined): boo
 /** Every control id a section holds, in render order. */
 export function controlIdsOf(section: SettingsSection): string[] {
   return section.blocks.flatMap((b) => b.rows.flatMap((r) => r.controls.map((c) => c.id)))
+}
+
+// ── ⚖ S17 STEP 1 — FIND BY TYPING, AND THE INDEX IS THE PAGE'S OWN DATA ─────
+//
+// Twenty-two rows and three hundred-odd controls is past the size a reader can
+// scan, and Apple's and Google's own settings apps answer that with a search
+// field rather than with more grouping. The index is built FROM `sections` —
+// every section's title and every one of its block titles — so there is no
+// second list to keep in step: a block that renders is a block that is findable,
+// and one that is deleted stops being findable in the same commit.
+
+/** What a rail row matches on: its own label, its group, its section's title and
+ *  every block title inside it. */
+export function searchTextOf(row: RailRow, section: SettingsSection | null): string {
+  const parts = [row.label, row.group]
+  if (section) {
+    parts.push(section.title)
+    for (const b of section.blocks) parts.push(b.title)
+  }
+  return parts.join(' ')
+}
+
+/** ⚠ CASE-FOLDED, AND THAT IS FOR THE LATIN IN A JAPANESE PAGE. 「Reserve 受付」
+ *  and 「AI設定」 are the row labels a reader types lowercase; Japanese is
+ *  unaffected by the fold, so one comparison serves both. An empty query matches
+ *  everything rather than nothing — a blank field is not a filter. */
+export function matchesQuery(haystack: string, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (q === '') return true
+  return haystack.toLowerCase().includes(q)
+}
+
+/** The block title that EXPLAINS a hit whose row label does not contain the
+ *  query — 「休憩」 finds 店舗情報・営業時間 through its 予約ボードの操作 block, and
+ *  the rail says so instead of looking like a mismatch. `null` when the row's
+ *  own label already carries the query. */
+export function blockHitOf(row: RailRow, section: SettingsSection | null, query: string): string | null {
+  const q = query.trim()
+  if (q === '' || section === null) return null
+  if (matchesQuery(row.label, q)) return null
+  return section.blocks.find((b) => matchesQuery(b.title, q))?.title ?? null
+}
+
+// ── ⚖ S17 STEP 1 — WHAT IS UNSAVED, PER BLOCK AND PER SECTION ───────────────
+//
+// The jump list dots a block that holds an unsaved change and the save state
+// counts them, so both questions are asked of the same function rather than of
+// two loops that can disagree about what 「changed」 means.
+
+/** The control ids of ONE block, in render order. */
+export function controlIdsOfBlock(block: SettingsBlock): string[] {
+  return block.rows.flatMap((r) => r.controls.map((c) => c.id))
+}
+
+/** A block is dirty when any control inside it differs from what was saved. */
+export function blockDirty(
+  block: SettingsBlock,
+  values: Record<string, RowValue>,
+  saved: Record<string, RowValue>,
+): boolean {
+  return controlIdsOfBlock(block).some((id) => !sameValue(values[id], saved[id]))
+}
+
+/** ⚠ 変更 n件 COUNTS CONTROLS, AND THE LABEL SAYS SO (⚖ numbers explain
+ *  themselves). Counting blocks would make one changed dial and eight changed
+ *  dials both read 「1件」; counting controls is the number a reader can check
+ *  against what they actually pressed. */
+export function changedCount(
+  section: SettingsSection,
+  values: Record<string, RowValue>,
+  saved: Record<string, RowValue>,
+): number {
+  return controlIdsOf(section).filter((id) => !sameValue(values[id], saved[id])).length
 }
 
 /** A section is dirty when any of its controls differs from what was saved. */

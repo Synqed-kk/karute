@@ -85,6 +85,11 @@ import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-pro
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
 const fmtDayWeek = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', ...JST })
+/** ⚖ S17 STEP 1 — the save stamp's clock. Formatted HERE because the family law
+ *  is that the screen holds neither a clock nor a formatter, and pinned to the
+ *  page's own render instant so a shot of the same page is the same picture
+ *  twice. 24-hour, JST, exactly as the topbar's own Reserve同期 stamp reads. */
+const fmtClock = new Intl.DateTimeFormat('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false, ...JST })
 
 /** ⚖ 8/25 — a number says WHAT it counts. One home for the units this room
  *  repeats, so 「61日」 on the row and 「14日」 in its guardrail are the same
@@ -196,6 +201,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     // The demo persona, so the boundary sentences can say who is reading rather
     // than 「あなた」 to somebody who is not who the page thinks they are.
     roleLabel: role,
+    saveStampTime: fmtClock.format(now),
   }
 
   return { props, storePolicy, storeKey: clamped ? storeId! : 'all-stores' }

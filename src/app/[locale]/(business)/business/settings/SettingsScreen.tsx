@@ -15,12 +15,43 @@
 // ます」 — plus the page's own サンプルデータ dateline, instead of a refusal
 // paragraph under every row.
 //
+// ══ WHAT THE S17 STUDIO ROUND CHANGED, AND THE ONE JOB EACH CHANGE DOES ═════
+//
+// The room worked and read badly: a 「設定カテゴリー」 card head over a rail that
+// was already obviously a rail, twenty-two rows and 300-odd controls with no way
+// to find one by name, four guardrail lines under every dial so the dial itself
+// was the smallest thing on its row, and a trace card holding the whole right
+// column to say where five numbers came from. Five changes, each aimed at one of
+// those (the Studio mock `SETTINGS-MOCK-v1.html` is the spec for all five):
+//
+//   1. ONE compact head, and FIND BY TYPING. The eyebrow, 設定, the ? and the
+//      one-line subtitle share one row; the rail starts under it with a 設定を検索
+//      field that filters rail rows AND the block titles inside them. The index
+//      is `props.sections`' own data (`searchTextOf`), so there is no second list
+//      to keep in step.
+//   2. A ROW READS AS ONE SENTENCE. Label + scope + a one-line description are
+//      always visible with the control beside them; the 初期値 · guardrail · 業種
+//      · 出どころ lines fold VERBATIM behind a per-row 詳しく. Nothing was cut —
+//      the guardrail a manager needs when they are changing the dial is one press
+//      away instead of standing between two dials the rest of the time.
+//   3. THE RIGHT COLUMN EARNS ITS WIDTH. The trace card leaves it; what stands
+//      there is このページの中身 (this section's blocks, the one in view
+//      highlighted, a dot on any block holding an unsaved change) and the save
+//      state. 色・テーマ's 67 controls and スタッフ管理's 57 are navigable for the
+//      first time. Every receipt that named a ROW moved into that row's 詳しく.
+//   4. 予約と確保 IS A NATIVE SECTION. #812's presets, its live スタッフが見るカード
+//      and its eight dials render in this room's own grammar, with its card in the
+//      sticky stack and its own 保存 block in the save slot (⚖ A3).
+//   5. EVERY SCREEN SIZE, AND APPLE-GRADE MOTION. Three compositions (side column
+//      · strip · list-is-the-page) and ONE spring (`makeSpring`) driving every
+//      thumb, height and rise — never a second easing.
+//
 // WHAT IS CLIENT STATE HERE: every control's value, what was last saved, which
-// section is open, whether the phone is showing the list or the section, the
-// result line of a block's action, and which step of the 画面の説明 tour the
-// reader is on. 自分の表示設定 is the one section whose values ALSO persist —
-// to this browser's own storage, for this reader, because a personal preference
-// is nobody else's permission.
+// section is open, the search query, which 詳しく are open, whether the phone is
+// showing the list or the section, the result line of a block's action, and which
+// step of the 画面の説明 tour the reader is on. 自分の表示設定 is the one section
+// whose values ALSO persist — to this browser's own storage, for this reader,
+// because a personal preference is nobody else's permission.
 //
 // CLASS NAMES ARE PREFIXED `st-` ON PURPOSE. App Router leaves every sibling
 // room's stylesheet in the document after a client-side navigation, and the
@@ -30,20 +61,36 @@
 // cannot. `page` / `h1` / `btn` are the SHELL's and restated here, so those three
 // are fenced in settings.css at four levels.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
-import { StorePolicySection, type StorePolicyProps } from './StorePolicySection'
 import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
+import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { makeSpring } from '@/business/lib/spring'
+import { StorePolicySection, STORE_POLICY_ANCHORS, type StorePolicyProps } from './StorePolicySection'
+import {
+  blockDirty,
+  blockHitOf,
   blockingError,
+  changedCount,
   commitNumber,
   controlIdsOf,
   fillTemplate,
   keepCardOffHeading,
   labelOfValue,
+  matchesQuery,
   PREFS_DEFAULT,
   readPrefs,
+  searchTextOf,
   sectionDirty,
   type ControlKind,
+  type RailRow,
   type RowControl,
   type RowValue,
   type SettingsBlock,
@@ -81,6 +128,18 @@ const PREF_KEY = 'synqedBizDisplayPrefs.v1'
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
 
+/** ⚖ THE STUDIO MOTION STANDARD, ONE RESPONSE PER JOB (apple-design §2). The
+ *  house default is 0.30s critically damped — thumbs and the save card's rise;
+ *  a height panel gets 0.34 because it travels further and a fast height reads
+ *  as a jump rather than as an opening. No third number, and no second easing:
+ *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused). */
+const SPRING_THUMB = 0.3
+const SPRING_HEIGHT = 0.34
+
+/** See `blocks` in the screen: one empty array, so a section with nothing to
+ *  jump to does not re-subscribe the scroll listener on every render. */
+const NO_BLOCKS: SettingsBlock[] = []
+
 const boxOf = (r: { left: number; top: number; width: number; height: number }): SpotRect =>
   ({ left: r.left, top: r.top, width: r.width, height: r.height })
 
@@ -109,6 +168,23 @@ function kindsOf(props: SettingsProps): Record<string, ControlKind> {
   return out
 }
 
+/** ⚠ REDUCED MOTION IS READ ONCE AND HANDED DOWN, never asked per spring. Every
+ *  spring on the page must agree about it, and a component that re-queried
+ *  `matchMedia` on each mount would disagree with one that cached it. It is
+ *  false during SSR and on the first paint by construction — the value the
+ *  server can know — and the effect corrects it before anything moves. */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setReduced(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  return reduced
+}
+
 /** ⚖ S17 / A1 — WHAT THE ROOM RENDERS WITH. The rail's own payload, plus
  *  予約と確保's — #812's room arrived as one section of this rail, and its
  *  assembly is `storePolicyProps()`'s rather than this file's vocabulary. It
@@ -127,12 +203,32 @@ export function SettingsScreen(props: SettingsScreenProps) {
   // which is the ⚖ 8/17 isolation law at the frame as well as at the read.
   const [values, setValues] = useState<Record<string, RowValue>>(() => seedOf(props))
   const [saved, setSaved] = useState<Record<string, RowValue>>(() => seedOf(props))
-  const [savedNote, setSavedNote] = useState<Record<string, string>>({})
+  /** Which sections have been saved in this session — the 保存しました stamp's
+   *  own fact. A `Record` rather than a `Set`: the room's data-access guard
+   *  forbids `.set(` / `.delete(` tokens outright, and an object literal spread
+   *  says the same thing without them. */
+  const [committed, setCommitted] = useState<Record<string, boolean>>({})
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
   const [tourIdx, setTourIdx] = useState(-1)
   const [tourTick, setTourTick] = useState(0)
   const tourOpen = tourIdx >= 0
+  const reduced = useReducedMotion()
+
+  /** ⚖ IMPROVEMENT 1 — FIND BY TYPING. Twenty-two rows is past the size a rail
+   *  can be scanned, so the rail gets the settings grammar every phone and desk
+   *  OS already uses. The query filters rail rows by their own label AND by the
+   *  block titles inside their section. */
+  const [query, setQuery] = useState('')
+  /** Which rows have their 詳しく open, by row id. Open state is per ROW rather
+   *  than one-at-a-time: a manager comparing two guardrails should not have the
+   *  first one close under them. */
+  const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
+  /** ⚖ IMPROVEMENT 3 — which block the jump list highlights. `null` = follow the
+   *  scroll; a string = the reader ASKED for that one, and the list says so even
+   *  when the page has run out of scroll and cannot put it at the top. */
+  const [jumpPin, setJumpPin] = useState<string | null>(null)
+  const [inView, setInView] = useState<string | null>(null)
 
   const kinds = useMemo(() => kindsOf(props), [props])
 
@@ -144,6 +240,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ STARTS AT INFINITY so the dim layer FAILS CLOSED: it refuses every press
    *  until the tour has actually been laid out. */
   const settledAt = useRef(Number.POSITIVE_INFINITY)
+  /** The rail row a phone reader opened a section FROM, so 「‹ 設定」 puts focus
+   *  back on it rather than at the top of a list they have to re-find. */
+  const cameFromRef = useRef<string | null>(null)
+  const railListRef = useRef<HTMLDivElement>(null)
 
   const [tourStep, setTourStep] = useState<TourStep | null>(null)
   const [tourPos, setTourPos] = useState<{ hole: SpotRect; top: number; left: number } | null>(null)
@@ -160,6 +260,23 @@ export function SettingsScreen(props: SettingsScreenProps) {
     }
     setValues((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
     setSaved((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
+  }, [])
+
+  /** ⚖ HARNESS-GEOMETRY, IN THE PRODUCT (the ② room's own rule). The sticky
+   *  stack and every block's `scroll-margin-top` hang off the SHELL's real
+   *  topbar, which is 62px at a desk and wraps to ~87px on a narrow window — so
+   *  the offset is MEASURED, once on mount and again whenever the bar changes
+   *  height. The sheet's own 62px is the pre-measurement default, not the
+   *  answer. */
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    const bar = root?.closest('.main')?.querySelector('.topbar')
+    if (!root || !bar) return
+    const apply = () => root.style.setProperty('--st-topbar', `${Math.round(bar.getBoundingClientRect().height)}px`)
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(bar)
+    return () => ro.disconnect()
   }, [])
 
   /** ⚠ THE ONE SECTION THAT SAVES OUTSIDE THIS SCREEN WRITES ON THE PRESS, not
@@ -179,6 +296,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           // see above — the choice still applies to this render.
         }
         setSaved((s) => ({ ...s, [id]: next }))
+        setCommitted((c) => ({ ...c, 'my-display': true }))
       }
       return merged
     })
@@ -204,8 +322,28 @@ export function SettingsScreen(props: SettingsScreenProps) {
       for (const id of ids) next[id] = values[id]
       return next
     })
-    setSavedNote((prev) => ({ ...prev, [target.id]: '保存しました（この画面の中だけ）' }))
+    setCommitted((prev) => ({ ...prev, [target.id]: true }))
   }, [values])
+
+  /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
+   *  the way back lands the keyboard where it left. */
+  const openSection = useCallback((id: string, fromRail: boolean) => {
+    if (fromRail) cameFromRef.current = id
+    setPicked(id)
+    setJumpPin(null)
+    setInView(null)
+  }, [])
+
+  const backToList = useCallback(() => {
+    const id = cameFromRef.current
+    setPicked(null)
+    if (!id) return
+    // The rail is only mounted again once `picked` is null, so the focus move
+    // waits a frame for it rather than reaching for a node that is not there.
+    requestAnimationFrame(() => {
+      railListRef.current?.querySelector<HTMLButtonElement>(`[data-rail-id="${id}"]`)?.focus()
+    })
+  }, [])
 
   // ⚖ Liam 8/23 — 画面の説明. A section joins the walk by DECLARING
   // `data-guide-title` + `data-guide` ON ITSELF, so there is no list to keep in
@@ -283,18 +421,98 @@ export function SettingsScreen(props: SettingsScreenProps) {
     helpRef.current?.focus()
   }, [tourOpen])
 
+  /** ⚠ A STABLE REFERENCE, and the empty case is why it is a module constant:
+   *  `? section.blocks : []` hands the scroll-spy effect a fresh array on every
+   *  render, so it tears down and re-subscribes its listener each pass. */
+  const blocks = section && section.gate === 'open' ? section.blocks : NO_BLOCKS
+  /** The ids the scroll-spy measures. 予約と確保 renders itself and its anchors
+   *  are the section's own (`STORE_POLICY_ANCHORS`), so the spy asks the same
+   *  list the jump list offers rather than a second one that could drift. */
+  const anchorIds = useMemo(
+    () => (section?.id === BOOKING_GUARD_ID ? STORE_POLICY_ANCHORS.map((a) => a.id) : blocks.map((b) => b.id)),
+    [section?.id, blocks],
+  )
+
+  /** ⚖ IMPROVEMENT 3 — SCROLL-SPY, MEASURED ON THE PAGE. This room has no
+   *  scroller of its own (⚖ PAGE-SCROLL): the window is what moves, so the
+   *  highlight is the block filling most of the space BELOW the sticky topbar.
+   *  A rAF gate keeps the listener to one measurement per frame. */
+  useEffect(() => {
+    if (anchorIds.length === 0) return
+    let frame = 0
+    const measure = () => {
+      frame = 0
+      const top = rootRef.current
+        ? parseFloat(getComputedStyle(rootRef.current).getPropertyValue('--st-topbar')) || 62
+        : 62
+      let best: string | null = null
+      let bestSeen = -1
+      for (const id of anchorIds) {
+        const el = document.getElementById(`st-blk-${id}`)
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        const seen = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, top)
+        if (seen > bestSeen) { bestSeen = seen; best = id }
+      }
+      setInView(best)
+    }
+    const onScroll = () => { if (frame === 0) frame = requestAnimationFrame(measure) }
+    measure()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      if (frame !== 0) cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [anchorIds])
+
+  /** A jump press scrolls the block to the top of the reading area AND moves
+   *  focus to its heading — ⚖ keyboard reach: a control that only scrolls leaves
+   *  a keyboard reader's caret behind in the list. */
+  const jumpTo = useCallback((blockId: string) => {
+    setJumpPin(blockId)
+    setInView(blockId)
+    /** The heading a jump lands the caret on. Every block renders one; 予約と確保's
+     *  two anchors render their own (its プリセット label and its 詳細設定
+     *  summary), so one lookup serves both. */
+    const head = document.getElementById(`st-blkh-${blockId}`)
+    const el = document.getElementById(`st-blk-${blockId}`)
+    el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    head?.focus({ preventScroll: true })
+  }, [])
+
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)
 
+  const sectionById = useMemo(() => {
+    const out: Record<string, SettingsSection> = {}
+    for (const s of props.sections) out[s.id] = s
+    return out
+  }, [props.sections])
+
+  /** The rail after the query. Every row keeps its group so the list never
+   *  reshuffles under a reader mid-type. */
+  const shownRail = useMemo(
+    () => props.rail.filter((row) => matchesQuery(searchTextOf(row, sectionById[row.id] ?? null), query)),
+    [props.rail, sectionById, query],
+  )
+
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
+  const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved) : 0
+  const isBookingGuard = section?.id === BOOKING_GUARD_ID
+  const highlighted = jumpPin ?? inView
 
   return (
     <div className={`${ROOT}${isDetail ? ' is-detail' : ''}`} ref={rootRef}>
+      {/* ⚖ IMPROVEMENT 1 — ONE COMPACT ROW. The dateline, the title, the ? and
+          the one-line subtitle sit on one band; the old two-line lead folds into
+          the head's own tour text, where a reader asks for it. */}
       <header
         className="st-head"
         data-guide-title="設定"
-        data-guide="お店の決まりごとと、自分の見え方を変える画面です。左の一覧から見たい設定を選ぶと、右にその中身が出ます。"
+        data-guide="お店の決まりごとと、自分の見え方を変える画面です。左の一覧から見たい設定を選ぶと、右にその中身が出ます。上の検索は、一覧の名前とページの中の見出しの両方をしぼりこみます。"
       >
         <div className="st-eyebrow">{props.dateline}</div>
         <div className="st-titleline">
@@ -314,48 +532,92 @@ export function SettingsScreen(props: SettingsScreenProps) {
           >
             ?
           </button>
+          <p className="st-sub">{props.subtitle}</p>
         </div>
-        <p className="st-sub">{props.subtitle}</p>
       </header>
 
       <div className="st-body">
+        <div className="st-grid">
         <aside
           className="st-rail"
           aria-label={props.railHeading}
           data-guide-title="設定カテゴリー"
           data-guide="設定の一覧です。「権限がありません」はいまのアカウントでは開けないところです。行を押すと、右にその設定が出ます。"
         >
-          <div className="st-rail-head">{props.railHeading}</div>
-          {groups.map((group) => (
-            <div className="st-rail-group" key={group}>
-              <div className="st-rail-label">{group}</div>
-              {props.rail
-                .filter((row) => row.group === group)
-                .map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={`st-rail-item${row.id === shownId ? ' is-on' : ''}`}
-                    aria-current={row.id === shownId ? 'page' : undefined}
-                    onClick={() => setPicked(row.id)}
-                  >
-                    <span className="st-rail-name">{row.label}</span>
-                    {row.state === 'no-rights' && <span className="st-flag is-rights">権限がありません</span>}
-                    {row.scope === 'self' && <span className="st-flag is-self">自分だけ</span>}
-                  </button>
-                ))}
-            </div>
-          ))}
+          <div
+            className="st-search"
+            data-guide-title="設定を検索"
+            data-guide="設定の名前でも、ページの中の見出しでもしぼりこめます。「休憩」と入れると、その言葉を持つページが残ります。"
+          >
+            <input
+              className="st-search-field"
+              type="search"
+              value={query}
+              aria-label="設定を検索"
+              placeholder="設定を検索"
+              autoComplete="off"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query !== '' && (
+              <button className="st-search-clear" type="button" aria-label="検索をクリア" onClick={() => setQuery('')}>
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="st-rail-list" ref={railListRef}>
+            {shownRail.length === 0 ? (
+              <p className="st-rail-empty">
+                「{query.trim()}」に当てはまる設定は見つかりませんでした。
+                <br />
+                別の言葉でお試しください。
+              </p>
+            ) : (
+              groups
+                .filter((group) => shownRail.some((row) => row.group === group))
+                .map((group) => (
+                  <div className="st-rail-group" key={group}>
+                    <div className="st-rail-label">{group}</div>
+                    {shownRail
+                      .filter((row) => row.group === group)
+                      .map((row) => (
+                        <RailItem
+                          key={row.id}
+                          row={row}
+                          hit={blockHitOf(row, sectionById[row.id] ?? null, query)}
+                          on={row.id === shownId}
+                          onOpen={openSection}
+                        />
+                      ))}
+                  </div>
+                ))
+            )}
+          </div>
+
+          {/* ⚠ THE COUNT IS DERIVED, NEVER TYPED (⚖ numbers explain themselves):
+              「全22件」 is `props.rail.length`, so a twenty-third section cannot
+              ship beside a rail still claiming twenty-two. */}
+          <p className="st-rail-foot">
+            {query.trim() === ''
+              ? `全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`
+              : `${shownRail.length}件 / 全${props.rail.length}件の設定`}
+          </p>
         </aside>
 
         <div className="st-panel">
-          {/* ⚖ list-is-the-page: at ≤743 the rail is the page and a section is its
+          {/* ⚖ list-is-the-page: at ≤899 the rail is the page and a section is its
               own screen, so the way back has to be ON that screen. It is rendered
               always and hidden by the band, never conditionally mounted — a
               button that appears and disappears with a resize is a target that
               moves under a thumb. */}
-          <button className="st-back" type="button" onClick={() => setPicked(null)}>
-            ← {props.railHeading}
+          <button
+            className="st-back"
+            type="button"
+            data-guide-title="設定の一覧に戻る"
+            data-guide="スマートフォンでは、設定の一覧と中身がそれぞれ1つの画面です。ここを押すと一覧に戻ります。"
+            onClick={backToList}
+          >
+            ‹ {props.railHeading}
           </button>
 
           {/* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
@@ -394,81 +656,109 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 >
                   <p>{section.boundaryLine}</p>
                 </section>
+              ) : isBookingGuard ? (
+                // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets, its
+                // live card, its eight dials and its OWN 保存 block. It hands the
+                // three back as SLOTS so this room can put each where the design
+                // puts it — the dials in the panel, the card at the top of the
+                // sticky stack, the 保存 block in the save slot — while every
+                // dial's state stays inside the section that owns it (⚖ A12).
+                <StorePolicySection
+                  tourOpen={tourOpen}
+                  {...props.storePolicy}
+                  render={(slots) => (
+                    <>
+                      <div className="st-main">{slots.main}</div>
+                      <Side
+                        jump={slots.jump}
+                        card={slots.card}
+                        save={slots.save}
+                        highlighted={highlighted}
+                        /* ⚖ A3 — this section keeps #812's own 保存, which is a
+                           refusal rather than a commit, so it has no unsaved
+                           state for a dot to be about. */
+                        dirtyOf={() => false}
+                        onJump={jumpTo}
+                        reduced={reduced}
+                      />
+                    </>
+                  )}
+                />
               ) : (
                 <>
-                  {section.id === BOOKING_GUARD_ID ? (
-                    // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets,
-                    // its live card, its eight dials and its OWN 保存 bar. The
-                    // generic dirty/保存 bar and the demo footnote below are NOT
-                    // rendered for it — the seam's `saveRefusal` is the gate's
-                    // ANSWER, and a demo-local commit here would contradict the
-                    // seam the section imports.
-                    <StorePolicySection tourOpen={tourOpen} {...props.storePolicy} />
-                  ) : (
-                  <div className="st-cols">
-                    <div className="st-main">
-                      {section.blocks.map((b) => (
-                        <Block
-                          key={b.id}
-                          block={b}
-                          values={values}
-                          onChange={setValue}
-                          labelFor={labelFor}
-                          result={results[b.id] ?? null}
-                          error={actionErrors[b.id] ?? null}
-                          onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
-                          onLink={setPicked}
-                        />
-                      ))}
-                    </div>
-
-                    {section.aside && (
-                      <aside
-                        className="st-aside"
-                        data-guide-title={section.aside.title}
-                        data-guide="この画面が出している値の出どころです。ほかの画面と同じ値を見ていることが、ここで確かめられます。"
-                      >
-                        <h3>{section.aside.title}</h3>
-                        <dl className="st-trace">
-                          {section.aside.lines.map((line) => (
-                            <div className="st-trace-row" key={line.label}>
-                              <dt>{line.label}</dt>
-                              <dd>{line.value}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                        <p className="st-aside-note">{section.aside.note}</p>
-                      </aside>
-                    )}
+                  <div className="st-main">
+                    {section.blocks.map((b) => (
+                      <Block
+                        key={b.id}
+                        block={b}
+                        values={values}
+                        onChange={setValue}
+                        labelFor={labelFor}
+                        result={results[b.id] ?? null}
+                        error={actionErrors[b.id] ?? null}
+                        onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
+                        onLink={(id) => openSection(id, false)}
+                        openRows={openRows}
+                        onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
+                        reduced={reduced}
+                      />
+                    ))}
                   </div>
-                  )}
 
-                  {/* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT:
-                      it is already saved, in this browser, the moment it is
-                      pressed. Printing 保存する under it would ask a reader to
-                      commit something nobody else can see. */}
-                  {section.id === BOOKING_GUARD_ID ? null : section.persist === 'local' ? (
-                    <p className="st-foot">{props.selfSaveLine}</p>
-                  ) : (
-                    <div className="st-savebar">
-                      <span className="st-save-note" role="status">
-                        {blocked ?? (dirty ? '未保存の変更があります' : savedNote[section.id] ?? '変更はありません')}
-                      </span>
-                      <button
-                        type="button"
-                        className="st-save"
-                        disabled={!dirty || blocked !== null}
-                        onClick={() => commitSection(section)}
-                      >
-                        保存する
-                      </button>
-                    </div>
-                  )}
-                  {section.id !== BOOKING_GUARD_ID && section.persist !== 'local' && <p className="st-foot">{props.demoSaveLine}</p>}
+                  <Side
+                    jump={section.blocks.map((b) => ({ id: b.id, title: b.title }))}
+                    card={null}
+                    save={
+                      /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE
+                         POINT: it is already saved, in this browser, the moment
+                         it is pressed. Printing 保存する under it would ask a
+                         reader to commit something nobody else can see. */
+                      section.persist === 'local' ? (
+                        <>
+                          <p className="st-save-state" role="status">
+                            {committed[section.id]
+                              ? `✓ この端末に保存しました ${props.saveStampTime}`
+                              : '押すとすぐ保存されます'}
+                          </p>
+                          <p className="st-foot">{props.selfSaveLine}</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="st-save-line">
+                            <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
+                              {blocked ??
+                                (changed > 0
+                                  ? `変更 ${changed}件`
+                                  : committed[section.id]
+                                    ? `✓ 保存しました ${props.saveStampTime}`
+                                    : '変更はありません')}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="st-save"
+                            disabled={!dirty || blocked !== null}
+                            onClick={() => commitSection(section)}
+                          >
+                            保存する
+                          </button>
+                          <p className="st-foot">{props.demoSaveLine}</p>
+                        </>
+                      )
+                    }
+                    highlighted={highlighted}
+                    dirtyOf={(id) => {
+                      const b = section.blocks.find((x) => x.id === id)
+                      return b !== undefined && blockDirty(b, values, saved)
+                    }}
+                    onJump={jumpTo}
+                    reduced={reduced}
+                  />
                 </>
               )}
             </>
           )}
+        </div>
         </div>
       </div>
 
@@ -525,6 +815,131 @@ export function SettingsScreen(props: SettingsScreenProps) {
   )
 }
 
+// ── the rail's row ─────────────────────────────────────────────────────────
+
+function RailItem({
+  row,
+  hit,
+  on,
+  onOpen,
+}: {
+  row: RailRow
+  hit: string | null
+  on: boolean
+  onOpen: (id: string, fromRail: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`st-rail-item${on ? ' is-on' : ''}`}
+      aria-current={on ? 'page' : undefined}
+      data-rail-id={row.id}
+      onClick={() => onOpen(row.id, true)}
+    >
+      <span className="st-rail-name">
+        {row.label}
+        {/* ⚠ THE HIT SAYS WHY THE ROW SURVIVED THE FILTER. Without it 「休憩」
+            leaving 店舗情報・営業時間 on screen reads as a bug rather than as an
+            answer — the block that matched is named under the row. */}
+        {hit && <span className="st-rail-hit">{hit}</span>}
+      </span>
+      {row.state === 'no-rights' && <span className="st-flag is-rights">権限がありません</span>}
+      {row.scope === 'self' && <span className="st-flag is-self">自分だけ</span>}
+    </button>
+  )
+}
+
+// ── the sticky stack: the live card, このページの中身, and the save state ────
+//
+// ⚖ IMPROVEMENT 3. One element carries all three, so one grid placement moves
+// all three between the room's three compositions: a sticky right column on a
+// desk, a strip above the panel on a narrow one, and — at ≤899, where
+// `display: contents` dissolves this wrapper — the jump list under the head and
+// the save bar stuck to the bottom of the phone's own screen.
+
+function Side({
+  jump,
+  card,
+  save,
+  highlighted,
+  dirtyOf,
+  onJump,
+  reduced,
+}: {
+  /** The anchors this section actually renders, in page order. It is a LIST
+   *  rather than `section.blocks` because 予約と確保 has no blocks in this file's
+   *  vocabulary — it renders itself (⚖ A1) — and hands its own two anchors back
+   *  through its slots. One list, whoever supplied it. */
+  jump: ReadonlyArray<{ id: string; title: string }>
+  card: ReactNode
+  save: ReactNode
+  highlighted: string | null
+  dirtyOf: (blockId: string) => boolean
+  onJump: (blockId: string) => void
+  reduced: boolean
+}) {
+  return (
+    <aside className="st-side">
+      {card && <div className="st-side-card">{card}</div>}
+      {jump.length > 0 && (
+        <nav
+          className="st-jump"
+          aria-label="このページの中身"
+          data-guide-title="このページの中身"
+          data-guide="いま開いている設定の中身の一覧です。見出しを押すとその場所へ移動します。●は、まだ保存していない変更があるまとまりです。"
+        >
+          <div className="st-jump-head">このページの中身</div>
+          <div className="st-jump-list">
+            {jump.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                className={`st-jump-item${b.id === highlighted ? ' is-on' : ''}${dirtyOf(b.id) ? ' is-dirty' : ''}`}
+                aria-current={b.id === highlighted ? 'true' : undefined}
+                onClick={() => onJump(b.id)}
+              >
+                <span className="st-jump-name">{b.title}</span>
+                <span className="st-jump-dot" aria-hidden="true" />
+                {dirtyOf(b.id) && <span className="st-sr">未保存の変更があります</span>}
+              </button>
+            ))}
+          </div>
+          <p className="st-jump-note">見出しを押すとその場所へ移動します。●は未保存の変更です。</p>
+        </nav>
+      )}
+      <SaveCard reduced={reduced}>{save}</SaveCard>
+    </aside>
+  )
+}
+
+/** The save state, and the ONE piece of chrome that moves on its own: it rises
+ *  when there is something to save and sits back down after 保存, on the room's
+ *  own spring. */
+function SaveCard({ children, reduced }: { children: ReactNode; reduced: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const spring = useRef<ReturnType<typeof makeSpring> | null>(null)
+  useEffect(() => {
+    spring.current = makeSpring((v) => {
+      const el = ref.current
+      if (el) el.style.transform = v === 0 ? '' : `translateY(${v.toFixed(2)}px)`
+    }, { response: SPRING_THUMB, reduced })
+    spring.current.jump(8)
+    spring.current.set(0)
+    const s = spring.current
+    return () => s.stop()
+  }, [reduced])
+  return (
+    <section
+      className="st-save-card"
+      ref={ref}
+      data-guide-title="保存"
+      data-guide="このページで変えた内容の数と、保存の操作です。保存すると、変えた印が消えます。"
+    >
+      {children}
+    </section>
+  )
+}
+
 // ── a block ────────────────────────────────────────────────────────────────
 
 function Block({
@@ -536,6 +951,9 @@ function Block({
   error,
   onAction,
   onLink,
+  openRows,
+  onToggleRow,
+  reduced,
 }: {
   block: SettingsBlock
   values: Record<string, RowValue>
@@ -545,24 +963,44 @@ function Block({
   error: string | null
   onAction: () => void
   onLink: (sectionId: string) => void
+  openRows: Record<string, boolean>
+  onToggleRow: (rowId: string) => void
+  reduced: boolean
 }) {
   const rows = block.table === null ? block.table : filterTable(block, values)
   return (
     <section
       className="st-block"
+      id={`st-blk-${block.id}`}
       data-guide-title={block.title}
       data-guide={block.note || `${block.title}の設定です。`}
     >
       <div className="st-block-head">
-        <h3>{block.title}</h3>
+        {/* ⚠ `tabIndex={-1}` IS THE JUMP LIST'S LANDING PAD, not a tab stop: a
+            jump has to move the caret as well as the page, or a keyboard reader
+            presses 「営業時間」 and is still standing in the list. */}
+        <h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>
         {block.flag && <span className="st-flag is-soon">{block.flag}</span>}
       </div>
       {block.note && <p className="st-block-note">{block.note}</p>}
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
-      {block.rows.map((r) => (
-        <Row key={r.id} row={r} values={values} onChange={onChange} onLink={onLink} />
-      ))}
+      {block.layout === 'week' ? (
+        <WeekTable block={block} values={values} onChange={onChange} />
+      ) : (
+        block.rows.map((r) => (
+          <Row
+            key={r.id}
+            row={r}
+            values={values}
+            onChange={onChange}
+            onLink={onLink}
+            open={openRows[r.id] === true}
+            onToggle={() => onToggleRow(r.id)}
+            reduced={reduced}
+          />
+        ))
+      )}
 
       {block.list && (
         <div className="st-list">
@@ -690,6 +1128,53 @@ function runAction(
   setResults((prev) => ({ ...prev, [block.id]: fillTemplate(action.template, labelFor) }))
 }
 
+// ── 営業時間 as a week, not as twenty-one stacked controls ──────────────────
+
+/** ⚖ IMPROVEMENT 2. The seven rows are unchanged in the payload — same ids, same
+ *  controls, same order — and only their SHAPE differs: 曜日 · 営業 · 開始 · 終了
+ *  as four columns, so 「which days are we closed」 is one column to read down
+ *  instead of seven rows to compare. The column heads are the table's own; a
+ *  screen reader gets each control's day from its `aria` (「月曜に営業する」),
+ *  because a reader in a table does not hear the column header. */
+function WeekTable({
+  block,
+  values,
+  onChange,
+}: {
+  block: SettingsBlock
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+}) {
+  return (
+    <div className="st-week" role="table" aria-label={block.title}>
+      <div className="st-week-head" role="row">
+        <span className="st-week-h" role="columnheader">曜日</span>
+        <span className="st-week-h" role="columnheader">営業</span>
+        <span className="st-week-h" role="columnheader">開始</span>
+        <span className="st-week-h" role="columnheader">終了</span>
+      </div>
+      {block.rows.map((r) => {
+        const openCtl = r.controls.find((c) => c.control.kind === 'switch')
+        const times = r.controls.filter((c) => c.control.kind === 'time')
+        const on = openCtl ? values[openCtl.id] === true : true
+        return (
+          <div className={`st-week-row${on ? '' : ' is-off'}`} role="row" key={r.id}>
+            <span className="st-week-day" role="cell">{r.label}</span>
+            <span className="st-week-cell" role="cell">
+              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} onChange={onChange} />}
+            </span>
+            {times.map((c) => (
+              <span className="st-week-cell" role="cell" key={c.id}>
+                <Control row={r} c={c} value={values[c.id]} onChange={onChange} />
+              </span>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── a row ──────────────────────────────────────────────────────────────────
 
 function Row({
@@ -697,25 +1182,68 @@ function Row({
   values,
   onChange,
   onLink,
+  open,
+  onToggle,
+  reduced,
 }: {
   row: SettingsRow
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
   onLink: (sectionId: string) => void
+  open: boolean
+  onToggle: () => void
+  reduced: boolean
 }) {
+  /** ⚖ IMPROVEMENT 2 — WHAT FOLDS, AND WHAT NEVER DOES. The label, the scope,
+   *  the meta and the ONE-LINE description stay visible on every row (⚖ 8/31);
+   *  the 初期値 · guardrail · 業種の初期値 · 出どころ lines go behind 詳しく,
+   *  VERBATIM. A row with none of those grows no button. */
+  const detail: Array<{ cls: string; text: string }> = []
+  if (row.trio) {
+    detail.push({ cls: 'st-det-base', text: row.trio.base })
+    detail.push({ cls: 'st-det-rail', text: row.trio.guardrail })
+    if (row.trio.businessType) detail.push({ cls: 'st-det-type', text: row.trio.businessType })
+  }
+  if (row.source) detail.push({ cls: 'st-det-src', text: `出どころ: ${row.source}` })
+  for (const c of row.controls) if (c.locked) detail.push({ cls: 'st-det-why', text: c.locked })
+  const detailId = `st-det-${row.id}`
+
   return (
     <section
-      className="st-dial"
+      className={`st-dial${row.link ? ' is-door' : ''}`}
       data-guide-title={row.label}
-      data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}`.trim()}
+      data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}${detail.length > 0 ? ' 初期値や決まりは「詳しく」で開けます。' : ''}`.trim()}
     >
       <div className="st-dial-what">
-        <b>{row.label}</b>
-        {row.scopeLabel && <span className="st-scope">{row.scopeLabel}</span>}
-        {row.meta.map((m) => (
-          <span className="st-meta" key={m}>{m}</span>
-        ))}
+        <div className="st-dial-label">
+          <b>{row.label}</b>
+          {row.scopeLabel && <span className="st-scope">{row.scopeLabel}</span>}
+        </div>
+        {row.meta.length > 0 && (
+          <div className="st-dial-meta">
+            {row.meta.map((m) => (
+              <span className="st-meta" key={m}>{m}</span>
+            ))}
+          </div>
+        )}
+        {/* ⚠ THE DESCRIPTION IS A SIBLING OF THE LABEL, NOT A CHILD OF IT: as its
+            own line it wraps against the label track rather than against the
+            label's own text box. */}
+        {row.description && <p className="st-dial-desc">{row.description}</p>}
+        {detail.length > 0 && (
+          <button
+            type="button"
+            className="st-det-btn"
+            aria-expanded={open}
+            aria-controls={detailId}
+            onClick={onToggle}
+          >
+            詳しく
+            <span className="st-det-caret" aria-hidden="true">⌄</span>
+          </button>
+        )}
       </div>
+
       <div className="st-dial-ctl">
         {/* ⚖ S17 — ONE RULE ONE HOME. A row whose control moved keeps its place
             and offers the way there: a REAL button, so it is reachable by
@@ -731,7 +1259,7 @@ function Row({
             <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} />
           ) : (
             // ⚠ A TIME RANGE IS ONE THING, SO IT WRAPS AS ONE THING. Two `time`
-            // fields side by side in a 250px column left the switch beside them
+            // fields side by side in a narrow column left the switch beside them
             // and pushed the second time onto its own line — 「10:00」 above
             // 「19:00」 with nothing saying they were a range. Grouped, the pair is
             // a single flex item that carries its own 〜 and moves together, so a
@@ -747,25 +1275,77 @@ function Row({
           ),
         )}
       </div>
-      {/* ⚠ A SIBLING OF THE LABEL, NOT A CHILD OF IT. At the LEVEL band the label
-          sits in a 140px column and the description would be a column of
-          syllables inside it; as its own grid child it spans both columns. */}
-      {row.description && <p className="st-dial-desc">{row.description}</p>}
-      {/* ⚖ 8/21 — the default and the guardrail always show on a policy row. A
-          dial whose guardrail is invisible is a dial a manager can hurt their own
-          shop with. The 業種 line prints ONLY where a ruling gave one: absence is
-          silence, never a sentence saying there is nothing. */}
-      {row.trio && (
-        <ul className="st-trio">
-          <li className="st-trio-base">{row.trio.base}</li>
-          <li className="st-trio-rail">{row.trio.guardrail}</li>
-          {row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}
-        </ul>
+
+      {detail.length > 0 && (
+        <Collapse open={open} id={detailId} reduced={reduced}>
+          <ul className="st-det">
+            {detail.map((d) => (
+              <li className={d.cls} key={d.text}>{d.text}</li>
+            ))}
+          </ul>
+        </Collapse>
       )}
-      {row.controls.filter((c) => c.locked).map((c) => (
-        <p className="st-why" key={`${c.id}-why`}>{c.locked}</p>
-      ))}
     </section>
+  )
+}
+
+/** A height that travels on the room's own spring, with the content fading
+ *  behind it. `height: auto` is restored at rest so a row whose description
+ *  rewraps at a new width is not stuck at the height it had at the old one. */
+function Collapse({
+  open,
+  id,
+  reduced,
+  children,
+}: {
+  open: boolean
+  id: string
+  reduced: boolean
+  children: ReactNode
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const innerRef = useRef<HTMLDivElement>(null)
+  const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const first = useRef(true)
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    const inner = innerRef.current
+    if (!wrap || !inner) return
+    if (!springRef.current) {
+      springRef.current = makeSpring(
+        (v) => { if (wrapRef.current) wrapRef.current.style.height = `${Math.max(0, v).toFixed(2)}px` },
+        {
+          response: SPRING_HEIGHT,
+          reduced,
+          eps: 0.5,
+          onRest: (v) => { if (wrapRef.current && v > 0) wrapRef.current.style.height = 'auto' },
+        },
+      )
+    }
+    const spring = springRef.current
+    if (first.current) {
+      first.current = false
+      wrap.style.height = open ? 'auto' : '0px'
+      spring.jump(open ? inner.scrollHeight : 0)
+      return
+    }
+    // Re-seat at the CURRENT rendered height before moving, so a press during a
+    // travel continues from where the panel actually is.
+    const now = wrap.getBoundingClientRect().height
+    wrap.style.height = `${now}px`
+    spring.jump(now)
+    spring.set(open ? inner.scrollHeight : 0)
+  }, [open, reduced])
+
+  useEffect(() => () => springRef.current?.stop(), [])
+
+  return (
+    <div className="st-det-wrap" id={id} ref={wrapRef} hidden={false}>
+      <div className={`st-det-inner${open ? ' is-in' : ''}`} ref={innerRef}>
+        {children}
+      </div>
+    </div>
   )
 }
 
@@ -814,37 +1394,27 @@ function Control({
 
   if (k.kind === 'segment') {
     return (
-      <div className="st-seg" role="group" aria-label={c.aria}>
-        {k.options.map((opt) => {
-          const on = opt.value === value
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              className={`st-opt${on ? ' is-on' : ''}`}
-              aria-pressed={on}
-              {...inert}
-              onClick={locked ? undefined : () => onChange(c.id, opt.value)}
-            >
-              {opt.label}
-            </button>
-          )
-        })}
-      </div>
+      <Segment
+        options={k.options}
+        aria={c.aria}
+        value={String(value ?? '')}
+        inert={inert}
+        onPick={locked ? undefined : (v) => onChange(c.id, v)}
+      />
     )
   }
 
   if (k.kind === 'chips') {
     const picked = Array.isArray(value) ? value : []
     return (
-      <div className="st-seg is-chips" role="group" aria-label={c.aria}>
+      <div className={`st-chips${k.grid ? ' is-grid' : ''}`} role="group" aria-label={c.aria}>
         {k.options.map((opt) => {
           const on = picked.includes(opt.value)
           return (
             <button
               key={opt.value}
               type="button"
-              className={`st-opt${on ? ' is-on' : ''}`}
+              className={`st-pick${on ? ' is-on' : ''}`}
               aria-pressed={on}
               {...inert}
               onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}
@@ -881,20 +1451,15 @@ function Control({
   }
 
   if (k.kind === 'switch') {
-    const on = value === true
     return (
-      <div className="st-switchline">
-        <span className={`st-state${on ? ' is-on' : ''}`}>{on ? k.onLabel : k.offLabel}</span>
-        <button
-          type="button"
-          className="st-switch"
-          role="switch"
-          aria-checked={on}
-          aria-label={c.aria}
-          {...inert}
-          onClick={locked ? undefined : () => onChange(c.id, !on)}
-        />
-      </div>
+      <Switch
+        on={value === true}
+        aria={c.aria}
+        onLabel={k.onLabel}
+        offLabel={k.offLabel}
+        inert={inert}
+        onToggle={locked ? undefined : () => onChange(c.id, value !== true)}
+      />
     )
   }
 
@@ -974,6 +1539,148 @@ function Control({
     <div className={`st-readout${k.numeric ? '' : ' is-phrase'}`}>
       <b>{String(value ?? '')}</b>
       {k.unit && <span>{k.unit}</span>}
+    </div>
+  )
+}
+
+// ── the two controls whose STATE travels ───────────────────────────────────
+//
+// ⚖ apple-design §2 — a segmented control's selection and a switch's thumb are
+// the two places in this room where a value MOVES from one place to another, and
+// both ride the same critically-damped spring (`makeSpring`, response .30). The
+// selection is still an `aria-pressed` button and an `aria-checked` switch; the
+// thumb is decoration behind it, `pointer-events: none`, so nothing about the
+// keyboard or a screen reader depends on the motion.
+
+/** What a LOCKED control wears instead of `disabled` — the reason, reachable by
+ *  keyboard and by a screen reader. Spelled as a type rather than inline so the
+ *  two controls whose thumb travels take exactly what `Control` hands them. */
+type InertProps = { 'aria-disabled'?: 'true'; title?: string; 'aria-label'?: string }
+
+function Segment({
+  options,
+  aria,
+  value,
+  inert,
+  onPick,
+}: {
+  options: Array<{ value: string; label: string }>
+  aria: string
+  value: string
+  inert: InertProps
+  onPick?: (value: string) => void
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLSpanElement>(null)
+  const xRef = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const wRef = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const geom = useRef({ x: 0, w: 0 })
+  const seated = useRef(false)
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    const thumb = thumbRef.current
+    if (!wrap || !thumb) return
+    const paint = () => {
+      thumb.style.transform = `translateX(${geom.current.x.toFixed(2)}px)`
+      thumb.style.width = `${Math.max(0, geom.current.w).toFixed(2)}px`
+    }
+    if (!xRef.current) {
+      xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
+      wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
+    }
+    const on = wrap.querySelector<HTMLButtonElement>('.st-opt.is-on')
+    if (!on) { thumb.style.opacity = '0'; return }
+    thumb.style.opacity = ''
+    const x = on.offsetLeft
+    const w = on.offsetWidth
+    if (!seated.current) {
+      seated.current = true
+      xRef.current!.jump(x)
+      wRef.current!.jump(w)
+      return
+    }
+    xRef.current!.set(x)
+    wRef.current!.set(w)
+  }, [value, options])
+
+  useEffect(() => () => { xRef.current?.stop(); wRef.current?.stop() }, [])
+
+  return (
+    <div className="st-seg" role="group" aria-label={aria} ref={wrapRef}>
+      <span className="st-seg-thumb" aria-hidden="true" ref={thumbRef} />
+      {options.map((opt) => {
+        const on = opt.value === value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            className={`st-opt${on ? ' is-on' : ''}`}
+            aria-pressed={on}
+            {...inert}
+            onClick={onPick ? () => onPick(opt.value) : undefined}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function Switch({
+  on,
+  aria,
+  onLabel,
+  offLabel,
+  inert,
+  onToggle,
+}: {
+  on: boolean
+  aria: string
+  onLabel: string
+  offLabel: string
+  inert: InertProps
+  onToggle?: () => void
+}) {
+  const thumbRef = useRef<HTMLSpanElement>(null)
+  const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const seated = useRef(false)
+
+  useLayoutEffect(() => {
+    const thumb = thumbRef.current
+    if (!thumb) return
+    if (!springRef.current) {
+      springRef.current = makeSpring(
+        (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
+        { response: SPRING_THUMB, eps: 0.3 },
+      )
+    }
+    /** The travel is the track's own arithmetic, read from the element rather
+     *  than typed: the touch band widens the track to 44px and a hard-coded
+     *  20px would leave the thumb short of its own end there. */
+    const track = thumb.parentElement
+    const travel = track ? Math.max(0, track.clientWidth - thumb.offsetWidth - 4) : 18
+    if (!seated.current) { seated.current = true; springRef.current.jump(on ? travel : 0); return }
+    springRef.current.set(on ? travel : 0)
+  }, [on])
+
+  useEffect(() => () => springRef.current?.stop(), [])
+
+  return (
+    <div className="st-switchline">
+      <span className={`st-state${on ? ' is-on' : ''}`}>{on ? onLabel : offLabel}</span>
+      <button
+        type="button"
+        className="st-switch"
+        role="switch"
+        aria-checked={on}
+        aria-label={aria}
+        {...inert}
+        onClick={onToggle}
+      >
+        <span className="st-switch-thumb" aria-hidden="true" ref={thumbRef} />
+      </button>
     </div>
   )
 }
