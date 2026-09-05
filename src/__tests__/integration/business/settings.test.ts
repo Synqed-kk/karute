@@ -1700,6 +1700,30 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
   })
 
+  it('⚖ S17 fix round 4 · L5 — the two DATA-derived lists key by position, never by content alone', () => {
+    // ⚠ A KEY THAT IS A PROPERTY OF THE DATA. 監査ログ's rows were keyed by
+    // `tr.cells.join('|')` and a dial's 詳しく lines by `d.text` — so two
+    // entries that happen to say the same thing on the same day, or two
+    // identical sentences under one dial, would collide and React would render
+    // one of them. Not reachable on today's fixtures, which is exactly why it
+    // needs a KEY rather than a promise about the data.
+    expect(SCREEN_CODE).toContain('rows.map((tr, i) => (')
+    expect(SCREEN_CODE).toContain('key={`${i}-${tr.cells.join(\'|\')}`}')
+    expect(SCREEN_CODE).not.toContain("key={tr.cells.join('|')}")
+    expect(SCREEN_CODE).toContain('{detail.map((d, i) => (')
+    expect(SCREEN_CODE).toContain('key={`${i}-${d.text}`}')
+    expect(SCREEN_CODE).not.toContain('key={d.text}')
+    // ⚠ AND THE OTHER CONTENT KEYS STAY, DELIBERATELY. `block.facts`,
+    // `block.list.items`, the table's own column heads and 予約と確保's preset
+    // lines are AUTHORED constants in the payload, where a duplicate is a
+    // content bug the payload pins already catch — not a shape the data can
+    // take on its own. Named here so the next reader knows the two above were
+    // chosen rather than the only ones anybody noticed.
+    for (const authored of ['key={f}', 'key={item}', 'key={h}']) {
+      expect({ key: authored, present: SCREEN_CODE.includes(authored) }).toEqual({ key: authored, present: true })
+    }
+  })
+
   it('⚖ S17 fix round 4 · L3 — a DESK pointer target clears WCAG 2.5.8’s 24px too', () => {
     // ⚠ THE ≤1023 BAND'S 44px FLOOR DOES NOT REACH A DESK, and the room's
     // smallest controls lived there: the ? — this page's ONLY entry to

@@ -1518,8 +1518,15 @@ function Block({
           {rows.length === 0 ? (
             <p className="st-empty">この条件に一致する記録はありません。期間や種類を変えてお試しください。</p>
           ) : (
-            rows.map((tr) => (
-              <div className="st-tr" role="row" key={tr.cells.join('|')}>
+            /* ⚠ THE KEY CARRIES THE POSITION, NOT ONLY THE CONTENT (⚖ S17 fix
+               round 4 · L5). `tr.cells.join('|')` is a property of the DATA, and
+               this table is 監査ログ — two entries that happen to say the same
+               thing on the same day are not a bug, they are two entries. React
+               would treat them as one row and drop the second. Not reachable on
+               today's fixtures, which is exactly why it needs a key rather than
+               a promise about the data. */
+            rows.map((tr, i) => (
+              <div className="st-tr" role="row" key={`${i}-${tr.cells.join('|')}`}>
                 {tr.cells.map((cell, i) => (
                   <span className="st-td" role="cell" key={`${i}-${cell}`}>{cell}</span>
                 ))}
@@ -1857,8 +1864,10 @@ function Row({
       {detail.length > 0 && (
         <Collapse open={open} id={detailId} reduced={reduced}>
           <ul className="st-det">
-            {detail.map((d) => (
-              <li className={d.cls} key={d.text}>{d.text}</li>
+            {/* ⚠ SAME REASON (⚖ L5): a row's 詳しく lines come from the payload,
+                and two identical sentences under one dial would collide. */}
+            {detail.map((d, i) => (
+              <li className={d.cls} key={`${i}-${d.text}`}>{d.text}</li>
             ))}
           </ul>
         </Collapse>
