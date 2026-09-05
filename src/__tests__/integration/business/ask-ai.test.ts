@@ -203,9 +203,12 @@ describe('⚖ THE PLANE LAW — this room ADDS, and restates nothing', () => {
     const notOffered = navRows
       .filter((n) => !Object.hasOwn(LIVE_SEGMENTS, n.key))
       .map((n) => `${n.key}:${n.live ? 'live' : '準備中'}`)
-    // 録音 and 設定 are LIVE rooms this room simply has no suggestion shaped for;
-    // コーチング is the one room still unbuilt; AI相談 is this room itself.
-    expect(notOffered.sort()).toEqual(['askAi:live', 'coaching:準備中', 'recording:live', 'settings:live'])
+    // 録音, 設定 and — since the 2026-09-05 fold of コーチング (⑥) — コーチング
+    // are LIVE rooms this room simply has no suggestion shaped for; AI相談 is
+    // this room itself. RE-DERIVED AGAIN at that fold: the flag beside コーチング
+    // moved because the rail moved, which is this pin reading the rail rather
+    // than remembering it.
+    expect(notOffered.sort()).toEqual(['askAi:live', 'coaching:live', 'recording:live', 'settings:live'])
   })
 
   it('⚖ S15 — every suggestion carries a TO-DO and a REASON, and neither states a world fact', () => {
@@ -1366,7 +1369,10 @@ describe('the shell one-liners', () => {
     const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string> = {'))
     const groupKeys = groupBody.slice(0, groupBody.indexOf('}')).match(/^\s*'?([\w-]+)'?:/gm)!
       .map((k) => k.trim().replace(/'|:/g, ''))
-    expect(groupKeys.sort()).toEqual(['ask-ai', 'settings'])
+    // ⚠ RE-DERIVED AT S16: コーチング joined the map with its own room's diff
+    // (the rail files it under 記録・AI too). 録音 and カルテ still fall through,
+    // which is the half this census is really guarding.
+    expect(groupKeys.sort()).toEqual(['ask-ai', 'coaching', 'settings'])
   })
 
   it('the loading string exists, so the route’s own convention has copy', () => {
@@ -1374,14 +1380,17 @@ describe('the shell one-liners', () => {
     expect(i18n.askAi.loading).toBe('読み込み中…')
   })
 
-  it('コーチング stays 準備中 — this room flips ONE line, and 録音/設定 were flipped by THEIR rounds', () => {
-    // ⚠ RE-DERIVED AT THE MAIN-MOVED FOLD (#823 録音, #812 設定): both rooms are
-    // LIVE in the rail now, so a pin still asserting they are 準備中 would be
-    // this suite claiming a fact about the family that stopped being true. What
-    // the pin is actually FOR survives unchanged — this room flips exactly one
-    // line, and the one room still unbuilt is still greyed rather than trimmed
-    // (⚖ NAV LAW). The cross-check below is what proves the direction.
-    expect(SIDEBAR).toContain("{ key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false }")
+  it('this room flips ONE line — 録音/設定/コーチング were flipped by THEIR rounds', () => {
+    // ⚠ RE-DERIVED AT THE MAIN-MOVED FOLD (#823 録音, #812 設定) AND AGAIN AT THE
+    // 2026-09-05 FOLD OF コーチング (⑥): each of those rooms is LIVE in the rail
+    // now, so a pin still asserting they are 準備中 would be this suite claiming
+    // a fact about the family that stopped being true. What the pin is actually
+    // FOR survives unchanged — this room flips exactly one line, and it is not
+    // this one. ⚠ AND NO ROOM IS 準備中 AT THIS TIP: all twelve rail items are
+    // live, so the ⚖ NAV LAW's greying is currently unexercised — this pin no
+    // longer proves it, and says so rather than implying it still does. The
+    // cross-check below is what proves the direction.
+    expect(SIDEBAR).toContain("{ key: 'coaching', segment: 'coaching', label: 'コーチング', mini: 'コーチ', live: true }")
     expect(SIDEBAR).toContain("{ key: 'recording', segment: 'recording', label: '録音', mini: '録音', live: true }")
     expect(SIDEBAR).toContain("{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }")
   })
@@ -1510,8 +1519,10 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // neighbour is MEANT to fail here once — the collision list below is
     // re-derived against both in the same pass rather than the bleed being
     // found in a browser. Both scope every rule under their own `.pg-` class,
-    // so neither adds a collision.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
+    // so neither adds a collision. RE-DERIVED AGAIN at the 2026-09-05 fold of
+    // コーチング (⑥): its sheet joined the family the same way, scoped under
+    // `.pg-coaching`, and the collision list below is unchanged by it.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'coaching', 'customers', 'inbox', 'karute', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

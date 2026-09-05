@@ -1,0 +1,1683 @@
+/* コーチング — the room's sheet. ONE PAGE, THREE SCREENS (自分のコーチング /
+   全スタッフ表示 / 経営への効果), one at a time, wearing the family's clothes.
+
+   THE SHAPE, IN THE ORDER THE PAGE READS (S16 — the Studio desk):
+     · the head — ONE title row: what this page is, the ? that opens the walk,
+       two neutral chips (the window, and whose eyes), and the room's own
+       refused action, last;
+     · then EITHER the family's underline tabs (a reader who may see the roster)
+       or canon's boundary-rights sentence with the setting that decides it —
+       never both;
+     · 自分のコーチング: the consent line, then ONE desk — the next move over the
+       findings on the left, the numbers that back them over the supporting
+       cards on the right — then the library row (the patterns beside what to
+       practise);
+     · 全スタッフ表示: the framing line and the four counts AS FILTERS, the roster
+       as bands with their paired help actions, and the rail beside them;
+     · 経営への効果: the claim, the chart that earns it (with the method as its
+       own footer), the per-metric lifts, and the money sentence LAST;
+     · the standing refusal footnote, and the 見え方 notice behind a disclosure.
+
+   ── ⚖ THE FOUR LAWS THIS ROOM WAS DESIGNED UNDER ────────────────────────────
+
+   (a) HONEST STATES ARE DESIGNED STATES. 未導入 (the module was never switched
+       on), and the findings run's own four statuses — findings /
+       routine_excellence / capture_gap / insufficient_data
+       (personal-findings.ts:222) — are not empty cards with a grey sentence in
+       them. Each is a composed panel that says the real reason, because ⚖ silent
+       failure is a bug and a blank is the loudest silence a page can make.
+
+   (b) DESKTOP SURPASSES PHONE (⚖ Liam 8/30). The phone stacks seven cards; the
+       desk reads the CLAIM and its RECEIPT side by side inside every finding, so
+       「12回中8回」 and what to do about it are in one glance instead of four
+       scrolls. Same design language, same vocabulary, more visible — never more
+       cluttered: this page shows FEWER things than the phone's coaching stack.
+
+   (c) EVERY BAND IS ITS OWN COMPOSITION (⚖ Liam 9/1). Not one layout squeezed
+       four ways — deliberate compositions, named below with the width each is
+       for and the reason it is that shape. A fold is not a narrow desktop and an
+       iPad is not a big phone.
+
+   (e) ⚖ THE HOLE LAW (S16C, Liam 9/5: 「big blank spaces … not very optimized」).
+       IN EVERY MULTI-COLUMN REGION, AT EVERY WIDTH:
+           (the lowest column's bottom − the highest column's bottom)
+           ────────────────────────────────────────────────────────  ≤ 0.20
+                        the tallest column's height
+       The measured breach that named it: at ≥1280 the self desk's left column
+       ended 390–460px above the right one, and the board's rail ended ~380px
+       above the board. THREE MECHANISMS keep it, and only three:
+         · ROW-STRETCH — a grid whose cells stretch to their row's height, with a
+           rule that keeps the LAST row full (`:last-child:nth-child(odd)`, or a
+           move that spans). Column bottoms are then equal BY CONSTRUCTION and
+           the ratio is 0, whatever the content is.
+           ⚠ V2-1 — AND IT IS ONLY LEGITIMATE WHERE THE ROW IS ONE ANSWER. The
+           practice sheet's three cells are one answer in three parts and must
+           end together, so a stretched cell there is a cell, not a slab — which
+           is why that region is gated on INTERIOR SLACK as well as on the ratio.
+           Where the row is a LIST of independent things — the shelves, and the
+           supporting cards in the fold band — stretch satisfies the arithmetic
+           by producing exactly the blank card the law exists to remove. That
+           was the measured V2-1 defect, and V3-1 is the same defect in the
+           other region: one strength beside a four-row card, 54.4% of it blank
+           at 1024, with the ratio reading 0.0% the whole time.
+         · BALANCED COLUMNS — CSS multi-column: the browser fills N columns to
+           the same depth and every box is exactly as tall as its own content.
+           The library's shelves work this way, and so does the supporting
+           column in the fold band, and the ratio is small BECAUSE the content
+           is distributed rather than because anything was stretched.
+         · PACKED — two stacks that end where their own content ends. Only the
+           DESK does, and there the ratio is a fact about WHAT IS IN EACH COLUMN.
+           So it is balanced by ASSIGNMENT — 気づき alone on the left, the four
+           supporting cards on the right — and never by stretching a card, which
+           would trade a hole for a slab.
+         · RAGGED-BOTTOM CATALOG (⚖ S16F-D1, from L4's B2-4-2) — a SINGLE ROW of
+           independent cards with nothing to balance them by. The 学習モジュール
+           row is the one region of this class: three catalog cards of naturally
+           different length, in one row, with no shared answer to end together
+           on and no content anybody may invent to fill the short ones. Stretched
+           they carried 20–32% blank (169px of a 521px card at 1280); balanced
+           columns would re-order a CATALOG, which is a different lie. So each
+           card is exactly as tall as its own content and the row's bottom edge
+           is RAGGED ON PURPOSE. The column-bottom ratio is not asked of this
+           class — a ragged bottom is the whole point of it — and what IS asked
+           is the interior slack of each card (≤20%, which `align-items: start`
+           makes ~0) plus a REPORTED max card-height difference, so a row that
+           starts to look broken is visible in the transcript rather than
+           silent. It is the ONLY exemption, and it is named here so a later
+           round cannot quietly add a second one.
+       The assignment is pinned in the suite; the RATIO is measured by the probe,
+       every region, at every ladder width, in both rail states — and the sheet's
+       three cells carry the INTERIOR SLACK verdict on top of it (V2-2).
+
+   (d) ⚖ NOTHING IS HIDDEN, EVER (⚖-ADJ A / S16-3). There is no `display: none`,
+       no `visibility: hidden`, no `max-height` clip and no `overflow: hidden`
+       anywhere in this sheet. A surface a reader cannot see is a surface that is
+       not rendered — the disclosure ADDS and REMOVES its body — and a ring this
+       room clipped would not be a ring (the room-3 F2 lesson).
+
+   ── THE LADDER: THE COMPOSITIONS AND THE THRESHOLDS BETWEEN THEM ────────────
+
+   ① STACKED  (container < 700 — phones, iPad portrait/mini)
+      One column, list-is-the-page. The desk's two stacks run in reading order:
+      the move, the findings, the numbers, the supporting cards, the library.
+      Touch targets ≥44px from 1023 down, because every one of these is a finger
+      on glass.
+
+   ② FOLD     (700 ≤ container < 880 — opened foldables, near-square)
+      The desk stays one column — a quoted moment needs the line — and the
+      SUPPORTING cards run two BALANCED columns beneath it (V3-1: multi-column,
+      never a pair of stretched tracks). The roster row becomes its
+      three real columns here, because the board is the one surface a near-square
+      screen has the width for. A near-square screen is wide and SHORT: stacking
+      seven cards down it is the stretched-phone look Liam named.
+
+   ③ ROI DESK (container ≥ 880 — unchanged at R1: its own fit is 844 and the
+      threshold stays where it is, because moving it would re-band a
+      composition R1 did not ask to change)
+      経営への効果 becomes a desk: the claim and the money sentence stacked left,
+      the chart that earns them on the right, the four lifts across the bottom.
+      It reaches its shape FIRST because it is the room's narrowest two-column
+      composition — one chart beside one number.
+
+   ④ DESK     (container ≥ 940 — laptops and externals, AND the wave's own 1280
+      reference width with the sidebar open, which hands this room 976)
+      自分のコーチング splits 7fr/5fr, the library row splits 7fr/5fr, and
+      全スタッフ表示 gains its rail at 8fr/4fr. The supporting column returns to
+      ONE track, because it is a column again rather than a row of cards.
+
+   ⑤ RECEIPT  (a finding CARD ≥ 480 — its own container, not the page's)
+      Inside every finding, the claim and its receipt sit side by side. This one
+      queries the ARTICLE, because what decides whether a quote and a
+      recommendation fit beside each other is the card's width, not the page's.
+
+   ⚖ ONE BLUE, AND IT IS #2563eb (R13, CLAUDE.md + globals.css:99 --primary).
+   The shell's --indigo is a DIFFERENT blue (#3f5be8) and is not spent here.
+
+   WHERE THE ACCENT IS SPENT, EXACTLY — pressables, and ONE data mark:
+     · PRESSABLES — the selected tab and its underline, a pressed count tile, the
+       練習するもの link chip, the 設定 boundary link, the ? while the tour is up.
+       That is the one-way accent law's main clause.
+     · ONE DATA MARK — the LAST bar of the 成約率 trend (`.cg-bar:last-child
+       .cg-bar-fill`), which is the month the reader is in. CLAUDE.md's own law
+       carves out 「chart/data colours」, and a series highlight is that.
+   Nothing else — and ⚖ GREPTILE-3 (9/5) drew the line this sheet had left
+   blurred. A NON-PRESSABLE MAY WEAR THE ACCENT AS A WASH OR A *-100 CHIP; IT MAY
+   NEVER WEAR IT AS INK. The 次の一手 kicker and the 「あなたの重点に関係」 chip
+   kept their blue-100 backgrounds and gave their blue-700 TEXT back to
+   `--ink-2`, because a label wearing a link's colour is a press this page cannot
+   honour (⚖ 8/6 — state is not action). So `--cg-accent-ink` is spent on FOUR
+   rules and no others: the two REAL links (`.cg-boundary-link`, `.cg-linkchip`)
+   and the PRESSED tile's two lines (`.cg-tile[aria-pressed="true"] .cg-tile-label`
+   and the same tile's `.cg-tile-value`). The room's suite enumerates that set as
+   a closed list, so a fifth cannot appear quietly.
+   Every band chip is a NEUTRAL wash — that last part is a rule
+   rather than a taste:
+   ⚖ 8/25's B family forbids a red or a threshold tone on a per-person number,
+   and サポートが必要 is a place to send help, not a failing grade. There is no
+   red anywhere on this page.
+
+   ── TYPOGRAPHY (apple-design §15) ───────────────────────────────────────────
+   Tracking is SIZE-SPECIFIC, never one value for all sizes: the 26px title
+   carries −.02em because letters read too far apart as they grow, section
+   titles −.01em, body 0, and the 11.5px labels +.01em because small text needs
+   the opposite correction. Leading runs inversely to size — 1.25 on the title,
+   1.85 on body copy — and hierarchy is built from weight + size + leading as a
+   SET rather than from size alone. The face is the shell's own system stack.
+
+   ── TWO SCOPING JOBS, AND THEY ARE DIFFERENT PROBLEMS ───────────────────────
+
+   OUTGOING (this sheet reaching another room). Every rule below is scoped under
+   `.pg-coaching`, and the screen puts that class on exactly one node.
+
+   INCOMING (another room's sheet reaching THIS one) — the room-2 BLOCKER class.
+   `.pg-coaching` does nothing about it: App Router keeps every sibling sheet
+   loaded, and the neighbours state BARE `.biz .<name>` rules on the exact names
+   a coaching page would want — `.panel`, `.stat`, `.card`, `.chip`, `.row`,
+   `.summary`, `.empty`, `.spot-card`…
+
+   THE FENCE HERE IS STRUCTURAL RATHER THAN ENUMERATED: every element this room
+   owns carries a `cg-` name that exists nowhere else in the family, so there is
+   no rule to collide with — a fence that cannot rot as the neighbours grow.
+   `page` / `h1` / `btn` are the only shell names this sheet states, and those
+   three are fenced immediately below at FOUR levels, because a sibling's own
+   three-level rule (`.biz .page .btn`, customers.css:23) ties at three and a tie
+   is decided by whichever sheet App Router happened to insert last.
+
+   ⚖ FOCUS IS THE SHELL'S (business-shell.css:107-111, 3px ring at 2px offset,
+   :focus-visible only) and is deliberately NOT restated — a second home for one
+   verdict. ⚠ …but a ring the room CLIPS is not a ring (the room-3 F2 lesson), so
+   no container here uses `overflow: hidden`.
+
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): NOT ONE container in this room owns
+   an axis. No height cap, no overflow-y, no overscroll-behavior, no overflow-x.
+   The roster grows down the page and the PAGE scrolls, at any roster size. */
+
+/* ── the fence: the three shared names this room states ────────────────────── */
+.biz .page.pg-coaching { padding: 24px 28px 40px; }
+.biz .page.pg-coaching h1 { margin: 0; font-size: 26px; line-height: 1.25; letter-spacing: -.02em; font-weight: 700; }
+.biz .page.pg-coaching .btn { font-weight: 500; }
+.biz .page.pg-coaching .btn.primary { font-weight: 600; }
+
+/* ── the room's tokens ─────────────────────────────────────────────────────── */
+.biz .page.pg-coaching {
+  --cg-accent: #2563eb;                       /* globals.css:99 --primary (⚖ R13) */
+  --cg-accent-wash: rgba(37, 99, 235, .08);   /* ⚖ R13's selected recipe: /8, never a fill */
+  --cg-accent-ink: #1d4ed8;                   /* blue-700 — the accent one step down, for the TEXT OF A PRESSABLE on a wash (⚖ GREPTILE-3: never a label's) */
+  --cg-accent-chip: #dbeafe;                  /* blue-100 — CLAUDE.md's approved icon-chip wash */
+  --cg-accent-line: rgba(37, 99, 235, .18);   /* the accent as a LINE tint, for a non-pressable card */
+  --cg-panel: #fff;
+  --cg-panel-line: #e4e4e9;                   /* shell --line */
+  --cg-soft: #f7f7f9;
+  /* The severity tones are DATA tones, not accents — they encode which KIND of
+     finding a card is, exactly as a chart's series colours encode which series
+     (the one-way accent law's own carve-out). Amber and emerald are the phone's
+     own coaching values (DataDrivenStaffView.tsx:148-152). 重点 is deliberately
+     the SAME amber family as 注目 rather than the phone's rose: on the computer
+     door this page is read beside a manager, and a red card next to a person's
+     name is the punishment stick ⚖ 8/25 rules out. */
+  --cg-priority: #8a4c0f;                     /* shell --amber */
+  --cg-priority-soft: #fbecd9;                /* shell --amber-soft */
+  --cg-watch: #6d5716;                        /* shell --yellow */
+  --cg-watch-soft: #f7edcb;                   /* shell --yellow-soft */
+  --cg-strength: #1d5c39;                     /* shell --green-dark */
+  --cg-strength-soft: #dcf0e4;                /* shell --green-soft */
+
+  /* ⚖-ADJ G — THE ULTRA-WIDE LAW, and it is the family's own number
+     (analytics.css:149 `--an-maxw`). ONE token, stated on the page column and
+     repeated on every card as the backstop: past 1416 the extra width becomes
+     SYMMETRIC PAGE MARGIN rather than a stretched card, because a 2560px line
+     of Japanese is not more readable, it is unreadable. */
+  --cg-maxw: 1416px;
+
+  /* ⚖ THE LADDER'S ARITHMETIC, STATED SO IT CAN BE READ RATHER THAN REMEMBERED
+     (the room-6 B4-1 law: a literal threshold goes stale the moment one of its
+     terms moves, and the suite parses these numbers and asserts each threshold
+     against their SUM).
+
+     THRESHOLD ①→② (stacked → fold) — the SUPPORTING cards pair up:
+         320  a supporting card, at its own readable floor
+       + 320  its neighbour
+       +  18  the gap between them
+       ─────
+         658  the width at which two cards first sit side by side
+         700  ships — 658 plus 42px, so the pair arrives at the FOLD (Liam's own
+              800 boundary, ≈724 of page at 800 with the rail collapsed) and not
+              one band earlier on an iPad in portrait, where ⚖ ALL-SCREEN asks
+              for a single column.
+
+     THRESHOLD ②→③ (fold → ROI desk) — the room's NARROWEST two-column shape:
+         520  the trend chart, with its legend and its method line under it
+       + 320  the hero card beside it (a number, a sentence and a chip)
+       +  24  the gap between them
+       ─────
+         864  the width at which the claim first fits beside its evidence
+         880  ships — 864 plus 16px of slack, because at exactly 864 the
+              available width EQUALS the two minima and a fractional page (zoom,
+              a scrollbar) would land the grid on the wrong side of an equality.
+
+     THRESHOLD ③→④ (ROI desk → desk) — the DECISION DESK.
+     ⚠ THE NUMBER IS SET BY THE WAVE'S REFERENCE WIDTH (R1-1). The accepted
+     mock's 1280 shot is the bar for this wave, and at 1280 with the sidebar
+     OPEN the shell leaves a 1016px page — 976 of container once this room's own
+     20px gutters come off. A threshold of 1000 put that width on the FOLD side
+     of the line, so the product rendered ONE column where the mock renders two.
+     Every `cg-page` desk threshold is therefore ≤ 940, and the MINS were
+     re-derived to fit rather than the threshold raised to fit the mins:
+         512  the findings column. ⚠ R2-27 RE-DERIVED IT FROM 560: the number's
+              JOB is 「the receipt grid is open inside a finding card at the desk」
+              and nothing else, so it is the receipt threshold plus the card's
+              own box — 480 + 30 of card padding + 2 of card border = 512. It
+              stopped being 560 when R2-9 took the findings PANEL's chrome away
+              (20px of padding and a border on each side), which is 42px the
+              article gets back.
+       + 300  the supporting column beside it
+       +  24  the gap between them
+       ─────
+         836  the width at which the decision desk first fits.
+     The TEAM grid is the BINDING one, from its own terms:
+         608  the board card, and the sum is the WHOLE box rather than the
+              tracks alone — the first cut of this number left the row's own
+              padding out and pinned every sentence at exactly its 260px floor:
+                112 (name) + 140 (band) + 260 (the sentence) + 20 (two 10px
+                gaps) = 532 of grid
+              + 28 the row's own left+right padding
+              +  2 the row's own borders
+              + 40 the card's own left+right padding
+              ─── 602, and 608 ships it with 6px of slack.
+       + 300  the rail beside it
+       +  24  the gap
+       ─────
+         932  the width at which the board and its rail first fit
+         940  ships — 932 plus 8, and 20px clear of the 960 the reference width
+              really hands this room.
+
+     THRESHOLD ④'s SECOND CONDITION (R2-27 — the one the first cut missed):
+     ⚠ A THRESHOLD IS NOT CROSSED CLEANLY IF THE COMPOSITION IT OPENS MAKES ONE
+     OF ITS OWN CHILDREN NARROWER THAN THE CHILD'S OWN THRESHOLD. At 940 the
+     desk hands the supporting column 5/12 of the row, which is NARROWER than
+     the fold's two-across pair gave it — so the 成績 card lost a tile column at
+     940 and won it back 18px later, in both rail states. The fix is arithmetic,
+     not taste: `--cg-main-min` must stay BELOW the fr share so the split at the
+     threshold is fr-driven rather than clamped, and the fr share must then be
+     wide enough for the 成績 card's own ⑥.
+         916  the row at container 940 (940 − 24 of gap)
+       × 7/12
+       ─────
+      534.33  the findings column, fr-driven — and `--cg-main-min` (512) is
+              BELOW it, so the min does not bind and does not steal the width
+         381.67  the supporting column, 5/12 of the same row
+       −  42  the 成績 card's own padding (40) and borders (2)
+       ─────
+      339.67  the card's container at the desk threshold, against ⑥'s 332 —
+              7.67px of slack, and 3-up tiles of 106.6 against a 104 floor.
+              Measured at 939 / 940 / 958, both rail states: 3-up at all six.
+     ⚠ THE ROW'S TWO FIXED TRACKS SHRANK FROM V2-1's 168/148 TO 112/140, and the
+     column gap from 14 to 10. V2-1's floor is the SENTENCE (260px) and that is
+     untouched; what gave way is the name and the band, which hold a wrapping
+     name (widest measured 104px) and a chip whose longest string is 「まだ判断
+     できません」 (measured 135px). Without that the rail could not arrive beside
+     the board at the reference width at all, which is the finding R1-1 names.
+
+     THRESHOLD ⑤ (the RECEIPT, inside a finding CARD — a DIFFERENT container):
+         232  the claim column — a recommendation, a top-performer line, a chip
+       + 232  the receipt column — a labelled count and one quoted moment
+       +  16  the gap between them
+       ─────
+         480  the width at which claim and receipt first sit side by side, and
+              the number that keeps the DESK threshold MONOTONIC: at 560 of
+              column the article is 490, so the grid is open ABOVE the
+              threshold, and below it the findings are full width and far wider
+              — open on both sides, one crossing low down, and never a column
+              gained, lost and gained again across one drag.
+
+     THRESHOLD ⑥ (the SPINE's five tiles, inside the 成績 CARD — its own
+     container, for the same reason the receipt has one: what decides how many
+     facts fit is the card's width, not the page's):
+         104  a tile, at the floor a phone needs to fit TWO of them (and,
+              measured below, the floor 「4.3 / 5.0」 needs at 17px)
+       ×  3
+       +  20  two gaps
+       ─────
+         332  three across first fit, and 332 SHIPS — this is the one threshold
+              in the room whose slack lives in the TILE FLOOR rather than in the
+              threshold, and deliberately: `auto-fit` already takes three at
+              332, so a rule shipped any higher would leave the band between the
+              two spellings taking three tiles at the WIDE value size, and the
+              money value would break mid-number exactly where R1's own pixel
+              read found it. The floor (104) is what guarantees the fit; this
+              rule exists to stop `auto-fit` choosing FOUR higher up, and to
+              carry the value's size step down with the tile.
+              At the reference width the supporting column is 376, so the card
+              is 336 and takes 3+2. A 390px phone (card ≈244) keeps its two.
+         104  the tile's TIGHT floor. ⚠ RE-MEASURED AT R2-27, in the shell's own
+       ×  5   face at the room's own size, and the widest value is NOT the money:
+       +  40  「4.3 / 5.0」 is 100.5px at 22px and 77.66px at 17px, against
+       ─────  「￥9,800」's 90.9 and 70.2. 77.66 + 26 of tile padding = 103.66,
+         560  which is 104 — the same number as the phone's two-across floor, so
+              one token answers both questions. (R1 recorded 75/97 for the same
+              two strings; the arithmetic below is re-derived from the measured
+              values, and both SHIPPED thresholds are unchanged by it.)
+         560  all five across, and 560 ships — the composition the desk is for.
+              ⚠ 5-up is a STACKED-band composition: at the desk the supporting
+              column caps at 5/12 of 1392, so the 成績 card never exceeds 538 of
+              container and reads 3+2 at every desk width. Measured, not assumed.
+
+     THRESHOLD ⑦ (the VALUE's own size, inside a TILE — the smallest container
+     in the room, and the right one: what decides whether a number fits is the
+     TILE, not the card and not the page. The first cut of this stepped the size
+     inside the CARD's bands and left 「4.3 / 5.0」 breaking in half at two of
+     them, because 3-up and 5-up produce tiles of very different widths):
+       100.5  the widest value at 22px 「4.3 / 5.0」, measured
+       +  26  the tile's own left+right padding
+       ─────
+       126.5  the tile at which the full size fits
+         128  ships — 126.5 plus 1.5. Below it the value is 17px (77.66 + 26 =
+              103.66, which is the tile floor above), so a number NEVER breaks in
+              half at any band — the one thing a value may not do.
+     Between them the card takes 3+2 rather than `auto-fit`'s 4+1: four tiles
+     and an orphan is the same half-empty row the supporting column's own
+     `:last-child:nth-child(odd)` rule exists to prevent, one level down.
+
+     ALL SEVEN ARE CONTAINER QUERIES, and each is crossed EXACTLY ONCE IN ITS
+     OWN CONTAINER'S WIDTH — the room never gains a column, loses it and gains it
+     again as its own box grows. ⚠ AND THE PAGE'S THRESHOLDS ARE THE ONES THAT
+     HAVE TO AGREE WITH EACH OTHER: a `cg-page` threshold that opens a narrower
+     box for a child re-crosses the CHILD's threshold, which is the defect
+     ④'s second condition above exists to prevent. */
+  /* ⚖ I-1 — THE PRACTICE SHEET'S three minima (threshold ⑧/⑨ above). */
+  --cg-move-min: 300px;
+  --cg-step-min: 260px;
+  --cg-why-min: 260px;
+  --cg-sheet-gap: 14px;
+  --cg-shelf-min: 250px;
+  --cg-module-min: 280px;
+  --cg-lift-min: 190px;
+  --cg-main-min: 512px;
+  --cg-side-min: 300px;
+  --cg-chart-min: 520px;
+  --cg-board-min: 856px;
+  --cg-claim-min: 232px;
+  --cg-receipt-min: 232px;
+  --cg-receipt-gap: 16px;
+  --cg-stat-min: 104px;
+  --cg-stat-tight: 104px;
+  --cg-stat-gap: 10px;
+  --cg-value-wide: 128px;
+  --cg-cols-gap: 24px;
+  --cg-card-gap: 18px;
+
+  container: cg-page / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  max-width: var(--cg-maxw);
+  margin-inline: auto;
+
+  /* ⚠ ONE UNBROKEN LATIN RUN PUSHES THE WHOLE PAGE SIDEWAYS, and an
+     all-Japanese demo hides it completely: Japanese breaks at any character, so
+     every fixture string in this room wraps by luck. A finding written in
+     romaji, a product code coming back from transcription, an email address in
+     a quoted moment — any of them is a single unbreakable word wider than its
+     column. MEASURED, not feared: the probe's hostile world scrolled the PAGE
+     horizontally at 1586, 1280, 1024 and 820 before this line, and stopped at
+     all four after it.
+
+     `anywhere` rather than `break-word` on purpose — the two differ exactly
+     where it matters here: `anywhere` also lets the break count toward the
+     element's MIN-CONTENT width, so a grid or flex track can shrink past the
+     long word instead of being sized by it. */
+  overflow-wrap: anywhere;
+}
+
+/* ── the head: ONE title row ───────────────────────────────────────────────── */
+/* ⚠ THE TITLE ROW IS A WRAPPING FLEX, and the wrap order is deliberate. On a
+   desk: the title, the ?, the two orientation chips, then the room's own action
+   pushed right. At ≤899 the chips take a line of their own BELOW the row, so the
+   title line keeps the three things a reader looks for first — what this page
+   is, where the explanation is, and the lever — while the two chips (facts, not
+   controls) sit under them where a longer date string has the whole width.
+   ⚠ NO SUBTITLE PARAGRAPH ANY MORE (⚖-ADJ K): it is folded into the head's guide
+   text, where the ? already takes a reader who wants the orientation. */
+.biz .pg-coaching .cg-head { display: flex; flex-direction: column; gap: 8px; }
+.biz .pg-coaching .cg-eyebrow { color: var(--quiet); font-size: 12px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-titleline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-head-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.biz .pg-coaching .cg-settings { margin-left: auto; }
+.biz .pg-coaching .cg-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; min-width: 26px;
+  border: 1.5px solid var(--control); border-radius: 50%;
+  background: #fff; color: var(--ink-3);
+  font-size: 13px; font-weight: 700; line-height: 1;
+}
+.biz .pg-coaching .cg-help:hover { border-color: var(--cg-accent); color: var(--cg-accent); }
+.biz .pg-coaching .cg-help[aria-expanded="true"] { border-color: var(--cg-accent); background: var(--cg-accent-wash); color: var(--cg-accent); }
+
+/* THE TWO ORIENTATION CHIPS. Neutral by construction — they are facts about the
+   READING, not controls, so they carry no accent (the one-way accent law) and no
+   press state. Each carries its whole sentence as a `title`. */
+.biz .pg-coaching .cg-chip-window,
+.biz .pg-coaching .cg-chip-viewer {
+  display: inline-block; padding: 4px 11px;
+  border: 1px solid var(--cg-panel-line); border-radius: 999px;
+  background: #fff; color: var(--ink-2);
+  font-size: 12px; line-height: 1.5; letter-spacing: .01em; white-space: nowrap;
+}
+.biz .pg-coaching .cg-chip-viewer { background: var(--cg-soft); color: var(--ink-3); }
+
+/* ⚠ FEEDBACK LIVES ON THE PRESS, NOT THE RELEASE (apple-design §1). A control
+   that only changes on `click` reads as dead for the length of the press — the
+   moment lag appears, directness falls off a cliff. 100ms, `ease-out`, on
+   `transform` only (a compositor property, §11). ONE rule for the whole room,
+   driven by the screen's own room-scoped pointer-down listener. REFUSED controls
+   carry no `data-press`: nothing happens when they are pressed, so nothing
+   should look like it did.
+   ⚠ THE MARKER IS `cg-pressed` RATHER THAN THE FAMILY'S OWN STATE NAME, and the
+   reason is this room's stricter fence: every `is-` modifier here must live in a
+   compound that also carries a `cg-` class, and `[data-press]` is an attribute
+   rather than one of this room's names. A `cg-` marker keeps the law intact
+   instead of carving an exception into it. */
+.biz .pg-coaching [data-press] { transition: transform 100ms ease-out; }
+.biz .pg-coaching [data-press].cg-pressed { transform: scale(.97); }
+
+/* ── the tabs: the family's UNDERLINE row (⚖-ADJ N) ────────────────────────── */
+/* ⚖ R13 — the selected tab is accent TEXT plus an accent rule, never a filled
+   tab and never a bordered pill. The rule is ONE span driven by two springs from
+   the frozen `spring.ts`; it is painted through a ref, so a 60fps slide never
+   touches React state, and `transform-origin: left` + `scaleX` means the browser
+   animates a compositor property rather than a width. */
+.biz .pg-coaching .cg-tabs {
+  position: relative; display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  padding: 0 2px; border-bottom: 1px solid var(--cg-panel-line);
+  width: 100%; max-width: var(--cg-maxw);
+}
+.biz .pg-coaching .cg-tab {
+  min-height: 38px; padding: 8px 16px;
+  border: 0; border-radius: 9px 9px 0 0;
+  background: none; color: var(--ink-3);
+  font: inherit; font-size: 13.5px; font-weight: 600; letter-spacing: 0;
+  transition: color 180ms ease-out, background 160ms ease-out;
+}
+.biz .pg-coaching .cg-tab:hover { background: #fafafb; }
+.biz .pg-coaching .cg-tab.is-on { color: var(--cg-accent); font-weight: 700; }
+.biz .pg-coaching .cg-tab-line {
+  position: absolute; bottom: -1px; left: 0; height: 2px; width: 100px;
+  background: var(--cg-accent); border-radius: 2px 2px 0 0;
+  transform-origin: left center; will-change: transform; pointer-events: none;
+}
+
+/* canon's boundary-rights variant, and ⚖ Q6's honest clause under it. */
+.biz .pg-coaching .cg-boundary {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  margin: 0; padding: 13px 15px;
+  border: 1px solid var(--cg-panel-line); border-radius: 10px;
+  background: var(--cg-soft);
+  width: 100%; max-width: var(--cg-maxw);
+}
+.biz .pg-coaching .cg-boundary-line { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-boundary-policy { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.75; }
+/* ⚠ R2-1 — THE DOOR IS A LINK AND A SENTENCE, never a link and a chip. A
+   「準備中」 chip is this app's own marker for a control that does nothing, so
+   beside a working link it reads as a broken door; the caveat is a quiet note
+   instead, and it names WHAT is unfinished rather than labelling the door. */
+.biz .pg-coaching .cg-boundary-door { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.biz .pg-coaching .cg-boundary-note { color: var(--muted); font-size: 11.5px; line-height: 1.75; }
+/* ⚖ R1-3 — a REAL link to the 設定 room, so the accent belongs on it (the
+   one-way accent law's main clause). */
+.biz .pg-coaching .cg-boundary-link {
+  display: inline-flex; align-items: center; min-height: 34px; padding: 6px 13px;
+  border: 1px solid rgba(37, 99, 235, .28); border-radius: 999px;
+  background: #fff; color: var(--cg-accent-ink);
+  font-size: 12.5px; font-weight: 600; line-height: 1.6; text-decoration: none;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-boundary-link:hover { background: var(--cg-accent-wash); }
+
+/* ── panels, shared furniture ──────────────────────────────────────────────── */
+.biz .pg-coaching .cg-panel { display: flex; flex-direction: column; gap: var(--cg-card-gap); }
+.biz .pg-coaching .cg-sheet,
+.biz .pg-coaching .cg-spine,
+.biz .pg-coaching .cg-focus,
+.biz .pg-coaching .cg-outcomes,
+.biz .pg-coaching .cg-skills,
+.biz .pg-coaching .cg-share,
+.biz .pg-coaching .cg-state,
+.biz .pg-coaching .cg-framing,
+.biz .pg-coaching .cg-board,
+.biz .pg-coaching .cg-consent,
+.biz .pg-coaching .cg-strengths,
+.biz .pg-coaching .cg-patterns,
+.biz .pg-coaching .cg-modules,
+.biz .pg-coaching .cg-roi-hero,
+.biz .pg-coaching .cg-roi-trend,
+.biz .pg-coaching .cg-roi-lifts,
+.biz .pg-coaching .cg-pitch,
+.biz .pg-coaching .cg-roi-withheld,
+.biz .pg-coaching .cg-roi-adopt,
+.biz .pg-coaching .cg-notice,
+.biz .pg-coaching .cg-dormant {
+  padding: 18px 20px;
+  border: 1px solid var(--cg-panel-line); border-radius: 12px;
+  background: var(--cg-panel);
+  width: 100%; max-width: var(--cg-maxw);
+}
+.biz .pg-coaching .cg-sec-title { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-coaching .cg-sec-head { display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-sec-head .cg-sec-title { margin-bottom: 0; }
+/* ⚠ R2-14 — THE LOCK IS FLUSHED RIGHT WHEN IT IS THE HEAD'S LAST ELEMENT, and
+   it stays beside the title when an action follows it: the button is the
+   rightmost thing on a head that has one (the mock's own five cards). Read off
+   the DOM with `:last-child` rather than from a list of which cards have a
+   button — a list would go stale the moment a card gains one. */
+.biz .pg-coaching .cg-sec-head > .btn { margin-left: auto; }
+.biz .pg-coaching .cg-sec-head > .cg-lock:last-child { margin-left: auto; }
+
+/* A kicker and a category name — the two quiet labels this room repeats. Both
+   are NEUTRAL: they name a thing, they are not pressable (the one-way accent
+   law), and the accent stays on the controls. */
+.biz .pg-coaching .cg-kicker { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--section); color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* ⚠ THE CATEGORY NAME IS WRITTEN BY THE GENERATOR, not chosen from an enum
+   (personal-findings.ts:235 — 「business-native pattern name; not a fixed
+   enum」), so it can be any length in any script and it MUST wrap. The chips
+   beside it — the severity word, the band, the score — carry short strings this
+   room controls, and those keep `nowrap` so a two-word label never breaks in
+   half. Measured: with `nowrap` here the hostile world scrolled the page
+   sideways at 744 and 390. */
+.biz .pg-coaching .cg-cat { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--cg-soft); color: var(--ink-3); font-size: 11.5px; font-weight: 600; line-height: 1.6; letter-spacing: .01em; min-width: 0; }
+.biz .pg-coaching .cg-note-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--cg-soft); color: var(--muted); font-size: 11px; letter-spacing: .01em; white-space: nowrap; }
+
+/* ⚠ V2-4/5 — A TOKEN NEVER BREAKS INSIDE ITSELF. `.cg-tk` is the room's LABEL
+   token: 次にやること, 該当した回数, 練習するもの, a quote's week and weekday and
+   speaker. Each is an inline-block that will not break, so a narrow column wraps
+   BETWEEN tokens instead of splitting 「練習する / もの」 down the middle. It is
+   never put on a sentence and never on a value — those must wrap, or a long one
+   pushes the page sideways. */
+.biz .pg-coaching .cg-tk { display: inline-block; white-space: nowrap; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-find-fix > .cg-tk,
+.biz .pg-coaching .cg-find-pattern > .cg-tk,
+.biz .pg-coaching .cg-find-check > .cg-tk,
+.biz .pg-coaching .cg-find-count > .cg-tk,
+.biz .pg-coaching .cg-sheet-count > .cg-tk,
+.biz .pg-coaching .cg-find-mod > .cg-tk,
+.biz .pg-coaching .cg-focus-next > .cg-tk { display: block; margin-bottom: 2px; }
+
+/* ── the dormant state ─────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-dormant { background: var(--cg-soft); }
+.biz .pg-coaching .cg-dormant h2 { margin: 8px 0; font-size: 17px; font-weight: 700; line-height: 1.4; letter-spacing: -.01em; color: var(--ink); }
+/* ⚠ R2-30 — THE CARD KEEPS THE PAGE COLUMN, THE PROSE DOES NOT. At 2560 the
+   dormant world is a 1352px card holding one paragraph; the line-length cap was
+   right and the paragraph still ran ~840px because `ch` grows with nothing. A
+   flat 760px stops it at a readable measure at every width. */
+.biz .pg-coaching .cg-dormant p { margin: 0; max-width: 760px; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+
+/* ── コーチングを受けることへの同意 (⚖-ADJ B: two compositions, one section) ── */
+/* Three states, three tones, ALL NEUTRAL-TO-WARM and none of them red: a person
+   who declined coaching has not failed at anything (⚖ 8/25's B family).
+   `granted` is the quiet STRIP — a decision already taken is a fact to keep
+   visible, not a card to re-read every session. */
+.biz .pg-coaching .cg-consent.is-unset { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-consent.is-declined { background: var(--cg-soft); }
+.biz .pg-coaching .cg-consent.is-granted { padding: 10px 14px; border-color: var(--cg-strength-soft); background: #f8fdfa; }
+.biz .pg-coaching .cg-consent-body { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-consent-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; }
+.biz .pg-coaching .cg-consent-strip-text { flex: 1 1 260px; min-width: 0; color: var(--cg-strength); font-size: 12.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-consent.is-granted .cg-consent-btn { margin-left: auto; }
+
+/* ── the spine: five plain facts ───────────────────────────────────────────── */
+/* ⚠ INTRINSIC, THRESHOLDLESS: `auto-fit` + a floor means the tiles reflow with
+   the room instead of at a number this sheet would have to keep in sync with
+   the ladder. Five across a wide card, two or three in the supporting column,
+   and never a partial tile at any width in between. 110 rather than 132: in the
+   supporting column at 390 the card holds ~244px, and a 132 floor put each of
+   the five facts on a row of its own. `auto-fit` never makes more tracks than
+   there are items, so a lower floor changes the narrow bands and nothing else. */
+.biz .pg-coaching .cg-spine { container: cg-spine / inline-size; }
+.biz .pg-coaching .cg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cg-stat-min), 1fr)); gap: var(--cg-stat-gap); margin-top: 12px; }
+/* ⑥ — 2 on a phone, 3+2 in the supporting column, 5 across on a wide card.
+   Queried on the CARD, because the page's width is two layout decisions away
+   from how many facts fit inside it.
+
+   ⚖ B2-4-1 / B2-4-3 (S16F) — AND THE LEAD TILE TAKES TWO TRACKS, WHICH IS WHAT
+   MAKES THE STRIP ONE HEIGHT. 成約率 is the only fact that carries a picture (a
+   step, four bars and the months either end of them). Stacked under its number
+   the tile ran ~97px taller than the other four, and a plain grid stretched
+   them all to it — 53–61% of every short tile was dead wash at 16 of 17 self
+   renders. Given two tracks the picture sits BESIDE the number and the tile's
+   own height is a label and a value, exactly like its neighbours'.
+   THE COUNTS THEN COME OUT EVEN AT EVERY STEP, which is the same finding's
+   other half (the 5th tile used to orphan at 393/440):
+       2 tracks · 5 tiles, lead spans 2 → 6 units → 3 full rows
+       3 tracks · 5 tiles, lead spans 2 → 6 units → 2 full rows
+       6 tracks · 5 tiles, lead spans 2 → 6 units → 1 full row
+   THRESHOLD ⑫ — WHERE EACH STEP FIRST FITS:
+       232  two 104px tracks and their gap.
+       332  three of them (unchanged — this step was already here).
+       880  SIX, with the lead still able to hold its picture BESIDE its number
+            on one line, which is the only thing that keeps the strip one height:
+              125  the figure — 「52%」 and 「先月より +8pt」 on one baseline
+            +  14  the gap
+            + 105  the four bars and 「6月 38% → 9月 52%」 unwrapped
+            ─────
+              244  the lead's content box, so 270 with its padding, so
+                   (c − 50) / 3 ≥ 260  →  c ≥ 830 first fit · 880 ships.
+            560 and 640 were both tried and both fail it: at 640 the lead is a
+            213px box, the caption wraps to three lines and the four short tiles
+            are stretched to it again — the defect this whole item is about,
+            re-created one step lower. Between 332 and 880 the strip is TWO ROWS
+            (lead + one, then three), which is a real composition rather than a
+            row with a hole in it. */
+/* ⚠ THE TILE IS ITS OWN CONTAINER (threshold ⑦). The value's size follows the
+   TILE, because that is what it has to fit inside — 3-up and 5-up produce very
+   different tiles out of the same card, and a step keyed on the card got one of
+   them wrong every time. */
+/* ⚖ B2-4-1 — THE FACT AND ITS PICTURE ARE TWO BLOCKS. They stack only in the
+   one-column band, where the strip has no row to stretch and every tile is
+   already its own height. */
+.biz .pg-coaching .cg-stat { container: cg-stat / inline-size; display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-stat-main { min-width: 0; }
+/* ⚖ B2-4-1 — THE STEP RIDES THE NUMBER'S OWN BASELINE. Stacked under the value
+   it added a line the other four tiles do not have, and one line is all it takes
+   to stretch them. */
+.biz .pg-coaching .cg-stat-figure { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+/* ⚠ EVERY STEP IS QUERIED ON THE STRIP, NOT ON THE TILE, and all three are
+   declared AFTER the tile's own rule: a container query carries no extra
+   specificity, so ordered the other way round the base wins and the tile never
+   turns. A `@container cg-stat` rule could not turn it at all — the tile IS
+   that container, and a container cannot query itself. */
+@container cg-spine (min-width: 232px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-stat:first-child { grid-column: span 2; }
+  /* the lead is two of the strip's tracks at every step from here up, which
+     is ≥200px at all three of them — so 「wide enough for the picture beside
+     the number」 and 「the lead spans two tracks」 are ONE condition, asked once. */
+  .biz .pg-coaching .cg-stat { flex-direction: row; align-items: flex-end; gap: 14px; }
+  .biz .pg-coaching .cg-stat-main { flex: 0 0 auto; }
+  .biz .pg-coaching .cg-spark { flex: 1 1 0; min-width: 0; }
+}
+@container cg-spine (min-width: 332px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container cg-spine (min-width: 880px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+.biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
+.biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+@container cg-stat (min-width: 128px) {
+  .biz .pg-coaching .cg-stat-value { font-size: 22px; }
+}
+.biz .pg-coaching .cg-basis { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+
+/* ── the single next move ──────────────────────────────────────────────────── */
+/* ⚖ R2-8 — THE DECISION CARD IS NOT A WARNING. It wore the room's PRIORITY
+   amber — pixel-identical in tone to a 重点 finding — so 「the one move to make
+   next」 read as 「something is wrong」. The mock's own grammar separates them:
+   blue is the decision, amber is the problem. A soft WASH on a non-pressable
+   card is the legal tier of the one-way accent law (CLAUDE.md names washes and
+   *-100 tints explicitly), and the kicker takes the approved icon-chip WASH —
+   blue-100 — rather than saturated accent text on plain prose.
+   ⚖ GREPTILE-3 (9/5) finished that sentence. The chip's TEXT was still blue-700
+   `--cg-accent-ink` — the colour this room's LINKS wear — on a label nobody can
+   press. The wash stays; the ink is `--ink-2` now. Wash yes, accent ink no, on
+   every non-pressable in this room.
+   NO SOLID ACCENT FILL AND NO ACCENT INK ANYWHERE ON THIS CARD. */
+.biz .pg-coaching .cg-focus { border-color: var(--cg-accent-line); background: linear-gradient(180deg, var(--cg-accent-wash) 0%, #f7faff 100%); }
+.biz .pg-coaching .cg-focus-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; }
+.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--ink-2); }
+.biz .pg-coaching .cg-focus .cg-sec-title { font-size: 19px; line-height: 1.4; letter-spacing: -.012em; margin-bottom: 5px; }
+.biz .pg-coaching .cg-focus-desc { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+
+/* 練習するもの — a REAL LINK to the module card, so it is a pressable and the
+   accent belongs on it (the one-way accent law's main clause). ⚖-ADJ D. */
+.biz .pg-coaching .cg-linkchip {
+  display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding: 7px 13px; min-height: 34px;
+  border: 1px solid rgba(37, 99, 235, .28); border-radius: 999px;
+  background: #fff; color: var(--cg-accent-ink);
+  font-size: 12.5px; font-weight: 600; line-height: 1.6; text-decoration: none;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-linkchip:hover { background: var(--cg-accent-wash); }
+.biz .pg-coaching .cg-linkchip .cg-tk { color: var(--ink-3); font-weight: 600; }
+.biz .pg-coaching .cg-linkchip-title { min-width: 0; }
+
+/* 「そのあとに効くもの」 — deliberately quieter than the hero and deliberately
+   NOT a numbered list: a rank is the one grammar this room does not use. */
+.biz .pg-coaching .cg-focus-next { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-focus-next ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-focus-next li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+
+/* ── ⚖ I-1 · THE PRACTICE SHEET (S16C) ─────────────────────────────────────── */
+/* THE BAND THAT LEADS THE STAFF SCREEN, and it is a BAND rather than a card in a
+   column because all three of its parts are one answer: the move, the steps and
+   the receipt. Split across the desk they were three scrolls apart, which is why
+   the page used to answer 「what do I do」 last.
+
+   THRESHOLD ⑧ — THE SHEET'S OWN CONTAINER (the card, not the page: what decides
+   whether three columns fit is the band's own box):
+       300  the MOVE — a kicker row, a 19px title, a sentence and the chip
+     + 260  やること — a numbered list of four steps
+     + 260  根拠 — a labelled count and one quoted moment (the receipt column's
+            own 232 plus this block's 28 of padding and border)
+     +  28  two gaps
+     ─────
+       848  three across first fit
+       880  ships — 848 plus 32, and V2-2 EARNED that 32 rather than picking it.
+            Between 860 and 880 all three tracks sit ON their floors
+            (300 + 260 + 260 of 832), which is the composition at its tightest —
+            and measured there, the MOVE cell reads 94px of 370px (25.6%) blank
+            at 1024 with the rail collapsed, because a four-step numbered list
+            beside five short facts is ~100px taller and the row takes the
+            taller. At 880 that page renders ⑨'s PAIR instead, where the same
+            measurement reads 0% / 0% / 11.5%.
+   THRESHOLD ⑨ — the PAIR, with the move spanning the row above it:
+       260  やること
+     + 260  根拠
+     +  14  the gap
+     ─────
+       534  the pair first fits
+       580  ships — 534 plus 46, so the pair arrives at the FOLD rather than in
+            the middle of a phone band where a numbered list wants the full line.
+   ⚠ BOTH ARE MEASURED ON THE BAND, so a page threshold can never open a narrower
+   box for them than the one they were derived against (④'s second condition, one
+   level down). Rows STRETCH, so the columns of a row end at the same y by
+   construction — the hole law is satisfied here by the grid, not by luck.
+
+   ⚠ V2-2 — AND A STRETCHED ROW STILL HAS TO BE FILLED. The hole law says the
+   COLUMNS end together; it says nothing about what is inside a cell, and this
+   band was the one place that mattered: 根拠 ended ~130px above its row at 1280
+   and ~140px at 1920 while やること's four steps set the height. Three changes,
+   all from the plane or from the arithmetic — never from padding:
+     · the 根拠 column carries the finding's own CLAIM above the count, so it
+       reads claim → count → quote (the screen's (c) block);
+     · the three tracks are weighted .95fr / 1.2fr / .85fr instead of
+       1.15fr / 1fr / 1fr. 根拠 is the NARROWEST, so its receipt wraps taller in
+       the same row instead of leaving the space blank; やること is the WIDEST,
+       because it is the only cell holding a LIST — four numbered steps whose
+       details wrap to two lines each — and its height is what sets the row;
+       and the MOVE, which holds five short facts, keeps a share narrow enough
+       that its own sentence and its 練習するもの chip take the extra line that
+       fills it. Every one of those three is a MEASURED fact, not a taste: the
+       whole ≥1024 ladder is swept in both rail states below.
+     · ⑧ ships at 880 rather than 860 (above).
+   THE FLOORS DO NOT MOVE — 300 / 260 / 260 — so ⑧'s first-fit sum is still 848.
+   What the weights change is the split ABOVE the floors: the .85fr share reaches
+   根拠's own 260 floor at
+       260 × 3.0 ÷ .85  =  918 of tracks  +  28 of gaps  =  946
+   so between 880 and 946 the split is FLOOR-driven and above 946 it is
+   fr-driven. Both are the SAME three columns, so nothing is gained, lost and
+   gained again across a drag — the monotonicity ④'s second condition is about
+   is untouched.
+   THE VERDICT ON THIS REGION IS INTERIOR SLACK, measured by the probe at
+   1280 / 1440 / 1920 in both rail states: in each of the three cells, the blank
+   BELOW the last content child — past the cell's own bottom padding — is ≤20%
+   of the cell's height. MEASURED WORST across that gate: 15.8% (the move at
+   1440 with the rail open), and 15.8% again across the WHOLE ≥1024 ladder. */
+.biz .pg-coaching .cg-sheet { container: cg-sheet / inline-size; }
+.biz .pg-coaching .cg-sheet > .cg-sec-head { margin-bottom: 12px; }
+.biz .pg-coaching .cg-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-sheet-gap); }
+/* ⚖ B2-4-4 (S16F) — THE PAIR BAND CARRIES THE SAME PROPORTION THE THREE-UP BAND
+   ALREADY EARNED. Split 1fr/1fr, やること (a four-step list) and 根拠 (a claim,
+   a count and one quote) came out 74.1px apart at 744/rail — 20.1% of the 根拠
+   cell, one tenth of a point past this region's own ≥80% bar, at a width V2-2's
+   verdict never visited (it sampled 1280 / 1440 / 1920). The steps ask for the
+   width and the receipt does not, which is exactly what 1.2 / .85 says one band
+   up; asked here too, the two cells end together. */
+@container cg-sheet (min-width: 580px) {
+  .biz .pg-coaching .cg-sheet-cols { grid-template-columns: minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr); }
+  .biz .pg-coaching .cg-sheet-move { grid-column: 1 / -1; }
+}
+@container cg-sheet (min-width: 880px) {
+  .biz .pg-coaching .cg-sheet-cols {
+    grid-template-columns: minmax(var(--cg-move-min), .95fr) minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr);
+  }
+  .biz .pg-coaching .cg-sheet-move { grid-column: auto; }
+}
+/* The move keeps R2-8's accent wash and every one of its own rules; what changes
+   is that it is a COLUMN of the band now, so it wears the nested block's box
+   (the `.cg-shelf` precedent) rather than a full panel's. */
+.biz .pg-coaching .cg-sheet .cg-focus { padding: 14px 15px; border-radius: 11px; }
+.biz .pg-coaching .cg-sheet .cg-focus .cg-sec-title { font-size: 17px; line-height: 1.45; }
+.biz .pg-coaching .cg-sheet-do,
+.biz .pg-coaching .cg-sheet-why {
+  padding: 14px 15px; min-width: 0;
+  border: 1px solid var(--cg-panel-line); border-radius: 11px;
+  background: var(--cg-soft);
+}
+.biz .pg-coaching .cg-sheet-colhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.biz .pg-coaching .cg-sheet-coltitle { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-sheet-modtitle { margin: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.75; }
+.biz .pg-coaching .cg-sheet-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* ⚠ V2-2 — THE CLAIM WEARS THE FINDING CARD'S OWN REGISTER (`.cg-find-impact`),
+   half a step down for the block it sits in: it is the SAME sentence, so it may
+   not read as a different kind of statement in the two places it appears. */
+.biz .pg-coaching .cg-sheet-claim { margin: 0 0 9px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+/* The count wears the receipt's own shape, on the block's own paper. */
+.biz .pg-coaching .cg-sheet-count { margin: 0; padding: 9px 12px; border: 1px solid var(--cg-panel-line); border-radius: 9px; background: #fff; }
+.biz .pg-coaching .cg-sheet .cg-module-steps { margin-top: 9px; }
+
+/* ── ① STACKED is the base — one column, no query needed ───────────────────── */
+.biz .pg-coaching .cg-cols,
+.biz .pg-coaching .cg-roigrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-cols-gap); align-items: start; }
+.biz .pg-coaching .cg-main { display: flex; flex-direction: column; gap: var(--cg-card-gap); min-width: 0; }
+.biz .pg-coaching .cg-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-card-gap); align-content: start; }
+.biz .pg-coaching .cg-roigrid { gap: var(--cg-card-gap); }
+
+/* ── the findings, with their receipts ─────────────────────────────────────── */
+/* ⚖ R2-9 — THE SECTION KEEPS ITS DECLARATION AND ITS TITLE ROW, AND LOSES ITS
+   PANEL. The mock's three findings are standalone cards; a bordered, filled
+   panel around bordered, filled cards renders card-in-card on the desk. What
+   the section is FOR — the tour step, the run-status title, and the ONE privacy
+   marker that covers the group — is untouched; only its chrome goes.
+   ⚠ AND THE LADDER FOLLOWS IT. With the panel's 20px padding and 1px borders
+   gone, a finding card is the findings column's full width, so the receipt's
+   own threshold is reached 42px earlier — which is what lets `--cg-main-min`
+   come down far enough for the desk's supporting column to keep its three
+   tiles (threshold ④ / ⑤ / ⑥, re-derived above). */
+.biz .pg-coaching .cg-findings { width: 100%; max-width: var(--cg-maxw); }
+.biz .pg-coaching .cg-findings > .cg-sec-head { margin-bottom: 11px; }
+.biz .pg-coaching .cg-find-list { display: flex; flex-direction: column; gap: 12px; }
+/* ⚠ THE ARTICLE IS ITS OWN CONTAINER (threshold ⑤). What decides whether a
+   recommendation and a quoted moment fit beside each other is the CARD's width —
+   the page's width is two layout decisions away from it. */
+.biz .pg-coaching .cg-find { container: cg-find / inline-size; padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; }
+.biz .pg-coaching .cg-find.is-priority { border-color: #ecd9bd; background: #fffdf9; }
+.biz .pg-coaching .cg-find.is-watch { border-color: #e8e0c2; background: #fffef8; }
+.biz .pg-coaching .cg-find.is-strength { border-color: #c9e5d5; background: #fbfefc; }
+.biz .pg-coaching .cg-find-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-find h3 { margin: 7px 0 0; font-size: 15px; font-weight: 700; line-height: 1.6; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-coaching .cg-sev { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-sev.is-priority { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-sev.is-watch { background: var(--cg-watch-soft); color: var(--cg-watch); }
+.biz .pg-coaching .cg-sev.is-strength { background: var(--cg-strength-soft); color: var(--cg-strength); }
+.biz .pg-coaching .cg-find-impact { margin: 9px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+
+/* THE CLAIM AND ITS RECEIPT. One column until the card can hold two. */
+.biz .pg-coaching .cg-receipt { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 11px; }
+.biz .pg-coaching .cg-find-claim,
+.biz .pg-coaching .cg-find-receipt { min-width: 0; }
+@container cg-find (min-width: 480px) {
+  .biz .pg-coaching .cg-receipt {
+    grid-template-columns: minmax(var(--cg-claim-min), 1fr) minmax(var(--cg-receipt-min), 1fr);
+    gap: var(--cg-receipt-gap);
+  }
+}
+
+.biz .pg-coaching .cg-find-fix { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+.biz .pg-coaching .cg-find-pattern,
+.biz .pg-coaching .cg-find-mod { margin: 9px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-find-check { margin: 0 0 9px; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+/* THE COUNT IS THE RECEIPT'S ARITHMETIC, wearing a labelled figure's shape and
+   sitting with the quoted moment rather than under the impact sentence it used
+   to restate. */
+.biz .pg-coaching .cg-find-count { margin: 0; padding: 9px 12px; border: 1px solid var(--cg-panel-line); border-radius: 9px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-find-count-value { display: block; margin-top: 1px; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.6; letter-spacing: -.005em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-find-warn { margin: 6px 0 0; color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-find-caveat { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+
+/* ONE moment per finding (personal-findings.ts:202) — a quiet quoted block, set
+   apart by a rule and a wash rather than a heavier border, so the receipt reads
+   as evidence beside the claim rather than as a second card. */
+.biz .pg-coaching .cg-quote { display: block; margin: 9px 0 0; padding: 10px 13px; border-left: 2.5px solid rgba(37, 99, 235, .22); border-radius: 0 8px 8px 0; background: #fcfdff; }
+.biz .pg-coaching .cg-quote-meta { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; color: var(--quiet); font-size: 11px; line-height: 1.6; letter-spacing: .01em; }
+.biz .pg-coaching .cg-quote-meta .cg-tk { color: var(--quiet); font-weight: 400; font-size: 11px; }
+/* ⚠ AND THE TWO THAT ARE NOT TOKENS WRAP. `cg-quote-scope` is a phrase and
+   `cg-quote-date` is the RUN's own string — measured: with `nowrap` on the date
+   the 「longest」 world pushed the page 70px sideways at 1280 and 489px at 390.
+   V2-4/5 is a rule about tokens, and its ceiling is that a value is never one. */
+.biz .pg-coaching .cg-quote-scope,
+.biz .pg-coaching .cg-quote-date { min-width: 0; }
+.biz .pg-coaching .cg-quote-text { display: block; margin-top: 5px; color: var(--ink); font-size: 13px; line-height: 1.9; }
+
+/* the run's non-finding statuses */
+.biz .pg-coaching .cg-status { padding: 14px 15px; border: 1px dashed var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-status-head { margin: 0; color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.75; }
+.biz .pg-coaching .cg-status-body { margin: 7px 0 0; max-width: 62ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── the supporting column's cards ─────────────────────────────────────────── */
+/* ⚠ THE STRENGTH CARDS CAP, THEY DO NOT STRETCH. `1fr` made a single strength a
+   1000px-wide green band holding two short lines — the emptiest thing on the
+   desk. Every floor is `min(Npx, 100%)` rather than a bare pixel floor: a bare
+   floor wider than the container makes the TRACK wider than the room and pushes
+   the whole page sideways — measured by the probe at 390. */
+.biz .pg-coaching .cg-strength-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 380px)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-strength { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border-radius: 10px; background: var(--cg-strength-soft); }
+.biz .pg-coaching .cg-strength-label { color: var(--cg-strength); font-size: 13px; font-weight: 700; line-height: 1.6; }
+/* THE RECEIPT, and it is the reason this card is not a compliment: staff-focus
+   .ts:203 requires the detail to cite the metric that evidences the strength. */
+.biz .pg-coaching .cg-strength-detail { color: var(--ink-2); font-size: 12.5px; line-height: 1.8; font-variant-numeric: tabular-nums; }
+
+/* ⚖ I-3 — THE SPARKLINE, INSIDE THE NUMBER IT IS A TREND OF. The four months
+   used to be a card of their own, two cards below the 成約率 tile: the same
+   metric drawn twice, far enough apart that nobody put them together. Inside the
+   tile the movement is part of the number rather than a second reading of it.
+   ⚠ THE ROOM'S ONE DATA ACCENT IS STILL THE LAST BAR — the month the reader is
+   in (CLAUDE.md's own chart/data carve-out; nothing else here is accent). */
+/* ⚖ I-11 — THE STEP, beside the number it is a step in. Neutral: a movement is
+   a fact, and the room spends its one accent on the last BAR (the month you are
+   in) rather than on a word. */
+.biz .pg-coaching .cg-stat-delta { display: inline-block; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-spark { display: block; }
+.biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-bar { display: flex; flex-direction: column; justify-content: flex-end; flex: 1 1 0; min-width: 0; }
+.biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 26px; border-radius: 4px; background: #fff; }
+.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 4px; background: #9db4e8; transform-origin: bottom center; transition: transform 420ms cubic-bezier(.22, .9, .24, 1); }
+/* ⚖ I-11 — THE ARRIVAL, and it is the room's OWN mount class rather than a new
+   mechanism: transform only, no keyframe, no new easing (this curve is already
+   the chevron's and the spotlight's), and nothing at all under reduced motion. */
+.biz .pg-coaching .cg-bar-fill.is-enter { transform: scaleY(0); }
+.biz .pg-coaching .cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }
+.biz .pg-coaching .cg-spark-cap { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.6; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+
+.biz .pg-coaching .cg-reasons { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-reason { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 8px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-reason-label { color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+.biz .pg-coaching .cg-reason-count { color: var(--ink); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-coaching .cg-pending { margin: 11px 0 0; padding: 10px 12px; border: 1px solid #e8e0c2; border-radius: 9px; background: #fffef8; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+.biz .pg-coaching .cg-skill-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-skill { display: flex; flex-direction: column; gap: 5px; }
+.biz .pg-coaching .cg-skill-head { display: flex; align-items: baseline; gap: 10px; }
+.biz .pg-coaching .cg-skill-label { flex: 1 1 auto; min-width: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.biz .pg-coaching .cg-skill-value { color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-coaching .cg-skill-value em { color: var(--muted); font-style: normal; font-weight: 600; }
+/* ⚖ I-4 — THE DISTANCE STILL TO CLOSE. Neutral, like every other chip on a
+   person's own screen: a gap is a place to practise, not a grade (⚖ 8/25's B
+   family — no threshold tone on a per-person number). */
+.biz .pg-coaching .cg-skill-gap { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: var(--section); color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-skill-track { position: relative; display: block; height: 7px; border-radius: 999px; background: var(--section); }
+.biz .pg-coaching .cg-skill-fill { display: block; height: 100%; border-radius: 999px; background: #9db4e8; transform-origin: left center; transition: transform 420ms cubic-bezier(.22, .9, .24, 1); }
+.biz .pg-coaching .cg-skill-fill.is-enter { transform: scaleX(0); }
+.biz .pg-coaching .cg-skill-mark { position: absolute; top: -3px; width: 2px; height: 13px; border-radius: 2px; background: var(--ink-3); }
+.biz .pg-coaching .cg-skill-note { color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+.biz .pg-coaching .cg-learn-list { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-learn-item { padding: 11px 13px; border-radius: 9px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-learn-behavior { display: block; color: var(--ink); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-learn-note { color: var(--muted); font-size: 11px; letter-spacing: .01em; }
+
+.biz .pg-coaching .cg-share-state { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-share-body { margin: 7px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── the empty state ───────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-state { background: var(--cg-soft); }
+.biz .pg-coaching .cg-state p { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+
+/* ── the triage board ──────────────────────────────────────────────────────── */
+.biz .pg-coaching .cg-framing-line { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
+/* ⚖-ADJ C — THE COUNTS ARE THE FILTER. Real buttons, so the keyboard reaches
+   them for free; ⚖ R13's recipe on the pressed state — a light accent wash and
+   accent text, never a fill. Intrinsic like the spine's tiles, so the four
+   reflow with the room rather than at a number this sheet babysits. */
+/* ⚠ TWO OR FOUR, NEVER THREE-AND-AN-ORPHAN. `auto-fit` took three of the four
+   tiles at the reference width and left 「判断できる回数に未到達」 alone on a row
+   of its own — the same half-empty row the supporting column and the 成績 tiles
+   each have a rule against, one level up and one level down. The mock's own
+   answer is four across the desk and two on a phone, and the fold threshold
+   already carries it: four tiles at 130 plus three 10px gaps is 550, and at
+   container 700 the framing card holds 660. */
+.biz .pg-coaching .cg-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.biz .pg-coaching .cg-tile {
+  display: flex; flex-direction: column; gap: 3px; align-items: flex-start;
+  padding: 11px 13px; min-width: 0;
+  border: 1px solid var(--cg-panel-line); border-radius: 10px;
+  background: #fff; color: inherit; font: inherit; text-align: left;
+  transition: background 120ms ease-out, border-color 120ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-tile:hover { background: var(--cg-soft); }
+.biz .pg-coaching .cg-tile[aria-pressed="true"] { border-color: var(--cg-accent); background: var(--cg-accent-wash); }
+.biz .pg-coaching .cg-tile-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
+.biz .pg-coaching .cg-tile[aria-pressed="true"] .cg-tile-label { color: var(--cg-accent-ink); }
+.biz .pg-coaching .cg-tile-value { color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-tile[aria-pressed="true"] .cg-tile-value { color: var(--cg-accent-ink); }
+
+.biz .pg-coaching .cg-rows { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* ⚠ A GRID, NOT A WRAPPING FLEX ROW — and that is a CRAFT decision, not a
+   preference (apple-design §16). With flex, a longer name pushed the band chip
+   23px right on two rows out of six and the trajectory sentences started at
+   ragged x positions; a desk reads a COLUMN, and ragged columns read as
+   unfinished. Fixed tracks line the name, the band and the sentence up on every
+   row whatever the roster is called.
+   ⚠ AND IT WRAPS RATHER THAN PANS: ⚖ ANY-ROSTER-SIZE is answered by the page
+   growing down, never by a scroller this room owns (⚖ page-scroll). */
+.biz .pg-coaching .cg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--cg-panel-line); border-radius: 10px;
+  background: #fff;
+  transition: opacity 140ms ease-out, transform 140ms ease-out;
+}
+/* THE ENTER MOTION, transform + opacity only, applied as a MOUNT CLASS by the
+   screen (never a keyframe for a state change) and never applied at all under
+   reduced motion. */
+.biz .pg-coaching .cg-row.is-enter,
+.biz .pg-coaching .cg-notice-body.is-enter { opacity: 0; transform: translateY(4px); }
+.biz .pg-coaching .cg-row.is-support { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-row-name { color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-row-band { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-row-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.biz .pg-coaching .cg-row-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* ⚖ I-7 — the focus AREA and the trajectory share one line: what this person
+   needs help with, beside how they are moving. */
+.biz .pg-coaching .cg-row-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-row-traj { min-width: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-row-focus { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* Below the desk the lever keeps its own line, right-aligned under the sentence
+   it acts on — today's proven shape, and the phone runs it full width. */
+.biz .pg-coaching .cg-row-act { align-self: flex-end; }
+/* The L2 leak guard's honesty half — amber, like every other 「this number/this
+   sentence did not check out」 line in the room, and never red on a person. */
+.biz .pg-coaching .cg-row-warn { color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* ⚖ NEUTRAL WASHES, ALL FOUR. No red, no alarm, no threshold tone on a person. */
+.biz .pg-coaching .cg-band-grow { background: var(--green-soft); color: var(--green-dark); }
+.biz .pg-coaching .cg-band-steady { background: var(--section); color: var(--ink-3); }
+.biz .pg-coaching .cg-band-support { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-band-building { background: var(--cg-soft); color: var(--muted); }
+
+/* ⚖ R2-18 — the board's empty branch, in the rail's own quiet register. */
+.biz .pg-coaching .cg-board-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* ── ⚖ I-8 · THE DECISION SUMMARY (S16C) ───────────────────────────────────── */
+/* TWO LINES, NOT A COLUMN. The rail it replaces was 4/12 of the page holding two
+   short cards beside a board that runs the length of the roster, and it ended
+   ~380px above it. A summary is a strip: a wrapping row of chips, and a
+   disclosure for the three notes and the one refused lever that qualify them. */
+.biz .pg-coaching .cg-summary { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-summary-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-summary-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-chip-label { color: var(--ink-2); font-size: 11.5px; line-height: 1.6; }
+.biz .pg-coaching .cg-summary-chip-value { color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-coaching .cg-summary-empty { color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+/* ⚖ B2-1-1 — the label carries the push to the right, so the NAME and the
+   COUNT travel as one pair when the line wraps rather than ending up on
+   opposite sides of the row. */
+.biz .pg-coaching .cg-summary-adopt-title { margin-left: auto; }
+.biz .pg-coaching .cg-summary-adopt { color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-summary-more {
+  display: inline-flex; align-items: center; min-height: 30px; padding: 4px 11px;
+  border: 1px solid var(--control); border-radius: 999px;
+  background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.6;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-summary-more:hover { background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 11px; padding: 12px 14px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-note { margin: 0; max-width: 78ch; color: var(--ink-2); font-size: 12px; line-height: 1.85; }
+
+/* ── the pattern library: five shelves ─────────────────────────────────────── */
+.biz .pg-coaching .cg-patterns-sub,
+.biz .pg-coaching .cg-modules-sub { margin: 0 0 14px; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+/* ⚠ INTRINSIC, THRESHOLDLESS, like the spine's tiles: the shelves reflow with
+   the room rather than at a number this sheet would have to keep in sync with
+   the ladder. One column on a phone, two in the desk's 7fr column, three when
+   the library row is still full width. */
+/* ⚖ I-5 / V2-1 — THE SHELVES ARE TWO COLUMNS BALANCED BY CONTENT, and nothing
+   in this region is stretched to fill a row.
+   THRESHOLD ⑩ — THE PATTERNS CARD'S OWN CONTAINER (what decides how many shelves
+   fit is the card, not the page — the room's own rule, four containers deep):
+       250  a shelf: a title, a description, two entries and its expander
+     × 2
+     +  14  the gap
+     ─────
+       514  two across first fit
+       520  ships — 514 plus 6.
+   The 250 is not a comment: it is `column-width`, so the browser's own count
+   can never put a shelf below the width the threshold was derived from.
+
+   ⚠ V2-1 — THE GRID WAS THE DEFECT, AND THE THRESHOLD WAS NEVER THE PROBLEM.
+   Two grid TRACKS pair the shelves BY INDEX and then stretch each cell to its
+   row's height, so カウンセリング質問例 (two entries) beside 会話フロー (one)
+   showed ~150px of blank card inside the shorter one at 1280 / 1920 / 2560 —
+   and the fifth shelf spanning the last row was the same move again, one row
+   down. That satisfied the hole law's ARITHMETIC by defeating what the law is
+   FOR: 「balance by what goes in each column, never by stretching a card」.
+   CSS MULTI-COLUMN balances by HEIGHT instead. The browser fills two columns to
+   the same depth, every shelf is exactly as tall as its own content, and the
+   reading order — and therefore the Tab order, which is the DOM's — runs down
+   the first column and then the second, which is how a library is read.
+   `break-inside: avoid` keeps a shelf whole; nothing is clipped, nothing is
+   hidden, and no shelf needs a rule about being last or odd.
+   THE HOLE LAW IS STILL MEASURED HERE, per shelf COLUMN: the probe groups the
+   `.cg-shelf` rects by their left edge and compares the two column bottoms. */
+.biz .pg-coaching .cg-patterns { container: cg-shelves / inline-size; }
+.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@container cg-shelves (min-width: 520px) {
+  .biz .pg-coaching .cg-shelves { display: block; column-count: 2; column-width: var(--cg-shelf-min); column-gap: 14px; column-fill: balance; }
+  .biz .pg-coaching .cg-shelf { break-inside: avoid; margin-bottom: 14px; }
+}
+.biz .pg-coaching .cg-shelf { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-shelf-title { margin: 0; font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
+.biz .pg-coaching .cg-shelf-desc { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
+/* AN EMPTY SHELF IS A DESIGNED STATE, not a missing one — the reader sees the
+   shape of the library, so a quiet month reads as 「nothing new here」. */
+.biz .pg-coaching .cg-shelf-empty { margin: 10px 0 0; padding: 10px 12px; border: 1px dashed var(--cg-panel-line); border-radius: 9px; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-pattern-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-pattern { display: flex; flex-direction: column; gap: 5px; padding: 11px 12px; border-radius: 9px; background: #fff; }
+.biz .pg-coaching .cg-pattern-title { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-pattern-behavior { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+/* THE ACTUAL LINE — set apart exactly as a finding's verbatim moment is, so the
+   two kinds of quote read as the same kind of thing on one page. */
+.biz .pg-coaching .cg-pattern-example { display: block; margin: 3px 0; padding: 9px 12px; border-left: 2.5px solid rgba(37, 99, 235, .22); border-radius: 0 8px 8px 0; background: #fcfdff; color: var(--ink); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-pattern-note { color: var(--ink-3); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-pattern-transfer { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.biz .pg-coaching .cg-pattern-caveat { color: var(--muted); font-size: 11px; line-height: 1.7; }
+/* THE SHELF'S OWN EXPANDER — a real button, so Tab reaches it and Enter and
+   Space operate it without this room writing a key handler. What it opens is
+   ADDED and REMOVED, never hidden. */
+.biz .pg-coaching .cg-shelf-more {
+  display: inline-flex; align-items: center; margin-top: 10px; min-height: 32px; padding: 5px 12px;
+  border: 1px solid var(--control); border-radius: 999px;
+  background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.6;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-shelf-more:hover { background: var(--cg-soft); }
+/* ⚖ I-5 — 上位層から学ぶ IS THIS SECTION'S FOOTER. A rule above it, not a box
+   around it: it is part of the library rather than a second card inside one (the
+   ⚖-ADJ F precedent, one section over). */
+.biz .pg-coaching .cg-learn { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-learn-title { margin: 0 0 9px; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-learn-foot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+/* ⚖ GREPTILE-3 — the SAME pair the 次の一手 kicker wore, and the same answer: the
+   blue-100 wash says 「this one is about your 重点」, and the text is `--ink-2`
+   because the chip is a span, not a door. */
+.biz .pg-coaching .cg-learn-rel { padding: 2px 8px; border-radius: 999px; background: var(--cg-accent-chip); color: var(--ink-2); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-patterns-note { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+
+/* ── the learning-module catalog ───────────────────────────────────────────── */
+.biz .pg-coaching .cg-callout { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 11px 13px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-callout b { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-callout span { color: var(--ink-2); font-size: 11.5px; line-height: 1.8; }
+/* ⚖ I-6 — THE CATALOG IS A ROW, and the row is decided by the CARD it is in.
+   THRESHOLD ⑪ — THE MODULES CARD'S OWN CONTAINER:
+       280  a module card: a title, a duration chip, a sentence, the basis line
+     × 3    and three or four numbered steps
+     +  28  two gaps
+     ─────
+       868  three across first fit
+       880  ships — 868 plus 12, and 40 clear of the 920 the wave's reference
+            width really hands this card.
+   And the PAIR, for the fold and the iPad:
+       280 + 280 + 14 = 574 first fit · 580 ships.
+   THREE cards in TWO columns leaves the third alone on the last row — the same
+   half-empty row the supporting column, the shelves and the 成績 tiles each have
+   their own answer to (multicol · multicol · ⚖ B2-4-1's two-track lead) — so the
+   odd last card takes the whole row.
+   ⚖ S16F-D1 (B2-4-2) — AND THE CARDS ARE NOT STRETCHED. Three catalog entries of
+   naturally different length in one row: stretched, the shortest carried 169px
+   of a 521px box as blank at 1280 and was over the bar at 11 of 17 self renders.
+   There is nothing to balance them BY — a catalog has an order, so multicol is
+   not available the way it was to the shelves, and no content may be invented to
+   fill a card. `align-items: start` gives every card its own height and leaves
+   the row's bottom edge ragged, which is the honest shape for a list of
+   independent things. Header note (e) carries the class and the exemption. */
+.biz .pg-coaching .cg-modules { container: cg-modules / inline-size; }
+.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; margin: 0; padding: 0; list-style: none; }
+@container cg-modules (min-width: 580px) {
+  .biz .pg-coaching .cg-module-list { grid-template-columns: repeat(2, minmax(var(--cg-module-min), 1fr)); }
+  .biz .pg-coaching .cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@container cg-modules (min-width: 880px) {
+  .biz .pg-coaching .cg-module-list { grid-template-columns: repeat(3, minmax(var(--cg-module-min), 1fr)); }
+  .biz .pg-coaching .cg-module:last-child:nth-child(odd) { grid-column: auto; }
+}
+/* ⚠ THE SCROLL MARGIN IS THE ANCHOR'S OWN (⚖-ADJ D). A 練習するもの chip sends
+   the reader here; without it the shell's sticky topbar lands on the card's own
+   heading, which is a link that appears not to have worked. */
+.biz .pg-coaching .cg-module { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: #fff; scroll-margin-top: 84px; }
+/* The module the reader's OWN focus run named. ⚠ IT KEEPS THE WARM TREATMENT
+   the 次の一手 card wore before R2-8: inside a CATALOG of neutral cards the warm
+   tint is what says 「this one is yours」, and the accent wash is now spoken for
+   by the decision card at the top of the page. Two different jobs, two tones. */
+.biz .pg-coaching .cg-module.is-mine { border-color: #e7dcc6; background: #fffdf9; }
+.biz .pg-coaching .cg-module-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-module.is-mine .cg-kicker { background: var(--cg-priority-soft); color: var(--cg-priority); }
+.biz .pg-coaching .cg-module-title { color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.55; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-module-desc { margin: 8px 0 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-module-basis { margin: 7px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.75; }
+/* AN ORDERED LIST IS THE RIGHT GRAMMAR HERE, and it is the only one on the
+   page: these are STEPS, which have an order, unlike people, who do not. */
+.biz .pg-coaching .cg-module-steps { display: flex; flex-direction: column; gap: 7px; margin: 11px 0 0; padding: 0 0 0 20px; }
+.biz .pg-coaching .cg-module-steps li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-module-steps b { display: block; color: var(--ink); font-weight: 700; }
+
+/* ── the owner ROI screen ──────────────────────────────────────────────────── */
+/* ⚠ THE HERO IS A CARD, NOT A GRADIENT BANNER. The phone paints teal-to-emerald
+   white-on-colour (`DataDrivenOwnerRoi.tsx:106`); the Business family has no
+   such surface anywhere, and a saturated slab under a manager's tab row would
+   be the loudest thing on a page whose whole argument is restraint. The number
+   carries the emphasis instead — 34px, tabular, on the room's own paper. */
+.biz .pg-coaching .cg-roi-hero { padding: 20px 22px; border-color: var(--cg-strength-soft); background: linear-gradient(180deg, #f4fbf7 0%, #fff 70%); }
+.biz .pg-coaching .cg-roi-eyebrow { display: block; color: var(--cg-strength); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-roi-value { margin: 6px 0 0; color: var(--ink); font-size: 34px; font-weight: 700; line-height: 1.15; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-roi-metric { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin-right: 8px; white-space: nowrap; }
+.biz .pg-coaching .cg-roi-sub { margin: 8px 0 0; max-width: 62ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-roi-note { margin: 0 0 12px; max-width: 70ch; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+/* ⚖ THE CONFIDENCE CHIP IS THE HONESTY, WEARING A TONE. Neutral washes, and
+   the weakest state is the quietest — never a red, never an alarm. */
+.biz .pg-coaching .cg-conf { display: inline-block; margin-top: 12px; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-conf.is-mature { background: var(--cg-strength-soft); color: var(--cg-strength); }
+.biz .pg-coaching .cg-conf.is-building { background: var(--cg-watch-soft); color: var(--cg-watch); }
+.biz .pg-coaching .cg-conf.is-early { background: var(--section); color: var(--ink-3); }
+.biz .pg-coaching .cg-conf.is-none { background: var(--cg-soft); color: var(--muted); }
+
+.biz .pg-coaching .cg-chart { position: relative; }
+.biz .pg-coaching .cg-chart svg { display: block; }
+.biz .pg-coaching .cg-chart-axis { stroke: var(--section); stroke-width: 1; }
+/* DATA COLOURS, under CLAUDE.md's own chart carve-out — and the treated series
+   is INK rather than the brand blue, so nothing here reads as pressable. */
+.biz .pg-coaching .cg-chart-control { stroke: var(--muted); stroke-width: 1.8; stroke-dasharray: 3 3; }
+.biz .pg-coaching .cg-chart-treated { stroke: var(--cg-strength); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+/* ⚠ R2-12 — NEUTRAL GREY, because 「coaching started here」 is a fact on a
+   timeline and not a flag. Everywhere else in this room this amber means
+   priority / omitted / needs-support, so spending it on a date made a neutral
+   marker read as a warning (the mock's own rule is a grey dashed line). */
+.biz .pg-coaching .cg-chart-mark { position: absolute; top: 0; bottom: 12px; width: 0; border-left: 1.5px dashed var(--muted); }
+.biz .pg-coaching .cg-chart-axis-labels { display: flex; justify-content: space-between; margin-top: 2px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-roi-legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-roi-legend li { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-roi-key { display: inline-block; width: 18px; height: 0; border-top-style: solid; }
+.biz .pg-coaching .cg-roi-key.is-treated { border-top-width: 2.6px; border-top-color: var(--cg-strength); }
+.biz .pg-coaching .cg-roi-key.is-control { border-top-width: 1.8px; border-top-style: dashed; border-top-color: var(--muted); }
+
+/* ⚖ I-10 — FOUR LIFTS, AND NEVER THREE-AND-AN-ORPHAN. `auto-fit` took three at
+   the middle widths and left the fourth alone on a row of its own, which is the
+   same half-empty row the supporting column, the shelves, the modules and the
+   成績 tiles each already have a rule against.
+   THRESHOLD ⑫ — THE LIFTS CARD'S OWN CONTAINER:
+       190 × 2 + 12 =  392 the PAIR first fits · 400 ships
+       190 × 4 + 36 =  796 all four first fit  · 810 ships
+   Two, four, or one. Every one of those leaves the last row FULL, so the block's
+   columns end at the same y whatever the four cards hold (the hole law). */
+.biz .pg-coaching .cg-roi-lifts { container: cg-lifts / inline-size; }
+.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+@container cg-lifts (min-width: 400px) {
+  .biz .pg-coaching .cg-lift-list { grid-template-columns: repeat(2, minmax(var(--cg-lift-min), 1fr)); }
+}
+@container cg-lifts (min-width: 810px) {
+  .biz .pg-coaching .cg-lift-list { grid-template-columns: repeat(4, minmax(var(--cg-lift-min), 1fr)); }
+}
+.biz .pg-coaching .cg-lift { display: flex; flex-direction: column; gap: 3px; padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-lift-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-lift-value { color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-lift-levels { color: var(--ink-3); font-size: 11.5px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-lift .cg-conf { align-self: flex-start; margin-top: 6px; }
+.biz .pg-coaching .cg-lift-basis { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+
+/* ⚖-ADJ F — THE METHOD, IN PLAIN WORDS, AS THE CHART CARD'S OWN FOOTER. It is
+   still its own declared section and still unconditional; what changed is that
+   it now sits under the picture it describes instead of in a panel of its own,
+   which is where a reader asks the question. A rule above it, not a box around
+   it: it is part of the card, not a second card inside one. */
+.biz .pg-coaching .cg-honesty { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-honesty p { margin: 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.85; }
+.biz .pg-coaching .cg-pitch { border-color: var(--cg-strength-soft); background: #f8fdfa; }
+.biz .pg-coaching .cg-pitch .cg-sec-title { color: var(--cg-strength); font-size: 16px; letter-spacing: -.012em; }
+.biz .pg-coaching .cg-pitch p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; font-variant-numeric: tabular-nums; }
+/* ⚖ R2-28 — THE WITHHELD STATE IS A CARD IN THE PITCH'S OWN SHAPE. Neutral
+   wash rather than the shown state's green, because it is a refusal and not a
+   claim; everything else about it — the grid area, the box, the declared title
+   — is the same, so the two states read as two answers to one question. */
+.biz .pg-coaching .cg-roi-withheld { background: var(--cg-soft); }
+.biz .pg-coaching .cg-roi-withheld .cg-sec-title { font-size: 16px; letter-spacing: -.012em; }
+.biz .pg-coaching .cg-roi-withheld p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── ⚖ I-10 · 導入の状況 ─────────────────────────────────────────────────────── */
+/* AGGREGATES AND A STORE LIST — no roster, no name, nothing a person could be
+   read out of. The per-store lines are the ⚖ 8/24 本部 roll-up door: on or off,
+   and where it is on, the headline lift the same derivation produces there. */
+.biz .pg-coaching .cg-adopt-line { margin: 0 0 5px; color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-adopt-stores-title { margin: 13px 0 8px; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-adopt-stores { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-adopt-store { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 11px; border-radius: 8px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-adopt-store-name { color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.6; }
+.biz .pg-coaching .cg-adopt-store-line { color: var(--ink); font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+
+/* ── whose eyes: the role preview (dev only; absent from the DOM in prod) ──── */
+/* ⚠ IT LOOKS LIKE A TOOL, NOT LIKE THE PRODUCT. A dashed hairline and a 開発用
+   tag, because a reader must never mistake it for a control the salon owns —
+   the dormant pill's own posture (`DevPreviewToggle.tsx:54-55`), moved from a
+   fixed bottom-right corner to the top of the page it changes. FIXED IS WRONG
+   HERE: this room has no bottom nav to clear, the desk door is a scrolling
+   page, and a floating chip over a manager's board is a thing to mis-tap. */
+.biz .pg-coaching .cg-preview {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 12px;
+  border: 1px dashed var(--control); border-radius: 10px;
+  background: repeating-linear-gradient(135deg, #fbfbfc 0 8px, #f6f6f8 8px 16px);
+  width: 100%; max-width: var(--cg-maxw);
+}
+.biz .pg-coaching .cg-preview.is-on { border-color: var(--cg-priority); }
+.biz .pg-coaching .cg-preview-tag { padding: 2px 8px; border-radius: 6px; background: var(--cg-priority-soft); color: var(--cg-priority); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+.biz .pg-coaching .cg-preview-chip {
+  min-height: 30px; display: inline-flex; align-items: center; padding: 0 11px;
+  border: 1px solid var(--control); border-radius: 8px;
+  background: #fff; color: var(--ink-2);
+  font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.biz .pg-coaching .cg-preview-chip:hover { background: #fafafb; }
+/* ⚖ R13 — a light accent wash on the selected chip, never a fill. */
+.biz .pg-coaching .cg-preview-chip.is-on { border-color: var(--cg-accent); background: var(--cg-accent-wash); color: var(--cg-accent); }
+.biz .pg-coaching .cg-preview-note { flex: 1 1 260px; min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+
+/* ── the per-section privacy marker ────────────────────────────────────────── */
+/* Neutral, small, and it never competes with the heading it sits beside — it is
+   a property of the card, not an alert about it. */
+.biz .pg-coaching .cg-lock {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  background: var(--cg-soft); color: var(--ink-3);
+  font-size: 11px; font-weight: 600; letter-spacing: .01em; white-space: nowrap;
+}
+
+/* ── the standing sentences, and the disclosure (⚖-ADJ A / S16-3) ──────────── */
+.biz .pg-coaching .cg-foot { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+.biz .pg-coaching .cg-notice { padding: 0; border-style: dashed; background: var(--cg-soft); }
+/* THE BAR IS THE SECTION'S BOX WHEN IT IS CLOSED. It says what is behind it AND
+   keeps the two standing sentences visible, so nothing a reader needs is behind
+   a press — what is behind the press is the LONG legal text. */
+.biz .pg-coaching .cg-notice-bar {
+  display: flex; align-items: flex-start; gap: 12px;
+  width: 100%; padding: 13px 15px;
+  border: 0; border-radius: 12px;
+  background: none; color: inherit; font: inherit; text-align: left;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-notice-bar:hover { background: rgba(255, 255, 255, .6); }
+.biz .pg-coaching .cg-notice-bar-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.biz .pg-coaching .cg-notice-bar-title { color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
+.biz .pg-coaching .cg-notice-line { color: var(--ink-3); font-size: 12px; line-height: 1.75; }
+/* ⚠ R2-30 — BESIDE THE TITLE, not at the card's far edge: the affordance and
+   the words it belongs to have to be readable in one glance, and at the 1416
+   cap they were 870px apart. `inline-block` so the rotation has a box to turn. */
+.biz .pg-coaching .cg-notice-chevron { display: inline-block; margin-left: 8px; color: var(--muted); font-size: 12px; transition: transform 200ms cubic-bezier(.22, .9, .24, 1); }
+.biz .pg-coaching .cg-notice-bar[aria-expanded="true"] .cg-notice-chevron { transform: rotate(180deg); }
+/* ⚠ THE BODY IS RENDERED OR IT IS NOT. There is no rule here that hides it —
+   `is-enter` is the 180ms arrival, nothing more. */
+.biz .pg-coaching .cg-notice-body {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 0 15px 15px;
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+.biz .pg-coaching .cg-notice-sub { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-mission { padding: 12px 14px; border-radius: 10px; background: #fff; }
+.biz .pg-coaching .cg-mission b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12.5px; font-weight: 700; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-mission p { margin: 0; max-width: 70ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.9; }
+/* ⚖ TWO COLUMNS IS THE COMPOSITION, and the reason is the content: the whole
+   point of this block is that a reader can hold both lists in one glance and
+   check that nothing appears on both. `auto-fit` collapses it to one column on
+   a phone, where a glance is a scroll anyway. */
+.biz .pg-coaching .cg-wall { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
+.biz .pg-coaching .cg-wall-col { padding: 13px 15px; border-radius: 10px; }
+.biz .pg-coaching .cg-wall-col.is-mine { background: var(--cg-strength-soft); }
+.biz .pg-coaching .cg-wall-col.is-theirs { background: #fff; border: 1px solid var(--cg-panel-line); }
+.biz .pg-coaching .cg-wall-col b { display: block; color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.5; }
+.biz .pg-coaching .cg-wall-lead { margin: 4px 0 8px; color: var(--ink-2); font-size: 11.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-wall-col ul { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0 0 0 18px; }
+.biz .pg-coaching .cg-wall-col li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-synqed { padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: #fff; }
+.biz .pg-coaching .cg-synqed > b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 12.5px; font-weight: 700; }
+.biz .pg-coaching .cg-synqed p { margin: 0; max-width: 72ch; color: var(--ink-2); font-size: 12px; line-height: 1.85; }
+.biz .pg-coaching .cg-synqed ul { display: flex; flex-direction: column; gap: 5px; margin: 8px 0 0; padding: 0 0 0 18px; }
+.biz .pg-coaching .cg-synqed li { color: var(--ink-2); font-size: 12px; line-height: 1.8; }
+.biz .pg-coaching .cg-retention { margin-top: 9px !important; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-retention b { color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; margin-right: 7px; }
+.biz .pg-coaching .cg-data-actions { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-delete-body { flex: 1 1 320px; min-width: 0; margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+.biz .pg-coaching .cg-delete-body b { display: block; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+
+/* ── ⚖ Liam 8/23 — 画面の説明 (the guided tour) ────────────────────────────── */
+/* z-indices sit above the shell's sticky topbar (z 5) and below nothing else in
+   this room — one room's overlay is never on screen with another's (the ⚖
+   sibling-sheet fence). NO SCROLLER, NO HEIGHT CAP (⚖ page-scroll). */
+.biz .pg-coaching .cg-spot-hole {
+  position: fixed; z-index: 70; pointer-events: none; border-radius: 12px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 9999px rgba(24, 24, 27, .42);
+  transition: top .24s cubic-bezier(.2, .7, .1, 1), left .24s cubic-bezier(.2, .7, .1, 1), width .24s cubic-bezier(.2, .7, .1, 1), height .24s cubic-bezier(.2, .7, .1, 1);
+}
+.biz .pg-coaching .cg-spot-catch { position: fixed; inset: 0; z-index: 69; cursor: pointer; }
+.biz .pg-coaching .cg-spot-hover { position: fixed; z-index: 70; pointer-events: none; border: 2px dashed rgba(255, 255, 255, .9); border-radius: 12px; }
+.biz .pg-coaching .cg-spot-card {
+  position: fixed; z-index: 72;
+  width: 300px; max-width: calc(100vw - 20px);
+  padding: 12px 14px 10px;
+  border: 1.5px solid var(--control); border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 40px rgba(24, 24, 27, .3);
+  font-size: 12.5px; line-height: 1.7; color: var(--ink-2);
+}
+.biz .pg-coaching .cg-spot-card b { display: block; margin-bottom: 2px; font-size: 13.5px; line-height: 1.45; letter-spacing: -.01em; color: var(--ink); }
+.biz .pg-coaching .cg-spot-text { display: block; }
+.biz .pg-coaching .cg-spot-hint { margin-top: 6px; color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-spot-foot { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-spot-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-spot-foot button { min-height: 30px; padding: 0 11px; border: 1px solid var(--control); border-radius: 7px; background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.biz .pg-coaching .cg-spot-foot button:hover { background: #f4f4f5; }
+.biz .pg-coaching .cg-spot-foot button:disabled { opacity: .4; cursor: default; }
+.biz .pg-coaching .cg-spot-foot .cg-spot-done { margin-left: auto; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE LADDER — the four container thresholds, each stated ONCE.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ② FOLD (≥700) — the near-square band. The supporting cards run two BALANCED
+   columns beneath the findings, and the roster row becomes its three real
+   columns. */
+@container cg-page (min-width: 700px) {
+  /* ⚠ V3-1 — BALANCED COLUMNS, AND IT IS THE SHELVES' OWN MECHANISM (V2-1) one
+     band up. Two grid TRACKS paired the supporting cards BY INDEX and stretched
+     each cell to its row, so 「うまくいっている理由」 — a single strength — stood
+     beside the four-row 不成約の理由 carrying 172px of its own 316px as blank
+     card (54.4% at 1024/open and 1100/open; 149px of 293px = 50.8% at 1024/rail
+     and 1180/open). The hole law's ARITHMETIC was 0 the whole time, because
+     row-stretch makes it 0 by construction — which is the law kept by producing
+     exactly the blank it exists to remove. These four cards are a LIST of
+     independent things, not one answer in parts, so stretch has no claim here.
+     CSS multi-column balances by HEIGHT instead: the browser fills two columns
+     to the same depth, every card is exactly as tall as its own content, and
+     the reading order — and therefore the Tab order, which is the DOM's — runs
+     down the first column and then the second. `break-inside: avoid` keeps a
+     card whole; nothing is clipped, nothing is hidden, and no card needs a rule
+     about being last or odd, so the orphan rule this band used to carry is
+     gone. The row spacing is a MARGIN because multi-column has no row gap to
+     give — and the desk takes it back off with the composition.
+     THE BAND IS THIS ONE ONLY: ≥940 the column is a single track again and the
+     phone (<700) never had a second column to balance. */
+  .biz .pg-coaching .cg-side { display: block; column-count: 2; column-fill: balance; column-gap: var(--cg-card-gap); }
+  .biz .pg-coaching .cg-side > * { break-inside: avoid; margin-bottom: var(--cg-card-gap); }
+  /* …and the board's four counts take their own row, all four (see above). */
+  .biz .pg-coaching .cg-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* ⚠ V2-1 — THE BOARD ROW IS THREE COLUMNS, AND THE ACTION IS ITS OWN LINE.
+     A fourth `max-content` track is 0px wide on every row that has no action and
+     ~200px on the one that does, and `.cg-row` is a grid PER `<li>`, so the
+     tracks are not shared between rows: the one flagged row's sentence collapsed
+     to ~90px and wrapped character by character while every other row ran to the
+     card edge. The action drops to a line of its own IN the sentence's column,
+     right-aligned — under the sentence it acts on, on the row it acts on, and
+     never stealing width from it. */
+  .biz .pg-coaching .cg-row {
+    grid-template-columns: 112px 140px minmax(260px, 1fr);
+    align-items: start;
+    gap: 10px 10px;
+  }
+}
+
+/* ③ ROI DESK (≥880) — the claim and the money sentence stacked left, the chart
+   that earns them on the right, the four lifts across the bottom.
+   ⚖-ADJ O — NAMED AREAS, so the SOURCE order can stay 「claim → evidence →
+   detail → money」 while the picture still sits beside the number it explains.
+   `align-items: start` because a short hero beside a tall chart must not be
+   stretched into a slab of empty wash (V2-6). */
+@container cg-page (min-width: 880px) {
+  .biz .pg-coaching .cg-roigrid {
+    grid-template-columns: minmax(var(--cg-side-min), 5fr) minmax(var(--cg-chart-min), 7fr);
+    grid-template-areas:
+      "hero  chart"
+      "pitch chart"
+      "lifts lifts"
+      "adopt adopt";
+    align-items: start;
+  }
+  .biz .pg-coaching .cg-roigrid > .cg-roi-hero { grid-area: hero; }
+  .biz .pg-coaching .cg-roigrid > .cg-roi-trend { grid-area: chart; }
+  .biz .pg-coaching .cg-roigrid > .cg-roi-lifts { grid-area: lifts; }
+  .biz .pg-coaching .cg-roigrid > .cg-pitch,
+  .biz .pg-coaching .cg-roigrid > .cg-roi-withheld { grid-area: pitch; }
+  /* ⚖ I-10 — 「is it being used」 is a FULL-WIDTH row under the desk, not a third
+     card in a column. Beside the chart it would have put a ~200px card into a
+     column already balanced against it to within 4% (measured), which is the
+     hole this round exists to close rather than move. A full-width row leaves
+     BOTH of the region's columns ending at the same y (the hole law). */
+  .biz .pg-coaching .cg-roigrid > .cg-roi-adopt { grid-area: adopt; }
+}
+
+/* ④ DESK (≥940) — the decision desk, the library row and the board's rail.
+   The supporting column returns to ONE track because it is a column again. */
+@container cg-page (min-width: 940px) {
+  .biz .pg-coaching .cg-cols {
+    grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr);
+    gap: var(--cg-cols-gap);
+  }
+  /* ⚠ V3-1 — `display` COMES BACK WITH THE TRACK, and the fold's row margin
+     comes off with it: the band below balances by multi-column and spaces its
+     cards with a margin, which on a grid would be added to the grid's own gap
+     and double the space between every supporting card on the desk. */
+  .biz .pg-coaching .cg-side { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-coaching .cg-side > * { margin-bottom: 0; }
+  /* ⚖ R2-7 — A ONE-CARD MAIN STACK KEEPS THE FOLD'S SHAPE AT EVERY WIDTH. The
+     screen sets `is-thin` when the run produced no findings and no focus, so
+     the desk's 7/5 would put the status card alone beside a full supporting
+     column. Full width, then the pair — that is the composition that reads
+     right, and it is stated ONCE, here, rather than as a second ladder.
+     ⚠ V3-1 SCOPE, SAID RATHER THAN LEFT TO BE FOUND (S16E-D1): this is a DESK
+     composition and V3-1's band stops at 940, so the thin desk keeps the PAIR
+     GRID and its no-orphan rule — the same mechanism V3-1 replaced one band
+     down. It is a different world (a run with no findings AND no focus) and it
+     was never measured; it is named here rather than changed unmeasured. */
+  .biz .pg-coaching .cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-coaching .cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* ⚖ I-7 — ONE LINE PER PERSON. The body becomes the `minmax(0,1fr) auto` pair
+     the action lives in, so the lever sits at the row's right edge ON the
+     sentence's line rather than under it.
+     THE ARITHMETIC, and it is why the pair opens HERE rather than at a number of
+     its own: at container 940 the body cell is
+         940 − 40 (the card's padding) − 28 (the row's) − 2 (its borders)
+             − 112 (name) − 140 (band) − 20 (two row gaps)   =  598
+     against 260 (the sentence's own V2-1 floor) + 12 (the pair's gap) + 240 (the
+     lever, capped and wrapping) = 512. 86px of slack, and it grows from there. */
+  .biz .pg-coaching .cg-row-body { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 10px 12px; align-items: start; }
+  .biz .pg-coaching .cg-row-act { justify-self: end; align-self: start; max-width: 240px; white-space: normal; }
+}
+
+/* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the viewport bands ────────── */
+/* Only the PAGE's own rules live here; the shell's bands (`.biz .app`'s 1180px
+   floor, the rail, the topbar) are the family CSS sweep's, and this room joins
+   the floor's opt-in list in business-shell.css. The COMPOSITIONS are the
+   container queries above, once each — never restated in a media band, so a
+   viewport rule can never disagree with the shape the container decided. */
+
+/* ═══ ≥1400 — big external displays: comfort, with line lengths capped ═══ */
+@media (min-width: 1400px) {
+  .biz .page.pg-coaching { padding-left: 32px; padding-right: 32px; }
+  .biz .pg-coaching .cg-find-impact,
+  .biz .pg-coaching .cg-find-fix,
+  .biz .pg-coaching .cg-quote-text,
+  .biz .pg-coaching .cg-row-line,
+  .biz .pg-coaching .cg-state p,
+  .biz .pg-coaching .cg-honesty p,
+  .biz .pg-coaching .cg-consent-body,
+  .biz .pg-coaching .cg-pattern-behavior,
+  .biz .pg-coaching .cg-module-desc { max-width: 66ch; }
+}
+
+/* ═══ ≤1279 — small laptop / iPad landscape ═══ */
+@media (max-width: 1279px) {
+  .biz .page.pg-coaching { padding-left: 20px; padding-right: 20px; }
+}
+
+/* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone. ⚖ ALL-SCREEN names ≥44px
+   at ≤743, and that is its FLOOR rather than its ceiling: 744–1023 is the iPad
+   portrait / mini / opened-foldable band, which is a finger on glass exactly as
+   743 is. The probe measured the difference — at 744 the ? was 26px and every
+   button 38–42px, all under the target a thumb needs, on a device the law's own
+   list names. So the target rule keys off TOUCH, and the ≤743 band keeps only
+   what is about LAYOUT. ═══ */
+@media (max-width: 1023px) {
+  .biz .pg-coaching .cg-tab { min-height: 44px; }
+  .biz .pg-coaching .cg-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
+  .biz .page.pg-coaching .btn { min-height: 44px; }
+  .biz .pg-coaching .cg-spot-foot button { min-height: 44px; }
+  /* the role preview's chips are LINKS, and a link is a finger target too — so
+     is the 練習するもの chip, the count tiles and the disclosure bar. */
+  .biz .pg-coaching .cg-preview-chip { min-height: 44px; }
+  .biz .pg-coaching .cg-linkchip { min-height: 44px; }
+  .biz .pg-coaching .cg-boundary-link { min-height: 44px; }
+  .biz .pg-coaching .cg-tile { min-height: 44px; }
+  .biz .pg-coaching .cg-shelf-more { min-height: 44px; }
+  .biz .pg-coaching .cg-summary-more { min-height: 44px; }
+  .biz .pg-coaching .cg-notice-bar { min-height: 44px; }
+}
+
+/* ═══ ≤899 — the head's two chips take a line of their own, below the title row
+   (S16 §2.1). ═══ */
+@media (max-width: 899px) {
+  .biz .pg-coaching .cg-head-chips { order: 2; flex-basis: 100%; }
+  .biz .pg-coaching .cg-settings { order: 1; }
+}
+
+/* ═══ ≤743 — phone. list-is-the-page: the tabs take the full width so either
+   screen is one thumb away, and the roster row's action runs the width it acts
+   on. ═══ */
+@media (max-width: 743px) {
+  .biz .page.pg-coaching { padding: 18px 14px 32px; }
+  .biz .page.pg-coaching h1 { font-size: 22px; letter-spacing: -.018em; }
+  .biz .pg-coaching .cg-tab { flex: 1 1 auto; }
+  .biz .pg-coaching .cg-row-act { width: 100%; }
+  .biz .pg-coaching .cg-spine,
+  .biz .pg-coaching .cg-focus,
+    .biz .pg-coaching .cg-outcomes,
+  .biz .pg-coaching .cg-skills,
+    .biz .pg-coaching .cg-share,
+  .biz .pg-coaching .cg-state,
+  .biz .pg-coaching .cg-framing,
+  .biz .pg-coaching .cg-board,
+    .biz .pg-coaching .cg-consent,
+  .biz .pg-coaching .cg-strengths,
+  .biz .pg-coaching .cg-patterns,
+  .biz .pg-coaching .cg-modules,
+    .biz .pg-coaching .cg-roi-hero,
+  .biz .pg-coaching .cg-roi-trend,
+  .biz .pg-coaching .cg-roi-lifts,
+  .biz .pg-coaching .cg-pitch,
+  .biz .pg-coaching .cg-roi-withheld,
+.biz .pg-coaching .cg-roi-adopt,
+  .biz .pg-coaching .cg-dormant { padding: 15px 14px; }
+  .biz .pg-coaching .cg-notice-bar { padding: 13px 14px; }
+  .biz .pg-coaching .cg-notice-body { padding: 0 14px 14px; }
+}
+
+/* ⚖ REDUCED MOTION IS NOT NO FEEDBACK — it is a gentler equivalent
+   (apple-design §14). The spotlight still MOVES to the next section, because
+   where it lands is the information; what goes is the 240ms travel across the
+   page, which is the vestibular part. The tab underline still lands on the
+   selected tab — the SPRING is constructed with `reduced`, so it arrives
+   instantly rather than not at all. The press feedback goes, because it is the
+   one piece of motion a reader who asked for less does not need. */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-coaching .cg-spot-hole { transition: none; }
+  .biz .pg-coaching [data-press],
+  .biz .pg-coaching [data-press].cg-pressed { transition: none; transform: none; }
+  .biz .pg-coaching .cg-row,
+  .biz .pg-coaching .cg-notice-body { transition: none; }
+  .biz .pg-coaching .cg-row.is-enter,
+  .biz .pg-coaching .cg-notice-body.is-enter { opacity: 1; transform: none; }
+  /* ⚖ I-11 — the bars are simply THERE for a reader who asked for less motion:
+     the class is not applied at all, and the transition is off either way. */
+  .biz .pg-coaching .cg-skill-fill,
+  .biz .pg-coaching .cg-bar-fill { transition: none; }
+  .biz .pg-coaching .cg-skill-fill.is-enter,
+  .biz .pg-coaching .cg-bar-fill.is-enter { transform: none; }
+  .biz .pg-coaching .cg-notice-chevron { transition: none; }
+}

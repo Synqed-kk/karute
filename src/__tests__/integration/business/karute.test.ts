@@ -1294,7 +1294,9 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // joined ahead of this room, in main's order, and the literal moved with it.
     // AND AGAIN on the 2026-09-05 fold of 顧客 (#834): `.page.page-customers`
     // joined ahead of it too — main's own name for that room, main's own order.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai) { min-width: 0; }')
+    // AGAIN on the 2026-09-05 fold of コーチング (⑥): `.page.pg-coaching`
+    // appended LAST.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai, .page.pg-coaching) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })
@@ -1342,7 +1344,7 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     for (const c of classesIn(sel)) if (c !== 'pg-karute') mine.add(c)
   }
 
-  it('the neighbours are all here — TEN sheets, read from disk, never restated', () => {
+  it('the neighbours are all here — ELEVEN sheets, read from disk, never restated', () => {
     // ⚠ RE-DERIVED, NOT EXTENDED BY HABIT: a new room shipping a sheet is a new
     // neighbour for THIS room, and the fence's whole point is that the list is
     // read from disk and pinned rather than remembered. `recording` joined the
@@ -1353,8 +1355,9 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     // pass rather than discovering the bleed in a browser (the 売上・レジ room
     // states the rule in its own words). `settings` states every rule under
     // `.pg-settings` and `ask-ai` every rule under `.pg-ask-ai`, so neither adds
-    // a collision below.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
+    // a collision below, and `coaching` (2026-09-01, ⑥) prefixes every rule
+    // `cg-` under `.pg-coaching`, so it adds nothing either.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'coaching', 'customers', 'inbox', 'recording', 'register', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {

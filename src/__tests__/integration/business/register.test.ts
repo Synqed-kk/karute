@@ -2352,8 +2352,9 @@ describe('⚖ the sibling-sheet fence, derived FRESH from today’s sheets', () 
     // it re-derives the collision list below in the same pass rather than
     // discovering the bleed in a browser. `settings` states every rule under
     // `.pg-settings` and `ask-ai` every rule under `.pg-ask-ai`, so neither adds
-    // anything to the collision list.
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'karute', 'recording', 'reservations', 'settings', 'shifts', 'today'])
+    // anything to the collision list, and `coaching` (room 8, 2026-09-01)
+    // prefixes every rule `cg-` under `.pg-coaching`, so it adds nothing either.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'coaching', 'customers', 'inbox', 'karute', 'recording', 'reservations', 'settings', 'shifts', 'today'])
   })
 
   it('every sibling rule that could reach this room is FENCED at four levels', () => {
