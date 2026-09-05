@@ -369,10 +369,37 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // fire at all (round 4): en 129,868 · index 972,501 · vendor 937,082 =
 // 2,039,451 B → 549 B of headroom.
 //
+// RAISED 2026-09-06 for the PLAY BUTTON (build 23 slice ①), ⚖ 8/25 + 9/4:
+// 2,040,000 → 2,048,300. A FEATURE raise, not a method correction — the method
+// is unchanged from the 2026-09-02 entry above (release-length placeholder env,
+// emptied thin/dist).
+//
+// What is in the phone for the bytes: a staffer can HEAR a session again from
+// inside the same 文字起こし card the words live in — play/pause, 15 seconds
+// back and forward, 1/1.5/2/3× and a scrub bar, over a signed url the server
+// mints on the FIRST tap (never on mount) after checking, with the same rule
+// that governs the words, that this viewer may hear this take. The recorder
+// always wins: a tap mid-recording is refused and a recorder that starts pauses
+// the player.
+//
+// Measured at this round's tip, the CI/release way: en 130,196 · index 979,812
+// · vendor 937,743 = 2,047,751 B — 7,751 B over the 2,040,000 ceiling, which is
+// the breach this raise answers. The last release-way figure on the base
+// (75ac94083) is 2,039,663 B, so the whole slice costs the phone +8,088 B: the
+// player component and the card's new states in `index`, the four new lucide
+// glyphs in `vendor` (+661 B), the ten new strings in `en` (+328 B).
+//
+// The new ceiling leaves 549 B of headroom — deliberately the same narrow
+// margin the last slice-five entry above recorded, and inside the ≤600 B this
+// round was given. It is narrow ON PURPOSE: the JP strings in this slice are
+// drafts awaiting a native pass, so a rewrite of a few dozen bytes must still
+// fit without a second raise, and anything larger than that should have to come
+// back and say so.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_040_000
+const BUDGET_BYTES = 2_048_300
 
 let dir
 try {
