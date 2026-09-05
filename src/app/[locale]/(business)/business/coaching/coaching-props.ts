@@ -778,7 +778,14 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // them. Null without a benchmark — a distance to nothing is not a
               // number, and printing 0 there would be the silent failure this
               // room refuses everywhere else.
-              gapLabel: c.topBenchmark != null ? `差 ${c.topBenchmark - c.score}` : null,
+              // ⚖ B2-L5-3 (S16F) — AND THE DIRECTION IS SPELLED, like every other
+              // signed number on this page. This was a bare subtraction dropped
+              // into a template, so a reader who ever passed the top-performer
+              // figure would have read 「差 -3」 with an ASCII hyphen — a deficit
+              // typo, in a room whose sibling number (`trendDelta`) was written
+              // carrying exactly this awareness. A gap that has been closed is
+              // good news and says so; a gap of nothing is not a distance.
+              gapLabel: c.topBenchmark != null ? gapLabel(c.topBenchmark - c.score) : null,
             })),
             // ⚖ I-5 — THE ONE JOIN THE TWO PLANES REALLY SHARE. A finding's
             // `pattern_reference` (personal-findings.ts:243) is resolved to the
@@ -1054,6 +1061,13 @@ const trendDelta = (history: number[]): string | null => {
   const step = Math.round((history[history.length - 1] - history[history.length - 2]) * 100)
   return `先月より ${step >= 0 ? '+' : '−'}${Math.abs(step)}pt`
 }
+
+/** ⚖ I-4 / B2-L5-3 — 「差 13」 · 「上位と同じ」 · 「上位を 3 上回る」. Three
+ *  branches because there are three facts, and the room prints the one that is
+ *  true rather than a signed number that reads as a mistake. 「上位」 is the word
+ *  the score beside it already uses (「82 / 上位 95」), so the chip and the value
+ *  it qualifies name the same thing. */
+const gapLabel = (d: number) => (d > 0 ? `差 ${d}` : d === 0 ? '上位と同じ' : `上位を ${Math.abs(d)} 上回る`)
 
 const trendCaption = (points: Array<{ label: string; display: string }>) => {
   if (points.length < 2) return ''

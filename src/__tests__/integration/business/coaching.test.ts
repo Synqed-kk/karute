@@ -4078,8 +4078,12 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
     expect(self.categories.length).toBeGreaterThan(1)
     for (const c of self.categories) {
+      // ⚖ B2-L5-3 (S16F) — RE-SPELLED for the sign. Every category in this
+      // plane sits BELOW its benchmark, so the arithmetic here is unchanged;
+      // what the block below adds is the two branches this world cannot show.
       expect({ key: c.key, gap: c.gapLabel })
         .toEqual({ key: c.key, gap: c.topBenchmark != null ? `差 ${c.topBenchmark - c.score}` : null })
+      expect({ key: c.key, below: (c.topBenchmark ?? 0) > c.score }).toEqual({ key: c.key, below: true })
     }
     // the biggest gap is really visible without the page ranking anything: the
     // ORDER that comes back is the plane's own, whatever the distances are.
@@ -4880,5 +4884,57 @@ describe('⚖ B2-L5-2 (S16F) — the store adoption line says what is really mis
     // the room's own vocabulary for 「we cannot judge yet」, one word, two tabs
     expect(other.line).toContain('まだ判断できる')
     expect(BAND_LABEL.growing.length).toBeGreaterThan(0)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-L5-3 (S16F) — the gap spells its direction, never a bare hyphen', () => {
+  /** The plane has every category below its benchmark, so all three branches are
+   *  driven through the `world.rows` seam on the reader's own row. */
+  const withScores = async (score: number, topBenchmark: number) => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: {
+        role: 'スタッフ',
+        selfId: 'p-06',
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-06' ? { ...r, categories: r.categories.map((c, i) => (i === 0 ? { ...c, score, topBenchmark } : c)) } : r,
+        ),
+      },
+    })
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    return self.categories[0].gapLabel
+  }
+
+  it('below · level · above each get their own true sentence', async () => {
+    expect(await withScores(72, 85)).toBe('差 13')
+    expect(await withScores(85, 85)).toBe('上位と同じ')
+    expect(await withScores(88, 85)).toBe('上位を 3 上回る')
+  })
+
+  it('a gap that went the other way NEVER prints a bare ASCII minus', async () => {
+    const above = await withScores(88, 85)
+    expect(above).not.toContain('-')
+    expect(above).not.toContain('−')
+    expect(above).not.toContain('差')
+  })
+
+  it('no benchmark is still no number at all', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: {
+        role: 'スタッフ',
+        selfId: 'p-06',
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-06' ? { ...r, categories: r.categories.map((c, i) => (i === 0 ? { ...c, topBenchmark: null } : c)) } : r,
+        ),
+      },
+    })
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.categories[0].gapLabel).toBeNull()
   })
 })
