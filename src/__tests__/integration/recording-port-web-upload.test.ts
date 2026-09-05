@@ -561,6 +561,31 @@ describe('webRecordingPort.mintTakeUrl', () => {
     ).resolves.toEqual({ error: 'reserved_elsewhere' })
   })
 
+  // ⚖ THE OTHER SUCCESS ARM PASSES THROUGH (hotfix 2026-09-05). The take mint
+  // answers "the object is already there, here is its size" when this take's
+  // own row reserved the key and storage holds it. This port used to convert
+  // that into `upstream` — retryable, so the web arm would have re-asked for
+  // ever, exactly as the phone did.
+  it('the already-there arm reaches the caller intact — no `upstream`, no `token`, no `url`', async () => {
+    mintRecordingUploadUrl.mockImplementation(async () => ({
+      path: 'app_biz-1_uuid-1.webm',
+      contentType: 'audio/webm',
+      recordingSessionId: 'rs-1',
+      existingSize: 682_520,
+    }))
+    const minted = await webRecordingPort.mintTakeUrl('take-uuid-1', 'audio/webm', 'rs-1')
+    // toEqual, not toMatchObject: the ABSENCE of `url` is half the assertion —
+    // secureTake reads that field to decide whether there is anything to send.
+    expect(minted).toEqual({
+      path: 'app_biz-1_uuid-1.webm',
+      contentType: 'audio/webm',
+      recordingSessionId: 'rs-1',
+      existingSize: 682_520,
+    })
+    expect(Object.keys(minted)).not.toContain('url')
+    expect(Object.keys(minted)).not.toContain('token')
+  })
+
   it("hands back the SERVER's contentType — an iOS take is audio/mp4, never the .webm default", async () => {
     // The mint answers the way the REAL door does: composeTakeKey takes BOTH
     // the extension and the content type off one closed MIME map. Hard-coding

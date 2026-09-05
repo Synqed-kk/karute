@@ -36,15 +36,18 @@ import { putDeadlineMs } from '@/lib/recording/storage-put'
  * inside `url`, and a port caller that reached for it would be assembling a
  * signed request the doors are there to assemble.
  *
- * EXTRACTED BY `url`, NOT BY `path` (fix round 2). The core's success side is
- * two arms now — the signed one and the "already there, here is its size" one
- * the STAGED branch answers — and this door never sends `stagedFor`, so it can
- * only ever see the signed arm. Naming `url` says that in the type: extracting
+ * EXTRACTED ARM BY ARM, NEVER BY `path` (fix round 2). The core's success side
+ * is two arms — the signed one and the "already there, here is its size" one —
+ * and BOTH reach this door since the 2026-09-05 hotfix: the take mint answers
+ * the second when the object is already at this take's own reserved key.
+ * Naming `url` and `existingSize` says which is which in the type; extracting
  * by `path` would match both and `Omit` over a union collapses to their shared
- * keys, quietly deleting `url` from this contract.
+ * keys, quietly deleting `url` from this contract. `token` is dropped from the
+ * signed arm only — the other never carried one.
  */
 export type MintTakeUrlPortResult =
   | Omit<Extract<MintTakeUrlResult, { url: string }>, 'token'>
+  | Extract<MintTakeUrlResult, { existingSize: number | null }>
   | { error: string }
 
 /**
@@ -206,9 +209,13 @@ export interface RecordingPipelinePort {
    * PR3 — secure-take.ts). The key is CLIENT-NAMED: the device already owns the
    * take id and the recorder already negotiated the container, so the same take
    * always lands on the same object instead of duplicating — which is what let
-   * PR4 delete the second, server-named staging upload entirely. The mint does NOT sign for upsert (PR2 fix round 3), so a
-   * retry does not overwrite: storage refuses a second PUT (409 = already
-   * there), which secure-take reads as "the object landed, finish the leg".
+   * PR4 delete the second, server-named staging upload entirely. The mint does
+   * NOT sign for upsert (PR2 fix round 3), so a retry does not overwrite — and
+   * since the 2026-09-05 hotfix it does not SIGN at all when the object is
+   * already at this take's own reserved key: it answers the other arm below,
+   * with no `url`, and secure-take skips the PUT and finalizes. (A 409 at a
+   * freshly signed PUT is still the race this probe did not see, and
+   * secure-take still reads it as "the object landed, finish the leg".)
    *
    * `contentType` is the SERVER's, composed from the closed MIME map beside the
    * key's extension — the PUT sends it back verbatim, so the object's label and
@@ -500,18 +507,22 @@ export const webRecordingPort: RecordingPipelinePort = {
       { error: 'upstream' as const },
     )
     if ('error' in minted) return minted
-    // The door's OTHER success arm — "the object is already there, here is its
-    // size" — belongs to the STAGED branch alone, and this call sends no
-    // `stagedFor`, so it is unreachable from here. Narrowed rather than cast
-    // (fix round 2): the compiler proving it stays unreachable is the point,
-    // and if the door ever did answer it, `upstream` leaves the take retryable
-    // instead of putting `undefined` on the wire as a URL.
-    if (!('url' in minted)) return { error: 'upstream' }
+    // BOTH success arms pass THROUGH (hotfix 2026-09-05): the take mint answers
+    // "the object is already there" when this take's own row reserved the key
+    // and storage holds it, and secureTake reads that as "nothing to send, go
+    // and finalize". Converted into `upstream` it left the web arm re-asking
+    // for ever, exactly as the phone did.
+    //
     // `token` is DROPPED here, not merely dropped from the type: it already
     // rides inside `url`, and handing a caller a credential the contract says
-    // it never gets is how a second signed-request assembler is born.
-    const { path, url, contentType, recordingSessionId: bound } = minted
-    return { path, url, contentType, recordingSessionId: bound }
+    // it never gets is how a second signed-request assembler is born. Rebuilt
+    // field by field rather than spread, so nothing new rides through either.
+    if ('url' in minted) {
+      const { path, url, contentType, recordingSessionId: bound } = minted
+      return { path, url, contentType, recordingSessionId: bound }
+    }
+    const { path, contentType, recordingSessionId: bound, existingSize } = minted
+    return { path, contentType, recordingSessionId: bound, existingSize }
   },
   async mintSegmentUrls(takeId, mimeType, recordingSessionId, seqs) {
     const { mintRecordingSegmentUrls } = await uploadActions()

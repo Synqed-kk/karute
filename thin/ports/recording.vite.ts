@@ -306,10 +306,18 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // ⚖ THE TOKEN IS DROPPED HERE (fix round 13, P3), not merely absent from the
     // type: the facade echoes the mint's whole result, and `token` already rides
     // inside `url`. Handing a caller a credential the port contract says it
-    // never gets is how a second signed-request assembler is born. Same four
-    // fields, same reason, as the web arm (lib/ports/recording-port.ts).
-    const { path, url, contentType, recordingSessionId: bound } = body
-    return { path, url, contentType, recordingSessionId: bound }
+    // never gets is how a second signed-request assembler is born. Same fields,
+    // same reason, as the web arm (lib/ports/recording-port.ts).
+    //
+    // ⚖ AND REBUILT BY ARM (hotfix 2026-09-05), the way mintSegmentUrls below
+    // already does it. The take mint answers "the object is already there, here
+    // is its size" when this take's own row reserved the key and storage holds
+    // it — and that arm must carry NO `url` key at all: a `url: undefined` on
+    // the rebuilt object would pass a shape check in secureTake and reach fetch.
+    const { path, contentType, recordingSessionId: bound } = body
+    return 'url' in body
+      ? { path, url: body.url, contentType, recordingSessionId: bound }
+      : { path, contentType, recordingSessionId: bound, existingSize: body.existingSize ?? null }
   },
   // Slice five packet C (D6) — the segment door, the same upload-url door one
   // function up with a `seqs` list on the body. It reserves nothing and writes
