@@ -427,17 +427,42 @@ export function SettingsScreen(props: SettingsScreenProps) {
     if (targets.length === 0) { setTourIdx(-1); return }
     const i = Math.min(tourIdx, targets.length - 1)
     const el = targets[i]
+    const card = tourCardRef.current
+    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
     let r = el.getBoundingClientRect()
-    if (r.top < 60 || r.bottom > window.innerHeight - 40) {
+    if (r.top < 60 || r.bottom > viewport.height - 40) {
       el.scrollIntoView({ block: 'center' })
       r = el.getBoundingClientRect()
+    }
+    /** ⚖ S17 fix round 1 · F17 — A TALL TARGET IS READ FROM ITS TOP.
+     *
+     *  Centring a block taller than the screen puts its heading ABOVE the
+     *  viewport and leaves no room for the card on either side, so the engine's
+     *  last resort dropped it on the block's first controls — measured at 390
+     *  and 440 on five steps, holes 515 to 1097px. Scrolling the HEADING to the
+     *  top instead gives the engine back a real place to stand for anything up
+     *  to about a screen tall, and for the ones taller than that
+     *  `keepCardOffHeading` pins the card to the far edge.
+     *
+     *  ⚠ THE TEST IS THE ENGINE'S OWN: 「is there room for the card above or
+     *  below the target」, asked with the card's real measured height rather
+     *  than with a guess about heights. */
+    const need = size.height + 28
+    const hasFreeSide = () => r.top >= need || viewport.height - r.bottom >= need
+    if (!hasFreeSide()) {
+      el.scrollIntoView({ block: 'start' })
+      r = el.getBoundingClientRect()
+      // …clear of the head row, so the heading is READ rather than tucked under
+      // whatever is pinned above it.
+      if (r.top < 60) {
+        window.scrollBy(0, r.top - 60)
+        r = el.getBoundingClientRect()
+      }
     }
     tourRectsRef.current = targets.map((t) => boxOf(t.getBoundingClientRect()))
     const nextStep = { title: el.dataset.guideTitle ?? '', text: el.dataset.guide ?? '', idx: i, total: targets.length }
     setTourStep((was) => (was && sameStep(was, nextStep) ? was : nextStep))
-    const card = tourCardRef.current
-    const size = { width: card?.offsetWidth || 300, height: card?.offsetHeight || 160 }
-    const viewport = { width: window.innerWidth, height: window.innerHeight }
     // ⚠ AND THE ENGINE'S LAST RESORT IS CORRECTED (see `keepCardOffHeading`).
     // On a desk every row has a free side and this is a pass-through; at 390 a
     // stacked row is full width and taller than half the viewport, so the engine

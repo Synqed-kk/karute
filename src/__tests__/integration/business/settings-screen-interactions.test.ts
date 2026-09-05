@@ -306,6 +306,55 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('}, [on, reduced])')
   })
 
+  // ⚖ S17 · F17 — THE TOUR CARD NEVER SITS ON THE BLOCK IT IS EXPLAINING.
+  // At 390 and 440 a block taller than the screen (measured: five steps, holes
+  // 515–1097px) left the shared engine no free side, so its documented last
+  // resort put the card on the target — and the room's own correction returned
+  // it untouched, because the heading was off-screen above rather than under the
+  // card. Two halves: the screen scrolls such a target's HEADING to the top, and
+  // this function pins the card to the far edge for the ones still taller than
+  // the viewport after that.
+  it('⚖ F17 — a target with no free side gets the card at the far edge, never over its heading or first control', () => {
+    const viewport = { width: 390, height: 844 }
+    const card = { width: 225, height: 167 }
+    // a block taller than the whole viewport, its heading scrolled to the top…
+    const tall = { left: 12, top: 60, width: 366, height: 1097 }
+    // …the engine's own last resort would be somewhere inside it…
+    const lastResort = { top: 300, left: 20 }
+    const fixed = keepCardOffHeading(lastResort, card, tall, viewport)
+    // …and the correction takes it to the bottom edge, clear of both.
+    expect(fixed.top).toBe(viewport.height - card.height - 10)
+    expect(fixed.top).toBeGreaterThan(tall.top + 64)
+    // …clear of the FIRST CONTROL under the heading too (the failure L3 measured
+    // was a card over the table's column heads and its first two rows, not over
+    // the block title).
+    const firstControlBottom = tall.top + 64 + 44
+    expect(fixed.top).toBeGreaterThanOrEqual(firstControlBottom)
+
+    // …a target that FITS is still the engine's own answer, untouched: this
+    // correction only ever fires where the engine had nowhere to go.
+    const short = { left: 12, top: 300, width: 366, height: 120 }
+    const beside = { top: 40, left: 20 }
+    expect(keepCardOffHeading(beside, card, short, viewport)).toEqual(beside)
+    // …and a card that does not overlap the target in X is never moved at all.
+    expect(keepCardOffHeading({ top: 300, left: 400 }, card, tall, viewport)).toEqual({ top: 300, left: 400 })
+
+    // …and the SCREEN does its half: it asks the engine's own question with the
+    // card's real height and scrolls the heading to the top when the answer is
+    // 「nowhere」.
+    // …SLICE-BOUND (⚖ the F22 lesson): the question is not whether these lines
+    // EXIST somewhere in a 2 000-line file, it is whether the scroll is really
+    // reached when the engine has nowhere to stand. Nothing may sit between the
+    // test and the scroll.
+    const tour = SRC_CODE.slice(SRC_CODE.indexOf('const need = size.height + 28'))
+    const guard = tour.slice(0, tour.indexOf("el.scrollIntoView({ block: 'start' })"))
+    expect(guard).toContain('const hasFreeSide = () => r.top >= need || viewport.height - r.bottom >= need')
+    expect(guard).toContain('if (!hasFreeSide()) {')
+    expect(guard).not.toMatch(/\bfalse\b/)
+    expect(guard).not.toMatch(/\breturn\b/)
+    expect(tour).toContain('window.scrollBy(0, r.top - 60)')
+  })
+
   // ⚖ S17 · F12 — ESCAPE CLOSES 詳しく TOO, AND THE TOUR STILL GOES FIRST.
   // The room shipped ONE Escape handler, scoped to the tour; `.st-det-btn`
   // carried no key handler at all, so a reader who opened a disclosure with the

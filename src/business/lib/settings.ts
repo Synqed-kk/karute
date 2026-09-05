@@ -853,7 +853,25 @@ export function keepCardOffHeading(
   const zoneBottom = target.top + Math.min(headingZone, target.height)
   const overlapsX = at.left < target.left + target.width && at.left + card.width > target.left
   const overlapsHeading = at.top < zoneBottom && at.top + card.height > zoneTop
-  if (!overlapsX || !overlapsHeading) return at
+  /** ⚖ S17 fix round 1 · F17 — A TARGET WITH NO FREE SIDE AT ALL.
+   *
+   *  The first cut only corrected a card that landed ON THE HEADING, so a block
+   *  taller than the phone's viewport (measured at 390: five steps, holes 515 to
+   *  1097px) got the engine's last resort — the card over the block's first
+   *  CONTROLS — and this function returned it untouched because the heading was
+   *  somewhere else entirely. The screen now scrolls such a target's heading to
+   *  the top of the viewport before asking; what is left for this function is
+   *  the case where even that leaves nowhere to stand, and the answer is the
+   *  viewport edge FARTHEST from the heading zone — which, with the heading at
+   *  the top, is the bottom. The card then covers the middle of a block the
+   *  reader can scroll, and never the heading or the first control under it.
+   *
+   *  ⚠ 「Taller than the viewport」 is the honest test rather than 「taller than
+   *  half of it」: below that, scrolling to the top gives the engine a real place
+   *  to put the card and its own answer is the better one. */
+  const noFreeSide = target.height > viewport.height
+  if (!overlapsX) return at
+  if (!noFreeSide && !overlapsHeading) return at
   const zoneMid = (zoneTop + zoneBottom) / 2
   const room = { top: zoneMid, bottom: viewport.height - zoneMid }
   const top = room.bottom >= room.top ? viewport.height - card.height - 10 : 10
