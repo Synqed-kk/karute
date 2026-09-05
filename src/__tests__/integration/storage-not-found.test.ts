@@ -126,3 +126,38 @@ describe('the production error shape, through the chain it broke', () => {
     )
   })
 })
+
+// ── THE ALARM A PROVEN-NEITHER ANSWER LACKED (fix round 1) ──────────────────
+describe('warnStorageUnknown — the 502 that used to log nothing', () => {
+  const TAKE2 = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+  const KEY2 = `app_biz-1_${TAKE2}.webm`
+  let warnSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  it('logs storage_probe_unknown for objectSize/objectExists when storage answers neither hit nor miss', async () => {
+    info.mockResolvedValueOnce({
+      data: null,
+      error: { status: 500, statusCode: '500', message: 'Internal' },
+    })
+    expect(await objectExists(KEY2)).toBe('unknown')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const [line] = warnSpy.mock.calls[0] as [string]
+    expect(line).toContain('"evt":"storage_probe_unknown"')
+    expect(line).toContain('"where":"objectSize"')
+  })
+
+  it('never logs for the ordinary miss', async () => {
+    info.mockResolvedValueOnce({
+      data: null,
+      error: { status: 400, statusCode: '404', message: 'Object not found' },
+    })
+    expect(await objectExists(KEY2)).toBe(false)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})

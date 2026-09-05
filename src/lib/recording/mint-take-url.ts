@@ -79,6 +79,7 @@ import {
   isJobOwnedStatus,
   isStorageNotFound,
   statusOf,
+  warnStorageUnknown,
 } from '@/lib/recording/take-binding'
 
 type Core = Pick<SynqedClient, 'recordings'>
@@ -281,7 +282,11 @@ export async function objectSize(
 ): Promise<{ exists: true; size: number | null } | { exists: false } | 'unknown'> {
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage.from('recordings').info(key)
-  if (error) return isStorageNotFound(error) ? { exists: false } : 'unknown'
+  if (error) {
+    if (isStorageNotFound(error)) return { exists: false }
+    warnStorageUnknown('objectSize', error)
+    return 'unknown'
+  }
   if (!data) return { exists: false }
   return { exists: true, size: typeof data.size === 'number' ? data.size : null }
 }

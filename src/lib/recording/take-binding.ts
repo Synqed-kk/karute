@@ -45,6 +45,16 @@ export function isStorageNotFound(error: unknown): boolean {
   return notFound && e.message === 'Object not found'
 }
 
+/** The alarm this fix lacked on 9/5: a storage answer that is neither a
+ *  proven miss nor a proven hit must be VISIBLE in the function logs, because
+ *  it turns every mint/finalize into a 502 and nothing else says why. House
+ *  style = audit.ts's `audit_sink_error` line (one JSON object, ids/status
+ *  only — never the key, never a body). */
+export function warnStorageUnknown(where: string, error: unknown): void {
+  const e = (error && typeof error === 'object' ? error : {}) as { status?: unknown; statusCode?: unknown; message?: unknown }
+  console.warn(JSON.stringify({ evt: 'storage_probe_unknown', where, status: e.status, statusCode: e.statusCode, message: typeof e.message === 'string' ? e.message.slice(0, 120) : undefined }))
+}
+
 /** Statuses the JOB PIPELINE owns. NEITHER door writes `status` on one of
  *  these: a COMPLETED take that a late drain re-reserves or re-finalizes must
  *  not go back to UPLOADING and re-enter 要対応. */

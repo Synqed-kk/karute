@@ -46,6 +46,7 @@ import {
   isJobOwnedStatus,
   isStorageNotFound,
   statusOf,
+  warnStorageUnknown,
 } from '@/lib/recording/take-binding'
 
 type Core = Pick<SynqedClient, 'recordings'>
@@ -119,7 +120,11 @@ async function objectVerdict(
   // A 500, a timeout, a bad credential: storage did not ANSWER the question.
   // Reading that as 'missing' would tell the client its audio is gone and stop
   // the retry — the one wrong thing to say when we simply do not know.
-  if (error) return isStorageNotFound(error) ? 'missing' : 'unknown'
+  if (error) {
+    if (isStorageNotFound(error)) return 'missing'
+    warnStorageUnknown('objectVerdict', error)
+    return 'unknown'
+  }
   if (!data) return 'missing'
   if (typeof data.size !== 'number') return 'size_unknown'
   return data.size === byteLength ? 'ok' : 'size_mismatch'
