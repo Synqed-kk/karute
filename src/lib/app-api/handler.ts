@@ -232,6 +232,10 @@ async function logFacadeAudit(
         ? (routeTargetId ?? (params?.id && UUID_RE.test(params.id) ? params.id : undefined))
         : undefined,
       storeId: routeStoreId,
+      // Undefined on every row that carries no severity — audit() then applies
+      // its own 'info' default, so those rows' lines are unchanged byte for
+      // byte (facade-audit.test.ts pins `rule.severity ?? 'info'` per row).
+      severity: rule.severity,
       requestId: meta.requestId,
       // Contract §7 / PR-M5 piece ③: the (possibly forged) client header is
       // never the row's requestId — kept only as a correlation hint, BOUNDED
