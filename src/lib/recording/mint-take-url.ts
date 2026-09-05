@@ -710,6 +710,41 @@ export async function mintTakeUploadUrl(
   return { ...signed, recordingSessionId: reservation.recordingSessionId }
 }
 
+/** How many segment keys the door probes and signs at once (fix round 2, M2).
+ *  Eight: enough that a full 60-seq catch-up is ~8 waves rather than 60, and
+ *  small enough that one client's catch-up cannot open sixty sockets to storage
+ *  at once. */
+const SEGMENT_MINT_CONCURRENCY = 8
+
+/** ONE segment key: does storage already hold it, and if not, a signed URL for
+ *  it. Lifted out of the loop so the waves above can run it in parallel; the
+ *  body is exactly what ran serially before — the probe first, `unknown` fails
+ *  CLOSED, an object that exists comes back as a SIZE and is never signed over. */
+async function mintOneSegment(one: {
+  key: string
+  ext: string
+  contentType: string
+  seq: number
+}): Promise<MintedSegment | { error: 'upstream' }> {
+  // Existence answered BEFORE anything is signed, with the shared single-object
+  // read the staged mint uses (objectSize — ONE spelling in this file, so the
+  // two questions can never drift into two probes).
+  const existing = await objectSize(one.key)
+  // Storage did not answer. Retryable, and nothing is signed meanwhile — the
+  // same posture both of the other acts take.
+  if (existing === 'unknown') return { error: 'upstream' }
+  if (existing.exists)
+    return {
+      seq: one.seq,
+      path: one.key,
+      contentType: one.contentType,
+      existingSize: existing.size,
+    }
+  const signed = await signUpload(one)
+  if ('error' in signed) return signed
+  return { seq: one.seq, ...signed }
+}
+
 /**
  * Mint signed UPLOAD urls for a BATCH of this take's SEGMENTS — the bytes that
  * reach the server while the recording is still running (slice five packet C,
@@ -752,48 +787,16 @@ export async function mintTakeUploadUrl(
  * write; and on the arms that ARE signed a 409 at the PUT is a failure again,
  * because it is a race this probe did not see a moment earlier.
  *
- * Ceiling, named: the probes and the signings run one after another, so a full
- * batch of 60 is 120 sequential storage round trips inside the caller's door
- * deadline (30 s on the phone). That is the offline-catch-up shape, not the
- * steady one — while recording, the pump asks for a single seq every ~5 s.
- * Upgrade path if a catch-up batch ever times out: bound the fan-out with a
- * small pool, the way the pump PUTs.
+ * The probes and the signings run in WAVES of SEGMENT_MINT_CONCURRENCY (fix
+ * round 2, M2), so a full batch of 60 is about eight waves of two storage calls
+ * rather than 120 round trips in a row — comfortably inside the caller's door
+ * deadline (30 s on the phone), which serial was not. That deadline is the
+ * offline-catch-up shape, not the steady one: while recording, the pump asks
+ * for a single seq every ~5 s. And the device carries a belt of its own for the
+ * day this is still too slow — segment-uploader's `batchAsk` halves the next
+ * ask on `upstream`, down to a single seq, so a catch-up always converges on a
+ * batch the door can carry.
  */
-/** How many segment keys the door probes and signs at once (fix round 2, M2).
- *  Eight: enough that a full 60-seq catch-up is ~8 waves rather than 60, and
- *  small enough that one client's catch-up cannot open sixty sockets to storage
- *  at once. */
-const SEGMENT_MINT_CONCURRENCY = 8
-
-/** ONE segment key: does storage already hold it, and if not, a signed URL for
- *  it. Lifted out of the loop so the waves above can run it in parallel; the
- *  body is exactly what ran serially before — the probe first, `unknown` fails
- *  CLOSED, an object that exists comes back as a SIZE and is never signed over. */
-async function mintOneSegment(one: {
-  key: string
-  ext: string
-  contentType: string
-  seq: number
-}): Promise<MintedSegment | { error: 'upstream' }> {
-  // Existence answered BEFORE anything is signed, with the shared single-object
-  // read the staged mint uses (objectSize — ONE spelling in this file, so the
-  // two questions can never drift into two probes).
-  const existing = await objectSize(one.key)
-  // Storage did not answer. Retryable, and nothing is signed meanwhile — the
-  // same posture both of the other acts take.
-  if (existing === 'unknown') return { error: 'upstream' }
-  if (existing.exists)
-    return {
-      seq: one.seq,
-      path: one.key,
-      contentType: one.contentType,
-      existingSize: existing.size,
-    }
-  const signed = await signUpload(one)
-  if ('error' in signed) return signed
-  return { seq: one.seq, ...signed }
-}
-
 export async function mintSegmentUploadUrls(
   synqed: Core,
   actor: MintTakeActor,

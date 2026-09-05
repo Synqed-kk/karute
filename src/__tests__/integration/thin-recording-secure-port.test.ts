@@ -485,6 +485,45 @@ describe('thin recording port — mintSegmentUrls', () => {
       viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0]),
     ).resolves.toEqual({ error: 'mint_200' })
   })
+
+  // ⚖ AND THE DOOR'S OWN TIMEOUT ARRIVES AS A CODE (fix round 4, Q1). `doorFetch`
+  // is an AbortController and a try/finally with NO catch, so its 30 s deadline
+  // used to REJECT out of this port — the one shape the caller cannot read. The
+  // pump's belt halves its next catch-up on `upstream` PRECISELY because a
+  // 60-seq batch is what makes this door run out of time; as a throw it landed
+  // in the pump's outer catch, bumped the backoff and halved nothing, so the
+  // phone re-asked for the same impossible sixty for as long as the latency
+  // lasted. This is the primary platform, so the belt has to work here first.
+  it('a door that never answers comes back as upstream — never a throw', async () => {
+    jest.useFakeTimers()
+    try {
+      let aborted = false
+      port(
+        (_path: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              aborted = true
+              reject(new Error('AbortError'))
+            })
+          }),
+      )
+
+      const pending = viteRecordingPort.mintSegmentUrls(
+        TAKE,
+        'audio/mp4',
+        FINALIZE.recordingSessionId,
+        [0, 1],
+      )
+      await jest.advanceTimersByTimeAsync(30_000)
+
+      // The named, RETRYABLE code the belt reads — and the socket released.
+      await expect(pending).resolves.toEqual({ error: 'upstream' })
+      expect(aborted).toBe(true)
+      expect(TERMINAL_SECURE_ERRORS.has('upstream')).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })
 
 describe('thin recording port — finalizeTake', () => {

@@ -361,9 +361,13 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // budget and the keyed segment read — en 129,868 · index 972,276 ·
 // vendor 937,082 = 2,039,226 B → 774 B. Under the ceiling, and the next
 // thin-side slice has almost nothing left: the number below is untouched, and
-// a raise is Fable's call with Liam told afterwards. Fix round 2 (the stop's
-// backoff bypass, the adaptive batch, the joined handoff) adds 146 B on top:
-// en 129,868 · index 972,422 · vendor 937,082 = 2,039,372 B → 628 B.
+// a raise is Fable's call with Liam told afterwards. Fix rounds 2–4 add 225 B
+// on top of that — the stop's backoff bypass and the catch-up's adaptive batch
+// (round 2), the fresh follow-up that WAITS for everything in flight and then
+// runs one attempt of its own rather than joining (round 3), and the phone's
+// segment mint answering its own door timeout as `upstream` so that belt can
+// fire at all (round 4): en 129,868 · index 972,501 · vendor 937,082 =
+// 2,039,451 B → 549 B of headroom.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
