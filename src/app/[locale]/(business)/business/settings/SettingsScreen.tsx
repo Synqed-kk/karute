@@ -90,12 +90,16 @@ import {
   labelOfValue,
   matchesQuery,
   PREFS_DEFAULT,
+  prefsKey,
   readPrefs,
   rowsOfBlock,
   searchTextOf,
   sectionDirty,
+  writePrefs,
   type CollectionRows,
   type ControlKind,
+  type Density,
+  type Emphasis,
   type RailRow,
   type RowControl,
   type RowValue,
@@ -137,9 +141,6 @@ const HEAD_GUIDE_NARROW =
 const termsFor = (id: string): readonly string[] | undefined =>
   (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)
 
-/** 自分の表示設定's home. Versioned in the name so a later shape change cannot
- *  read an older one's value. */
-const PREF_KEY = 'synqedBizDisplayPrefs.v1'
 const DENSITY_ID = 'my-display.density'
 const EMPHASIS_ID = 'my-display.emphasis'
 
@@ -355,18 +356,27 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [tourPos, setTourPos] = useState<{ hole: SpotRect; top: number; left: number } | null>(null)
   const [tourHover, setTourHover] = useState<SpotRect | null>(null)
 
+  /** ⚖ S17 fix round 5 · G3 — 自分の表示設定's row, KEYED BY WHO IS READING.
+   *  A front desk is a shared machine: one browser-global key meant the next
+   *  person to sign in read the previous person's density and emphasis, and
+   *  overwrote them on their first press, under a page promising 「ほかのスタッフ
+   *  の画面は変わりません」. `null` (no resolved identity) means this reader gets
+   *  no stored row at all rather than the shared one — writing into a row
+   *  somebody else reads is the whole defect. */
+  const prefKey = prefsKey(props.operatorId)
+
   // 自分の表示設定 — read once after mount. A refusal (private mode, storage
   // disabled) is not a reason to break the page: the seeded defaults stand.
   useEffect(() => {
     let stored = PREFS_DEFAULT
     try {
-      stored = readPrefs(window.localStorage.getItem(PREF_KEY))
+      stored = prefKey === null ? PREFS_DEFAULT : readPrefs(window.localStorage.getItem(prefKey))
     } catch {
       stored = PREFS_DEFAULT
     }
     setValues((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
     setSaved((v) => ({ ...v, [DENSITY_ID]: stored.density, [EMPHASIS_ID]: stored.emphasis }))
-  }, [])
+  }, [prefKey])
 
   /** ⚖ HARNESS-GEOMETRY, IN THE PRODUCT (the ② room's own rule). The sticky
    *  stack and every block's `scroll-margin-top` hang off the SHELL's real
@@ -394,10 +404,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
       const merged = { ...prev, [id]: next }
       if (id === DENSITY_ID || id === EMPHASIS_ID) {
         try {
-          window.localStorage.setItem(
-            PREF_KEY,
-            JSON.stringify({ density: merged[DENSITY_ID], emphasis: merged[EMPHASIS_ID] }),
-          )
+          // ⚖ G3 — no identity, no row. The choice still applies to what is on
+          // screen; it simply is not written where the next person to sign in
+          // on this machine would read it as their own.
+          if (prefKey !== null) {
+            window.localStorage.setItem(
+              prefKey,
+              writePrefs({ density: merged[DENSITY_ID] as Density, emphasis: merged[EMPHASIS_ID] as Emphasis }),
+            )
+          }
         } catch {
           // see above — the choice still applies to this render.
         }
@@ -406,7 +421,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
       }
       return merged
     })
-  }, [])
+    // ⚖ G3 — keyed on `prefKey`, so the writer can never capture the FIRST
+    // reader's key for the life of the page (the F20 lesson, one door over).
+  }, [prefKey])
 
   const shownId = picked ?? props.openingSectionId
   const section = props.sections.find((s) => s.id === shownId) ?? null

@@ -229,6 +229,11 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     // The demo persona, so the boundary sentences can say who is reading rather
     // than 「あなた」 to somebody who is not who the page thinks they are.
     roleLabel: role,
+    // ⚖ S17 fix round 5 · G3 — and WHO they are, as the roster id the shell
+    // already resolved. It is not printed anywhere; the one section that saves
+    // to this browser keys its row by it, so a shared front-desk machine holds
+    // one row per person instead of one row full stop.
+    operatorId: operator.staff_id,
     saveStampTime: fmtClock.format(now),
   }
 

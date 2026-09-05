@@ -36,6 +36,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { operator } from '@/business/lib/fixtures'
 import { rulebook } from '@/business/lib/fixtures-settings'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import {
@@ -46,8 +47,11 @@ import {
   keepCardOffHeading,
   labelOfValue,
   PREFS_DEFAULT,
+  PREFS_KEY_BASE,
+  prefsKey,
   readPrefs,
   sectionDirty,
+  writePrefs,
   type ControlKind,
   type RowValue,
   type SettingsSection,
@@ -946,9 +950,15 @@ describe('自分の表示設定 — the one section that saves outside this scre
   beforeEach(() => window.localStorage.clear())
 
   it('a real round-trip through the reader’s own storage', () => {
-    const KEY = 'synqedBizDisplayPrefs.v1'
+    // ⚖ S17 fix round 5 · G3 (D-45) — THE KEY IS THIS READER'S, not the
+    // browser's. The literal this pin held WAS the defect: on a shared front
+    // desk one row served everybody, so the next person to sign in read the
+    // previous person's density and overwrote it on their first press. The
+    // round trip is the same round trip; what moved is whose row it is.
+    const KEY = prefsKey(operator.staff_id)!
+    expect(KEY).toBe(`${PREFS_KEY_BASE}:${operator.staff_id}`)
     expect(readPrefs(window.localStorage.getItem(KEY))).toEqual(PREFS_DEFAULT)
-    window.localStorage.setItem(KEY, JSON.stringify({ density: 'compact', emphasis: 'strong' }))
+    window.localStorage.setItem(KEY, writePrefs({ density: 'compact', emphasis: 'strong' }))
     expect(readPrefs(window.localStorage.getItem(KEY))).toEqual({ density: 'compact', emphasis: 'strong' })
     // …and a value from an older shape does not render a state this room has no
     // styles for.
@@ -956,8 +966,39 @@ describe('自分の表示設定 — the one section that saves outside this scre
     expect(readPrefs(window.localStorage.getItem(KEY))).toEqual(PREFS_DEFAULT)
   })
 
+  it('⚖ S17 fix round 5 · G3 — two people on ONE shared machine keep two sets of preferences', () => {
+    // ⚠ THE SHARED FRONT DESK IS THE NORMAL CASE, not the edge one. 自分の表示設定
+    // promises 「この端末のこのブラウザに保存され、ほかのスタッフの画面は変わりません」
+    // and a browser-global key kept only the first half of it.
+    const a = prefsKey('p-06')!
+    const b = prefsKey('p-11')!
+    expect(a).not.toBe(b)
+    window.localStorage.setItem(a, writePrefs({ density: 'compact', emphasis: 'strong' }))
+    window.localStorage.setItem(b, writePrefs({ density: 'spacious', emphasis: 'subtle' }))
+    expect(readPrefs(window.localStorage.getItem(a))).toEqual({ density: 'compact', emphasis: 'strong' })
+    expect(readPrefs(window.localStorage.getItem(b))).toEqual({ density: 'spacious', emphasis: 'subtle' })
+    // …and the id really is IN the key, so a shared row cannot be reached by
+    // spelling the base alone.
+    expect(a).toContain('p-06')
+    expect(window.localStorage.getItem(PREFS_KEY_BASE)).toBeNull()
+
+    // ⚠ NO IDENTITY, NO ROW — and never a fall back to the shared key, which is
+    // the one case where writing where somebody else reads does the harm.
+    expect(prefsKey(null)).toBeNull()
+    expect(prefsKey('')).toBeNull()
+    // The screen obeys that: both the read and the write are inside the guard,
+    // and neither can name the base key on its own.
+    expect(SRC_CODE).toContain('const prefKey = prefsKey(props.operatorId)')
+    expect(SRC_CODE).toContain('prefKey === null ? PREFS_DEFAULT : readPrefs(window.localStorage.getItem(prefKey))')
+    expect(SRC_CODE).toContain('if (prefKey !== null) {')
+    expect(SRC_CODE).not.toContain("'synqedBizDisplayPrefs")
+  })
+
   it('it writes on the PRESS, and has no save button of its own', () => {
-    expect(SRC_CODE).toContain("const PREF_KEY = 'synqedBizDisplayPrefs.v1'")
+    // ⚖ S17 fix round 5 · G3 (D-45) — the key is built per reader now, so the
+    // pin reads the CALL rather than a module-level literal the screen no
+    // longer holds. Same claim: the press writes, and there is no save step.
+    expect(SRC_CODE).toContain('const prefKey = prefsKey(props.operatorId)')
     expect(SRC_CODE).toContain('window.localStorage.setItem(')
     expect(SRC_CODE).toContain('if (id === DENSITY_ID || id === EMPHASIS_ID) {')
     // ⚠ A PERSONAL PREFERENCE THAT NEEDED COMMITTING would be the page asking
@@ -966,7 +1007,7 @@ describe('自分の表示設定 — the one section that saves outside this scre
     expect(SRC_CODE).toContain("section.persist === 'local' ? (")
     expect(SRC_CODE).toContain('<p className="st-foot">{props.selfSaveLine}</p>')
     // A storage refusal (private mode) is not a reason to break the page.
-    expect(SRC_CODE).toMatch(/try \{[\s\S]*?window\.localStorage\.getItem\(PREF_KEY\)[\s\S]*?\} catch/)
+    expect(SRC_CODE).toMatch(/try \{[\s\S]*?window\.localStorage\.getItem\(prefKey\)[\s\S]*?\} catch/)
   })
 
   it('the preview really changes SHAPE — the control has a visible effect', () => {

@@ -285,6 +285,39 @@ export interface Prefs {
 }
 export const PREFS_DEFAULT: Prefs = { density: 'standard', emphasis: 'standard' }
 
+/** ⚖ S17 fix round 5 · G3 — THE KEY IS PER READER, NOT PER BROWSER.
+ *
+ *  自分の表示設定 promises 「この端末のこのブラウザに保存され、ほかのスタッフの
+ *  画面は変わりません」. One browser-global key kept only the first half: a salon's
+ *  front desk is a SHARED machine, so the next person to sign in on it read —
+ *  and on their first press overwrote — the previous person's density and
+ *  emphasis. The page was telling the truth about other people's SCREENS and
+ *  the wrong thing about their SETTINGS.
+ *
+ *  So the row is namespaced by the identity the server already resolved for
+ *  this reader. An ID, never a name: two 「田中」 on one roster are two people,
+ *  and a rename must not lose somebody their own preference.
+ *
+ *  ⚠ NO IDENTITY = NO PERSISTENCE, and deliberately not a fall back to the
+ *  shared key: 「I do not know who this is」 is exactly the case where writing
+ *  into a row somebody else reads does the harm. The choice still applies to
+ *  the render they are looking at; it simply does not outlive it.
+ *
+ *  Versioned in the base so a later shape change cannot read an older one's
+ *  value. */
+export const PREFS_KEY_BASE = 'synqedBizDisplayPrefs.v1'
+export function prefsKey(operatorId: string | null): string | null {
+  return operatorId ? `${PREFS_KEY_BASE}:${operatorId}` : null
+}
+
+/** The other half of `readPrefs`, so the shape is written where it is parsed.
+ *  Spelled in one file the screen and the suite both read, rather than as a
+ *  `JSON.stringify` in the click handler that `readPrefs` has to keep guessing
+ *  about. */
+export function writePrefs(prefs: Prefs): string {
+  return JSON.stringify({ density: prefs.density, emphasis: prefs.emphasis })
+}
+
 /** ⚠ A STORED PREFERENCE IS UNTRUSTED INPUT. localStorage survives a rename, a
  *  half-finished round and another tab's older build, so a value that is no
  *  longer an option must fall back to the default rather than render a state
@@ -594,6 +627,18 @@ export interface SettingsProps {
   selfSaveLine: string
   boundaryFallback: string
   roleLabel: string
+  /** ⚖ S17 fix round 5 · G3 — WHO IS READING, as an id.
+   *
+   *  The one section that really saves (自分の表示設定) writes to this browser,
+   *  and on a shared front-desk machine 「this browser」 is not 「this person」.
+   *  The row it writes is keyed by this id, so two staff signing in on one
+   *  machine keep two sets of preferences instead of overwriting each other's.
+   *
+   *  An ID, never `roleLabel` and never a name: a rename must not lose somebody
+   *  their own settings, and two people with one name are two people. `null` =
+   *  this render resolved nobody, and the screen then stores NOTHING — see
+   *  `prefsKey`. */
+  operatorId: string | null
   /** ⚖ S17 STEP 1 — THE SAVE STAMP'S CLOCK, FORMATTED ON THE SERVER.
    *
    *  「保存しました」 without a time is a sentence a reader cannot check twice: it
