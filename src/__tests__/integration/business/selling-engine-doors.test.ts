@@ -67,8 +67,10 @@ import {
   guardVerdictAt,
   isHeldBound,
   laneSpans,
+  protectedWindowsClause,
   restCueStarts,
   sellLayerFor,
+  windowsEatenBy,
   type GuardRail,
   type RailCell,
   type RailInput,
@@ -1525,14 +1527,104 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
     expect({ rows: VERDICT_ROWS.length, cells: VERDICT_ROWS.reduce((n, r) => n + r.cells, 0) }).toEqual({ rows: 68, cells: 7956 })
     // The whole census, two numbers: cells where the UN-migrated verdict path
     // (no `protectedWindowFeasible`) answers something other than the shipped
-    // rail's own cell. 1,625 of them differ in what the operator SEES; 1,865 in
-    // the whole cell — the extra 240 agree on every word and disagree about
-    // which minute the protected window starts at, which is the same defect
-    // one field deeper. This is what R7 closes, both counts to zero.
+    // rail's own cell. 1,846 of them differ in what the operator SEES; 1,865 in
+    // the whole cell. This is what R7 closes, both counts to zero.
+    //
+    // ⚖ 90 (2026-09-05) put the protected windows' clocks into the rail's
+    // sentence, so the visible measure now sees most of what only the
+    // whole-cell measure ever saw — 1,846 of 1,865, up from the pre-90 1,625.
+    // The remainder, 19 cells, is measured below (R7_EVIDENCE only) rather than
+    // typed, and it splits into exactly two classes, both `blocked`: 8 where
+    // the refusal names no window at all (a service, not a 新規, so `impact`
+    // is free to differ unseen), and 11 where it names the EATEN subset of
+    // `windowsBefore` and that subset matches while OTHER windows outside the
+    // placement's overlap differ. Zero cases where the after-set or the >3
+    // fold is what hides it — see VERDICT-DELTA-REMAINDER-<sha>.txt for the
+    // measured split and every cell.
     expect({
       visible: VERDICT_ROWS.reduce((n, r) => n + r.before, 0),
       wholeCell: VERDICT_ROWS.reduce((n, r) => n + r.beforeFull, 0),
-    }).toEqual({ visible: 1625, wholeCell: 1865 })
+    }).toEqual({ visible: 1846, wholeCell: 1865 })
+
+    // ⚖ 90 REMAINDER — measured, never typed. Re-walks the same matrix the
+    // census above already walked once (R7_EVIDENCE only, so the normal suite
+    // run pays nothing for it) and classifies every wholeCell-only cell by
+    // WHY its sentence still agrees.
+    if (R7_EVIDENCE) {
+      // ⚖ 90 fix round 2 (F3) — the eaten-set and fold-collapse checks below
+      // call the product's own `windowsEatenBy`/`protectedWindowsClause`
+      // (already imported above) rather than re-spelling their logic here, so
+      // a drift in either author fails loudly on THIS diagnostic too, not just
+      // on the composer pins in today-screen-interactions.test.ts.
+      const remainder: string[] = []
+      let noWindow = 0
+      let afterHides = 0
+      let outsideEaten = 0
+      let foldHides = 0
+      let unexplained = 0
+      for (const w of worlds()) {
+        for (const c of matrix()) {
+          if (c.mode === 'off') continue
+          for (const now of nowsFor(w)) {
+            const wv: World = { ...w, now }
+            const book = bookOf(wv)
+            const rail = rails(wv, c, 'bed', book)
+            const withoutDoor = railInputFor(wv, c, 'raw', book)
+            for (const r of rail) {
+              for (const cell of r.cells) {
+                const vBefore = guardVerdictAt(wv.lanes, r.laneKey, cell.start, withoutDoor)
+                const railK = cellKey(cell)
+                const visMatch = (vBefore ? cellKey(vBefore) : 'NULL') === railK
+                const fullMatch = JSON.stringify(vBefore) === JSON.stringify(cell)
+                if (!visMatch || fullMatch) continue // not a remainder cell
+                const cb = cell.impact?.windowsBefore ?? []
+                const ca = cell.impact?.windowsAfter ?? []
+                const vb = vBefore?.impact?.windowsBefore ?? []
+                const va = vBefore?.impact?.windowsAfter ?? []
+                const hasClock = /\d{2}:\d{2}〜\d{2}:\d{2}/.test(cell.sentence)
+                let why: string
+                if (!hasClock) {
+                  why = `sentence names no window at all (state=${cell.state}) — impact.windowsBefore/After can differ freely and never surface`
+                  noWindow += 1
+                } else if (cell.state === 'safe') {
+                  why = `✓ names windowsAfter, which matches (${JSON.stringify(ca)} = ${JSON.stringify(va)}); the differing set is windowsBefore (rail ${JSON.stringify(cb)} vs raw ${JSON.stringify(vb)}), which ✓ never reads`
+                  afterHides += 1
+                } else {
+                  const eB = windowsEatenBy(cb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
+                  const eV = windowsEatenBy(vb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
+                  if (JSON.stringify(eB) === JSON.stringify(eV)) {
+                    why = `names the EATEN subset of windowsBefore, which matches (${JSON.stringify(eB)}); the differing windows (rail ${JSON.stringify(cb)} vs raw ${JSON.stringify(vb)}) sit outside the placement's overlap`
+                    outsideEaten += 1
+                  } else if (
+                    protectedWindowsClause(eB, withoutDoor.protectedDur) ===
+                    protectedWindowsClause(eV, withoutDoor.protectedDur)
+                  ) {
+                    why = `the EATEN subsets differ (rail ${JSON.stringify(eB)} vs raw ${JSON.stringify(eV)}) but the >3 fold names the same first three plus the same count`
+                    foldHides += 1
+                  } else {
+                    why = `UNEXPLAINED — eaten rail ${JSON.stringify(eB)} vs raw ${JSON.stringify(eV)}; cell ${JSON.stringify(cell)} vs raw ${JSON.stringify(vBefore)}`
+                    unexplained += 1
+                  }
+                }
+                remainder.push(`${wv.name} · ${comboLabel(c)} · now=${now} · lane=${r.laneKey} · start=${cell.start} · state=${cell.state} — ${why}`)
+              }
+            }
+          }
+        }
+      }
+      mkdirSync(R7_EVIDENCE, { recursive: true })
+      writeFileSync(
+        join(R7_EVIDENCE, `VERDICT-DELTA-REMAINDER-${R7_SHA}.txt`),
+        [
+          `# VERDICT-DELTA-REMAINDER — the wholeCell-only cells, classified — tip: ${R7_SHA}`,
+          `# ${remainder.length} cells (wholeCell − visible = ${VERDICT_ROWS.reduce((n, r) => n + r.beforeFull, 0) - VERDICT_ROWS.reduce((n, r) => n + r.before, 0)})`,
+          `# by class: no-window-named=${noWindow} · after-set-hides-before=${afterHides} · outside-eaten-range=${outsideEaten} · fold-hides-beyond-third=${foldHides} · unexplained=${unexplained}`,
+          '#',
+          ...remainder,
+        ].join('\n') + '\n',
+      )
+      expect(unexplained).toBe(0)
+    }
 
     // THE TWO ROWS LIAM'S PICTURE IS DRAWN FROM, pinned individually and in full
     // — the fixture at the store's own shipped dials, on the board he is looking
