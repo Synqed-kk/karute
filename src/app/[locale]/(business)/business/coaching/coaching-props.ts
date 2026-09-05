@@ -305,14 +305,24 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   const on = moduleOn(storeId, world?.enabledStores ?? coachingStores)
   const rows = on ? (world?.rows ?? coachingStaff) : []
 
-  const self: SelfState = on ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: coachingConsent }) : { kind: 'none' }
+  // ⚠ MODULE OFF = THE PLANE IS NEVER READ, consent included. The dormant page
+  // renders no self panel at all, so the value below is the consent type's own
+  // default-pre-prompt state rather than a claim about this reader — reading
+  // their real record here would be the module gate leaking one row.
+  const self: SelfState = on
+    ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: coachingConsent })
+    : { kind: 'none', consent: { status: 'unset', policyVersion: null } }
 
   // ⚖ (2) THE TEAM BOARD IS ONLY BUILT FOR A READER WHO HOLDS THE CAPABILITY.
   // Not filtered afterwards — never built, so there is nothing in the payload
   // for a mis-wired component to find.
+  // ⚖ R2-17 — AND IT IS BUILT FROM THE SAME CONSENT PLANE THE SELF VIEW READS.
+  // Consent to be coached gates whether any L1 artifact exists at all, so a
+  // member who has not granted it has no band to show a manager — and the
+  // derivation, not the screen, is where that is decided.
   const team: TriageView | null =
     on && access.viewTeam
-      ? buildTriage({ roster, rows, floor, patternCategories: teamPatterns.map((p) => p.categoryKey) })
+      ? buildTriage({ roster, rows, floor, consent: coachingConsent, patternCategories: teamPatterns.map((p) => p.categoryKey) })
       : null
 
   // ⚖ (3) THE ROI SCREEN IS ONLY BUILT FOR A READER WHO HOLDS ITS OWN
@@ -373,6 +383,21 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
         ? `${l.horizonsUsed.join('・')}日の実績から算出`
         : 'まだ算出できる期間の実績がありません',
   })
+
+  // ⚖ R2-17 — ONE COMPOSITION OF THE CONSENT BLOCK, read by both branches of
+  // `self`. The question 「may we analyse your sessions」 comes BEFORE there is
+  // anything to analyse, so the reader who has nothing on their screen yet is
+  // the reader who most needs to be asked — and a second composition would be a
+  // second place for the three states to fork.
+  const ownConsent = self.kind === 'ready' ? self.view.consent : self.consent
+  const consentBlock = {
+    status: ownConsent.status,
+    ...CONSENT_STATE[ownConsent.status],
+    // ⚖-ADJ B — the ONE LINE the granted state prints as a strip. Null for the
+    // two states that are still a decision, which is what makes the screen's
+    // branch a fact about the payload rather than a rule the component keeps.
+    strip: CONSENT_STATE[ownConsent.status].strip ?? null,
+  }
 
   const props: CoachingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
@@ -498,15 +523,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             // as if coaching simply happens to you. The decision is READ from
             // the viewer's own record; the CONTROL stays refused, because
             // writing a consent record is a legal act.
-            consent: {
-              status: self.view.consent.status,
-              ...CONSENT_STATE[self.view.consent.status],
-              // ⚖-ADJ B — the ONE LINE the granted state prints as a strip. Null
-              // for the two states that are still a decision, which is what makes
-              // the screen's branch a fact about the payload rather than a rule
-              // the component keeps.
-              strip: CONSENT_STATE[self.view.consent.status].strip ?? null,
-            },
+            consent: consentBlock,
             status: self.view.status,
             statusTitle: STATUS_TITLE[self.view.status],
             statusBody: STATUS_BODY[self.view.status],
@@ -604,6 +621,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
           }
         : {
             kind: 'none',
+            consent: consentBlock,
             statusTitle: '分析されたセッションがまだありません',
             statusBody: 'セッションの記録がたまると、あなただけが見られる成績と気づきがここに表示されます。',
           },
@@ -614,7 +632,12 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             { key: 'growing', label: BAND_LABEL.growing, value: `${team.counts.growing}名` },
             { key: 'steady', label: BAND_LABEL.steady, value: `${team.counts.steady}名` },
             { key: 'needs-support', label: BAND_LABEL['needs-support'], value: `${team.counts.needsSupport}名` },
-            { key: 'building', label: '判断できる回数に未到達', value: `${team.counts.building}名` },
+            // ⚠ R2-17 — THE FOURTH COUNT IS REASON-FREE. It holds three kinds of
+            // person — too few sessions, never asked, and declined — and naming
+            // any one of them would let a manager subtract and identify the
+            // others. It says only what is true of all three, in the same words
+            // the row's own band chip uses.
+            { key: 'building', label: 'まだ判断できません', value: `${team.counts.building}名` },
           ],
           rows: team.rows.map((r) => ({
             staffLabel: r.staffLabel,
@@ -636,7 +659,10 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             summaryWarning: r.summaryChecks
               ? null
               : '重点項目の文に数字か名前が入っていたため、この行では表示していません。',
-            trajectoryLine: r.band ? TRAJECTORY_LINE[r.band] : 'セッションの回数が判断できる数に届いていません。',
+            // ⚠ R2-17 — AND SO IS THE SENTENCE. 「回数」 was a reason, and a reason
+            // is exactly what separates the person who declined from the person
+            // who is simply new. The word must not appear here (source pin).
+            trajectoryLine: r.band ? TRAJECTORY_LINE[r.band] : 'まだ判断できる材料がありません。',
             action: r.suggestedAction ? { kind: r.suggestedAction.kind, label: r.suggestedAction.label } : null,
           })),
           // ⚖ サポートエリア頻度ランキング (audit #24) — the ONE owner-facing
@@ -659,6 +685,9 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             })),
             emptyLine: '支援が必要と判断できたスタッフがまだいません。',
           },
+          // ⚖ R2-18 — the board's own empty branch, in the same grammar the
+          // ranking rail already uses: an absence is said, never left blank.
+          filteredEmptyLine: 'この区分に当てはまるスタッフはいません。',
           adoptionLine: `深い共有を許可しているスタッフ ${team.sharingAdoption.granted}名 / 在籍 ${team.sharingAdoption.total}名`,
           adoptionNote:
             '誰が許可していないかは表示しません。共有はスタッフ本人が決めるもので、断っても勤務には影響しません。',

@@ -176,11 +176,8 @@ export interface CoachingRoiLift {
 export interface CoachingSelfReady {
   kind: 'ready'
   /** coaching-consent/types.ts:7-16, resolved to the sentences the reader gets.
-   *  ⚖ COACHING IS OPT-IN AND THE PAGE SAYS SO.
-   *  ⚖-ADJ B — `strip` is the ONE LINE the granted state prints instead of the
-   *  card. It is null for the two states that are still a DECISION, so the
-   *  screen's branch reads a fact about the payload rather than keeping a rule. */
-  consent: { status: 'unset' | 'granted' | 'declined'; title: string; body: string; cta: string; strip: string | null }
+   *  ⚖ COACHING IS OPT-IN AND THE PAGE SAYS SO. */
+  consent: CoachingConsentBlock
   status: RunStatus
   statusTitle: string
   statusBody: string | null
@@ -208,7 +205,21 @@ export interface CoachingSelfReady {
   share: { stateLine: string; body: string; buttonLabel: string }
 }
 
-export type CoachingSelf = CoachingSelfReady | { kind: 'none'; statusTitle: string; statusBody: string }
+/** ⚖ R2-17 — THE CONSENT BLOCK IS THE SAME SHAPE ON BOTH BRANCHES, because the
+ *  question comes before there is anything to analyse: a person who has never
+ *  been asked meets the card on the screen that has nothing on it yet. */
+export interface CoachingConsentBlock {
+  status: 'unset' | 'granted' | 'declined'
+  title: string
+  body: string
+  cta: string
+  /** ⚖-ADJ B — the ONE LINE the granted state prints instead of the card. */
+  strip: string | null
+}
+
+export type CoachingSelf =
+  | CoachingSelfReady
+  | { kind: 'none'; consent: CoachingConsentBlock; statusTitle: string; statusBody: string }
 
 /** contract.ts:236-245 OwnerTriageRow + staff-focus.ts:184-193's layer2_summary. */
 export interface CoachingTriageRowProps {
@@ -228,6 +239,11 @@ export interface CoachingTeam {
   framingLine: string
   counts: CoachingStat[]
   rows: CoachingTriageRowProps[]
+  /** ⚖ R2-18 — WHAT THE BOARD SAYS WHEN A FILTER LEAVES NOTHING. Every other
+   *  absence on this page is said out loud (`focusRanking.emptyLine`, a
+   *  band-less row, an empty pattern shelf); a tile reading 「0名」 that blanked
+   *  the board was the one place the room went quiet instead. */
+  filteredEmptyLine: string
   /** ⚖ PLAIN LABELLED COUNTS OF STAFF, no rank grammar anywhere. */
   focusRanking: { title: string; note: string; rows: CoachingStat[]; emptyLine: string }
   adoptionLine: string
@@ -649,6 +665,10 @@ export function CoachingScreen(props: CoachingProps) {
   const self = props.self
   const team = props.team
   const ready = self.kind === 'ready' ? self : null
+  /** ⚖ R2-17 — THE VIEWER'S OWN CONSENT, ON BOTH BRANCHES. The question comes
+   *  before there is anything to analyse, so the person who has never been asked
+   *  meets the card on the screen that has nothing on it yet. */
+  const consent = self.consent
 
   /** ⚖ THE OPEN TAB IS CLAMPED TO WHAT THIS READER MAY SEE, AND IT FAILS
    *  CLOSED. The role preview re-renders the page AS another persona without
@@ -674,24 +694,26 @@ export function CoachingScreen(props: CoachingProps) {
   // metrics are the door's own facts, not the run's.
   const hasFindings = ready !== null && ready.status === 'findings' && ready.findings.length > 0
 
-  /** ⚖-ADJ D — 練習するもの, as a real link to the module card the title names.
-   *  The native anchor is the behaviour (a keyboard reaches it by Tab and opens
-   *  it with Enter, and the URL is shareable); the smooth scroll on top of it is
-   *  decoration and it obeys reduced motion. */
+  /** ⚖-ADJ D — 練習するもの, as a real link to the module card the title names,
+   *  and NOTHING ON TOP OF IT (S16-D12 / R2-19).
+   *
+   *  ⚠ THE SMOOTH SCROLL WAS COSTING THE KEYBOARD ITS PLACE. The handler called
+   *  `preventDefault()` and then scrolled, which REPLACES the native anchor
+   *  rather than riding on it: `history.replaceState` moves neither focus nor
+   *  the sequential-focus starting point, so a reader who pressed Enter was
+   *  scrolled to the module card while their next Tab continued from the chip
+   *  they left behind. A pointer-only sweep cannot see that.
+   *
+   *  What the native anchor does instead: it jumps, it sets the focus-navigation
+   *  starting point, and — because each module card carries `tabIndex={-1}` —
+   *  the browser puts that card in the tab order's path so the next Tab
+   *  continues from the destination. `scroll-margin-top` keeps the shell's
+   *  sticky topbar off the card. The jump is instant rather than smooth:
+   *  `scroll-behavior` belongs on `html`, which is the SHELL's, and instant is
+   *  both honest and reduced-motion-safe. */
   const practiseChip = (anchor: string | null, title: string | null) =>
     anchor && title ? (
-      <a
-        className="cg-linkchip"
-        href={`#${anchor}`}
-        data-press
-        onClick={(e) => {
-          const target = document.getElementById(anchor)
-          if (!target) return
-          e.preventDefault()
-          target.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' })
-          if (target.id) window.history.replaceState(null, '', `#${target.id}`)
-        }}
-      >
+      <a className="cg-linkchip" href={`#${anchor}`} data-press>
         <span className="cg-tk">練習するもの</span>
         <span className="cg-linkchip-title">{title}</span>
       </a>
@@ -918,42 +940,49 @@ export function CoachingScreen(props: CoachingProps) {
 
           {activeTab === 'self' ? (
             <div id="cgPanelSelf" role="tabpanel" aria-labelledby="cgTabSelf" className="cg-panel">
+              {/* ⚖ COACHING IS OPT-IN, AND THE PAGE SAYS SO — first thing
+                  on your own screen, because it is the question that comes
+                  before every number under it. The room already refused the
+                  DEPTH-SHARE; it never said the ANALYSIS ITSELF is yours to
+                  allow, so the page read as if coaching simply happens to
+                  you. The DECISION is read from the viewer's own record;
+                  the CONTROL stays refused, because writing a consent
+                  record is a legal act.
+
+                  ⚖-ADJ B — ONE SECTION, TWO COMPOSITIONS. A decision already
+                  taken is a fact to keep visible, not a card to re-read every
+                  session, so `granted` renders as a single quiet strip; the
+                  full sentence rides the strip's `title` and this section's
+                  own guide text, so nothing is cut. `unset` and `declined`
+                  are still DECISIONS, and they keep the whole card.
+
+                  ⚖ R2-17 — AND IT STANDS ABOVE BOTH BRANCHES. A reader with no
+                  analysed session yet is precisely the reader who has not been
+                  asked; hiding the question until there is data would mean the
+                  consent is collected after the analysis it authorises. Same
+                  section, same declaration, one composition — it simply no
+                  longer depends on there being a run to show under it. */}
+              <section
+                className={`cg-consent is-${consent.status}`}
+                data-guide-title="コーチングを受けることへの同意"
+                data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${consent.body}`}
+              >
+                {consent.strip ? (
+                  <p className="cg-consent-strip" title={consent.body}>
+                    <span className="cg-consent-strip-text">{consent.strip}</span>
+                    <button {...refused(consent.cta, props.refusals.consent, 'cg-consent-btn')}>{consent.cta}</button>
+                  </p>
+                ) : (
+                  <>
+                    <h2 className="cg-sec-title">{consent.title}</h2>
+                    <p className="cg-consent-body">{consent.body}</p>
+                    <button {...refused(consent.cta, props.refusals.consent, 'cg-consent-btn')}>{consent.cta}</button>
+                  </>
+                )}
+              </section>
+
               {ready ? (
                 <>
-                  {/* ⚖ COACHING IS OPT-IN, AND THE PAGE SAYS SO — first thing
-                      on your own screen, because it is the question that comes
-                      before every number under it. The room already refused the
-                      DEPTH-SHARE; it never said the ANALYSIS ITSELF is yours to
-                      allow, so the page read as if coaching simply happens to
-                      you. The DECISION is read from the viewer's own record;
-                      the CONTROL stays refused, because writing a consent
-                      record is a legal act.
-
-                      ⚖-ADJ B — ONE SECTION, TWO COMPOSITIONS. A decision already
-                      taken is a fact to keep visible, not a card to re-read every
-                      session, so `granted` renders as a single quiet strip; the
-                      full sentence rides the strip's `title` and this section's
-                      own guide text, so nothing is cut. `unset` and `declined`
-                      are still DECISIONS, and they keep the whole card. */}
-                  <section
-                    className={`cg-consent is-${ready.consent.status}`}
-                    data-guide-title="コーチングを受けることへの同意"
-                    data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${ready.consent.body}`}
-                  >
-                    {ready.consent.strip ? (
-                      <p className="cg-consent-strip" title={ready.consent.body}>
-                        <span className="cg-consent-strip-text">{ready.consent.strip}</span>
-                        <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
-                      </p>
-                    ) : (
-                      <>
-                        <h2 className="cg-sec-title">{ready.consent.title}</h2>
-                        <p className="cg-consent-body">{ready.consent.body}</p>
-                        <button {...refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')}>{ready.consent.cta}</button>
-                      </>
-                    )}
-                  </section>
-
                   {/* ⚖ VL-1 — THE CARD'S OWN WORDS ARE THE GATE.
                       `CONSENT_STATE.declined.body` tells the reader 「この画面の
                       成績と気づきは表示されません」; `COACHING_VISIBILITY_MODEL.md:32`
@@ -1392,9 +1421,16 @@ export function CoachingScreen(props: CoachingProps) {
                           <b>{props.modules.calloutTitle}</b>
                           <span>{props.modules.calloutBody}</span>
                         </div>
+                        {/* ⚖-ADJ D / R2-19 — every card carries `tabIndex={-1}`,
+                            which makes it a FOCUS-NAVIGATION target: the browser
+                            lands the sequential-focus starting point ON the card
+                            when a 練習するもの anchor is followed, so the next Tab
+                            continues from the destination rather than from the
+                            chip left behind. It is NOT in the tab order (-1,
+                            never 0) — the card is a place to land, not a stop. */}
                         <ul className="cg-module-list">
                           {props.modules.cards.map((mod) => (
-                            <li className={`cg-module${mod.isMine ? ' is-mine' : ''}`} id={mod.moduleId} key={mod.moduleId}>
+                            <li className={`cg-module${mod.isMine ? ' is-mine' : ''}`} id={mod.moduleId} tabIndex={-1} key={mod.moduleId}>
                               <div className="cg-module-head">
                                 <span className="cg-module-title">{mod.title}</span>
                                 {mod.isMine && <span className="cg-kicker">{props.modules!.mineLabel}</span>}
@@ -1476,7 +1512,7 @@ export function CoachingScreen(props: CoachingProps) {
                     <section
                       className="cg-board"
                       data-guide-title="スタッフの状況"
-                      data-guide="スタッフごとの区分です。順位はつけません。数字も出しません。サポートが必要と出ている人には、その場でできることが並びます。"
+                      data-guide="スタッフごとの区分です。順位はつけません。数字も出しません。サポートが必要と出ている人には、その場でできることが並びます。回数が足りない人と、コーチングを受けていない人は、どちらも「まだ判断できません」になります。どちらなのかは表示しません。"
                     >
                       <h2 className="cg-sec-title">スタッフの状況</h2>
                       {/* ⚠ ONE CALL, RENDERED TWICE (⚖ A8). A row's support state is
@@ -1484,6 +1520,16 @@ export function CoachingScreen(props: CoachingProps) {
                           second boolean read alongside it is exactly the 「chip said
                           ✓, drop refused」 disease, and it would be the one place on
                           screen where the 1:1 pairing could come apart. */}
+                      {/* ⚠ R2-18 — A TILE READING 0名 STAYS PRESSABLE (a dead
+                          lever is the disease this room refuses) and the board
+                          SAYS the filter left nothing, so the reader can see the
+                          state they pressed into and release it. Reachable in
+                          real life, not only in the harness: a store that has
+                          just switched coaching on has every member below the
+                          floor, so three of the four tiles really do read 0名. */}
+                      {visibleRows.length === 0 ? (
+                        <p className="cg-board-empty">{team.filteredEmptyLine}</p>
+                      ) : (
                       <ul className="cg-rows" ref={boardRef}>
                         {visibleRows.map((r, i) => (
                           <li className={`cg-row${r.action ? ' is-support' : ''}`} key={`${r.staffLabel}-${i}`}>
@@ -1519,6 +1565,7 @@ export function CoachingScreen(props: CoachingProps) {
                           </li>
                         ))}
                       </ul>
+                      )}
                     </section>
                   </div>
 

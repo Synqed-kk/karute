@@ -82,6 +82,15 @@ const PROPS_CODE = stripComments(PROPS_SRC).replace(/^\s*\/\/.*$/gm, '')
  *  passage the room really ships. */
 const HEAD_GUIDE_TEXT = /const HEAD_GUIDE =\s*'([^']*)'/.exec(SCREEN_SRC)?.[1] ?? ''
 
+/** ⚖ R2-17 — CONSENT NOW GATES THE BOARD, so a unit pin that is about BANDS has
+ *  to say the people it bands agreed to be coached. `COACHED` grants it for
+ *  every id in the world roster plus the synthetic ones this file plants; the
+ *  GATE itself is pinned separately in the FIX ROUND 2 block, on rows this
+ *  helper deliberately does not cover. */
+const COACHED: Record<string, { status: 'granted'; policyVersion: string }> = Object.fromEntries(
+  [...worldStaff.map((m) => m.id), 'p-99', 'syn-1'].map((id) => [id, { status: 'granted' as const, policyVersion: 'v2' }]),
+)
+
 // ── the pinned clock, one mechanism for the whole file ──────────────────────
 /** 12:00 JST on the 15th — mid-month on purpose, so no assertion in this file
  *  can be true because of which day the suite happened to run. */
@@ -233,7 +242,7 @@ describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
       { id: 'p-01', name: '見本 はなこ' },
       { id: 'p-05', name: '見本 ごろう' },
     ]
-    const view = buildTriage({ roster, rows: coachingStaff, floor: FLOOR_DEFAULT })
+    const view = buildTriage({ roster, rows: coachingStaff, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(new Set(view.rows.map((r) => r.band)).size).toBeGreaterThanOrEqual(3)
     expect(view.rows.some((r) => r.needsSupport)).toBe(true)
     for (const row of view.rows) {
@@ -258,7 +267,7 @@ describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
       { id: 'p-01', name: 'growing third' },
       { id: 'p-05', name: 'steady fourth' },
     ]
-    const view = buildTriage({ roster, rows: coachingStaff, floor: FLOOR_DEFAULT })
+    const view = buildTriage({ roster, rows: coachingStaff, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(view.rows.map((r) => r.staffLabel)).toEqual(roster.map((m) => m.name))
     // …and the bands really are mixed, or the order would be trivially stable.
     expect(new Set(view.rows.map((r) => r.band)).size).toBeGreaterThanOrEqual(3)
@@ -282,7 +291,7 @@ describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
     // category, a label and a count, and nothing a person could be identified
     // or measured by.
     const freq = focusAreaFrequency(
-      buildTriage({ roster: [{ id: 'p-04', name: 'x' }, { id: 'p-01', name: 'y' }], rows: coachingStaff, floor: FLOOR_DEFAULT }).rows,
+      buildTriage({ roster: [{ id: 'p-04', name: 'x' }, { id: 'p-01', name: 'y' }], rows: coachingStaff, floor: FLOOR_DEFAULT, consent: COACHED }).rows,
     )
     for (const row of freq) expect(Object.keys(row).sort()).toEqual(['category', 'count', 'label'])
     expect(/export function focusAreaFrequency\(rows: TriageRow\[\]\)/.test(LIB_CODE)).toBe(true)
@@ -310,8 +319,8 @@ describe('⚖ ANTI-COERCION — a declined share is INDISTINGUISHABLE from an ab
   it('declined and never-asked produce BYTE-IDENTICAL rows', () => {
     const declined = base.map((r) => ({ ...r, grant: 'declined' as const }))
     const never = base.map((r) => ({ ...r, grant: 'none' as const }))
-    const a = buildTriage({ roster, rows: declined, floor: FLOOR_DEFAULT })
-    const b = buildTriage({ roster, rows: never, floor: FLOOR_DEFAULT })
+    const a = buildTriage({ roster, rows: declined, floor: FLOOR_DEFAULT, consent: COACHED })
+    const b = buildTriage({ roster, rows: never, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(JSON.stringify(a.rows)).toBe(JSON.stringify(b.rows))
     // …and the aggregate agrees they are the same fact.
     expect(a.sharingAdoption).toEqual(b.sharingAdoption)
@@ -319,8 +328,8 @@ describe('⚖ ANTI-COERCION — a declined share is INDISTINGUISHABLE from an ab
   })
 
   it('a GRANT changes the aggregate and NOTHING on any row', () => {
-    const none = buildTriage({ roster, rows: base.map((r) => ({ ...r, grant: 'none' as const })), floor: FLOOR_DEFAULT })
-    const granted = buildTriage({ roster, rows: base.map((r) => ({ ...r, grant: 'granted' as const })), floor: FLOOR_DEFAULT })
+    const none = buildTriage({ roster, rows: base.map((r) => ({ ...r, grant: 'none' as const })), floor: FLOOR_DEFAULT, consent: COACHED })
+    const granted = buildTriage({ roster, rows: base.map((r) => ({ ...r, grant: 'granted' as const })), floor: FLOOR_DEFAULT, consent: COACHED })
     expect(JSON.stringify(granted.rows)).toBe(JSON.stringify(none.rows))
     expect(granted.sharingAdoption).toEqual({ granted: 2, total: 2 })
   })
@@ -1617,7 +1626,7 @@ describe('⚖ SHAPE FIDELITY — every rendered shape mirrors its generator, fie
     expect(CONTRACT).toContain('export interface HelpAction {')
     const kinds = /kind: '([^']*)' \| '([^']*)' \| '([^']*)'/.exec(CONTRACT)!
     expect([kinds[1], kinds[2], kinds[3]].sort()).toEqual(['assign-module', 'manager-coaching', 'peer-pairing'])
-    const view = buildTriage({ roster: [{ id: 'p-04', name: 'x' }], rows: coachingStaff, floor: FLOOR_DEFAULT })
+    const view = buildTriage({ roster: [{ id: 'p-04', name: 'x' }], rows: coachingStaff, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(Object.keys(view.rows[0].suggestedAction!).sort()).toEqual(['kind', 'label', 'moduleId'])
     // staff-focus.ts:183 + :190 — the two fields the L2 half adds.
     expect(FOCUS).toContain("status: { type: 'string', enum: ['generated', 'skipped']")
@@ -1628,7 +1637,7 @@ describe('⚖ SHAPE FIDELITY — every rendered shape mirrors its generator, fie
 
   it('the ADOPTION aggregate mirrors contract.ts’s sharingAdoption, name and all', () => {
     expect(CONTRACT).toContain('sharingAdoption: { granted: number; total: number }')
-    const view = buildTriage({ roster: [{ id: 'p-01', name: 'x' }], rows: coachingStaff, floor: FLOOR_DEFAULT })
+    const view = buildTriage({ roster: [{ id: 'p-01', name: 'x' }], rows: coachingStaff, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(Object.keys(view.sharingAdoption).sort()).toEqual(['granted', 'total'])
   })
 
@@ -1704,8 +1713,8 @@ describe('⚖ THE VISIBILITY SPEC’s own §7 — the four mistakes, structurall
     const declined = coachingStaff.map((r) => ({ ...r, grant: 'declined' as const }))
     const none = coachingStaff.map((r) => ({ ...r, grant: 'none' as const }))
     const roster = [{ id: 'p-04', name: 'x' }]
-    const a = buildTriage({ roster, rows: declined, floor: FLOOR_DEFAULT })
-    const b = buildTriage({ roster, rows: none, floor: FLOOR_DEFAULT })
+    const a = buildTriage({ roster, rows: declined, floor: FLOOR_DEFAULT, consent: COACHED })
+    const b = buildTriage({ roster, rows: none, floor: FLOOR_DEFAULT, consent: COACHED })
     expect(a.rows[0].suggestedAction).not.toBeNull()
     expect(a.rows[0].suggestedAction).toEqual(b.rows[0].suggestedAction)
     // …and structurally: NOTHING about a grant, a consent or a share is in
@@ -1931,7 +1940,7 @@ describe('⚖ D8-2 — the L2 leak guard, the check staff-focus.ts calls THIS ap
         ? { ...r, focus: { ...r.focus, focus_areas: r.focus.focus_areas.map((f) => ({ ...f, summary_text: text })) } }
         : r,
     )
-  const built = (text: string) => buildTriage({ roster: ROSTER, rows: withSummary(text), floor: FLOOR_DEFAULT }).rows[0]
+  const built = (text: string) => buildTriage({ roster: ROSTER, rows: withSummary(text), floor: FLOOR_DEFAULT, consent: COACHED }).rows[0]
 
   it('a DIGIT-FREE quantity — the 三割 class the module names — is OMITTED, not printed', () => {
     // staff-focus.ts:12-24: 「三割 / 半分 / 二回 are numbers with zero ASCII
@@ -2052,12 +2061,13 @@ describe('⚖ D8-4 — all THREE help actions are reachable; none is a dead leve
       roster: [{ id: 'p-04', name: '見本 しろう' }],
       rows,
       floor: FLOOR_DEFAULT,
+      consent: COACHED,
       patternCategories: teamPatterns.map((p) => p.categoryKey),
     })
     expect(view.rows[0].suggestedAction).toEqual({ kind: 'peer-pairing', label: 'ペアを組んで学ぶ', moduleId: null })
     // …and with no pattern behind that category, the same staff member gets a
     // person instead — the peer arm is a real branch, not a constant.
-    const alone = buildTriage({ roster: [{ id: 'p-04', name: '見本 しろう' }], rows, floor: FLOOR_DEFAULT, patternCategories: [] })
+    const alone = buildTriage({ roster: [{ id: 'p-04', name: '見本 しろう' }], rows, floor: FLOOR_DEFAULT, consent: COACHED, patternCategories: [] })
     expect(alone.rows[0].suggestedAction!.kind).toBe('manager-coaching')
   })
 
@@ -2157,8 +2167,8 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     expect(SCREEN_CODE).toContain('<span className="cg-chip-viewer" title={props.viewerLine}>{props.viewerChip}</span>')
     expect(PROPS_CODE).toContain('viewerChip: `${role}として表示中`')
     //  · the granted consent body → the strip's `title` AND the section's guide
-    expect(SCREEN_CODE).toContain('<p className="cg-consent-strip" title={ready.consent.body}>')
-    expect(SCREEN_CODE).toContain('${ready.consent.body}`}')
+    expect(SCREEN_CODE).toContain('<p className="cg-consent-strip" title={consent.body}>')
+    expect(SCREEN_CODE).toContain('${consent.body}`}')
     //  · the two standing notice lines → the disclosure bar, visible while closed
     const bar = SCREEN_CODE.slice(SCREEN_CODE.indexOf('cg-notice-bar'), SCREEN_CODE.indexOf('cg-notice-chevron'))
     expect(bar).toContain('props.noticeLines.map')
@@ -2235,16 +2245,19 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     expect(banded.length).toBeGreaterThanOrEqual(3)
     for (const r of banded) {
       for (const f of r.focusAreas) {
-        for (const phrase of ['判断材料が足りません', 'まだ判断できません', '判断できる数に届いて']) {
+        for (const phrase of ['判断材料が足りません', 'まだ判断できません', '判断できる材料がありません']) {
           expect({ staff: r.staffLabel, phrase, says: f.summaryText.includes(phrase) })
             .toEqual({ staff: r.staffLabel, phrase, says: false })
         }
       }
     }
-    // …and the band-less row still says exactly that, in its own words
+    // …and the band-less row still says exactly that, in its own words — and
+    // since R2-17 those words carry NO REASON: the bucket holds people who are
+    // new, people who were never asked and people who declined, and naming any
+    // one of them would let a manager subtract and identify the rest.
     const building = props.team!.rows.filter((r) => r.band === null)
     expect(building.length).toBeGreaterThan(0)
-    expect(building[0].trajectoryLine).toContain('判断できる数に届いていません')
+    expect(building[0].trajectoryLine).toBe('まだ判断できる材料がありません。')
   })
 })
 
@@ -2414,8 +2427,12 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     for (const s of statuses) expect(Object.keys(CONSENT_STATE)).toContain(s)
     const bodies = Object.values(CONSENT_STATE).map((c) => c.body)
     expect(new Set(bodies).size).toBe(3)
-    // ⚠ AND THE PLANE REACHES ALL THREE, so the walk crosses every state.
-    expect(new Set(Object.values(coachingConsent).map((c) => c.status)).size).toBe(3)
+    // ⚠ AND ALL THREE ARE REACHABLE FROM THE PLANE + THE ROSTER, so the walk
+    // crosses every state. R2-17: 'unset' is reached by ABSENCE — the consent
+    // type's own default-pre-prompt value, and what a person who has never been
+    // asked really has — rather than by a row that states it.
+    expect([...new Set(Object.values(coachingConsent).map((c) => c.status))].sort()).toEqual(['declined', 'granted'])
+    expect(worldStaff.some((m) => !Object.hasOwn(coachingConsent, m.id))).toBe(true)
   })
 
   it('⚖ VL-1 — the declined-consent state does what its own card SAYS: nothing generated renders below it', () => {
@@ -2663,7 +2680,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
     // …and the control is refused with ITS OWN reason, like every other write on
     // this page. ⚖ one generic sentence on eight controls tells a reader nothing
     // about which of them would have done what, so the reasons are all distinct.
-    expect(SCREEN_CODE).toContain("refused(ready.consent.cta, props.refusals.consent, 'cg-consent-btn')")
+    expect(SCREEN_CODE).toContain("refused(consent.cta, props.refusals.consent, 'cg-consent-btn')")
     expect(SCREEN_CODE).toContain("refused(props.transparency.deletionCta, props.refusals.deletion, 'cg-delete-btn')")
     const reasons = Object.values(props.refusals)
     expect(new Set(reasons).size).toBe(reasons.length)
@@ -2763,6 +2780,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
       roster: [{ id: 'p-04', name: 'a' }, { id: 'p-01', name: 'b' }, { id: 'p-05', name: 'c' }],
       rows: coachingStaff,
       floor: FLOOR_DEFAULT,
+      consent: COACHED,
     }).rows
     const freq = focusAreaFrequency(rows)
     // a staff member with the same category twice counts once
@@ -3027,9 +3045,14 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
 
   it('⚖-ADJ B · consent is ONE section with two compositions, and the body is never lost', () => {
     const consent = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className={`cg-consent'), SCREEN_CODE.indexOf('VL-1'))
-    expect(consent).toContain('{ready.consent.strip ? (')
-    expect(consent).toContain('title={ready.consent.body}')
-    expect(consent).toContain('{ready.consent.title}')
+    expect(consent).toContain('{consent.strip ? (')
+    expect(consent).toContain('title={consent.body}')
+    expect(consent).toContain('{consent.title}')
+    // ⚖ R2-17 — AND THE SECTION STANDS ABOVE BOTH BRANCHES of the self screen.
+    // The reader with nothing analysed yet is exactly the reader who has not
+    // been asked, so the question may not wait for data to appear under it.
+    expect(SCREEN_CODE).toContain('const consent = self.consent')
+    expect(SCREEN_CODE.indexOf('className={`cg-consent')).toBeLessThan(SCREEN_CODE.indexOf('{ready ? ('))
     // ONE declaration, ONE <section> — the strip is a composition, not a state
     expect([...SCREEN_CODE.matchAll(/className=\{`cg-consent/g)].length).toBe(1)
     // the strip line exists ONLY for granted; the two decisions keep the card
@@ -3086,8 +3109,19 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // the module card carries the id it points at
     expect(SCREEN_CODE).toContain('href={`#${anchor}`}')
     expect(SCREEN_CODE).toContain('id={mod.moduleId}')
-    // the smooth scroll is decoration ON TOP of the anchor, and it obeys motion
-    expect(SCREEN_CODE).toContain("behavior: reduced ? 'auto' : 'smooth'")
+    // ⚖ R2-19 / S16-D12 — AND NOTHING RIDES ON TOP OF THE ANCHOR. The old
+    // handler called `preventDefault()` and scrolled, which REPLACES the native
+    // navigation rather than decorating it: `replaceState` moves neither focus
+    // nor the sequential-focus starting point, so a keyboard reader was scrolled
+    // to the card while their next Tab continued from the chip behind them.
+    const chip = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const practiseChip'), SCREEN_CODE.indexOf('const visibleRows'))
+    expect(chip).not.toContain('onClick')
+    expect(chip).not.toContain('preventDefault')
+    expect(chip).not.toContain('scrollIntoView')
+    expect(chip).not.toContain('replaceState')
+    // the destination is a FOCUS-NAVIGATION target, so the next Tab continues
+    // from the card the reader was sent to
+    expect(SCREEN_CODE).toContain('id={mod.moduleId} tabIndex={-1}')
     // …and the anchor is not landed on under the shell's sticky topbar
     expect(CSS_CODE).toContain('scroll-margin-top: 84px;')
   })
@@ -3157,7 +3191,7 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     expect(tile).toContain('aria-pressed={filter === c.key}')
     const barTag = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-notice-bar"') - 200, SCREEN_CODE.indexOf('className="cg-notice-bar"') + 200)
     expect(barTag).toContain('type="button"')
-    expect(SCREEN_CODE).toContain('<a\n        className="cg-linkchip"')
+    expect(SCREEN_CODE).toContain('<a className="cg-linkchip" href={`#${anchor}`} data-press>')
     // ⚠ NOT ONE onClick ON A NON-INTERACTIVE ELEMENT. The tour's dim layer is
     // the room's one exception and it is a scrim, not a control — it carries no
     // information a keyboard user cannot reach through Escape and the arrows.
@@ -3266,11 +3300,122 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(SCREEN_SRC).not.toContain('しぼり込')
   })
 
+  it('R2-17 · CONSENT GATES THE BOARD — no band, no area, no action without it', () => {
+    // COACHING_VISIBILITY_MODEL.md:32-33 — consent to be coached 「gates whether
+    // ANY L1 artifact is generated at all … the manager's coaching surface
+    // simply doesn't render」. The plant is the point: a rich, mature, clearly
+    // banded history under a record that is NOT 'granted' still produces the
+    // below-floor shape, because the gate is asked of the plane rather than of
+    // the row.
+    const rich = coachingStaff.find((r) => r.staffId === 'p-04')!
+    const roster = [{ id: 'p-04', name: '見本 しろう' }]
+    const rows = [{ ...rich, staffId: 'p-04' }]
+    for (const status of ['unset', 'declined'] as const) {
+      const view = buildTriage({
+        roster,
+        rows,
+        floor: FLOOR_DEFAULT,
+        consent: { 'p-04': { status, policyVersion: 'v2' } },
+        patternCategories: teamPatterns.map((p) => p.categoryKey),
+      })
+      expect({ consent: status, ...view.rows[0] }).toEqual({
+        consent: status,
+        staffLabel: '見本 しろう',
+        // exactly the below-floor shape: the run was never asked for
+        status: 'skipped',
+        band: null,
+        focusAreas: [],
+        maturity: 'early',
+        needsSupport: false,
+        suggestedAction: null,
+        summaryChecks: true,
+      })
+      // the four counts read the board, so they follow by construction
+      expect({ status, counts: view.counts }).toEqual({ status, counts: { growing: 0, steady: 0, needsSupport: 0, building: 1 } })
+      // …and so does 店舗全体のサポートエリア
+      expect({ status, freq: focusAreaFrequency(view.rows) }).toEqual({ status, freq: [] })
+    }
+    // the SAME row with consent granted is banded — or the pin above would be
+    // green because nothing was ever banded (⚖ HARNESS-TRUTH).
+    const granted = buildTriage({ roster, rows, floor: FLOOR_DEFAULT, consent: COACHED, patternCategories: teamPatterns.map((p) => p.categoryKey) })
+    expect(granted.rows[0].band).not.toBeNull()
+    expect(granted.rows[0].suggestedAction).not.toBeNull()
+  })
+
+  it('R2-17 · a DECLINED row and a NEVER-RAN row are byte-identical on the board', async () => {
+    // ⚖ ANTI-COERCION (§3), applied to consent exactly as it is applied to the
+    // share switch: a manager may never tell the person who said no from the
+    // person nobody has asked, or from the person who is simply new. 見本 みらい
+    // declined; テスト さぶろう has no coaching row at all.
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const declined = props.team!.rows.find((r) => r.staffLabel === '見本 みらい')!
+    const never = props.team!.rows.find((r) => r.staffLabel === 'テスト さぶろう')!
+    expect(JSON.stringify({ ...declined, staffLabel: '' })).toBe(JSON.stringify({ ...never, staffLabel: '' }))
+    // …and neither is counted anywhere a reader could subtract them out of
+    for (const row of [declined, never]) {
+      expect({ staff: row.staffLabel, band: row.band, action: row.action, areas: row.focusAreas.length })
+        .toEqual({ staff: row.staffLabel, band: null, action: null, areas: 0 })
+    }
+    const banded = props.team!.rows.filter((r) => r.band !== null).map((r) => r.staffLabel)
+    expect(banded).not.toContain('見本 みらい')
+    expect(banded).not.toContain('テスト さぶろう')
+  })
+
+  it('R2-17 · the band-less bucket is REASON-FREE in every word a manager reads', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const tile = props.team!.counts.find((c) => c.key === 'building')!
+    expect(tile.label).toBe('まだ判断できません')
+    const bandless = props.team!.rows.filter((r) => r.band === null)
+    expect(bandless.length).toBeGreaterThan(1)
+    // ⚠ THE WORD 回数 IS THE REASON, and a reason is what separates the three
+    // kinds of person in this bucket. It may not appear in the label or in the
+    // sentence (source pin as well as payload pin).
+    for (const text of [tile.label, ...bandless.map((r) => r.trajectoryLine), ...bandless.map((r) => r.bandLabel)]) {
+      expect({ text, saysWhy: text.includes('回数') }).toEqual({ text, saysWhy: false })
+    }
+    expect(PROPS_CODE).not.toContain('セッションの回数が判断できる数に届いていません')
+    expect(PROPS_CODE).toContain("label: 'まだ判断できません'")
+    // …and the tour says it openly, so the reader is not left to infer it
+    const board = GUIDES.find((g) => g.includes('スタッフごとの区分です'))!
+    expect(board).toContain('回数が足りない人と、コーチングを受けていない人は、どちらも「まだ判断できません」になります。')
+    expect(board).toContain('どちらなのかは表示しません。')
+  })
+
+  it('R2-18 · a filter that leaves nothing SAYS so, and the tile stays pressable', () => {
+    // Every other absence on this page is said out loud; a tile reading 0名 that
+    // blanked the board was the one place the room went quiet. The tile is NOT
+    // disabled — a dead lever is the disease this room refuses — so the reader
+    // can see the state they pressed into and release it.
+    const board = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-board"'), SCREEN_CODE.indexOf('className="cg-rail"'))
+    expect(board).toContain('{visibleRows.length === 0 ? (')
+    expect(board).toContain('<p className="cg-board-empty">{team.filteredEmptyLine}</p>')
+    expect(PROPS_CODE).toContain("filteredEmptyLine: 'この区分に当てはまるスタッフはいません。'")
+    const tiles = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-tiles"'), SCREEN_CODE.indexOf('</section>', SCREEN_CODE.indexOf('className="cg-tiles"')))
+    expect(tiles).not.toContain('disabled')
+    expect(CSS_CODE).toContain('.cg-board-empty')
+  })
+
+  it('R2-21 · the plane’s comment about the dial is TRUE at this tip', () => {
+    // The comment claimed the value 「reaches the page only through accessFor」.
+    // It is read twice — the capability, and the boundary sentence — and both
+    // reads go through the same helper. The comment now says that.
+    const plane = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-coaching.ts'), 'utf8')
+    expect(plane).not.toContain('reaches the page only through')
+    expect(plane).toContain('ONE HOME FOR THE DECISION, TWO READS OF THE VALUE')
+    // the second read really exists, and really is the same helper
+    expect(PROPS_CODE).toContain('const visibility = resolveVisibility(policy.evaluationVisibility)')
+    expect(PROPS_CODE).toContain('const access = accessFor(role, policy)')
+  })
+
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
     // The fixed lead used to restate what every state's own `body` already
     // says — 「断ったことは誰にも表示されません」 came out twice in one utterance
     // on the declined state. The lead keeps only its first sentence.
-    expect(SCREEN_CODE).toContain('data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${ready.consent.body}`}')
+    expect(SCREEN_CODE).toContain('data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${consent.body}`}')
     for (const state of ['unset', 'granted', 'declined'] as const) {
       const spoken = `あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${CONSENT_STATE[state].body}`
       // no sentence is said twice in the composed utterance

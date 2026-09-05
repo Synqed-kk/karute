@@ -755,7 +755,8 @@
 .biz .pg-coaching .cg-band-support { background: var(--cg-priority-soft); color: var(--cg-priority); }
 .biz .pg-coaching .cg-band-building { background: var(--cg-soft); color: var(--muted); }
 
-.biz .pg-coaching .cg-railnote { color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
+/* ⚖ R2-18 — the board's empty branch, in the rail's own quiet register. */
+.biz .pg-coaching .cg-board-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
 .biz .pg-coaching .cg-adoption-line { margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-adoption-note { margin: 6px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
 .biz .pg-coaching .cg-limit { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }

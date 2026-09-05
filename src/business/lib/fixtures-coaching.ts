@@ -61,10 +61,15 @@ export const coachingStores: string[] = [STORE_A]
  *  union does not name fails CLOSED to `'managers'` (`resolveVisibility`,
  *  coaching.ts) — a mis-typed setting must not be able to open a screen.
  *
- *  ⚠ ONE HOME. The editor is registry ⑤ (設定 room); until it exists this is the
- *  room's READ-SIDE value and nothing writes it. The screen never reads it — it
- *  reaches the page only through `accessFor(role, policy)`, so there is exactly
- *  one place where 「who may see the board」 is decided. */
+ *  ⚠ ONE HOME FOR THE DECISION, TWO READS OF THE VALUE (R2-21). The editor is
+ *  registry ⑤ (設定 room); until it exists this is the room's READ-SIDE value and
+ *  nothing writes it. The SCREEN never reads it. The SERVER reads it twice, and
+ *  both reads go through the same helper so they cannot disagree:
+ *  `accessFor(role, policy)` decides the CAPABILITY — the one and only place
+ *  「who may see the board」 is settled — and `resolveVisibility(...)` is asked
+ *  again in `coaching-props.ts` so the boundary sentence can say which way this
+ *  business set the dial. Two reads, one helper, and only the first one can
+ *  change what a reader may open. */
 export const coachingPolicy = { evaluationVisibility: 'managers' as 'managers' | 'all-staff' }
 
 // ── personal-findings.ts — the honest mirror (L1) ────────────────────────────
@@ -1003,14 +1008,24 @@ export interface FixtureConsentRecord {
 }
 
 /** ⚠ ALL THREE STATES ARE REACHABLE FROM THE STORE SWITCHER AND THE ROLE
- *  SWITCHER, not just from a test: p-06 (the operator's own screen) has decided,
- *  p-01 has decided, p-04 declined and p-05 was never asked. A staff member
- *  reading their own screen therefore meets a real decision, and the
- *  role-preview walk crosses granted / declined / unset. */
+ *  SWITCHER, not just from a test: p-06 (the operator's own screen), p-01, p-04
+ *  and p-05 have granted, p-09 みらい has DECLINED, and c-03 さぶろう was never
+ *  asked (absent = 'unset'). A staff member reading their own screen therefore
+ *  meets a real decision, and the role-preview walk still crosses granted /
+ *  declined / unset. */
 export const coachingConsent: Record<string, FixtureConsentRecord> = {
   'p-06': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
   'p-01': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
-  'p-04': { status: 'declined', decidedAt: null, policyVersion: 'v2' },
-  'p-05': { status: 'unset', decidedAt: null, policyVersion: null },
-  'p-09': { status: 'unset', decidedAt: null, policyVersion: null },
+  // ⚖ R2-17 / S16-D11 — RE-STATED, because consent now gates the BOARD. A
+  // member who has not granted it carries no band, no focus area and no help
+  // action, whatever their history says. しろう is this demo's ONE サポートが必要
+  // example and ごろう its 安定 row, so both grant; みらい is below the floor
+  // anyway, which makes her the living proof that a DECLINE is invisible — her
+  // row reads exactly as it did before, and exactly as さぶろう's does.
+  'p-04': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
+  'p-05': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
+  'p-09': { status: 'declined', decidedAt: null, policyVersion: 'v2' },
+  // c-03 さぶろう and p-02 たろう are ABSENT on purpose: absent = 'unset', the
+  // consent type's own default-pre-prompt value, and さぶろう is the demo's
+  // never-asked reader.
 }

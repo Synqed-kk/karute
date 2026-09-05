@@ -425,8 +425,14 @@ export interface SelfView {
 
 /** The staff member's own run, or the fact that there is not one. `none` is the
  *  state for a person the plane holds nothing for at all — distinct from
- *  `insufficient_data`, which is a RUN that honestly reported too little. */
-export type SelfState = { kind: 'ready'; view: SelfView } | { kind: 'none' }
+ *  `insufficient_data`, which is a RUN that honestly reported too little.
+ *  ⚖ R2-17 — AND BOTH BRANCHES CARRY THE VIEWER'S OWN CONSENT. Consent is the
+ *  question that comes BEFORE there is anything to analyse, so a person who has
+ *  never been asked must be asked on the screen that has nothing on it yet —
+ *  not only on the screen that already has their numbers. One lookup, one home:
+ *  the branch changes what there is to show, never who was asked. */
+export type SelfConsentRecord = { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }
+export type SelfState = { kind: 'ready'; view: SelfView } | { kind: 'none'; consent: SelfConsentRecord }
 
 export function buildSelfView(input: {
   /** The VIEWER's own staff id. This is a lookup, not a filter. */
@@ -442,7 +448,8 @@ export function buildSelfView(input: {
   // ⚖ THE SELF READ IS A LOOKUP BY ID. Nothing else in `rows` is touched, so a
   // colleague's numbers cannot reach this model even by accident.
   const mine = rows.find((r) => r.staffId === selfId)
-  if (!mine) return { kind: 'none' }
+  const own: SelfConsentRecord = consent[selfId] ?? { status: 'unset', policyVersion: null }
+  if (!mine) return { kind: 'none', consent: own }
 
   const run = mine.findingsRun
   return {
@@ -523,7 +530,7 @@ export function buildSelfView(input: {
       // is read, so no colleague's decision can reach this payload — and the
       // anti-coercion rule (COACHING_VISIBILITY_MODEL:53-56) is kept by there
       // being no owner-side consumer of this map at all.
-      consent: consent[selfId] ?? { status: 'unset', policyVersion: null },
+      consent: own,
     },
   }
 }
@@ -642,25 +649,54 @@ export interface TriageView {
   sharingAdoption: { granted: number; total: number }
 }
 
+/** ⚖ R2-17 — CONSENT GATES THE BOARD, AND IT GATES IT AT THE DERIVATION.
+ *  `COACHING_VISIBILITY_MODEL.md:32-33`: consent to be coached 「gates whether
+ *  ANY L1 artifact is generated at all … the manager's coaching surface simply
+ *  doesn't render」. Before this round `buildTriage` mapped the ROSTER and never
+ *  mentioned consent, so a staff member who declined — and whose own screen
+ *  told them 「あなたのセッションは分析されていません」 — was still banded, given a
+ *  focus area and paired with a help action on the manager's board. S16 widened
+ *  that board's audience from 店長・オーナー to every member of staff (⚖ Q6), so
+ *  the blast radius is this round's.
+ *
+ *  ⚠ AND THE FIX CARRIES THE ANTI-COERCION RULE (§3), the same way the share
+ *  switch does: a manager may never tell a person who DECLINED from a person
+ *  who has not been asked, or from a person whose sessions are simply too few.
+ *  All three take the below-floor shape — `status: 'skipped'`, `band: null`, no
+ *  areas, no action, and a `maturity` computed from zero — so the three are
+ *  indistinguishable on the board by construction rather than by a promise. */
+const isConsented = (
+  consent: Record<string, { status: 'unset' | 'granted' | 'declined' }>,
+  staffId: string,
+): boolean => (Object.hasOwn(consent, staffId) ? consent[staffId].status : 'unset') === 'granted'
+
 export function buildTriage(input: {
   /** The store's roster, in the order the world returns it. */
   roster: Array<{ id: string; name: string }>
   rows: FixtureCoachingStaff[]
   floor: number
+  /** coaching-consent/types.ts:9-16, keyed by staff id — the SAME plane
+   *  `buildSelfView` reads. Absent = 'unset', the type's own default-pre-prompt
+   *  value. A member who is not 'granted' gets no band at all (⚖ R2-17). */
+  consent?: Record<string, { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }>
   /** The CATEGORY KEYS this store's anonymised top-performer patterns cover
    *  (contract.ts:176-183 TeamPattern). Keys only — no id, no name, nothing
    *  that could say WHO — because all this board needs to know is whether the
    *  third help action has anybody behind it. */
   patternCategories?: string[]
 }): TriageView {
-  const { roster, rows, floor, patternCategories = [] } = input
+  const { roster, rows, floor, consent = {}, patternCategories = [] } = input
   const byStaff = new Map(rows.map((r) => [r.staffId, r]))
   const needles = rosterNeedles(roster)
   const out: TriageRow[] = roster.map((member) => {
     const row = byStaff.get(member.id)
+    // ⚖ R2-17 — CONSENT FIRST, and it is asked of the plane rather than of the
+    // row: a member with no row and a member who declined must reach the same
+    // shape, so the question cannot depend on there being a row to ask about.
+    const consented = isConsented(consent, member.id)
     // staff-focus.ts:238 — the run itself is skipped below its own bar; the
     // store's floor sits above it, and either one means no band.
-    const generated = Boolean(row) && sessionsOf(row!) >= FOCUS_MIN_SESSIONS
+    const generated = consented && Boolean(row) && sessionsOf(row!) >= FOCUS_MIN_SESSIONS
     const band = generated ? bandOf(row!.history, sessionsOf(row!), floor) : null
     const needsSupport = band === 'needs-support'
     const focusOne = row?.focus.focus_recommendations[0]
@@ -685,7 +721,12 @@ export function buildTriage(input: {
       staffLabel: member.name,
       status: generated ? 'generated' : 'skipped',
       band,
-      maturity: maturityOf(row ? sessionsOf(row) : 0),
+      // ⚠ AND THE MATURITY IS COMPUTED FROM ZERO for anybody this board did not
+      // band. A rich history under a declined record would otherwise put
+      // 'established' on a row that says 「まだ判断できません」 — a field a future
+      // surface could read as 「this person has been here a while」, which is
+      // exactly the tell the anti-coercion rule forbids.
+      maturity: maturityOf(consented && row ? sessionsOf(row) : 0),
       focusAreas: safe,
       summaryChecks: safe.length === areas.length,
       needsSupport,
