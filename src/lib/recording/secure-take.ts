@@ -274,49 +274,64 @@ export async function secureTake(
       return
     }
 
-    // AbortController + a timer, not AbortSignal.timeout: that static is absent
-    // from jsdom (this file's own tests) and from WebViews older than Chrome
-    // 103, where it would throw a TypeError and fail every take instead of
-    // saving them. A plain timer is universal — and it is the only form jest's
-    // fake timers can advance, which is what makes the stall provable.
-    const deadline = new AbortController()
-    const putTimer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
-    let put: Response
-    try {
-      put = await fetch(minted.url, {
-        method: 'PUT',
-        // The SERVER's content type for the key it composed, never our own guess:
-        // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
-        // dies for the finalized object.
-        headers: { 'content-type': minted.contentType },
-        body: blob,
-        // An abort throws, so a stalled upload lands in the catch below as the
-        // RETRYABLE 'network' — and the finally releases this take, which is
-        // what lets the drain reach the next one.
-        signal: deadline.signal,
-      })
-    } finally {
-      clearTimeout(putTimer)
-    }
-    // 409 IS a success. The mint no longer signs for upsert (PR2 fix round 3):
-    // a finalized key is immutable evidence, so storage refusing a second PUT
-    // to it is exactly right — and for us that refusal means "the object is
-    // ALREADY there". That is the retry case, and the only one that reaches
-    // here: an earlier PUT landed and only the finalize call was lost (a dead
-    // socket, a killed app). So fall through and finalize, which re-proves the
-    // byte length and the ownership before it writes anything.
+    // ⚖ NOTHING TO SEND (hotfix 2026-09-05). The mint found this take's own
+    // object already at its own row's reserved key — the PUT landed, only the
+    // finalize was lost — so it signed nothing and there is no `url`. Fall
+    // through to finalize, which re-proves the size against the object
+    // server-side: what the "409 IS a success" note below always intended.
     //
-    // Known ceiling: if that first PUT landed with the WRONG bytes, nothing can
-    // replace them under this key. Finalize refuses on the size mismatch and
-    // the take surfaces as 要対応 (R10) for a human to resolve.
-    //
-    // And the refusal does not always carry 409 as its STATUS (fix round 12,
-    // P2) — putSaysAlreadyThere (storage-put.ts) reads the body for the shape that hides
-    // it in a 400.
-    if (!put.ok && !(await putSaysAlreadyThere(put))) {
-      // Nothing is finalized against an object storage refused to take.
-      await markTakeSecureError(takeId, `upload_${put.status}`)
-      return
+    // ⚠ THE VALUE IS THE GUARD. `'url' in minted` alone is a shape check, and
+    // the phone port rebuilds this answer field by field — a `url: undefined`
+    // would pass it and reach fetch. The `in` only tells the COMPILER which arm
+    // carries the field; the half that decides reads the value.
+    if ('url' in minted && minted.url) {
+      // AbortController + a timer, not AbortSignal.timeout: that static is absent
+      // from jsdom (this file's own tests) and from WebViews older than Chrome
+      // 103, where it would throw a TypeError and fail every take instead of
+      // saving them. A plain timer is universal — and it is the only form jest's
+      // fake timers can advance, which is what makes the stall provable.
+      //
+      // Declared INSIDE the block with the PUT it belongs to: the already-there
+      // path must leave no timer armed behind it.
+      const deadline = new AbortController()
+      const putTimer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+      let put: Response
+      try {
+        put = await fetch(minted.url, {
+          method: 'PUT',
+          // The SERVER's content type for the key it composed, never our own guess:
+          // this is where the iOS "mp4 bytes under a .webm/audio-webm label" bug
+          // dies for the finalized object.
+          headers: { 'content-type': minted.contentType },
+          body: blob,
+          // An abort throws, so a stalled upload lands in the catch below as the
+          // RETRYABLE 'network' — and the finally releases this take, which is
+          // what lets the drain reach the next one.
+          signal: deadline.signal,
+        })
+      } finally {
+        clearTimeout(putTimer)
+      }
+      // 409 IS a success. The mint no longer signs for upsert (PR2 fix round 3):
+      // a finalized key is immutable evidence, so storage refusing a second PUT
+      // to it is exactly right — and for us that refusal means "the object is
+      // ALREADY there". What reaches here is the race the mint's own probe did
+      // not see a moment earlier (a concurrent tab's PUT landing between the
+      // two). So fall through and finalize, which re-proves the byte length and
+      // the ownership before it writes anything.
+      //
+      // Known ceiling: if that first PUT landed with the WRONG bytes, nothing can
+      // replace them under this key. Finalize refuses on the size mismatch and
+      // the take surfaces as 要対応 (R10) for a human to resolve.
+      //
+      // And the refusal does not always carry 409 as its STATUS (fix round 12,
+      // P2) — putSaysAlreadyThere (storage-put.ts) reads the body for the shape that hides
+      // it in a 400.
+      if (!put.ok && !(await putSaysAlreadyThere(put))) {
+        // Nothing is finalized against an object storage refused to take.
+        await markTakeSecureError(takeId, `upload_${put.status}`)
+        return
+      }
     }
 
     const result = await port.finalizeTake({
