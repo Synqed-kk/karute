@@ -39,9 +39,11 @@
 // waits on — never half-built behind a control whose only outcome is a toast.
 //
 // WHAT IS CLIENT STATE HERE, AND NOTHING ELSE: which tab is open, which band the
-// board is filtered to, whether the data notice is open, and which step of the
-// 画面の説明 tour the reader is on. All four are pure browsing, and all four
-// reset with the store lens, because `page.tsx` keys this component by it.
+// board is filtered to, whether the data notice is open, WHICH PATTERN SHELVES
+// THE READER HAS OPENED (⚖ I-5), WHETHER THE BOARD'S SUMMARY DISCLOSURE IS OPEN
+// (⚖ I-8), and which step of the 画面の説明 tour the reader is on. All six are
+// pure browsing, and all six reset with the store lens, because `page.tsx` keys
+// this component by it.
 //
 // ⚖ THE DISCLOSURE IS A CONDITIONAL RENDER (⚖-ADJ A / S16-3). The notice's body
 // EXISTS only while the bar is open — it is never `hidden`, never
@@ -238,8 +240,13 @@ export interface CoachingSelfReady {
    *  word. Null when the category has no benchmark: a distance to nothing is not
    *  a number this room will print. */
   categories: Array<{ key: string; label: string; score: number; topBenchmark: number | null; confidenceNote: string | null; gapLabel: string | null }>
-  /** contract.ts:176-183 TeamPattern. */
-  learnFromTop: Array<{ id: string; behavior: string; adoptionNote: string }>
+  /** contract.ts:176-183 TeamPattern.
+   *  ⚖ I-5 (S16C) — `relatedLabel` marks the behaviours the reader's OWN run
+   *  pointed at, resolved in the props file through the ONE join the two planes
+   *  share: a finding's `pattern_reference` (personal-findings.ts:243). Null on
+   *  every other behaviour, so the chip is a fact about this reader rather than
+   *  a decoration on the list. */
+  learnFromTop: Array<{ id: string; behavior: string; adoptionNote: string; relatedLabel: string | null }>
   /** ⚖ THE VIEWER'S OWN GRANT, RESOLVED. Three strings rather than a boolean,
    *  because the screen holds no copy table — the same reason every band tone
    *  and every trajectory line arrives as a prop. */
@@ -379,7 +386,11 @@ export interface CoachingProps {
     deletionBody: string
     deletionCta: string
   }
-  patterns: { title: string; subtitle: string; note: string | null; emptyLine: string; shelves: Array<{ key: string; title: string; description: string; entries: CoachingPatternEntry[] }> } | null
+  /** ⚖ I-5 (S16C) — ONE SECTION for 「how the top performers do it」: the five
+   *  named shelves AND the anonymised behaviours the reader's own run linked to.
+   *  `learnTitle` is the retired card's own heading, kept as this section's
+   *  sub-heading; `moreLabel`/`lessLabel` are the shelf expander's two words. */
+  patterns: { title: string; subtitle: string; learnTitle: string; moreLabel: string; lessLabel: string; note: string | null; emptyLine: string; shelves: Array<{ key: string; title: string; description: string; entries: CoachingPatternEntry[] }> } | null
   modules: { title: string; subtitle: string; calloutTitle: string; calloutBody: string; mineLabel: string; cards: CoachingModuleCard[] } | null
   actionFootnote: string
   refusals: { regenerate: string; share: string; depth: string; settings: string; consent: string; deletion: string }
@@ -554,6 +565,10 @@ export function CoachingScreen(props: CoachingProps) {
    *  browsing state and both die with the store key (`page.tsx`). */
   const [filter, setFilter] = useState<BandFilter | null>(null)
   const [noticeOpen, setNoticeOpen] = useState(false)
+  /** ⚖ I-5 — WHICH SHELVES ARE OPEN. A Set rather than one flag: two shelves may
+   *  be open at once, and closing one may not close the other. Browsing state,
+   *  like the three above it. */
+  const [openShelves, setOpenShelves] = useState<ReadonlySet<string>>(() => new Set())
   /** Whether the reader asked for less motion. Read ONCE into state so every
    *  spring is constructed with the same answer and the server render (which has
    *  no `matchMedia` at all) never disagrees with the first client frame. */
@@ -1525,32 +1540,6 @@ export function CoachingScreen(props: CoachingProps) {
                         </section>
                       )}
 
-                      {/* ⚠ THE TOUR SENTENCE DESCRIBES THE PAYLOAD, and the
-                          payload only. It used to add 「本人が許可したものだけが
-                          並びます」 — a consent gate `TeamPattern`
-                          (contract.ts:176-183) carries no field for and nothing
-                          in this room applies, which broke this file's own
-                          header rule three lines into it. What is left is what
-                          the shape really guarantees: no name rides with a
-                          technique. */}
-                      {ready.learnFromTop.length > 0 && (
-                        <section
-                          className="cg-learn"
-                          data-guide-title="上位層から学ぶ"
-                          data-guide="成績の良いスタッフがやっていることを、名前を伏せた形で共有しています。誰のやり方かは分かりません。"
-                        >
-                          <h2 className="cg-sec-title">上位層から学ぶ</h2>
-                          <ul className="cg-learn-list">
-                            {ready.learnFromTop.map((p) => (
-                              <li className="cg-learn-item" key={p.id}>
-                                <span className="cg-learn-behavior">{p.behavior}</span>
-                                <span className="cg-learn-note">{p.adoptionNote}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      )}
-
                       {/* ⚖ THE GRANT IS THE STAFF MEMBER'S OWN, AND IT IS READ
                           — the state sentence, the body and the button label
                           all come from `SelfView.grant`, the viewer's own plane
@@ -1596,8 +1585,8 @@ export function CoachingScreen(props: CoachingProps) {
                     {props.patterns && (
                       <section
                         className="cg-patterns"
-                        data-guide-title="トップパフォーマーのパターン"
-                        data-guide="成績の良いスタッフが実際に使っている言い回しを、場面ごとにまとめています。誰のやり方かは表示されません。まだ見つかっていない場面も、棚だけは出しています。"
+                        data-guide-title="上位層のやり方"
+                        data-guide="成績の良いスタッフ（トップパフォーマーのパターン）が実際に使っている言い回しを、場面ごとにまとめています。誰のやり方かは表示されません。まだ見つかっていない場面も、棚だけは出しています。下の「あなたの重点に関係」がついたものは、あなたの気づきが指していたやり方です。"
                       >
                         <h2 className="cg-sec-title">{props.patterns.title}</h2>
                         <p className="cg-patterns-sub">{props.patterns.subtitle}</p>
@@ -1608,7 +1597,14 @@ export function CoachingScreen(props: CoachingProps) {
                               <p className="cg-shelf-desc">{shelf.description}</p>
                               {shelf.entries.length > 0 ? (
                                 <ul className="cg-pattern-list">
-                                  {shelf.entries.map((e) => (
+                                  {/* ⚖ I-5 — TWO ENTRIES, THEN AN EXPANDER. A shelf
+                                      that printed everything made the section the
+                                      tallest thing on the page and buried the two
+                                      lines a reader would actually try this week.
+                                      The rest are ADDED and REMOVED by a real
+                                      button (never `hidden`, never a clipped
+                                      height) — the room's own disclosure grammar. */}
+                                  {(openShelves.has(shelf.key) ? shelf.entries : shelf.entries.slice(0, 2)).map((e) => (
                                     <li className="cg-pattern" key={e.title}>
                                       <span className="cg-pattern-title">{e.title}</span>
                                       <span className="cg-pattern-behavior">{e.behavior}</span>
@@ -1626,9 +1622,48 @@ export function CoachingScreen(props: CoachingProps) {
                               ) : (
                                 <p className="cg-shelf-empty">{props.patterns!.emptyLine}</p>
                               )}
+                              {shelf.entries.length > 2 && (
+                                <button
+                                  type="button"
+                                  className="cg-shelf-more"
+                                  aria-expanded={openShelves.has(shelf.key)}
+                                  data-press
+                                  onClick={() =>
+                                    setOpenShelves((was) => {
+                                      const next = new Set(was)
+                                      if (!next.delete(shelf.key)) next.add(shelf.key)
+                                      return next
+                                    })
+                                  }
+                                >
+                                  {openShelves.has(shelf.key) ? props.patterns!.lessLabel : props.patterns!.moreLabel}
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>
+                        {/* ⚖ I-5 — 上位層から学ぶ IS THIS SECTION'S FOOTER, not a card
+                            two columns away. It was the same subject said twice: an
+                            anonymised behaviour here, an anonymised behaviour there,
+                            with nothing telling the reader they are the same library.
+                            Folded in, and the ones the reader's OWN run pointed at
+                            carry a quiet chip that says so. */}
+                        {ready.learnFromTop.length > 0 && (
+                          <div className="cg-learn">
+                            <h3 className="cg-learn-title">{props.patterns.learnTitle}</h3>
+                            <ul className="cg-learn-list">
+                              {ready.learnFromTop.map((p) => (
+                                <li className="cg-learn-item" key={p.id}>
+                                  <span className="cg-learn-behavior">{p.behavior}</span>
+                                  <span className="cg-learn-foot">
+                                    <span className="cg-learn-note">{p.adoptionNote}</span>
+                                    {p.relatedLabel && <span className="cg-learn-rel">{p.relatedLabel}</span>}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         {props.patterns.note && <p className="cg-patterns-note">{props.patterns.note}</p>}
                       </section>
                     )}

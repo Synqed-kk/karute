@@ -327,6 +327,7 @@
   --cg-step-min: 260px;
   --cg-why-min: 260px;
   --cg-sheet-gap: 14px;
+  --cg-shelf-min: 250px;
   --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
@@ -476,7 +477,6 @@
 .biz .pg-coaching .cg-focus,
 .biz .pg-coaching .cg-outcomes,
 .biz .pg-coaching .cg-skills,
-.biz .pg-coaching .cg-learn,
 .biz .pg-coaching .cg-share,
 .biz .pg-coaching .cg-state,
 .biz .pg-coaching .cg-framing,
@@ -822,7 +822,7 @@
 .biz .pg-coaching .cg-learn-list { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-learn-item { padding: 11px 13px; border-radius: 9px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-learn-behavior { display: block; color: var(--ink); font-size: 12.5px; line-height: 1.85; }
-.biz .pg-coaching .cg-learn-note { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-learn-note { color: var(--muted); font-size: 11px; letter-spacing: .01em; }
 
 .biz .pg-coaching .cg-share-state { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
 .biz .pg-coaching .cg-share-body { margin: 7px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
@@ -913,7 +913,26 @@
    the room rather than at a number this sheet would have to keep in sync with
    the ladder. One column on a phone, two in the desk's 7fr column, three when
    the library row is still full width. */
-.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 14px; }
+/* ⚖ I-5 — THE SHELVES ARE TWO ACROSS OR ONE, NEVER THREE-AND-AN-ORPHAN.
+   THRESHOLD ⑩ — THE PATTERNS CARD'S OWN CONTAINER (what decides how many shelves
+   fit is the card, not the page — the room's own rule, four containers deep):
+       250  a shelf: a title, a description, two entries and its expander
+     × 2
+     +  14  the gap
+     ─────
+       514  two across first fit
+       520  ships — 514 plus 6.
+   FIVE shelves in TWO columns leaves the fifth alone on the last row, which is
+   the same half-empty row the supporting column and the 成績 tiles each already
+   have a rule against — so the odd last shelf takes the whole row, and the
+   region's two columns end at the same y by construction (the hole law, kept by
+   the grid rather than by luck). */
+.biz .pg-coaching .cg-patterns { container: cg-shelves / inline-size; }
+.biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@container cg-shelves (min-width: 520px) {
+  .biz .pg-coaching .cg-shelves { grid-template-columns: repeat(2, minmax(var(--cg-shelf-min), 1fr)); }
+  .biz .pg-coaching .cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
 .biz .pg-coaching .cg-shelf { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-shelf-title { margin: 0; font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
 .biz .pg-coaching .cg-shelf-desc { margin: 5px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.75; }
@@ -930,6 +949,24 @@
 .biz .pg-coaching .cg-pattern-note { color: var(--ink-3); font-size: 11px; letter-spacing: .01em; }
 .biz .pg-coaching .cg-pattern-transfer { color: var(--muted); font-size: 11px; line-height: 1.7; }
 .biz .pg-coaching .cg-pattern-caveat { color: var(--muted); font-size: 11px; line-height: 1.7; }
+/* THE SHELF'S OWN EXPANDER — a real button, so Tab reaches it and Enter and
+   Space operate it without this room writing a key handler. What it opens is
+   ADDED and REMOVED, never hidden. */
+.biz .pg-coaching .cg-shelf-more {
+  display: inline-flex; align-items: center; margin-top: 10px; min-height: 32px; padding: 5px 12px;
+  border: 1px solid var(--control); border-radius: 999px;
+  background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.6;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-shelf-more:hover { background: var(--cg-soft); }
+/* ⚖ I-5 — 上位層から学ぶ IS THIS SECTION'S FOOTER. A rule above it, not a box
+   around it: it is part of the library rather than a second card inside one (the
+   ⚖-ADJ F precedent, one section over). */
+.biz .pg-coaching .cg-learn { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-learn-title { margin: 0 0 9px; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-learn-foot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
+.biz .pg-coaching .cg-learn-rel { padding: 2px 8px; border-radius: 999px; background: var(--cg-accent-chip); color: var(--cg-accent-ink); font-size: 10.5px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
 .biz .pg-coaching .cg-patterns-note { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
 
 /* ── the learning-module catalog ───────────────────────────────────────────── */
@@ -1269,6 +1306,7 @@
   .biz .pg-coaching .cg-linkchip { min-height: 44px; }
   .biz .pg-coaching .cg-boundary-link { min-height: 44px; }
   .biz .pg-coaching .cg-tile { min-height: 44px; }
+  .biz .pg-coaching .cg-shelf-more { min-height: 44px; }
   .biz .pg-coaching .cg-notice-bar { min-height: 44px; }
 }
 
@@ -1291,8 +1329,7 @@
   .biz .pg-coaching .cg-focus,
     .biz .pg-coaching .cg-outcomes,
   .biz .pg-coaching .cg-skills,
-  .biz .pg-coaching .cg-learn,
-  .biz .pg-coaching .cg-share,
+    .biz .pg-coaching .cg-share,
   .biz .pg-coaching .cg-state,
   .biz .pg-coaching .cg-framing,
   .biz .pg-coaching .cg-board,

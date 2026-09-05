@@ -132,6 +132,11 @@ const FOOTNOTE = 'サンプルデータのため、この画面から記録・�
  *  about it or they are two truths for one question. */
 const COUNT_WARNING = '根拠のセッション件数が一致しません。この件数は確認中です。'
 
+/** ⚖ I-5 — the chip on a top-performer behaviour the reader's OWN run pointed
+ *  at. It says WHY it is marked (「あなたの重点に関係」) rather than shouting for
+ *  attention: this is a library to read, not a task list. */
+const RELATED_LABEL = 'あなたの重点に関係'
+
 /** ⚖ I-1 (S16C) — THE PRACTICE SHEET'S OWN THREE WORDS, and they live HERE with
  *  every other string a reader sees, not in the screen. The two honest lines
  *  below are the sheet's designed EMPTY states: a run may name a move the
@@ -710,7 +715,22 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // room refuses everywhere else.
               gapLabel: c.topBenchmark != null ? `差 ${c.topBenchmark - c.score}` : null,
             })),
-            learnFromTop: self.view.learnFromTop,
+            // ⚖ I-5 — THE ONE JOIN THE TWO PLANES REALLY SHARE. A finding's
+            // `pattern_reference` (personal-findings.ts:243) is resolved to the
+            // team pattern's own behaviour sentence, so 「this is one of yours」 is
+            // a fact about the reader's OWN run rather than a guess: the chip
+            // appears exactly when a finding of theirs pointed at that behaviour.
+            // ⚠ NOT an id match against the pattern LIBRARY (S16C-D3): the shelf
+            // plane (`FixtureTopPattern`) carries no id at all and its taxonomy is
+            // `pattern-categories.ts`'s five, while `teamPatterns` keys on the
+            // four `CoachingCategoryKey`s — there is no shared key to join on, so
+            // an id match there would mark nothing, for ever, silently.
+            learnFromTop: self.view.learnFromTop.map((p) => ({
+              ...p,
+              relatedLabel: self.view.findings.some((f) => f.patternBehavior === p.behavior)
+                ? RELATED_LABEL
+                : null,
+            })),
             // ⚖ D8-1 — the viewer's OWN grant decides what this section says
             // and what its button offers, instead of a hardcoded 「現在オフ」.
             share: SHARE_STATE[self.view.grant === 'granted' ? 'on' : 'off'],
@@ -869,8 +889,14 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     // sentences. Every shelf renders, empty or not.
     patterns: shelves.length > 0
       ? {
-          title: 'トップパフォーマーのパターン',
+          // ⚖ I-5 — ONE SECTION, ONE NAME. 「トップパフォーマーのパターン」 has not
+          // been cut: it is inside this section's own guide sentence, which is
+          // where a reader who knew the old name still finds it (⚖-ADJ K).
+          title: '上位層のやり方',
           subtitle: '成績の良いスタッフのやり方を、名前を伏せてまとめています。誰のやり方かは表示されません。',
+          learnTitle: '上位層から学ぶ',
+          moreLabel: 'もっと見る',
+          lessLabel: '閉じる',
           note: patternLibraryNote,
           emptyLine: 'この場面のパターンは、今月はまだ見つかっていません。',
           shelves,

@@ -1108,14 +1108,15 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // NINE blocks on FIVE containers: the page (700 · 880 · 940), the PRACTICE
-    // SHEET (580 · 860 — ⚖ I-1), the finding CARD (480), the 成績 card (332 ·
-    // 560) and a single TILE (128). Each is stated ONCE, and every card-level
+    // TEN blocks on SIX containers: the page (700 · 880 · 940), the PRACTICE
+    // SHEET (580 · 860 — ⚖ I-1), the PATTERNS card (520 — ⚖ I-5), the finding
+    // CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
     // container exists because what decides that composition is the box it is in
     // — the page's width is one, two or three layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(9)
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(10)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-sheet/g)].length).toBe(2)
+    expect([...CSS_CODE.matchAll(/@container cg-shelves/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
@@ -2030,11 +2031,16 @@ describe('⚖ D8-2 — the L2 leak guard, the check staff-focus.ts calls THIS ap
 
 describe('⚖ D8-3 — the tour describes the PAYLOAD, and nothing the shape cannot keep', () => {
   it('the 上位層から学ぶ text promises no permission gate, because there is none', () => {
+    // ⚖ I-5 — the two anonymised-behaviour surfaces are ONE section now, so the
+    // promise is read off the section that really carries the list. The retired
+    // card's own sentence (「誰のやり方かは分かりません」) collapsed into the one
+    // already standing here — same fact, one spelling (⚖ A8).
     const learn = SCREEN_CODE.slice(
-      SCREEN_CODE.indexOf('data-guide-title="上位層から学ぶ"'),
-      SCREEN_CODE.indexOf('data-guide-title="マネージャーへの共有"'),
+      SCREEN_CODE.indexOf('data-guide-title="上位層のやり方"'),
+      SCREEN_CODE.indexOf('data-guide-title="学習モジュール"'),
     )
-    expect(learn).toContain('誰のやり方かは分かりません')
+    expect(learn).toContain('誰のやり方かは表示されません')
+    expect(learn).toContain('cg-learn-list')
     expect(learn).not.toContain('許可したものだけ')
     // …because a TeamPattern carries no consent, opt-in or permission field at
     // all — in this room's plane or in the contract it mirrors.
@@ -3355,7 +3361,7 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     const side = panel.slice(panel.indexOf('className="cg-side"'))
     // ⚖ I-3 — 成績 is a STRIP above the desk now and the 推移 card is retired into
     // the 成約率 tile's own sparkline, so neither is in the supporting column.
-    const sideOrder = ['cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-learn', 'cg-share']
+    const sideOrder = ['cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-share']
     const sideAt = sideOrder.map((c) => side.indexOf(c))
     expect({ sideOrder, ascending: sideAt.every((v, i) => v > 0 && (i === 0 || v > sideAt[i - 1])) })
       .toEqual({ sideOrder, ascending: true })
@@ -3817,6 +3823,63 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // B family: no threshold tone on a per-person number).
     expect(CSS_CODE).toMatch(/\.cg-skill-gap \{[^}]*background: var\(--section\)/)
     expect(CSS_CODE).not.toMatch(/\.cg-skill-gap \{[^}]*var\(--cg-priority\)/)
+  })
+
+  it('⚖ I-5 · 上位層のやり方 IS ONE SECTION, and the chip is a fact about the READER’s own run', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(props.patterns!.title).toBe('上位層のやり方')
+    expect(props.patterns!.learnTitle).toBe('上位層から学ぶ')
+    // the chip appears exactly where a finding of THIS reader pointed at that
+    // behaviour, and nowhere else — the join is `pattern_reference`, resolved.
+    for (const p of self.learnFromTop) {
+      expect({ id: p.id, chip: p.relatedLabel })
+        .toEqual({ id: p.id, chip: self.findings.some((f) => f.patternBehavior === p.behavior) ? 'あなたの重点に関係' : null })
+    }
+    expect(self.learnFromTop.some((p) => p.relatedLabel !== null)).toBe(true)
+    // …and a reader whose run points at nothing gets no chips at all, or the
+    // mark would be decoration rather than a fact (⚖ HARNESS-TRUTH).
+    const unrelated = await coachingProps({
+      ...GINZA,
+      world: {
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-06'
+            ? { ...r, findingsRun: { ...r.findingsRun, findings: r.findingsRun.findings.map((f) => ({ ...f, pattern_reference: null })) } }
+            : r,
+        ),
+      },
+    })
+    const none = unrelated.props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(none.learnFromTop.every((p) => p.relatedLabel === null)).toBe(true)
+    // the two surfaces are ONE section in the source: the shelves and the list
+    // are inside `cg-patterns`, and `cg-learn` is no longer a card of its own.
+    const section = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-patterns"'), SCREEN_CODE.indexOf('className="cg-modules"'))
+    expect(section).toContain('className="cg-shelves"')
+    expect(section).toContain('className="cg-learn"')
+    expect(SCREEN_CODE).not.toContain('data-guide-title="上位層から学ぶ"')
+    expect(CSS_CODE).not.toMatch(/\.cg-learn,\n/)
+  })
+
+  it('⚖ I-5 · the shelf expander is a REAL button, and what it opens is added and removed', () => {
+    const shelf = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-shelves"'), SCREEN_CODE.indexOf('className="cg-learn"'))
+    // two entries, then the rest behind a disclosure — never a clipped height
+    expect(shelf).toContain('openShelves.has(shelf.key) ? shelf.entries : shelf.entries.slice(0, 2)')
+    expect(shelf).toContain('{shelf.entries.length > 2 && (')
+    expect(shelf).toContain('type="button"')
+    expect(shelf).toContain('aria-expanded={openShelves.has(shelf.key)}')
+    expect(shelf).toContain('data-press')
+    // the two words live in the props file, like every other string a reader sees
+    expect(PROPS_CODE).toContain("moreLabel: 'もっと見る'")
+    expect(PROPS_CODE).toContain("lessLabel: '閉じる'")
+    // …and it is a finger target on every touch band
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    expect(touch).toContain('.cg-shelf-more { min-height: 44px; }')
+    // FIVE shelves in TWO columns never leave the fifth alone on a half row
+    const shelves = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-shelves (min-width: 520px)'))
+    expect(shelves.slice(0, 400)).toContain('.cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    expect(PATTERN_CATEGORIES.length % 2).toBe(1)
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

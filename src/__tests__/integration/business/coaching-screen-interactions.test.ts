@@ -163,11 +163,14 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       // belongs to the band that now holds it, its steps and its receipt.
       // ⚖ I-3 — 「成約率の推移」 is retired into the 成約率 tile's own sparkline;
       // its title is that picture's accessible name, so the string keeps a home.
-      'あなたの成績', '今週の練習', '気づき', '不成約の理由', '会話スキル', '上位層から学ぶ',
+      // ⚖ I-5 — 「上位層から学ぶ」 and 「トップパフォーマーのパターン」 were the same
+      // subject said twice; they are ONE section (「上位層のやり方」) now, and the
+      // retired card's heading is its footer's own sub-heading.
+      'あなたの成績', '今週の練習', '気づき', '不成約の理由', '会話スキル',
       'マネージャーへの共有', 'まだ表示できないもの',
       // …and the look-fix round's own self-tab sections
       'コーチングを受けることへの同意', 'あなたの強み',
-      'トップパフォーマーのパターン', '学習モジュール',
+      '上位層のやり方', '学習モジュール',
       // 全スタッフ表示
       '表示の切り替え', '全スタッフ表示の見かた', 'スタッフの状況', '共有の状況',
       '店舗全体のサポートエリア',
@@ -185,8 +188,9 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // 費用との比較 and never renders beside the first.
     // ⚖ I-3 (S16C) — ONE declaration retired with its card (成約率の推移 → the
     // sparkline inside the 成約率 tile), so 27 for 26 steps.
-    expect(titles.length).toBe(27)
-    expect(new Set(titles).size).toBe(26)
+    // ⚖ I-5 merges two declarations into one, so 26 for 25 steps.
+    expect(titles.length).toBe(26)
+    expect(new Set(titles).size).toBe(25)
     // …and the two COMPOSED declarations are really in the census rather than
     // dropped by a parser that could not read them (the room-6 lesson: a census
     // that only counts what it can parse is self-referential).
