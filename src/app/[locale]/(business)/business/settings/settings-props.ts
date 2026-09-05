@@ -637,6 +637,22 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             base: '初期値: オーナー・店舗管理者',
             guardrail: '誰も戻せない状態にはできません。埋まらない確保枠が、最後まで空いたまま残ってしまうためです。',
           },
+          // ⚖ S17 · F10 — TWO ROLE VOCABULARIES STAND IN THIS ROOM, AND THIS
+          // ROW SAYS WHICH ONE IT IS SPEAKING.
+          //   · 権限表 (スタッフ管理) = Karute's SIX permission presets
+          //     (`permissions.ts:51-58`), the templates a person's capabilities
+          //     are seeded from.
+          //   · `roleOptions()` = the BOARD's three staff roles
+          //     (オーナー・店舗管理者・スタッフ), which is what 今日の運営
+          //     compares against `staff.role` and what 予約と確保's
+          //     「保存できるのは…です」 echoes.
+          // They are two different facts TODAY, and unifying them is a PLANE
+          // question (a rulebook role vs the board's role string) that belongs
+          // to the reconnect era, not to this room's layout round — it is filed
+          // in QUEUE-FROM-S17-SETTINGS-2026-09-05.md. What this round owes the
+          // reader is the honest line, so 主任 missing from these chips reads as
+          // 「a different list」 rather than as a bug.
+          source: 'ここで選ぶのは、今日の運営がスタッフに付けている役職名です（権限表のひな形とは別の一覧です）',
         }),
         row('store-hours.row-breaks', '休憩の有給扱い', '人件費の概算で、休憩の時間ぶんも払うものとして計算するかどうかです。', [
           sw('store-hours.breaks-paid', '休憩の有給扱い', '有給（休憩も含めて計算）', '無給（休憩を除いて計算）', false),

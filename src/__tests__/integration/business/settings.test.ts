@@ -798,6 +798,28 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(release.trio?.guardrail ?? '').toContain('誰も戻せない状態にはできません')
   })
 
+  // ⚖ S17 · F10 — TWO ROLE VOCABULARIES, AND THE ROW SAYS WHICH ONE IT SPEAKS.
+  // 権限表 offers Karute's six presets (オーナー・店舗管理者・主任・施術スタッフ・
+  // 受付・カスタム); this row offers the BOARD's three staff roles. A reader who
+  // meets 主任 on one page and cannot find it on the other is owed the reason,
+  // and the reason is that they are two different facts today. Unifying them is
+  // a plane question for the reconnect era (queue file), not this room's to
+  // restructure — so what ships is the honest line, and this pin holds it.
+  it('⚖ F10 — the release row names WHICH list of 役職 it is offering', async () => {
+    const props = await room({ store: STORE_A })
+    const release = rowsOf(props).find((r) => r.id === 'store-hours.row-release')!
+    expect(release.source ?? '').toContain('今日の運営がスタッフに付けている役職名')
+    expect(release.source ?? '').toContain('権限表のひな形とは別の一覧')
+    // …and the two lists really ARE different, which is what makes the line true
+    // rather than a decoration: the 権限表's own labels are not what this row
+    // offers.
+    const chips = release.controls.find((c) => c.id === 'store-hours.release')!
+    const offered = chips.control.kind === 'chips' ? chips.control.options.map((o) => o.label) : []
+    const presets = rulebook.roles.map((r) => r.label)
+    expect(offered).not.toEqual(presets)
+    expect(presets.filter((l) => !offered.includes(l)).length).toBeGreaterThan(0)
+  })
+
   // ⚖ S17 · F7 — 契約・請求 NAMES ONE DESTINATION, ONCE.
   // The section used to send the reader two ways for one errand: its lead said
   // 「このWeb画面」 and the block's own fact line said 「Webのお支払い画面」, six
