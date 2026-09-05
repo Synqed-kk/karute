@@ -1108,13 +1108,14 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // SEVEN blocks on FOUR containers: the page (700 · 880 · 940), the finding
-    // CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is
-    // stated ONCE, and every card-level container exists because what decides
-    // that composition is the box it is in — the page's width is one, two or
-    // three layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(7)
+    // NINE blocks on FIVE containers: the page (700 · 880 · 940), the PRACTICE
+    // SHEET (580 · 860 — ⚖ I-1), the finding CARD (480), the 成績 card (332 ·
+    // 560) and a single TILE (128). Each is stated ONCE, and every card-level
+    // container exists because what decides that composition is the box it is in
+    // — the page's width is one, two or three layout decisions away from it.
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(9)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
+    expect([...CSS_CODE.matchAll(/@container cg-sheet/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
@@ -3344,7 +3345,10 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // ⚠ THE SOURCE ORDER PIN, RE-SPELLED ON THE NEW SHAPE (VL-1's own gate is
     // unmoved): consent → the gate → the decision desk → the library row →
     // gate-close. The consent card is ABOVE the gate, so it always renders.
-    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-cols', 'cg-main', 'cg-focus', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
+    // ⚖ I-1 (S16C) — THE PRACTICE SHEET LEADS. `cg-focus` did not leave the page;
+    // it is the sheet's FIRST COLUMN now, so it moved ABOVE `cg-cols` rather than
+    // out of the order. The desk that follows it is the evidence and the numbers.
+    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-sheet', 'cg-focus', 'cg-sheet-do', 'cg-sheet-why', 'cg-cols', 'cg-main', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
     const at = order.map((c) => panel.indexOf(c))
     expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
     // 強み LEADS the supporting column now, right under the numbers it explains
@@ -3668,6 +3672,87 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // the second read really exists, and really is the same helper
     expect(PROPS_CODE).toContain('const visibility = resolveVisibility(policy.evaluationVisibility)')
     expect(PROPS_CODE).toContain('const access = accessFor(role, policy)')
+  })
+
+  it('⚖ I-1 · THE PRACTICE SHEET resolves its two joins from the plane, and says so when one does not', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    const sheet = self.sheet!
+    expect(sheet).not.toBeNull()
+    // (b) THE MODULE is the catalog card the focus run's own `module_id` names —
+    // the SAME card the 練習するもの chip jumps to, so the steps beside the move
+    // and the card the chip lands on can never be two different modules.
+    expect(sheet.module).not.toBeNull()
+    expect(sheet.module!.title).toBe(props.modules!.cards.find((c) => c.moduleId === self.focus[0].moduleAnchor)!.title)
+    expect(sheet.module!.steps.length).toBeGreaterThanOrEqual(3)
+    expect(sheet.moduleEmpty).toBeNull()
+    // (c) THE RECEIPT is the finding whose own `linked_module_id` is that module.
+    // ⚠ S16C-D1 — NOT a category match: `focus.category` is a CoachingCategoryKey
+    // and `finding.category` is the business-native pattern name the model writes,
+    // so the two never compare equal. The pin proves the join really is the module
+    // by asserting the finding it picked is the one that LINKS to it, rather than
+    // merely the first one — those are different findings only when the run
+    // ranked something else first, which is exactly this world.
+    const linked = self.findings.find((f) => f.moduleAnchor === self.focus[0].moduleAnchor)!
+    expect(linked).toBeDefined()
+    expect(sheet.receipt!.countLabel).toBe(linked.countLabel)
+    expect(sheet.receipt!.moment!.quote).toBe(linked.moment!.quote)
+    expect(sheet.receiptEmpty).toBeNull()
+    // …and the category strings really are incomparable, or the fallback above
+    // would be a claim rather than an arithmetic fact.
+    expect(self.findings.some((f) => f.category === self.focus[0].category)).toBe(false)
+  })
+
+  it('⚖ I-1 · the sheet FALLS BACK to the ranked findings, and is absent when the run named no move', async () => {
+    pinClock(MID_MONTH)
+    // a focus pointing at a module NO finding links to: the sheet still shows a
+    // receipt, and it is the run's own first-ranked finding.
+    const rows = coachingStaff.map((r) =>
+      r.staffId === 'p-06'
+        ? {
+            ...r,
+            focus: {
+              ...r.focus,
+              focus_recommendations: [{ ...r.focus.focus_recommendations[0], module_id: 'mod-value-01' }],
+            },
+          }
+        : r,
+    )
+    const { props } = await coachingProps({ ...GINZA, world: { rows } })
+    // …and a run with NO focus at all has no sheet (p-01 — routine_excellence).
+    const quiet = await coachingProps({ ...GINZA, world: { selfId: 'p-01' } })
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.sheet!.module!.title).toBe('金額の前に、変わることを一つ話す')
+    expect(self.sheet!.receipt!.countLabel).toBe(self.findings[0].countLabel)
+    const q = quiet.props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(q.focus).toEqual([])
+    expect(q.sheet).toBeNull()
+  })
+
+  it('⚖ I-1 · the sheet is a DECLARED band above the desk, and the quote scope has ONE home', () => {
+    expect(SCREEN_CODE).toContain('data-guide-title="今週の練習"')
+    expect(SCREEN_CODE).toContain('className="cg-sheet"')
+    // the 次の一手 card did not leave — it is the band's first column, with its
+    // accent wash, its kicker, its chip and its quiet secondary list intact
+    expect(SCREEN_CODE).toContain('className="cg-focus cg-sheet-move"')
+    expect(SCREEN_CODE).toContain('そのあとに効くもの')
+    expect(SCREEN_CODE).toContain('{practiseChip(ready.focus[0].moduleAnchor, ready.focus[0].moduleTitle)}')
+    // ⚖ A8 — the promise about who may read a quote is stated ONCE and rendered
+    // in both places that show one.
+    expect([...SCREEN_CODE.matchAll(/そのときの会話（あなただけが見られます）/g)].length).toBe(1)
+    expect([...SCREEN_CODE.matchAll(/\{QUOTE_SCOPE\}/g)].length).toBe(2)
+    // …and so is the short-count sentence, for the same reason.
+    expect([...PROPS_CODE.matchAll(/根拠のセッション件数が一致しません/g)].length).toBe(1)
+    expect([...PROPS_CODE.matchAll(/COUNT_WARNING/g)].length).toBe(3)
+    // the sheet's three words live in the PROPS file, like every other string a
+    // reader sees on this page.
+    expect(PROPS_CODE).toContain("title: '今週の練習'")
+    expect(PROPS_CODE).toContain("doTitle: 'やること'")
+    expect(PROPS_CODE).toContain("whyTitle: '根拠'")
+    expect(SCREEN_CODE).not.toContain("'今週の練習'")
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

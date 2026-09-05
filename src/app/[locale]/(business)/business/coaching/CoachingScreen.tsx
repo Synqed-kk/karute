@@ -97,6 +97,12 @@ const SETTLE_MS = 500
 const HEAD_GUIDE =
   '接客を振り返るための画面です。セッションの記録から、数字も気づきも事実にもとづいて出しています。一人ひとりの詳しい内容と会話の引用は、本人だけが見られます。'
 
+/** ⚖ A8 — ONE HOME FOR THE QUOTE'S SCOPE LINE. The practice sheet (⚖ I-1) shows
+ *  the same quoted moment a finding does, so the sentence that says who may read
+ *  it is stated ONCE here and rendered in both places. Two copies of one promise
+ *  is two places for it to fork. */
+const QUOTE_SCOPE = 'そのときの会話（あなただけが見られます）'
+
 type Severity = 'priority' | 'watch' | 'strength'
 /** personal-findings.ts:222 — the run's own four statuses. */
 type RunStatus = 'findings' | 'routine_excellence' | 'capture_gap' | 'insufficient_data'
@@ -148,6 +154,31 @@ export interface CoachingPatternEntry {
   confidenceNote: string | null
 }
 
+/** ⚖ I-1 (S16C) — THE PRACTICE SHEET, RESOLVED IN THE PROPS FILE.
+ *
+ *  The staff screen's dominant surface: the ONE move to try next session, the
+ *  STEPS that make it doable, and the RECEIPT that earns it — side by side, so a
+ *  stylist between clients reads all three without scrolling to the library.
+ *
+ *  ⚠ EVERY FIELD IS A JOIN THE PLANE ALREADY HOLDS. `module` is the catalog card
+ *  the focus run's own `module_id` names; `receipt` is the finding whose own
+ *  `linked_module_id` is that same module — the ONE reference the two shapes
+ *  really share. Neither is composed here and neither is guessed: when a join
+ *  does not resolve the sheet says so in its own honest line rather than
+ *  rendering an empty column. */
+export interface CoachingSheet {
+  title: string
+  doTitle: string
+  whyTitle: string
+  /** The module the ONE move points at, with the steps that make it doable. */
+  module: { title: string; durationLabel: string; steps: Array<{ step: number; title: string; detail: string }> } | null
+  /** Said out loud when the focus run named no module — never an empty column. */
+  moduleEmpty: string | null
+  /** The finding that evidences the move: its count, and its quoted moment. */
+  receipt: { countLabel: string; countWarning: string | null; moment: CoachingMoment | null } | null
+  receiptEmpty: string | null
+}
+
 /** learning-module.ts:154-172, resolved. ⚠ NO ASSIGNMENT STATE — that is a
  *  write, and it stays the board's refused help action. */
 export interface CoachingModuleCard {
@@ -191,6 +222,8 @@ export interface CoachingSelfReady {
   /** staff-focus.ts:163-176 FOCUS_L1, resolved — the WHOLE list (≤3), not just
    *  the hero. The room still leads with one; #2 and #3 ride as a quiet list. */
   focus: Array<{ category: string; categoryLabel: string; label: string; description: string; confidenceNote: string | null; moduleTitle: string | null; moduleAnchor: string | null }>
+  /** ⚖ I-1 — the practice sheet, or `null` when the run named no next move. */
+  sheet: CoachingSheet | null
   /** staff-focus.ts:200-204 — strengths, each citing its evidencing metric. */
   strengths: Array<{ label: string; detail: string }>
   outcomes: { title: string; reasons: Array<{ reason: string; label: string; count: number }>; pendingLine: string | null }
@@ -1104,33 +1137,44 @@ export function CoachingScreen(props: CoachingProps) {
                       → the library row → gate-close. */}
                   {ready.consent.status === 'granted' && (
                   <>
-                  {/* ⚖ THE DECISION DESK (S16 §2.3/§2.4, mock D5 — ONE grid, two
-                      packed stacks). LEFT: the one move to make next, then the
-                      evidence for it. RIGHT: the numbers that back the move, then
-                      everything that supports reading them. Two separate rows
-                      tore a ~230px hole above 気づき at 1280–1440, because 成績
-                      is the taller card — so the two stacks pack independently
-                      and the columns end where their own content ends. */}
-                  <div className={`cg-cols${thinDesk ? ' is-thin' : ''}`}>
-                    <div className="cg-main">
-                      {ready.focus[0] && (
-                        <section
-                          className="cg-focus"
-                          data-guide-title="次の一手"
-                          data-guide="いま一番効く一つだけを出しています。あれもこれもではなく、次のセッションで試すことを一つに絞っています。「練習するもの」を押すと、その練習メニューまで移動します。"
-                        >
+                  {/* ⚖ I-1 (S16C, Liam's 9/5 look) — THE PRACTICE SHEET LEADS THE
+                      SCREEN, FULL WIDTH, ABOVE THE DESK.
+                      A stylist opens this between clients to see the ONE thing to
+                      try next session, the STEPS that make it doable, and the
+                      PROOF that it is worth doing. Those three were three scrolls
+                      apart — the move in a card at the top left, the steps in the
+                      catalog at the bottom of the page, the receipt inside a
+                      finding — so the page answered 「what do I do」 last. One band,
+                      three columns, and the reader is done in one glance.
+                      ⚠ THE 次の一手 CARD IS NOT DELETED, IT IS THIS BAND'S FIRST
+                      COLUMN: same class, same accent wash (R2-8), same kicker,
+                      same 練習するもの chip, same quiet 「そのあとに効くもの」 list.
+                      Its heading drops from h2 to h3 because the BAND now carries
+                      the section's own h2. */}
+                  {ready.sheet && ready.focus[0] && (
+                    <section
+                      className="cg-sheet"
+                      data-guide-title="今週の練習"
+                      data-guide="次のセッションで試すことを一つだけ出しています。左がその一手、真ん中がその手順、右がそう言える根拠です。手順はそのまま試せるように書いてあります。会話の引用はあなただけが見られます。"
+                    >
+                      <div className="cg-sec-head">
+                        <h2 className="cg-sec-title">{ready.sheet.title}</h2>
+                        {lock}
+                      </div>
+                      <div className="cg-sheet-cols">
+                        <div className="cg-focus cg-sheet-move">
                           <div className="cg-focus-head">
                             <span className="cg-kicker">次の一手</span>
                             <span className="cg-cat">{ready.focus[0].categoryLabel}</span>
                             {ready.focus[0].confidenceNote && <span className="cg-note-chip">{ready.focus[0].confidenceNote}</span>}
-                            {lock}
                           </div>
-                          <h2 className="cg-sec-title">{ready.focus[0].label}</h2>
+                          <h3 className="cg-sec-title">{ready.focus[0].label}</h3>
                           <p className="cg-focus-desc">{ready.focus[0].description}</p>
                           {/* staff-focus.ts:173 — the module this focus points at,
-                              by NAME. Before this round `module_id` was a reference
-                              into nothing; the catalog below is where it lands, and
-                              since S16 the chip really goes there. */}
+                              by NAME. The chip still jumps to the catalog card, so
+                              the reader who wants the whole module can still get
+                              there; the steps beside it are what makes the jump
+                              optional rather than necessary. */}
                           {practiseChip(ready.focus[0].moduleAnchor, ready.focus[0].moduleTitle)}
                           {/* ⚖ ONE THING AT A TIME STAYS THE RULE — the hero is
                               still one. But staff-focus.ts:199 allows three and the
@@ -1151,9 +1195,75 @@ export function CoachingScreen(props: CoachingProps) {
                               </ul>
                             </div>
                           )}
-                        </section>
-                      )}
+                        </div>
 
+                        {/* (b) やること — the linked module's own steps, so WHAT TO
+                            DO is on the same screen as WHAT TO CHANGE. The catalog
+                            below still carries the whole module; this is its
+                            outline, at the moment the reader needs it. */}
+                        <div className="cg-sheet-do">
+                          <div className="cg-sheet-colhead">
+                            <h3 className="cg-sheet-coltitle">{ready.sheet.doTitle}</h3>
+                            {ready.sheet.module && <span className="cg-note-chip">{ready.sheet.module.durationLabel}</span>}
+                          </div>
+                          {ready.sheet.module ? (
+                            <>
+                              <p className="cg-sheet-modtitle">{ready.sheet.module.title}</p>
+                              <ol className="cg-module-steps">
+                                {ready.sheet.module.steps.map((st) => (
+                                  <li key={st.step}>
+                                    <b>{st.title}</b>
+                                    <span>{st.detail}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                            </>
+                          ) : (
+                            <p className="cg-sheet-empty">{ready.sheet.moduleEmpty}</p>
+                          )}
+                        </div>
+
+                        {/* (c) 根拠 — the receipt of the finding this move came
+                            from: the run's own count, and the reader's own quoted
+                            moment. An absence is SAID, exactly as it is everywhere
+                            else in this room. */}
+                        <div className="cg-sheet-why">
+                          <div className="cg-sheet-colhead">
+                            <h3 className="cg-sheet-coltitle">{ready.sheet.whyTitle}</h3>
+                          </div>
+                          {ready.sheet.receipt ? (
+                            <>
+                              <p className="cg-sheet-count">
+                                <span className="cg-tk">該当した回数</span>
+                                <span className="cg-find-count-value">{ready.sheet.receipt.countLabel}</span>
+                              </p>
+                              {ready.sheet.receipt.countWarning && <p className="cg-find-warn">{ready.sheet.receipt.countWarning}</p>}
+                              {ready.sheet.receipt.moment && (
+                                <blockquote className="cg-quote">
+                                  <span className="cg-quote-meta">
+                                    <span className="cg-quote-scope">{QUOTE_SCOPE}</span>
+                                    <span className="cg-quote-date">{ready.sheet.receipt.moment.date}</span>
+                                    <span className="cg-tk">{ready.sheet.receipt.moment.speakerLabel}</span>
+                                  </span>
+                                  <span className="cg-quote-text">{ready.sheet.receipt.moment.quote}</span>
+                                </blockquote>
+                              )}
+                            </>
+                          ) : (
+                            <p className="cg-sheet-empty">{ready.sheet.receiptEmpty}</p>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* ⚖ THE DECISION DESK (S16 §2.3/§2.4, mock D5 — ONE grid, two
+                      packed stacks). LEFT: the evidence — why the numbers are what
+                      they are. RIGHT: the numbers themselves and what supports
+                      reading them. The two stacks pack independently and the
+                      columns end where their own content ends. */}
+                  <div className={`cg-cols${thinDesk ? ' is-thin' : ''}`}>
+                    <div className="cg-main">
                       <section
                         className="cg-findings"
                         data-guide-title="気づき"
@@ -1237,7 +1347,7 @@ export function CoachingScreen(props: CoachingProps) {
                                             phrase rather than a token, so it wraps
                                             too. */}
                                         <span className="cg-quote-meta">
-                                          <span className="cg-quote-scope">そのときの会話（あなただけが見られます）</span>
+                                          <span className="cg-quote-scope">{QUOTE_SCOPE}</span>
                                           <span className="cg-quote-date">{f.moment.date}</span>
                                           <span className="cg-tk">{f.moment.speakerLabel}</span>
                                         </span>

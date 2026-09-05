@@ -322,6 +322,11 @@
      HAVE TO AGREE WITH EACH OTHER: a `cg-page` threshold that opens a narrower
      box for a child re-crosses the CHILD's threshold, which is the defect
      ④'s second condition above exists to prevent. */
+  /* ⚖ I-1 — THE PRACTICE SHEET'S three minima (threshold ⑧/⑨ above). */
+  --cg-move-min: 300px;
+  --cg-step-min: 260px;
+  --cg-why-min: 260px;
+  --cg-sheet-gap: 14px;
   --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
@@ -466,6 +471,7 @@
 
 /* ── panels, shared furniture ──────────────────────────────────────────────── */
 .biz .pg-coaching .cg-panel { display: flex; flex-direction: column; gap: var(--cg-card-gap); }
+.biz .pg-coaching .cg-sheet,
 .biz .pg-coaching .cg-spine,
 .biz .pg-coaching .cg-focus,
 .biz .pg-coaching .cg-trend,
@@ -530,6 +536,7 @@
 .biz .pg-coaching .cg-find-pattern > .cg-tk,
 .biz .pg-coaching .cg-find-check > .cg-tk,
 .biz .pg-coaching .cg-find-count > .cg-tk,
+.biz .pg-coaching .cg-sheet-count > .cg-tk,
 .biz .pg-coaching .cg-find-mod > .cg-tk,
 .biz .pg-coaching .cg-focus-next > .cg-tk { display: block; margin-bottom: 2px; }
 
@@ -620,6 +627,66 @@
 .biz .pg-coaching .cg-focus-next { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--section); }
 .biz .pg-coaching .cg-focus-next ul { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-focus-next li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+
+/* ── ⚖ I-1 · THE PRACTICE SHEET (S16C) ─────────────────────────────────────── */
+/* THE BAND THAT LEADS THE STAFF SCREEN, and it is a BAND rather than a card in a
+   column because all three of its parts are one answer: the move, the steps and
+   the receipt. Split across the desk they were three scrolls apart, which is why
+   the page used to answer 「what do I do」 last.
+
+   THRESHOLD ⑧ — THE SHEET'S OWN CONTAINER (the card, not the page: what decides
+   whether three columns fit is the band's own box):
+       300  the MOVE — a kicker row, a 19px title, a sentence and the chip
+     + 260  やること — a numbered list of four steps
+     + 260  根拠 — a labelled count and one quoted moment (the receipt column's
+            own 232 plus this block's 28 of padding and border)
+     +  28  two gaps
+     ─────
+       848  three across first fit
+       860  ships — 848 plus 12.
+   THRESHOLD ⑨ — the PAIR, with the move spanning the row above it:
+       260  やること
+     + 260  根拠
+     +  14  the gap
+     ─────
+       534  the pair first fits
+       580  ships — 534 plus 46, so the pair arrives at the FOLD rather than in
+            the middle of a phone band where a numbered list wants the full line.
+   ⚠ BOTH ARE MEASURED ON THE BAND, so a page threshold can never open a narrower
+   box for them than the one they were derived against (④'s second condition, one
+   level down). Rows STRETCH, so the columns of a row end at the same y by
+   construction — the hole law is satisfied here by the grid, not by luck. */
+.biz .pg-coaching .cg-sheet { container: cg-sheet / inline-size; }
+.biz .pg-coaching .cg-sheet > .cg-sec-head { margin-bottom: 12px; }
+.biz .pg-coaching .cg-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-sheet-gap); }
+@container cg-sheet (min-width: 580px) {
+  .biz .pg-coaching .cg-sheet-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-sheet-move { grid-column: 1 / -1; }
+}
+@container cg-sheet (min-width: 860px) {
+  .biz .pg-coaching .cg-sheet-cols {
+    grid-template-columns: minmax(var(--cg-move-min), 1.15fr) minmax(var(--cg-step-min), 1fr) minmax(var(--cg-why-min), 1fr);
+  }
+  .biz .pg-coaching .cg-sheet-move { grid-column: auto; }
+}
+/* The move keeps R2-8's accent wash and every one of its own rules; what changes
+   is that it is a COLUMN of the band now, so it wears the nested block's box
+   (the `.cg-shelf` precedent) rather than a full panel's. */
+.biz .pg-coaching .cg-sheet .cg-focus { padding: 14px 15px; border-radius: 11px; }
+.biz .pg-coaching .cg-sheet .cg-focus .cg-sec-title { font-size: 17px; line-height: 1.45; }
+.biz .pg-coaching .cg-sheet-do,
+.biz .pg-coaching .cg-sheet-why {
+  padding: 14px 15px; min-width: 0;
+  border: 1px solid var(--cg-panel-line); border-radius: 11px;
+  background: var(--cg-soft);
+}
+.biz .pg-coaching .cg-sheet-colhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.biz .pg-coaching .cg-sheet-coltitle { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
+.biz .pg-coaching .cg-sheet-modtitle { margin: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.75; }
+.biz .pg-coaching .cg-sheet-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* The count wears the receipt's own shape, on the block's own paper. */
+.biz .pg-coaching .cg-sheet-count { margin: 0; padding: 9px 12px; border: 1px solid var(--cg-panel-line); border-radius: 9px; background: #fff; }
+.biz .pg-coaching .cg-sheet .cg-module-steps { margin-top: 9px; }
 
 /* ── ① STACKED is the base — one column, no query needed ───────────────────── */
 .biz .pg-coaching .cg-cols,

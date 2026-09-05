@@ -126,6 +126,26 @@ const REFUSAL = {
 
 const FOOTNOTE = 'サンプルデータのため、この画面から記録・共有・割り当てはできません — 実データ接続後に有効になります。'
 
+/** ⚠ A COUNT THAT DOES NOT CHECK IS SAID OUT LOUD (personal-findings.ts:26-27
+ *  makes the arithmetic the APP's job). ⚖ A8 — ONE HOME: the finding card and the
+ *  practice sheet's 根拠 column show the same count, so they say the same thing
+ *  about it or they are two truths for one question. */
+const COUNT_WARNING = '根拠のセッション件数が一致しません。この件数は確認中です。'
+
+/** ⚖ I-1 (S16C) — THE PRACTICE SHEET'S OWN THREE WORDS, and they live HERE with
+ *  every other string a reader sees, not in the screen. The two honest lines
+ *  below are the sheet's designed EMPTY states: a run may name a move the
+ *  catalog has no module for, and a focus may be the run's own conclusion rather
+ *  than a finding's — and a column that simply went blank would be the silent
+ *  failure this room rules out everywhere else. */
+const SHEET = {
+  title: '今週の練習',
+  doTitle: 'やること',
+  whyTitle: '根拠',
+  moduleEmpty: '手順のある練習メニューは、この一手にはまだ用意されていません。',
+  receiptEmpty: 'この一手のもとになった会話は、まだ記録から見つかっていません。',
+} as const
+
 /** ⚖ THE SHARE STATE IS THE VIEWER'S OWN GRANT, AND IT IS READ, NOT ASSUMED.
  *  The state line, the body and the button label all resolve from
  *  `SelfView.grant` — the viewer's own plane row, looked up by their own id.
@@ -352,6 +372,29 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   const moduleTitle = new Map(modules.map((mod) => [mod.moduleId, mod.title]))
   const shelves = on ? buildPatternLibrary(patternLibrary, roster) : []
 
+  // ⚖ I-1 — THE PRACTICE SHEET'S TWO JOINS, RESOLVED ONCE, HERE.
+  //  · the MODULE is the catalog card the focus run's own `module_id` names
+  //    (staff-focus.ts:173) — the same lookup the 練習するもの chip already uses,
+  //    so the steps beside the move and the card the chip jumps to can never be
+  //    two different modules;
+  //  · the RECEIPT is the finding whose own `linked_module_id`
+  //    (personal-findings.ts:242) is that SAME module. ⚠ NOT a category match:
+  //    `focus.category` is a `CoachingCategoryKey` (categories.ts:20-24) and
+  //    `finding.category` is the business-native pattern name the model writes
+  //    (personal-findings.ts:235), so the two never compare equal and a category
+  //    join would silently always fall through — a dead branch wearing a live
+  //    one's clothes (S16C-D1). The module id is the ONE reference the two shapes
+  //    really share. Failing that, the ranked findings' own first item, which is
+  //    the run's 「what is costing you most」.
+  const focusOne = self.kind === 'ready' ? self.view.focus[0] : undefined
+  const sheetModule = focusOne?.moduleId ? (modules.find((m) => m.moduleId === focusOne.moduleId) ?? null) : null
+  const sheetFinding =
+    self.kind === 'ready'
+      ? (self.view.findings.find((f) => f.linkedModuleId !== null && f.linkedModuleId === focusOne?.moduleId) ??
+        self.view.findings[0] ??
+        null)
+      : null
+
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
   // personal-findings.ts:219 `window.date_range`, composed from the clock.
   const dateRange = `${fmtDay.format(windowStart)}〜${fmtDay.format(now)}`
@@ -571,7 +614,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // .ts:26-27 makes the arithmetic check the APP's job). Silent
               // failure is a bug: rather than print a number the evidence does
               // not support, the card says the evidence is short.
-              countWarning: f.countChecks ? null : '根拠のセッション件数が一致しません。この件数は確認中です。',
+              countWarning: f.countChecks ? null : COUNT_WARNING,
               confidenceNote: f.confidenceNote,
               // personal-findings.ts:242-243 — the loop closed: what fixes this,
               // named. Null when the run linked nothing, or when the reference
@@ -606,6 +649,32 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // the whole floor exists to prevent.
               confidenceNote: f.confidence === 'early_signal' ? 'まだ初期の傾向です' : null,
             })),
+            // ⚖ I-1 — THE PRACTICE SHEET. Null when the run named no next move,
+            // because a sheet with nothing on it is not a designed state — the
+            // status card below already says why the run has nothing to point at.
+            sheet: focusOne
+              ? {
+                  ...SHEET,
+                  module: sheetModule
+                    ? { title: sheetModule.title, durationLabel: sheetModule.durationLabel, steps: sheetModule.steps }
+                    : null,
+                  moduleEmpty: sheetModule ? null : SHEET.moduleEmpty,
+                  receipt: sheetFinding
+                    ? {
+                        countLabel: sheetFinding.countLabel,
+                        countWarning: sheetFinding.countChecks ? null : COUNT_WARNING,
+                        moment: sheetFinding.moment
+                          ? {
+                              date: sheetFinding.moment.date,
+                              quote: sheetFinding.moment.quote,
+                              speakerLabel: sheetFinding.moment.speakerLabel,
+                            }
+                          : null,
+                      }
+                    : null,
+                  receiptEmpty: sheetFinding ? null : SHEET.receiptEmpty,
+                }
+              : null,
             outcomes: {
               // ⚖ D8-6 — no windowLabel here: OutcomesSummary (contract.ts:162-172)
               // carries no window field, so the title states only what the count

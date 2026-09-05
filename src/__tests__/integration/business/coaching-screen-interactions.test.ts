@@ -158,7 +158,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       // the module-off state
       'この店舗の状態',
       // 自分のコーチング
-      'あなたの成績', '次の一手', '気づき', '成約率の推移', '不成約の理由', '会話スキル', '上位層から学ぶ',
+      // ⚖ I-1 (S16C) — 「次の一手」 is no longer a section of its own: it is the
+      // FIRST COLUMN of the practice sheet, so the declaration it used to carry
+      // belongs to the band that now holds it, its steps and its receipt.
+      'あなたの成績', '今週の練習', '気づき', '成約率の推移', '不成約の理由', '会話スキル', '上位層から学ぶ',
       'マネージャーへの共有', 'まだ表示できないもの',
       // …and the look-fix round's own self-tab sections
       'コーチングを受けることへの同意', 'あなたの強み',
