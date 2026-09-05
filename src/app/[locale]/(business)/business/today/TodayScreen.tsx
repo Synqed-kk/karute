@@ -206,7 +206,7 @@ export function bedViewsFor(
  *      caller: the engine probes every 5 minutes of every pocket of every cell,
  *      and a naive callback measured 19–41× call growth at 25 staff.
  *    · a booking id — 「may THIS booking go here」. Answered as a `Subject`, which
- *      carries the room it already holds and its VIP-ness, and which
+ *      carries the room it already holds and its 個室のみ tag, and which
  *      `allocateBed` self-excludes exactly as before. When that booking is the
  *      LIVE gesture it is answered out of `worldMinusHand`; when it is anything
  *      else (a staged card's own confirm row, a shelf chip's landing) it is
@@ -2570,7 +2570,7 @@ export function TodayScreen(props: TodayProps) {
   // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
   // to be produced by matching `pending.override` against a check LABEL,
   // and `computeChecks` (FROZEN) emits no row for a room, no row for the
-  // VIP floor and no row for a foreign store — so an escalation over any
+  // 個室のみ floor and no row for a foreign store — so an escalation over any
   // of those staged four green ticks and no trace at all. Liam's 8/22
   // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
   // the same sentence from the same field, for the classes the engine has
@@ -2694,7 +2694,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
         // to be produced by matching `pending.override` against a check LABEL,
         // and `computeChecks` (FROZEN) emits no row for a room, no row for the
-        // VIP floor and no row for a foreign store — so an escalation over any
+        // 個室のみ floor and no row for a foreign store — so an escalation over any
         // of those staged four green ticks and no trace at all. Liam's 8/22
         // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
         // the same sentence from the same field, for the classes the engine has
@@ -2890,7 +2890,7 @@ export function TodayScreen(props: TodayProps) {
   //  ROOM. ⚖ 50(d) let 「注意して配置」 pass `allowBusy` here, so a manager could
   //  place into a full house and the board named a room somebody else was in.
   //  73 rules that a full house is a FACT, not a judgement: it keeps no override
-  //  to thread, and a policy override (勤務/ロック/VIP) may not buy a room
+  //  to thread, and a policy override (勤務/ロック) may not buy a room
   //  either — TEST:4030's own law, 満室 outranks the guard, generalised. The
   //  allocator answers exactly one question now, and a refusal is final on every
   //  path (⚖ 47: it speaks, and the caller changes nothing).
@@ -3981,8 +3981,15 @@ export function TodayScreen(props: TodayProps) {
     // 配置モード can never put its customer's name on another booking's box —
     // and `holdSummary` asks the board first regardless.
     const heldName = parkChips.find((c) => c.id === ask.id)?.item.title ?? (ask.id == null ? placing?.name : undefined)
+    // ⚖ FIX ROUND 1 (blind lens 4 F1) — GATED ON THE ROWS, NEVER ON THE FLOOR.
+    // ⚖ 74 exists so a bed-row stop carries its check rows onto the screen, and
+    // the room rule's floor change from `policy` to `hard` silently took them
+    // back: the 個室のみ box drew its sentence and NOTHING under it. The rows are
+    // a fact about what was checked, so the only honest question is whether
+    // there are any. (The override mint below stays `policy`-only — that is
+    // Liam's ruling and it is a question about AUTHORITY, not about rows.)
     const facts =
-      v.floor === 'policy'
+      v.checks.length > 0
         ? {
             summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
               staffLane: ask.staffLane,
@@ -5943,16 +5950,25 @@ export function TodayScreen(props: TodayProps) {
         </strong>
         <small className="e-time">{timeLabel}</small>
         <small className="e-tkt">
-          {/* ⚖ ROOM RULE — 個室のみ WEARS THE CATEGORY BADGE. It is the fact that
-              changes what the board DOES, so it takes the slot ahead of the VIP
-              word (the fixture's one tagged booking is both). `.tg` above is the PARTNER's
-              name and is left alone — a card wearing 【ベッド3】 while its twin
-              stands on ベッド2 is the impossible state ⚖ 51 exists to stop — and
-              the label skeleton's five segments are untouched. */}
-          {(item.requiresPrivateRoom === true || item.ticketCat) && (
-            <span className="tkt-cat">{item.requiresPrivateRoom === true ? '個室' : item.ticketCat} </span>
-          )}
+          {/* ⚖ ROOM RULE — the category badge, unchanged. `.tg` above is the
+              PARTNER's name and is left alone — a card wearing 【ベッド3】 while
+              its twin stands on ベッド2 is the impossible state ⚖ 51 exists to
+              stop. */}
+          {item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
+          {/* ⚖ FIX ROUND 1 (blind lens 3 F3/F4) — 個室のみ IS ITS OWN NOTE, and it
+              is 個室のみ rather than 個室.
+
+              It used to REPLACE the category word, and which word it ate
+              depended on the category: 「個室 月額」 reads as a room fee this
+              salon does not charge, and 「個室 残り8回」 loses 回数券 — the word
+              that decides whether the receptionist burns a ticket or takes
+              money (⚖ 8/25, a number says what it counts). And 「個室」 beside
+              the card's own 【ベッド3】 reads as a description of where the
+              booking IS, not a rule about the room it NEEDS; on a card sitting
+              in a standard bed it reads as simply wrong. 個室のみ is the exact
+              phrase both refusals use, so badge and sentence are one vocabulary. */}
+          {item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}
           {item.held && <span className="tkt-note">保持</span>}
         </small>
       </>

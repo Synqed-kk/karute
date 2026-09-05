@@ -444,7 +444,13 @@ function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: stri
     held: b.reassignedFromName != null,
     micro: false,
     caseId: b.id,
-    label: `${b.timeRange} ${b.customerName}様 / ${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
+    // ⚖ FIX ROUND 1 (blind lens 3 F5) — THE TAG JOINS THE ACCESSIBLE NAME. The
+    // badge was the only surface carrying it and it is the one surface a
+    // keyboard or screen-reader operator never gets: they were refused by a fact
+    // the board had never told them. It rides INSIDE the category segment, so
+    // the five-segment skeleton `today-interactions`' room re-label depends on
+    // (`parts.length === 5`) is untouched.
+    label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
   }
 }
 

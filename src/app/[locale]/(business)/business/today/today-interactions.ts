@@ -2310,6 +2310,14 @@ export function explainRails(
   if (opts.inHand) return out
   const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE
   const heldLanes = heldByLane(opts.held)
+  // ⚖ FIX ROUND 1 (blind lens 1 F3) — THE HAND'S OWN TAG, when there IS a hand.
+  // The probe below asked the allocator with `requiresPrivate: false` always, so
+  // a rail cell explaining a placement for a 個室のみ card answered a different
+  // question than the drop itself will. Read once per call, off the same
+  // `caseId` every other card-reading site uses; a null hand is a genuine
+  // hypothetical and stays `false`.
+  const handItem =
+    opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)
   for (const rail of rails) {
     const staff = lanes.find((l) => l.key === rail.laneKey && l.group === 'staff')
     // Per lane, once — the ad-less test below is asked per cell and these three
@@ -2380,11 +2388,13 @@ export function explainRails(
                   id: opts.handId,
                   currentBed: null,
                   stores: staff.stores,
-                  // ⚖ ROOM RULE — a hypothetical never needs the private room. A
-                  // rail cell asks about a placement nobody has made yet, so
-                  // there is no booking to carry a 個室のみ tag — the same
-                  // hypothetical `bedDoor` binds for the marks themselves.
-                  requiresPrivate: false,
+                  // ⚖ ROOM RULE — the HAND's own tag, or none. A rail cell with
+                  // nothing in hand asks about a placement nobody has made yet,
+                  // so there is no booking to carry a 個室のみ tag — the same
+                  // hypothetical `bedDoor` binds for the marks themselves. With
+                  // a card in hand there IS one, and the strip has to answer the
+                  // question the drop will ask (fix round 1, lens 1 F3).
+                  requiresPrivate: handItem?.requiresPrivateRoom === true,
                   start: c.start,
                   end,
                   stagedId: opts.stagedId,
@@ -2610,7 +2620,11 @@ export function parkChipText(item: BoardItem, hours: Hours, dayLabel: string): {
   const tkt = [item.ticketCat, item.ticketCore].filter(Boolean).join(' ')
   return {
     title: `${item.title}様（仮押さえ・未配置）`,
-    line1: `${durMin}分${tkt ? `・${tkt}` : ''}`,
+    // ⚖ FIX ROUND 1 (blind lens 4 F6) — AND THE 個室のみ TAG RIDES THE SHELF TOO.
+    // The shelf is exactly where the operator re-places a parked card, and the
+    // one fact that will refuse the drop was invisible there: the card said
+    // 個室のみ and its own chip said only 「VIP 月額」.
+    line1: `${durMin}分${tkt ? `・${tkt}` : ''}${item.requiresPrivateRoom === true ? '・個室のみ' : ''}`,
     line2: `元: ${dayLabel} ${clock(item.startMin)}〜${clock(item.endMin)} — 置きたい日の枠へドラッグ`,
   }
 }
@@ -2899,11 +2913,13 @@ export function sharesStore(a: string[] | null, b: string[] | null): boolean {
 
 /** ⚖ ROOM RULE (Liam 2026-09-05) — CAN THIS BOOKING USE THIS ROOM, spelled ONCE.
  *
- *  The same two-sided shape as `sharesStore`, for the same reason: `allocateBed`
- *  uses it when the board is CHOOSING a room, `landingVerdict` uses it as a TEST
- *  when the operator named the room out loud on a bed row, and `capacity-ledger`
- *  uses it to say which rooms exist for an asker at all. A rule with two
- *  spellings is a rule with two answers (Greptile #744 P1).
+ *  The same two-sided shape as `sharesStore`, for the same reason, and these are
+ *  its callers by name: `allocateBed`'s `compatible` uses it when the board is
+ *  CHOOSING a room, `landingVerdict`'s bed-row stop uses it as a TEST when the
+ *  operator named the room out loud, and `capacity-ledger`'s `usable` uses it to
+ *  say which rooms exist for an asker at all. A rule with two spellings is a
+ *  rule with two answers (Greptile #744 P1) — and the bed-row test WAS the
+ *  second spelling until fix round 1 (blind lens 1 F1) put it back through here.
  *
  *  AND IT IS ONE-SIDED NOW. The room class is an ORDER, never a filter: a plain
  *  booking may use ANY room in its store, the 個室 included, so the only thing
@@ -3218,31 +3234,69 @@ function fullRoomsRefusal(
   rows: ReadonlyArray<readonly [BoardLane, BoardItem[]]>,
   start: number,
   end: number,
-  needsPrivate: boolean,
+  requiresPrivate: boolean,
   stagedId: string | null = null,
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
-  const room = needsPrivate ? '個室' : 'ベッド'
-  // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. `rows.length === 0` can
-  // now only mean a TAGGED booking at a store with no private room (a plain
-  // booking's candidates are every bed the store has), and 「使える個室があり
-  // ません」 told the operator a true thing they could do nothing with. The two
-  // things they can actually do are named instead.
+  const room = requiresPrivate ? '個室' : 'ベッド'
+  // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. 「使える個室がありません」
+  // told the operator a true thing they could do nothing with, so the move they
+  // can actually make is named instead.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F15) — WHICH BRANCH REACHES WHICH SENTENCE. This
+  // comment used to claim `rows.length === 0` "can now only mean a TAGGED
+  // booking at a store with no private room". It cannot: an UNTAGGED booking on
+  // a staff lane whose store owns no bed lane at all reaches it too (`beds` is
+  // empty, so `candidates` is empty), which is exactly why the `else` arm below
+  // is still live and correct code rather than a leftover.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F6) — AND THE WAY OUT IS ONE THE OPERATOR CAN
+  // ACTUALLY TAKE. The first clause used to offer 「個室のみの指定を外す」, a
+  // control that exists nowhere in this product (the booking-detail toggle and
+  // the menu checkbox are on the S17 rider) — a label promising what the
+  // destination cannot do, which is this lane's own 9/4 Greptile lesson. And the
+  // verb was wrong: the booking already EXISTS and just got refused, so the
+  // operator is 移す-ing it, never 予約する-ing it.
   if (rows.length === 0) {
-    return needsPrivate
-      ? 'この店舗には個室がありません。個室のみの指定を外すか、個室のある店舗で予約してください'
+    return requiresPrivate
+      ? 'この店舗には個室がありません。個室のある店舗へ移してください'
       : `${window}に使える${room}がありません`
   }
   // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
   // go hunting the card for the one fact that lets them rearrange by hand, and
   // the blockers are already in this walk's hand. One composer, so the toast,
   // the rail chip, 配置モード and the guard strip all inherit the clock.
-  const who = (i: BoardItem) =>
-    i.kind !== 'booking'
-      ? i.title
-      : stagedId != null && i.caseId === stagedId
-        ? `仮押さえ中：${i.title}様 ${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
-        : `${i.title}様 ${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F2/F9/F10, lens 1 F2, lens 4 F3) — ONLY WHEN IT
+  // DIFFERS, and for EVERY kind of occupant.
+  //
+  // The clock was printed on every booking, so the commonest sentence said the
+  // same four digits three times — 「10:00〜11:00はベッドに空きがありません。
+  // bed-01が使用中（… 10:00〜11:00）、bed-02が使用中（… 10:00〜11:00）」 — and
+  // buried the ONE occupant who runs past the window, which is the only fact the
+  // clock was added for. In a 7-second toast (`REFUSAL_MS`) that is unreadable.
+  // So the window rides ONLY on an occupant whose own window is not the judged
+  // one, and a 清掃 or a 予定ブロック earns it on the same terms a booking does:
+  // a 15-minute turnaround and a 60-minute session are opposite decisions and
+  // the sentence used to hide which one was in the way.
+  //
+  // ONE template, not two. The staged and plain arms were two copies of one
+  // grammar — the very thing the pinned-homes census exists to forbid.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F9) — 「仮押さえ中の」, not 「仮押さえ中：」. A
+  // 〜中： reads as a LABEL OVER A LIST, and with the ・ join both occupants
+  // looked staged: the operator concluded their own unconfirmed card was holding
+  // the whole room. 「の」 binds the marker to exactly one name.
+  const when = (i: BoardItem) => `${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
+  const who = (i: BoardItem) => {
+    const name =
+      i.kind !== 'booking'
+        ? i.title
+        : stagedId != null && i.caseId === stagedId
+          ? `仮押さえ中の${i.title}様`
+          : `${i.title}様`
+    return i.startMin === start && i.endMin === end ? name : `${name} ${when(i)}`
+  }
   const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
   return `${window}は${room}に空きがありません。${named.join('、')}`
 }
@@ -3512,8 +3566,18 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // honestly reports none: no room had been solved and no row had been read.
   let bedLane: string | null = null
   let checks: Check[] = []
-  const stop = (reason: string, floor: LandingFloor): LandingVerdict =>
-    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell, bedLane, checks })
+  /** ⚖ ROOM RULE fix round 1 (blind lens 3 F1) — AND A STOP MAY SAY IT HAS
+   *  NOTHING TO OFFER. `cell` is the guard's own ranking of nearby starts, and
+   *  every floor that is about the CLOCK is entitled to it. The 個室のみ stop is
+   *  not: the room is wrong at every start on the lane, so the offer line under
+   *  it printed 「この区間に、より損の少ない開始はありません」 — the guard's loss
+   *  vocabulary over a refusal that has nothing to do with time, sending the
+   *  operator hunting for a start. `null` is the board's own existing word for
+   *  「nothing to offer」 (the keyboard nudge sets it deliberately, ⚖ 31c), so the
+   *  offer line and the alternatives simply do not render and the way out rides
+   *  in the sentence instead. Defaulted, so every other stop is byte-unchanged. */
+  const stop = (reason: string, floor: LandingFloor, offer: RailCell | null = cell): LandingVerdict =>
+    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell: offer, bedLane, checks })
   // ⚖ 46 store isolation is LAW, never a judgement — there is no authority on
   // this board that may place a person in another store's building.
   if (q.foreignRefusal) return stop(q.foreignRefusal, 'hard')
@@ -3588,8 +3652,20 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // A tag is a FACT about what the treatment needs, and ⚖ 73 already says a fact
   // gets no escalation button — the way past it is clearing the tag on the
   // booking, never an override. An UNTAGGED booking gets no room stop at all.
-  if (!q.solveRoom && bed && q.requiresPrivate && bed.roomClass !== 'private') {
-    return stop(`個室のみのご予約です: ${bed.label}は個室ではありません`, 'hard')
+  //
+  // ⚖ FIX ROUND 1 (blind lens 1 F1) — AND IT ASKS `roomFitsNeed`, rather than
+  // re-spelling it. The two forms answer the same today; a rule with two
+  // spellings is a rule with two answers (Greptile #744 P1), and this file's own
+  // one-home doc named this site as a caller while the code open-coded it.
+  //
+  // ⚖ FIX ROUND 1 (blind lens 3 F1/F6/F7/F8) — AND THE SENTENCE SAYS WHAT TO DO,
+  // in the register the rest of this board uses. 「ご予約」 addresses the
+  // receptionist as if she were the guest, a halfwidth `: ` is not JP
+  // punctuation, and the old line ended with no way out — so the operator read a
+  // refusal and a loss ranking and had nowhere to go. `cell: null` is what stops
+  // the offer line from speaking about start times under a ROOM refusal.
+  if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
+    return stop(`この予約は個室のみです。${bed.label}は個室ではありません。個室の行に置いてください`, 'hard', null)
   }
 
   const failed = checks.find((c) => !c.ok)

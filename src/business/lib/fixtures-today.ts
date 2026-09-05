@@ -130,7 +130,10 @@ export interface FixtureResource {
   room_class: RoomClass
 }
 
-/** ⚠SETTINGS-BATCH — 施術室 (interchangeable) vs 個室/VIP (reserved). */
+/** ⚠SETTINGS-BATCH — the room's CLASS. 施術室 rooms are interchangeable; a
+ *  個室 is the same to the allocator except that it is spent LAST, and it is the
+ *  only room a 個室のみ booking may use. ⚖ ROOM RULE: the class is an ORDER, and
+ *  nothing about a CUSTOMER (VIP included) reads it. */
 export type RoomClass = 'standard' | 'private'
 
 export const resources: FixtureResource[] = [

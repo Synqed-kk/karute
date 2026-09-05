@@ -325,7 +325,10 @@ export default async function TodayPage({
       statusTone,
       source: `${b.source} / ${b.displayNo}`,
       facts: [
-        ['担当・設備', `${b.staffName} / ${b.resourceName}`],
+        // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
+        // The card, the inspector and the accessible name described one booking
+        // three different ways and only the card mentioned the room rule.
+        ['担当・設備', `${b.staffName} / ${b.resourceName}${b.requiresPrivateRoom ? '（個室のみ）' : ''}`],
         ['予約種別', `${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],

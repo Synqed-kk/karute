@@ -15,8 +15,8 @@
 // puts the Subject path on the verdict surfaces (the card in hand, a staged
 // card's own confirm row, a chip's landing), where the frozen engine probes the
 // same (lane, start, length) dozens of times per frame. The book still does not
-// cache it — a Subject's key would have to carry the room it holds and its VIP
-// flag, and that is a second cache to get wrong — so the DOOR keeps a
+// cache it — a Subject's key would have to carry the room it holds and its
+// 個室のみ tag, and that is a second cache to get wrong — so the DOOR keeps a
 // frame-lifetime map instead, exactly the one `bedFeasibility` kept
 // (TodayScreen `bedDoor`). Measured at 25 staff: +3.0% at rest, +6.7% mid-drag
 // against the door it replaced, inside the run-to-run spread of either.

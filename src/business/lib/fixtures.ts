@@ -444,13 +444,14 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-01', source: '店頭受付 #357498', taken_days_ago: 6, updated_minute: 11 * 60 + 5 }),
     slot('apt-22', 'cus-08', STORE_A, 'p-01', 'menu-01', 0, 10, 30, 60, 6600, 'done',
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-02', source: 'Reserve #357501', taken_days_ago: 11, updated_minute: 11 * 60 + 38 }),
-    // ⚖ ROOM RULE — THE ONE 個室のみ BOOKING IN THE SAMPLE. A board where no row
-    // carries the tag cannot show the rule at all (⚖ 8/9 demo data = product
-    // truth), and this row is also the only `vip: true` customer — so it proves
-    // the two facts are now separate: the tag decides the ROOM, the VIP flag
-    // decides the colour and the 保護対象 count.
+    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE VIP ROW IS UNTAGGED, ON
+    // PURPOSE. cus-04 is the sample's only `vip: true` customer, and while the
+    // tag sat on HER the board could not show that the two facts are separate:
+    // one row where both are true is exactly the row that cannot separate them.
+    // She is a plain booking now, so 「a VIP places anywhere」 — the rule Liam
+    // ruled — is visible on the board he looks at. The tag moved to apt-28.
     slot('apt-25', 'cus-04', STORE_A, 'p-05', 'menu-01', 0, 11, 0, 60, 6600, 'done',
-      { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', requires_private_room: true, source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
+      { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
     slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-04', source: '電話予約 #357540' }),
     // 代官山 gets the same treatment on 見本 ごろう, who works both stores
@@ -478,11 +479,17 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // 60-minute sessions crossing the 16:00 and 17:00 lines. On a board of tidy
     // 30/60/90 starts that layer is unreachable — the demo was hiding a feature.
     slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60, 6600, 'booked',
-      { board_state: 'confirmed', resource_id: 'bed-03', source: '店頭受付 #357544' }),
+      { board_state: 'confirmed', resource_id: 'bed-03', requires_private_room: true, source: '店頭受付 #357544' }),
     // The far wall of that run, and odd on its own account (canon's fixture day
     // runs on 17:12 / 12:27 / 10:25 starts for exactly this reason).
     slot('apt-33', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60, 6600, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-02', source: '電話予約 #357548', taken_days_ago: 8, updated_minute: 12 * 60 + 40 }),
+    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE SAMPLE'S ONE 個室のみ
+    // BOOKING. 見本 あかり is not a VIP and holds no 回数券, so her card wears 単発
+    // in the category badge AND 個室のみ in the note beside it — two facts, two
+    // words, on two different rows of the board (⚖ 8/9 demo data = product
+    // truth). She is already seated in the 個室 (bed-03), so the sample day is
+    // legal as it stands and the rule is visible rather than merely obeyed.
     slot('apt-28', 'cus-09', STORE_A, 'c-03', 'menu-03', 0, 16, 0, 30, 4400, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-03', source: 'Reserve #357533' }),
     // 要対応 — and the one booking with NO lane card: it belongs to the absent
