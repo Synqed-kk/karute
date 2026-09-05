@@ -36,6 +36,10 @@ jest.mock('@/lib/staff', () => ({
   staffListByBusinessOrThrow: jest.fn(async () => roster.current),
   getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
   getCurrentAccessToken: jest.fn(async () => WEB_TOKEN),
+  // resolveWebActorId (audit-web.ts) falls through to this for the web
+  // discard door's actor — undefined here would resolve to a null actor and
+  // short-circuit discardRecordingWithClient before any core call fires.
+  resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
@@ -70,7 +74,14 @@ jest.mock('@synqed-kk/client', () => {
     baseUrl: string
     apiKey: string
     businessId: string
-    recordings: { get: (id: string) => Promise<unknown>; update: (id: string, input: unknown) => Promise<unknown> }
+    recordings: {
+      get: (id: string) => Promise<unknown>
+      update: (id: string, input: unknown) => Promise<unknown>
+      create: (input: unknown) => Promise<unknown>
+      listSegments: (id: string) => Promise<unknown>
+    }
+    recordingDiscards: { list: (input: unknown) => Promise<unknown>; create: (input: unknown) => Promise<unknown> }
+    audit: { list: (input: unknown) => Promise<unknown>; log: (input: unknown) => Promise<unknown> }
     constructor(config: { baseUrl: string; apiKey: string; businessId: string }) {
       this.baseUrl = config.baseUrl
       this.apiKey = config.apiKey
@@ -79,6 +90,22 @@ jest.mock('@synqed-kk/client', () => {
         get: (id: string) => this.fetch(`/recordings/${id}`),
         update: (id: string, input: unknown) =>
           this.fetch(`/recordings/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+        create: (input: unknown) => this.fetch('/recordings', { method: 'POST', body: JSON.stringify(input) }),
+        listSegments: (id: string) => this.fetch(`/recordings/${id}/segments`),
+      }
+      // Neither is on the gated PUT (core's actor-auth-contract G1 names only
+      // PUT /v1/recordings/:id) — these exist so the doors that reach them
+      // (discard's idempotency probe + reason row, the transcript route's
+      // roster check) don't throw on an undefined property; the wrapper still
+      // attaches the header to every call regardless (proof (d)/(g)-GET).
+      this.recordingDiscards = {
+        list: (input: unknown) => this.fetch('/recording-discards', { method: 'POST', body: JSON.stringify(input) }),
+        create: (input: unknown) =>
+          this.fetch('/recording-discards', { method: 'POST', body: JSON.stringify(input) }),
+      }
+      this.audit = {
+        list: (input: unknown) => this.fetch('/audit', { method: 'POST', body: JSON.stringify(input) }),
+        log: (input: unknown) => this.fetch('/audit', { method: 'POST', body: JSON.stringify(input) }),
       }
     }
     // Real SynqedClient.fetch's own shape (dist/client.js): base headers,
@@ -111,7 +138,13 @@ jest.mock('@synqed-kk/client', () => {
 
 import { POST as finalizePOST } from '@/app/api/app/v1/recordings/finalize/route'
 import { POST as mintPOST } from '@/app/api/app/v1/recordings/upload-url/route'
+import { POST as discardPOST } from '@/app/api/app/v1/recordings/discard/route'
+import { GET as discardsTranscriptGET, POST as discardsTranscriptPOST } from '@/app/api/app/v1/recordings/discards/transcript/route'
+import { POST as sessionPOST } from '@/app/api/app/v1/recordings/session/route'
 import { finalizeTake } from '@/actions/recordings'
+import { discardRecordingReceipt } from '@/actions/recording-discard'
+import { transcribeAndPersistDiscard } from '@/actions/recording-discard-transcript'
+import { mintRecordingUploadUrl, mintRecordingSegmentUrls } from '@/actions/recording-upload'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { TAKE_UUID_FIXTURE as TAKE } from './helpers/recording-key-fixtures'
 
@@ -120,6 +153,7 @@ const synqedKkMock = jest.requireMock('@synqed-kk/client') as any
 type FetchCall = { method: string; path: string; headers: Record<string, string> }
 const fetchCalls: FetchCall[] = synqedKkMock.__fetchCalls
 const setRow: (row: unknown) => void = synqedKkMock.__setRow
+const staffMock = jest.requireMock('@/lib/staff') as { getCurrentAccessToken: jest.Mock }
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -231,5 +265,114 @@ describe('actor-bearer forwarding — the door contract (packet hotfix 2)', () =
     const put = fetchCalls.find((c) => c.method === 'PUT' && c.path === `/recordings/${SESSION}`)
     expect(put).toBeDefined()
     expect(put!.headers.Authorization).toBeUndefined()
+  })
+
+  const discardSystemBody = {
+    source: 'SYSTEM',
+    recordingSessionId: SESSION,
+    durationSeconds: 12.9,
+    pipeline: 'server',
+  }
+
+  it("(f) facade discard route: the duration-stamp core update carries the request's OWN bearer", async () => {
+    const token = bearer()
+    const res = await discardPOST(
+      jreq({ authorization: `Bearer ${token}`, 'content-type': 'application/json' }, discardSystemBody),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    const put = fetchCalls.find((c) => c.method === 'PUT' && c.path === `/recordings/${SESSION}`)
+    expect(put).toBeDefined()
+    expect(put!.headers.Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it("(g) facade discards/transcript route GET: the core reads carry the request's OWN bearer", async () => {
+    capabilities.current.add('staff.manage')
+    const token = bearer()
+    const req = new Request(`https://s/x?sessionId=${SESSION}`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const res = await discardsTranscriptGET(req, noRoute)
+    expect(res.status).toBe(200)
+    const get = fetchCalls.find((c) => c.method === 'GET' && c.path === `/recordings/${SESSION}`)
+    expect(get).toBeDefined()
+    expect(get!.headers.Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it("(g) facade discards/transcript route POST: the core call carries the request's OWN bearer", async () => {
+    const token = bearer()
+    const body = { recordingSessionId: SESSION, transcript: 'some words', durationSeconds: 5 }
+    const res = await discardsTranscriptPOST(
+      jreq({ authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    const call = fetchCalls.find((c) => c.method === 'POST' && c.path === '/recording-discards')
+    expect(call).toBeDefined()
+    expect(call!.headers.Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it("(h) facade session route: the core create carries the request's OWN bearer", async () => {
+    const token = bearer()
+    const req = new Request('https://s/x', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': 'idem-1' },
+    })
+    const res = await sessionPOST(req, noRoute)
+    expect(res.status).toBe(200)
+    const create = fetchCalls.find((c) => c.method === 'POST' && c.path === '/recordings')
+    expect(create).toBeDefined()
+    expect(create!.headers.Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it("(i) web discardRecordingReceipt action: the duration-stamp PUT carries getCurrentAccessToken()'s value", async () => {
+    const result = await discardRecordingReceipt(discardSystemBody)
+    expect(result).toMatchObject({ ok: true, duplicate: false })
+    const put = fetchCalls.find((c) => c.method === 'PUT' && c.path === `/recordings/${SESSION}`)
+    expect(put).toBeDefined()
+    expect(put!.headers.Authorization).toBe(`Bearer ${WEB_TOKEN}`)
+  })
+
+  it("(j) web transcribeAndPersistDiscard action: the core call carries getCurrentAccessToken()'s value", async () => {
+    const result = await transcribeAndPersistDiscard({
+      recordingSessionId: SESSION,
+      audioPath: KEY,
+      durationSeconds: 5,
+      locale: 'ja',
+    })
+    expect(result).toEqual({ error: 'not_discarded' })
+    const call = fetchCalls.find((c) => c.method === 'POST' && c.path === '/recording-discards')
+    expect(call).toBeDefined()
+    expect(call!.headers.Authorization).toBe(`Bearer ${WEB_TOKEN}`)
+  })
+
+  it("(k) web mintRecordingUploadUrl action: the reservation-commit PUT carries getCurrentAccessToken()'s value", async () => {
+    setRow({ ...ROW, audio_storage_path: null })
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    const result = await mintRecordingUploadUrl(mintBody)
+    expect(result).toMatchObject({ path: KEY, recordingSessionId: SESSION })
+    const put = fetchCalls.find((c) => c.method === 'PUT' && c.path === `/recordings/${SESSION}`)
+    expect(put).toBeDefined()
+    expect(put!.headers.Authorization).toBe(`Bearer ${WEB_TOKEN}`)
+  })
+
+  it("(k) web mintRecordingSegmentUrls action: the reservation READ carries getCurrentAccessToken()'s value", async () => {
+    const get = () => fetchCalls.find((c) => c.method === 'GET' && c.path === `/recordings/${SESSION}`)
+    expect(get()).toBeUndefined()
+    await mintRecordingSegmentUrls({ ...mintBody, seqs: [0] })
+    expect(get()).toBeDefined()
+    expect(get()!.headers.Authorization).toBe(`Bearer ${WEB_TOKEN}`)
+  })
+
+  // P2. FAIL CLOSED. A cookie session that cannot produce its own access token
+  // must never fall back to a token-less core write — the exact regression (e)
+  // pins at the seam, proven here at the door: no PUT reaches core at all.
+  it('(P2) getCurrentAccessToken() throwing → finalizeTake fails closed, no PUT reaches core', async () => {
+    staffMock.getCurrentAccessToken.mockRejectedValueOnce(new Error('Not authenticated'))
+    const result = await finalizeTake(finalizeBody)
+    expect(result).toEqual({ error: 'failed' })
+    const put = fetchCalls.find((c) => c.method === 'PUT' && c.path === `/recordings/${SESSION}`)
+    expect(put).toBeUndefined()
   })
 })
