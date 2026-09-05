@@ -657,6 +657,18 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             trendCaption: trendCaption(
               self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', display: pct(v) })),
             ),
+            // ⚖ B2-1-2 (S16F) — AND THE PICTURE'S ACCESSIBLE NAME CARRIES EVERY
+            // MONTH. The retired 推移 card showed four labelled bars; the
+            // sparkline that replaced it labels none of them, and the caption
+            // beside it is deliberately the first and the last point only. So a
+            // reader who cannot see four 26px bars was hearing 「6月 38% → 9月
+            // 52%」 and losing 7月 and 8月 entirely — two of the four numbers the
+            // card had, gone from every readable surface. The values were
+            // already computed and passed (`trend[].label` / `.display`) and
+            // nothing rendered them.
+            trendSeriesLabel: trendSeries(
+              self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', display: pct(v) })),
+            ),
             // ⚖ I-11 — HOW IT MOVED, in one phrase. The sparkline shows the shape;
             // this says the step the reader took last month, with its sign always
             // spelled. Null with fewer than two points — there is no movement to
@@ -1076,6 +1088,13 @@ const trendDelta = (history: number[]): string | null => {
  *  the score beside it already uses (「82 / 上位 95」), so the chip and the value
  *  it qualifies name the same thing. */
 const gapLabel = (d: number) => (d > 0 ? `差 ${d}` : d === 0 ? '上位と同じ' : `上位を ${Math.abs(d)} 上回る`)
+
+/** ⚖ B2-1-2 — 「6月 38%、7月 41%、8月 44%、9月 52%」. Every point the run
+ *  carries, in the order the bars stand in, composed HERE like every other
+ *  string on this page. Empty with fewer than two points, which is the same
+ *  condition the sparkline itself renders under. */
+const trendSeries = (points: Array<{ label: string; display: string }>) =>
+  points.length < 2 ? '' : points.map((p) => `${p.label} ${p.display}`).join('、')
 
 const trendCaption = (points: Array<{ label: string; display: string }>) => {
   if (points.length < 2) return ''

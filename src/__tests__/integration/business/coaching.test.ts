@@ -4059,7 +4059,10 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // the sparkline rides the 成約率 tile and nothing else, and its accessible
     // name is the RETIRED card's own title plus the sentence beside it (⚖-ADJ K)
     expect(SCREEN_CODE).toContain("{s.key === 'closingRate' && ready.trend.length > 1 && (")
-    expect(SCREEN_CODE).toContain('aria-label={`${ready.trendTitle}。${ready.trendCaption}`}')
+    // ⚖ B2-1-2 (S16F) — RE-SPELLED: the accessible name is the retired card's
+    // own title plus EVERY month, not the first-and-last caption. The caption is
+    // still what the eye reads beside the bars (asserted just below).
+    expect(SCREEN_CODE).toContain('aria-label={`${ready.trendTitle}。${ready.trendSeriesLabel}`}')
     expect(PROPS_CODE).toContain("trendTitle: '成約率の推移（月ごと）'")
     // …and the retired card is really gone — no orphan rule, no second drawing
     // of the same metric, and the two labels its bars carried are gone with it.
@@ -4955,5 +4958,43 @@ describe('⚖ B2-1-1 (S16F) — 「共有の状況」 has a home again (⚖-ADJ 
     // copy rule), so a reader who knew the retired card still finds its name.
     expect(PROPS_CODE).toContain("adoptionTitle: '共有の状況'")
     expect(SCREEN_CODE).not.toContain('共有の状況')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-1-2 (S16F) — every month the sparkline draws is also a month it says', () => {
+  it('the accessible name carries all four points, in bar order', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.trend.length).toBe(4)
+    expect(self.trendSeriesLabel).toBe(self.trend.map((p) => `${p.label} ${p.display}`).join('、'))
+    // the two the caption drops are really in it now
+    for (const p of self.trend) {
+      expect({ label: p.label, said: self.trendSeriesLabel.includes(`${p.label} ${p.display}`) })
+        .toEqual({ label: p.label, said: true })
+    }
+    expect(self.trendCaption).not.toContain(self.trend[1].label)
+    // …and it is composed in the PROPS file, like every other string here
+    expect(PROPS_CODE).toContain('trendSeriesLabel: trendSeries(')
+    expect(SCREEN_CODE).not.toContain(".join('、')")
+  })
+
+  it('with fewer than two points there is no series, and no sparkline either', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: {
+        role: 'スタッフ',
+        selfId: 'p-06',
+        rows: coachingStaff.map((r) => (r.staffId === 'p-06' ? { ...r, history: [0.42] } : r)),
+      },
+    })
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.trendSeriesLabel).toBe('')
+    expect(self.trendCaption).toBe('')
+    expect(SCREEN_CODE).toContain('ready.trend.length > 1 && (')
   })
 })

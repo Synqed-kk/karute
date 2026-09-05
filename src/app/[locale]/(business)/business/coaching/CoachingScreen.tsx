@@ -228,6 +228,10 @@ export interface CoachingSelfReady {
    *  the props file: 「6月 38% → 9月 52%」. It is what the sparkline SAYS, so the
    *  picture is never the only place the movement exists. */
   trendCaption: string
+  /** ⚖ B2-1-2 (S16F) — every month the run carries, for the picture's own
+   *  accessible name: the caption is deliberately first-and-last, so without
+   *  this the middle points existed on no readable surface at all. */
+  trendSeriesLabel: string
   /** ⚖ I-11 (S16C) — 「先月より +8pt」, or null when there is no movement to state. */
   trendDelta: string | null
   trend: Array<{ label: string; value: number; display: string }>
@@ -1386,7 +1390,7 @@ export function CoachingScreen(props: CoachingProps) {
                               — the month the reader is in. */}
                           {s.key === 'closingRate' && ready.trend.length > 1 && (
                             <span className="cg-spark">
-                              <span className="cg-bars" role="img" aria-label={`${ready.trendTitle}。${ready.trendCaption}`}>
+                              <span className="cg-bars" role="img" aria-label={`${ready.trendTitle}。${ready.trendSeriesLabel}`}>
                                 {ready.trend.map((p, i) => (
                                   <span className="cg-bar" key={`${p.label}-${i}`}>
                                     <span className="cg-bar-track">
