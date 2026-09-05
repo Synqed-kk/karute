@@ -7812,15 +7812,20 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // suite never renders. The rule takes the ASK now, so inverting it means
     // constructing a fake ask rather than typing a `!`. Asked ONCE and consumed
     // twice, so the check rows and the guard row cannot answer differently.
-    expect(SRC).toContain('const rows = factsRowsShown(v, ask)')
-    expect(SRC).toContain('checks: rows ? v.checks : [],')
+    // ⚖ BREAKER-843 F1 (2026-09-06) — `toContain` is comment-blind: a `//` or
+    // `/* */` copy of a pinned line keeps a raw `toContain` green while the
+    // live line is deleted. Re-pinned with `pinnedLine`/`pinnedLines`, which
+    // read `codeOnly(SRC)` the way every neighbouring pin in this file does.
+    expect(pinnedLine(SRC, 'const rows = factsRowsShown(v, ask)')).toBe(true)
+    expect(pinnedLines(SRC, 'const rows = factsRowsShown(v, ask)')).toBe(1)
+    expect(pinnedLine(SRC, 'checks: rows ? v.checks : [],')).toBe(true)
     // ⚖ FIX ROUND 4 (delta3 lens 4 E1) — AND THE OUTER GATE IS PINNED AGAIN.
     // Fix round 3 replaced four byte-exact copies of the whole expression with
     // one pin on the INNER line and left the outer half — the gate that keeps the
     // release-over-no-lane from composing a facts strip at all — carrying no
     // armour. Delete it and nothing reddens; what ships is 「16:00〜17:00 / 担当
     // —」 on the one box with neither a lane nor a span.
-    expect(SRC).toContain('const facts =\n      v.checks.length > 0')
+    expect(pinnedLine(SRC, 'const facts =\n      v.checks.length > 0')).toBe(true)
     // ⚖ FIX-6 (blind round, 2026-08-25) — this box has an OFFER LINE under it,
     // so it takes the row built for surfaces-with-offers. The hold popover has
     // no offer line and keeps the whole sentence. Same verdict, same cell, one
@@ -7828,7 +7833,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // ⚖ FIX ROUND 4 (delta3 lens 4 E2) — and it stands down WITH the check rows:
     // a lone △ about loss, under a sentence about rooms, is ⚖ 73's rider one line
     // below where the rider already closed it.
-    expect(SRC).toContain('guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,')
+    expect(pinnedLine(SRC, 'guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,')).toBe(true)
     expect(SRC.match(/checksFor\(/g)).toHaveLength(2) // the two confirm-side readers, and NOT the box
   })
 
