@@ -19,6 +19,32 @@ jest.mock('@/lib/auth/store-scope', () => ({
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(),
 }))
+// getBusinessId (real impl) hits a REAL Supabase network call via
+// createServiceClient() — unmocked, it fires on every success-path POST (the
+// route's trailing auditWeb → resolveWebBusinessId call) against the dummy
+// test host, failing closed to null today but as an uncontrolled real
+// round-trip per test — the exact class of CI-runner-load 5s timeout flake
+// documented in CLOCKPROOF-PR814-AI-STORE-SCOPE-2026-09-02.md. Stub only
+// getBusinessId; resolveUserId's real impl already resolves fast off the
+// createClient mock above, so it stays live.
+jest.mock('@/lib/staff', () => ({
+  ...jest.requireActual('@/lib/staff'),
+  getBusinessId: jest.fn(async () => 'business-1'),
+}))
+// Half-open door the getBusinessId stub above left (Greptile #820): audit()
+// only calls forwardToCore when businessId is truthy — before that stub it
+// was always null (real getBusinessId failed closed), so forwardToCore was
+// unreachable here. Now it's reachable, and forwardToCore's dynamic
+// `import('@synqed-kk/client')` is the REAL package (this file mocks the
+// app's own '@/lib/synqed/client' wrapper, never the raw SDK) — with
+// SYNQED_CORE_URL/SYNQED_CORE_API_KEY set in the env it would fire a real
+// external POST. Mock the seam directly so the path is dead regardless of
+// env: audit content isn't under test here (pinned separately in
+// audit-forward-to-core.test.ts), only the store-scope reads are.
+jest.mock('@/lib/audit-web', () => ({
+  ...jest.requireActual('@/lib/audit-web'),
+  auditWeb: jest.fn(async () => {}),
+}))
 // The chat route's H0 Ask-AI capability guard — granted here so the scope pins
 // keep exercising the post-guard body; denial itself is pinned in
 // ask-ai-authz.test.ts.
