@@ -956,6 +956,14 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect((SECTION_CODE.match(/\{PENDING_NOTE\}/g) ?? []).length).toBe(7)
     const foot = SECTION_CODE.slice(SECTION_CODE.indexOf('<div className="st-foots">'))
     expect(foot.slice(0, foot.indexOf('</div>'))).toContain('{PENDING_NOTE}</p>')
+    /* ⚖ S17 fix round 3 · R3-2 — AND IT IS SAID ONCE PER FACE, NOT TWICE. The
+       seam's refusal 「見本データのため保存できません。実データの接続後に有効に
+       なります。」 and this note say the same thing, and the review found them
+       standing side by side — one on the bar, one under it. The note is the
+       FALLBACK: it reads when the seam has no refusal to give and the wire is
+       still not live, and the moment the seam refuses, its own sentence (which
+       also names WHEN the control comes alive) is the one a manager reads. */
+    expect(foot).toContain('{props.save.refusal === null && <p className="st-foot">{PENDING_NOTE}</p>}')
     // ⚠ WHAT DOES NOT FOLD, and this is the half a later hand will get wrong: a
     // WARNING and a LIVE RESULT stay on the face. 詳しく holds context a manager
     // opens WHILE changing a dial; 「why can I not do this」 and 「this is what

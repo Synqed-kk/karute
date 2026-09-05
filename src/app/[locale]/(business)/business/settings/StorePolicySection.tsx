@@ -918,11 +918,21 @@ export function StorePolicySection(props: StorePolicySectionProps) {
    *  five of the eight dials as a 準備中 line in the open; folding those into
    *  詳しく would have left the truth with no home on the face at all. It is
    *  still said ONCE, and the per-dial chips stay in each row's 詳しく as that
-   *  dial's own detail. */
+   *  dial's own detail.
+   *
+   *  ⚖ S17 fix round 3 · R3-2 — ONE FACT, ONE SENTENCE. 「見本データのため保存
+   *  できません。実データの接続後に有効になります。」 (the seam's refusal, printed
+   *  on the bar) and 「この設定はまだ保存できません。画面での動きだけ確認できます」
+   *  say the SAME thing, and the review found them standing side by side. The
+   *  note is the FALLBACK, not a second voice: it reads when the seam has no
+   *  refusal to give and the wire is still not live; the moment the seam refuses,
+   *  its own sentence — which also names WHEN the control comes alive — is the
+   *  one a manager reads. ⚠ AND IT IS NOT LOST EITHER WAY: the six dials whose
+   *  wire is still play-phase carry it in their own 詳しく, with the 準備中 chip. */
   const foot = (
         <div className="st-foots">
           <p className="st-foot">保存できるのは{props.save.roles.join('・')}です</p>
-          <p className="st-foot">{PENDING_NOTE}</p>
+          {props.save.refusal === null && <p className="st-foot">{PENDING_NOTE}</p>}
         </div>
   )
 
