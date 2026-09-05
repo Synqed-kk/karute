@@ -35,6 +35,13 @@ const SKIP_S = 15
 /** How long an inline notice stays before the row goes quiet again. */
 const NOTICE_MS = 3000
 
+/** What the total reads before anything is known (F10). A job-owned row can
+ *  carry a null duration, and `preload="none"` means no metadata loads until
+ *  the first play — so the slot used to state 0:00 for a recording that is
+ *  certainly not zero seconds long. ⚖ numbers say what they count: an unknown
+ *  length says it is unknown. */
+const UNKNOWN_CLOCK = '–:––'
+
 /** m:ss, and h:mm:ss once a take passes the hour. Tabular everywhere it shows. */
 function clock(seconds: number): string {
   const t = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
@@ -63,12 +70,18 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
   /** The mint in flight, so a second tap joins it instead of starting another
    *  (F5). Cleared in the same `finally` that clears `busy`. */
   const pending = useRef<Promise<string | null> | null>(null)
+  const noticeTimer = useRef<number | null>(null)
 
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [total, setTotal] = useState(durationSeconds ?? 0)
   const [speedIndex, setSpeedIndex] = useState(0)
+  /** What the ELEMENT is actually running (F7). WebKit may clamp above ~2×, so
+   *  the chip renders what came back, never what we asked for — a UI that
+   *  states a rate the engine refused is stating a fact that is not true. Null
+   *  until an element exists to ask; the requested value stands in. */
+  const [effectiveRate, setEffectiveRate] = useState<number | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
   // The hook is here to RE-RENDER on recorder changes; it is never the value a
@@ -79,7 +92,11 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
 
   const say = useCallback((message: string) => {
     setNotice(message)
-    window.setTimeout(() => setNotice(null), NOTICE_MS)
+    // Cleared on the next notice AND on unmount (F10) — otherwise a card
+    // navigated away from within 3 s of a refusal sets state on a dead tree,
+    // and two notices in a row would let the first one's timer blank the second.
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS)
   }, [])
 
   // RECORDING WINS: a recorder that starts while this is playing pauses it.
@@ -96,6 +113,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
   useEffect(() => {
     const audio = audioRef.current
     return () => {
+      if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
       if (!audio) return
       audio.pause()
       audio.removeAttribute('src')
@@ -146,6 +164,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
       if (audio.src !== src) {
         audio.src = src
         audio.playbackRate = SPEEDS[speedIndex]
+        setEffectiveRate(audio.playbackRate)
       }
       // D-11, Karute web in mobile Safari: the async mint can outlive the tap's
       // gesture (NotAllowedError). The url is in hand by then, so the SECOND
@@ -197,8 +216,21 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
   const cycleSpeed = useCallback(() => {
     const next = (speedIndex + 1) % SPEEDS.length
     setSpeedIndex(next)
-    if (audioRef.current) audioRef.current.playbackRate = SPEEDS[next]
+    const audio = audioRef.current
+    if (!audio) return
+    audio.playbackRate = SPEEDS[next]
+    // READ IT BACK (F7). A clamping engine then simply self-describes.
+    setEffectiveRate(audio.playbackRate)
   }, [speedIndex])
+
+  /** Commit the scrub's position to the element (F9). Called on RELEASE only —
+   *  pointer up, touch end, key up — never per pixel of the drag: against a
+   *  signed remote url every write is a seek and every seek is a byte-range
+   *  request, which on LTE with a 90-minute take is a stutter, not a scrub. */
+  const commitSeek = useCallback(() => {
+    const audio = audioRef.current
+    if (audio) audio.currentTime = elapsed
+  }, [elapsed])
 
   const pct = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0
   const press = 'transition-transform duration-(--duration-press) ease-(--ease-out) motion-safe:active:scale-[0.97]'
@@ -250,7 +282,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           disabled={busy}
           aria-label={playing ? t('transcript.pause') : t('transcript.play')}
           className={cn(
-            'inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover',
+            'inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover',
             busy && 'opacity-60',
             press,
           )}
@@ -262,7 +294,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           onClick={() => seekBy(-SKIP_S)}
           aria-label={t('transcript.back15')}
           className={cn(
-            'inline-flex h-[34px] min-w-11 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold tabular-nums text-muted-foreground hover:bg-muted',
+            'relative inline-flex h-[34px] min-w-11 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold tabular-nums text-muted-foreground hover:bg-muted before:absolute before:inset-x-0 before:-inset-y-[5px] before:content-[""]',
             press,
           )}
         >
@@ -274,7 +306,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           onClick={() => seekBy(SKIP_S)}
           aria-label={t('transcript.fwd15')}
           className={cn(
-            'inline-flex h-[34px] min-w-11 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold tabular-nums text-muted-foreground hover:bg-muted',
+            'relative inline-flex h-[34px] min-w-11 items-center justify-center gap-0.5 rounded-lg border border-border bg-card px-2 text-[11px] font-semibold tabular-nums text-muted-foreground hover:bg-muted before:absolute before:inset-x-0 before:-inset-y-[5px] before:content-[""]',
             press,
           )}
         >
@@ -287,15 +319,15 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           onClick={cycleSpeed}
           aria-label={t('transcript.speed')}
           className={cn(
-            'inline-flex h-[34px] min-w-[50px] items-center justify-center rounded-full border border-primary/30 bg-primary/8 px-2.5 text-[12.5px] font-bold tabular-nums text-primary',
+            'relative inline-flex h-[34px] min-w-[50px] items-center justify-center rounded-full border border-primary/30 bg-primary/8 px-2.5 text-[12.5px] font-bold tabular-nums text-primary before:absolute before:inset-x-0 before:-inset-y-[5px] before:content-[""]',
             press,
           )}
         >
-          {t('transcript.speedChip', { rate: SPEEDS[speedIndex] })}
+          {t('transcript.speedChip', { rate: effectiveRate ?? SPEEDS[speedIndex] })}
         </button>
       </div>
 
-      <div className="px-0 pb-1 pt-2.5">
+      <div className="px-0">
         <input
           type="range"
           min={0}
@@ -303,28 +335,32 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           step={0.1}
           value={Math.min(elapsed, total || 0)}
           disabled={total <= 0}
-          onChange={(e) => {
-            const next = Number(e.target.value)
-            if (audioRef.current) audioRef.current.currentTime = next
-            setElapsed(next)
-          }}
+          // The drag moves the DISPLAY only; the element is seeked on release.
+          onChange={(e) => setElapsed(Number(e.target.value))}
+          onPointerUp={commitSeek}
+          onTouchEnd={commitSeek}
+          onKeyUp={commitSeek}
           aria-label={t('transcript.seek')}
           className={cn(
-            'h-[5px] w-full cursor-pointer appearance-none rounded-full disabled:cursor-default',
+            'h-11 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-default',
             '[&::-webkit-slider-thumb]:size-[15px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[1.5px] [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-card [&::-webkit-slider-thumb]:shadow-sm',
             '[&::-moz-range-thumb]:size-[15px] [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[1.5px] [&::-moz-range-thumb]:border-primary [&::-moz-range-thumb]:bg-card',
           )}
           // The fill is the value made visible — a gradient stop at the played
           // fraction, so there is no second element to keep in sync with it.
+          // ⚖ 44 pt (F8). The input is 44 px tall so the thumb's hit area is
+          // the whole row; the 5 px track is DRAWN as a centred band, so the
+          // look is the mock's and only the target grew.
           style={{
-            background: `linear-gradient(to right, var(--primary) ${pct}%, var(--border) ${pct}%)`,
+            background: `linear-gradient(to right, var(--primary) ${pct}%, var(--border) ${pct}%) center / 100% 5px no-repeat`,
+            borderRadius: '999px',
           }}
         />
       </div>
 
       <div className="flex justify-between text-[11px] tabular-nums text-muted-foreground">
         <span className="font-semibold text-foreground/70">{clock(elapsed)}</span>
-        <span>{clock(total)}</span>
+        <span>{total > 0 ? clock(total) : UNKNOWN_CLOCK}</span>
       </div>
 
       {notice && (

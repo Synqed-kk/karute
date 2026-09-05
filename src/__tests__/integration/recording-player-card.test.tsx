@@ -189,15 +189,47 @@ describe('the controls', () => {
     expect(screen.getByRole('button', { name: '再生' })).toBeTruthy()
   })
 
-  it('the speed chip cycles 1 → 1.5 → 2 → 3 → 1 and sets playbackRate', () => {
+  // ⚠ L2 F3 — the old pin ended on 1×, which is jsdom's DEFAULT, so both
+  // playbackRate assignments could be deleted with the suite green. Every step
+  // is asserted on the ELEMENT now.
+  it('the speed chip cycles 1 → 1.5 → 2 → 3 → 1 and every step reaches the element', () => {
     card()
     const chip = screen.getByRole('button', { name: '再生速度' })
     expect(chip.textContent).toBe('1倍')
-    for (const expected of ['1.5倍', '2倍', '3倍', '1倍']) {
+    for (const [label, rate] of [['1.5倍', 1.5], ['2倍', 2], ['3倍', 3], ['1倍', 1]] as const) {
       fireEvent.click(chip)
-      expect(chip.textContent).toBe(expected)
+      expect(audioEl().playbackRate).toBe(rate)
+      expect(chip.textContent).toBe(label)
     }
-    expect(audioEl().playbackRate).toBe(1)
+  })
+
+  // ⚠ L4-3 (F7). WebKit may clamp above ~2×. The chip must state what the
+  // engine is RUNNING, not what we asked for.
+  it('a clamping engine makes the chip state the EFFECTIVE rate', () => {
+    card()
+    const audio = audioEl()
+    let rate = 1
+    Object.defineProperty(audio, 'playbackRate', {
+      configurable: true,
+      get: () => rate,
+      set: (v: number) => void (rate = Math.min(v, 2)), // an engine capped at 2×
+    })
+    const chip = screen.getByRole('button', { name: '再生速度' })
+    fireEvent.click(chip) // ask 1.5 → honoured
+    expect(chip.textContent).toBe('1.5倍')
+    fireEvent.click(chip) // ask 2 → honoured
+    expect(chip.textContent).toBe('2倍')
+    fireEvent.click(chip) // ask 3 → clamped to 2
+    expect(chip.textContent).toBe('2倍')
+  })
+
+  // ⚠ L1 MEDIUM-2 (F10). A job-owned row can carry a null duration, and with
+  // preload="none" nothing loads until the first play — the slot used to state
+  // 0:00 for a take that is certainly not zero seconds long.
+  it('an unknown total reads –:–– and the scrub stays disabled until metadata lands', () => {
+    card({ recording: { ...REC, durationSeconds: null } })
+    expect(screen.getByText('–:––')).toBeTruthy()
+    expect(screen.getByLabelText('再生位置')).toBeDisabled()
   })
 
   it('±15 clamps to [0, duration]', () => {
@@ -212,14 +244,40 @@ describe('the controls', () => {
     expect(audio.currentTime).toBe(742)
   })
 
-  it('the scrub seeks the real audio, under its OWN label (not the card title)', () => {
+  it('the scrub carries its OWN label, not the card title', () => {
     const { container } = card()
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
     expect(range).toBe(container.querySelector('input[type="range"]'))
     expect(range.getAttribute('aria-label')).not.toBe('録音 ・ 文字起こし')
     expect(range.max).toBe('742')
-    fireEvent.change(range, { target: { value: '300' } })
-    expect(audioEl().currentTime).toBe(300)
+  })
+
+  // ⚠ L4-6 (F9). Against a signed remote url every write to currentTime is a
+  // seek, and every seek is a byte-range request — a drag that wrote per pixel
+  // was a stutter, not a scrub.
+  it('dragging through five values seeks the element ONCE, on release', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    for (const v of ['100', '150', '200', '250', '300']) {
+      fireEvent.change(range, { target: { value: v } })
+    }
+    expect(seeks).toEqual([])
+    fireEvent.pointerUp(range)
+    expect(seeks).toEqual([300])
+  })
+
+  it('a keyboard user’s seek commits on key up', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    fireEvent.change(range, { target: { value: '120' } })
+    fireEvent.keyUp(range, { key: 'ArrowRight' })
+    expect(audioEl().currentTime).toBe(120)
   })
 
   // ⚠ L4-2 (F4). Karute web in mobile Safari: whether WebKit forwards the user
