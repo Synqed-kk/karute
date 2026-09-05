@@ -1380,6 +1380,17 @@
    stand, so it becomes a band above the panel. ═══ */
 @media (min-width: 900px) {
   .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  /* ⚖ S17 fix round 4 · H3 — AND THE PAGE'S OWN SUBTITLE MAY SAY 「左の一覧…
+     右に」 HERE, because from 900 up the rail really is a column beside the
+     panel. ⚠ A MEDIA QUERY, NOT A CONTAINER ONE, and the probe's T4 is how that
+     was found: the lead's flip lives inside `@container st-body`, and the
+     subtitle was written beside it — but `.st-sub` is in the page HEADER, a
+     SIBLING of `.st-body`, so a rule scoped to that container can never reach
+     it and the narrow form showed at every width. The lead is inside the
+     container and stays there; this sentence is outside it and is answered by
+     the band. */
+  .biz .pg-settings .st-sub-wide { display: inline; }
+  .biz .pg-settings .st-sub-narrow { display: none; }
   /* ⚠ BOTH WRAPPERS DISSOLVE, so the six pieces take their own places. The
      strip is a TOOLBAR — このページの中身 beside the save state, on one line — and
      the live card is NOT part of it: it goes UNDER the dials, where ① puts it
@@ -1481,10 +1492,6 @@
   /* …and the lead may finally say 「右のカード」, because here it is. */
   .biz .pg-settings .st-lead-wide { display: inline; }
   .biz .pg-settings .st-lead-narrow { display: none; }
-  /* …and the page's own subtitle may say 「左の一覧…右に」, for the same reason:
-     from here up the rail is a column beside the panel. */
-  .biz .pg-settings .st-sub-wide { display: inline; }
-  .biz .pg-settings .st-sub-narrow { display: none; }
 }
 
 /* ═══ ≥1440 — big displays: the rail and the stack take their full width and

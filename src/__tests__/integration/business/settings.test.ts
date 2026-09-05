@@ -2065,9 +2065,24 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain('<span className="st-sub-narrow">{props.subtitleNarrow}</span>')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-sub-wide { display: none; }')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-sub-narrow { display: inline; }')
-    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@media (min-width: 900px)'))
-    expect(wide).toContain('.biz .pg-settings .st-sub-wide { display: inline; }')
-    expect(wide).toContain('.biz .pg-settings .st-sub-narrow { display: none; }')
+    // ⚠ AND THE FLIP IS IN THE BAND'S OWN BLOCK, NOT IN A CONTAINER QUERY. The
+    // first cut put it beside the LEAD's flip, which lives inside
+    // `@container st-body (min-width: 960px)` — and `.st-sub` is in the page
+    // HEADER, a sibling of `.st-body`, so that rule could never reach it and
+    // the narrow form showed at 1280 (the probe's T4 found it). The slice is
+    // bounded by the NEXT at-rule, so 「somewhere later in the sheet」 cannot
+    // pass for 「inside this block」.
+    const blockAt = (opener: string): string => {
+      const from = CSS_CODE.indexOf(opener)
+      expect({ opener, found: from >= 0 }).toEqual({ opener, found: true })
+      const rest = CSS_CODE.slice(from + opener.length)
+      const next = rest.search(/@(media|container|supports)\b/)
+      return next < 0 ? rest : rest.slice(0, next)
+    }
+    const band = blockAt('@media (min-width: 900px)')
+    expect(band).toContain('.biz .pg-settings .st-sub-wide { display: inline; }')
+    expect(band).toContain('.biz .pg-settings .st-sub-narrow { display: none; }')
+    expect(blockAt('@container st-body (min-width: 960px)')).not.toContain('st-sub-wide')
     // …and the ?-WALK's own head text, which is an ATTRIBUTE and therefore may
     // be swapped after mount: the tour was TEACHING the two-column sentence to
     // a reader who has one column.
