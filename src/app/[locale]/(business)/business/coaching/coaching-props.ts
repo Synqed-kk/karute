@@ -702,6 +702,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               // contract.ts:55 Confidence, said in words only when it is worth
               // saying: a 'low' score is a score the reader should weigh less.
               confidenceNote: c.confidence === 'low' ? '記録が少なく、参考値です' : null,
+              // ⚖ I-4 — THE GAP, SUBTRACTED HERE. Two numbers side by side leave
+              // the reader doing the arithmetic on four rows at once, which is
+              // exactly the work a coaching screen is supposed to have done for
+              // them. Null without a benchmark — a distance to nothing is not a
+              // number, and printing 0 there would be the silent failure this
+              // room refuses everywhere else.
+              gapLabel: c.topBenchmark != null ? `差 ${c.topBenchmark - c.score}` : null,
             })),
             learnFromTop: self.view.learnFromTop,
             // ⚖ D8-1 — the viewer's OWN grant decides what this section says

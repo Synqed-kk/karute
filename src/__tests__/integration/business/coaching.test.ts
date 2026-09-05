@@ -3786,6 +3786,39 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(CSS_CODE).toContain('.cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }')
   })
 
+  it('⚖ I-4 · 会話スキル SHOWS THE GAP, and the list is still not re-ordered by it', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    expect(self.categories.length).toBeGreaterThan(1)
+    for (const c of self.categories) {
+      expect({ key: c.key, gap: c.gapLabel })
+        .toEqual({ key: c.key, gap: c.topBenchmark != null ? `差 ${c.topBenchmark - c.score}` : null })
+    }
+    // the biggest gap is really visible without the page ranking anything: the
+    // ORDER that comes back is the plane's own, whatever the distances are.
+    const planeOrder = coachingStaff.find((r) => r.staffId === 'p-06')!.categories.map((c) => c.key)
+    expect(self.categories.map((c) => c.key)).toEqual(planeOrder)
+    const gaps = self.categories.map((c) => c.topBenchmark! - c.score)
+    expect(Math.max(...gaps)).toBeGreaterThan(Math.min(...gaps))
+    expect([...gaps].sort((a, b) => b - a)).not.toEqual(gaps)
+    // …and a category with NO benchmark prints no distance at all, rather than 0.
+    const noBench = buildSelfView({
+      selfId: 'p-06',
+      rows: [{ ...coachingStaff[0], categories: [{ key: 'next_step', score: 58, topBenchmark: null, confidence: 'high' }] }],
+      patterns: teamPatterns,
+    })
+    expect(noBench.kind).toBe('ready')
+    if (noBench.kind !== 'ready') return
+    expect(noBench.view.categories[0].topBenchmark).toBeNull()
+    expect(SCREEN_CODE).toContain('{c.gapLabel && <span className="cg-skill-gap">{c.gapLabel}</span>}')
+    // the chip is neutral — a gap is a place to practise, not a grade (⚖ 8/25's
+    // B family: no threshold tone on a per-person number).
+    expect(CSS_CODE).toMatch(/\.cg-skill-gap \{[^}]*background: var\(--section\)/)
+    expect(CSS_CODE).not.toMatch(/\.cg-skill-gap \{[^}]*var\(--cg-priority\)/)
+  })
+
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
     // The fixed lead used to restate what every state's own `body` already
     // says — 「断ったことは誰にも表示されません」 came out twice in one utterance

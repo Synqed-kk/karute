@@ -806,10 +806,14 @@
 
 .biz .pg-coaching .cg-skill-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-skill { display: flex; flex-direction: column; gap: 5px; }
-.biz .pg-coaching .cg-skill-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.biz .pg-coaching .cg-skill-label { color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.biz .pg-coaching .cg-skill-head { display: flex; align-items: baseline; gap: 10px; }
+.biz .pg-coaching .cg-skill-label { flex: 1 1 auto; min-width: 0; color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
 .biz .pg-coaching .cg-skill-value { color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .biz .pg-coaching .cg-skill-value em { color: var(--muted); font-style: normal; font-weight: 600; }
+/* ⚖ I-4 — THE DISTANCE STILL TO CLOSE. Neutral, like every other chip on a
+   person's own screen: a gap is a place to practise, not a grade (⚖ 8/25's B
+   family — no threshold tone on a per-person number). */
+.biz .pg-coaching .cg-skill-gap { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; background: var(--section); color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-skill-track { position: relative; display: block; height: 7px; border-radius: 999px; background: var(--section); }
 .biz .pg-coaching .cg-skill-fill { display: block; height: 100%; border-radius: 999px; background: #9db4e8; }
 .biz .pg-coaching .cg-skill-mark { position: absolute; top: -3px; width: 2px; height: 13px; border-radius: 2px; background: var(--ink-3); }

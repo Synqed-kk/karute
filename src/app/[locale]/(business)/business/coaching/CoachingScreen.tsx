@@ -233,7 +233,11 @@ export interface CoachingSelfReady {
   outcomes: { title: string; reasons: Array<{ reason: string; label: string; count: number }>; pendingLine: string | null }
   categoriesTitle: string
   /** contract.ts:83-94 CategoryScore, resolved. */
-  categories: Array<{ key: string; label: string; score: number; topBenchmark: number | null; confidenceNote: string | null }>
+  /** ⚖ I-4 (S16C) — `gapLabel` is the DISTANCE STILL TO CLOSE, composed in the
+   *  props file (`topBenchmark − score`) so the screen holds no arithmetic and no
+   *  word. Null when the category has no benchmark: a distance to nothing is not
+   *  a number this room will print. */
+  categories: Array<{ key: string; label: string; score: number; topBenchmark: number | null; confidenceNote: string | null; gapLabel: string | null }>
   /** contract.ts:176-183 TeamPattern. */
   learnFromTop: Array<{ id: string; behavior: string; adoptionNote: string }>
   /** ⚖ THE VIEWER'S OWN GRANT, RESOLVED. Three strings rather than a boolean,
@@ -1500,6 +1504,13 @@ export function CoachingScreen(props: CoachingProps) {
                                     {c.score}
                                     {c.topBenchmark != null && <em> / 上位 {c.topBenchmark}</em>}
                                   </span>
+                                  {/* ⚖ I-4 — WHERE THE DISTANCE IS LARGEST, said as
+                                      a number rather than left to be worked out from
+                                      two others. The list is NOT re-ordered by it:
+                                      there is no comparator anywhere in this room,
+                                      and a reader can see which gap is biggest
+                                      without the page ranking their own skills. */}
+                                  {c.gapLabel && <span className="cg-skill-gap">{c.gapLabel}</span>}
                                 </span>
                                 <span className="cg-skill-track">
                                   <span className="cg-skill-fill" style={{ width: `${Math.min(c.score, 100)}%` }} />
