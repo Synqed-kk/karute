@@ -48,6 +48,8 @@ import {
   hitOf,
   blockingError,
   changedCount,
+  rowChanges,
+  rowsOfBlock,
   clampCoachingFloor,
   controlIdsOfBlock,
   dayTitle,
@@ -1654,6 +1656,68 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const two = { ...moved, [controlIdsOfBlock(second)[0]]: '__moved__' }
     expect(changedCount(sec, two, seed)).toBe(2)
     expect(blockDirty(second, two, seed)).toBe(true)
+  })
+
+  it('⚖ S17 fix round 4 · B2 — a 臨時休業 row added or removed IS an unsaved change, and 保存 commits it', async () => {
+    // ⚠ THE DEFECT THIS PINS. `sectionDirty` / `changedCount` / `blockDirty`
+    // read `controlIdsOf` alone, so a reader who added 12月24日 saw the count
+    // still say 「変更はありません」, no dot on 臨時休業, 保存する dimmed — and the
+    // block's own note standing over it reading 「●は未保存の変更です」. The rows
+    // are part of the section's state; every question is asked of both maps.
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const coll = sec.blocks.find((b) => b.collection !== null)!
+    const other = sec.blocks.find((b) => b.collection === null)!
+    const base = coll.collection!.items
+
+    // At rest the two maps are EMPTY and everything falls back to the payload.
+    expect(rowsOfBlock(coll, {})).toEqual(base)
+    expect(sectionDirty(sec, seed, seed, {}, {})).toBe(false)
+    expect(changedCount(sec, seed, seed, {}, {})).toBe(0)
+    expect(blockDirty(coll, seed, seed, {}, {})).toBe(false)
+
+    // …a day ADDED is one change, on that block only.
+    const added = addToCollection(coll.collection!, base, '2026-12-24', '設備メンテナンスのため')
+    expect(added.error).toBeNull()
+    const live = { [coll.id]: added.rows }
+    expect(rowChanges(coll, live, {})).toBe(1)
+    expect(blockDirty(coll, seed, seed, live, {})).toBe(true)
+    expect(blockDirty(other, seed, seed, live, {})).toBe(false)
+    expect(sectionDirty(sec, seed, seed, live, {})).toBe(true)
+    expect(changedCount(sec, seed, seed, live, {})).toBe(1)
+    // …and it COUNTS ALONGSIDE the controls, because a reader who moved a dial
+    // and added a day made two changes to this page.
+    const moved = { ...seed, [controlIdsOfBlock(other)[0]]: '__moved__' }
+    expect(changedCount(sec, moved, seed, live, {})).toBe(2)
+
+    // …a day REMOVED is one change too, and it is the same question.
+    const gone = { [coll.id]: base.filter((r) => r.id !== base[0].id) }
+    expect(rowChanges(coll, gone, {})).toBe(1)
+    expect(sectionDirty(sec, seed, seed, gone, {})).toBe(true)
+
+    // …and once 保存 has committed the rows, the same live map is CLEAN: the
+    // baseline holds rows, so the dot goes out and the count goes back to zero.
+    expect(sectionDirty(sec, seed, seed, live, live)).toBe(false)
+    expect(changedCount(sec, seed, seed, live, live)).toBe(0)
+    expect(blockDirty(coll, seed, seed, live, live)).toBe(false)
+    // …and a REORDER is not a change: the DATE is the row's identity, which is
+    // the wire's own rule (one row per store per date).
+    expect(rowChanges(coll, { [coll.id]: [...base].reverse() }, {})).toBe(0)
+
+    // THE SCREEN REALLY ASKS WITH THE ROWS. The two maps are optional
+    // parameters, so a call site that forgets them compiles and under-reports —
+    // the defect this item exists to remove. All four asks carry them, and
+    // 保存 writes the baseline.
+    expect(SCREEN_CODE).toContain('sectionDirty(section, values, saved, listRows, savedRows)')
+    expect(SCREEN_CODE).toContain('changedCount(section, values, saved, listRows, savedRows)')
+    expect(SCREEN_CODE).toContain('blockDirty(b, values, saved, listRows, savedRows)')
+    const commit = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('const commitSection = useCallback'),
+      SCREEN_CODE.indexOf('const openSection = useCallback'),
+    )
+    expect(commit).toContain('setSavedRows((prev) => {')
+    expect(commit).toContain('for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)')
   })
 
   it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {

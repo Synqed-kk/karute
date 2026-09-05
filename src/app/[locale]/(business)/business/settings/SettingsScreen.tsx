@@ -89,8 +89,10 @@ import {
   matchesQuery,
   PREFS_DEFAULT,
   readPrefs,
+  rowsOfBlock,
   searchTextOf,
   sectionDirty,
+  type CollectionRows,
   type ControlKind,
   type RailRow,
   type RowControl,
@@ -301,7 +303,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  id. Seeded from the payload on first touch and edited in this browser, like
    *  every other value on this page; what the reconnect PR will send is
    *  `addClosedDay` / `removeClosedDay` per difference. */
-  const [listRows, setListRows] = useState<Record<string, Array<{ id: string; title: string; note: string }>>>({})
+  const [listRows, setListRows] = useState<CollectionRows>({})
+  /** ⚖ S17 fix round 4 · B2 — WHAT 保存 LAST COMMITTED, for the rows. The values
+   *  map had `saved` from the first cut and the rows had nothing, so a day a
+   *  reader added was invisible to 変更 n件, to the block's dot and to 保存する —
+   *  and 保存 never committed it. Same shape as `saved`, asked by the same three
+   *  functions: an entry exists only where this browser has changed something,
+   *  and a block with no entry means 「still the payload's own rows」. */
+  const [savedRows, setSavedRows] = useState<CollectionRows>({})
   const [listErrors, setListErrors] = useState<Record<string, string>>({})
   /** ⚖ IMPROVEMENT 3 — which block the jump list highlights. `null` = follow the
    *  scroll; a string = the reader ASKED for that one, and the list says so even
@@ -401,7 +410,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const addRow = useCallback((block: SettingsBlock) => {
     const coll = block.collection
     if (!coll) return
-    const rows = listRows[block.id] ?? coll.items
+    const rows = rowsOfBlock(block, listRows)
     const next = addToCollection(coll, rows, String(values[coll.dateControlId] ?? ''), String(values[coll.reasonControlId] ?? ''))
     setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
     if (next.error !== null) return
@@ -414,7 +423,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const removeFromCollection = useCallback((block: SettingsBlock, rowId: string) => {
     const coll = block.collection
     if (!coll) return
-    const rows = listRows[block.id] ?? coll.items
+    const rows = rowsOfBlock(block, listRows)
     setListErrors((prev) => ({ ...prev, [block.id]: '' }))
     setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== rowId) }))
   }, [listRows])
@@ -426,8 +435,19 @@ export function SettingsScreen(props: SettingsScreenProps) {
       for (const id of ids) next[id] = values[id]
       return next
     })
+    /** ⚖ S17 fix round 4 · B2 — AND THE ROWS, because they are the section's
+     *  state too. A save that copied only the control values left the block's
+     *  dot standing after 保存 and the count still counting a day the reader had
+     *  just committed. The baseline takes what the block is HOLDING (the edit if
+     *  there is one, else the payload's own items), so a block nobody touched
+     *  keeps reading 「unchanged」 rather than being frozen to a copy. */
+    setSavedRows((prev) => {
+      const next = { ...prev }
+      for (const b of target.blocks) if (b.collection !== null) next[b.id] = rowsOfBlock(b, listRows)
+      return next
+    })
     setCommitted((prev) => ({ ...prev, [target.id]: true }))
-  }, [values])
+  }, [values, listRows])
 
   /** ⚖ list-is-the-page — opening a section from the rail remembers the row, so
    *  the way back lands the keyboard where it left. */
@@ -720,9 +740,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
     [props.rail, sectionById, query],
   )
 
-  const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved) : false
+  const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
-  const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved) : 0
+  const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   const highlighted = jumpPin ?? inView
 
@@ -999,7 +1019,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     onLink={(id) => openSection(id, false)}
                     openRows={openRows}
                     onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
-                    listRows={b.collection ? (listRows[b.id] ?? b.collection.items) : null}
+                    listRows={b.collection ? rowsOfBlock(b, listRows) : null}
                     listError={listErrors[b.id] ?? null}
                     onListAdd={() => addRow(b)}
                     onListRemove={(rowId) => removeFromCollection(b, rowId)}
@@ -1043,7 +1063,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
                         {blocked ??
                           (changed > 0
-                            ? `変更 ${changed}件`
+                            ? `変更した設定 ${changed}件`
                             : committed[section.id]
                               ? `✓ 保存しました ${props.saveStampTime}`
                               : '変更はありません')}
@@ -1061,7 +1081,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                 ),
                 (id) => {
                   const b = section.blocks.find((x) => x.id === id)
-                  return b !== undefined && blockDirty(b, values, saved)
+                  return b !== undefined && blockDirty(b, values, saved, listRows, savedRows)
                 },
                 changed > 0,
               ),
@@ -1335,7 +1355,7 @@ function Block({
   onToggleRow: (rowId: string) => void
   /** ⚖ C2 — the live rows of a block that is a collection, `null` for every
    *  other block. */
-  listRows: Array<{ id: string; title: string; note: string }> | null
+  listRows: ReadonlyArray<{ id: string; title: string; note: string }> | null
   listError: string | null
   onListAdd: () => void
   onListRemove: (rowId: string) => void
@@ -1496,7 +1516,7 @@ function Collection({
 }: {
   block: SettingsBlock
   coll: NonNullable<SettingsBlock['collection']>
-  rows: Array<{ id: string; title: string; note: string }>
+  rows: ReadonlyArray<{ id: string; title: string; note: string }>
   error: string | null
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void

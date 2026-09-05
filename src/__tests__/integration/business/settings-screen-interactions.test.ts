@@ -790,7 +790,14 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
     expect(SRC_CODE).toContain("{blocked ??")
-    expect(SRC_CODE).toContain("`変更 ${changed}件`")
+    // ⚠ D-30 (⚖ S17 fix round 4 · B2/L6) — THE COUNT NAMES WHAT IT COUNTS.
+    // 「変更 3件」 does not say three of WHAT (⚖ 8/25: 来店10回, never 10回), and
+    // the answer got wider in the same round: a 臨時休業 row a reader adds is a
+    // change to this page too, so the number is settings — controls AND rows.
+    // The literal moved; the CLAIM (one derived number, on the face, beside the
+    // button that commits it) is unchanged.
+    expect(SRC_CODE).toContain("`変更した設定 ${changed}件`")
+    expect(SRC_CODE).not.toContain("`変更 ${changed}件`")
     expect(SRC_CODE).toContain("`✓ 保存しました ${props.saveStampTime}`")
     expect(SRC_CODE).toContain("'変更はありません'")
     // ⚠ AND THE CLOCK IS THE SERVER'S, not the browser's: the room holds no

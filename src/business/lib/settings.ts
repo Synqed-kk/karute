@@ -702,12 +702,50 @@ export function controlIdsOfBlock(block: SettingsBlock): string[] {
   return block.rows.flatMap((r) => r.controls.map((c) => c.id))
 }
 
-/** A block is dirty when any control inside it differs from what was saved. */
+/** ⚖ S17 fix round 4 · B2 — A COLLECTION'S ROWS ARE PART OF ITS SECTION'S STATE.
+ *
+ *  臨時休業 adds and removes ROWS, and nothing else in this room does. So the
+ *  three unsaved-change questions — is this block dirty, how many settings
+ *  changed, may 保存 fire — were asked of `controlIdsOf` alone and answered
+ *  「nothing changed」 while a reader was looking at a day they had just added.
+ *  The jump list's own note (「●は未保存の変更です」) stood over a list with an
+ *  unsaved change and no dot, and 保存する never committed the rows at all.
+ *
+ *  The rows travel as ONE map keyed by block id — the same shape the values map
+ *  has — so a section's state is `values` + `rows` and every question is asked
+ *  of both. Both maps are EDITS: an entry exists only where this browser has
+ *  changed something, and a block with no entry falls back to the payload's own
+ *  items, on both the live side and the saved side. */
+export type CollectionRows = Record<string, ReadonlyArray<{ id: string; title: string; note: string }>>
+
+/** The rows a block holds right now: this browser's edit, else the payload's. */
+export function rowsOfBlock(block: SettingsBlock, rows: CollectionRows): ReadonlyArray<{ id: string; title: string; note: string }> {
+  return rows[block.id] ?? block.collection?.items ?? []
+}
+
+/** How many ROWS of this block differ from what was saved — an added day and a
+ *  removed day are one change each, which is what a reader counts. The DATE is
+ *  the row's identity (the wire's own rule), so the comparison is on ids. */
+export function rowChanges(block: SettingsBlock, rows: CollectionRows, saved: CollectionRows): number {
+  if (block.collection === null) return 0
+  const now = new Set(rowsOfBlock(block, rows).map((r) => r.id))
+  const was = new Set(rowsOfBlock(block, saved).map((r) => r.id))
+  let n = 0
+  for (const id of now) if (!was.has(id)) n += 1
+  for (const id of was) if (!now.has(id)) n += 1
+  return n
+}
+
+/** A block is dirty when any control inside it — or any ROW of its collection —
+ *  differs from what was saved. */
 export function blockDirty(
   block: SettingsBlock,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
+  rows: CollectionRows = {},
+  savedRows: CollectionRows = {},
 ): boolean {
+  if (rowChanges(block, rows, savedRows) > 0) return true
   return controlIdsOfBlock(block).some((id) => !sameValue(values[id], saved[id]))
 }
 
@@ -769,24 +807,36 @@ export function addToCollection(
   return { rows: [...rows, { id: date, title: dayTitle(date), note: reason }], error: null }
 }
 
-/** ⚠ 変更 n件 COUNTS CONTROLS, AND THE LABEL SAYS SO (⚖ numbers explain
- *  themselves). Counting blocks would make one changed dial and eight changed
- *  dials both read 「1件」; counting controls is the number a reader can check
- *  against what they actually pressed. */
+/** ⚠ 「変更した設定 n件」 COUNTS SETTINGS, AND THE LABEL SAYS SO (⚖ 8/25 —
+ *  numbers explain themselves: 来店10回, never 10回). Counting blocks would make
+ *  one changed dial and eight changed dials both read 「1件」; counting settings
+ *  is the number a reader can check against what they actually pressed.
+ *
+ *  ⚖ S17 fix round 4 · B2 — a SETTING here is a control OR a row of a
+ *  collection: a 臨時休業 day a reader added is a change they made to this page,
+ *  and a count that silently left it out was the count telling them nothing
+ *  happened. */
 export function changedCount(
   section: SettingsSection,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
+  rows: CollectionRows = {},
+  savedRows: CollectionRows = {},
 ): number {
-  return controlIdsOf(section).filter((id) => !sameValue(values[id], saved[id])).length
+  const moved = controlIdsOf(section).filter((id) => !sameValue(values[id], saved[id])).length
+  return moved + section.blocks.reduce((n, b) => n + rowChanges(b, rows, savedRows), 0)
 }
 
-/** A section is dirty when any of its controls differs from what was saved. */
+/** A section is dirty when any of its controls — or any row of one of its
+ *  collections — differs from what was saved. */
 export function sectionDirty(
   section: SettingsSection,
   values: Record<string, RowValue>,
   saved: Record<string, RowValue>,
+  rows: CollectionRows = {},
+  savedRows: CollectionRows = {},
 ): boolean {
+  if (section.blocks.some((b) => rowChanges(b, rows, savedRows) > 0)) return true
   return controlIdsOf(section).some((id) => !sameValue(values[id], saved[id]))
 }
 
