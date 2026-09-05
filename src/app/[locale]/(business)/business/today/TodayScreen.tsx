@@ -3942,10 +3942,13 @@ export function TodayScreen(props: TodayProps) {
     // is explanation only.
     const escalate = run.override
     adviceOpenedAt.current = at.t
-    // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION. Only a POLICY landing can
-    // be staged from here, so only a policy landing describes one: on a hard
-    // floor these would be the details of a placement that is never going to
-    // happen. Everything is the verdict's own — the room it solved and the rows
+    // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION, and the split is ROWS vs
+    // AUTHORITY. The strip renders wherever the landing actually read rows AND a
+    // room is in hand — named by the operator or solved by the allocator —
+    // because a refusal the operator can act on earns the same detail a staged
+    // one does. 注意して配置 is the half that stayed POLICY-only (the mint below):
+    // that is a question about who may overrule, never about rows.
+    // Everything is the verdict's own — the room it solved and the rows
     // it read, against the ATTEMPTED landing rather than the lanes the card is
     // still standing on (which is what `checksFor` would have answered).
     // ⚖ AMENDMENT 1, lens-1 F3+F4+F10 — BUILT FROM THE QUESTION, not from the
@@ -3988,8 +3991,21 @@ export function TodayScreen(props: TodayProps) {
     // a fact about what was checked, so the only honest question is whether
     // there are any. (The override mint below stays `policy`-only — that is
     // Liam's ruling and it is a question about AUTHORITY, not about rows.)
+    //
+    // ⚖ FIX ROUND 2 (delta lens 4 N1) — AND A ROOM HAS TO BE IN HAND. Rows alone
+    // was one class too wide. A 満室 asked for a room and got none, so `bedLane`
+    // is null, no check row is ever ABOUT a room, and the box drew an all-✓ strip
+    // over a summary ending 「/ 担当 ◯◯ / —」 — the exact shape Liam rejected on
+    // 8/22, arriving on the refusal box instead of the staged row. A CLASH that
+    // also failed its room reads the same. `v.bedLane` is non-null on every class
+    // this gate exists to serve and null on exactly those two.
+    //
+    // `!ask.solveRoom` keeps the plain 新規予約を作成 landing whole (the only
+    // caller that asks with no room and solves none — see the `askGuard` below
+    // the 配置モード branch): no room was ever part of that question, so its 「—」
+    // is honest and its policy box has carried rows since ⚖ 74 shipped.
     const facts =
-      v.checks.length > 0
+      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)
         ? {
             summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
               staffLane: ask.staffLane,
@@ -7029,11 +7045,14 @@ export function TodayScreen(props: TodayProps) {
           <div className="gp-reason">{advice.reason}</div>
           {/* ⚖ LIAM flag 74 — THE ONE BOX. The confirm's own facts, in the
               surface that is asking: what time, on whom, in which room, and the
-              rows this landing earns. Only a POLICY floor gets them, because
-              only a policy floor has a 注意して配置 to press — describing a
-              placement that cannot happen is the wrong-question defect in
-              another costume. The rows wear ⚖ 52's glyphs from the confirm's own
-              stylesheet, so × and △ mean one thing on both surfaces. */}
+              rows this landing earns. ROWS, not floor: a refusal that read rows
+              and has a room to name describes itself too, and 注意して配置 is the
+              half that stayed policy-only, because that is a question about
+              AUTHORITY. A landing that asked for a room and got NONE has no room
+              to put in the summary, so it gets no strip at all rather than an
+              all-✓ one over 「/ 担当 ◯◯ / —」 (fix round 2, delta lens 4 N1). The
+              rows wear ⚖ 52's glyphs from the confirm's own stylesheet, so × and
+              △ mean one thing on both surfaces. */}
           {advice.facts && (
             <div className="gp-facts">
               <strong>{advice.facts.summary}</strong>

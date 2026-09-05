@@ -5132,7 +5132,8 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  fills, is the same silence with a longer path to it.
    *
    *  ⚠ AND THE SOLVE ASKS IT TOO. `placeNextVisit` calls `solveBed` with its own
-   *  `vip` argument, which was also a hardcoded `false`. Fixing the verdict alone
+   *  room argument (`vip` when this was written, `requiresPrivate` since the room
+   *  rule), which was also a hardcoded `false`. Fixing the verdict alone
    *  would have made the word and the release disagree BY CONSTRUCTION — the
    *  verdict solving the 個室 and the placement putting the VIP somewhere else —
    *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
@@ -5164,9 +5165,10 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
    *  each negative: `category: 'repeat' as BookingCategory,` at the arming and
    *  at the card (neither is `'repeat' as const`), and `requiresPrivate: !1,` at the landing
    *  (which is not `requiresPrivate: false`). Chain green, VIP back on a standard bed with
-   *  nothing said. So each hop must BE a line, and three counts close the room a
-   *  decoy needs: one `category:` line in the minted card, one `solveBed(` in
-   *  `placeNextVisit`, one `vip:` in the landing. The dodges themselves are
+   *  nothing said. So each hop must BE a line, and four counts close the room a
+   *  decoy needs: one `category:` line in the arming, one in the minted card, one
+   *  `solveBed(` in `placeNextVisit`, one `requiresPrivate:` in the landing (the
+   *  field the room rule renamed `vip` to). The dodges themselves are
    *  banned outright in the three slices, which is cheap and says out loud what
    *  was tried. */
   it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
@@ -6085,7 +6087,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(INT.match(/roomClass !== 'private'/g)).toHaveLength(1)
   })
 
-  it('⚖ 50(d) — the VIP floor is a red like any other, so it carries the gated override', () => {
+  it('⚖ 50(d) — the 個室のみ floor is a red like any other, so it carries the gated override', () => {
     // Nothing special was built for it: it is `blocked`, and every blocked
     // landing on every gesture ending goes to `explainBlocked`, whose 「注意して
     // 配置」 exists only where the store's overridePolicy put it.
@@ -6300,7 +6302,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(CSS).toContain('.biz .holdbar-checks .ck.warn::before { content: "△";')
   })
 
-  it('⚖ 50(d) — the escalation reaches the ROOM too, and the VIP floor still holds', () => {
+  it('⚖ 50(d) — the escalation reaches the ROOM too, and the 個室のみ floor still holds', () => {
     const full = [
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 960, 1020)] }),
       lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 960, 1020)] }),
@@ -6312,8 +6314,9 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // a regular booking, exactly as when the rooms are free.
     expect(allocateBed(full, { ...opts, requiresPrivate: false, allowBusy: true }).laneKey).toBe('bed-01')
     expect(allocateBed(full, { ...opts, requiresPrivate: false, allowBusy: true }).refusal).toBeNull()
-    // The VIP floor is a rule about what the treatment NEEDS, not about who is
-    // in the way: an escalation still may not walk a VIP out of the 個室.
+    // The 個室のみ floor is a rule about what the treatment NEEDS, not about who
+    // is in the way: an escalation may buy a busy room, never a wrong one, so a
+    // tagged booking is still answered with the 個室 and never a standard bed.
     expect(allocateBed(full, { ...opts, requiresPrivate: true, allowBusy: true }).laneKey).toBe('bed-03')
     // A move keeps the room it carries rather than being re-solved onto another.
     expect(allocateBed(full, { ...opts, currentBed: 'bed-03', requiresPrivate: false, allowBusy: true }).laneKey).toBe('bed-03')
@@ -11868,7 +11871,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     expect(SRC).not.toContain('item.requiresPrivateRoom === true || item.ticketCat')
     // ⚖ FIX ROUND 1 (blind lens 3 F11 · L2 N2) — AND THE DEMO SHOWS BOTH FACTS ON
     // TWO ROWS. One row where the tag and the VIP badge are both true is exactly
-    // the row that cannot separate them. apt-29 (見本… テスト なぎ, 14:05〜15:05,
+    // the row that cannot separate them. apt-29 (テスト なぎ, 14:05〜15:05,
     // already seated in the 個室) is the tagged row and is NOT a VIP; apt-25 is
     // the VIP and is NOT tagged, so Liam's own scene places freely. The rendered
     // pair is asserted on the REAL board in today-board.test.ts 「⚖ ROOM RULE —

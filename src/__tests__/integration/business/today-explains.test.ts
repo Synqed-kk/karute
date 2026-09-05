@@ -1482,7 +1482,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
   })
 
   it('a busy origin gets a FRESH SOLVE on return, never a blind restore', () => {
-    // 14:30, where ベッド3 is 見本 ゆうこ's (apt-29, 14:05–15:05): the outbound
+    // 14:30, where ベッド3 is テスト なぎ's (apt-29, 14:05–15:05): the outbound
     // leg is re-bedded, and so is the leg back — the seed is a candidate the
     // allocator judges, not an instruction it obeys.
     const out = landOn(REST, 'apt-28', 'c-03', span(870, 900))

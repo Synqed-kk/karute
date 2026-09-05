@@ -328,8 +328,16 @@ export default async function TodayPage({
         // ⚖ FIX ROUND 1 (blind lens 3 F5) — the 個室のみ tag on the inspector too.
         // The card, the inspector and the accessible name described one booking
         // three different ways and only the card mentioned the room rule.
-        ['担当・設備', `${b.staffName} / ${b.resourceName}${b.requiresPrivateRoom ? '（個室のみ）' : ''}`],
-        ['予約種別', `${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
+        //
+        // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c) — IN THE BOOKING'S
+        // ROW, NOT THE ROOM'S. A parenthetical after a room name describes THAT
+        // ROOM: 「ベッド3（個室のみ）」 reads as 「bed 3 is private-room-only」, which
+        // is F4's own defect one surface later — and on any row the allocator did
+        // not choose (an imported booking carrying a standard bed, or none yet) it
+        // was 「ベッド1（個室のみ）」, flatly false. 予約種別 is about the booking, and
+        // 「個室のみ・単発」 is the shape the accessible name already ships.
+        ['担当・設備', `${b.staffName} / ${b.resourceName}`],
+        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],

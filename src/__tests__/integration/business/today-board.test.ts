@@ -452,7 +452,7 @@ describe('今日の運営 screen', () => {
    *  mutation lens's M10 died to a source-text pin and to nothing else.
    *
    *  The demo separates them now, so this asks the built board rather than the
-   *  source: 見本 あかり (apt-29) carries the tag and wears her own category word,
+   *  source: テスト なぎ (apt-29) carries the tag and wears her own category word,
    *  テスト えいた (apt-25) is the VIP and carries no tag, and both facts reach the
    *  accessible name a keyboard operator is refused by. */
   it('⚖ ROOM RULE — the sample board separates the 個室のみ tag from the VIP badge', async () => {

@@ -2316,6 +2316,12 @@ export function explainRails(
   // question than the drop itself will. Read once per call, off the same
   // `caseId` every other card-reading site uses; a null hand is a genuine
   // hypothetical and stays `false`.
+  //
+  // ⚖ FIX ROUND 2 (delta lens 4 N5) — AND WHICH GESTURES ACTUALLY REACH IT. The
+  // `opts.inHand` return two lines above is taken by exactly the ordinary
+  // gesture — a card dragged along its own staff row — so this lookup is live
+  // for a BED-LANE drag, a RESIZE and a drag OVER THE SHELF, and never for that
+  // one. Reachable and worth fixing; not the commonest path.
   const handItem =
     opts.handId == null ? null : (lanes.flatMap((l) => l.items).find((i) => i.caseId === opts.handId) ?? null)
   for (const rail of rails) {
@@ -3257,10 +3263,16 @@ function fullRoomsRefusal(
   // destination cannot do, which is this lane's own 9/4 Greptile lesson. And the
   // verb was wrong: the booking already EXISTS and just got refused, so the
   // operator is 移す-ing it, never 予約する-ing it.
+  //
+  // ⚖ FIX ROUND 2 (delta lens 3 N8) — AND THE SECOND ARM ANSWERS THE SAME
+  // QUESTION AS THE FIRST. Both arms are 「does a usable room exist HERE?」, and
+  // only one of them said so: 「14:05〜15:05に使えるベッドがありません」 named a
+  // window at a store that owns no bed lane at all, sending the operator hunting
+  // the clock for a room that does not exist at any hour.
   if (rows.length === 0) {
     return requiresPrivate
       ? 'この店舗には個室がありません。個室のある店舗へ移してください'
-      : `${window}に使える${room}がありません`
+      : 'この店舗には使えるベッドがありません'
   }
   // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
   // go hunting the card for the one fact that lets them rearrange by hand, and
@@ -3297,8 +3309,14 @@ function fullRoomsRefusal(
           : `${i.title}様`
     return i.startMin === start && i.endMin === end ? name : `${name} ${when(i)}`
   }
-  const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
-  return `${window}は${room}に空きがありません。${named.join('、')}`
+  //
+  // ⚖ FIX ROUND 2 (JP native pass 3) — THE ROOMS ARE LISTED, THE PREDICATE IS
+  // SAID ONCE. 「◯◯が使用中」 repeated per room made the reader stop three times
+  // and left the sentence ending on a closing bracket with no predicate at all —
+  // a 言いさし. Japanese puts the list first and the verb last, and one verb after
+  // a list governs every item in it, so nothing is lost and ~8 characters go.
+  const named = rows.map(([lane, blockers]) => `${lane.label}（${[...new Set(blockers.map(who))].join('・')}）`)
+  return `${window}は${room}に空きがありません。${named.join('、')}が使用中です`
 }
 
 // ── ⚖ Liam flag 50 (2026-08-22) — ONE VERDICT, THREE CLASSES ───────────────
@@ -3664,8 +3682,14 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // punctuation, and the old line ended with no way out — so the operator read a
   // refusal and a loss ranking and had nowhere to go. `cell: null` is what stops
   // the offer line from speaking about start times under a ROOM refusal.
+  //
+  // ⚖ FIX ROUND 2 (JP native pass 1) — AND IT STOPS TWICE, NOT THREE TIMES. The
+  // board's own grammar is 「◯◯の予約です。→ 次にやること」 (`foreignStoreRefusal`
+  // is the sibling), and three 。 in a 7-second toast is one beat too many for a
+  // sentence that said 「個室」 four times in 35 characters. 「〜ので」 joins the
+  // reason to the action so they read in one breath.
   if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
-    return stop(`この予約は個室のみです。${bed.label}は個室ではありません。個室の行に置いてください`, 'hard', null)
+    return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)
   }
 
   const failed = checks.find((c) => !c.ok)
@@ -3693,7 +3717,14 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   if (failed && failed.label.startsWith(CLASH_ROW)) return stop(failed.label, 'hard')
   // ⚖ 73's core — the full house. There is no room, so there is nothing for an
   // escalation to buy; the surface offers the starts whose room IS free instead.
-  if (solved.refusal) return stop(solved.refusal, 'hard-room')
+  //
+  // ⚖ FIX ROUND 2 (delta lens 3 N1) — EXCEPT ON THE EXISTENCE BRANCH. No blockers
+  // means the candidate list was EMPTY: this store owns no room of the kind
+  // asked for, so no start on any lane can make one appear and 「…の空く開始は
+  // ありません」 answered the clock's question under a refusal that is not about
+  // the clock. `blockers` is the walk `allocateBed` already did, so this reads
+  // that answer rather than making a second one.
+  if (solved.refusal) return stop(solved.refusal, 'hard-room', solved.blockers.length === 0 ? null : cell)
   if (failed) return stop(failed.label, 'policy')
   // ⚖ LIAM flag 58 (2026-08-22) — ROOT A: AN ACK-ALLOWED REFUSAL IS 要確認,
   // NOT 置けない. His words: 「even the triangle ones are going into red

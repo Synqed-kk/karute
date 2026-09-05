@@ -628,7 +628,18 @@
    rule own `box-shadow` at this exact specificity, so a rule written up beside
    `.dragging` would lose the lift on every card that has a category. */
 .biz .event.resizing { opacity: .88; z-index: 30; cursor: grabbing; box-shadow: 0 8px 22px rgba(24, 24, 27, .22); }
-.biz .timeline.hide-time .e-time, .biz .timeline.hide-tkt .e-tkt { display: none; }
+.biz .timeline.hide-time .e-time { display: none; }
+/* ⚖ FIX ROUND 2 (delta lens 3 N5) — 「チケット・価格」 HIDES THE MONEY, NOT THE
+   PLACEMENT RULE. Hiding the whole `.e-tkt` took 個室のみ and 保持 with it, so a
+   control named after prices switched off the one fact that decides where a card
+   may go — the operator turns prices off for a dense afternoon and loses it. Only
+   the two money nodes go; the leading dot goes with the words it labelled (the
+   category still reads off the card's own left stripe), which leaves the line
+   VISUALLY EMPTY — no content, no line box, and it has no border — on a card
+   carrying neither note. */
+.biz .timeline.hide-tkt .e-tkt::before,
+.biz .timeline.hide-tkt .e-tkt .tkt-cat,
+.biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }
 .biz.drawer-open .event .tg { display: none; }
 
 /* 販売可能枠 tint (E9b), canon :586–598. The wash's alpha SCALES WITH THE
