@@ -245,7 +245,34 @@ export type TakeMeta = {
    *  Never a substitute for `finalizedPath` — that one wins wherever both
    *  exist, because it is the key the whole pipeline reads. */
   stagedPath?: string
-   /** Why the last secure attempt did not finish — the finalize door's own code
+  /** ⚖ HOW FAR THE SERVER HAS THIS TAKE ALREADY (slice five packet C, D7) — the
+   *  highest CONTIGUOUS segment seq storage has confirmed, so the pump knows
+   *  where to resume and never re-uploads what already landed. Contiguous is
+   *  the point: a prefix is the only thing an assembler can build from, so a
+   *  seq that landed with a hole in front of it does NOT advance this.
+   *
+   *  Absent = nothing uploaded, which is design R3's whole upgrade migration:
+   *  every take recorded before this field existed reads as "the server has
+   *  none of it" and is secured WHOLE at stop, exactly as it is today. Nothing
+   *  here is a substitute for that whole-take secure — the segments are the
+   *  head start, `finalizedAt` is the guarantee.
+   *
+   *  It advances ONLY on storage's own 2xx, or on an existing object whose byte
+   *  length is this device's own segment (the mint's `existingSize`) — never on
+   *  a mint alone, never on a launched PUT, never on a bare 409. */
+  uploadedSeq?: number
+  /** Why the segment pump stopped, when the reason is one it must not retry
+   *  (slice five packet C, D7) — a TERMINAL mint refusal, or 'seg_mismatch'
+   *  for an object already at one of this take's segment keys whose length is
+   *  not the device's.
+   *
+   *  DELIBERATELY SEPARATE FROM `secureError`. The whole-take path is
+   *  independent of this one and must stay retryable whatever the segments do:
+   *  a take whose segments are refused is still secured whole at stop, which is
+   *  the guarantee that supersedes them. Nothing outside the pump ever reads
+   *  this — not secureTake, not any drain. */
+  segmentError?: string
+  /** Why the last secure attempt did not finish — the finalize door's own code
    *  ('object_missing' | 'size_mismatch' | 'failed' | …), 'session' for a take
    *  that could not get a row at all, 'upload_<status>' for a refused PUT,
    *  'mint_<status>' for a refused mint, or 'network' for a throw. A
@@ -722,6 +749,33 @@ export async function markTakeSecureError(takeId: string, code: string): Promise
   )
 }
 
+/** ⚖ THE SERVER HAS THIS TAKE UP TO `seq` (slice five packet C, D7) — every
+ *  segment from the start through it, contiguously, confirmed by storage's own
+ *  2xx or by an existing object of this device's own byte length.
+ *
+ *  MONOTONE BY CONSTRUCTION. `when` is read on the row inside the write
+ *  transaction, so a pump whose answer is older than one that already landed
+ *  cannot walk the mark backwards — and a mark that went backwards would make
+ *  the pump re-PUT keys storage has, every one of which is immutable and would
+ *  answer 409 forever. The absent case reads as −1, which is what "nothing
+ *  uploaded" means and what every pre-this-round take is. */
+export async function markSegmentsUploaded(takeId: string, seq: number): Promise<void> {
+  await patchTakeMeta(takeId, { uploadedSeq: seq }, (m) => (m.uploadedSeq ?? -1) < seq)
+}
+
+/** ⚖ THE SEGMENT PUMP MUST NOT RETRY THIS (slice five packet C, D7). A terminal
+ *  mint refusal, or 'seg_mismatch' — an object already at one of this take's
+ *  segment keys whose length is not the device's own.
+ *
+ *  It touches `segmentError` and NOTHING else: `secureError` belongs to the
+ *  whole-take path, which is independent of the segments and must stay
+ *  retryable whatever they do. A take whose segments are refused still secures
+ *  WHOLE at stop, which is the guarantee that supersedes them — so this mark
+ *  costs the head start, never the recording. */
+export async function markSegmentError(takeId: string, code: string): Promise<void> {
+  await patchTakeMeta(takeId, { segmentError: code })
+}
+
 /** Capture pipeline PR3 fix round 9: a BORN-RESERVED start is about to be sent
  *  for this take. Stamped BEFORE the request leaves, because the case it guards
  *  is a LOST RESPONSE — a flag written when the reply lands is a flag the one
@@ -871,6 +925,32 @@ export async function readTakeSecureMeta(takeId: string): Promise<Pick<
     heartbeatAt: meta.heartbeatAt,
     tailIncomplete: meta.tailIncomplete,
     stopPendingAt: meta.stopPendingAt,
+  }
+}
+
+/** What the SEGMENT PUMP needs, and nothing else (slice five packet C, D7):
+ *  the row it mints against, the container its keys carry, how far the server
+ *  already has this take, how far the disk does, whether the whole take is
+ *  already up there — and whether the pump has been told to stop.
+ *
+ *  Its own read rather than a widening of readTakeSecureMeta: the two callers
+ *  are independent paths (this one runs every ~5 s WHILE recording, that one at
+ *  stop and on the drains), and a shared projection would make each of them
+ *  carry the other's fields for no reason. Owner-gated through the same
+ *  readOwnTakeMeta every other read in this file uses. */
+export async function readTakeUploadMeta(takeId: string): Promise<Pick<
+  TakeMeta,
+  'recordingSessionId' | 'mimeType' | 'uploadedSeq' | 'lastSeq' | 'finalizedAt' | 'segmentError'
+> | null> {
+  const meta = await readOwnTakeMeta(takeId)
+  if (!meta) return null
+  return {
+    recordingSessionId: meta.recordingSessionId,
+    mimeType: meta.mimeType,
+    uploadedSeq: meta.uploadedSeq,
+    lastSeq: meta.lastSeq,
+    finalizedAt: meta.finalizedAt,
+    segmentError: meta.segmentError,
   }
 }
 
@@ -1511,6 +1591,74 @@ export async function listOwnStoppedUnsecuredTakeIds(
       .map((m) => m.takeId)
   } catch (err) {
     console.error('[take-store] listOwnStoppedUnsecuredTakeIds failed:', err)
+    return []
+  }
+}
+
+/**
+ * The next stretch of this take's SEGMENTS, for the pump to send (slice five
+ * packet C, D7) — seq order, starting at `afterSeq + 1`, at most `limit` of
+ * them, and CONTIGUOUS: the walk stops at the first gap.
+ *
+ * WHY IT STOPS AT A GAP rather than sending what it finds. `uploadedSeq` is a
+ * PREFIX — the only shape an assembler can build a take out of — so a seq that
+ * landed with a hole in front of it advances nothing and would just be re-sent
+ * on the next pass. Sending it anyway would cost an upload for no progress, and
+ * would let the caller's "highest landed" bookkeeping wander off the prefix.
+ * A gap on disk is not an error either: it is a flush that failed while the
+ * ones after it succeeded, and the take still secures whole at stop.
+ *
+ * Owner-gated exactly like loadTakeBlob, and for the same reason: the segment
+ * read is its own choke point, so a takeId arriving from any caller (or across
+ * a logout/login swap on a shared salon device) still cannot yield another
+ * staffer's audio. Empty on every refusal — no store, nobody signed in, the
+ * take is gone, it is somebody else's, or there is simply nothing after
+ * `afterSeq`.
+ */
+export async function listTakeSegmentsAfter(
+  takeId: string,
+  afterSeq: number,
+  limit: number,
+): Promise<{ seq: number; blob: Blob }[]> {
+  try {
+    const db = await openDb()
+    if (!db) return []
+    const uid = await currentUserId()
+    if (!uid) return []
+    const tx = db.transaction([TAKES, SEGMENTS])
+    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+    if (!meta || meta.ownerUid !== uid) return []
+    // ⚖ A RANGE, NOT A WALK OF THE WHOLE STORE (slice five packet C fix round
+    // 1, K5). The store's own key is `['takeId','seq']`, so this asks for
+    // exactly one take's tail: lower bound this take at `afterSeq + 1`, upper
+    // bound the same take at `[]` — an array sorts above every scalar in
+    // IndexedDB's key order, which makes it the "everything under this takeId"
+    // sentinel. Records come back IN KEY ORDER, so the filter and the sort the
+    // walk needed are gone with it.
+    //
+    // WHY IT HAD TO CHANGE, and it is not tidiness: this runs on the CAPTURE
+    // path, every ~5 s, for the length of the session — its own input grows as
+    // the take it is serving grows (one row per flush: ~1,080 for a 90-minute
+    // take), and every un-cleared take on a shared salon device is in the same
+    // store, permanently, because nothing deletes a segment. Worse, its scope
+    // `[TAKES, SEGMENTS]` is the flush's own readwrite scope, and IndexedDB
+    // serialises overlapping scopes in creation order — so a store-wide read
+    // here delays the very audio write it exists to follow.
+    const rows = (await req(
+      tx
+        .objectStore(SEGMENTS)
+        .getAll(IDBKeyRange.bound([takeId, afterSeq + 1], [takeId, []])),
+    )) as SegmentRow[]
+    const out: { seq: number; blob: Blob }[] = []
+    let want = afterSeq + 1
+    for (const s of rows) {
+      if (out.length >= limit || s.seq !== want) break
+      out.push({ seq: s.seq, blob: s.blob })
+      want++
+    }
+    return out
+  } catch (err) {
+    console.error('[take-store] listTakeSegmentsAfter failed:', err)
     return []
   }
 }

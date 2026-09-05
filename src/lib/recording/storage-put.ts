@@ -32,7 +32,13 @@ const PUT_FLOOR_MS = 60_000
 // FROM ZERO on the next mount, forever. The ceiling this buys is the largest
 // take the recorder can produce — 2 h at 48 kbps ≈ 43 MB — finishing in ~72
 // min; the 60 s floor still mercy-kills a stalled small one.
-const PUT_BYTES_PER_MS = 10
+/** ⚖ EXPORTED SO THERE IS ONE RATE AND TWO FLOORS (rebase round 1, R2). The
+ *  RATE is a property of the link and is the same for every writer; the FLOOR
+ *  is a property of what is being sent, and a ~5 s segment is not a take. The
+ *  segment pump therefore takes this number and puts its own, much shorter
+ *  floor under it (segment-uploader.ts#segmentDeadlineMs) — never a second
+ *  rate, which would let a segment and its own take drift apart on the wire. */
+export const PUT_BYTES_PER_MS = 10
 export const putDeadlineMs = (bytes: number) =>
   Math.max(PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
 

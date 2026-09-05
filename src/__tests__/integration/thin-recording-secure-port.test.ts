@@ -369,6 +369,163 @@ describe('thin recording port — mintTakeUrl', () => {
   })
 })
 
+// Slice five packet C (C5) — the SEGMENT door, the same upload-url door with a
+// `seqs` list on the body. It reserves nothing and writes nothing; what stands
+// in for that is the row's own pointer, and its refusal is TERMINAL.
+describe('thin recording port — mintSegmentUrls', () => {
+  const TAKE = FINALIZE.takeId
+  const segPath = (seq: number) => `seg/app_biz-1_${TAKE}/${String(seq).padStart(6, '0')}.mp4`
+
+  it('POSTs the take, its container, the row and the seqs to the same door', async () => {
+    let seen: [string, RequestInit | undefined] | null = null
+    const apiFetch = port(async (path: string, init?: RequestInit) => {
+      seen = [path, init]
+      return new Response(
+        JSON.stringify({
+          segments: [0, 1].map((seq) => ({
+            seq,
+            path: segPath(seq),
+            url: `https://proj.supabase.co/upload/seg-${seq}?token=up`,
+            contentType: 'audio/mp4',
+            // The facade echoes the mint's WHOLE result, and the mint's
+            // segment arm carries the bare signed token as well.
+            token: 'up',
+          })),
+          recordingSessionId: FINALIZE.recordingSessionId,
+        }),
+        { status: 200 },
+      )
+    })
+
+    // toEqual, not toMatchObject: the ABSENCE of `token` is the assertion, and
+    // so is the absence of `recordingSessionId` — the port's shape is the
+    // segments alone, because the caller already knows which row it named.
+    await expect(
+      viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0, 1]),
+    ).resolves.toEqual({
+      segments: [
+        { seq: 0, path: segPath(0), url: 'https://proj.supabase.co/upload/seg-0?token=up', contentType: 'audio/mp4' },
+        { seq: 1, path: segPath(1), url: 'https://proj.supabase.co/upload/seg-1?token=up', contentType: 'audio/mp4' },
+      ],
+    })
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    const [path, init] = seen!
+    // ONE door for the phone and the web page, on this act too.
+    expect(path).toBe('/api/app/v1/recordings/upload-url')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(init?.body as string)).toEqual({
+      takeId: TAKE,
+      mimeType: 'audio/mp4',
+      recordingSessionId: FINALIZE.recordingSessionId,
+      seqs: [0, 1],
+    })
+  })
+
+  // ⚖ THE ALREADY-THERE ARM. Over the wire there is no union to narrow, so the
+  // honest read is a typed object with `url?` — and a seq that carries no url
+  // becomes the size arm, with `null` for a storage answer that had no size.
+  it('a seq with no url becomes the SIZE arm, and a missing size is null', async () => {
+    port(
+      async () =>
+        new Response(
+          JSON.stringify({
+            segments: [
+              { seq: 0, path: segPath(0), contentType: 'audio/mp4', existingSize: 4096 },
+              { seq: 1, path: segPath(1), contentType: 'audio/mp4' },
+            ],
+            recordingSessionId: FINALIZE.recordingSessionId,
+          }),
+          { status: 200 },
+        ),
+    )
+    await expect(
+      viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0, 1]),
+    ).resolves.toEqual({
+      segments: [
+        { seq: 0, path: segPath(0), contentType: 'audio/mp4', existingSize: 4096 },
+        { seq: 1, path: segPath(1), contentType: 'audio/mp4', existingSize: null },
+      ],
+    })
+  })
+
+  // ⚖ not_reserved IS TERMINAL, and it has to be CLASSIFIED to be terminal: read
+  // as the generic `mint_409` it would stay retryable, and the phone would ask
+  // for keys under a take the row has not reserved on every flush, for ever.
+  it('HTTP 409 not_reserved → the mint code, and the store judges it TERMINAL', async () => {
+    port(async () => new Response(facadeError('conflict', 'not_reserved'), { status: 409 }))
+    await expect(
+      viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0]),
+    ).resolves.toEqual({ error: 'not_reserved' })
+    expect(TERMINAL_SECURE_ERRORS.has('not_reserved')).toBe(true)
+  })
+
+  it.each([
+    [400, 'bad_input', facadeError('validation', 'bad_input')],
+    [403, 'forbidden', facadeError('forbidden', 'that recording session is not yours to record onto')],
+    [404, 'not_found', facadeError('not_found', 'no such recording session')],
+    [502, 'upstream', facadeError('upstream_unavailable', 'could not mint an upload URL')],
+    [429, 'mint_429', errorBody('rate_limited')],
+  ])('HTTP %i → the mint code %s', async (status, code, body) => {
+    port(async () => new Response(body as string, { status }))
+    await expect(
+      viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0]),
+    ).resolves.toEqual({ error: code })
+  })
+
+  // A 2xx whose body has no `segments` array is a refusal, not an assumed
+  // success — the finalize twin's lesson, on this door too.
+  it.each([
+    ['an unreadable body', '<html>gateway</html>'],
+    ['a 2xx with no segments at all', JSON.stringify({ recordingSessionId: 'rs-1' })],
+    ['a 2xx whose segments are not a list', JSON.stringify({ segments: 'nope' })],
+  ])('%s is a refusal, never an assumed success', async (_label, body) => {
+    port(async () => new Response(body, { status: 200 }))
+    await expect(
+      viteRecordingPort.mintSegmentUrls(TAKE, 'audio/mp4', FINALIZE.recordingSessionId, [0]),
+    ).resolves.toEqual({ error: 'mint_200' })
+  })
+
+  // ⚖ AND THE DOOR'S OWN TIMEOUT ARRIVES AS A CODE (fix round 4, Q1). `doorFetch`
+  // is an AbortController and a try/finally with NO catch, so its 30 s deadline
+  // used to REJECT out of this port — the one shape the caller cannot read. The
+  // pump's belt halves its next catch-up on `upstream` PRECISELY because a
+  // 60-seq batch is what makes this door run out of time; as a throw it landed
+  // in the pump's outer catch, bumped the backoff and halved nothing, so the
+  // phone re-asked for the same impossible sixty for as long as the latency
+  // lasted. This is the primary platform, so the belt has to work here first.
+  it('a door that never answers comes back as upstream — never a throw', async () => {
+    jest.useFakeTimers()
+    try {
+      let aborted = false
+      port(
+        (_path: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              aborted = true
+              reject(new Error('AbortError'))
+            })
+          }),
+      )
+
+      const pending = viteRecordingPort.mintSegmentUrls(
+        TAKE,
+        'audio/mp4',
+        FINALIZE.recordingSessionId,
+        [0, 1],
+      )
+      await jest.advanceTimersByTimeAsync(30_000)
+
+      // The named, RETRYABLE code the belt reads — and the socket released.
+      await expect(pending).resolves.toEqual({ error: 'upstream' })
+      expect(aborted).toBe(true)
+      expect(TERMINAL_SECURE_ERRORS.has('upstream')).toBe(false)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
+
 describe('thin recording port — finalizeTake', () => {
   it('POSTs the finalize body verbatim to the shared door', async () => {
     let seen: [string, RequestInit | undefined] | null = null

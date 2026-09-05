@@ -63,10 +63,36 @@ const mintRecordingReadUrl = jest.fn(async (p: string) => ({
 const recordingFinalizedKey = jest.fn(
   async (_i: { takeId: string; mimeType: string }) => 'app_biz-1_take-9.webm' as string | null,
 )
+/** The SEGMENT door (slice five packet C). Two success arms per seq — signed,
+ *  and "an object is already here, and this is its length" — because the pump
+ *  must tell them apart before it decides whether to PUT anything. */
+type SegmentReply =
+  | {
+      segments: (
+        | { seq: number; path: string; url: string; token: string; contentType: string }
+        | { seq: number; path: string; contentType: string; existingSize: number | null }
+      )[]
+      recordingSessionId: string
+    }
+  | { error: string }
+const mintRecordingSegmentUrls = jest.fn(
+  async (input: MintInput & { seqs?: number[] | null }): Promise<SegmentReply> => ({
+    segments: (input.seqs ?? []).map((seq) => ({
+      seq,
+      path: `seg/app_biz-1_take-1/${String(seq).padStart(6, '0')}.webm`,
+      url: `https://proj.supabase.co/upload/seg-${seq}?token=up`,
+      token: 'up',
+      contentType: 'audio/webm',
+    })),
+    recordingSessionId: 'rs-1',
+  }),
+)
 jest.mock('@/actions/recording-upload', () => ({
   mintRecordingUploadUrl: (i?: MintInput) => mintRecordingUploadUrl(i),
   mintRecordingReadUrl: (p: string) => mintRecordingReadUrl(p),
   recordingFinalizedKey: (i: { takeId: string; mimeType: string }) => recordingFinalizedKey(i),
+  mintRecordingSegmentUrls: (i: MintInput & { seqs?: number[] | null }) =>
+    mintRecordingSegmentUrls(i),
 }))
 
 // The finalize door's web twin. Mocked because @/actions/recordings reaches
@@ -99,6 +125,16 @@ beforeEach(() => {
   }))
   startRecordingSessionAction.mockImplementation(async () => ({ id: 'rs-new' }))
   recordingFinalizedKey.mockImplementation(async () => 'app_biz-1_take-9.webm')
+  mintRecordingSegmentUrls.mockImplementation(async (input) => ({
+    segments: (input.seqs ?? []).map((seq) => ({
+      seq,
+      path: `seg/app_biz-1_take-1/${String(seq).padStart(6, '0')}.webm`,
+      url: `https://proj.supabase.co/upload/seg-${seq}?token=up`,
+      token: 'up',
+      contentType: 'audio/webm',
+    })),
+    recordingSessionId: 'rs-1',
+  }))
   fetchMock.mockImplementation(async () => ({ ok: true, status: 200 }) as unknown as Response)
   global.fetch = fetchMock as unknown as typeof fetch
 })
@@ -553,6 +589,79 @@ describe('webRecordingPort.mintTakeUrl', () => {
   })
 })
 
+// ⚖ THE SEGMENT DOOR (slice five packet C, C5). The same door the take mint
+// knocks on, asked for a BATCH of keys under one take's folder — and the arm
+// that says "an object is already here" carries a SIZE and no way to write.
+describe('webRecordingPort.mintSegmentUrls', () => {
+  it('names the take, its container, the row and the seqs — verbatim', async () => {
+    await webRecordingPort.mintSegmentUrls('take-uuid-1', 'audio/mp4', 'rs-1', [0, 1, 2])
+    expect(mintRecordingSegmentUrls).toHaveBeenCalledWith({
+      takeId: 'take-uuid-1',
+      mimeType: 'audio/mp4',
+      recordingSessionId: 'rs-1',
+      seqs: [0, 1, 2],
+    })
+  })
+
+  // The port TYPE drops `token`, and the object must drop it too — the same
+  // rule, and the same reason, as mintTakeUrl one describe up.
+  it('the signing token never leaves the port, on any seq', async () => {
+    const minted = await webRecordingPort.mintSegmentUrls('take-uuid-1', 'audio/webm', 'rs-1', [
+      0, 1,
+    ])
+    expect(minted).toEqual({
+      segments: [
+        {
+          seq: 0,
+          path: 'seg/app_biz-1_take-1/000000.webm',
+          url: 'https://proj.supabase.co/upload/seg-0?token=up',
+          contentType: 'audio/webm',
+        },
+        {
+          seq: 1,
+          path: 'seg/app_biz-1_take-1/000001.webm',
+          url: 'https://proj.supabase.co/upload/seg-1?token=up',
+          contentType: 'audio/webm',
+        },
+      ],
+    })
+    // …and the action really did hand tokens over, so the line above is the
+    // port dropping them rather than the fake never sending any.
+    const sent = (await mintRecordingSegmentUrls.mock.results[0].value) as {
+      segments: { token?: string }[]
+    }
+    expect(sent.segments[0].token).toBe('up')
+  })
+
+  // ⚖ THE ALREADY-THERE ARM CARRIES NO URL AT ALL (the R2 rule). Absent, never
+  // empty: nothing reachable from that answer can PUT, and the pump has to
+  // narrow before it reaches for one.
+  it('an occupied seq comes through as a SIZE, with no url on it', async () => {
+    mintRecordingSegmentUrls.mockImplementation(async () => ({
+      segments: [
+        { seq: 0, path: 'seg/app_biz-1_take-1/000000.webm', contentType: 'audio/webm', existingSize: 4096 },
+        { seq: 1, path: 'seg/app_biz-1_take-1/000001.webm', contentType: 'audio/webm', existingSize: null },
+      ],
+      recordingSessionId: 'rs-1',
+    }))
+    const minted = await webRecordingPort.mintSegmentUrls('t', 'audio/webm', 'rs-1', [0, 1])
+    expect(minted).toEqual({
+      segments: [
+        { seq: 0, path: 'seg/app_biz-1_take-1/000000.webm', contentType: 'audio/webm', existingSize: 4096 },
+        { seq: 1, path: 'seg/app_biz-1_take-1/000001.webm', contentType: 'audio/webm', existingSize: null },
+      ],
+    })
+    expect('segments' in minted && 'url' in minted.segments[0]).toBe(false)
+  })
+
+  it('a refusal comes back NAMED, never thrown', async () => {
+    mintRecordingSegmentUrls.mockImplementation(async () => ({ error: 'not_reserved' }))
+    await expect(
+      webRecordingPort.mintSegmentUrls('take-uuid-1', 'audio/webm', 'rs-1', [0]),
+    ).resolves.toEqual({ error: 'not_reserved' })
+  })
+})
+
 describe('webRecordingPort.finalizeTake', () => {
   it('calls the cookie twin of the facade door with the body verbatim', async () => {
     const input = {
@@ -650,6 +759,22 @@ describe('the web arm’s doors are bounded too', () => {
     expect(state.settled).toBe(false)
     await jest.advanceTimersByTimeAsync(1_000)
 
+    await expect(done).resolves.toEqual({ error: 'upstream' })
+  })
+
+  it('a segment mint that never answers is abandoned at 30 s — retryable, never terminal', async () => {
+    mintRecordingSegmentUrls.mockImplementationOnce(() => new Promise(() => {}))
+    const { state, done } = watch(
+      webRecordingPort.mintSegmentUrls('take-uuid-1', 'audio/webm', 'rs-1', [0]),
+    )
+
+    await jest.advanceTimersByTimeAsync(29_000)
+    expect(mintRecordingSegmentUrls).toHaveBeenCalledTimes(1)
+    expect(state.settled).toBe(false)
+    await jest.advanceTimersByTimeAsync(1_000)
+
+    // 'upstream' is the one code the pump does not judge terminal — a stall is
+    // a moment in time, so these seqs stay askable.
     await expect(done).resolves.toEqual({ error: 'upstream' })
   })
 

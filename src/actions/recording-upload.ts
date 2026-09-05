@@ -25,7 +25,9 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { composeTakeKey, isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
+  mintSegmentUploadUrls,
   mintTakeUploadUrl,
+  type MintSegmentUrlsResult,
   type MintTakeUrlInput,
   type MintTakeUrlResult,
 } from '@/lib/recording/mint-take-url'
@@ -125,6 +127,55 @@ export async function mintRecordingUploadUrl(
     )
   } catch (err) {
     console.warn('[mintRecordingUploadUrl] failed:', err)
+    return { error: 'upstream' }
+  }
+}
+
+/**
+ * Mint signed upload URLs for a BATCH of one take's SEGMENTS (slice five packet
+ * C, D6) — the bytes that reach the server WHILE the recording is running.
+ *
+ * BYTE-FOR-BYTE THE SHAPE OF `mintRecordingUploadUrl` above, and deliberately
+ * so: same capability asked with `can()` so a denial SETTLES rather than throws,
+ * same three cookie-derived identities (a caller names neither its tenant, nor
+ * itself, nor its reach), same shared body, same never-throws contract with
+ * every failure folded into the one retryable `upstream`. The two acts differ
+ * only in which shared body they call — everything that makes calling one safe
+ * makes calling the other safe.
+ *
+ * A SEPARATE EXPORT rather than a branch inside the mint above, because the two
+ * answer DIFFERENT result unions: a caller that asked for segments and got a
+ * take's single signed url (or the reverse) would be one `as` away from PUTting
+ * a whole take at a segment key. The facade route branches on `seqs` before
+ * either body runs, for the same reason.
+ */
+export async function mintRecordingSegmentUrls(
+  input: MintTakeUrlInput,
+): Promise<MintSegmentUrlsResult> {
+  try {
+    // Asked INSIDE the try but answered on its own, exactly as the mint above
+    // does it: a denied capability is TERMINAL, and folding it into the catch
+    // would hand the pump the retryable 'upstream' for a permission it will
+    // never gain. A THROW from the gate itself is still infrastructure.
+    if (!(await can('records.write'))) return { error: 'forbidden' }
+    const [businessId, staffId, capabilities] = await Promise.all([
+      getBusinessId(),
+      getCurrentUserStaffId(),
+      getMyCapabilities(),
+    ])
+
+    return await mintSegmentUploadUrls(
+      newSynqedClient(businessId),
+      {
+        staffId,
+        businessId,
+        canViewAll: capabilities.has('recordings.viewAll'),
+        source: 'web',
+      },
+      input,
+    )
+  } catch (err) {
+    console.warn('[mintRecordingSegmentUrls] failed:', err)
     return { error: 'upstream' }
   }
 }

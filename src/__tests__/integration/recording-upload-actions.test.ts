@@ -98,7 +98,11 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-import { mintRecordingUploadUrl, mintRecordingReadUrl } from '@/actions/recording-upload'
+import {
+  mintRecordingUploadUrl,
+  mintRecordingReadUrl,
+  mintRecordingSegmentUrls,
+} from '@/actions/recording-upload'
 import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
@@ -106,6 +110,7 @@ import {
   isStagedKeyFor,
   looksLikeRecordingKey,
   composeTakeKey,
+  composeSegmentKey,
   composeStagedKey,
   extFromMime,
 } from '@/lib/recording/key-grammar'
@@ -1104,6 +1109,276 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
 
 // The composed key for a take that was finalized before the key was stamped —
 // a pure composition, and the ONE door that answers it (fix round 7, J2).
+// ⚖ THE THIRD ACT (slice five packet C, C2). Segments are the bytes that reach
+// the server WHILE the recording is running. This door signs keys under a take's
+// own folder and does nothing else: no reservation, no core write, no audit row
+// — and the fence that stands in for the reservation it does not make is the
+// row's OWN pointer, which must already be this take's key.
+describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fences on the pointer', () => {
+  const SEGS = { ...NAMED, seqs: [0, 1, 2] }
+  const segKey = (seq: number, ext = 'webm') =>
+    `seg/app_biz-1_${UUID}/${String(seq).padStart(6, '0')}.${ext}`
+
+  /** The state the segment door needs: the row has ALREADY reserved this take's
+   *  key (which is what startRecordingSession's born-reserved create does, and
+   *  what the whole-take mint meets as "already ours"). */
+  const reserved = () => get.mockResolvedValue(row({ audio_storage_path: OWN }))
+
+  async function segmentsOk(input: MintTakeUrlInput = SEGS) {
+    const res = await mintRecordingSegmentUrls(input)
+    if ('error' in res) throw new Error(`expected minted segments, got ${res.error}`)
+    return res
+  }
+
+  it('signs one key per seq, under this take’s folder, in the order asked', async () => {
+    reserved()
+    const res = await segmentsOk()
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(res.segments.map((s) => s.seq)).toEqual([0, 1, 2])
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0), segKey(1), segKey(2)])
+    for (const s of res.segments) {
+      expect(s.contentType).toBe('audio/webm')
+      expect('url' in s && s.url).toBe(`https://proj.supabase.co/upload/${s.path}?token=t`)
+    }
+    // Signed with NO options, exactly as the take mint signs (fix round 3): a
+    // segment key is immutable evidence too, so upsert here would let one
+    // caller overwrite a fragment somebody else recorded.
+    expect(createSignedUploadUrl.mock.calls).toEqual([[segKey(0)], [segKey(1)], [segKey(2)]])
+  })
+
+  // The whole shape of this door in one assertion: it can only ADD objects.
+  it('reserves nothing, writes nothing, audits nothing', async () => {
+    reserved()
+    await segmentsOk()
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+    expect(removeObj).not.toHaveBeenCalled()
+  })
+
+  it('the container decides the extension AND the content type, on every seq', async () => {
+    // The fence compares against the key composed from THIS body's container,
+    // so an mp4 take is fenced on its own `.mp4` pointer — which is exactly the
+    // key startRecordingSession reserved for it.
+    get.mockResolvedValue(row({ audio_storage_path: `app_biz-1_${UUID}.mp4` }))
+    const res = await segmentsOk({ ...SEGS, mimeType: 'audio/mp4;codecs=mp4a.40.2' })
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0, 'mp4'), segKey(1, 'mp4'), segKey(2, 'mp4')])
+    expect(res.segments.every((s) => s.contentType === 'audio/mp4')).toBe(true)
+  })
+
+  // ⚖ THE FENCE. A row bound to ANOTHER take is not this take's row, and
+  // signing segments under this take's folder against it would put one take's
+  // fragments where another's belong.
+  it('a row pointing at ANOTHER take → not_reserved, and nothing is signed', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: OTHER_KEY }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_reserved' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  // …and an UNBOUND row is the whole-take mint's job at stop, never this one's:
+  // this door must not be the thing that binds a take.
+  it('a row that has reserved NOTHING → not_reserved too', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_reserved' })
+    expectNoBinding()
+  })
+
+  it('another staffer’s session → forbidden, before the pointer is even read', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
+  })
+
+  // ⚖ AND NOT EVEN WITH recordings.viewAll — SENDING SEGMENTS IS THE RECORDER'S
+  // ALONE (fix round 1, K1: the staged door's own line, for the staged door's
+  // own reason). Owner reach is right on the TAKE mint — reserving a
+  // colleague's take is a designed act there, and finalize re-proves ownership
+  // and byte length behind it — and buys this door nothing: the pump runs on
+  // the recording device, off the owner-gated take store, and is the only
+  // caller. What it bought instead was a lever. A segment key is composable in
+  // advance, and both halves of it (the take id, the container) are readable
+  // off the colleague's own row by exactly this capability, so an owner could
+  // mint a seq the device had not reached yet and PUT anything into it: the key
+  // is immutable, so the real device could never write that seq; its next pump
+  // would meet a length that is not its own and go terminally quiet for the
+  // rest of the take; and the folder an assembler will one day build from would
+  // hold bytes nobody recorded. The take is never lost by it — the whole-take
+  // secure at stop is independent — but the new guarantee is.
+  it('…and NOT even with recordings.viewAll — the segments are the recorder’s alone', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    // Nothing probed and nothing signed: the refusal lands before a single key
+    // is asked about, so the door is not an existence oracle over the folder
+    // either. (The take mint KEEPS its owner reach — pinned by its own case,
+    // "…while the take mint KEEPS its owner reach", above.)
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it('…while the recorder themselves is unchanged — same capability, own row', async () => {
+    reserved()
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await segmentsOk()
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0), segKey(1), segKey(2)])
+  })
+
+  it('no acting staff identity → forbidden, and core is never read', async () => {
+    getCurrentUserStaffId.mockResolvedValue(null)
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(get).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it('a session id core does not know → not_found', async () => {
+    get.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_found' })
+    expectNoBinding()
+  })
+
+  it('core failing to answer → upstream, retryable, nothing signed', async () => {
+    get.mockRejectedValue(new Error('socket'))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('gates on records.write before anything — a denial settles, never throws', async () => {
+    can.mockResolvedValue(false)
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['61 seqs — past the batch cap', { ...NAMED, seqs: Array.from({ length: 61 }, (_, i) => i) }],
+    ['a duplicate seq', { ...NAMED, seqs: [0, 1, 1] }],
+    ['an empty list', { ...NAMED, seqs: [] }],
+    ['a seq past the six-digit pad', { ...NAMED, seqs: [1_000_000] }],
+    ['a negative seq', { ...NAMED, seqs: [-1] }],
+    ['a fractional seq', { ...NAMED, seqs: [1.5] }],
+    ['seqs with no takeId', { recordingSessionId: SESSION, seqs: [0] }],
+    ['seqs beside a stagedFor', { stagedFor: SESSION, seqs: [0] }],
+    ['seqs with no session to fence against', { takeId: UUID, mimeType: 'audio/webm', seqs: [0] }],
+    ['no seqs at all — this is not this act', NAMED],
+  ])('refuses %s — bad_input, and core is never read', async (_label, input) => {
+    await expect(mintRecordingSegmentUrls(input as MintTakeUrlInput)).resolves.toEqual({
+      error: 'bad_input',
+    })
+    expect(get).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it.each([
+    ['a container this server will not store', { ...SEGS, mimeType: 'audio/mpeg' }, 'bad_mime'],
+    ['an uppercase take uuid', { ...SEGS, takeId: UUID.toUpperCase() }, 'bad_take_id'],
+  ])('%s → %s, split exactly as the take mint splits them', async (_l, input, code) => {
+    reserved()
+    await expect(mintRecordingSegmentUrls(input as MintTakeUrlInput)).resolves.toEqual({
+      error: code,
+    })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a signing failure answers upstream, never a half-made batch', async () => {
+    reserved()
+    createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+  })
+
+  // ⚖ AND A KEY THAT IS COMPOSABLE IN ADVANCE IS NEVER SIGNED OVER (the R2 rule
+  // packet B's fix round 2 gave the staged path, on this path too — and here it
+  // matters more, because the assembler will one day build a take out of these
+  // objects).
+  it('an object already at a seq comes back as a SIZE, never a URL', async () => {
+    reserved()
+    info.mockImplementation(async (key: string) =>
+      key === segKey(1)
+        ? { data: { size: 4096 }, error: null }
+        : { data: null, error: notFoundError },
+    )
+    const res = await segmentsOk()
+    expect(res.segments[1]).toEqual({
+      seq: 1,
+      path: segKey(1),
+      contentType: 'audio/webm',
+      existingSize: 4096,
+    })
+    expect('url' in res.segments[1]).toBe(false)
+    // Nothing was signed for THAT key — the answer hands out no way to write it.
+    expect(createSignedUploadUrl.mock.calls).toEqual([[segKey(0)], [segKey(2)]])
+    // …and the other two are ordinary signed arms, so one occupied key never
+    // costs the batch.
+    expect('url' in res.segments[0]).toBe(true)
+    expect('url' in res.segments[2]).toBe(true)
+  })
+
+  it('storage answering without a size says so — null, never a guess', async () => {
+    reserved()
+    info.mockResolvedValue({ data: {}, error: null })
+    const res = await segmentsOk()
+    expect(res.segments.every((s) => 'existingSize' in s && s.existingSize === null)).toBe(true)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('storage that does not ANSWER is upstream — retryable, and nothing signed', async () => {
+    reserved()
+    info.mockResolvedValue({ data: null, error: { message: 'gateway', status: 500 } })
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE BATCH HAS TO FIT THE DOOR (fix round 2, M2). One seq is two
+  // storage calls; sixty of them one after another is up to 120 round trips,
+  // which at ordinary latency outlives the CALLER's 30 s door — so the answer
+  // is thrown away, no prefix advances, and the pump asks for the same sixty
+  // again for as long as the latency lasts. In waves the same work is ~8 waves
+  // of two calls. The wave size is what this pins: more than one at a time, and
+  // never so many that one client's catch-up opens sixty sockets to storage.
+  it('probes and signs in BOUNDED PARALLEL, and the answer stays in seq order', async () => {
+    reserved()
+    const all = Array.from({ length: 60 }, (_, i) => i)
+    let live = 0
+    let peak = 0
+    info.mockImplementation(async () => {
+      live++
+      peak = Math.max(peak, live)
+      // A real tick, so overlap is observable at all: an instantly-resolved
+      // probe never has two in flight, whatever the door does.
+      await new Promise((r) => setTimeout(r, 0))
+      live--
+      return { data: null, error: notFoundError }
+    })
+
+    const res = await segmentsOk({ ...NAMED, seqs: all })
+
+    expect(res.segments.map((s) => s.seq)).toEqual(all)
+    expect(res.segments.map((s) => s.path)).toEqual(all.map((seq) => segKey(seq)))
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(8)
+  })
+
+  // …and a wave that runs beside a refusal changes nothing about the refusal:
+  // the first seq IN ORDER that could not be probed ends the whole call, and
+  // the others only ever read and signed — this door writes nothing.
+  it('one probe that does not answer ends the batch — upstream, never a half-made one', async () => {
+    reserved()
+    info.mockImplementation(async (key: string) =>
+      key === segKey(2)
+        ? { data: null, error: { message: 'gateway', status: 500 } }
+        : { data: null, error: notFoundError },
+    )
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('the probe is asked for the composed key itself, once per seq', async () => {
+    reserved()
+    await segmentsOk()
+    expect(info.mock.calls).toEqual([[segKey(0)], [segKey(1)], [segKey(2)]])
+  })
+})
+
 describe('recordingFinalizedKey — the backfill door', () => {
   it('composes the SAME key the mint reserved, with no DB and no storage', async () => {
     const { recordingFinalizedKey } = await import('@/actions/recording-upload')
@@ -1171,6 +1446,94 @@ describe('composeTakeKey — the self-check, as a table', () => {
   })
 })
 
+// ⚖ THE THIRD COMPOSER (slice five packet C, C1). A segment is a ~5 s slice of a
+// take that is still being recorded, and its key hangs under that take's own
+// folder — so the pad, the bounds and the self-parse are what keep a thousand
+// of them ordered, tenant-scoped, and refused by every fence that means a WHOLE
+// take.
+describe('composeSegmentKey — the segment shape, as a table', () => {
+  const MIMES = [
+    ['audio/webm', 'webm'],
+    ['audio/webm;codecs=opus', 'webm'],
+    ['audio/mp4', 'mp4'],
+    ['audio/ogg', 'ogg'],
+    ['audio/wav', 'wav'],
+  ] as const
+
+  it.each(MIMES)('%s composes a key that parses as kind segment', (mimeType, ext) => {
+    const composed = composeSegmentKey('biz-1', UUID, 7, mimeType)!
+    expect(composed).toMatchObject({ ext, contentType: mimeType.split(';')[0], seq: 7 })
+    expect(composed.key).toBe(`seg/app_biz-1_${UUID}/000007.${ext}`)
+    expect(parseRecordingKey(composed.key, 'biz-1')).toEqual({
+      kind: 'segment',
+      takeId: UUID,
+      seq: 7,
+      ext,
+    })
+  })
+
+  // LEXICAL ORDER IS NUMERIC ORDER — the property a storage listing of the
+  // folder rests on, and the only thing the six-digit pad exists for.
+  it.each([
+    [0, '000000'],
+    [7, '000007'],
+    [42, '000042'],
+    [999, '000999'],
+    [1_000, '001000'],
+    [999_999, '999999'],
+  ])('pads seq %i to %s, and parses back to the same number', (seq, stem) => {
+    const composed = composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!
+    expect(composed.key).toBe(`seg/app_biz-1_${UUID}/${stem}.webm`)
+    expect(parseRecordingKey(composed.key, 'biz-1')).toMatchObject({ seq })
+  })
+
+  it('a sorted listing of composed keys IS capture order', () => {
+    const keys = [3, 11, 2, 1_000, 0].map(
+      (seq) => composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!.key,
+    )
+    expect([...keys].sort()).toEqual(
+      [0, 2, 3, 11, 1_000].map((seq) => composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!.key),
+    )
+  })
+
+  it.each([
+    ['a non-uuid take', 'take-1', 0, 'audio/webm'],
+    ['an uppercase uuid take', UUID.toUpperCase(), 0, 'audio/webm'],
+    ['a string-shaped non-string take', IMPOSTOR, 0, 'audio/webm'],
+    ['a negative seq', UUID, -1, 'audio/webm'],
+    ['a seq past the six-digit pad', UUID, 1_000_000, 'audio/webm'],
+    ['a fractional seq', UUID, 1.5, 'audio/webm'],
+    ['NaN', UUID, Number.NaN, 'audio/webm'],
+    ['Infinity', UUID, Number.POSITIVE_INFINITY, 'audio/webm'],
+    ['a string-shaped seq', UUID, '7', 'audio/webm'],
+    ['a container outside the closed map', UUID, 0, 'audio/mpeg'],
+    ['a prototype member as the container', UUID, 0, 'constructor'],
+    ['no container at all', UUID, 0, null],
+  ])('refuses %s — null, never a composed key', (_label, takeId, seq, mimeType) => {
+    expect(composeSegmentKey('biz-1', takeId, seq, mimeType)).toBeNull()
+  })
+
+  it('a composed segment key belongs to NOBODY else, and is not a take anywhere', () => {
+    const composed = composeSegmentKey('biz-1', UUID, 3, 'audio/mp4')!
+    expect(parseRecordingKey(composed.key, 'other-biz')).toBeNull()
+    // ⚖ EVERY TAKE FENCE REFUSES A SEGMENT. Widening the grammar must not widen
+    // a single fence: these keys are this tenant's, they parse, and no door
+    // that means a whole take may accept one.
+    expect(isOwnRecordingKey(composed.key, 'biz-1')).toBe(false)
+    expect(isOwnRecordingKey(composed.key, 'other-biz')).toBe(false)
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(false)
+  })
+
+  it('the folder is exactly the take key’s stem — one folder per take', () => {
+    const take = composeTakeKey('biz-1', UUID, 'audio/mp4')!
+    const seg = composeSegmentKey('biz-1', UUID, 0, 'audio/mp4')!
+    expect(seg.key).toBe(`seg/${take.key.slice(0, -'.mp4'.length)}/000000.mp4`)
+    // Nested on purpose: /api/cleanup lists the bucket ROOT non-recursively, so
+    // a thousand flat segment names per take would land in front of every sweep.
+    expect(seg.key.split('/')).toHaveLength(3)
+  })
+})
+
 describe('mintRecordingReadUrl — the tenant fence', () => {
   it('signs a path under the caller’s own prefix', async () => {
     await expect(mintRecordingReadUrl(OWN)).resolves.toEqual({
@@ -1211,6 +1574,10 @@ describe('removeRecordingObject is REMOVED', () => {
     const mod = (await import('@/actions/recording-upload')) as Record<string, unknown>
     expect(Object.keys(mod).sort()).toEqual([
       'mintRecordingReadUrl',
+      // Slice five packet C: the SEGMENT mint. It reserves nothing, writes
+      // nothing and audits nothing — and like every door in this file it can
+      // only ADD an object to the bucket, never take one away.
+      'mintRecordingSegmentUrls',
       'mintRecordingUploadUrl',
       // Fix round 7: a PURE composition (no DB, no storage) for a take
       // finalized before the key was stamped. It reads nothing and writes

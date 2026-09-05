@@ -68,6 +68,7 @@ import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
+  composeSegmentKey,
   composeStagedKey,
   composeTakeKey,
   parseRecordingKey,
@@ -127,6 +128,14 @@ export interface MintTakeUrlInput {
    *  `stagedFor` already carries a take pointer, THAT take fills the slot and a
    *  value disagreeing with it is `bad_input`. See the staged branch. */
   stagedTake?: string | null
+  /** ⚖ THE SEGMENTS OF A TAKE STILL BEING RECORDED (slice five packet C, D6).
+   *  The seqs this call wants keys for — the third act this one door mints, and
+   *  the only one that reserves nothing AND writes nothing AND audits nothing.
+   *  REQUIRES `takeId` (and through it `mimeType` + `recordingSessionId`), never
+   *  rides with `stagedFor`, and is read by `mintSegmentUploadUrls` alone: the
+   *  whole-take mint below ignores it, and the two doors branch on its presence
+   *  before either body runs. */
+  seqs?: number[] | null
 }
 
 export type MintTakeUrlResult =
@@ -172,6 +181,37 @@ export type MintTakeUrlResult =
     }
 
 type MintErrorCode = Extract<MintTakeUrlResult, { error: string }>['error']
+
+/**
+ * ONE segment's answer — the same two arms the take mint's success side has,
+ * and for the same reason (fix round 2, ⚖ R2).
+ *
+ * The signed arm carries a `url` and its bare `token`; the already-there arm
+ * carries NEITHER — deliberately absent rather than empty, so nothing reachable
+ * from that answer can PUT, and every consumer must NARROW before it reaches
+ * for one. `existingSize` is the only thing on it that means anything: the
+ * device compares it against its OWN segment blob's length, and adopts the seq
+ * only when the two agree.
+ */
+export type MintedSegment =
+  | { seq: number; path: string; url: string; token: string; contentType: string }
+  | { seq: number; path: string; contentType: string; existingSize: number | null }
+
+export type MintSegmentUrlsResult =
+  | { segments: MintedSegment[]; recordingSessionId: string }
+  | {
+      error:
+        | 'bad_input'
+        | 'bad_mime'
+        | 'bad_take_id'
+        | 'forbidden'
+        | 'not_found'
+        /** ⚖ THE ROW HAS NOT RESERVED THIS TAKE. Terminal for segments on the
+         *  device side (TERMINAL_SECURE_ERRORS already holds the code — it is
+         *  finalize's own twin), and the fence the whole segment door rests on. */
+        | 'not_reserved'
+        | 'upstream'
+    }
 
 /** What the mint composed with no client input — today's exact shape. */
 const DEFAULT_MIME = 'audio/webm'
@@ -221,7 +261,17 @@ function auditTakeNamed(
  * advance since slice five packet B, so "something exists here" no longer says
  * the DEVICE put it there — only its byte length, compared against the blob
  * the device still holds, can. `size: null` is storage answering without one:
- * it proves nothing, and the caller must treat it as a mismatch.
+ * it proves nothing, and no caller may adopt on it.
+ *
+ * ⚖ WHAT `size: null` COSTS IS THE CALLER'S CALL, and the two differ on purpose
+ * (packet C fix round 1, K6). For the STAGED caller it is a MISMATCH: that port
+ * refuses, the take stays unstaged, and the next mount tries again at the cost
+ * of one JSON call. For the SEGMENT caller it is a RETRYABLE FAILURE — a
+ * backoff, never `seg_mismatch` — because there the mark is terminal for the
+ * take's whole life, and a storage version that stopped reporting sizes would
+ * otherwise switch every take's pump off fleet-wide on a fact about the API
+ * rather than about anybody's audio. Finalize splits the same two off this same
+ * read (`size_unknown` vs `size_mismatch`).
  *
  * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
  * size dropped, so the two questions can never drift into two probes.
@@ -658,4 +708,222 @@ export async function mintTakeUploadUrl(
   }
   if ('error' in reservation) return reservation
   return { ...signed, recordingSessionId: reservation.recordingSessionId }
+}
+
+/** How many segment keys the door probes and signs at once (fix round 2, M2).
+ *  Eight: enough that a full 60-seq catch-up is ~8 waves rather than 60, and
+ *  small enough that one client's catch-up cannot open sixty sockets to storage
+ *  at once. */
+const SEGMENT_MINT_CONCURRENCY = 8
+
+/** ONE segment key: does storage already hold it, and if not, a signed URL for
+ *  it. Lifted out of the loop so the waves above can run it in parallel; the
+ *  body is exactly what ran serially before — the probe first, `unknown` fails
+ *  CLOSED, an object that exists comes back as a SIZE and is never signed over. */
+async function mintOneSegment(one: {
+  key: string
+  ext: string
+  contentType: string
+  seq: number
+}): Promise<MintedSegment | { error: 'upstream' }> {
+  // Existence answered BEFORE anything is signed, with the shared single-object
+  // read the staged mint uses (objectSize — ONE spelling in this file, so the
+  // two questions can never drift into two probes).
+  const existing = await objectSize(one.key)
+  // Storage did not answer. Retryable, and nothing is signed meanwhile — the
+  // same posture both of the other acts take.
+  if (existing === 'unknown') return { error: 'upstream' }
+  if (existing.exists)
+    return {
+      seq: one.seq,
+      path: one.key,
+      contentType: one.contentType,
+      existingSize: existing.size,
+    }
+  const signed = await signUpload(one)
+  if ('error' in signed) return signed
+  return { seq: one.seq, ...signed }
+}
+
+/**
+ * Mint signed UPLOAD urls for a BATCH of this take's SEGMENTS — the bytes that
+ * reach the server while the recording is still running (slice five packet C,
+ * D6; design v2 items 2 + 4, design v1 §3 R1).
+ *
+ * ONE DOOR, ONE MORE SHAPE. This is the same door the whole-take mint uses, the
+ * same parse, the same actor and the same fences — but it is the only act of the
+ * three that RESERVES NOTHING, WRITES NOTHING AND AUDITS NOTHING. That is not an
+ * omission: a segment hangs under a take whose key the row has ALREADY reserved,
+ * so there is nothing left to bind, and the audited act is the FINALIZE at the
+ * end of the take (⚖ 8/17 doc law — one core write, one audit row; a per-segment
+ * row every 5 s would buy nothing the reserved pointer does not already say).
+ *
+ * ⚖ THE FENCE IS THE ROW'S OWN POINTER. `row.audio_storage_path` must equal
+ * THIS take's composed key, or nothing is signed (`not_reserved`). It replaces
+ * the reservation this door does not make:
+ *   · an UNBOUND row is the whole-take mint's job at stop, not this one's —
+ *     this door must never be the thing that binds a take;
+ *   · a row bound to ANOTHER take is not this take's row at all, and signing
+ *     segments under this take's folder against it would put a second take's
+ *     fragments where the assembler will one day look for the first's.
+ * `not_reserved` is TERMINAL on the device side (TERMINAL_SECURE_ERRORS), which
+ * is right: the binding does not change because time passed. The take is not
+ * lost by it — it is secured WHOLE at stop by the independent secure-take path,
+ * which is the guarantee that supersedes every segment here.
+ *
+ * ⚖ NO UPSERT, AND "ALREADY THERE" IS NEVER ADOPTED ON ITS OWN (V2.1 + the R2
+ * amendment that packet B's fix round 2 established for the staged path). A
+ * segment key is COMPOSABLE IN ADVANCE — anyone who knows the take id can spell
+ * it — so an object existing at one says nothing about who wrote it. And the
+ * assembler will one day build a take FROM THESE OBJECTS, which is exactly the
+ * consequence a pre-filled segment must never reach: bytes nobody recorded,
+ * standing in for the device's own, inside evidence.
+ *
+ * So this door PROBES each requested seq BEFORE it signs, and answers the
+ * object's SIZE instead of a URL when one is there. The device adopts such a seq
+ * only when that length is its own segment blob's — the one fact a caller who
+ * never held the recording cannot forge — and treats anything else as a
+ * mismatch. Nothing is signed on that arm, so the answer hands out no way to
+ * write; and on the arms that ARE signed a 409 at the PUT is a failure again,
+ * because it is a race this probe did not see a moment earlier.
+ *
+ * The probes and the signings run in WAVES of SEGMENT_MINT_CONCURRENCY (fix
+ * round 2, M2), so a full batch of 60 is about eight waves of two storage calls
+ * rather than 120 round trips in a row — comfortably inside the caller's door
+ * deadline (30 s on the phone), which serial was not. That deadline is the
+ * offline-catch-up shape, not the steady one: while recording, the pump asks
+ * for a single seq every ~5 s. And the device carries a belt of its own for the
+ * day this is still too slow — segment-uploader's `batchAsk` halves the next
+ * ask on `upstream`, down to a single seq, so a catch-up always converges on a
+ * batch the door can carry.
+ */
+export async function mintSegmentUploadUrls(
+  synqed: Core,
+  actor: MintTakeActor,
+  rawInput: MintTakeUrlInput,
+): Promise<MintSegmentUrlsResult> {
+  // THE parse, for BOTH doors — the same first line, and for the same reason,
+  // as the whole-take mint above: the web action's argument is caller-supplied
+  // JSON however it is typed. The schema's own rules already say a `seqs` body
+  // carries takeId + mimeType + recordingSessionId and never `stagedFor`; a
+  // body with no `seqs` at all is not this act and is refused here rather than
+  // quietly minting something else.
+  const parsed = UploadUrlMintSchema.safeParse(rawInput)
+  if (!parsed.success) return { error: 'bad_input' }
+  const input = parsed.data
+  if (!input.seqs || input.seqs.length === 0) return { error: 'bad_input' }
+
+  // Nothing to attribute these bytes to — the take mint's own first refusal,
+  // asked before anything is composed or read.
+  if (!actor.staffId) return { error: 'forbidden' }
+
+  // Re-narrowed here rather than leaned on: the schema's pair rules are zod
+  // refines, invisible to the compiler, and a fence that trusts a clause it
+  // cannot see is one edit away from being gone.
+  const takeId = input.takeId
+  const mimeType = input.mimeType
+  const recordingSessionId = input.recordingSessionId
+  if (!takeId || !mimeType || !recordingSessionId) return { error: 'bad_input' }
+
+  const businessId = actor.businessId
+  let takeKey: string
+  let composedSegments: { key: string; ext: string; contentType: string; seq: number }[]
+  try {
+    // The two refusals are SPLIT exactly as the take mint splits them, so a
+    // client that sent a container this server does not store can renegotiate
+    // instead of retrying an id that was never the problem.
+    if (composeTakeKey(businessId, takeId, DEFAULT_MIME) === null) return { error: 'bad_take_id' }
+    const composedTake = composeTakeKey(businessId, takeId, mimeType)
+    if (composedTake === null) return { error: 'bad_mime' }
+    takeKey = composedTake.key
+    const composed: typeof composedSegments = []
+    for (const seq of input.seqs) {
+      // The schema already bounded every seq, so a null here can only be a
+      // container the segment composer refuses that the take composer took —
+      // impossible with one closed map, and still answered rather than assumed.
+      const one = composeSegmentKey(businessId, takeId, seq, mimeType)
+      if (one === null) return { error: 'bad_input' }
+      composed.push(one)
+    }
+    composedSegments = composed
+  } catch (err) {
+    // Either composer THROWS when its own output fails the grammar — a DRIFT
+    // bug between composer and parser, never caller input (every field is
+    // validated above it). Caught at the choke point both doors share, so a
+    // 'use server' export answers a settled retryable code instead of a 500.
+    console.warn('[mint-take-url] segment key composition failed its own grammar:', err)
+    return { error: 'upstream' }
+  }
+
+  let row: Recording
+  try {
+    row = await synqed.recordings.get(recordingSessionId)
+  } catch (err) {
+    // A session id core does not know is the client's error — never a
+    // replacement minted for it, exactly as the take mint refuses.
+    if (statusOf(err) === 404) return { error: 'not_found' }
+    console.warn('[mint-take-url] segment session read failed:', err)
+    return { error: 'upstream' }
+  }
+  const denied = assertRecorderOwnsRow(row, actor)
+  if (denied) return denied
+  // ⚖ AND ONLY THE RECORDER THEMSELVES MAY SEND SEGMENTS (fix round 1, K1 —
+  // the staged door's own line, five hundred lines up, for the same reason).
+  // `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right for the
+  // TAKE mint — an owner reserving a colleague's take is a designed act there,
+  // and finalize re-proves ownership and byte length behind it. Here it is
+  // wrong twice over. Nothing in the app pumps segments for a take it does not
+  // hold: the pump runs on the RECORDING DEVICE, off the owner-gated take
+  // store, and it is the only caller — so view-all buys this door no legitimate
+  // reach at all. What it did buy was a lever: a segment key is composable in
+  // advance (the take id and the container are both readable off the
+  // colleague's own row, by exactly this capability), so an owner could mint a
+  // seq the device had not reached yet and PUT anything into it. The key is
+  // immutable, so the real device could never write that seq again; its next
+  // pump would meet a length that is not its own and go terminally quiet for
+  // the rest of the take; and the folder an assembler will one day build from
+  // would hold bytes nobody recorded. A plain equality, `canViewAll`
+  // deliberately not consulted; the tenant half stays where it is, one line
+  // above.
+  //
+  // ⚖ THE CEILING, NAMED (P3, record only): the recorder can still pre-fill
+  // their OWN take's segment keys from outside the app. No audio is lost — the
+  // take secures whole at stop regardless — and the only thing denied is that
+  // staffer's own head start. Self-harm, out of this door's reach.
+  if (row.staff_id !== actor.staffId) return { error: 'forbidden' }
+
+  // ⚖ THE FENCE (see the docblock). Asked AFTER ownership, so a caller who may
+  // not record onto this row never learns anything about what it points at.
+  if (row.audio_storage_path !== takeKey) return { error: 'not_reserved' }
+
+  // ⚖ BOUNDED PARALLEL, BECAUSE THE BATCH HAS TO FIT THE DOOR (fix round 2,
+  // M2). One seq is two storage calls, and sixty of them run one after another
+  // is up to 120 round trips: at ordinary storage latency that is past the
+  // CALLER's 30 s door (thin `doorFetch`, web `withDeadline`), so the whole
+  // answer is thrown away, no prefix advances, and the pump asks for the same
+  // sixty again for as long as the latency lasts — an offline recording that
+  // can never catch up. In waves of SEGMENT_MINT_CONCURRENCY the worst case is
+  // ~8 waves × 2 calls, a few seconds, comfortably inside the door.
+  //
+  // The ANSWER stays in seq order (the waves are consumed in order, and each
+  // wave in its own), and the refusals are unchanged: the first seq in order
+  // that could not be probed or signed ends the whole call — nothing is
+  // half-minted, and a wave that was already in flight beside it has only read
+  // and signed, never written.
+  const segments: MintedSegment[] = []
+  for (let i = 0; i < composedSegments.length; i += SEGMENT_MINT_CONCURRENCY) {
+    const wave = await Promise.all(
+      composedSegments.slice(i, i + SEGMENT_MINT_CONCURRENCY).map(mintOneSegment),
+    )
+    for (const answer of wave) {
+      if ('error' in answer) return answer
+      segments.push(answer)
+    }
+  }
+
+  // The row is named back the way the take mint names it: the caller stamps
+  // nothing new here (the take already carries this id), but an answer that did
+  // not say which row it was fenced against would be a fact the client cannot
+  // check.
+  return { segments, recordingSessionId }
 }

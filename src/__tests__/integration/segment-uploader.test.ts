@@ -1,0 +1,764 @@
+/**
+ * @jest-environment jsdom
+ *
+ * THE SEGMENT PUMP (src/lib/recording/segment-uploader.ts — slice five packet C,
+ * D7). What this file owns is the ONE decision the pump makes over and over:
+ * **has the server got this segment, provably?** Everything else follows from it.
+ *
+ * The three answers that must never be confused, because the assembler will one
+ * day rebuild a take out of these objects:
+ *   · storage's own 2xx  → landed;
+ *   · an object already at the key whose byte length is THIS DEVICE'S segment
+ *     → landed, and nothing is uploaded (the retry whose mark was lost);
+ *   · anything else, the 409 on a freshly signed PUT included → NOT landed. A
+ *     segment key is composable in advance, so meeting an object there is not
+ *     evidence anybody recorded it.
+ *
+ * And the mark it writes is a CONTIGUOUS PREFIX, never a set: a seq that landed
+ * behind a hole is real on storage and still does not advance `uploadedSeq`,
+ * because "everything up to here is present" is the only claim an assembler can
+ * use.
+ *
+ * The store and the door are mocked — their own behaviour is proved in
+ * take-durability.test.ts and the two port suites. TERMINAL_SECURE_ERRORS is
+ * the REAL list, because "which refusals can never turn into a yes" is shared
+ * with the whole-take path and the two must not drift.
+ */
+
+jest.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({
+    auth: { getSession: async () => ({ data: { session: null }, error: null }) },
+  }),
+}))
+
+type UploadMeta = {
+  recordingSessionId: string | null
+  mimeType: string
+  uploadedSeq?: number
+  lastSeq: number
+  finalizedAt?: number
+  segmentError?: string
+}
+const readTakeUploadMeta = jest.fn<Promise<UploadMeta | null>, [string]>(async () => null)
+const listTakeSegmentsAfter = jest.fn<
+  Promise<{ seq: number; blob: Blob }[]>,
+  [string, number, number]
+>(async () => [])
+const markSegmentsUploaded = jest.fn<Promise<void>, [string, number]>(async () => {})
+const markSegmentError = jest.fn<Promise<void>, [string, string]>(async () => {})
+jest.mock('@/lib/karute/take-store', () => ({
+  readTakeUploadMeta: (id: string) => readTakeUploadMeta(id),
+  listTakeSegmentsAfter: (id: string, after: number, limit: number) =>
+    listTakeSegmentsAfter(id, after, limit),
+  markSegmentsUploaded: (id: string, seq: number) => markSegmentsUploaded(id, seq),
+  markSegmentError: (id: string, code: string) => markSegmentError(id, code),
+  // The REAL set, reached through the file's own idiom: this is the one place
+  // that says which door refusals are terminal, and a literal copy here would
+  // pass happily on the day the real list changed underneath it.
+  TERMINAL_SECURE_ERRORS: jest.requireActual('@/lib/karute/take-store').TERMINAL_SECURE_ERRORS,
+}))
+
+import type {
+  MintSegmentUrlsPortResult,
+  RecordingPipelinePort,
+} from '@/lib/ports/recording-port'
+import {
+  pumpSegments,
+  SEGMENT_BACKOFF_MIN_MS,
+  SEGMENT_BATCH,
+  SEGMENT_CONCURRENCY,
+  SEGMENT_PUT_FLOOR_MS,
+  __resetSegmentPumpState,
+} from '@/lib/recording/segment-uploader'
+import { putDeadlineMs } from '@/lib/recording/storage-put'
+import { MAX_SEGMENT_BATCH } from '@/lib/app-api/record-schemas'
+
+const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+const RS = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
+const segPath = (seq: number) => `seg/app_biz-1_${TAKE}/${String(seq).padStart(6, '0')}.webm`
+const segUrl = (seq: number) => `https://proj.supabase.co/upload/${segPath(seq)}?token=up`
+/** The seq a signed URL belongs to — how the fetch mock knows which PUT it is. */
+const seqOf = (url: string) => Number(url.match(/\/(\d{6})\.webm/)![1])
+
+/** A segment blob whose SIZE is distinctive per seq, so an `existingSize`
+ *  comparison can be wrong in a way the test can name. */
+const segBlob = (seq: number) => new Blob(['x'.repeat(10 + seq)])
+const rows = (...seqs: number[]) => seqs.map((seq) => ({ seq, blob: segBlob(seq) }))
+
+const meta = (over: Partial<UploadMeta> = {}): UploadMeta => ({
+  recordingSessionId: RS,
+  mimeType: 'audio/webm',
+  lastSeq: 2,
+  ...over,
+})
+
+// Typed as the PORT's own union, so a case that answers the already-there arm
+// or a refusal is the contract being exercised rather than the mock's inferred
+// shape widening under it.
+const mintSegmentUrls = jest.fn(
+  async (
+    _takeId: string,
+    _mimeType: string,
+    _rs: string,
+    seqs: number[],
+  ): Promise<MintSegmentUrlsPortResult> => ({
+    segments: seqs.map((seq) => ({
+      seq,
+      path: segPath(seq),
+      url: segUrl(seq),
+      contentType: 'audio/webm',
+    })),
+  }),
+)
+const port = { mintSegmentUrls } as unknown as RecordingPipelinePort
+
+/** Which seqs were LAUNCHED, in order, and how many were in flight at the peak. */
+let launched: number[] = []
+/** …and WHAT each of them carried (fix round 1, K2). Every other case in this
+ *  file reasons about which seqs went out; the PUT itself — the one act this
+ *  whole file exists for — was asserted by nothing until this array. */
+let sent: { url: string; init: RequestInit }[] = []
+let inFlight = 0
+let highWater = 0
+const fetchMock = jest.fn<Promise<Response>, [string, RequestInit?]>(
+  async () => ({ ok: true, status: 200 }) as unknown as Response,
+)
+
+/** A PUT that takes a real tick to answer, so overlap is observable at all: an
+ *  instantly-resolved fetch never has two in flight, whatever the pool does. */
+const slowPut = (answer: (seq: number) => { ok: boolean; status: number }, ms = 0) =>
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const seq = seqOf(url)
+    launched.push(seq)
+    sent.push({ url, init: init! })
+    inFlight++
+    highWater = Math.max(highWater, inFlight)
+    await new Promise((r) => setTimeout(r, ms))
+    inFlight--
+    return answer(seq) as unknown as Response
+  })
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  jest.spyOn(console, 'warn').mockImplementation(() => {})
+  __resetSegmentPumpState()
+  launched = []
+  sent = []
+  inFlight = 0
+  highWater = 0
+  readTakeUploadMeta.mockImplementation(async () => meta())
+  listTakeSegmentsAfter.mockImplementation(async () => rows(0, 1, 2))
+  markSegmentsUploaded.mockImplementation(async () => {})
+  markSegmentError.mockImplementation(async () => {})
+  mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+    segments: seqs.map((seq) => ({
+      seq,
+      path: segPath(seq),
+      url: segUrl(seq),
+      contentType: 'audio/webm',
+    })),
+  }))
+  slowPut(() => ({ ok: true, status: 200 }))
+  global.fetch = fetchMock as unknown as typeof fetch
+})
+
+describe('the segment pump — what it sends, and in what order', () => {
+  it('asks the door for the CONTIGUOUS seqs the store handed it, and PUTs every one', async () => {
+    await pumpSegments(port, TAKE)
+    expect(listTakeSegmentsAfter).toHaveBeenCalledWith(TAKE, -1, SEGMENT_BATCH)
+    expect(mintSegmentUrls).toHaveBeenCalledWith(TAKE, 'audio/webm', RS, [0, 1, 2])
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+  })
+
+  it('resumes from uploadedSeq — never re-sends what the server already has', async () => {
+    readTakeUploadMeta.mockImplementation(async () => meta({ uploadedSeq: 4, lastSeq: 7 }))
+    listTakeSegmentsAfter.mockImplementation(async () => rows(5, 6, 7))
+    await pumpSegments(port, TAKE)
+    expect(listTakeSegmentsAfter).toHaveBeenCalledWith(TAKE, 4, SEGMENT_BATCH)
+    expect(mintSegmentUrls).toHaveBeenCalledWith(TAKE, 'audio/webm', RS, [5, 6, 7])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 7)
+  })
+
+  // The earliest seqs are the only ones that can advance the prefix, so they
+  // must be the ones that go first when the network has room for three.
+  it('launches in SEQ ORDER, never more than SEGMENT_CONCURRENCY at once', async () => {
+    listTakeSegmentsAfter.mockImplementation(async () => rows(0, 1, 2, 3, 4, 5, 6, 7))
+    readTakeUploadMeta.mockImplementation(async () => meta({ lastSeq: 7 }))
+    slowPut(() => ({ ok: true, status: 200 }), 5)
+
+    await pumpSegments(port, TAKE)
+
+    expect(launched).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(highWater).toBe(SEGMENT_CONCURRENCY)
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 7)
+  })
+
+  // ⚖ AND WHAT EACH PUT ACTUALLY CARRIES (fix round 1, K2). The one act this
+  // file exists for, and until this case nothing in the repo asserted it: the
+  // suite stayed green with `putSegment` sending six unlabelled bytes by the
+  // wrong verb to every signed URL. Four things, each of which the assembler
+  // will one day depend on — the verb storage signs for; the DOOR's own
+  // content-type, never a guess of ours (the key's extension and this header
+  // come off one closed map, so the object's name and its label cannot
+  // disagree); THIS seq's own bytes, which is why the blobs are sized
+  // distinctively per seq; and a signal, because the deadline is the only thing
+  // that releases a socket that will never answer.
+  it('every PUT carries the verb, the door’s content-type, THIS seq’s bytes and a deadline', async () => {
+    await pumpSegments(port, TAKE)
+    expect(sent.map((s) => seqOf(s.url)).sort()).toEqual([0, 1, 2])
+    for (const { url, init } of sent) {
+      expect(init.method).toBe('PUT')
+      expect((init.headers as Record<string, string>)['content-type']).toBe('audio/webm')
+      expect((init.body as Blob).size).toBe(segBlob(seqOf(url)).size)
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+    }
+  })
+
+  it('the batch cap is the door’s own — one number, not two', () => {
+    expect(SEGMENT_BATCH).toBe(MAX_SEGMENT_BATCH)
+  })
+})
+
+describe('the segment pump — what counts as LANDED', () => {
+  it('a 2xx advances the mark', async () => {
+    await pumpSegments(port, TAKE)
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+    expect(markSegmentError).not.toHaveBeenCalled()
+  })
+
+  // ⚖ A 409 ON A FRESHLY SIGNED PUT IS NOT A LANDING. The mint probed this key a
+  // moment ago and found it free, so an object appearing since is a race the
+  // door did not see — and "already there" is only ever actionable as a SIZE.
+  it('a 409 on a freshly signed PUT does NOT advance — the take backs off instead', async () => {
+    slowPut((seq) => (seq === 1 ? { ok: false, status: 409 } : { ok: true, status: 200 }))
+    await pumpSegments(port, TAKE)
+    // seq 0 landed, so the prefix moves to 0 and no further.
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 0)
+    expect(markSegmentError).not.toHaveBeenCalled()
+    // …and the failure put the take in a backoff window: the next flush a
+    // moment later mints nothing.
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE ONE LEGITIMATE "ALREADY THERE": our own bytes, our own length — the
+  // retry whose markSegmentsUploaded was lost.
+  it('an existingSize that MATCHES the blob advances with no PUT at all', async () => {
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+      segments: seqs.map((seq) => ({
+        seq,
+        path: segPath(seq),
+        contentType: 'audio/webm',
+        existingSize: segBlob(seq).size,
+      })),
+    }))
+    await pumpSegments(port, TAKE)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+    expect(markSegmentError).not.toHaveBeenCalled()
+  })
+
+  it('an existingSize that is a DIFFERENT length → seg_mismatch, no PUT, and no second mint', async () => {
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+      segments: seqs.map((seq) => ({
+        seq,
+        path: segPath(seq),
+        contentType: 'audio/webm',
+        existingSize: seq === 0 ? 999 : segBlob(seq).size,
+      })),
+    }))
+    await pumpSegments(port, TAKE)
+    // Nothing uploaded, nothing overwritten, nothing deleted.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(markSegmentError).toHaveBeenCalledWith(TAKE, 'seg_mismatch')
+    // The prefix never started, so the mark never moves.
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    // …and the mark is terminal FOR THE SEGMENTS: the next flush asks the store
+    // and stops, without touching the door.
+    readTakeUploadMeta.mockImplementation(async () => meta({ segmentError: 'seg_mismatch' }))
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND A SIZE-LESS ANSWER IS NOT A VERDICT ABOUT ANYONE'S BYTES (fix round
+  // 1, K6). `null` is storage declining to report a length, not a length that
+  // disagrees — finalize splits exactly these two off the SAME `info()` read
+  // (`size_unknown` vs `size_mismatch`) and falls through the unknown. Terminal
+  // here, it would mean one storage-shape change switching every take's pump
+  // off fleet-wide and for good, on evidence about the API rather than about
+  // the audio. So it is a refusal like any other.
+  it('an existingSize of null is RETRYABLE — nothing marked, and the take backs off', async () => {
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+      segments: seqs.map((seq) => ({
+        seq,
+        path: segPath(seq),
+        contentType: 'audio/webm',
+        existingSize: seq === 0 ? null : segBlob(seq).size,
+      })),
+    }))
+    await pumpSegments(port, TAKE)
+    // Nothing uploaded — and, unlike a mismatch, nothing written on the take
+    // either: the pump can still be asked again tomorrow.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(markSegmentError).not.toHaveBeenCalled()
+    // The prefix never started, so the mark never moves.
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    // A backoff window instead: the next flush a moment later mints nothing,
+    // and once the window passes the pump asks again (the window's own expiry
+    // is pinned in the backoff describe below).
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE MARK IS A PREFIX. Seqs 4 and 5 really did land — they are on storage
+  // and nothing removes them — and they still do not count, because everything
+  // an assembler can do starts at the beginning.
+  it('a failure at seq 3 of 5 marks 2, even when 4 and 5 landed', async () => {
+    // The server already has seq 0, so the store hands back 1..5 — contiguous
+    // from `uploadedSeq + 1`, which is that function's whole contract.
+    readTakeUploadMeta.mockImplementation(async () => meta({ uploadedSeq: 0, lastSeq: 5 }))
+    listTakeSegmentsAfter.mockImplementation(async () => rows(1, 2, 3, 4, 5))
+    // seq 3 answers LAST, so 4 and 5 are launched and landed before the pool
+    // learns anything went wrong — the honest shape of this race.
+    fetchMock.mockImplementation(async (url: string) => {
+      const seq = seqOf(url)
+      launched.push(seq)
+      if (seq === 3) {
+        await new Promise((r) => setTimeout(r, 50))
+        return { ok: false, status: 500 } as unknown as Response
+      }
+      return { ok: true, status: 200 } as unknown as Response
+    })
+
+    await pumpSegments(port, TAKE)
+
+    expect(launched.sort()).toEqual([1, 2, 3, 4, 5])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+    expect(markSegmentsUploaded).toHaveBeenCalledTimes(1)
+    // A refusal is a moment in time, not a fact about the take — never marked.
+    expect(markSegmentError).not.toHaveBeenCalled()
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  it('a failure stops the pool LAUNCHING more — the recording still running keeps the bandwidth', async () => {
+    readTakeUploadMeta.mockImplementation(async () => meta({ lastSeq: 9 }))
+    listTakeSegmentsAfter.mockImplementation(async () => rows(0, 1, 2, 3, 4, 5, 6, 7, 8, 9))
+    slowPut((seq) => (seq === 0 ? { ok: false, status: 503 } : { ok: true, status: 200 }), 5)
+
+    await pumpSegments(port, TAKE)
+
+    // The three the pool had already started, and nothing after them.
+    expect(launched.length).toBeLessThanOrEqual(SEGMENT_CONCURRENCY)
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+  })
+})
+
+describe('the segment pump — when it does nothing at all', () => {
+  it.each([
+    ['the take is gone, or is another staffer’s', null],
+    ['the start-mint has not stamped a row yet', meta({ recordingSessionId: null })],
+    ['the WHOLE take is already on the server', meta({ finalizedAt: Date.now() })],
+    ['a terminal segment refusal is already recorded', meta({ segmentError: 'not_reserved' })],
+    ['the disk holds nothing the server does not', meta({ uploadedSeq: 2, lastSeq: 2 })],
+  ])('%s → no store walk, no mint, no PUT', async (_label, m) => {
+    readTakeUploadMeta.mockImplementation(async () => m)
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+  })
+
+  it('an empty segment list → nothing minted', async () => {
+    listTakeSegmentsAfter.mockImplementation(async () => [])
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  // SINGLE-FLIGHT. The pump is fired from the flush queue AND awaited by the
+  // stop leg, so two calls genuinely overlap — and two runs would mint the same
+  // seqs twice and PUT the same immutable keys twice.
+  it('two overlapping calls are ONE run, and the second waits for the first', async () => {
+    slowPut(() => ({ ok: true, status: 200 }), 10)
+    const a = pumpSegments(port, TAKE)
+    const b = pumpSegments(port, TAKE)
+    await Promise.all([a, b])
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledTimes(1)
+    // …and once it has finished, the take is pumpable again.
+    readTakeUploadMeta.mockImplementation(async () => meta({ uploadedSeq: 2, lastSeq: 3 }))
+    listTakeSegmentsAfter.mockImplementation(async () => rows(3))
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+  })
+
+  // ⚖ …BUT "JOINED" IS NOT "SAW THE TAIL" (fix round 1, K3). A run reads its
+  // row list ONCE, at its own start. The stop leg's pump is fired a moment
+  // after the tail flush fired one of its own, so joining that run means
+  // awaiting a snapshot of the disk taken BEFORE the tail segment was written
+  // to it — and item 2's order (last segment PUT → whole-take PUT) stops
+  // holding on exactly the slow link it was written for. `fresh` asks for a run
+  // that STARTS after the one in flight.
+  it('a fresh call runs AFTER the one in flight, and lists the disk again', async () => {
+    slowPut(() => ({ ok: true, status: 200 }), 10)
+    const seen: string[] = []
+    listTakeSegmentsAfter.mockImplementation(async () => {
+      seen.push('list')
+      return rows(0, 1, 2)
+    })
+
+    const first = pumpSegments(port, TAKE).then(() => {
+      seen.push('first settled')
+    })
+    const fresh = pumpSegments(port, TAKE, { fresh: true })
+    await Promise.all([first, fresh])
+
+    // The second list read happened after the first run had finished — which is
+    // the whole claim: whatever reached the disk during that run is in it.
+    expect(seen).toEqual(['list', 'first settled', 'list'])
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+  })
+
+  // ONE follow-up, never a queue: "a run that starts after this one" is all any
+  // of them asked for, and two of them would mint the same seqs twice.
+  it('two fresh calls during one run share ONE follow-up', async () => {
+    slowPut(() => ({ ok: true, status: 200 }), 10)
+    const first = pumpSegments(port, TAKE)
+    const a = pumpSegments(port, TAKE, { fresh: true })
+    const b = pumpSegments(port, TAKE, { fresh: true })
+
+    await Promise.all([first, a, b])
+    // TWO runs in total — the one that was going, and the single follow-up the
+    // two callers share — where a queue would have made three.
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+    expect(listTakeSegmentsAfter).toHaveBeenCalledTimes(2)
+  })
+
+  // ⚖ …AND THE SLOT STAYS OWNED BY EXACTLY ONE RUN (fix round 2, M3). The run
+  // a follow-up waited on clears `inFlight` in a `.finally` that fires BEFORE
+  // the follow-up's own callback, so a flush-time call can land in that gap and
+  // start a run of its own. Starting a second one there would put TWO runs on
+  // one take — the same seqs minted twice, the same immutable keys PUT twice,
+  // and the loser reading a 409 as a refusal and arming a backoff on a take
+  // that is doing fine. What `fresh` promises is a START-AFTER, and a run that
+  // began after the previous one settled read the store after it, so joining it
+  // is the promise kept.
+  // ⚖ …AND A RUN OF ITS OWN IS STILL ONE AT A TIME (fix round 3, N1 — this case
+  // used to assert "exactly two runs", which was fix round 2's JOIN and is not
+  // the contract any more). The follow-up waits for everything in flight and
+  // then runs; a flush-time call that takes the slot in the handoff window is
+  // waited for, not inherited. What must never happen is two runs ON THE WIRE
+  // at once — the same seqs minted twice and the same immutable keys PUT twice.
+  it('a plain call landing in the handoff window is WAITED FOR — never two runs at once', async () => {
+    slowPut(() => ({ ok: true, status: 200 }), 10)
+    let live = 0
+    let peak = 0
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => {
+      live++
+      peak = Math.max(peak, live)
+      await new Promise((r) => setTimeout(r, 5))
+      live--
+      return {
+        segments: seqs.map((seq) => ({
+          seq,
+          path: segPath(seq),
+          url: segUrl(seq),
+          contentType: 'audio/webm',
+        })),
+      }
+    })
+
+    // THE HANDOFF WINDOW, hit deliberately: run A clears the single-flight slot
+    // in a `.finally` that fires BEFORE the follow-up's next read of it, so a
+    // flush-time call in those few microtasks starts a run of its own. Fired
+    // from run A's last awaited store write, three microtasks on — measured
+    // against both builds. Land outside it and the call simply joins whichever
+    // run holds the slot; this case is only interesting inside it.
+    let inWindow: Promise<void> | undefined
+    markSegmentsUploaded.mockImplementation(async () => {
+      if (inWindow) return
+      let hop = Promise.resolve()
+      for (let i = 0; i < 3; i++) hop = hop.then(() => {})
+      void hop.then(() => {
+        inWindow = pumpSegments(port, TAKE)
+      })
+    })
+
+    const a = pumpSegments(port, TAKE)
+    const fresh = pumpSegments(port, TAKE, { fresh: true })
+
+    await a
+    await fresh
+    await inWindow
+
+    // THREE runs — A, the one that took the window, and the follow-up's own —
+    // and never more than ONE of them at the door at any instant.
+    expect(peak).toBe(1)
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(3)
+  })
+
+  // ⚖ AND THE FOLLOW-UP ATTEMPTS — IT NEVER INHERITS A NO-OP (fix round 3, N1).
+  // The whole of what `fresh` promises: a run that starts after everything in
+  // flight AND asks the door, ignoring the backoff window. Fix round 2 had the
+  // follow-up adopt whatever run held the slot, reasoning that a run which
+  // began after the previous one settled had read the store after it. True, and
+  // not enough: that run was started by a FLUSH, so it honours the window — and
+  // a flush-time run that begins inside one returns at once having read
+  // nothing. The stop leg would then await a promise that resolves with the
+  // tail never attempted, which is the void promise this option exists to
+  // remove, reached by a longer road.
+  it('a fresh follow-up ATTEMPTS the tail, even when the take is inside its backoff window', async () => {
+    /** The flush-time call that takes the slot in the handoff window — five
+     *  microtasks after run A's refusal answers, measured against both builds:
+     *  that is where a call lands between A clearing the slot and the follow-up
+     *  reading it again. */
+    let inWindow: Promise<void> | undefined
+    // Run A refuses, slowly enough to be genuinely in flight — and its refusal
+    // arms the window every flush-time caller after it must honour.
+    mintSegmentUrls.mockImplementationOnce(async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      let hop = Promise.resolve()
+      for (let i = 0; i < 5; i++) hop = hop.then(() => {})
+      void hop.then(() => {
+        inWindow = pumpSegments(port, TAKE)
+      })
+      return { error: 'mint_502' }
+    })
+
+    const a = pumpSegments(port, TAKE)
+    const fresh = pumpSegments(port, TAKE, { fresh: true })
+
+    await a
+    await fresh
+
+    // TWO door calls: A's refusal, and the follow-up's own. The one in between
+    // — the flush-time run that took the slot — was inside the window and
+    // returned without reaching the door at all, which is exactly right for a
+    // flush and exactly wrong for the stop leg to inherit.
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(2)
+    // …and the fresh caller's promise settled only after the tail was actually
+    // sent.
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+
+    await inWindow
+  })
+
+  // With nothing in flight there is nothing to start after: `fresh` is the
+  // ordinary run, not an extra one.
+  it('a fresh call with no run in flight is just the run', async () => {
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+    expect(launched.sort()).toEqual([0, 1, 2])
+  })
+})
+
+describe('the segment pump — what the door’s refusals cost', () => {
+  it('a TERMINAL mint refusal is written on the take, and never asked again', async () => {
+    mintSegmentUrls.mockImplementation(async () => ({ error: 'not_reserved' }))
+    await pumpSegments(port, TAKE)
+    expect(markSegmentError).toHaveBeenCalledWith(TAKE, 'not_reserved')
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    readTakeUploadMeta.mockImplementation(async () => meta({ segmentError: 'not_reserved' }))
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+  })
+
+  it.each(['upstream', 'mint_502', 'mint_429'])(
+    'a RETRYABLE mint refusal (%s) marks nothing — it only backs off',
+    async (code) => {
+      mintSegmentUrls.mockImplementation(async () => ({ error: code }))
+      await pumpSegments(port, TAKE)
+      expect(markSegmentError).not.toHaveBeenCalled()
+      expect(markSegmentsUploaded).not.toHaveBeenCalled()
+      mintSegmentUrls.mockClear()
+      await pumpSegments(port, TAKE)
+      expect(mintSegmentUrls).not.toHaveBeenCalled()
+    },
+  )
+
+  // ⚖ THE STOP'S OWN ATTEMPT IS NOT A RETRY (fix round 2, M1). Every other
+  // caller honours the window — the trigger is a flush every ~5 s. The stop leg
+  // is the one caller for which that is wrong: it runs ONCE, at the only moment
+  // the tail exists and the take is about to be sealed, so one transient
+  // refusal on any of the last flushes would arm a 5–65 s window that makes it
+  // a silent no-op and the tail is never attempted at all.
+  it('a fresh pump ignores the backoff window; a flush-time pump still honours it', async () => {
+    mintSegmentUrls.mockImplementationOnce(async () => ({ error: 'mint_502' }))
+    await pumpSegments(port, TAKE)
+    expect(markSegmentError).not.toHaveBeenCalled()
+
+    // A flush a moment later, inside the window: nothing is asked for.
+    mintSegmentUrls.mockClear()
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    // The stop leg's own, in the same window: the tail goes up.
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+    expect(launched.sort()).toEqual([0, 1, 2])
+    expect(markSegmentsUploaded).toHaveBeenCalledWith(TAKE, 2)
+  })
+
+  // ⚖ AND THE ASK SHRINKS UNTIL THE DOOR CAN ANSWER IT (fix round 2, M2). A
+  // full catch-up is the batch's worth of storage round trips inside a 30 s
+  // door; on slow storage the answer expires before it arrives, and re-asking
+  // for the same sixty is a recording that never catches up. `upstream` is what
+  // both arms call a door that ran out of time.
+  it('a door that keeps timing out is asked for LESS each time, and one answer restores the ceiling', async () => {
+    // The store hands back exactly as many rows as it is asked for, so what the
+    // door is given IS the ask.
+    listTakeSegmentsAfter.mockImplementation(async (_id, after, limit) =>
+      rows(...Array.from({ length: limit }, (_, i) => after + 1 + i)),
+    )
+    readTakeUploadMeta.mockImplementation(async () => meta({ lastSeq: 999 }))
+    mintSegmentUrls.mockImplementation(async () => ({ error: 'upstream' }))
+
+    // `fresh`, so the backoff each refusal arms is not what is being measured.
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls.mock.calls[0][3]).toHaveLength(SEGMENT_BATCH)
+    expect(mintSegmentUrls.mock.calls[1][3]).toHaveLength(SEGMENT_BATCH / 2)
+    expect(mintSegmentUrls.mock.calls[2][3].length).toBeLessThanOrEqual(15)
+
+    // …and the moment the door answers, the ceiling is the ask again.
+    mintSegmentUrls.mockImplementation(async (_t, _m, _r, seqs: number[]) => ({
+      segments: seqs.map((seq) => ({
+        seq,
+        path: segPath(seq),
+        url: segUrl(seq),
+        contentType: 'audio/webm',
+      })),
+    }))
+    await pumpSegments(port, TAKE, { fresh: true })
+    await pumpSegments(port, TAKE, { fresh: true })
+    expect(mintSegmentUrls.mock.calls.at(-1)![3]).toHaveLength(SEGMENT_BATCH)
+  })
+
+  it('a door that answers a seq it was not asked about is a refusal, not a guess', async () => {
+    mintSegmentUrls.mockImplementation(async () => ({
+      segments: [{ seq: 99, path: segPath(99), url: segUrl(99), contentType: 'audio/webm' }],
+    }))
+    await pumpSegments(port, TAKE)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    expect(markSegmentError).not.toHaveBeenCalled()
+  })
+
+  // NEVER THROWS: the callers are the capture path and the stop leg, and
+  // neither may be failed by an upload.
+  it.each([
+    ['the store throws', () => readTakeUploadMeta.mockImplementation(async () => { throw new Error('idb') })],
+    ['the door throws', () => mintSegmentUrls.mockImplementation(async () => { throw new Error('boom') })],
+    ['fetch throws', () => fetchMock.mockImplementation(async () => { throw new Error('socket') })],
+  ])('%s → the pump settles, and the take is untouched', async (_label, arrange) => {
+    arrange()
+    await expect(pumpSegments(port, TAKE)).resolves.toBeUndefined()
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    expect(markSegmentError).not.toHaveBeenCalled()
+  })
+})
+
+describe('the segment pump — the backoff window', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })
+  })
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  // Every PUT carries a size-derived deadline — storage-put's shared RATE under
+  // this file's own floor (SEGMENT_PUT_FLOOR_MS) — so a socket that stalls
+  // releases instead of holding the pump for the page's life, and the seq is
+  // simply not landed, which is retryable.
+  it('a PUT that never answers is aborted at its deadline, and stays retryable', async () => {
+    fetchMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init!.signal!.addEventListener('abort', () => reject(new Error('aborted')))
+        }) as unknown as Promise<Response>,
+    )
+    const done = pumpSegments(port, TAKE)
+    // The store read, the door call and the pool all settle on microtasks, and
+    // the PUT deadlines do not exist until the fetches are actually in flight —
+    // advancing the clock before that would find no timers to fire.
+    for (let i = 0; i < 25; i++) await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(SEGMENT_CONCURRENCY)
+
+    await jest.advanceTimersByTimeAsync(60_000)
+    await expect(done).resolves.toBeUndefined()
+
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    // Retryable, never terminal: a stall is a moment in time.
+    expect(markSegmentError).not.toHaveBeenCalled()
+    // …and once the window passes, the pump asks again.
+    mintSegmentUrls.mockClear()
+    // An INSTANT answer for the second half — the clock is faked here, so a PUT
+    // that waits on a real tick would simply never come back.
+    fetchMock.mockImplementation(
+      async () => ({ ok: true, status: 200 }) as unknown as Response,
+    )
+    // Comfortably past the first step's ceiling (MIN·2^0 + up to one MIN of
+    // jitter), so the case cannot pass or fail on a random draw.
+    await jest.advanceTimersByTimeAsync(5 * SEGMENT_BACKOFF_MIN_MS)
+    await pumpSegments(port, TAKE)
+    expect(mintSegmentUrls).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚖ AND THE FLOOR IS THE SEGMENT'S OWN, NOT THE TAKE'S (rebase round 1, R2).
+  // `putDeadlineMs` floors at 60 s because it is written for a TAKE — "never
+  // under a minute", so the number that mercy-kills a stalled 2 MB upload
+  // cannot cut a 90-minute one off mid-flight. But the STOP LEG AWAITS this
+  // pump before it secures the whole take, so on a dead link three in-flight
+  // segment PUTs of a few tens of KB held the stop for that full minute before
+  // secureTake even started — and awaitTakeSecured's 120 s belt then fired on
+  // the in-tab reader waiting behind it. The RATE is unchanged and imported;
+  // only the floor is this file's.
+  it('a stalled segment PUT is cut at the SEGMENT floor, not the take’s minute', async () => {
+    fetchMock.mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init!.signal!.addEventListener('abort', () => reject(new Error('aborted')))
+        }) as unknown as Promise<Response>,
+    )
+    let settled = false
+    const done = pumpSegments(port, TAKE).then(() => {
+      settled = true
+    })
+    for (let i = 0; i < 25; i++) await Promise.resolve()
+    expect(fetchMock).toHaveBeenCalledTimes(SEGMENT_CONCURRENCY)
+
+    // One millisecond short of the floor: still on the wire, and the stop leg
+    // behind it is still waiting.
+    await jest.advanceTimersByTimeAsync(SEGMENT_PUT_FLOOR_MS - 1)
+    expect(settled).toBe(false)
+
+    // …and the floor itself releases it — the abort, the pool and the pump's
+    // own tail all settle on microtasks from there.
+    await jest.advanceTimersByTimeAsync(1)
+    for (let i = 0; i < 25; i++) await Promise.resolve()
+    expect(settled).toBe(true)
+    await done
+
+    // The two floors, named rather than assumed: on these very bytes the TAKE's
+    // rule would still have four more times this long to run, which is exactly
+    // the minute the stop leg used to spend.
+    expect(putDeadlineMs(segBlob(0).size)).toBe(60_000)
+    expect(SEGMENT_PUT_FLOOR_MS).toBe(15_000)
+
+    // Retryable, never terminal: a stall is a moment in time, and the whole
+    // take still goes up under its own key regardless.
+    expect(markSegmentsUploaded).not.toHaveBeenCalled()
+    expect(markSegmentError).not.toHaveBeenCalled()
+  })
+})
