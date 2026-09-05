@@ -558,6 +558,20 @@ export interface SettingsProps {
   railHeading: string
   sections: SettingsSection[]
   openingSectionId: string | null
+  /** ⚖ S17 fix round 4 · H1 — WHETHER THE READER ASKED FOR THAT SECTION.
+   *
+   *  `openingSectionId` answers 「which section does this page open on」 and the
+   *  screen used it for BOTH questions, which is why `?section=coaching` landed
+   *  a phone on the list: at ≤899 the room is list-is-the-page, `null` is the
+   *  LIST, and the screen started at `null` whatever the URL said. A trace card
+   *  in another room promises the setting it points at, and the promise was kept
+   *  only on a desk.
+   *
+   *  The two questions are separated instead of guessed at in the browser: the
+   *  ROUTE already resolved `?section=` on the server (an unknown or gated one
+   *  falls back), so the answer ships as a fact and the first client render can
+   *  agree with the server's. `false` = this page opened on its own default. */
+  openedByUrl: boolean
   /** ⚠ ONE HONEST FOOTNOTE REPLACES SIXTEEN REFUSAL PARAGRAPHS. */
   demoSaveLine: string
   selfSaveLine: string

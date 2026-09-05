@@ -662,6 +662,19 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect((await room({ store: STORE_A, section: 'billing' })).openingSectionId).toBe('store-hours')
     expect((await room({ store: STORE_A, section: 'billing', role: 'オーナー' })).openingSectionId).toBe('billing')
     expect(PAGE_SRC).toContain('section: query.section')
+
+    // ⚖ S17 fix round 4 · H1 — …AND THE PAGE SAYS WHETHER THAT WAS THE READER'S
+    // ASK. `openingSectionId` alone cannot answer it: it is non-null on every
+    // load, so a screen reading it as 「the reader asked for this」 would open
+    // every phone in detail mode, and a screen ignoring it dropped a deep link
+    // on the list. Two questions, two fields, both settled on the server.
+    expect((await room({ store: STORE_A, section: 'payments' })).openedByUrl).toBe(true)
+    expect((await room({ store: STORE_A })).openedByUrl).toBe(false)
+    // …a target this reader may not open is NOT their ask — they get the
+    // fallback section, and the page opens the way it always does.
+    expect((await room({ store: STORE_A, section: 'billing' })).openedByUrl).toBe(false)
+    expect((await room({ store: STORE_A, section: 'not-a-section' })).openedByUrl).toBe(false)
+    expect((await room({ store: STORE_A, section: 'billing', role: 'オーナー' })).openedByUrl).toBe(true)
   })
 
   // ⚖ S17 · C7 — RE-DERIVED. The pin used to assert EIGHT capabilities, taken

@@ -657,9 +657,21 @@ describe('the shared engine, really run over this room’s own nodes', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ list-is-the-page — the phone’s own screen, and the way back', () => {
   it('`null` is the LIST state, and picking a row is what opens a section', () => {
-    expect(SRC_CODE).toContain('const [picked, setPicked] = useState<string | null>(null)')
+    // ⚠ D-31 (⚖ S17 fix round 4 · H1) — THE SEED MOVED, THE STATE DID NOT.
+    // `null` is still the list; what changed is that a reader who asked for a
+    // section IN THE URL does not start there. The old pin held the literal
+    // `useState<string | null>(null)`, which was exactly the defect: at ≤899
+    // `?section=coaching` dropped the reader on the list with the coaching row
+    // painted as the current page. The seed is a SERVER fact, so the first
+    // client render agrees with the server's — nothing is read from the URL here.
+    expect(SRC_CODE).toContain('const [picked, setPicked] = useState<string | null>(props.openedByUrl ? props.openingSectionId : null)')
+    expect(SRC_CODE).not.toContain('const [picked, setPicked] = useState<string | null>(null)')
     expect(SRC_CODE).toContain('const shownId = picked ?? props.openingSectionId')
     expect(SRC_CODE).toContain('const isDetail = picked !== null')
+    // ⚖ H2 — and a rail row is 「current」 only where its panel is really on
+    // screen: at ≤899 that is detail mode alone, because the list IS the page.
+    expect(SRC_CODE).toContain('on={row.id === shownId && (!narrow || isDetail)}')
+    expect(SRC_CODE).toContain(`aria-current={on ? 'page' : undefined}`)
     // ⚖ S17 STEP 1 — RE-PINNED THROUGH `openSection`/`backToList`. Picking is
     // still what opens a section; what the round added is that opening it FROM
     // THE RAIL remembers which row, so 「‹ 設定」 puts the keyboard back on it

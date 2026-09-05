@@ -194,6 +194,11 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     railHeading: '設定カテゴリー',
     sections,
     openingSectionId: opening?.id ?? null,
+    // ⚖ H1 — and whether that id is the READER'S ASK or this page's own default.
+    // Resolved here because here is where `?section=` was resolved: a browser
+    // re-deriving it would have to read the URL on the client and disagree with
+    // the server's first render about what the page is showing.
+    openedByUrl: opening !== null && asked !== null && opening.id === asked.id,
     // ⚠ ONE HONEST SENTENCE, ON EVERY STORE SECTION (the room-5 F5-1 law: the
     // foot is rendered whichever section is open, so nothing here may describe a
     // screen the reader is not on). It replaces sixteen refusal paragraphs.

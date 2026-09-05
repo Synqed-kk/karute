@@ -253,10 +253,18 @@ function useNarrow(): boolean {
 export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps }
 
 export function SettingsScreen(props: SettingsScreenProps) {
-  // ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
-  // panel always shows something (the opening section); on a phone the rail IS
-  // the page until a reader picks a row, which is ⚖ list-is-the-page.
-  const [picked, setPicked] = useState<string | null>(null)
+  /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
+   *  panel always shows something (the opening section); on a phone the rail IS
+   *  the page until a reader picks a row, which is ⚖ list-is-the-page.
+   *
+   *  ⚖ S17 fix round 4 · H1 — WHICH IS WHY A DEEP LINK HAS TO SEED IT. Starting
+   *  at `null` unconditionally meant `?section=coaching` put a phone on the
+   *  LIST: the panel was not on screen, the heading was not on screen, and the
+   *  page kept none of the promise `page.tsx` states in its own header. The seed
+   *  is a fact the SERVER resolved (`openedByUrl`), never a URL read here — so
+   *  the first client render and the server's render say the same thing and
+   *  there is nothing for hydration to disagree about. */
+  const [picked, setPicked] = useState<string | null>(props.openedByUrl ? props.openingSectionId : null)
   // ⚠ THE SEED IS TAKEN ONCE. `page.tsx` keys this screen by the resolved store,
   // so a lens switch remounts it and re-seeds from the new store's payload —
   // which is the ⚖ 8/17 isolation law at the frame as well as at the read.
@@ -949,7 +957,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           key={row.id}
                           row={row}
                           hit={hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))}
-                          on={row.id === shownId}
+                          on={row.id === shownId && (!narrow || isDetail)}
                           onOpen={openSection}
                         />
                       ))}
@@ -1154,6 +1162,12 @@ function RailItem({
 }: {
   row: RailRow
   hit: string | null
+  /** ⚖ S17 fix round 4 · H2 — 「this row's section is the page you are on」, and
+   *  it is FALSE at ≤899 while the list is the page. `aria-current="page"` and
+   *  the accent wash both said 店舗情報・営業時間 was current on a phone's first
+   *  load, with the list — not that section — on screen: the room announcing a
+   *  place nobody is standing in. It is the same fact the panel is drawn from,
+   *  asked with the band that decides whether the panel is there at all. */
   on: boolean
   onOpen: (id: string, fromRail: boolean) => void
 }) {
