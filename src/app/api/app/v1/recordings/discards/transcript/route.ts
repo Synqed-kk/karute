@@ -59,6 +59,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { getDiscardTranscriptWithClient } from '@/actions/recording-discards'
 import {
@@ -79,7 +80,7 @@ export const GET = facadeHandler('recordings.discards.transcript', async (ctx) =
   // missing one has no sane default, so it is refused rather than guessed.
   if (!sessionId) throw new AppApiError('validation', 'sessionId is required')
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
   let result
   try {
@@ -156,7 +157,7 @@ export const POST = facadeHandler('recordings.discards.transcript.write', async 
     )
   }
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
   const result =
     'transcript' in body
       ? await persistDiscardTranscriptWithClient(synqed, body)

@@ -29,6 +29,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
@@ -55,7 +56,7 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   const parsed = UploadUrlMintSchema.safeParse(body)
   if (!parsed.success) throw new AppApiError('validation', 'invalid upload-url payload')
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
   // ONLY a body that NAMES A SESSION pays for an identity — a client-named take
   // (which reserves a row) and, since fix round 7, a staged copy (which reserves
