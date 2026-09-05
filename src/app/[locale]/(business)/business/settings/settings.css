@@ -909,6 +909,11 @@
   .biz .pg-settings .st-save,
   .biz .pg-settings .st-select,
   .biz .pg-settings .st-input,
+  /* ⚠ FOUND BY THE PROBE, NOT BY READING: 取り消す measured 27px at 1023. It is a
+     button on a list row, so it never looked like it belonged with 「the
+     controls」 — which is exactly why an enumerated touch list needs a machine
+     measuring every pressable rather than a person remembering them. */
+  .biz .pg-settings .st-coll-del,
   .biz .pg-settings .st-spot-foot button { min-height: 44px; }
   .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .pg-settings .st-search-field { min-height: 44px; }

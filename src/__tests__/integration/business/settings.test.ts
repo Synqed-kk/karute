@@ -1569,7 +1569,7 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     for (const sel of [
       '.st-opt', '.st-pick', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input',
       '.st-back', '.st-link', '.st-save', '.st-jump-item', '.st-rail-item', '.st-det-btn',
-      '.st-search-field', '.st-spot-foot button',
+      '.st-search-field', '.st-coll-del', '.st-spot-foot button',
     ]) {
       expect({ sel, sized: touch.includes(sel) }).toEqual({ sel, sized: true })
     }
