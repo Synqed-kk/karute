@@ -1130,7 +1130,7 @@ export function buildModuleLibrary(
   myModuleIds: Array<string | null>,
 ): ModuleCard[] {
   const mine = new Set(myModuleIds.filter((id): id is string => id !== null))
-  return modules.map((m) => {
+  const cards = modules.map((m) => {
     const basis = BASIS_ORDER.find((b) => m.evidenceBasis.includes(b))
     return {
       moduleId: m.moduleId,
@@ -1144,6 +1144,12 @@ export function buildModuleLibrary(
       isMine: mine.has(m.moduleId),
     }
   })
+  // ⚖ I-6 (S16C) — THE READER'S OWN MODULES COME FIRST, and this is a PARTITION
+  // rather than a sort: there is no comparator in this room and there is not one
+  // here either. It is also not a ranking — 「yours」 and 「the rest」 are two
+  // groups, not two places on a scale, and the catalog's own order survives
+  // inside each of them.
+  return [...cards.filter((c) => c.isMine), ...cards.filter((c) => !c.isMine)]
 }
 
 // ── コーチングを受けることへの同意 (audit #2/#3/#6) ─────────────────────────

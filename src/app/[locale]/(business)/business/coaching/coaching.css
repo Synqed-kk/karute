@@ -328,6 +328,7 @@
   --cg-why-min: 260px;
   --cg-sheet-gap: 14px;
   --cg-shelf-min: 250px;
+  --cg-module-min: 280px;
   --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
@@ -689,14 +690,12 @@
 
 /* ── ① STACKED is the base — one column, no query needed ───────────────────── */
 .biz .pg-coaching .cg-cols,
-.biz .pg-coaching .cg-library,
 .biz .pg-coaching .cg-teamgrid,
 .biz .pg-coaching .cg-roigrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-cols-gap); align-items: start; }
 .biz .pg-coaching .cg-main,
 .biz .pg-coaching .cg-teammain,
 .biz .pg-coaching .cg-rail { display: flex; flex-direction: column; gap: var(--cg-card-gap); min-width: 0; }
 .biz .pg-coaching .cg-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-card-gap); align-content: start; }
-.biz .pg-coaching .cg-library,
 .biz .pg-coaching .cg-teamgrid,
 .biz .pg-coaching .cg-roigrid { gap: var(--cg-card-gap); }
 
@@ -973,7 +972,30 @@
 .biz .pg-coaching .cg-callout { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; padding: 11px 13px; border: 1px solid var(--cg-panel-line); border-radius: 10px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-callout b { color: var(--ink); font-size: 12.5px; font-weight: 700; line-height: 1.6; }
 .biz .pg-coaching .cg-callout span { color: var(--ink-2); font-size: 11.5px; line-height: 1.8; }
-.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+/* ⚖ I-6 — THE CATALOG IS A ROW, and the row is decided by the CARD it is in.
+   THRESHOLD ⑪ — THE MODULES CARD'S OWN CONTAINER:
+       280  a module card: a title, a duration chip, a sentence, the basis line
+     × 3    and three or four numbered steps
+     +  28  two gaps
+     ─────
+       868  three across first fit
+       880  ships — 868 plus 12, and 40 clear of the 920 the wave's reference
+            width really hands this card.
+   And the PAIR, for the fold and the iPad:
+       280 + 280 + 14 = 574 first fit · 580 ships.
+   THREE cards in TWO columns leaves the third alone on the last row — the same
+   half-empty row the supporting column, the shelves and the 成績 tiles each
+   already have a rule against — so the odd last card takes the whole row. */
+.biz .pg-coaching .cg-modules { container: cg-modules / inline-size; }
+.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+@container cg-modules (min-width: 580px) {
+  .biz .pg-coaching .cg-module-list { grid-template-columns: repeat(2, minmax(var(--cg-module-min), 1fr)); }
+  .biz .pg-coaching .cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
+@container cg-modules (min-width: 880px) {
+  .biz .pg-coaching .cg-module-list { grid-template-columns: repeat(3, minmax(var(--cg-module-min), 1fr)); }
+  .biz .pg-coaching .cg-module:last-child:nth-child(odd) { grid-column: auto; }
+}
 /* ⚠ THE SCROLL MARGIN IS THE ANCHOR'S OWN (⚖-ADJ D). A 練習するもの chip sends
    the reader here; without it the shell's sticky topbar lands on the card's own
    heading, which is a link that appears not to have worked. */
@@ -1255,7 +1277,6 @@
   .biz .pg-coaching .cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .biz .pg-coaching .cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--cg-cols-gap); }
   .biz .pg-coaching .cg-teamgrid {
     grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr);
     gap: var(--cg-cols-gap);

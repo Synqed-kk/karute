@@ -1562,12 +1562,14 @@ export function CoachingScreen(props: CoachingProps) {
                     </div>
                   </div>
 
-                  {/* ⚖ THE LIBRARY ROW (S16 §2.5) — the two READING surfaces, side
-                      by side on a desk: what the top performers actually say, and
-                      what to practise about it. Both were full-width readers under
-                      the desk before; paired, the 練習するもの chip above lands on
-                      a card the reader can already see. */}
-                  <div className="cg-library">
+                  {/* ⚖ I-6 (S16C) — THE TWO READING SURFACES ARE FULL WIDTH AGAIN,
+                      one under the other. Side by side they were a 7/5 split whose
+                      narrow half stacked three module cards down a 5fr column,
+                      which is the stretched-phone shape on the widest screen the
+                      room has. Each is a ROW of its own now: the shelves two
+                      across in their card, the modules three across in theirs, and
+                      neither is squeezed by the other's width. */}
+                  <>
                     {/* ⚖ THE PATTERN LIBRARY (audit §5 rank 5) — FIVE NAMED
                         SHELVES with the actual line a top performer says.
 
@@ -1731,7 +1733,7 @@ export function CoachingScreen(props: CoachingProps) {
                         </ul>
                       </section>
                     )}
-                  </div>
+                  </>
                   </>
                   )}
                 </>

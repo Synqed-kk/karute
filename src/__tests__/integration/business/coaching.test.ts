@@ -985,7 +985,6 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr)')
     expect(desk.slice(0, 900)).toContain('.cg-side { grid-template-columns: minmax(0, 1fr); }')
-    expect(desk.slice(0, 900)).toContain('.cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr)')
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr)')
 
     // ① → ② : two supporting cards side by side.
@@ -1108,15 +1107,17 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // TEN blocks on SIX containers: the page (700 · 880 · 940), the PRACTICE
-    // SHEET (580 · 860 — ⚖ I-1), the PATTERNS card (520 — ⚖ I-5), the finding
-    // CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
+    // TWELVE blocks on SEVEN containers: the page (700 · 880 · 940), the
+    // PRACTICE SHEET (580 · 860 — ⚖ I-1), the PATTERNS card (520 — ⚖ I-5), the
+    // MODULES card (580 · 880 — ⚖ I-6), the finding CARD (480), the 成績 card
+    // (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
     // container exists because what decides that composition is the box it is in
     // — the page's width is one, two or three layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(10)
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(12)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-sheet/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-shelves/g)].length).toBe(1)
+    expect([...CSS_CODE.matchAll(/@container cg-modules/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
@@ -3354,7 +3355,7 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // ⚖ I-1 (S16C) — THE PRACTICE SHEET LEADS. `cg-focus` did not leave the page;
     // it is the sheet's FIRST COLUMN now, so it moved ABOVE `cg-cols` rather than
     // out of the order. The desk that follows it is the evidence and the numbers.
-    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-sheet', 'cg-focus', 'cg-sheet-do', 'cg-sheet-why', 'cg-spine', 'cg-cols', 'cg-main', 'cg-findings', 'cg-side', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
+    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-sheet', 'cg-focus', 'cg-sheet-do', 'cg-sheet-why', 'cg-spine', 'cg-cols', 'cg-main', 'cg-findings', 'cg-side', 'cg-strengths', 'cg-patterns', 'cg-modules']
     const at = order.map((c) => panel.indexOf(c))
     expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
     // 強み LEADS the supporting column now (⚖ I-3 moved 成績 out of it)
@@ -3438,8 +3439,10 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(desk).toContain('.cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }')
     expect(desk).toContain('.cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
     expect(desk).toContain('.cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
-    // the library row is untouched — it has two real columns either way
-    expect(desk).toContain('.cg-library { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);')
+    // ⚖ I-6 — the library ROW is gone: the shelves and the catalog are two
+    // full-width sections now, each recomposing inside its own card.
+    expect(CSS_CODE).not.toContain('.cg-library')
+    expect(SCREEN_CODE).not.toContain('cg-library')
   })
 
   it('R2-8 · the 次の一手 card wears the ACCENT WASH, never the warning family', () => {
@@ -3880,6 +3883,29 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     const shelves = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-shelves (min-width: 520px)'))
     expect(shelves.slice(0, 400)).toContain('.cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }')
     expect(PATTERN_CATEGORIES.length % 2).toBe(1)
+  })
+
+  it('⚖ I-6 · the catalog is a ROW, and the reader’s OWN modules come first', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const cards = props.modules!.cards
+    // yours first — a PARTITION, not a sort: no comparator, and the catalog's own
+    // order survives inside each group.
+    const mineCount = cards.filter((c) => c.isMine).length
+    expect(mineCount).toBeGreaterThan(0)
+    expect(mineCount).toBeLessThan(cards.length)
+    expect(cards.slice(0, mineCount).every((c) => c.isMine)).toBe(true)
+    expect(cards.slice(mineCount).every((c) => !c.isMine)).toBe(true)
+    expect(cards.filter((c) => c.isMine).map((c) => c.moduleId))
+      .toEqual(learningModules.filter((m) => cards.find((c) => c.moduleId === m.moduleId)!.isMine).map((m) => m.moduleId))
+    expect(LIB_CODE).toContain('return [...cards.filter((c) => c.isMine), ...cards.filter((c) => !c.isMine)]')
+    expect(LIB_CODE).not.toMatch(/\.sort\(\s*\(a, ?b\)\s*=>\s*\(?[ab]\.isMine/)
+    // …and every anchor the 練習するもの chip points at still resolves, because
+    // the ids did not move — only the order did.
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    const ids = new Set(cards.map((c) => c.moduleId))
+    for (const f of self.focus) if (f.moduleAnchor) expect(ids.has(f.moduleAnchor)).toBe(true)
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
