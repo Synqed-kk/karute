@@ -55,14 +55,21 @@ export function isStorageNotFound(error: unknown): boolean {
  *  is the business + take id — logged only as a normalized `messageKind`,
  *  by exact comparison, never the text. */
 export function warnStorageUnknown(where: string, error: unknown): void {
-  const e = (error && typeof error === 'object' ? error : {}) as { status?: unknown; statusCode?: unknown; message?: unknown }
-  const messageKind =
-    e.message === 'Bucket not found'
-      ? 'bucket_not_found'
-      : e.message === 'Object not found'
-        ? 'object_not_found'
-        : 'other'
-  console.warn(JSON.stringify({ evt: 'storage_probe_unknown', where, status: e.status, statusCode: e.statusCode, messageKind }))
+  const e = (error && typeof error === 'object' ? error : {}) as { status?: unknown; statusCode?: unknown }
+  console.warn(JSON.stringify({ evt: 'storage_probe_unknown', where, status: e.status, statusCode: e.statusCode, messageKind: storageMessageKind(error) }))
+}
+
+/** The NORMALIZED message, by exact comparison — the only form of storage's
+ *  `message` that may ever be logged (see warnStorageUnknown above for why the
+ *  text itself never is). One home, because the mint's `sign_upload_refused`
+ *  line answers the same question about the same errors. */
+export function storageMessageKind(error: unknown): 'bucket_not_found' | 'object_not_found' | 'other' {
+  const message = (error && typeof error === 'object' ? error : {}) as { message?: unknown }
+  return message.message === 'Bucket not found'
+    ? 'bucket_not_found'
+    : message.message === 'Object not found'
+      ? 'object_not_found'
+      : 'other'
 }
 
 /** Statuses the JOB PIPELINE owns. NEITHER door writes `status` on one of
