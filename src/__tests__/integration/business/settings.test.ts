@@ -922,6 +922,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // …and the room's disclosure, not a second one: same component, same spring.
     expect(SECTION_CODE).toContain("from './Collapse'")
     expect(SECTION_CODE).not.toContain('<details className="st-row')
+    // ⚠ AND FOLDING A TRUTH GAVE IT A HOME. 「この設定はまだ保存できません」 rode
+    // five of the eight dials in the open; folded, it would have had nowhere on
+    // the face at all. It is said ONCE now, on the 保存 block — which is where a
+    // manager asks the question, and one copy instead of five is the noise ⚖
+    // 8/21 (DS9-10) names.
+    const save = SECTION_CODE.slice(SECTION_CODE.indexOf('data-guide-title="保存"'))
+    expect(save.slice(0, save.indexOf('</section>'))).toContain('<p className="st-ctrl-d dim">{PENDING_NOTE}</p>')
     // ⚠ WHAT DOES NOT FOLD, and this is the half a later hand will get wrong: a
     // WARNING and a LIVE RESULT stay on the face. 詳しく holds context a manager
     // opens WHILE changing a dial; 「why can I not do this」 and 「this is what

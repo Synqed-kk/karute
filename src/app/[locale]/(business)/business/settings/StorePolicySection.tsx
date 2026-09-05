@@ -901,6 +901,15 @@ export function StorePolicySection(props: StorePolicySectionProps) {
           </button>
           {props.save.refusal !== null && <p className="st-ctrl-d warn">{props.save.refusal}</p>}
           <p className="st-ctrl-d dim">保存できるのは{props.save.roles.join('・')}です</p>
+          {/* ⚖ S17 fix round 1 · F15 — SAID ONCE, WHERE A READER GOES TO SAVE.
+              This sentence used to ride five of the eight dials as a 準備中 line
+              in the open; folding those into 詳しく would have left the truth
+              with no home on the face at all. Once, on the save block, is also
+              the better place for it: eight copies of one caveat is the noise
+              ⚖ 8/21 (DS9-10) names, and 「can this be saved」 is a question a
+              manager asks HERE. The per-dial chips stay in each row's 詳しく as
+              that dial's own detail. */}
+          <p className="st-ctrl-d dim">{PENDING_NOTE}</p>
         </section>
   )
 
