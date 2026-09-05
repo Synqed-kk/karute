@@ -67,6 +67,30 @@ const DAY_MS = 86_400_000
 /** 予約種別 as canon writes it on a card and in the 精算 dialog's sub-line. */
 const CATEGORY_WORD = { new: '新規', repeat: '単発', ticket: '回数券', vip: 'VIP' } as const
 const WEEKDAY_WORD = ['日曜', '月曜', '火曜', '水曜', '木曜', '金曜', '土曜'] as const
+/** ⚖ R8 T1 — the 根拠 line that asserts the booking's own price survives a move.
+ *  Named once because both proof lists append it under the same condition, and a
+ *  second literal is a second place for the condition to be forgotten. */
+const PRICE_HOLD_PROOF = '予約時価格を保持'
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F2) — ONE AUTHOR FOR A BOOKING'S 根拠 LIST.
+ *
+ *  The condition used to be spelled once per arm of `b.resourceId ? … : …`, and
+ *  the fixture only ever walks one of them: its single price-less booking
+ *  (apt-09) has no resource, so a with-resource arm that appended the 保持 line
+ *  unconditionally — a booking with a bed and no recorded price claiming its
+ *  price is held, the exact defect T1 removes — shipped green through the whole
+ *  suite. Two arms, one rule, so the rule is written once and the arms differ
+ *  only in the sentence about the bed.
+ *
+ *  `resourceProof` is the bed's own line, or `null` when the booking has no
+ *  resource yet; `priced` is whether the SERVER recorded a price for it. */
+export function bookingProofs(resourceProof: string | null, priced: boolean): string[] {
+  return [
+    '担当の勤務時間内',
+    ...(resourceProof == null ? ['設備の割当てが未確定'] : ['休憩と重ならない', resourceProof]),
+    ...(priced ? [PRICE_HOLD_PROOF] : []),
+  ]
+}
 /** The window the date nav and the month calendar can reach. Wide enough for a
  *  month either way, small enough that the per-day sums are free. */
 const WINDOW = 45
@@ -334,9 +358,12 @@ export default async function TodayPage({
       b.state === 'hold' ? '仮押さえ' : b.state === 'attention' ? '要対応' : b.state === 'noshow' ? '来店なし' : b.settlement === 'awaiting' ? '精算待ち' : '確定',
       b.state === 'hold' ? 'waiting' : b.state === 'attention' || b.settlement === 'awaiting' ? 'checkout' : 'done',
       b.resourceId ? `${b.staffName} + ${b.resourceName}が成立` : '設備は未確定',
-      b.resourceId
-        ? ['担当の勤務時間内', '休憩と重ならない', bedSecuredProof(resources, b.resourceId), '予約時価格を保持']
-        : ['担当の勤務時間内', '設備の割当てが未確定', '予約時価格を保持'],
+      // ⚖ R8 T1 — the 価格保持 根拠 is CONDITIONAL: a booking with no recorded
+      // price has nothing to hold, and the facts above already say 記録なし
+      // about it. ⚖ FIX ROUND 3 (BREAKER-828 F2) — and the condition is written
+      // ONCE, in `bookingProofs`, because a rule spelled once per arm is a rule
+      // the fixture can only walk half of.
+      bookingProofs(b.resourceId ? bedSecuredProof(resources, b.resourceId) : null, b.price != null),
     )
   })
   planes.decisions.forEach((d, i) => {
@@ -388,6 +415,15 @@ export default async function TodayPage({
   const heldBooking = bookings.find((b) => b.state === 'hold') ?? null
   const holdDecision = heldBooking ? planes.decisions.find((d) => d.appointment_id === heldBooking.id) ?? null : null
 
+  /** ⚖ flag 92 (2026-08-31) — THE LEVEL IS THE TRUTH, the boolean is a reading
+   *  of it. The warn card composes THREE faces off `overrideLevelFor`'s three
+   *  levels (warn / 承認待ち / 店長のみ) and a boolean cannot express the middle
+   *  one, so the level is what crosses the seam; `canOverride` below is derived
+   *  from this very const rather than asking the dial a second time, because two
+   *  readings of one answer are free to disagree the day the dial grows a
+   *  fourth level (flag 54's disease, at the permission layer). */
+  const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)
+
   const props: TodayProps = {
     locale,
     store: storeId,
@@ -403,6 +439,12 @@ export default async function TodayPage({
       : null,
     nowLabel: hhmm(planes.boardNow),
     lanes,
+    // ⚖ R8 T1 — WHICH OF TODAY'S BOOKINGS CARRY A RECORDED PRICE. `BoardItem`
+    // has no price field (today-board.ts) and the board is what every gesture
+    // holds, so the fact travels beside the lanes: the screen filters canon's
+    // unconditional 価格保持 check row with it, exactly as the 根拠 lists above
+    // are filtered with `b.price`. One reading of one server field, both places.
+    pricedIds: bookings.filter((b) => b.price != null).map((b) => b.id),
     // The 販売可能枠 layer is DERIVED IN THE BROWSER, not here: it has to answer
     // to a drag in progress, and a server-frozen cell list would keep painting
     // a window the card being dragged is already standing in. The dials come
@@ -462,7 +504,22 @@ export default async function TodayPage({
     // for). At the shipped policy — (a), スタッフ in `roles`, `lockedOut` empty —
     // this is the byte-identical answer the two lines it replaced gave; the
     // levels are what a store's settings screen will move.
-    canOverride: overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator) === 'allow-warned',
+    canOverride: overrideLevel === 'allow-warned',
+    // ⚖ flag 92 — the SAME decision at full resolution, for the warn card's own
+    // three faces. `canOverride` above stays exactly what it was for the consult
+    // path (⚖ 50(d)'s 「注意して配置」 gate at the drop); this is the same const
+    // read once more, so the two can never say different things.
+    overrideLevel,
+    // ⚠SETTINGS-BATCH — ⚖ flag 92. Does the warn face's commit ask for a 0.6-秒
+    // long press? The store's dial, decided ONCE here like every other authority
+    // on this screen; the board is handed the answer, never the policy.
+    holdToConfirm: planes.opsConfig.overrideHoldToConfirm,
+    // ⚖ flag 92 — WHOSE NAME the warn card's provenance line prints when the
+    // placement lands on someone else's shift. The operator's own name, from the
+    // same `shell.operator` every other authority on this screen is read from;
+    // the board decides WHETHER to print it (⚖ the name line is automatic and
+    // other-lane-only), never who it is.
+    operatorName: shell.operator.name,
     // ⚖ SPEC-SELLING-ENGINE §1 / ruling Q5 (E5) — WHO MAY RELEASE A 確保 WINDOW
     // EARLY, decided ONCE, here, from this operator's own role. Same discipline
     // as the line above: the board is handed the ANSWER, never the rule, so a
@@ -493,7 +550,7 @@ export default async function TodayPage({
           break: mineShift.breaks.length === 0 ? '休憩なし' : `休憩 ${hhmm(mineShift.breaks[0].start)}–${hhmm(mineShift.breaks[0].end)}`,
         }
       : null,
-    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id } : null,
+    inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,
     incident,
     cards,
     cases,

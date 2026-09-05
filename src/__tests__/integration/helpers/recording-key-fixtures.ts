@@ -11,13 +11,20 @@
  * Split down the middle on purpose: rows 1-4 fail on the PREFIX (a bare
  * `startsWith` refused these too — the no-regression half), rows 5-8 carry the
  * caller's OWN prefix and fail on the body or suffix (a bare `startsWith`
- * ACCEPTED every one — the half that proves the upgrade landed here).
+ * ACCEPTED every one — the half that proves the upgrade landed here). Row 9 is
+ * the 2026-09-03 addition: a key that is genuinely this tenant's and genuinely
+ * PARSES, and is still refused everywhere, because every one of these fences
+ * means a whole TAKE and a segment is a fragment of one.
  */
 export const TAKE_UUID_FIXTURE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
 
 /** The one shape mintRecordingUploadUrl (and the upload-url facade) composes. */
 export const conformingKey = (businessId: string) =>
   `app_${businessId}_${TAKE_UUID_FIXTURE}.webm`
+
+/** A valid SEGMENT of that same take — parses, but is not a take. */
+export const segmentKey = (businessId: string, seq = '000000', ext = 'webm') =>
+  `seg/app_${businessId}_${TAKE_UUID_FIXTURE}/${seq}.${ext}`
 
 export const refusedKeys = (businessId: string): [string, string][] => [
   ['another business’s object', `app_other-biz_${TAKE_UUID_FIXTURE}.webm`],
@@ -28,6 +35,7 @@ export const refusedKeys = (businessId: string): [string, string][] => [
   ['a separator in the unique part', `app_${businessId}_/../x.webm`],
   ['no unique part at all', `app_${businessId}_.webm`],
   ['a query suffix', `app_${businessId}_${TAKE_UUID_FIXTURE}.webm?download=1`],
+  ['this business’s own SEGMENT — parses, but is not a take', segmentKey(businessId)],
 ]
 
 /**

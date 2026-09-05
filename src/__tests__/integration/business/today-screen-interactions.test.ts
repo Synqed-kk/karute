@@ -18,7 +18,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
-import { computeChecks, confirmCaption } from '@/business/lib/canon-logic/drag-rules'
+import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
   applyMoves,
@@ -44,6 +44,7 @@ import {
   fractionIn,
   allocateBed,
   bedFeasibility,
+  dialAdmits,
   gapLayerFor,
   guardRailsFor,
   guardVerdictAt,
@@ -79,7 +80,19 @@ import {
   nearestFreeStarts,
   needsPrivateRoom,
   overrideLevelFor,
+  lossOf,
+  warnFaceFor,
+  holdClock,
+  holdResumeAt,
+  HOLD_MS,
+  HOLD_CANCEL_V,
+  type WarnCardInput,
   pinInViewport,
+  proxyTimeLabel,
+  withPriceFact,
+  hasPriceFact,
+  priceFactSets,
+  PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
   type Moves,
@@ -91,13 +104,13 @@ import {
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
-import { DENSITY_CEILING, packedPrice } from '@/business/lib/canon-logic/pricing'
-import { minuteOf, place, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
+import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
 // operator acts on has to be provable without a renderer.
-import { bedDoor, bedViewsFor } from '@/app/[locale]/(business)/business/today/TodayScreen'
+import { bedDoor, bedViewsFor, nextVisitCategory } from '@/app/[locale]/(business)/business/today/TodayScreen'
 
 if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement): void {
@@ -115,6 +128,215 @@ const STEP = stepPct(9)
 /** ⚠SETTINGS-BATCH — the store's shipped room policy (opsConfig.roomPolicy).
  *  The tests that care about the dials set their own. */
 const POLICY = { vipStaysPrivate: true, privateIsLastResort: true }
+
+/** ⚖ BREAKER-827 F1/F2/F3 — A `//`-PREFIXED COPY IS NOT THE LINE.
+ *
+ *  The breaker commented the verdict's protected door OUT, left the pinned text
+ *  sitting beside it as `// protectedWindowFeasible: …`, and the whole repo
+ *  stayed green (530 suites, tsc clean) while the feature this round exists for
+ *  went dark. `toContain` reads a SUBSTRING, and a raw occurrence count cannot
+ *  tell a real read that LEFT from a comment that took its place — it only sees
+ *  a read arriving. Same class as BREAKER-821 M1, whose fix is already in this
+ *  repo: selling-engine-flip.test.ts — grep it for ROUND 4, `includes` WAS
+ *  WALKED BY A COMMENTED-OUT COPY. This is that fix, copied, not reinvented.
+ *
+ *  ⚖ BREAKER-827 §DELTA D1 (BLOCKER) — AND NEITHER IS A BLOCK COMMENT. Round 3
+ *  built the armour against the `//` prefix alone, and a three-line block
+ *  comment whose MIDDLE line is the pinned text with nothing in front of it
+ *  walked through both helpers untouched: the anchor saw a real line, and the
+ *  blanker only ever looked at what a line STARTS with. The verdict door came
+ *  back green at 530 suites with the feature dark — the round's own headline
+ *  mutant, alive again. So `codeOnly` takes whole block comments out as well
+ *  (an unterminated one runs to the end of the input, which is what a SLICE of
+ *  a file can hand it), and the old rule for comment-continuation lines goes
+ *  with them: once the blocks are gone no continuation line is left to blank,
+ *  and `//` is the only comment shape a line can still begin with.
+ *
+ *  ⚖ BREAKER-827 §DELTA 2 D5 — AND THE `//` PASS RUNS FIRST. Round 4
+ *  stripped the blocks first, so a block OPENER sitting inside a `//` line
+ *  opened a block the type-checker never saw, and every live line between it
+ *  and the next closer disappeared from a filter whose whole job is to see
+ *  live lines. The breaker hid a second real `solveBed(` behind one and the
+ *  comment-aware count in the ⚖ 51 chain below still read ONE — what killed
+ *  that mutant was two OLDER pins that read the RAW file, not this armour.
+ *  Blanking `//`-led lines FIRST is the whole fix: such a line is gone before
+ *  the block pass can read a delimiter out of it.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Both passes are string surgery, not a
+ *  parser. A block delimiter inside a STRING LITERAL in a pinned product file
+ *  still opens or closes a comment that is not one — `blockcheck.py` scans
+ *  today's three files and finds none outside a comment, but that is a SCAN of
+ *  today rather than a test, and nothing stops a later round writing one. The
+ *  reorder adds the mirror shape: a real block whose CLOSER sits on a `//`-led
+ *  line now runs to the end of the input. Both of those can only HIDE code,
+ *  never add it — and hiding takes a pinned line out of the exact-lines
+ *  arrays and out of every count, which is red. ADDING is what a decoy needs,
+ *  and adding is what the counts and the arrays are for.
+ *
+ *  `pinnedLine` runs over `codeOnly(src)`, never the raw source, and anchors
+ *  `^[ \t]*` … `$`: the literal must START its line after indentation — tabs
+ *  included, so a tab-reindented but otherwise byte-identical real line is
+ *  still the line — and END it, so a comment prefix misses and a trailing
+ *  addition on the same line misses too. Zero indentation is allowed because
+ *  top-level `import` lines are pinned this way as well.
+ *
+ *  `pinnedLines` is that same anchor COUNTED, and it is the other half of the
+ *  armour: presence-anywhere-in-the-file is reachability-blind, so a line MOVED
+ *  into a dead scope still satisfies it (⚖ lens 2, decoy 3 — the verdict door
+ *  deleted from the live call and parked in a `void`-discarded block above the
+ *  hook: 486 green, tsc clean, the guard back on the raw enumeration). A count
+ *  of ONE, plus the same line pinned inside the slice of the CALL it is an
+ *  argument to, is what closes it: a duplicate moves the count, and a move
+ *  leaves the slice.
+ *
+ *  ⚖ BREAKER-828 F5 (MAJOR) — AND THE `//` PASS READS EVERY LINE, NOT ONLY THE
+ *  LINES IT OWNS. `codeOnly` used to strip only a line that is ENTIRELY a
+ *  comment, and then blank `/* … *\/` blocks. A TRAILING `// … /*` therefore
+ *  survived the first pass into the second, where it opened a block that ate
+ *  everything down to the next `*\/`: real code TypeScript compiles, invisible
+ *  to every ban and every count on this lane. The breaker hid a second live
+ *  `computeChecks(` reader that way — inside `checksFor`, between `) // shim /*`
+ *  and `/* *\/` — and 1912 tests plus `tsc --noEmit` stayed green, defeating the
+ *  pin this file itself calls 「the one decoy the two counts above walked past」.
+ *
+ *  So the first pass now cuts each line at its first `//` that is OUTSIDE a
+ *  string, walking `'`, `"` and backtick state with escapes honoured. A `//`
+ *  inside `'https://…'` is code and stays; a `/*` inside a whole-line comment is
+ *  cut away with the comment instead of opening a block. Line COUNT is
+ *  preserved (the cut keeps the leading indent), so `callSlice` still slices the
+ *  same thing it counts.
+ *
+ *  ⚖ BREAKER-828 DELTA G3 (MAJOR) — AND TWO PASSES CANNOT READ A STRING. F5's
+ *  fix closed the shape it was filed for and not the class. The line pass
+ *  tracked quotes PER LINE and could not tell a string from an apostrophe that
+ *  is not one, so `) /* it's fine *\/ // shim /*` left the walker believing a
+ *  string was open, the trailing `//` was never cut, its `/*` survived into the
+ *  block pass and swallowed everything down to the next closer (`N12`). And the
+ *  block pass ran over the joined source with no string state at all, so
+ *  `const OPEN = '/*'` … `const CLOSE = '*\/'` opened and closed a comment out
+ *  of two string literals with no `//` anywhere for the first pass to look at
+ *  (`N13`). Both hid a second live `computeChecks(` reader — 1920 tests and
+ *  `tsc --noEmit` green.
+ *
+ *  v3 is ONE pass. A state machine walks the whole source once: code, `'…'`,
+ *  `"…"`, `` `…` `` with `${ … }` holes that return to code at their own brace
+ *  depth, `//` to end of line, `/* … *\/` to its closer or to end of input.
+ *  Escapes inside strings are honoured; strings come back VERBATIM, delimiters
+ *  and all; comments are blanked to SPACES, so the output is the same length as
+ *  the input and every line number and column is the file's own — the two-pass
+ *  version deleted the newlines inside a block comment and moved every line
+ *  under it. Quotes only open a string from CODE state, so a `'` inside a
+ *  comment is a character.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY (⚖ BREAKER-828 DELTA 2 H1 — revised, the
+ *  claim below used to be wrong on both halves). A regex literal is not
+ *  parsed, and a QUOTE inside its character class is not the only thing that
+ *  leaks: because a `/` in code state is pushed as a plain character, the very
+ *  next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) takes the
+ *  block-comment branch too, closing string-blind on whichever `*\/` comes
+ *  next. And 「hiding is red」 only holds when the hidden span contains a
+ *  PINNED line — a mutant that hides only its OWN added lines moves no count
+ *  (`N31`, `N31b`: a second live `computeChecks(` reader, GREEN at 30 suites,
+ *  `tsc --noEmit` clean). The guard against that is not in the tokenizer: a
+ *  RAW count over `src` stands beside every `codeOnly(src)` single-reader
+ *  count that a hidden second reader would matter to — a regex hole can blind
+ *  the blanked count, never the raw one. ADDING is what a decoy needs, and
+ *  adding is what the counts are for.
+ *
+ *  It is duplicated verbatim in three suites — they do not import one another
+ *  and a new module is forbidden on this lane — and the last describe in each
+ *  file asserts all three copies are byte-identical, marker to marker. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (open)
+const codeOnly = (src: string) => {
+  const out: string[] = []
+  const blank = (s: string) => { out.push(s.replace(/[^\n]/g, ' ')) }
+  const holes: number[] = []
+  let tpl = false
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]
+    if (tpl) {
+      if (c === '\\') { out.push(src.slice(i, i + 2)); i += 2; continue }
+      if (c === '`') { out.push(c); i += 1; tpl = false; continue }
+      if (c === '$' && src[i + 1] === '{') { holes.push(0); out.push('${'); i += 2; tpl = false; continue }
+      out.push(c); i += 1
+      continue
+    }
+    if (c === '/' && src[i + 1] === '/') {
+      const e = src.indexOf('\n', i)
+      blank(src.slice(i, e < 0 ? src.length : e)); i = e < 0 ? src.length : e
+      continue
+    }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2)
+      blank(src.slice(i, e < 0 ? src.length : e + 2)); i = e < 0 ? src.length : e + 2
+      continue
+    }
+    if (c === "'" || c === '"') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1
+      const k = j < src.length && src[j] === c ? j + 1 : j
+      out.push(src.slice(i, k)); i = k
+      continue
+    }
+    if (c === '`') { out.push(c); i += 1; tpl = true; continue }
+    if (holes.length > 0 && (c === '{' || c === '}')) {
+      if (c === '{') holes[holes.length - 1] += 1
+      else if (holes[holes.length - 1] === 0) { holes.pop(); out.push(c); i += 1; tpl = true; continue }
+      else holes[holes.length - 1] -= 1
+    }
+    out.push(c); i += 1
+  }
+  return out.join('')
+}
+// ⚖ codeOnly v3 — BYTE-IDENTICAL IN THREE SUITES (close)
+const anchoredLine = (line: string) => new RegExp('^[ \\t]*' + escapeRegExp(line) + '$', 'gm')
+const pinnedLines = (src: string, line: string) => (codeOnly(src).match(anchoredLine(line)) ?? []).length
+const pinnedLine = (src: string, line: string) => pinnedLines(src, line) > 0
+
+/** ONE call's own text, from its opening anchor to the dependency-array line
+ *  that closes the hook it lives in — found and counted by the SAME anchored
+ *  regex `pinnedLines` uses, over `codeOnly(src)`.
+ *
+ *  ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — THE ANCHORS HAVE TO BE UNIQUE, AND
+ *  THIS FUNCTION IS WHERE THAT IS DECIDED. It used to be `src.indexOf(open)`
+ *  then `src.indexOf(close, i)` over the RAW file: first occurrence, both ends,
+ *  nothing asserting there was only one. The comment that stood here CLAIMED
+ *  「Both anchors are unique in the file」 and never checked it, so the armour
+ *  was not reading the call — it was reading whichever copy came first. The
+ *  breaker copied the rail's fourteen lines verbatim into a `(false as
+ *  boolean) ?` branch ABOVE the real memo, deleted the live protected door and
+ *  re-spelled the two other pinned lines so no file-wide count moved: 530
+ *  suites green, `tsc` exit 0, every slice pin satisfied — by the decoy — and
+ *  both protected doors dark (rail 5 + verdict 5 of 90 fixture cells at
+ *  now=804, 12 + 12 with no clock). `opens` and `closes` are those two counts,
+ *  and every caller asserts both are ONE before reading `text`: a second copy
+ *  then has nowhere to stand, which is the argument `inTheFile: 1` already
+ *  makes one level down for a duplicate LINE.
+ *
+ *  AND THE LOCATOR MOVED WITH THE COUNT. `indexOf` finds an anchor anywhere —
+ *  mid-line, or inside a comment — while the count only sees it at the start of
+ *  a line of code; a locator the count cannot see is a decoy site by
+ *  construction (append the open anchor to the tail of a live line and the
+ *  count still reads one). Both halves run `anchoredLine` over `codeOnly(src)`
+ *  now, so what is counted and what is sliced are the same thing, and `text`
+ *  arrives at the caller already comment-blanked.
+ *
+ *  ⚠ THE CEILING, SAID HONESTLY. Blanking the whole file before slicing means
+ *  an unterminated block comment ABOVE the open anchor eats the anchors
+ *  themselves — `ok` goes false, which is red, so that direction is safe. A
+ *  comment can only ADD lines to a slice or TRUNCATE it; it can never SUPPLY a
+ *  pinned line, because `codeOnly` removed it before the slice existed. */
+const callSlice = (src: string, open: string, close: string) => {
+  const code = codeOnly(src)
+  const opens = [...code.matchAll(anchoredLine(open))]
+  const closes = [...code.matchAll(anchoredLine(close))]
+  const at = (ms: readonly { index?: number }[], after: number) => ms.find((m) => (m.index ?? -1) > after)?.index ?? -1
+  const i = at(opens, -1)
+  const j = i < 0 ? -1 : at(closes, i)
+  return { ok: i > -1 && j > i, text: i > -1 && j > i ? code.slice(i, j) : '', opens: opens.length, closes: closes.length }
+}
 
 /** jsdom has no layout: give a node the rect the test needs. */
 function rect(el: Element, r: { left: number; top: number; width: number; height: number }) {
@@ -1201,28 +1423,467 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  be lifted out of the world is `live?.id`, full stop. `?? pending?.id` was
    *  the excluded world, and it may not come back anywhere in this file. */
   it('the screen hands the rooms to BOTH guard doors, out of the ONE book', () => {
-    expect(SRC).toContain('const handId = live?.id ?? null')
-    // ⚖ FIX-4(a) — the ENGINE's exclusion moved with the door's. Pinning only
-    // `placementFeasible` would let a round put `pending` back into the pocket
-    // walk while the beds stayed honest: half a world, which is worse than
-    // either whole one.
-    expect(SRC).toContain('excludeId: handId,')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(handId),')
-    expect(SRC).toContain('placementFeasible: bedDoorFor(excludeId, lanes),')
+    // ⚖ R7 (SPEC §3.1) — BOTH DOORS, BOTH CALLBACKS, ONE BOOK. `placementFeasible`
+    // answers 「can the card being placed occupy this span」; `protectedWindow-
+    // Feasible` answers 「does the real world publish a protected window starting
+    // here」. The rail was handed the second at E3a and the verdict was not, so
+    // the strip's marks were bed-honest and the word under the cursor was not —
+    // two readings of one board, measured disagreeing on 1,625 of 7,956 cells
+    // (PROBE-R7 §P1). Pinned as the PAIR, because the failure this catches is
+    // exactly half a world; and `handId` above them, because the id that may be
+    // lifted out of the world is `live?.id`, full stop.
+    //
+    // ⚖ BREAKER-827 F1 (BLOCKER) — WHOLE-LINE ANCHORED. Every one of these five
+    // was a `toContain`, and the breaker walked straight through the last of
+    // them: comment the verdict's door out, leave the pinned text beside it as
+    // `// protectedWindowFeasible: …`, and this test stayed green with the
+    // verdict back on the raw pocket-minute enumeration — the exact defect the
+    // round measures. A pinned line has to BE a line now.
+    for (const line of [
+      'const handId = live?.id ?? null',
+      'placementFeasible: bedDoorFor(handId),',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
+    // ⚖ LENS-2 DECOY 3 (MAJOR) — AND EVERY CALLBACK IS PINNED INSIDE THE CALL
+    // IT IS AN ARGUMENT TO. Presence-in-the-file is reachability-blind and a
+    // MOVE leaves every total where it was: the lens deleted the verdict's door
+    // from the live object and parked a byte-identical copy in a
+    // `void`-discarded dead block above the hook — 486 green, tsc clean, the
+    // guard back on the raw enumeration. Counted ONCE over code file-wide AND
+    // present inside its own call: a duplicate moves the count, a move leaves
+    // the slice.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S1 (BLOCKER) — AND THE SLICE HAS TO BE THE CALL.
+    // `callSlice` took the FIRST occurrence of each anchor and nothing said
+    // there was only one, so a verbatim DECOY of the rail's fourteen lines,
+    // parked in a `(false as boolean) ?` branch above the real memo, captured
+    // every pin below while the live call shed its protected door: 530 green,
+    // tsc clean, both doors dark. Every anchor is counted before it is read.
+    const uniqueSlice = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      return s
+    }
+    const CODE = codeOnly(SRC)
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
+    for (const [where, call, line] of [
+      ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
+      ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
+      ['verdict', verdict.text, 'placementFeasible: bedDoorFor(excludeId, lanes),'],
+      ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
+    ] as const) {
+      expect({ where, line, inThisCall: pinnedLines(call, line), inTheFile: pinnedLines(SRC, line) })
+        .toEqual({ where, line, inThisCall: 1, inTheFile: 1 })
+    }
+    // `const handId = live?.id ?? null` above them is anchored and not counted:
+    // a second one is a TypeScript redeclaration and a moved one takes every
+    // reader on the screen with it, so there is no silent shape to count for.
+    //
+    // ⚖ FIX-4(a) / BREAKER-827 §DELTA D2(a) — the ENGINE's exclusion moved with
+    // the door's, at BOTH of its sites. Pinning only `placementFeasible` would
+    // let a round put `pending` back into the pocket walk while the beds stayed
+    // honest: half a world, which is worse than either whole one. It was left a
+    // `toContain` as declared residue because one spelling stands for TWO
+    // sites — and the breaker commented the RAIL's out with the mask's keeping
+    // the substring green: 486 passed while 39 of 1,872 strip cells moved, 9 of
+    // them safe → blocked, the card in hand become its own obstacle (the ⚖ R3 /
+    // flag-50 defect class, in the surface Liam photographed). One spelling for
+    // two sites is not a uniqueness question, it is a COUNT question — so the
+    // anchored line is counted (TWO) and then required inside each of the two
+    // calls that must carry it.
+    expect({ excludeIdLines: pinnedLines(SRC, 'excludeId: handId,') }).toEqual({ excludeIdLines: 2 })
+    for (const [where, call] of [
+      ['rail', rail.text],
+      ['heldBoard mask', mask.text],
+    ] as const) {
+      expect({ where, inThisCall: pinnedLines(call, 'excludeId: handId,') }).toEqual({ where, inThisCall: 1 })
+    }
     // The book is built ONCE per frame, in a memo — never inside a predicate,
-    // a pointer frame or a drag handler.
-    expect(SRC).toContain('() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),')
-    // ⚖ FIX-4(f) — and on THESE inputs. A dep dropped here is a book answering
-    // about last frame's board, which is the one failure a memo can have.
-    expect(SRC).toContain('[boardLanes, props.rooms, ledgerFrame, handId],')
-    // ⚖ FIX-4(c) — ⚖ 39's escape hatch, whole. A caller handing in a board it
-    // has already taken something out of gets its OWN book; every hot caller
-    // passes nothing and reads the frame's. Pinned as one expression, because
-    // the identity check and the fallback are one decision.
-    expect(SRC).toContain('bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),')
+    // a pointer frame or a drag handler — and on THESE inputs (⚖ FIX-4(f): a
+    // dep dropped here is a book answering about last frame's board, which is
+    // the one failure a memo can have). ⚖ FIX-4(c) — and ⚖ 39's escape hatch,
+    // whole: a caller handing in a board it has already taken something out of
+    // gets its OWN book, every hot caller passes nothing and reads the frame's,
+    // and it is pinned as ONE expression because the identity check and the
+    // fallback are one decision.
+    //
+    // ⚖ BREAKER-827 §DELTA D2(b)/(c)/(d) — ANCHORED, all three. (b) was already
+    // held by the `bedViewsFor(` count one test below and (c) had no reachable
+    // consequence the breaker could measure — those two are insurance, said out
+    // loud. (d) is not: collapsing the hatch to `bedDoor(ledger, lanes,
+    // askerId)` with a `//` decoy beside it left 486 green while 302 of 1,872
+    // verdict cells moved (10 safe → blocked, 12 degraded → safe) — the block
+    // advisor answering off a board it has NOT taken the block out of, which is
+    // ⚖ 39's whole reason for existing.
+    for (const line of [
+      '() => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),',
+      '[boardLanes, props.rooms, ledgerFrame, handId],',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+    ]) {
+      expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
+    }
+    // …and there are exactly TWO mentions of `bedDoor(` in the file, counted
+    // over code: the exported declaration and that one call. A second call is a
+    // second door, which is the disease this family exists to remove.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 — AND EXACTLY ONE of those two DEFINES it. The
+    // shim shape one paragraph down works on any name a slice calls; `bedDoor`
+    // is defined on this screen rather than imported into it, so what is banned
+    // here is a SECOND definition shadowing the exported one. `bedDoorFor` is
+    // not it — the word boundary after `bedDoor` sees the `F` and misses.
+    expect({
+      bedDoorMentions: (CODE.match(/bedDoor\(/g) ?? []).length,
+      bedDoorDefinitions: (CODE.match(/\b(?:function|const|let|var|class)\s+bedDoor\b/g) ?? []).length,
+    }).toEqual({ bedDoorMentions: 2, bedDoorDefinitions: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND THE GATE'S NAME IS BOUND IN
+    // EXACTLY ONE PLACE. Every pin above reads a NAME and none of them said
+    // where that name comes from. `const SELLING_ENGINE_LAW = false` written at
+    // the top of the component shadows the import, and the doors suite's read
+    // COUNT is paid back by hardcoding `heldBoard`'s bare ternary head to
+    // `true`: five reads still, every anchored line still a line, both door
+    // lines byte-identical inside their own slices — and BOTH protected doors
+    // dark, `heldCommittedFor`'s `gateOn` false with them. A count of READS was
+    // never a count of BINDINGS, so the bindings are banned and the import is
+    // the only site left.
+    const GATE_IMPORT = "import { SELLING_ENGINE_LAW } from './selling-engine-gate'"
+    expect({ gateImports: pinnedLines(SRC, GATE_IMPORT) }).toEqual({ gateImports: 1 })
+    expect({
+      declarations: (CODE.match(/\b(?:const|let|var|function|class|import\s+type)\s+SELLING_ENGINE_LAW\b/g) ?? []).length,
+    }).toEqual({ declarations: 0 })
+    expect(CODE).not.toMatch(/\bSELLING_ENGINE_LAW\s*=(?!=)/)
+    // …and no destructured or parameter binding either. The one legitimate
+    // `{ SELLING_ENGINE_LAW }` on this screen is the import line above, so it is
+    // taken out before the shape is looked for rather than carved out of it.
+    const CODE_SANS_GATE_IMPORT = CODE.replace(anchoredLine(GATE_IMPORT), '')
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/\(\s*SELLING_ENGINE_LAW\b/)
+    expect(CODE_SANS_GATE_IMPORT).not.toMatch(/[,{]\s*SELLING_ENGINE_LAW\s*[,}]/)
+    // …and the fifth read — `heldBoard`'s bare ternary head, the read the doors
+    // suite used to hold by its COUNT alone — is a whole line, counted ONCE
+    // over the file, and inside the memo whose answer it decides. `true` in its
+    // place leaves the slice a line short: red here, and red again on the count.
+    const heldBoard = uniqueSlice(
+      'const heldBoard = useMemo(',
+      '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],',
+    )
+    expect({
+      bareGateLines: pinnedLines(SRC, 'SELLING_ENGINE_LAW'),
+      inHeldBoard: pinnedLines(heldBoard.text, 'SELLING_ENGINE_LAW'),
+    }).toEqual({ bareGateLines: 1, inHeldBoard: 1 })
+
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — AND THE TWO ENGINE NAMES THE SLICES
+    // CALL ARE THE IMPORTED ONES. The slices name `guardRailsFor` and
+    // `guardVerdictAt`; the import specifiers were not anchored and nothing
+    // counted the names, so a module-level shim — `guardRailsFor as
+    // guardRailsForImpl` plus a local wrapper that spreads
+    // `protectedWindowFeasible: undefined` over whatever the slice handed in —
+    // left every pinned character byte-identical and threw the door away
+    // BETWEEN the slice and the engine, at 487 green and tsc exit 0. That is
+    // §DELTA 2 D4 one level further out: D4 changed what `bedDoorFor` hands
+    // back, this changes what the callee does with what it was handed. So each
+    // name is counted over code — TWO mentions (the import specifier and the
+    // call), ONE of them with a parenthesis — and no local definition of either
+    // is allowed. The specifiers themselves are pinned as exact lines in the
+    // exact-lines test below, which is what reds an `as` rename.
+    for (const [name, mentions, calls] of [
+      ['guardRailsFor', 2, 1],
+      ['guardVerdictAt', 2, 1],
+    ] as const) {
+      expect({
+        name,
+        mentions: (CODE.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length,
+        calls: (CODE.match(new RegExp('\\b' + name + '\\(', 'g')) ?? []).length,
+        definitions: (CODE.match(new RegExp('\\b(?:function|const|let|var|class)\\s+' + name + '\\b', 'g')) ?? []).length,
+      }).toEqual({ name, mentions, calls, definitions: 0 })
+    }
     // …and the excluded world is unreachable from anywhere else on the screen.
     expect(SRC).not.toContain('?? pending?.id')
     expect(SRC).not.toContain('bedFeasibility(')
+  })
+
+  /** ⚖ BREAKER-827 §DELTA 2 D4 (BLOCKER) — EVERY PIN ABOVE ASKS WHERE A LINE IS.
+   *  NONE OF THEM ASKS WHAT THE WRAPPER HANDS BACK.
+   *
+   *  The breaker left both door lines byte-identical, in their own call slices,
+   *  counted once file-wide — and added ONE line inside `bedDoorFor`:
+   *
+   *      (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
+   *        askerId === null ? undefined :
+   *        bedDoor(lanes === boardLanes ? ledger : bedViewsFor(…), lanes, askerId),
+   *
+   *  `bedDoorFor(null)` and `bedDoorFor(null, lanes)` then both return
+   *  `undefined`, so `railCtx` drops `protectedWindowFeasible` on BOTH sides and
+   *  the guard falls back to the raw pocket-minute enumeration everywhere. 530
+   *  suites / 8,212 green, `tsc` exit 0, every pin above still true — and 90
+   *  fixture cells moved at the shipped dials (rail 5 + verdict 5 at now=804,
+   *  12 + 12 at now=null): R7's whole change AND #800's rail change, both dark,
+   *  without touching a pinned character.
+   *
+   *  So the three places where those two answers are DECIDED are pinned as
+   *  whole slices: the wrapper, and each door's input literal, are EXACTLY the
+   *  lines below in exactly this order. This is selling-engine-flip.test.ts's
+   *  shape (grep it for FORWARDED) applied to a screen wrapper — an explicit
+   *  array compared with `toEqual`, so an added line, a removed line, a changed
+   *  line and a re-ordered line are one red that PRINTS the whole slice.
+   *
+   *  ⚠ AND THE EQUALITY IS THE BAN LIST. There is no separate list of
+   *  forbidden tokens because there is no room left for one: the arrays hold
+   *  every non-blank line the slice's CODE has, so once they are removed the
+   *  remainder of the slice is whitespace and comments and nothing else. A
+   *  hoisted ternary, a spread, a computed key, a second statement — each is a
+   *  line that is not in the array, or a line in the array that changed.
+   *  `?`, `null` and `undefined` need no ban of their own: the ⚖ 39 hatch
+   *  ternary and both door ternaries are pinned as the exact text they are.
+   *
+   *  ⚖ D6 (§DELTA 2) RIDES IN THE SAME PIN. `...{ protectedWindowFeasible:
+   *  undefined },` written under the verdict's door line left 486 green and was
+   *  caught by `tsc` alone (TS2783 — the type-checker doing armour's job). It is
+   *  a fifteenth line in the verdict array now, so it is a test red too.
+   *
+   *  ⚖ BREAKER-827 §DELTA 3 S3 — AND A FOURTH SLICE JOINS THEM: the import
+   *  statement that brings `guardRailsFor` and `guardVerdictAt` onto this
+   *  screen. The three arrays pin what the screen HANDS IN; none of them said
+   *  who receives it, and a module-level shim behind an `as` rename forwarded
+   *  the door and dropped it one line later at 487 green and `tsc` exit 0.
+   *
+   *  ⚠ WHAT THIS STILL DOES NOT REACH is a decision taken OUTSIDE these
+   *  slices — a lookup elsewhere on the screen that drops what a door returned,
+   *  or a rewiring at the renderer. §DELTA 3 S4 executed exactly that: the
+   *  memo's answer rewritten by `railByLane` one line below it, every mark on
+   *  the strip reading 安全, 487 green. No suite renders `TodayScreen`, so that
+   *  is the ⚖ renderer-fence question already on Liam's desk, and it is the
+   *  recorded CEILING of this family rather than the next round of text. */
+  it('the two guard doors and the wrapper they go through are EXACTLY these lines', () => {
+    /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
+     *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
+     *  blanked, so a decoy has to be real code to appear at all. `ok` — and, ⚖
+     *  §DELTA 3 S1, each anchor's uniqueness — is asserted before the text is
+     *  read: a slice that came back empty because an anchor moved, or that came
+     *  back pointing at a verbatim COPY, would make the equality below vacuous. */
+    const sliceLines = (open: string, close: string) => {
+      const s = callSlice(SRC, open, close)
+      // ⚖ BREAKER-827 §DELTA 3 S1 — and `opens`/`closes` are asserted with it.
+      // A verbatim copy of these lines above the real one satisfied every
+      // equality below while the live call lost its door; the equality does not
+      // know which copy it is looking at, so the anchor's uniqueness has to be
+      // established before the text is read at all.
+      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+      const code = codeOnly(s.text)
+      return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
+    }
+
+    // 1 · THE WRAPPER — three lines: the hook, the arrow with its asker and its
+    // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
+    // nowhere to be.
+    expect(
+      sliceLines('const bedDoorFor = useCallback(', '[boardLanes, props.rooms, ledger, ledgerFrame, handId],').lines,
+    ).toEqual([
+      'const bedDoorFor = useCallback(',
+      '(askerId: string | null, lanes: BoardLane[] = boardLanes) =>',
+      'bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),',
+    ])
+
+    // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
+    const rail = sliceLines(
+      '? guardRailsFor(boardLanes, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],',
+    )
+    expect(rail.lines).toEqual([
+      '? guardRailsFor(boardLanes, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur: railDur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId: handId,',
+      'placementFeasible: bedDoorFor(handId),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      '})',
+      ': [],',
+    ])
+
+    // 3 · THE VERDICT'S INPUT — the same shape, with the caller's own duration,
+    // the caller's own exclusion and the board it was handed.
+    const verdict = sliceLines(
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],',
+    )
+    expect(verdict.lines).toEqual([
+      '? guardVerdictAt(lanes, laneKey, start, {',
+      'open: hours.open,',
+      'close: hours.close,',
+      'stepMin: 30,',
+      'dur,',
+      'protectedDur: props.guard.protectedDurationMin,',
+      'nowMinute: props.sell.nowMinute,',
+      'locked,',
+      'guard: props.guard.config,',
+      'excludeId,',
+      'placementFeasible: bedDoorFor(excludeId, lanes),',
+      'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+      '})',
+      ': null,',
+    ])
+
+    // …and the KEY COUNT beside each array, the flip precedent's second half.
+    // The arrays read whole LINES; this reads `\w+:`-spelled keys, so the two
+    // disagree the moment a key is written in a shape a line has to be read to
+    // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
+    // which is why the number is smaller than the array — both are measured.
+    for (const [where, code, want] of [
+      ['rail', rail.code, 10],
+      ['verdict', verdict.code, 8],
+    ] as const) {
+      expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
+    }
+
+    // 4 · THE TWO ENGINE NAMES ARRIVE, AND THE IMPORT IS EXACTLY THESE LINES.
+    //
+    // ⚖ BREAKER-827 §DELTA 3 S3 (MAJOR) — the three arrays above pin what the
+    // screen HANDS IN; none of them pinned who receives it. The breaker renamed
+    // both specifiers (`guardRailsFor as guardRailsForImpl`) and wrote two
+    // module-level wrappers that spread `protectedWindowFeasible: undefined`
+    // over the object the slice built: every pinned character byte-identical,
+    // 487 green, `tsc` exit 0, both protected doors dark. So the whole import
+    // statement that brings the engine onto this screen is an exact-lines slice
+    // of its own — an `as` rename, an added specifier, a removed one and a
+    // re-ordered one are all one red that PRINTS the block. The name COUNTS
+    // beside it (two mentions each, one call each, no local definition) are in
+    // the BOTH-doors test above; the two together leave the shim nowhere: the
+    // rename reds here, and a shim that keeps the plain specifier names reds
+    // there on the third mention.
+    //
+    // ⚠ The open anchor is TWO lines (`import {` and its first specifier)
+    // because `import {` alone is three lines on this screen and an anchor that
+    // is not unique is exactly what S1 was — `callSlice` counts it, so a
+    // non-unique anchor is a red rather than a silent wrong slice.
+    expect(sliceLines('import {\n  allocateBed,', "} from './today-interactions'").lines).toEqual([
+      "import {",
+      "allocateBed,",
+      "anchorOnScreen,",
+      "applyBlockMoves,",
+      "applyMoves,",
+      "blockChrome,",
+      "blockClash,",
+      "blockDragModeAt,",
+      "blockEdgeZones,",
+      "blockStepPct,",
+      "BLOCK_STEP_MIN_DEFAULT,",
+      "cardNodes,",
+      "chipProxySize,",
+      "clampLabelWidth,",
+      "clickClosesPopover,",
+      "dragModeAt,",
+      "fieldsPopAnchor,",
+      "fitsDrag,",
+      "fractionIn,",
+      "labelWidthOf,",
+      "liveTimeLabel,",
+      "proxyTransform,",
+      "stretchOrCarry,",
+      "gapKindOf,",
+      "gapLayerFor,",
+      "gapPackingDials,",
+      "guardCheckRow,",
+      "guardCheckRowBesideOffer,",
+      "guardRailsFor,",
+      "guardVerdictAt,",
+      "hasPriceFact,",
+      "blockNode,",
+      "heldDrawnFor,",
+      "holdPopAnchor,",
+      "holdSummary,",
+      "isCrumbOffer,",
+      "isHeldBound,",
+      "isOverShelf,",
+      "laneKeyAtY,",
+      "landingVerdict,",
+      "lossOf,",
+      "bedClassCell,",
+      "nearestFreeStarts,",
+      "needsPrivateRoom,",
+      "offerableCell,",
+      "nextSpan,",
+      "onlineOffers,",
+      "overrideCaption,",
+      "onShownBoard,",
+      "pairLanesOf,",
+      "parkChipText,",
+      "pinInViewport,",
+      "priceFactSets,",
+      "proxyTimeLabel,",
+      "restCueStarts,",
+      "warnFaceFor,",
+      "holdClock,",
+      "holdResumeAt,",
+      "HOLD_MS,",
+      "explainRails,",
+      "reservedSentence,",
+      "sameStore,",
+      "sharesStore,",
+      "sellDrawnFor,",
+      "sellLayerFor,",
+      "sidesAt,",
+      "seedBed,",
+      "seedSpanIn,",
+      "slotStartAt,",
+      "unparkOutcome,",
+      "withPriceFact,",
+      "foreignStoreRefusal,",
+      "type GuardRail,",
+      "type LandingFloor,",
+      "type LandingQuestion,",
+      "type LandingVerdict,",
+      "type Move,",
+      "type Moves,",
+      "type OverrideLevel,",
+      "type PairLanes,",
+      "type RailCell,",
+      "type RoomPolicy,",
+      "type SellDrop,",
+      "type WarnCardModel,",
+    ])
+  })
+
+  /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
+   *
+   *  `pendingChecks` was a plain per-render expression over `checksFor`, which
+   *  runs canon's `computeChecks` over every span on the staff and bed lanes —
+   *  on a screen that re-renders per pointer frame. The memo changes no answer:
+   *  its inputs ARE the expression's, which is the only thing that can go wrong
+   *  here and the reason the dependency list is pinned beside the body (a dep
+   *  dropped from THIS memo is a confirm surface answering about last frame's
+   *  board, which is the ⚖ FIX-4(f) failure one memo over). */
+  it('the hold bar’s checks are memoised, on exactly the inputs the expression had', () => {
+    // ⚖ BREAKER-827 F3 (MAJOR) — ANCHORED, AND COUNTED. The breaker replaced the
+    // memo with `useMemo(() => [], [])` and left the pinned line above it as a
+    // comment: 530 suites green, tsc clean, and the hold bar had lost every
+    // check row — `overrideCaption` is an every-row-ok predicate, so 確定 stopped
+    // being gated by the checks at all. Nothing in the repo EXECUTES this memo
+    // (no suite renders TodayScreen — the ⚖ renderer-fence question on Liam's
+    // desk), so this one line is the whole armour and it has to hold both ways:
+    // the real line must BE a line, and there must be exactly ONE assignment to
+    // `pendingChecks` in the file, counted over code, so a second one cannot be
+    // written under it.
+    const MEMO =
+      'const pendingChecks = useMemo<Check[]>(() => (pending && !pendingOffBoard && moves[pending.id] ? checksFor(pending.id, moves[pending.id]) : []), [pending, pendingOffBoard, moves, checksFor])'
+    expect({ line: MEMO, has: pinnedLine(SRC, MEMO) }).toEqual({ line: MEMO, has: true })
+    // ⚖ BREAKER-827 §DELTA D1 — AND THE COUNT KNOWS THE TYPED SPELLING. The
+    // breaker put the real line in a block comment and wrote
+    // `const pendingChecks: Check[] = useMemo(() => [], [])` under it: a
+    // spelling `const pendingChecks = ` does not match, so the count still read
+    // ONE and 486 stayed green with the hold bar's rows gone.
+    const assignments = (codeOnly(SRC).match(/^[ \t]*const pendingChecks(?:[ \t]*:[ \t]*[^=\n]+)?[ \t]*=/gm) ?? []).length
+    expect({ assignments }).toEqual({ assignments: 1 })
   })
 
   /** ⚖ FIX-4(e) — THE ONE-DOOR INVARIANT, IN R3's SHAPE.
@@ -1238,24 +1899,51 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     const wrapper = SRC.indexOf('export function bedViewsFor(')
     expect(wrapper).toBeGreaterThan(-1)
     expect(SRC.indexOf('bedTruthViews(', wrapper)).toBeGreaterThan(wrapper)
-    // …and the wrapper is CALLED exactly three times: the frame's book, ⚖ 39's
-    // own book for a caller that handed in a different board, and — ⚖ PIN
-    // MIGRATED at E3a, WITH the decision — the COMMITTED world's book.
+    // …and the wrapper is CALLED exactly twice ON THIS SCREEN: the frame's
+    // book, and ⚖ 39's own book for a caller that handed in a different board.
     //
-    // R3's invariant is unchanged and this is not a loophole in it: what it
-    // forbids is a reader helping itself to a world nobody named. SPEC-SELLING-
-    // ENGINE §2 names this one. It requires ONE mask builder over TWO world
-    // instances — the sales door prices the COMMITTED board (the measured WO-2d
-    // ruling, pinned two describes above) and the staff door's verdicts read the
-    // BOARD world — so a mask for the sales door cannot be answered out of the
-    // frame's book without handing the priced layers the pointer's position,
-    // which is the very thing this file's tripwire exists to stop.
+    // ⚖ PIN MIGRATED at E3a, WITH the decision — the COMMITTED world's book
+    // joined them as a third call. R3's invariant was unchanged and that was
+    // not a loophole in it: what it forbids is a reader helping itself to a
+    // world nobody named. SPEC-SELLING-ENGINE §2 names this one. It requires
+    // ONE mask builder over TWO world instances — the sales door prices the
+    // COMMITTED board (the measured WO-2d ruling, pinned two describes above)
+    // and the staff door's verdicts read the BOARD world — so a mask for the
+    // sales door cannot be answered out of the frame's book without handing the
+    // priced layers the pointer's position, which is the very thing this file's
+    // tripwire exists to stop.
     //
-    // It is also GATED: the call sits behind `SELLING_ENGINE_LAW`, so until E3b
-    // flips it there is no third book at runtime at all. Both halves asserted —
-    // the count, and that the new site is the gated one. (+1 for the definition.)
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
-    expect(SRC).toContain('SELLING_ENGINE_LAW ? bedViewsFor(committedLanes, props.rooms, ledgerFrame, null).world : null')
+    // ⚖ MIGRATED AGAIN at ROUND 1 OF THE R5 POST-MERGE FIX ROUND, WITH the same
+    // decision. That third call has MOVED OFF THIS SCREEN, into
+    // `heldCommittedFor` (held-committed.ts) — the screen was building the
+    // committed book in a memo of its own, which is a seam no unit test could
+    // reach, and a blind mutation lens went through it (pre-gate the book memo
+    // on the store's dial and a guarded store silently gets no mask). The
+    // invariant is what it always was: ONE door, and every walk through it
+    // named. So the count here drops by one and the third walk is pinned where
+    // it now lives — including that it is still GATED, still built from the
+    // committed lanes, and still holding nobody's hand. (+1 for the definition.)
+    //
+    // ⚖ MIGRATED AGAIN at ROUND 2, and the invariant got STRONGER rather than
+    // moving. The wrapper used to IMPORT this door out of the screen, so the
+    // two files imported each other; now the screen HANDS IT IN (`bookOf`).
+    // The count here is unchanged — measured, not assumed: the new line passes
+    // `bedViewsFor` as a value with no parenthesis, so the three calls are
+    // still the definition and the two on this screen. What changed is the
+    // wrapper's half: it walks the door it was GIVEN, and it is pinned that it
+    // cannot name this screen or `bedTruthViews` to find another one
+    // (selling-engine-doors.test.ts §1). One door, every walk still named.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    expect(SRC).not.toContain('bedViewsFor(committedLanes')
+    expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
+    expect(SRC).toContain('bookOf: bedViewsFor,')
+    const WRAPPER = readFileSync(
+      join(process.cwd(), 'src/app/[locale]/(business)/business/today/held-committed.ts'),
+      'utf8',
+    )
+    expect(WRAPPER.split('bookOf(').length - 1).toBe(1)
+    expect(WRAPPER).toContain('bookOf(mask.lanes, rooms, frame, null).world')
+    expect(WRAPPER).not.toContain('./TodayScreen')
   })
 })
 
@@ -1562,7 +2250,7 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     const ask = (stagedId: string | null) =>
       landingVerdict(board, {
         staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
-        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null,
+        start: 600, end: 660, span: place(600, 660, HOURS), foreignRefusal: null, hasPrice: true,
         locked: [], rooms: POLICY, minutesOf: (x) => minuteOf(x, HOURS), stagedId,
       }, null)
 
@@ -1985,7 +2673,21 @@ describe('the crumbs of one leftover combine into one offer', () => {
     expect(isCrumbOffer({ s: 950, e: 1010 }, 60)).toBe(false)
     expect(SRC).toContain("const crumbHere = packedHere && isCrumbOffer(c, props.guard.standardSessionMin)")
     expect(SRC).toContain("${crumbHere ? ' crumb' : ''}")
-    expect(SRC).toContain('minSellableMin: props.guard.minSellableMin')
+    // ⚖ R6 fix round A2 (L4-2) — THE FLOOR IS WIRED AT TWO SITES, AND THIS PIN
+    // KNOWS WHICH. `minSellableMin: props.guard.minSellableMin` appears once for
+    // the native gap layer and once for the fallback pass; a single
+    // occurrence-blind `toContain` let EITHER of them be deleted and stay green,
+    // which is exactly the wiring R6 added. Each site is pinned with a token
+    // only that site has, and the count is pinned so a third home cannot appear
+    // unnoticed either. (RTL rendering stays outside this file's import fence
+    // per the standing QUEUE-RIDERS rider — a source contract IS the declared
+    // armor for TodayScreen's un-rendered half; the BEHAVIOUR of the floor is
+    // proven on the layers themselves in fallback-cells.test.ts §8/§9.)
+    expect(SRC).toContain('        ...gapDials,\n        minSellableMin: props.guard.minSellableMin,\n        locked,')
+    expect(SRC).toContain(
+      '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
+    )
+    expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
     // drag's own signal and dies with it, which is the whole point: batch-4
     // proved the resting ring and the emphasis were the same picture.
@@ -3248,14 +3950,28 @@ describe('the confirm comes to the card, and the consult goes back to the placem
   // ── flag 31b ─────────────────────────────────────────────────────────────
   it('the guard’s move-assessment becomes a CHECK ROW, and never a gate', () => {
     expect(SRC).toContain('const pendingGuardRow = useMemo(')
-    expect(SRC).toContain('guardCheckRow(verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id))')
+    // ⚖ flag 92 — the memo returns the CELL beside the row now (the warn card
+    // composes from that cell's own data, ⚖ 54: one reading of one board), so
+    // the row is one expression further in. Same call, same inputs, same row.
+    expect(SRC).toContain('const cell = verdictAt(at.laneKey, start, minuteOf(at.x + at.w, hours) - start, pending.id)')
+    // ⚖ 92 fix round F2 — the ROW is still composed from the RAW cell (the check
+    // row is the engine's own sentence, ⚖ GAP-6/FIX-6); only the cell handed to
+    // the warn card goes through ⚖ 58's filter beside it.
+    expect(SRC).toContain('row: guardCheckRow(cell),')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
     // The gate is still `computeChecks` alone — the guard row is not in it.
     // RENEGOTIATED (batch-9, ⚖ 50(d)): `overrideCaption` IS `confirmCaption` over
     // the rows still blocking, so this claim is unchanged for every landing that
     // was not explicitly escalated (`override` null → the same call, same array).
     expect(SRC).toContain(': overrideCaption(pendingChecks, pending?.override ?? null)')
-    const confirm = SRC.slice(SRC.indexOf('function confirmPending()'), SRC.indexOf('// ── card drag'))
+    // ⚖ flag 92 — scoped to `confirmPending`'s OWN body (its closing brace) now
+    // that a sibling lives beside it. The claim is about the CONFIRM GATE: the
+    // guard's row is not in it, and it does not ask the guard a second time. Its
+    // neighbour `placePendingAt` deliberately does ask — it is a landing, not a
+    // confirm — so a section-wide slice would now assert the opposite law.
+    const start = SRC.indexOf('function confirmPending()')
+    const confirm = SRC.slice(start, SRC.indexOf('\n  }\n', start))
+    expect(confirm).toContain("show('この画面の中だけで確定しました。再読み込みすると戻ります')")
     expect(confirm).not.toContain('guardRow')
     expect(confirm).not.toContain('verdictAt')
     // canon's △ for the row, beside the ✓ and × of the same one decision.
@@ -3347,12 +4063,16 @@ describe('the confirm comes to the card, and the consult goes back to the placem
 
     // ⚖ flag 69 — the page scope may sit between `.biz` and `dialog` now
     // (`.biz .page-customers dialog`). The pin still DISCOVERS its dressers by
-    // walking; it just knows the scoped spelling.
-    const DRESSER = /^\.biz(?:[ -])(?:\.page-[\w-]+ )?dialog\s*\{/m
+    // walking; it just knows the scoped spelling. The family moved from
+    // `page-` to `pg-`, and a dresser can now be a classed dialog element
+    // (`dialog.rv-dlg`) rather than the bare type selector — the widened
+    // regex sees both without losing its job (discovery, not enforcement).
+    const DRESSER = /^\.biz(?:[ -])(?:\.(?:page|pg)-[\w-]+ )?dialog(?:\.[\w-]+)?\s*\{/m
     const dressers = sheets.filter(([, css]) => DRESSER.test(css))
     expect(dressers.map(([f]) => f).sort()).toEqual([
       'customers/customers.css',
       'reservations/reservations.css',
+      'shifts/shifts.css',
       'today/today.css',
     ])
     for (const [file, raw] of dressers) {
@@ -4043,6 +4763,153 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     expect(place_.indexOf('refuse(foreign)')).toBeLessThan(place_.indexOf('setAdded('))
   })
 
+  /** ⚖ 51 (R7) — AND IT CARRIES THE CUSTOMER'S CATEGORY, for the same reason and
+   *  over SEVEN hops — the intent's field, the prop, page.tsx, the arming, the
+   *  landing, the solve, and the CARD the placement mints.
+   *
+   *  The 配置モード landing hardcoded `vip: false`, so a VIP's 次回予約 placed from
+   *  the board was solved onto whatever bed `privateIsLastResort` reached first,
+   *  with no word said — the silent path ⚖ 51 exists to prevent, on the one
+   *  gesture that never had a card to read the category off. The truth was one
+   *  hop away the whole time: `page.tsx`'s `inStore` IS a booking row, and a
+   *  booking row carries `category`. It was being dropped on the way into props.
+   *
+   *  Pinned as the WHOLE CHAIN rather than at the landing alone: a category that
+   *  arrives at the intent and is not read, or is read from an intent nothing
+   *  fills, is the same silence with a longer path to it.
+   *
+   *  ⚠ AND THE SOLVE ASKS IT TOO. `placeNextVisit` calls `solveBed` with its own
+   *  `vip` argument, which was also a hardcoded `false`. Fixing the verdict alone
+   *  would have made the word and the release disagree BY CONSTRUCTION — the
+   *  verdict solving the 個室 and the placement putting the VIP somewhere else —
+   *  which is the ⚖ 50 defect this whole family exists to remove. Both read the
+   *  one field, and both are pinned here so neither can drift back alone.
+   *
+   *  ⚠ AND THE SEVENTH HOP IS THE CARD ITSELF (fix round 1, blind lens 1 #1).
+   *  `placeNextVisit` minted the staged card with `category: 'repeat' as const`,
+   *  and the card is what every LATER gesture asks — `placePendingAt`'s
+   *  `item?.category === 'vip'`, both `solveBed` releases, `bedDoor`'s subject
+   *  path. So the fix held for exactly one press: the same VIP booking, dragged
+   *  one lane over or sent through 安全な開始に置く, asked the room floor as a
+   *  非VIP again and could be seated on a standard bed with nothing said. The
+   *  hop is pinned positively AND negatively, because the old spelling is a
+   *  literal TypeScript cannot flag.
+   *
+   *  ⚠ AND HOP 4 IS A TURN, NOT A COPY (fix round 2, Greptile #827). Carrying
+   *  the category straight across made the OTHER half wrong: `BookingCategory`
+   *  is a per-booking word and 'new' means THIS visit is the customer's first,
+   *  so a first-timer's 次回予約 card came out tagged 新規 and every 新規-reading
+   *  surface counted it. The arming turns that one word over through
+   *  `nextVisitCategory` — VIP and 回数券 are the customer's own traits and ride
+   *  along. The helper itself is pinned BEHAVIOURALLY in the test below; here
+   *  only the wiring is text-pinned, positively and negatively, because the bare
+   *  read is another literal TypeScript cannot flag.
+   *
+   *  ⚠ AND EVERY HOP IS WHOLE-LINE ANCHORED NOW (⚖ BREAKER-827 F2, MAJOR). The
+   *  chain was seven `toContain`s, and the breaker reverted hops 4, 5 and 7
+   *  together with a comment decoy per hop and a re-spelling that walked past
+   *  each negative: `category: 'repeat' as BookingCategory,` at the arming and
+   *  at the card (neither is `'repeat' as const`), and `vip: !1,` at the landing
+   *  (which is not `vip: false`). Chain green, VIP back on a standard bed with
+   *  nothing said. So each hop must BE a line, and three counts close the room a
+   *  decoy needs: one `category:` line in the minted card, one `solveBed(` in
+   *  `placeNextVisit`, one `vip:` in the landing. The dodges themselves are
+   *  banned outright in the three slices, which is cheap and says out loud what
+   *  was tried. */
+  it('⚖ 51 — the ご来店中 customer’s category rides the intent, and BOTH doors read it', () => {
+    const PROPS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+    const armed = SRC.slice(SRC.indexOf('function armNextVisit('), SRC.indexOf('function placeNextVisit('))
+    const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
+    // The minted card's own literal, and the landing — the `askGuard(` the empty
+    // slot raises while 配置モード is armed, bounded by the callback it hands its
+    // `run`. Both bounds are asserted before they are used: a slice that came
+    // back empty because an anchor moved would make every count below vacuous.
+    const faceAt = place_.indexOf('const face = {')
+    const seedAt = SRC.indexOf('const slot = place(seed.start, seed.end, hours)')
+    expect({ faceAt: faceAt > -1, seedAt: seedAt > -1 }).toEqual({ faceAt: true, seedAt: true })
+    const face = place_.slice(faceAt, place_.indexOf('\n    }', faceAt))
+    const landing = SRC.slice(seedAt, SRC.indexOf('(s, override) => placeNextVisit(lane, s, override),', seedAt))
+    expect({ face: face.length > 0, landing: landing.length > 0 }).toEqual({ face: true, landing: true })
+    // 1 · the intent's own field and the type it is · 2 · the prop it is filled
+    // from · 3 · the one line in page.tsx that stopped dropping it · 4 · the
+    // arming, which TURNS the word over to the next visit's (⚖ #827) rather
+    // than copying it · 5 · the landing asking the room floor as a VIP · 6 · the
+    // placement that follows it, one field two readers · 7 · and the CARD the
+    // placement mints, which is what every LATER gesture asks.
+    for (const [hop, src, line] of [
+      ['1 intent field', EDITS, 'category: BookingCategory'],
+      ['1 intent type', EDITS, "import type { BoardItem, BookingCategory } from '@/business/lib/today-board'"],
+      ['2 prop', SRC, 'inStore: { name: string; bookingId: string; category: BookingCategory } | null'],
+      ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
+      ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
+      ['5 landing', landing, "{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },"],
+      ['6 solve', place_, "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))"],
+      ['7 minted card', face, 'category: p.category,'],
+    ] as const) {
+      // ⚖ BREAKER-827 §DELTA — the LINE rides in the failure object, not only
+      // the hop label: a red used to print `{"hop": "4 arming"}` and send the
+      // reader to the table to learn which text moved.
+      expect({ hop, line, has: pinnedLine(src, line) }).toEqual({ hop, line, has: true })
+    }
+    // ⚖ BREAKER-827 F2 — AND THERE IS NO ROOM BESIDE THEM. Hop 5's line is one
+    // long object literal, so it is anchored as the whole line it is rather than
+    // reformatted one key per line — a whitespace change to a product file is
+    // not something a test round gets to make. The counts are what a decoy has
+    // to survive: it can only be added, and every one of these says ONE.
+    //
+    // ⚖ BREAKER-827 §DELTA D1(c) — AND HOP 4 HAS ONE NOW TOO. Hops 5, 6 and 7
+    // survived the block-comment decoy only because the un-blanked decoy line
+    // INFLATED their slice counts; hop 4 was the one hop in the chain with no
+    // count beside it, so the arming took the trick with 486 green. `codeOnly`
+    // closes the hole at the source now, and this is the second lock on the one
+    // door that had none.
+    for (const [where, n, want] of [
+      ['category: lines in the arming', (codeOnly(armed).match(/^.*category:.*$/gm) ?? []).length, 1],
+      ['category: lines in the minted card', (codeOnly(face).match(/^.*category:.*$/gm) ?? []).length, 1],
+      ['solveBed( calls in placeNextVisit', (codeOnly(place_).match(/solveBed\(/g) ?? []).length, 1],
+      ['vip: keys in the landing', (codeOnly(landing).match(/vip:/g) ?? []).length, 1],
+    ] as const) {
+      expect({ where, n }).toEqual({ where, n: want })
+    }
+    // …and the hardcodes are gone, in the spellings they had AND in the two the
+    // breaker reached for. `as BookingCategory` is how `'repeat'` gets past a
+    // `BookingCategory` field without `as const`; `!1` / `!0` are how `false` /
+    // `true` get past a negative that spells the word.
+    expect(armed).not.toContain('category: props.inStore.category,')
+    expect(SRC).not.toContain('solveRoom: true, id: null, vip: false,')
+    expect(place_).not.toContain('solveBed(lane.key, null, null, false,')
+    expect(place_).not.toContain("category: 'repeat' as const,")
+    for (const [where, slice] of [
+      ['arming', armed],
+      ['landing', landing],
+      ['placeNextVisit', place_],
+    ] as const) {
+      for (const dodge of ['as BookingCategory', '!1', '!0']) {
+        expect({ where, dodge, at: slice.indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
+  })
+
+  /** ⚖ Greptile #827 — 新規 IS A FACT ABOUT ONE VISIT, and the visit 配置モード
+   *  arms is the one AFTER it. This is the only hop in the chain that is a
+   *  decision rather than a wire, so it is pinned as a FUNCTION and not as text:
+   *  the rule survives the arming line being respelled, and a drift shows up as
+   *  a wrong answer instead of a moved string. */
+  it('⚖ 51 — 新規 does not ride to the next visit; the customer’s own traits do', () => {
+    // The turn: a first visit's word cannot describe the visit after it.
+    expect(nextVisitCategory('new')).toBe('repeat')
+    // …and everything else is the CUSTOMER's, so it carries over unchanged.
+    expect(nextVisitCategory('repeat')).toBe('repeat')
+    expect(nextVisitCategory('vip')).toBe('vip')
+    expect(nextVisitCategory('ticket')).toBe('ticket')
+    // The law behind the four rows: whatever today was, the next visit is never
+    // a first one. A fifth category arriving in today-board.ts lands here too.
+    for (const today of ['new', 'repeat', 'ticket', 'vip'] as const) {
+      expect(nextVisitCategory(today)).not.toBe('new')
+    }
+  })
+
   it('⚖ 47 — every refusal in the placement family returns ahead of every write', () => {
     const place_ = SRC.slice(SRC.indexOf('function placeNextVisit('), SRC.indexOf('⚖ Liam 2026-08-20 (flag 22)'))
     // No free room: 配置モード SURVIVES, so the operator can try another slot
@@ -4237,12 +5104,37 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
   it('the confirm popover, the block advisor and the 60分配置 strip all declare themselves', () => {
     // The two popovers declare themselves as plain JSX attributes…
     for (const [title, body] of [
-      ['仮押さえの確認', '動かした予約はまず仮押さえになります。ここで内容を確認して確定するか、元に戻せます。再読み込みでも元に戻ります。'],
       ['予定の位置の提案', '休憩や清掃を置いた位置が新規のお客様の枠を分けてしまうとき、より良い位置を提案します。そのまま置くこともできます。'],
     ]) {
       expect(SRC).toContain(`data-guide-title="${title}"`)
       expect(SRC).toContain(`data-guide="${body}"`)
     }
+    /** ⚖ 92 fix round 11 P2 (breaker #10 #3, ⚖ 8/23 guided-tour law) — …and the
+     *  hold pop's own sentence covers BOTH of its faces. ⚖ flag 92 gave this
+     *  surface a warning face — the consequence leading, the safe start as the
+     *  biggest control, a commit that names what it commits to — and the tour
+     *  kept describing the first face alone, so the walk taught a card the board
+     *  no longer always draws. The title is untouched: one surface, one
+     *  declaration.
+     *
+     *  The long-press clause is COMPOSED ON THE STORE'S DIAL, which is why this
+     *  pin reads a template rather than a literal. `overrideHoldToConfirm` is a
+     *  real setting and the commit's own `kind` already follows it, so a tour
+     *  sentence that promised the gesture unconditionally would be false in every
+     *  store that turned it off — the exact untruth this face's rounds 9 and 10
+     *  were spent removing from the control itself. */
+    expect(SRC).toContain('data-guide-title="仮押さえの確認"')
+    // ⚖ 92 round 11 P2 native-pass reorder — the native JP pass found the warning
+    // sentence split the confirm/undo pair and 「場所では」 under-specified the
+    // destination; warning now leads, and 「移動先で…場合は」 names it.
+    // ⚖ 92 fix round 12 R1 (breaker #12 #1) — and the press clause names the face
+    // it belongs to. Sitting bare after the confirm/undo sentence it read as a
+    // rule for every 確定 on this surface, when the long press is the WARNING
+    // face's commit alone; the clean face confirms on a tap at every store.
+    expect(SRC).toContain(
+      'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
+      + "警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
+    )
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
     // ⚖ FIX-10 — the title names the strip and the strip renders `{railDur}分配置`,
@@ -4596,9 +5488,16 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // seed the carried room through `seedBed`, because `sidesAt` reads the
       // board as it stands and that board is the STAGED one once a change is
       // open. The other two are first landings and are byte-untouched.
+      // RENEGOTIATED ONE LAST TIME (⚖ 51, R7): and 次回予約 joins its three
+      // siblings. It was the only landing whose `vip` was a hardcoded `false` —
+      // not by ruling but because it is the one gesture with no card on the
+      // board to read a category off, and the ご来店中 customer's own category
+      // was being dropped between page.tsx and the props. It rides the intent
+      // now (`PlacingIntent.category`), so all four landings ask the allocator
+      // the same question out of the same field.
       "solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
       "solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
-      'solveBed(lane.key, null, null, false, place(start, end, hours))',
+      "solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
       "solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
     ]) {
       expect(SRC).toContain(call)
@@ -4683,6 +5582,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     end: 1020,
     span: place(960, 1020, HOURS),
     foreignRefusal: null,
+    hasPrice: true,
     locked: [] as string[],
     rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
@@ -4825,6 +5725,40 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(verdict(board(), { solveRoom: false, bedLane: 'bed-01', vip: false }, cellOf('safe', '')).kind).toBe('clean')
   })
 
+  /** ⚖ 51 (R7) — THE SAME FLOOR ON THE SOLVED PATH, which is the shape 配置モード
+   *  asks in: no room named, no booking yet (`solveRoom: true, id: null`).
+   *
+   *  Until R7 that question was asked with `vip: false` hardcoded, so the one
+   *  landing gesture with no card to read a category off walked past the floor
+   *  every other gesture obeys. Now it carries the ご来店中 customer's category
+   *  and the allocator answers it as a VIP.
+   *
+   *  ⚠ THE SENTENCE IS THE ALLOCATOR'S, NOT THE BED-ROW'S. On the explicit
+   *  bed-row path the 個室 rule speaks as 「VIP・個室クラスのご予約です…」 (the two
+   *  tests above), and that sentence is guarded by `!q.solveRoom` — it is
+   *  unreachable from here by construction. On the SOLVED path the rule is a
+   *  FILTER: no compatible room survives it, so the refusal is `fullRoomsRefusal`
+   *  with its `needsPrivate` branch, which names 個室 in the store's own 満室
+   *  grammar. Same floor, same ⚖ 51, one spelling per path — and both are the
+   *  existing shipped wording. No new operator-facing string exists in R7. */
+  it('⚖ 51 — the SOLVED landing, which is 配置モード’s own shape, asks the room floor as a VIP too', () => {
+    // A board whose only bed over the span is a standard one.
+    const standardOnly = board({ beds: [lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })] })
+    const placingShape = { solveRoom: true, id: null, bedLane: null }
+    const asVip = verdict(standardOnly, { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect(asVip.kind).toBe('blocked')
+    // ⚖ 73 — a room floor is a FACT about the rooms, so it is `hard-room` and
+    // carries no 「注意して配置」: there is no room for an escalation to buy.
+    expect(asVip.floor).toBe('hard-room')
+    expect(asVip.reason).toBe('16:00〜17:00に使える個室がありません')
+    // …and the identical question for a non-VIP lands, so the sentence is the
+    // floor doing its job and not 配置モード refusing everything.
+    expect(verdict(standardOnly, { ...placingShape, vip: false }, cellOf('safe', '')).kind).toBe('clean')
+    // …and with the 個室 on the board the VIP lands too — into it.
+    const withPrivate = verdict(board(), { ...placingShape, vip: true }, cellOf('safe', ''))
+    expect({ kind: withPrivate.kind, bedLane: withPrivate.bedLane }).toEqual({ kind: 'clean', bedLane: 'bed-03' })
+  })
+
   it('⚖ 51 — ONE spelling of the rule: the allocator FILTERS with it, the bed row TESTS with it', () => {
     const standard = lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' })
     const priv = lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' })
@@ -4927,7 +5861,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `inHand` is null with nothing in flight → the strip keeps canon's resting
     // face (✓/△/—) and no × exists anywhere on the board (⚖ 37, no leak).
     expect(SRC).toContain('const inHand = useMemo<LandingAsk | null>(() => {')
-    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store])')
+    expect(SRC).toContain('    return null\n  }, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')
     // ⚖ 52 — the mark that means "this stops you" appears exactly where release
     // is inert, and its class comes off the blocked verdict alone.
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
@@ -5132,7 +6066,9 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     expect(guardVerdictAt(long, 'p-01', 630, railIn())!.state).toBe('blocked')
     expect(guardCheckRow(guardVerdictAt(long, 'p-01', 630, railIn()))?.tone).toBe('warn')
     // The batch-4 row is present on the placement path — it is not missing.
-    expect(SRC).toContain('guardRow: pendingGuardRow,')
+    // ⚖ flag 92: the memo returns `{ row, cell }` now, so the surface reads
+    // `.row`. Same row, same source, still never a gate.
+    expect(SRC).toContain('guardRow: pendingGuardRow.row,')
     expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
   })
 
@@ -5401,7 +6337,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
   const askAt = (start: number, dur = 60) => ({
     staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
     start, end: start + dur, span: place(start, start + dur, HOURS),
-    foreignRefusal: null, locked: [] as string[], rooms: POLICY,
+    foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
     minutesOf: (x: number) => minuteOf(x, HOURS),
   })
 
@@ -5437,9 +6373,83 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // two tiers finally being told apart.
     const floor = { ...cell, ackAllowed: false }
     expect(landingVerdict([staff(), ...beds], askAt(630), floor).kind).toBe('blocked')
-    // ONE predicate, in the ONE home.
-    expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')")
+    // ONE predicate, in the ONE home. (⚖ 9/1 fix round 2 D1 gave it a second
+    // tier — see the matrix below; the ack-allowed arm here is untouched.)
+    expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) {")
     expect(INT).toContain("if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }")
+  })
+
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — THE BOARD HALF, AS A MATRIX.
+   *
+   *  Round 1 taught the CARD that the strict dial walls only the people the
+   *  上書きの権限 dial excludes, and the delta-verifier then proved the BOARD
+   *  never learned it: `landingVerdict` had no operator at all, so a strict store
+   *  hard-stopped every drag, nudge and rail tap for everyone — and the composer's
+   *  permitted arm was reachable only if the board moved under an already-staged
+   *  hold. The settings page shipped 「確保枠を壊す場所に置けるのは店長だけです」
+   *  over a board where the 店長 could not place there either.
+   *
+   *  Both classes and both modes are asserted TOGETHER, because the danger of
+   *  this fix is the opposite of the bug: a split that read the store's MODE
+   *  instead of the engine's own signal would soften physics, and ⚖ 73 is the
+   *  law that must not move. Every cell below comes off the REAL engine. */
+  it('⚖ 9/1 D1 — the strict dial escalates for the ADMITTED operator, and physics still stops everyone', () => {
+    // The two classes, from the engine rather than by hand.
+    const costed = ackAllowedCell()                                   // guard-warn: carries an impact
+    const strict = { ...costed, ackAllowed: false }                   // the same cell at a STRICT store
+    const physics = guardVerdictAt([staff([booking({ key: 'x', caseId: 'apt-x' }, 660, 720)]), ...beds], 'p-01', 630, railIn())!
+    expect(costed.impact).toBeDefined()
+    expect(lossOf(strict)).toBeGreaterThan(0)
+    // ⚖ 73's floor is impact-LESS — that is the whole basis of the split, so it
+    // is proven rather than assumed.
+    expect(physics.ackAllowed).toBe(false)
+    expect(physics.impact).toBeUndefined()
+    expect(lossOf(physics)).toBe(0)
+
+    const at = (cell: RailCell, level?: 'allow-warned' | 'needs-approval' | 'refuse') =>
+      landingVerdict([staff(), ...beds], { ...askAt(630), overrideLevel: level }, cell)
+
+    // ── STANDARD (ack-allowed) — untouched at every level: ⚖ ruling 1/2's loosen.
+    for (const level of ['allow-warned', 'needs-approval', 'refuse'] as const) {
+      expect({ level, kind: at(costed, level).kind }).toEqual({ level, kind: 'caution' })
+      expect(at(costed, level).floor).toBeNull()
+    }
+
+    // ── STRICT (the store's dial) — by ruling-91 level.
+    // The excluded operator keeps the hard stop: the sentence, the safe
+    // suggestions and 元に戻す, and no button onto a card they could not commit.
+    expect(at(strict, 'refuse').kind).toBe('blocked')
+    expect(at(strict, 'refuse').floor).toBe('hard')
+    // The admitted one gets the ESCALATION floor — the same one a failed 勤務 row
+    // uses, so the board finally does what the preset copy says the 店長 can do.
+    // Still `blocked` until they press: 'policy' is a path, not a grant.
+    for (const level of ['allow-warned', 'needs-approval'] as const) {
+      expect({ level, floor: at(strict, level).floor }).toEqual({ level, floor: 'policy' })
+      expect(at(strict, level).kind).toBe('blocked')
+      // …and the sentence never changes with the permission: it is the engine's.
+      expect(at(strict, level).reason).toBe(costed.sentence)
+    }
+
+    // ── PHYSICS — 'hard' at EVERY level and at both modes. A floor the engine
+    // calls impossible is not one a manager may be given authority over (⚖ 73),
+    // and the mode-only mutation of the split is red for exactly this row.
+    for (const level of [undefined, 'allow-warned', 'needs-approval', 'refuse'] as const) {
+      expect({ level, floor: at(physics, level).floor }).toEqual({ level, floor: 'hard' })
+    }
+
+    // ⚠ ABSENT IS NOT ADMITTED — the fail-closed default, which is what keeps
+    // every geometry-only caller of this question at today's answer.
+    expect(at(strict, undefined).floor).toBe('hard')
+    expect(dialAdmits(undefined)).toBe(false)
+
+    // ONE predicate for both seams: the card's commit gate and this landing gate
+    // ask the same question, so they cannot drift apart again.
+    expect(INT).toContain("      ? stop(cell.sentence, 'policy')")
+    expect(INT).toContain('lossOf(cell) > 0 && dialAdmits(q.overrideLevel)')
+    expect(INT).toContain("&& cell.ackAllowed === false && !dialAdmits(level)) {")
+    // …and the screen really hands the operator over, which is the half that was
+    // missing entirely.
+    expect(SRC).toContain('overrideLevel: props.overrideLevel,')
   })
 
   it('ROOT A — the cursor word, the rail mark and the release are the same call, on this class too', () => {
@@ -5516,7 +6526,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(offerableCell(null, 30, 780, () => true)).toBeNull()
   })
 
-  it('⚖ 58 RIDER — ONE filter, and BOTH offering surfaces go through it', () => {
+  it('⚖ 58 RIDER — ONE filter, and EVERY offering surface goes through it', () => {
     // Booking side: every alternative surface is fed by `explainBlocked` (the
     // release's consult AND askGuard's blocked branch) or by askGuard's caution
     // branch, and both take the filter.
@@ -5528,6 +6538,17 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // exactly one filter on this lattice.
     expect(SRC).toContain('cell: offerable(sourcedCell(v, ask), ask),')
     expect(SRC).toContain('cell: offerable(v.cell, ask),')
+    // ⚖ 92 fix round F2 — and the WARN CARD is the third, for the same reason:
+    // its safe primary is an engine start on the biggest control of the card, so
+    // it snaps to the store's lattice and re-verdicts through this one filter
+    // rather than trusting an offer the drag lattice could never reproduce.
+    // ⚖ 92 fix round 2 S1 — it reaches the filter DIRECTLY rather than through
+    // the wrapper, because it needs a stricter gate than the wrapper's (a card
+    // that promises 確保を壊さない may only offer CLEAN starts, pinned in the
+    // flag-92 block below). The law this test is about is unchanged: the filter
+    // is `offerableCell`, there is exactly one of it, and all three booking
+    // surfaces go through it.
+    expect(SRC).toContain('cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {')
     expect(SRC.match(/cell: offerable\(/g)).toHaveLength(2)
     // The selector is a SOURCE, so it hands its starts to the same filter and
     // never filters or re-verifies them itself.
@@ -5541,8 +6562,10 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // Block side: the same helper, on the BLOCK lattice, with the block's gate.
     expect(SRC).toContain('const better = offerableCell(cell, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
     expect(SRC).toContain('suggest: better.alternatives[0],')
-    // Two spellings in the whole board, one per lattice — no third.
-    expect(SRC.match(/offerableCell\(/g)).toHaveLength(2)
+    // Three spellings in the whole board — the booking lattice's wrapper, the
+    // block lattice's own, and (⚖ 92 fix round 2 S1) the warn card's stricter
+    // gate on the booking lattice. No fourth, and no second FILTER.
+    expect(SRC.match(/offerableCell\(/g)).toHaveLength(3)
   })
 })
 
@@ -5617,7 +6640,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // …which `landingVerdict` answers with exactly that sentence.
     const v = landingVerdict([lane({ key: 'p-01', group: 'staff' })], {
       staffLane: null, bedLane: null, solveRoom: true, id: null, vip: false,
-      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null,
+      start: 720, end: 780, span: place(720, 780, HOURS), foreignRefusal: null, hasPrice: true,
       locked: [], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     }, null)
     expect(v.kind).toBe('blocked')
@@ -5932,7 +6955,15 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
   /** Selector heads of every rule, at any depth. @media is transparent. */
   function selectorsOf(css: string): Set<string> {
-    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    // ⚠ `@keyframes` STOPS ARE NOT SELECTORS — the repo already ruled this for
+    // the route-css audit (1e95647cc); this local copy of the walk had not
+    // learned it. It only surfaced once TWO of the three sheets defined
+    // keyframes (予約一覧 and 顧客 both do now), at which point `from` and `to`
+    // read as a selector defined in two route stylesheets. Stripped whole,
+    // before the walk, so a stop can never be mistaken for a rule head.
+    const clean = css
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '')
     const found = new Set<string>()
     let head = ''
     for (const ch of clean) {
@@ -5954,11 +6985,13 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     // The hook the scoping hangs on. One token per screen, and the CI guard
     // below is what stops the next room from forgetting it.
     expect(read(SCREENS.today)).toContain('<div className="page page-today">')
-    expect(read(SCREENS.reservations)).toContain('<div className="page page-reservations">')
+    expect(read(SCREENS.reservations)).toContain('<div className="page pg-reservations">')
     expect(read(SCREENS.customers)).toContain('<div className="page page-customers">')
     // The LoadFailure fallback is a page too — a broken screen that keeps the
-    // neighbour's grid is still the bug.
-    expect(read(SCREENS.reservations).match(/<div className="page page-reservations">/g)).toHaveLength(2)
+    // neighbour's grid is still the bug. The live root also carries `ref=
+    // {rootRef}` (the container-query/tour anchor the fallback doesn't need),
+    // so the count tolerates trailing attributes rather than an exact tag.
+    expect(read(SCREENS.reservations).match(/<div className="page pg-reservations"[^>]*>/g)).toHaveLength(2)
   })
 
   it('no selector is defined in two route stylesheets — the whole family, not just .workspace', () => {
@@ -5986,8 +7019,15 @@ describe('BATCH-10b ⚖ flag 69 — route stylesheets stop competing', () => {
     for (const [name, path] of Object.entries(SHEETS)) {
       if (name === 'today') continue
       const sheet = read(path)
-      // The sibling's two-column grid still exists — scoped to its own page.
-      expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      if (name === 'reservations') {
+        // 予約一覧 retired the shared name outright (flag 69's own ask) — the
+        // stronger truth is not a scoped grid, it is NO `.workspace` selector
+        // anywhere in the sheet, so it can never re-enter the tie.
+        expect(sheet).not.toMatch(/\.workspace\b/)
+      } else {
+        // The sibling's two-column grid still exists — scoped to its own page.
+        expect(sheet).toMatch(/\.biz \.page-(reservations|customers) \.workspace \{[^}]*grid-template-columns/)
+      }
       // …and it can never name today's page.
       expect(sheet).not.toContain('.page-today')
     }
@@ -6123,7 +7163,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
   ]
   const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
     staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
-    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null,
+    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
     locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
     ...over,
   })
@@ -6225,8 +7265,11 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(v.floor).toBe('policy')
     expect(v.reason).toBe('見本 あずさは16:30以降勤務不可')
     // The ORDER is what guarantees it, and it is one file, two adjacent lines.
+    // (⚖ 9/1 fix round 2 D1 split the guard stop into two tiers; the ORDER this
+    // pin is about — policy rows before the guard — is unchanged, so it now
+    // quotes that branch's opening line.)
     expect(INT.indexOf('if (failed) return stop(failed.label')).toBeLessThan(
-      INT.indexOf("if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')"),
+      INT.indexOf("if (cell?.state === 'blocked' && !cell.ackAllowed) {"),
     )
     // The lane pair that makes them inseparable, at its source.
     const boardSrc = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
@@ -6774,7 +7817,23 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // with it. A refusal box is not where a store finds out it typed 0.
     expect(nearestFreeStarts(960, 0, HOURS, 60, () => true)).toEqual([])
     expect(nearestFreeStarts(960, -30, HOURS, 60, () => true)).toEqual([])
-    expect(INT).toContain('if (stepMin <= 0) return []')
+    // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — the guard now reads `!(finite && > 0)`,
+    // the same shape `offerableCell` took in fix round 10 V1 and `guardRailsFor`
+    // takes below, landed in the same commit as the 予約の刻み field that can
+    // finally hand this a non-number.
+    //
+    // ⚠ AND IT IS THE HONEST HALF OF THE PAIR: unlike its two siblings, this one
+    // changes NO behaviour. `attempted + dir * NaN` is NaN and `NaN >= open` is
+    // false, so the walk never ran and this already returned `[]` — which is why
+    // the four lines below pass with or without the guard, and are kept as a
+    // CONTRACT (these inputs yield no offers) rather than claimed as a red-run.
+    // The packet's 「nearestFreeStarts can HANG on NaN」 does not reproduce; what
+    // the finite spelling buys here is that the three siblings refuse the same
+    // inputs in the same words, so none of them is safe only by accident.
+    expect(nearestFreeStarts(960, Number.NaN, HOURS, 60, () => true)).toEqual([])
+    expect(nearestFreeStarts(960, Number.POSITIVE_INFINITY, HOURS, 60, () => true)).toEqual([])
+    expect(nearestFreeStarts(960, Number.NEGATIVE_INFINITY, HOURS, 60, () => true)).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(stepMin) && stepMin > 0)) return []')
     // …and a sane dial is untouched.
     expect(nearestFreeStarts(960, 30, HOURS, 60, () => true)).toEqual([930, 990])
   })
@@ -6793,7 +7852,20 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // The cell itself still comes back — only the offers are withheld, so the
     // sentence and the state the surface reads are untouched.
     expect(offerableCell(cell, 0, 780, () => true)!.sentence).toBe('x')
-    expect(INT).toContain('if (stepMin <= 0) return { ...cell, alternatives: [] }')
+    // ⚖ 92 fix round 2 S5 — and the test is `> 0` NEGATED, not `<= 0`, because
+    // NaN fails every comparison: the queued settings text input can hand this a
+    // NaN step, which sailed past `<= 0` into the exact arithmetic the guard
+    // exists to refuse and put 「NaN:NaNに置く」 on the card's biggest control.
+    expect(offerableCell(cell, Number.NaN, 780, () => true)!.alternatives).toEqual([])
+    // ⚖ 92 fix round 10 V1 (breaker #9 #1) — AND THE STEP MUST BE FINITE. S5's
+    // 「the only value it newly catches is the one that is not a number」 was
+    // false: Infinity is a number and it is greater than zero, so it walked the
+    // gate. `s % Infinity` is `s`, never 0, so every start took the off-lattice
+    // branch, where `Math.floor(s / Infinity) * Infinity` is `0 * Infinity` — NaN,
+    // and 「NaN:NaNに置く」 back on the card's biggest control.
+    expect(offerableCell(cell, Number.POSITIVE_INFINITY, 780, () => true)!.alternatives).toEqual([])
+    expect(offerableCell(cell, Number.NEGATIVE_INFINITY, 780, () => true)!.alternatives).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }')
     // A sane dial is untouched (the ⚖ 58 rider's own behaviour).
     expect(offerableCell(cell, 30, 780, () => true)!.alternatives).toEqual([690, 750])
 
@@ -6812,7 +7884,18 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const lanes = board({ staff: { window: { from: 600, until: 1140 }, untilLabel: '19:00' } })
     expect(guardRailsFor(lanes, rin(0))).toEqual([])
     expect(guardRailsFor(lanes, rin(-30))).toEqual([])
-    expect(INT).toContain('if (input.stepMin <= 0) return []')
+    // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — AND THE NON-NUMBERS, which `<= 0` never
+    // caught. This is the MUTATION-WORTHY half of the pair: NaN fails every
+    // comparison, so it walked straight past the old gate, `start` began at
+    // `open`, one cell was pushed, and `start += NaN` then ended the loop — a
+    // one-cell rail rendered over a whole day. Not a hang; a SILENT WRONG ANSWER,
+    // which is worse, because the strip appeared and was a lie about every hour
+    // after the first. Restore `<= 0` and these three lines go red with a rail of
+    // length 1. Infinity rides along for `offerableCell`'s own V1 reason.
+    expect(guardRailsFor(lanes, rin(Number.NaN))).toEqual([])
+    expect(guardRailsFor(lanes, rin(Number.POSITIVE_INFINITY))).toEqual([])
+    expect(guardRailsFor(lanes, rin(Number.NEGATIVE_INFINITY))).toEqual([])
+    expect(INT).toContain('if (!(Number.isFinite(input.stepMin) && input.stepMin > 0)) return []')
     // …and canon's own 30 still draws a full rail.
     expect(guardRailsFor(lanes, rin(30))[0].cells.length).toBe((HOURS.close - HOURS.open) / 30)
   })
@@ -6891,5 +7974,3218 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Plain-create's drop STAYS: nothing stages there, so there is nothing to
     // stamp and nothing that could lie.
     expect(SRC).toContain('(s) => openCreateAt({ staffId: lane.key, start: s }),')
+  })
+})
+
+/** ⚖ LIAM flag 92 (2026-08-31) — 警告カード: the confirm surface's second face.
+ *
+ *  The whole ruling set is composed renderer-free by `warnFaceFor`, so every
+ *  branch of it is pinned here: the trigger, the three permission faces, the
+ *  long-press dial, the automatic name line, the three alternative shapes, the
+ *  ¥ and the greens line. The CLEAN face is pinned too — the card that ships
+ *  today may not move because a second face was added beside it.
+ *
+ *  The guard cells are the REAL ENGINE'S wherever the engine can produce the
+ *  case (⚖ the file's own habit: a synthetic fixture proves the composer, not
+ *  the board). Only the shapes the engine cannot reach on an ack-allowed cell
+ *  are built by hand, and they say so. */
+describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store’s settings', () => {
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0,
+    mode: 'standard' as const,
+  }
+  const railIn = {
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [] as string[], guard: GUARD,
+  }
+  const boardOf = (items: BoardItem[] = [], over: Partial<BoardLane> = {}) => [
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'], items, ...over }),
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+  ]
+  const cellAt = (start: number, items: BoardItem[] = [], over: Partial<BoardLane> = {}) => {
+    const cell = guardVerdictAt(boardOf(items, over), 'p-01', start, railIn)
+    expect(cell).not.toBeNull()
+    return cell!
+  }
+  /** A one-hour shift: the pocket never held a protectable 90 window, so the
+   *  engine says 配置できます and the card has no fact to lead with. */
+  const SAFE = () => cellAt(600, [], { window: { from: 600, until: 660 }, untilLabel: '11:00' })
+  /** 10:30 on a free 10:00–19:00 day: the R-REP refusal Liam photographed, and
+   *  the engine's own least-loss answer beside it (10:00). */
+  const REP = () => cellAt(630)
+  /** 10:00 on the same free day: DEGRADED, and the engine offers nothing better
+   *  because this start already IS the least-loss one. */
+  const DEG = () => cellAt(600)
+  /** 12:30 with 10:00–11:00 and 11:00–12:00 already booked: an ack-allowed R-REP
+   *  whose alternatives are ZERO-LOSS, so the engine marks them `safe`. */
+  const SAFE_ALT = () => cellAt(750, [booking({ key: 'a', caseId: 'apt-a' }, 600, 660), booking({ key: 'b', caseId: 'apt-b' }, 660, 720)])
+
+  const GREENS = [
+    { label: '時間帯の重複なし', tone: '' as const },
+    { label: '見本 あずさの勤務時間内（〜19:00）', tone: '' as const },
+    { label: '整体資格 一致', tone: '' as const },
+    { label: '予約時価格を保持（動的価格は適用しません）', tone: '' as const },
+  ]
+  /** ⚖ 92 fix round 5 V1 (breaker #4) — THE STORE'S OWN LEVERS, exactly the ones
+   *  TodayScreen composes from the HQ frame: `clampPriceInputs(hqMax, base,
+   *  pricingRule)` on fixtures-today's 6,600 / 6,600 / 7,260 gives hi 7,260 and
+   *  lo 6,600, and `depth` is the 9% that spread works out to. The board prices
+   *  every hour it paints from these three numbers, so the card's ¥ has to. */
+  const FRAME = { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }
+  const DEPTH = 9
+  /** THE BOARD'S OWN FIGURE for one protected window, driven through canon's
+   *  `priceAt` HERE — the same call the sell layer makes for every hour it draws
+   *  (`sellLayerFor`'s `priceFor`, today-interactions :1114). Hour by hour,
+   *  pro-rated across the span, unrounded: this is the expected value the card is
+   *  measured against, and it is computed from canon rather than read back out of
+   *  the composer's own helper. */
+  const boardValue = (list: number, start: number, dur: number) => {
+    let total = 0
+    for (let cur = start; cur < start + dur;) {
+      const segEnd = Math.min(start + dur, Math.floor(cur / 60) * 60 + 60)
+      total += priceAt(list, Math.floor(cur / 60), FRAME.hi, FRAME.hqMin, DEPTH) * ((segEnd - cur) / 60)
+      cur = segEnd
+    }
+    return total
+  }
+  /** The card's own rounding law, applied to a set of window starts: the ¥10
+   *  round happens ONCE, on the total, because 約 may not license a figure to
+   *  the digit and rounding per window double-counts the remainder. */
+  const boardYen = (list: number, starts: number[], dur = 90) =>
+    `約${money(Math.round(starts.reduce((t, s) => t + boardValue(list, s, dur), 0) / 10) * 10)}`
+  /** A protected-window set the way the engine lays one out on a free day: 90
+   *  minutes each, back to back from 10:00 — `REP()`'s own shape, pinned against
+   *  the real engine below. */
+  const windows = (n: number, from = 600) => Array.from({ length: n }, (_, i) => from + i * 90)
+
+  const input = (over: Partial<WarnCardInput> = {}): WarnCardInput => ({
+    rows: GREENS, cell: null, override: null, level: 'allow-warned', holdToConfirm: true,
+    targetLaneMine: false, operatorName: '見本 あずさ', listPrice: 7000, frame: FRAME, depth: DEPTH,
+    protectedDur: 90, confirmEnabled: true, ...over,
+  })
+
+  it('the engine really carries the fact under its sentence — ⚖ 92’s `impact`, not a re-read of the words', () => {
+    // The panel composes from DATA. If this field ever goes missing the headline
+    // silently falls back to the engine's sentence, which is a real regression
+    // wearing a true sentence — so the field is pinned at its source.
+    expect(REP().impact).toEqual({
+      code: 'R-REP', capacityBefore: 6, capacityAfter: 5,
+      windowsBefore: [600, 690, 780, 870, 960, 1050], windowsAfter: [690, 780, 870, 960, 1050],
+    })
+    // ⚖ 92 fix round 5 V1 (breaker #4) — AND THE WINDOWS THEMSELVES, because the
+    // ¥ is now the difference in what they are worth. THE DEGRADED SET IS WHY
+    // 「the starts that vanished」 could not be the answer: this landing costs the
+    // store exactly ONE window, and NOT ONE of the six before-starts survives
+    // into the after-set — the engine re-solves the day and every window slides
+    // an hour. A set difference would have priced six.
+    expect(DEG().impact).toEqual({
+      code: 'DEGRADED', capacityBefore: 6, capacityAfter: 5,
+      windowsBefore: [600, 690, 780, 870, 960, 1050], windowsAfter: [660, 750, 840, 930, 1020],
+    })
+    expect(DEG().impact!.windowsBefore.filter((s) => !DEG().impact!.windowsAfter.includes(s))).toHaveLength(6)
+    expect(DEG().impact!.capacityBefore - DEG().impact!.capacityAfter).toBe(1)
+    // A safe start never reached the capacity question, so it honestly carries
+    // nothing — and the composer never asks it to.
+    expect(SAFE().state).toBe('safe')
+    expect(SAFE().impact).toBeUndefined()
+    // ⚖ GAP-6/FIX-6's law boundary, machine-checked: the engine's own sentence
+    // is still the CHECK ROW's, byte-untouched.
+    expect(guardCheckRow(REP())).toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+  })
+
+  it('the trigger is the guard fact OR a walked-past row — and nothing else re-faces the card', () => {
+    // No guard fact, no △: today's card, unchanged.
+    expect(warnFaceFor(input()).face).toBe('clean')
+    // A SAFE guard cell is not a fact — a check that always passes is noise.
+    expect(warnFaceFor(input({ cell: SAFE() })).face).toBe('clean')
+    // A × row alone does not re-face the card either: a blocked confirm is
+    // already answered by the disabled 確定, and the warn face is about a cost
+    // the operator is being allowed to pay.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '時間帯が重複: 見本 きり', tone: 'bad' }], confirmEnabled: false })).face).toBe('clean')
+    // Either warn-grade fact flips it.
+    expect(warnFaceFor(input({ cell: REP() })).face).toBe('warn')
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).face).toBe('warn')
+  })
+
+  /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET, and the guard
+   *  half of the trigger is now the LOSS rather than the state.
+   *
+   *  The face used to fire on any non-safe cell, so the amber panel and the
+   *  0.6-秒 hold stood over facts that cost the store NOTHING — a 0枠減 DEGRADED
+   *  residue, R-DEAD, R-SALV, a repertoire R-REP whose window count never moved.
+   *  His pick at the gate: warn only where protected 新規 windows are actually
+   *  lost, or where a red sentence was walked past. Everything else goes back to
+   *  the clean face's quiet △ row, which is where those facts lived before flag
+   *  92 and where `pendingGuardRow.row` still renders them. */
+  it('⚖ 9/1 ruling 2 — a guard fact that costs the store nothing stays on the quiet row', () => {
+    /** The engine's own shape, with the loss dialled: `windowsAfter` is the
+     *  before-set with the lost ones taken off the head, so a 6→6 cell really
+     *  is a landing that changes no count at all. */
+    const at = (code: string, capacityBefore: number, capacityAfter: number): RailCell => ({
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと新規（90分）が入らなくなります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: {
+        code, capacityBefore, capacityAfter,
+        windowsBefore: windows(capacityBefore),
+        windowsAfter: windows(capacityBefore).slice(capacityBefore - capacityAfter),
+      } as RailCell['impact'],
+    })
+    // ZERO LOSS, every class that can reach it → the clean face…
+    for (const code of ['DEGRADED', 'R-DEAD', 'R-SALV', 'R-REP']) {
+      expect(lossOf(at(code, 6, 6))).toBe(0)
+      expect(warnFaceFor(input({ cell: at(code, 6, 6) })).face).toBe('clean')
+    }
+    // …and a cell the engine never weighed at all (no `impact`) is the same
+    // answer for the same reason — `lossOf` reads 0 exactly where the engine
+    // never asked the capacity question.
+    const bare = at('R-REP', 0, 0)
+    delete (bare as { impact?: unknown }).impact
+    expect(lossOf(bare)).toBe(0)
+    expect(warnFaceFor(input({ cell: bare })).face).toBe('clean')
+    // ONE window lost → the warn face, unchanged. The real engine's own R-REP,
+    // so the boundary is drawn on a cell the board actually produces.
+    expect(lossOf(REP())).toBe(1)
+    expect(warnFaceFor(input({ cell: REP() })).face).toBe('warn')
+    for (const code of ['DEGRADED', 'R-DEAD', 'R-SALV', 'R-REP']) {
+      expect(warnFaceFor(input({ cell: at(code, 6, 5) })).face).toBe('warn')
+    }
+    // ⚖ 73-74 — AND THE QUIET CASE DID NOT GO SILENT. The clean face hands the
+    // rows straight back and the screen renders the guard's own sentence beside
+    // them, which is the △ row the operator saw before flag 92 existed.
+    const quiet = warnFaceFor(input({ cell: at('DEGRADED', 6, 6) }))
+    expect(quiet.rows).toBe(GREENS)
+    expect(quiet.commit).toBeNull()
+    expect(guardCheckRow(at('DEGRADED', 6, 6))).toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+    expect(SRC).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+    // …and the row the screen hands it is composed from the RAW cell, so the
+    // trigger change cannot have taken it away either.
+    expect(SRC).toContain('      row: guardCheckRow(cell),')
+    // THE OVERRIDE HALF IS UNTOUCHED: a walked-past sentence with no guard cell
+    // at all still warns, because that is a record the operator made themselves.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).face).toBe('warn')
+    // …and so does one standing over a zero-loss cell — the cell went quiet, the
+    // override did not.
+    expect(warnFaceFor(input({
+      cell: at('DEGRADED', 6, 6), override: '満室です',
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    })).face).toBe('warn')
+    // The trigger is the composer's own line, and `lossOf` is the ONE spelling
+    // the draw gate and the press read too (⚖ 54).
+    expect(INT).toContain("const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0")
+  })
+
+  // ⚖ 92 fix round F8 — TITLED FOR WHAT IT PROVES. This is the MODEL half: a
+  // composer that hands its rows back untouched when nothing warns. The render's
+  // own byte-identity claim is the test further down, which reads the JSX.
+  it('warnFaceFor is a no-op when nothing warns — rows returned untouched', () => {
+    const clean = warnFaceFor(input())
+    expect(clean).toEqual({
+      face: 'clean',
+      impact: { head: '', yen: null, tail: '' },
+      provenance: null, lock: null, safePrimary: null, commit: null,
+      rows: GREENS, greensLine: null,
+    })
+    // The rows come back UNTOUCHED — the clean face renders them exactly as it
+    // did before this round existed.
+    expect(clean.rows).toBe(GREENS)
+  })
+
+  it('the consequence leads, in the approved sentence, from the engine’s numbers', () => {
+    // R-REP — the design page's own sentence, with the BOARD'S price for the one
+    // 10:00–11:30 window this landing costs (⚖ 92 fix round 5 V1).
+    expect(warnFaceFor(input({ cell: REP() })).impact).toEqual({
+      head: 'ここに置くと、新規のお客様の90分', yen: boardYen(7000, [600]), tail: 'が入らなくなります。',
+    })
+    expect(boardYen(7000, [600])).toBe('約¥10,590')
+    // DEGRADED — the same shape, carrying the before→after fact the engine's own
+    // sentence spells. ⚖ 92 micro-fix M1 (JP native pass): the 空き is part of the
+    // noun the ¥ is about, so it rides the HEAD — 「90分（約¥10,500）の空き」 read
+    // as a price per 90 minutes.
+    // ⚖ 92 fix round 5 V1 — and the ¥ is the DIFFERENCE the shifted set makes:
+    // six windows' worth before, five (at their new starts) after.
+    expect(warnFaceFor(input({ cell: DEG() })).impact).toEqual({
+      head: 'ここに置くと、新規のお客様の90分の空き',
+      yen: `約${money(Math.round((
+        [600, 690, 780, 870, 960, 1050].reduce((t, s) => t + boardValue(7000, s, 90), 0)
+        - [660, 750, 840, 930, 1020].reduce((t, s) => t + boardValue(7000, s, 90), 0)
+      ) / 10) * 10)}`,
+      tail: 'が6枠から5枠に減ります。',
+    })
+    expect(warnFaceFor(input({ cell: DEG() })).impact.yen).toBe('約¥10,860')
+    // ⚖ 92 — a class the approved design gave NO shape to keeps the engine's own
+    // words rather than a fifth sentence invented here. (Synthetic: the engine
+    // reaches R-SALV only through pockets this fixture day does not build.)
+    //
+    // ⚖ 9/1 ruling 2/2 — and it now carries a REAL loss (6→5), because a
+    // zero-loss salvage no longer reaches this panel at all: the ruling sends
+    // every 0枠減 fact back to the clean face's quiet △ row (pinned in the
+    // trigger test above). The subject here is unchanged — an unruled class
+    // keeps the engine's sentence, ¥-free — it just has to be asked on a cell
+    // the warn face still composes.
+    const salv: RailCell = {
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと30分の割引でしか売れない空きが残ります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: { code: 'R-SALV', capacityBefore: 6, capacityAfter: 5, windowsBefore: windows(6), windowsAfter: windows(5, 690) },
+    }
+    expect(warnFaceFor(input({ cell: salv })).impact).toEqual({
+      head: 'ここに置くと30分の割引でしか売れない空きが残ります', yen: null, tail: '',
+    })
+  })
+
+  /** ⚖ 92 fix round F1 (blind L4#1 + L4#2 + L1#3) — the sentence and the money
+   *  are decided by the LOSS COUNT, never by the reason code. `reasonForKey`
+   *  emits R-REP for two different causes (a protected window actually lost, and
+   *  a repertoire that shrank with the count unchanged) and DEGRADED can fire on
+   *  a residue that costs the store nothing, so a code-keyed panel printed a
+   *  loss — with money beside it — over landings that lose nothing.
+   *
+   *  Hand-built, and they say so: an ack-allowed cell out of the real engine
+   *  cannot be steered to a zero-loss R-REP or a two-window loss on this
+   *  fixture day. The engine's own cells pin the live branches above. */
+  it('⚖ 92 fix round F1 — the panel tells the truth by loss count, and the ¥ scales with it', () => {
+    // ⚖ 92 fix round 5 V1 — the window sets are the engine's own shape (90-minute
+    // windows back to back from 10:00, `REP()`'s layout) with the LOST ones taken
+    // off the head, so the ¥ below is the board's price for exactly those spans.
+    const built = (code: string, capacityBefore: number, capacityAfter: number): RailCell => ({
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと新規（90分）が入らなくなります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: {
+        code, capacityBefore, capacityAfter,
+        windowsBefore: windows(capacityBefore),
+        windowsAfter: windows(capacityBefore).slice(capacityBefore - capacityAfter),
+      } as RailCell['impact'],
+    })
+    const impactOf = (cell: RailCell, listPrice = 7000) => warnFaceFor(input({ cell, listPrice })).impact
+
+    // LOSES NOTHING → and ⚖ 9/1 ruling 2/2 now answers this one BEFORE the panel
+    // does: the 0枠減 scene both codes reach never composes a warn face at all,
+    // so the operator meets it on the clean card's quiet △ row. F1's own law is
+    // untouched underneath (the panel is keyed on the loss count, never the
+    // reason code) — the ruling simply took the whole zero-loss class off this
+    // face, which is a stronger version of the same honesty.
+    for (const code of ['R-REP', 'DEGRADED']) {
+      const zero = warnFaceFor(input({ cell: built(code, 6, 6) }))
+      expect(zero.face).toBe('clean')
+      expect(zero.impact).toEqual({ head: '', yen: null, tail: '' })
+      // …and the engine's sentence still reaches them, in the row the clean face
+      // has always drawn (⚖ 73-74 — a record may never go invisible).
+      expect(guardCheckRow(built(code, 6, 6))!.label).toBe('ここに置くと新規（90分）が入らなくなります')
+    }
+    // LOSES EXACTLY ONE, R-REP → the sentence Liam signed off on, one window's
+    // price beside it. (The engine's real 10:30 refusal, pinned above, is this.)
+    expect(impactOf(built('R-REP', 6, 5))).toEqual({
+      head: 'ここに置くと、新規のお客様の90分', yen: boardYen(7000, [600]), tail: 'が入らなくなります。',
+    })
+    // LOSES MORE THAN ONE → the capacity form, which is true for any count, and
+    // the ¥ multiplies. 「が入らなくなります」 beside one window's price for a
+    // two-window loss was a wrong sentence AND a wrong number on the same line.
+    //
+    // ⚖ 92 fix round 5 V1 (breaker #4) — AND PAST ONE THE MONEY LEAVES THE
+    // BRACKET BESIDE THE NOUN. 「…の90分の空き（約¥21,630）が6枠から4枠に…」 hangs
+    // one figure off one 空き and then says two of them went, so it reads as the
+    // price of that single window. On the plural loss the ¥ rides the 枠 clause,
+    // beside the count it is multiplied by — and `yen` is therefore null, which
+    // is what makes the screen's `.wc-yen` bracket not fire.
+    expect(impactOf(built('R-REP', 6, 4))).toEqual({
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: null,
+      tail: `が6枠から4枠に減ります（2枠分・${boardYen(7000, [600, 690])}）。`,
+    })
+    expect(boardYen(7000, [600, 690])).toBe('約¥21,630')
+    // A DEGRADED loss takes the capacity form at any count, as it always did.
+    expect(impactOf(built('DEGRADED', 6, 5)).tail).toBe('が6枠から5枠に減ります。')
+    expect(impactOf(built('DEGRADED', 4, 1))).toEqual({
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: null,
+      tail: `が4枠から1枠に減ります（3枠分・${boardYen(7000, [600, 690, 780])}）。`,
+    })
+    // …and a store that prices nothing drops the parenthetical WHOLE rather than
+    // printing a 枠分 bracket with nothing in it: the sentence already says 2.
+    expect(impactOf(built('R-REP', 6, 4), 0)).toEqual({
+      head: 'ここに置くと、新規のお客様の90分の空き', yen: null, tail: 'が6枠から4枠に減ります。',
+    })
+    // A cell with no `impact` at all never reaches this panel any more: ⚖ 9/1
+    // ruling 2/2 reads the same absence as "costs nothing" and sends the whole
+    // case to the clean face. `impactOf`'s own `!cell.impact` guard stays where
+    // it is — it is that function's contract about a cell, not an echo of the
+    // trigger, and a composer that stopped defending it would be one refactor
+    // away from an empty panel.
+    const bare = built('R-REP', 0, 0)
+    delete (bare as { impact?: unknown }).impact
+    expect(lossOf(bare)).toBe(0)
+    expect(warnFaceFor(input({ cell: bare })).face).toBe('clean')
+    expect(INT).toContain('if (!cell.impact || !ruled) return verbatim')
+    // …and so does a class the approved design gave NO shape to, even when it
+    // carries a real loss. R-DEAD / R-SALV keep the engine's words and no money
+    // exactly as they did before this fix — the design note about that is on
+    // Liam's desk, and a fix round does not pre-empt a ruling.
+    for (const code of ['R-SALV', 'R-DEAD', 'R-UNAVAILABLE']) {
+      expect(impactOf(built(code, 6, 4))).toEqual({ head: 'ここに置くと新規（90分）が入らなくなります', yen: null, tail: '' })
+    }
+    // …and the real engine still lands on the branches this pins by hand.
+    expect(REP().impact).toEqual({
+      code: 'R-REP', capacityBefore: 6, capacityAfter: 5,
+      windowsBefore: windows(6), windowsAfter: windows(6).slice(1),
+    })
+    expect(warnFaceFor(input({ cell: REP() })).impact.tail).toBe('が入らなくなります。')
+    expect(warnFaceFor(input({ cell: DEG() })).impact.tail).toBe('が6枠から5枠に減ります。')
+  })
+
+  /** ⚖ 92 fix round 5 V1 (breaker #4) — THE CARD'S ¥ IS THE BOARD'S ¥.
+   *
+   *  The card used to price a lost window itself — 定価 × the protected length ×
+   *  the count — while the board priced the very same minutes through canon's
+   *  curve, from the store's own levers. Two bases for one question on one
+   *  screen, measured at −23%..+10% apart. The fix is that the card asks canon,
+   *  so this test drives `priceAt` INDEPENDENTLY (`boardValue` above, the same
+   *  call `sellLayerFor`'s `priceFor` makes) and demands the two agree. The
+   *  breaker's own three lever/hour rows are the pins: the curve dips at 10:00
+   *  and 14:00 and peaks at 17:00, so a card carrying a flat 定価 basis cannot
+   *  pass all three. */
+  it('⚖ 92 fix round 5 V1 — the card’s ¥ IS the board’s own price, hour for hour', () => {
+    /** One protected window at `start`, and this landing takes it: capacity 1→0,
+     *  so the ¥ is exactly that window's price and nothing else. */
+    const lostAt = (start: number): RailCell => ({
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと新規（90分）が入らなくなります',
+      reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
+      impact: { code: 'R-REP', capacityBefore: 1, capacityAfter: 0, windowsBefore: [start], windowsAfter: [] },
+    })
+    const cardYen = (start: number, over: Partial<WarnCardInput> = {}) =>
+      warnFaceFor(input({ cell: lostAt(start), ...over })).impact.yen
+
+    // THE THREE ROWS, at the store's default levers (hi 7,260 / hqMin 6,600 /
+    // depth 9). Each figure is `priceAt`'s, pro-rated across the window's two
+    // hours and rounded to ten once — never re-typed here.
+    for (const start of [600, 840, 1020]) {
+      expect(cardYen(start)).toBe(boardYen(7000, [start]))
+    }
+    // …and the three really are three different numbers, so a flat 定価 basis
+    // could not have satisfied them all. (10:00 dips, 14:00 dips to the same
+    // multiplier on a different pair of hours, 17:00 sits on the curve's peak.)
+    expect([cardYen(600), cardYen(840), cardYen(1020)]).toEqual(['約¥10,590', '約¥10,520', '約¥11,550'])
+    expect(new Set([cardYen(600), cardYen(840), cardYen(1020)]).size).toBe(3)
+    // The OLD basis — 定価 × 90/60 — is 約¥10,500 for every one of them, which is
+    // the defect stated as an assertion: it matches none of the three.
+    expect([cardYen(600), cardYen(840), cardYen(1020)]).not.toContain('約¥10,500')
+
+    // THE LEVERS ARE LIVE. Same window, a store sitting at HQ's floor with the
+    // deepest discount it may run: the card follows the frame, because the frame
+    // is what canon prices from.
+    const lo = { frame: { hi: 6600, lo: 4620, hqMin: 6600, hqMax: 7260 }, depth: 30 }
+    expect(cardYen(600, lo)).not.toBe(cardYen(600))
+    expect(cardYen(600, lo))
+      .toBe(`約${money(Math.round((priceAt(7000, 10, 6600, 6600, 30) + priceAt(7000, 11, 6600, 6600, 30) / 2) / 10) * 10)}`)
+
+    // ⚖ 92 fix round F7 — the round-to-ten claim, on a figure that is NOT already
+    // a multiple of ten before rounding: the 10:00 window's second hour is half
+    // of ¥7,150, so the raw total ends in a 5 and a broken round would print
+    // 約¥10,585 where the 約 promises ten-yen figures.
+    expect(boardValue(7000, 600, 90)).toBe(10585)
+    expect(cardYen(600)).toBe('約¥10,590')
+
+    // A store that prices nothing here says nothing about money — 約¥0 is a
+    // wrong number, and a wrong number is worse than no number.
+    expect(cardYen(600, { listPrice: 0 })).toBeNull()
+    expect(cardYen(600, { listPrice: -1 })).toBeNull()
+    // ⚖ 92 fix round 5 V1 — and so is a store with no price frame at all, or one
+    // whose HQ floor is zero: `priceAt` divides by it, so the alternative to
+    // silence here is an Infinity on the card.
+    expect(cardYen(600, { frame: null })).toBeNull()
+    expect(cardYen(600, { frame: { hi: 7260, lo: 6600, hqMin: 0, hqMax: 7260 } })).toBeNull()
+    // …and the sentence still reads whole without it.
+    const none = warnFaceFor(input({ cell: REP(), listPrice: 0 })).impact
+    expect(none.head + none.tail).toBe('ここに置くと、新規のお客様の90分が入らなくなります。')
+  })
+
+  /** ⚖ 92 fix round 5 V5 (breaker #4) — NO PROTECTED LENGTH, NO SENTENCE OF OUR
+   *  OWN. Every approved shape prints 「新規のお客様の{N}分」, so an unset, zero or
+   *  NaN 確保する長さ handed the operator 「0分」 or 「NaN分」 with money beside it.
+   *  `!(x > 0)` is the spelling, because NaN fails every comparison. */
+  it('⚖ 92 fix round 5 V5 — a store with no protected length gets the engine’s sentence, and no ¥', () => {
+    for (const protectedDur of [0, Number.NaN, -90]) {
+      // The REAL engine's R-REP cell — only the card's own dial is broken.
+      expect(warnFaceFor(input({ cell: REP(), protectedDur })).impact)
+        .toEqual({ head: 'ここに置くと新規（90分）が入らなくなります', yen: null, tail: '' })
+    }
+    // The same cell with a real length is the approved sentence, so the guard is
+    // the only difference — nothing else silently turned the panel off.
+    expect(warnFaceFor(input({ cell: REP(), protectedDur: 90 })).impact.tail).toBe('が入らなくなります。')
+    // …and a DEGRADED cell takes the same road: no 「NaN分の空き」 either.
+    expect(warnFaceFor(input({ cell: DEG(), protectedDur: Number.NaN })).impact)
+      .toEqual({ head: DEG().sentence, yen: null, tail: '' })
+    expect(JSON.stringify(warnFaceFor(input({ cell: DEG(), protectedDur: Number.NaN })))).not.toContain('NaN')
+  })
+
+  it('the biggest control is always the safe one — a start, or nothing at all', () => {
+    // The engine's least-loss start, from the real refusal at 10:30.
+    // ⚖ 92 fix round 4 U1 (breaker #3) — the sub-line is 「（損を減らす）」, canon's
+    // own aside vocabulary: the superlative 損が最少 was a rank the guard never
+    // handed us about the SNAPPED start the card actually shows.
+    expect(warnFaceFor(input({ cell: REP() })).safePrimary).toEqual({
+      kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）',
+    })
+    // A zero-loss alternative wears the other sub-line — the store's 確保 survives.
+    expect(warnFaceFor(input({ cell: SAFE_ALT() })).safePrimary).toEqual({
+      kind: 'place', start: 720, main: '12:00に置く', sub: '（確保を壊さない）',
+    })
+    // ⚖ 92 fix round 3 T2 (breaker #2) — NOTHING TO OFFER IS AN EMPTY SLOT. The
+    // 'info' line 「ここが、損が最少の開始です」 was the surface's own claim about a
+    // cell it had not asked, and it fired on every degraded cell whose
+    // alternatives came back empty — including the ones EMPTIED BY THE SNAP
+    // GATE, where the engine had named a better start the store's lattice could
+    // not reach. It then sat over the engine's own 「…はこの区間で損が最少の開始
+    // です」 saying the opposite.
+    //
+    // ⚖ 92 fix round 5 V3 (breaker #4) — AND T2'S REPLACEMENT DIES WITH IT. T2
+    // filled the empty slot by appending the engine's own check row; on this face
+    // that row DUPLICATES the impact panel's first clause and then names a
+    // least-loss START the draw gates deliberately withheld (rounds 2-4 all
+    // narrowed which starts may be offered). Duplication above, contradiction-by-
+    // absence below. FIX-6's principle is the answer — a surface picks the row it
+    // is ENTITLED to — and with the panel already stating the loss, this one is
+    // entitled to none: the panel plus 元に戻す is the whole honest answer.
+    expect(DEG().alternatives).toEqual([])
+    const deg = warnFaceFor(input({ cell: DEG() }))
+    expect(deg.safePrimary).toBeNull()
+    expect(deg.rows).toEqual([])
+    // …and the panel above it is what says the loss, so nothing went unsaid.
+    expect(deg.impact.head).toContain('新規のお客様の90分の空き')
+    // The 'info' shape is DELETED, not merely unreachable — no branch anywhere
+    // can still compose it. The engine-row append is gone the same way: neither
+    // name survives in the composer.
+    expect(INT).not.toContain("kind: 'info'")
+    expect(SRC).not.toContain('wc-info')
+    expect(INT).not.toContain('engineRow')
+    expect(INT).not.toContain('rowsOut')
+    // ⚖ 92 fix round 8 Z2 — V3's law is about THIS face, and it is untouched: a
+    // GUARD-LIT card appends nothing, because the panel is already saying it.
+    // Z2's append is the opposite condition — an override-led face, where the
+    // panel is saying the override and the guard's verdict has no other home —
+    // and it is pinned in the ⚖ 52 / 73-74 test below.
+    // An offer on the card changes nothing about the rows either — both faces
+    // return exactly the rows the greens line did not consume.
+    expect(warnFaceFor(input({ cell: REP() })).rows).toEqual([])
+    // ⚖ 31c — no alternative and no guard fact: the slot is OMITTED and no row
+    // is invented either. A button that cannot perform what it names must not
+    // exist, and neither must a sentence with no engine behind it.
+    expect(warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' })).safePrimary).toBeNull()
+  })
+
+  it('the store’s three levels compose three faces — and the middle one is unreachable on purpose', () => {
+    // (a) スタッフOK, long press ON — the shipped default.
+    const staffHold = warnFaceFor(input({ cell: REP() }))
+    expect(staffHold.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(staffHold.lock).toBeNull()
+    // …and the dial changes only HOW the press is made.
+    expect(warnFaceFor(input({ cell: REP(), holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: '注意して配置する', enabled: true, note: null })
+    // NEVER the neutral この内容で確定 on a warn face — a button that commits to
+    // a cost has to name the cost.
+    expect(JSON.stringify(staffHold)).not.toContain('この内容で確定')
+
+    // (c) 店長のみ / 名指しロック — ⚖ 9/1 ruling 1/2: THE SAME COMMIT AS (a). The
+    // dial walls only true 置けない, and a merely-costly landing the engine calls
+    // placeable is not that. The red 店長のみ line is gone from the card.
+    const locked = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
+    expect(locked.commit).toEqual(staffHold.commit)
+    expect(locked.lock).toBeNull()
+    // …but the provenance may not thank a dial that refused them: the permission
+    // clause is dropped and only the record clause stands (R-A.5).
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
+    expect(locked.provenance).not.toContain('許可されています')
+    // …and on their OWN lane no name is printed, the ⚖ 92 name rule unchanged by
+    // the ruling. ⚖ 92 fix round 8 Z5 (JP native pass): here 「記録されます」 is the
+    // WHOLE line rather than a clause riding a lead-in, and standing alone it
+    // reads incomplete — and asymmetric beside the other-lane line above, which
+    // names a person. 「あなたの」 closes both and prints no actual name.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).toBe('あなたの名前で記録されます')
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', targetLaneMine: true })).provenance).not.toContain('見本')
+    // The rest of the face is the staff face, line for line.
+    expect(locked.safePrimary).toEqual(staffHold.safePrimary)
+    expect(locked.greensLine).toBe(staffHold.greensLine)
+    expect(locked.rows).toEqual(staffHold.rows)
+    // The dial still decides HOW the press is made, at this level too.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: '注意して配置する', enabled: true, note: null })
+    // …and ⚖ 50(d)'s gate is still the only thing that can kill the button.
+    expect(warnFaceFor(input({ cell: REP(), level: 'refuse', confirmEnabled: false })).commit)
+      .toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    // The composer keeps no branch on the level except the approval one — the
+    // lock face is DELETED, not merely unreachable, and no return site composes
+    // the red line any more. (The sentence survives in COMMENTS only, where the
+    // overturn is recorded: a ruling that reverses four rounds of pins is worth
+    // more in the file than a tidy grep.)
+    expect(INT).not.toContain("if (level === 'refuse') {")
+    expect(INT).not.toContain("lock: 'この場所への配置は")
+    expect(INT).toContain('⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE')
+
+    // (b) 店長承認 — COMPOSED AND UNREACHABLE. The face exists so the settings
+    // round lights it; nothing in this tree can dial a store to it.
+    // ⚖ 92 fix round F5 — and it renders DISABLED, because there is nowhere for
+    // the request to go: no server-backed approval state exists on this board,
+    // so a live-looking control would promise a message nobody receives. The
+    // note under it says where it comes from; the settings round lights it.
+    // ⚖ 92 micro-fix M3 (JP native pass): the note is staff-facing, so it says
+    // what the operator can act on — never which build round wires it up.
+    const approval = warnFaceFor(input({ cell: REP(), level: 'needs-approval' }))
+    expect(approval.commit).toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' })
+    // …and it stays disabled whatever the confirm gate says, because the gate is
+    // not what is missing.
+    expect(warnFaceFor(input({ cell: REP(), level: 'needs-approval', confirmEnabled: false })).commit!.enabled).toBe(false)
+    expect(approval.provenance).toBe('店舗の設定で、上書きには店長の承認が必要です。見本 あずさの名前で記録されます')
+    // The level's own home still cannot return it — ⚖ ruling 91's comment, and
+    // the two branches that are the whole of the function.
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('allow-warned')
+    expect(overrideLevelFor({ roles: [], lockedOut: [] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('refuse')
+    expect(overrideLevelFor({ roles: ['スタッフ'], lockedOut: ['p-06'] }, { role: 'スタッフ', staff_id: 'p-06' })).toBe('refuse')
+    expect(INT).toContain("if (policy.lockedOut.includes(operator.staff_id)) return 'refuse'")
+    expect(INT).toContain("return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'")
+    // …and no policy value anywhere spells the middle level into existence.
+    expect(readFileSync(join(process.cwd(), 'src/business/lib/fixtures-today.ts'), 'utf8')).not.toContain('needs-approval')
+  })
+
+  it('⚖ 92 fix round F10 — a blocked warn commit says why, in the clean face’s own words', () => {
+    // The clean face has always answered this honestly: a 確定 it cannot fire
+    // reads `confirmCaption`'s 「この位置では確定できません」. The warn commit kept
+    // its ACTION label when disabled — a greyed control still saying "place it
+    // anyway", which is a button lying about what pressing it would do.
+    const blocked = { cell: REP(), confirmEnabled: false }
+    expect(warnFaceFor(input(blocked)).commit)
+      .toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    expect(warnFaceFor(input({ ...blocked, holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: 'この位置では確定できません', enabled: false, note: null })
+    // …and it is the SAME string, read off the frozen engine rather than
+    // re-typed: one dead control, one sentence, both faces.
+    expect(confirmCaption([{ ok: false, label: '見本 あずさは18:00以降勤務不可' }]))
+      .toEqual({ enabled: false, label: 'この位置では確定できません' })
+    // The KIND is unchanged: the hold physics are disabled anyway, and swapping
+    // the control's shape under a blocker moves the button the operator is
+    // aiming at. Enabled again, the action label comes straight back.
+    expect(warnFaceFor(input({ cell: REP() })).commit!.label).toBe('長押しで注意して配置')
+  })
+
+  it('⚖ 92 fix round F6 — the screen’s own wiring into the composer, field by field', () => {
+    // The field-swap class: every input here is a different reading of the
+    // board, and swapping two of them (the lane's price for the store's, the
+    // operator's name for the lane's) compiles, renders and lies. The composer's
+    // own tests cannot see this seam at all, so it is pinned at the call.
+    expect(SRC).toContain(`: warnFaceFor({
+        rows: pendingRows,
+        cell: pendingGuardRow.cell,
+        override: pending.override ?? null,
+        level: props.overrideLevel,
+        holdToConfirm: props.holdToConfirm,
+        targetLaneMine: pendingWarnLane.mine,
+        operatorName: props.operatorName,
+        listPrice: pendingWarnLane.listPrice,
+        frame,
+        depth,
+        protectedDur: props.guard.protectedDurationMin,
+        confirmEnabled: pendingConfirm.enabled,
+      })`)
+    // ⚖ 92 fix round 5 V1 (breaker #4) — `frame` and `depth` are the SELL LAYER'S
+    // own levers, composed once on this screen and handed to both. A second
+    // spelling here would be a second basis for the same ¥, which is the defect
+    // this round exists to close.
+    expect(SRC).toContain('const frame = useMemo(\n    () => ({ hi: price.hi, lo: price.lo, hqMin: dialogs.pricing.hqMin, hqMax: dialogs.pricing.hqMax }),')
+    expect(SRC).toContain('const depth = Math.round((1 - price.lo / price.hi) * 100)')
+    expect(SRC.match(/const depth = /g)).toHaveLength(1)
+    // The two lane-borne fields come off the lane the card is STAGED ON, found
+    // by the staged move's own lane key — not off the card's origin lane.
+    // ⚖ 92 micro-fix M6 (delta-verify D3) — and the STAFF group, like both
+    // sibling lookups: lane keys are unique only within a group, so an unfiltered
+    // find could answer with a bed lane and hand the card its price and `mine`.
+    expect(SRC).toContain("? boardLanes.find((l) => l.group === 'staff' && l.key === moves[pending.id].laneKey)")
+    // …and the face the surface renders is the model's own answer, never a
+    // second predicate in the screen.
+    expect(SRC).toContain("const pendingWarn = pendingWarnModel?.face === 'warn' ? pendingWarnModel : null")
+    expect(SRC.match(/warnFaceFor\(/g)).toHaveLength(1)
+  })
+
+  /** ⚖ 92 fix round 6 X3 (breaker #5) — AND THE OTHER TWO SIBLINGS ARE PINNED
+   *  TOO. M6 pinned the lookup it fixed and left its two neighbours unpinned, so
+   *  a deletion of the `l.group === 'staff'` filter from BOTH of them passed the
+   *  whole suite: lane keys are unique only WITHIN a group, and an unfiltered
+   *  find can answer with a bed lane that happens to share a staff lane's key —
+   *  handing the guard's ask, and the press's, a `vip: false` nobody checked.
+   *
+   *  Pinned per SITE, not per file: each lookup is read out of its own enclosing
+   *  block, so losing the filter at EITHER one goes red on its own. */
+  it('⚖ 92 fix round 6 X3 — the staged card’s lane is found in the STAFF group at both sibling sites', () => {
+    // The DRAW's lookup, inside the memo that composes the card.
+    const memo = SRC.slice(SRC.indexOf('const pendingGuardRow = useMemo('), SRC.indexOf('const pendingRows'))
+    expect(memo).toContain("const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)")
+    // The PRESS's lookup, inside the function that re-stages the card.
+    const press = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    expect(press).toContain("const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)")
+    // Both slices are real windows on the source and not empty strings — a pin
+    // that silently reads nothing is the failure mode this test exists to close.
+    expect(memo.length).toBeGreaterThan(500)
+    expect(press.length).toBeGreaterThan(500)
+    // …and the family is THREE, with M6's own pinned above: every place the
+    // staged card's lane is looked up scopes by group first.
+    expect(SRC.match(/l\.group === 'staff' && l\.key ===/g)).toHaveLength(3)
+  })
+
+  it('the name line is automatic, and only when the shift belongs to somebody else', () => {
+    expect(warnFaceFor(input({ cell: REP(), targetLaneMine: false })).provenance)
+      .toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    // Own shift: the record still happens, the name is simply not news. The bare
+    // 「記録されます」 stands here because the permission clause leads into it —
+    // ⚖ 92 fix round 8 Z5 changed only the 'refuse' arm, where it is the whole
+    // line and reads incomplete on its own.
+    expect(warnFaceFor(input({ cell: REP(), targetLaneMine: true })).provenance)
+      .toBe('店舗の設定で、スタッフの上書きが許可されています。記録されます')
+    // ⚖ 92 — the other-lane test is `BoardLane.mine`, which today-board already
+    // computes from the operator's own staff_id. Nothing here re-derives it.
+    expect(readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8'))
+      .toContain('mine: member.id === input.operatorStaffId,')
+  })
+
+  it('the greens become one muted line, and a row it cannot name stays a visible ✓ row', () => {
+    expect(warnFaceFor(input({ cell: REP() })).greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    // The four subjects are `computeChecks`' own four passing rows — proven
+    // against the FROZEN engine rather than against a copy of its wording.
+    const oks = computeChecks(place(630, 690, HOURS), {
+      spans: [], bookingId: 'apt-1', staffName: '見本 あずさ', staffUntil: '19:00',
+      laneLocked: false, minutesOf: (x) => minuteOf(x, HOURS),
+    }).filter((c) => c.ok)
+    expect(oks).toHaveLength(4)
+    expect(warnFaceFor(input({ cell: REP(), rows: oks.map((c) => ({ label: c.label, tone: '' as const })) })).greensLine)
+      .toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+
+    // ⚖ 92 fix round 2 S2 (stress lens #3) — THE COUNT FORM IS GONE. It said
+    // 「その他の」 with no antecedent, and it bought that sentence by hiding the
+    // one ok row the engine emits that is real news: the 清掃 auto-re-place
+    // notice. The named line now folds only what it can NAME…
+    const cleanup = '空き枠・清掃は確定時に自動再配置（清掃バッファは設定に従う）'
+    const withCleanup = warnFaceFor(input({ cell: REP(), rows: [...GREENS, { label: cleanup, tone: '' }] }))
+    expect(withCleanup.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    // …and the unnamed row is RETURNED, in the clean face's own ✓ grammar
+    // (tone '' — the render puts no modifier class on it).
+    expect(withCleanup.rows).toEqual([{ label: cleanup, tone: '' }])
+    // The count sentence is DELETED, not merely unreachable — the template that
+    // built it exists nowhere in the composer any more.
+    expect(INT).not.toContain('その他の確認（${oks.length}件）')
+    // ⚖ 92 fix round 8 Z4 (breaker #7 #5) — AND A SUBJECT IS NAMED ONCE. The line
+    // is keyed on FRAGMENTS of the frozen engine's labels, so two rows can carry
+    // the same subject honestly — the day `computeChecks` grows a second 資格 row
+    // the sentence read 「時間の重複・勤務時間・資格・資格・価格は問題ありません」.
+    // Synthetic and it says so: today the engine emits each subject once.
+    const twice = warnFaceFor(input({
+      cell: REP(),
+      rows: [...GREENS, { label: '着付け資格 一致', tone: '' as const }],
+    }))
+    expect(twice.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    expect(twice.greensLine!.match(/資格/g)).toHaveLength(1)
+    // …and the second row really was NAMED (so it is the set doing the work, not
+    // the filter): it is consumed by the line rather than left standing as a row.
+    expect(twice.rows).toEqual([])
+
+    // A page of unnameable rows produces NO line and keeps every row.
+    const allUnknown = warnFaceFor(input({ cell: REP(), rows: [{ label: cleanup, tone: '' }, { label: '将来の確認', tone: '' }] }))
+    expect(allUnknown.greensLine).toBeNull()
+    expect(allUnknown.rows).toEqual([{ label: cleanup, tone: '' }, { label: '将来の確認', tone: '' }])
+    // Nothing passed: no line at all rather than an empty sentence.
+    expect(warnFaceFor(input({ cell: REP(), rows: [] })).greensLine).toBeNull()
+    // …and the named rows are still CONSUMED by the line, never printed twice.
+    expect(warnFaceFor(input({ cell: REP() })).rows).toEqual([])
+
+    // ⚖ 92 fix round 4 U4 (breaker #3) — AND THE LINE FOLDS ✓ ROWS, NEVER A ROW
+    // THAT MERELY MENTIONS ONE OF ITS SUBJECTS. The greens line is keyed on
+    // FRAGMENTS of the frozen engine's labels, and a failing row can carry the
+    // same fragment — a 資格 refusal says 資格. Both halves of the filter must
+    // therefore hold: the tone test keeps the row visible, and the greens
+    // sentence is built off passing rows alone. Deleting either one silently
+    // turned a × into a 「…は問題ありません」 or made it vanish outright.
+    //
+    // Synthetic and it says so: `computeChecks` (FROZEN) emits 資格 only as a ✓
+    // today (drag-rules :226), so this is the day it grows the failing twin.
+    const failing = { label: '整体資格 不一致', tone: 'bad' as const }
+    const withFailing = warnFaceFor(input({ cell: REP(), rows: [...GREENS, failing] }))
+    // It stays a ROW, in its own × tone…
+    expect(withFailing.rows).toEqual([failing])
+    // …and it never reaches the greens sentence, which still names the four
+    // subjects that actually passed and nothing else.
+    expect(withFailing.greensLine).toBe('時間の重複・勤務時間・資格・価格は問題ありません')
+    expect(JSON.stringify(withFailing.greensLine)).not.toContain('不一致')
+
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — AND THE LINE IS BUILT FROM `oks`,
+    // NEVER FROM `rows`. Every case above hands the composer a full set of ✓ rows,
+    // so `greensLineOf(rows)` produced the identical sentence in all of them — the
+    // subject set swallows the duplicate — and the mutation survived the whole
+    // suite. The scene that separates them is a face with the FAILING 資格 row and
+    // no passing one: off `oks` there is nothing to say, off `rows` the card
+    // prints 「資格は問題ありません」 directly over its own ×.
+    const failingAlone = warnFaceFor(input({ cell: REP(), rows: [failing] }))
+    expect(failingAlone.greensLine).toBeNull()
+    expect(failingAlone.rows).toEqual([failing])
+    // …and the same at the other composer, the impossible floor's, which no
+    // behaviour above reaches with a row set of its own.
+    expect(INT.match(/greensLine: greensLineOf\(oks\)/g)).toHaveLength(2)
+    expect(INT).not.toContain('greensLineOf(rows)')
+  })
+
+  /** ⚖ 92 fix round 2 S1 (stress lens #2, THE find) — THE PROMISE AND THE GATE
+   *  ARE THE SAME QUESTION.
+   *
+   *  `alternativeKind` is the engine's word about the PRE-snap start and the
+   *  safe primary's sub-line is read straight off it; `offerableCell` then snaps
+   *  each start to the store's lattice and re-gates the SNAPPED one. With the
+   *  wrapper's `!== 'blocked'` gate a caution passes, so on a clock offset that
+   *  pushes the engine's zero-loss start off the lattice the card promised
+   *  確保を壊さない about a start the guard would only ever have cautioned —
+   *  51 of 214 sampled offers in the lens's own probe. The fix is at the GATE
+   *  (⚖ 31c: never weaken the label to match a gate), and this is that law with
+   *  the snap arithmetic left real. */
+  it('⚖ 92 fix round 2 S1 — a card claiming 確保を壊さない may only offer CLEAN starts', () => {
+    // The scene as arithmetic: an off-lattice engine start (11:07 — the guard
+    // walks five-minute steps and the clock is off the half hour), a step-30
+    // store, 11:00 cautions and 11:30 is clean.
+    const kindAt = (s: number): LandingVerdict['kind'] => (s === 660 ? 'caution' : 'clean')
+    const safeCell = { ...SAFE_ALT(), alternatives: [667] }
+    expect(safeCell.alternativeKind).toBe('safe')
+
+    // THE DEFECT, reproduced: the wrapper's gate keeps the cautioned snap…
+    const loose = offerableCell(safeCell, 30, 750, (s) => kindAt(s) !== 'blocked')
+    expect(loose!.alternatives).toEqual([660])
+    // …and the card then puts the store's 確保 promise on it.
+    expect(warnFaceFor(input({ cell: loose })).safePrimary)
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（確保を壊さない）' })
+
+    // THE SHIPPED GATE: the cell's own claim decides. 11:00 is refused for
+    // cautioning, the snap walks on, and the offer is a start that really is
+    // clean — so the sub-line is true about the start it sits under.
+    const gate = (c: RailCell) => (s: number) => (c.alternativeKind === 'safe' ? kindAt(s) === 'clean' : kindAt(s) !== 'blocked')
+    const strict = offerableCell(safeCell, 30, 750, gate(safeCell))
+    expect(strict!.alternatives).toEqual([690])
+    expect(warnFaceFor(input({ cell: strict })).safePrimary)
+      .toEqual({ kind: 'place', start: 690, main: '11:30に置く', sub: '（確保を壊さない）' })
+
+    // A least-loss cell promises no such thing, so its CLEAN-ness gate is
+    // UNCHANGED — a cautioned start is exactly what 「損を減らす」 is allowed to
+    // mean. (⚖ 92 fix round 4 U1 adds a second clause to this arm — the
+    // candidate's own loss — which is pinned in U1's own test below, on the real
+    // engine. This one is about the clean/caution axis alone.)
+    const lossy = { ...REP(), alternatives: [660] }
+    expect(lossy.alternativeKind).toBe('least-loss')
+    expect(offerableCell(lossy, 30, 750, gate(lossy))!.alternatives).toEqual([660])
+    expect(warnFaceFor(input({ cell: offerableCell(lossy, 30, 750, gate(lossy)) })).safePrimary)
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
+
+    // …and the screen asks it exactly this way, with the shared wrapper left
+    // alone for the callers that make no promise about the starts they show.
+    //
+    // ⚖ 92 fix round 3 T5 (breaker #5) — PINNED ON THE GATE'S OWN LINES. The
+    // second pin here used to read the `!== 'blocked'` spelling, which lives in
+    // the UNTOUCHED shared wrapper 120 lines above: it matched whatever this
+    // gate said and would have stayed green through the gate being deleted. The
+    // gate is three lines and all three are pinned — the closure that opens it,
+    // the single verdict read, and the level-aware return T1 rewrote.
+    //
+    // ⚖ 92 fix round 4 U1 (breaker #3) — the gate is now four lines: the same
+    // closure, the same single verdict read, T1's level arm, S1's own claim arm,
+    // and the least-loss arm's new strictly-better-loss clause.
+    //
+    // ⚖ 92 fix round 6 X1 (breaker #5) — and the least-loss arm now SPLITS on
+    // who chose the start: the engine's own answers keep the ordinary
+    // not-blocked gate, and only a start the snap MOVED faces U1's bar (or, on
+    // an impact-less staged cell, the clean bar). Every line is pinned, so the
+    // split cannot be quietly collapsed back to either half.
+    //
+    // ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND T1'S LEVEL ARM IS GONE. It was
+    // built on the lock face being the operator's wall; the ruling deletes that
+    // face, so a locked-out operator now reads the same card, the same offers
+    // and the same commit as anyone else. Three arms, one law, every level.
+    expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
+      + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind\n'
+      + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
+      + "        if (k === 'blocked') return false\n"
+      + '        if (cell?.alternatives.includes(s)) return true\n'
+      + "        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n"
+      + '      }),')
+    // …and the level leaves the dep list with the arm that read it: nothing in
+    // the memo asks the dial any more.
+    expect(SRC).toContain('props.guard.bookingStepMin, props.rooms])')
+    expect(SRC).not.toContain("if (props.overrideLevel === 'refuse')")
+    // …and the RAW engine list the split reads is threaded out of the memo, for
+    // the press to mirror it with (⚖ 92 fix round 6 X2).
+    expect(SRC).toContain('      engineStarts: cell?.alternatives ?? [],')
+  })
+
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE DIAL NO LONGER NARROWS THE CARD.
+   *
+   *  ⚖ 92 fix round 3 T1 made the DRAW clean-only at 'refuse' on one premise:
+   *  there the safe primary was the operator's ONLY door, because the commit had
+   *  been replaced by the 店長のみ line, so an offer landing on a second degraded
+   *  cell walled them again. Liam's ruling deletes that line — the locked-out
+   *  operator reaches the same warn commit as anyone else — and with the premise
+   *  gone the extra bar only ever withheld real answers from the staff with the
+   *  fewest of them. This is T1's own scene, re-pinned to the ruling: the dial
+   *  changes NOTHING about what the card draws or offers. */
+  it('⚖ 9/1 ruling 1 — 店長のみ draws the same card, the same offers, the same commit', () => {
+    // T1's scene, unchanged: a least-loss cell (it promises no 確保), engine
+    // start 11:07, step-30 store — 11:00 only cautions, and the next lattice
+    // start is walled outright.
+    const kindAt = (s: number): LandingVerdict['kind'] => (s === 660 ? 'caution' : 'blocked')
+    const lossy = { ...REP(), alternatives: [667] }
+    expect(lossy.alternativeKind).toBe('least-loss')
+    // The gate as the screen now spells it — no level arm at all. (⚖ 92 fix
+    // round 4 U1's strictly-better-loss clause rides the least-loss arm and is
+    // pinned in its own test below; every candidate here loses the same as the
+    // staged start, so this test is about the level axis alone.)
+    const gate = (c: RailCell) => (s: number) =>
+      c.alternativeKind === 'safe' ? kindAt(s) === 'clean' : kindAt(s) !== 'blocked'
+
+    // The cautioned snap is a real thing to offer, and the level does not change
+    // that: the SAME cell, the SAME offer, at both live dials.
+    const drawn = offerableCell(lossy, 30, 750, gate(lossy))
+    expect(drawn!.alternatives).toEqual([660])
+    for (const level of ['allow-warned', 'refuse'] as const) {
+      expect(warnFaceFor(input({ cell: drawn, level })).safePrimary)
+        .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
+    }
+    // …and at 'refuse' the commit is under it now, which is the whole ruling:
+    // the operator is told the cost and may confirm it, out loud.
+    const locked = warnFaceFor(input({ cell: drawn, level: 'refuse' }))
+    expect(locked.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(locked.lock).toBeNull()
+    // The two faces differ in exactly ONE field — the provenance, which may not
+    // claim a permission the store withheld (R-A.5).
+    const staff = warnFaceFor(input({ cell: drawn, level: 'allow-warned' }))
+    expect({ ...locked, provenance: null }).toEqual({ ...staff, provenance: null })
+    expect(staff.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
+  })
+
+  /** ⚖ 92 fix round 4 U1 (breaker #3) — A LEAST-LOSS OFFER MUST BE STRICTLY
+   *  BETTER THAN STANDING STILL.
+   *
+   *  `alternatives` are the engine's OWN ranked starts, and `offerableCell`
+   *  snaps each to the store's lattice — so the start the card SHOWS is a
+   *  neighbour the guard never scored. The round-3 gate asked only whether that
+   *  neighbour was not blocked, and a caution passes: on the scene below, the
+   *  biggest control on a card warning about ONE lost window offered a start
+   *  costing TWO. The card doubling the loss it warns about, at the shipped
+   *  default level.
+   *
+   *  Driven by the REAL engine end to end — the cells, their losses and the
+   *  landing verdicts are all `guardVerdictAt` / `landingVerdict`, so nothing
+   *  here is a fixture agreeing with itself. */
+  it('⚖ 92 fix round 4 U1 — a least-loss offer costs the store strictly less than staying put', () => {
+    // The breaker's own scene: one 10:00–10:45 booking on a 10:00–19:00 shift,
+    // a 90-minute session, a step-30 store.
+    const rail = { ...railIn, dur: 90 }
+    const lanes = boardOf([booking({ key: 'a', caseId: 'apt-a' }, 600, 645)])
+    const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
+    const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
+      staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+      start: s, end: s + 90, span: place(s, s + 90, HOURS),
+      foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
+      minutesOf: (x: number) => minuteOf(x, HOURS),
+    }, at(s)).kind
+    // `lossOf` is the SHIPPED one, imported — ⚖ 9/1 ruling 2/2 re-homed it into
+    // today-interactions, so the replica this test used to carry is gone and the
+    // model below reads the very function the screen does.
+    /** The gate as the screen spells it — own-claim arm, least-loss arm. `k` is
+     *  injectable only so a CLEAN start this particular board never produces can
+     *  be driven through; the losses stay real.
+     *
+     *  ⚖ 92 fix round 6 X1 (breaker #5) — carried forward to the SHIPPED split:
+     *  an engine-own start is trusted on the guard's full-key word, and only a
+     *  start the snap moved faces U1's bar. Every assertion below is unchanged
+     *  by that, which is exactly the point — this scene's offers are all snapped
+     *  neighbours (10:45 / 12:15 are off a half-hour lattice), so U1's law is
+     *  still the whole of what decides them. THE REGRESSION PIN for round 6. */
+    const gate = (cell: RailCell, staged: number, k = kindAt) => (s: number) => {
+      if (cell.alternativeKind === 'safe') return k(s) === 'clean'
+      if (k(s) === 'blocked') return false
+      if (cell.alternatives.includes(s)) return true
+      return cell.impact != null ? lossOf(at(s)) < staged : k(s) === 'clean'
+    }
+
+    // THE DEFECT, on the real board. Staged 11:00 costs ONE protected window,
+    // and the engine's ranked starts are 10:45 and 12:15 — neither on the
+    // store's half-hour lattice.
+    const staged = at(660)!
+    expect(staged.alternativeKind).toBe('least-loss')
+    expect(staged.alternatives).toEqual([645, 735])
+    expect(lossOf(staged)).toBe(1)
+    // 10:45 floors onto a BLOCKED 10:30 and ceils onto the attempt itself, so
+    // the snap walks on to 12:15's neighbours — and 12:00 costs TWO. The
+    // round-3 gate asked only "not blocked", and 12:00 cautions.
+    expect(kindAt(630)).toBe('blocked')
+    expect(lossOf(at(720))).toBe(2)
+    expect(kindAt(720)).toBe('caution')
+    const loose = offerableCell(staged, 30, 660, (s) => kindAt(s) !== 'blocked')
+    expect(loose!.alternatives).toEqual([720])
+    expect(warnFaceFor(input({ cell: loose })).safePrimary!.main).toBe('12:00に置く')
+
+    // THE SHIPPED GATE: 12:00 loses MORE than staying and 12:30 loses the SAME,
+    // so neither is offered — the slot goes empty rather than selling a bigger
+    // loss on the card that is warning about the smaller one…
+    expect(lossOf(at(750))).toBe(1)
+    const fixed = offerableCell(staged, 30, 660, gate(staged, lossOf(staged)))
+    expect(fixed!.alternatives).toEqual([])
+    // ⚖ 92 fix round 6 X1 (breaker #5) — and 12:00 is refused BY THE MOVED-START
+    // ARM: the engine never ranked it (it is 12:15's floored neighbour), so the
+    // trust the split extends to the guard's own answers never reaches it. This
+    // line is what makes the assertion above a round-6 regression pin rather
+    // than an accident of the new gate's shape.
+    expect(staged.alternatives).not.toContain(720)
+    expect(staged.alternatives.every((s) => s % 30 !== 0)).toBe(true)
+    // …and the slot simply stays empty (⚖ 92 fix round 5 V3 reversed T2's
+    // engine-row append), which is honest where an offer would have been a lie.
+    const empty = warnFaceFor(input({ cell: fixed }))
+    expect(empty.safePrimary).toBeNull()
+    expect(empty.rows).toEqual([])
+
+    // A STRICTLY BETTER CANDIDATE IS STILL OFFERED, and wears the new label.
+    // Same board, the card staged at 12:00: standing still costs TWO windows,
+    // so the engine's 10:45 snapping up to an 11:00 that costs ONE is a real
+    // improvement — and 「（損を減らす）」 is exactly what is true about it,
+    // where 「損が最少」 claimed a rank of a start the guard never scored.
+    const worse = at(720)!
+    expect(lossOf(worse)).toBe(2)
+    const better = offerableCell(worse, 30, 720, gate(worse, lossOf(worse)))
+    expect(better!.alternatives).toEqual([660, 750])
+    expect(warnFaceFor(input({ cell: better })).safePrimary)
+      .toEqual({ kind: 'place', start: 660, main: '11:00に置く', sub: '（損を減らす）' })
+
+    // ⚖ 9/1 ruling 1/2 — AND THE LOSS CLAUSE IS NOW THE LAW AT EVERY DIAL. Round
+    // 4 exempted 'refuse' because ⚖ 92 fix round 3 T1's clean-only bar stood in
+    // front of it; the ruling deletes that bar, so a start that is merely CLEAN
+    // faces the same question every other candidate does — is the store better
+    // off there? Injected kinds, because no start on this board verdicts clean:
+    // 12:30 is CLEAN and costs the store exactly what staying at 11:00 costs, so
+    // it is NOT strictly better and it is offered to nobody.
+    const cleanAt = (s: number): LandingVerdict['kind'] => (s === 750 ? 'clean' : 'blocked')
+    expect(lossOf(at(750))).toBe(lossOf(staged))
+    expect(offerableCell(staged, 30, 660, gate(staged, lossOf(staged), cleanAt))!.alternatives).toEqual([])
+    // …and the card says the same thing at both dials, which is the ruling in
+    // one line: the offer is a fact about the BOARD, never about the operator.
+    for (const level of ['allow-warned', 'refuse'] as const) {
+      expect(warnFaceFor(input({ cell: offerableCell(staged, 30, 660, gate(staged, lossOf(staged), cleanAt)), level })).safePrimary).toBeNull()
+    }
+  })
+
+  /** ⚖ 92 fix round 6 X1 (breaker #5) — THE GATE TRUSTS THE ENGINE WHERE THE
+   *  ENGINE SPOKE, AND STAYS STRICT ONLY WHERE THE SNAP MOVED THE START.
+   *
+   *  Round 4 U1 re-filtered `nearestBestAlternatives`' answers on ONE term
+   *  (protected loss) of the guard's FOUR-term ranking key. The engine only ever
+   *  returns starts whose whole key beats the attempt's, so a start can be
+   *  strictly better overall and cost the same protected windows — and every one
+   *  of those died on `1 < 1`. Two faces went silent because of it: the R-REP
+   *  class Liam photographed, and every impact-less staged cell, where
+   *  `stagedLoss` is 0 and `loss < 0` is satisfiable by nothing at all.
+   *
+   *  The REAL engine end to end, both scenes — the cells, their losses and the
+   *  landing verdicts are `guardVerdictAt` / `landingVerdict`, so nothing here is
+   *  a fixture agreeing with itself. */
+  it('⚖ 92 fix round 6 X1 — the engine’s own starts are offered again, and a snapped one still is not', () => {
+    // The screen's own spelling of the split, pinned HERE as well as in S1's
+    // whole-closure pin above: the scenes below model the gate to drive the real
+    // engine through it, and a model is only evidence while the code still says
+    // the same thing. These two lines are the whole of what round 6 changed.
+    expect(SRC).toContain('        if (cell?.alternatives.includes(s)) return true\n')
+    expect(SRC).toContain("        return cell?.impact != null ? lossOf(verdictAt(at.laneKey, s, dur, pending.id)) < stagedLoss : k === 'clean'\n")
+
+    /** The screen's own gate, all three arms, exactly as it now spells them.
+     *  `lossOf` is the SHIPPED function, imported — ⚖ 9/1 ruling 2/2 re-homed it
+     *  into today-interactions, which retires the replica ⚖ 92 final hygiene F9
+     *  had to keep in step by hand. */
+    const gateFor = (lanes: BoardLane[], rail: typeof railIn, dur: number) => {
+      const at = (s: number) => guardVerdictAt(lanes, 'p-01', s, rail)
+      const kindAt = (s: number): LandingVerdict['kind'] => landingVerdict(lanes, {
+        staffLane: 'p-01', bedLane: null, solveRoom: true, id: null, vip: false,
+        start: s, end: s + dur, span: place(s, s + dur, HOURS),
+        foreignRefusal: null, hasPrice: true, locked: [] as string[], rooms: POLICY,
+        minutesOf: (x: number) => minuteOf(x, HOURS),
+      }, at(s)).kind
+      // ⚖ 92 final hygiene (breaker #6 F9) threaded the gate's FIRST arm —
+      // `props.overrideLevel === 'refuse'` — in here so the replica could not
+      // silently diverge from the shipped gate it is named for. ⚖ 9/1 ruling 1/2
+      // DELETES that arm from the screen, so it leaves this helper by the same
+      // rule: the dial no longer narrows what the card may offer.
+      const shipped = (cell: RailCell) => (s: number) => {
+        if (cell.alternativeKind === 'safe') return kindAt(s) === 'clean'
+        if (kindAt(s) === 'blocked') return false
+        if (cell.alternatives.includes(s)) return true
+        return cell.impact != null ? lossOf(at(s)) < lossOf(cell) : kindAt(s) === 'clean'
+      }
+      /** U1's gate, kept here as the BEFORE picture the two scenes are measured
+       *  against — the defect is a real difference, not an assertion rewrite. */
+      const roundFour = (cell: RailCell) => (s: number) => kindAt(s) !== 'blocked' && lossOf(at(s)) < lossOf(cell)
+      return { at, kindAt, lossOf, shipped, roundFour }
+    }
+
+    // ── SCENE 1, the breaker's p10: the photographed R-REP, staged 10:30 ──────
+    const one = gateFor(boardOf(), railIn, railIn.dur)
+    const rep = one.at(630)!
+    expect(rep).toEqual(REP())
+    // The engine's own two answers, and BOTH are already on the store's
+    // half-hour lattice — `offerableCell` passes them through as themselves, so
+    // these are the guard's own starts and not neighbours anything invented.
+    expect(rep.alternatives).toEqual([600, 690])
+    expect(rep.alternatives.every((s) => s % railIn.stepMin === 0)).toBe(true)
+    // …and each costs the store EXACTLY what standing still costs. That is the
+    // whole defect: the guard ranked them better on its other three terms, and
+    // U1 could not see any of that through the one term it compared.
+    expect(one.lossOf(rep)).toBe(1)
+    expect(rep.alternatives.map((s) => one.lossOf(one.at(s)))).toEqual([1, 1])
+    expect(rep.alternatives.map(one.kindAt)).toEqual(['caution', 'caution'])
+
+    // ⚖ 9/1 ruling 1/2 — AND THE DIAL NO LONGER TAKES THEM AWAY. ⚖ 92 final
+    // hygiene F9 pinned the refuse arm here: first in the gate's own order, it
+    // demanded a clean candidate before any later arm got a look, so even the
+    // engine's own starts (600, 690 — trusted at arm 3 below) were refused to a
+    // locked-out operator, and the card that was warning them about a loss
+    // offered them nothing. That arm is deleted; the gate answers the same at
+    // every dial, and the composer hands the same offer to both.
+    expect(rep.alternatives.map((s) => one.shipped(rep)(s))).toEqual([true, true])
+    const repAtDials = (['allow-warned', 'refuse'] as const).map((level) =>
+      warnFaceFor(input({ cell: offerableCell(rep, railIn.stepMin, 630, one.shipped(rep)), level })).safePrimary)
+    expect(repAtDials).toEqual([
+      { kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' },
+      { kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' },
+    ])
+
+    // THE DEFECT: `1 < 1` is false twice, so a card whose entire subject is a
+    // loss offered the operator nothing at all — no safe answer under it, and
+    // 元に戻す the only way out.
+    expect(offerableCell(rep, railIn.stepMin, 630, one.roundFour(rep))!.alternatives).toEqual([])
+    expect(warnFaceFor(input({ cell: offerableCell(rep, railIn.stepMin, 630, one.roundFour(rep)) })).safePrimary).toBeNull()
+
+    // THE SHIPPED GATE: the engine spoke about both of these starts, so its word
+    // stands and the ordinary not-blocked bar is what they face.
+    const repFixed = offerableCell(rep, railIn.stepMin, 630, one.shipped(rep))!
+    expect(repFixed.alternatives).toEqual([600, 690])
+    expect(warnFaceFor(input({ cell: repFixed })).safePrimary)
+      .toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+
+    // ── SCENE 2, the p4/p7 physics face: a bed refusal, staged 12:00 ─────────
+    // The only room is taken 11:30–13:00, so the staff pocket holds and the
+    // RESOURCE does not — the engine's `R-UNAVAILABLE`, which `railCell` builds
+    // through `blocked()` and which therefore carries no `impact` at all.
+    const roomRail = {
+      ...railIn,
+      placementFeasible: (_l: BoardLane, s: number, d: number) => !(s < 780 && 690 < s + d),
+    }
+    const two = gateFor(boardOf(), roomRail, roomRail.dur)
+    const bed = two.at(720)!
+    expect(bed.state).toBe('blocked')
+    expect(bed.reason).toBe('bed')
+    expect(bed.sentence).toBe('この開始ではベッドを60分確保できません')
+    expect(bed.impact).toBeUndefined()
+    // The engine's own answers again — 10:00 before the room goes, 13:00 the
+    // moment it comes back — and both on the store's own lattice.
+    expect(bed.alternatives).toEqual([600, 780])
+    expect(bed.alternativeKind).toBe('least-loss')
+
+    // THE DEFECT, sharper here: no `impact` means `stagedLoss` is 0, and no
+    // candidate can lose LESS than nothing. The clause was unsatisfiable, so the
+    // GATE lost every offer it had, which left 元に戻す as the operator's whole
+    // vocabulary on the surface that drew this cell.
+    expect(two.lossOf(bed)).toBe(0)
+    expect(offerableCell(bed, roomRail.stepMin, 720, two.roundFour(bed))!.alternatives).toEqual([])
+
+    // THE SHIPPED GATE: the engine's own starts come back, and the operator has
+    // somewhere to go again.
+    const bedFixed = offerableCell(bed, roomRail.stepMin, 720, two.shipped(bed))!
+    expect(bedFixed.alternatives).toEqual([600, 780])
+
+    // ⚖ 9/1 ruling 2/2 — AND THIS CELL NO LONGER RE-FACES THE CARD AT ALL. It
+    // carries no `impact`, so it costs the store no protected window, and the
+    // ruling sends every zero-loss guard fact back to the clean face's quiet △
+    // row. The record is unchanged — the engine's own sentence is what that row
+    // says (⚖ 73-74) — and the landing is walled by ⚖ 50(d)'s own gate on that
+    // face, which is where a 置けない has always been answered. The amber panel
+    // and the 0.6-秒 hold are what leave: neither was ever about a bed.
+    const bedFace = warnFaceFor(input({ cell: bedFixed }))
+    expect(bedFace.face).toBe('clean')
+    expect(bedFace.commit).toBeNull()
+    expect(guardCheckRow(bedFixed)).toEqual({ label: 'この開始ではベッドを60分確保できません', tone: 'warn' })
+    // …and it stays that answer at the locked-out dial too (⚖ 9/1 ruling 1/2:
+    // the level decides nothing the board has not already decided).
+    expect(warnFaceFor(input({ cell: bedFixed, level: 'refuse' })).face).toBe('clean')
+    // ⚖ 92 fix round 8 Z1 (breaker #7 #1) — AND A WALKED-PAST SENTENCE OVER THIS
+    // SAME CELL KEEPS ITS COMMIT. Round 4 U3 wrote the physics branch on `cell`
+    // alone, so this face — lit by the override, over a cell the guard never
+    // weighed (`impact` absent, so it costs the store nothing) — lost its commit
+    // to ⚖ 73's law about the GUARD's own floors. ⚖ 50(d)'s gate had already
+    // cleared the landing; the card simply had no button. Now the branch asks
+    // `guardWarn` first, so this face composes normally.
+    const bedWithOverride = warnFaceFor(input({
+      cell: bedFixed, level: 'refuse', override: '満室です',
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    }))
+    expect(bedFixed.ackAllowed).toBe(false)
+    expect(two.lossOf(bedFixed)).toBe(0)
+    expect(bedWithOverride.face).toBe('warn')
+    expect(bedWithOverride.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // …and ⚖ 50(d) is again the whole of the gate: a second blocker still kills
+    // the button, exactly as it does on every other warn face.
+    expect(warnFaceFor(input({
+      cell: bedFixed, level: 'refuse', override: '満室です', confirmEnabled: false,
+      rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }],
+    })).commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    // The record clause stands under it (⚖ 9/1 ruling 1/2 — the dial refused
+    // them, so the line may not thank it), and no lock line is invented.
+    expect(bedWithOverride.provenance).toBe('見本 あずさの名前で記録されます')
+    expect(bedWithOverride.lock).toBeNull()
+    expect(bedWithOverride.safePrimary).toEqual({ kind: 'place', start: 600, main: '10:00に置く', sub: '（損を減らす）' })
+    // ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE GUARD'S SENTENCE IS STILL ON
+    // THE CARD. The panel here is carrying the OVERRIDE, so the engine's own
+    // verdict has no other home on this face — the screen draws `guardRow` on the
+    // CLEAN face only. It rides the rows, in the engine's own words.
+    expect(bedWithOverride.impact).toEqual({ head: '満室です', yen: null, tail: '' })
+    expect(bedWithOverride.rows).toEqual([{ label: 'この開始ではベッドを60分確保できません', tone: 'warn' }])
+
+    // AND THE MOVED-START ARM IS STILL STRICT on this very cell: 13:30 is a
+    // start the engine never ranked, and an impact-less staged cell has no loss
+    // to compare it against — so the clean bar stands in for the comparison, and
+    // a caution does not clear it. Trust for the engine's own word, never for a
+    // start we invented ourselves.
+    expect(bed.alternatives).not.toContain(810)
+    expect(two.kindAt(810)).toBe('caution')
+    expect(two.shipped(bed)(810)).toBe(false)
+  })
+
+  /** ⚖ 92 fix round 3 T6 (breaker #6) — THE PRESS HONOURS THE DRAW'S PROMISE.
+   *  The draw's gate (round-2 S1) may only offer CLEAN starts under a 確保を壊さ
+   *  ない label, but the press re-judged with the looser 'not blocked' — so a
+   *  board that moved between the draw and the finger placed the card on a
+   *  cautioned start under a promise it was breaking. Same refuse() door. */
+  it('⚖ 92 fix round 3 T6 — a 確保を壊さない offer refuses at the press unless it is still clean', () => {
+    const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    // ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND ⚖ 92 fix round 4 U2'S HALF OF
+    // THIS CONDITION IS GONE WITH THE DRAW ARM IT MIRRORED. U2 put
+    // `props.overrideLevel === 'refuse'` into `demandedClean` so the press could
+    // not land what T1's clean-only DRAW gate refused; the ruling deletes that
+    // draw arm, so keeping it here would make the press STRICTER than the draw —
+    // refusing a start the card openly offered, ⚖ 31c pointing the other way.
+    // T6's own 確保 condition is untouched and is again the whole of it.
+    //
+    // ⚖ 92 fix round 6 X2 (breaker #5) — AND THE THIRD ARM RIDES IT TOO. X1
+    // split the DRAW's least-loss arm on who chose the start; the press kept
+    // re-judging every candidate with 'not blocked' alone, so a board that moved
+    // between the draw and the finger could land the card on exactly the
+    // invented start X1 exists to refuse. The staged side of the comparison is
+    // read off the drawn cell itself — `offerableCell` rebuilds `alternatives`
+    // and nothing else — so no second verdict is asked for it.
+    expect(fn).toContain('    const drawn = pendingGuardRow.cell\n'
+      + "    const demandedClean = drawn?.alternativeKind === 'safe'\n"
+      + '    const movedStartRefused =\n'
+      + '      !demandedClean\n'
+      + '      && !pendingGuardRow.engineStarts.includes(start)\n'
+      + "      && !(drawn?.impact != null ? lossOf(verdictAt(at.laneKey, start, dur, pending.id)) < lossOf(drawn) : again.kind === 'clean')\n"
+      + "    if ((demandedClean && again.kind !== 'clean') || movedStartRefused) {\n"
+      + "      refuse(again.reason ?? '配置できません')\n"
+      + '      return\n'
+      + '    }')
+    // It is the SAME door as the blocked branch — one refusal path, ⚖ 47, and
+    // still ONE condition: U2 joined T6's rather than opening a second gate, and
+    // X2 joined the same one rather than opening a third.
+    expect(fn.match(/refuse\(again\.reason \?\? '配置できません'\)/g)).toHaveLength(2)
+    expect(fn.match(/again\.kind !== 'clean'/g)).toHaveLength(1)
+    // …and the loss the press compares against is the ONE `lossOf` the draw uses
+    // — hoisted to module scope by X2 precisely so the two cannot drift, and
+    // re-homed into today-interactions by ⚖ 9/1 ruling 2/2, where the composer's
+    // own trigger now reads it too. Three readers, ONE definition (⚖ 54): the
+    // screen imports it and holds no spelling of its own.
+    expect(INT).toContain('export const lossOf = (c: RailCell | null): number =>\n'
+      + "  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter")
+    expect(INT.match(/const lossOf = /g)).toHaveLength(1)
+    expect(SRC).not.toContain('const lossOf = ')
+    expect(SRC).toContain('  lossOf,\n')
+    // …and it stands BEFORE anything is staged.
+    expect(fn.lastIndexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
+    // A least-loss offer BELOW 'refuse' keeps the ordinary gate: 「損を減らす」
+    // never promised clean, so a cautioned landing is exactly what it is allowed
+    // to mean — the condition is guarded on both sides, never bare.
+    expect(fn).not.toContain("again.kind !== 'clean')\n      refuse")
+    expect(fn).not.toContain('if (again.kind !== ')
+  })
+
+  /** ⚖ 92 fix round 4 U3 (breaker #3) — THE COMPOSER READS `ackAllowed`.
+   *
+   *  `ackAllowed: false` on a blocked cell is the engine's own word for a
+   *  placement that CANNOT be made — strict mode's refusals, R-UNAVAILABLE — and
+   *  ⚖ 73's law is already written for it: 「A floor the engine calls impossible
+   *  is not a floor a manager can be given authority over」. The card was
+   *  composing a live 注意して配置 over exactly that, under a line saying the
+   *  store PERMITS the override. Latent on today's board (it needs the cell to
+   *  move under a staged card, or the mode dial to flip) — but the whole thesis
+   *  of this branch is settings-composed honesty, so it is fixed at the
+   *  composer rather than left to a future round to trip over.
+   *
+   *  ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND THE DEAD CONTROL SAYS WHY. U3
+   *  returned NO commit, which left a card printing the ruled cost sentence with
+   *  nothing under it — honest about the price, mute about the missing button.
+   *  The pins below now read the clean face's own frozen 「この位置では確定できま
+   *  せん」 (drag-rules :234), and ⚖ 73 is asserted where it actually lives: the
+   *  `enabled` here is the literal `false`, unconditional, never the checks gate. */
+  /** ⚖ 9/1 STRICT-SWITCH RULING (settings round, fix round 1 F1) — AND THE WALL
+   *  IS THE DIAL'S, SO IT ASKS WHO.
+   *
+   *  Everything below was written when this branch was ROLE-BLIND, and the branch
+   *  was role-blind because `ackAllowed` is: gap-guard sets it from the store's
+   *  mode alone, so STRICT took the commit away from 店長 and オーナー too. The
+   *  approved settings page promises the opposite in as many words — its
+   *  店長がしっかり見る preset reads 「確保枠を壊す場所に置けるのは店長だけです」,
+   *  and the dial says 「権限のないスタッフは…確定できなくなります」 — and both are
+   *  about the people the 上書きの権限 dial EXCLUDES.
+   *
+   *  So `level === 'refuse'` joins the branch, and the assertions below split in
+   *  two: the walled arms move to the excluded operator, and the permitted one
+   *  keeps the standard warn face. What did NOT move is ⚖ 73 — its floor
+   *  (`R-UNAVAILABLE`) carries no `impact`, so it is `guardWarn`-false and has
+   *  never reached this branch at all (round 11 P1 established exactly that). The
+   *  only class here is the STRICT refusal, which is the dial's own to govern. */
+  /** ⚠ THE TITLE MOVED WITH THE BEHAVIOUR (fix round 1). It read 「a floor the
+   *  engine calls impossible wears a DEAD commit」 — the round-4 U3 reading, and
+   *  stale twice over: round 11 P1 already established that the impossible floor
+   *  (`R-UNAVAILABLE`) is impact-less and never reaches this branch, and F1 above
+   *  makes the one class that DOES reach it — the strict refusal — answer to the
+   *  override dial. A name that re-teaches the conflation this round untangled is
+   *  a comment that will be built on, so it says what it now proves. The U3 / W1 /
+   *  V2 lineage is kept in the docblock above rather than in the name. */
+  it('⚖ 9/1 F1 — the strict dial walls the EXCLUDED operator, and the permitted one keeps the standard face', () => {
+    // The REAL engine, on the store's own strict dial: the same 10:30 refusal
+    // Liam photographed, with the one field that changes — nothing synthetic
+    // about the branch this fires.
+    const strictRail = { ...railIn, guard: { ...GUARD, mode: 'strict' as const } }
+    const strict = guardVerdictAt(boardOf(), 'p-01', 630, strictRail)!
+    expect(strict.state).toBe('blocked')
+    expect(strict.ackAllowed).toBe(false)
+    // …and the standard dial's own cell differs in that field ALONE, so this
+    // test is about `ackAllowed` and not about some other drift.
+    expect({ ...strict, ackAllowed: true }).toEqual(REP())
+
+    // ⚖ 9/1 F1 — THE OPERATOR THE DIAL EXCLUDED. `level: 'refuse'` is what the
+    // 上書きの権限 dial answers for a staff member the store left off the list
+    // (or named in `lockedOut`), and it is the whole of the wall's condition.
+    const face = warnFaceFor(input({ cell: strict, level: 'refuse' }))
+    expect(face.face).toBe('warn')
+    /** ⚖ 92 fix round 11 P1 (breaker #10 #1) — AND THE HEADLINE IS THE RULED ONE,
+     *  MONEY AND ALL. Round 4 U3's own note said the panel here carried
+     *  `impactOf`'s unruled ¥-free fallback and that this 「is the whole answer」,
+     *  and round 8 Z1 made that false when it put `guardWarn` on the front of the
+     *  branch: guard-lit means a REAL protected loss, `lossOf` counts one only off
+     *  a ruled impact, so every cell that can arrive here leads with the ruled
+     *  sentence and the board's own ¥. Asserted as the literal the operator reads
+     *  — the same 約¥10,590 the ¥ test drives out of canon independently — so a
+     *  future round that quietly puts the fallback back goes red. */
+    expect(face.impact).toEqual({ head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,590', tail: 'が入らなくなります。' })
+    expect(boardYen(7000, [600])).toBe('約¥10,590')
+    // Nothing is being permitted, so nothing says it is: no LIVE control, and
+    // no 「スタッフの上書きが許可されています」 under it.
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — and the dead control SAYS SO. Round
+    // 4 returned no commit at all, so the card printed the ruled cost sentence
+    // and then had nothing under it explaining why there was no button. The
+    // clean face's own frozen words now stand there instead.
+    expect(face.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    expect(face.provenance).toBeNull()
+    // The lock line stays null too — 「この場所への配置は店長のみ（店舗の設定）」
+    // would name the manager as somewhere to appeal, over a start the store's own
+    // strict dial closed rather than a manager's discretion.
+    expect(face.lock).toBeNull()
+
+    /** ⚖ 9/1 F1 — AND THE PERMITTED OPERATOR IS NOT WALLED AT ALL. Same cell,
+     *  same strict store, the shipped default level: the whole standard warn
+     *  face, which is what the approved page has always said the 店長 gets. The
+     *  two are asserted TOGETHER because a one-sided pin is exactly how the
+     *  role-blind version passed for two rounds. */
+    const strictOk = warnFaceFor(input({ cell: strict }))
+    expect(strictOk.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(strictOk.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    // …and the mode alone changes NOTHING for them: the strict card and the
+    // standard card are the same card, field for field.
+    expect(strictOk).toEqual(warnFaceFor(input({ cell: REP() })))
+
+    // Everything the operator can still USE is untouched: the safe answer, the
+    // rows and the greens. Being unable to place HERE is not being unable to
+    // place, and ⚖ 元に戻す is the surface's own control either way.
+    const ackable = warnFaceFor(input({ cell: REP() }))
+    expect(face.safePrimary).toEqual(ackable.safePrimary)
+    expect(face.rows).toEqual(ackable.rows)
+    expect(face.greensLine).toBe(ackable.greensLine)
+    // The same cell WITH the ack flag still commits normally — the flag alone is
+    // the difference, so nothing here is a new gate on the landing itself.
+    expect(ackable.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    expect(ackable.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+
+    /** ⚖ 92 fix round 11 P1 (breaker #10 #1) — THE R-UNAVAILABLE FIXTURE IS
+     *  DELETED, because the cell it built cannot exist. It carried the code AND a
+     *  6→5 capacity loss, and the engine answers `R-UNAVAILABLE` through
+     *  `railCell`'s `blocked()` (gap-guard :372), which attaches no `impact` at
+     *  all — so `lossOf` is 0, `guardWarn` is false, and the real thing goes to
+     *  the clean face without ever reaching this branch. TodayScreen's own round
+     *  10 V4 note says the same in prose. Hand-building the impossible pair let
+     *  this test claim the branch answers a class it never sees, and its one
+     *  unique assertion — the store's dial choosing the commit's shape — is a
+     *  fact about the STRICT cell too, so it is asked there instead. */
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — THE KIND FOLLOWS THE STORE'S DIAL,
+    // like every other commit on this card. The hold physics are inert when the
+    // control is disabled, so nothing is promised by the shape.
+    expect(warnFaceFor(input({ cell: strict, level: 'refuse', holdToConfirm: false })).commit)
+      .toEqual({ kind: 'press', label: 'この位置では確定できません', enabled: false, note: null })
+
+    // ⚖ 92 fix round 5 V2 (breaker #4) — the lock LINE never comes back, at any
+    // level: ⚖ 9/1 ruling 1/2 deleted that face, and this branch answers with a
+    // dead labelled commit instead of a red sentence about who to ask.
+    const locked = warnFaceFor(input({ cell: strict, level: 'refuse' }))
+    expect(locked.lock).toBeNull()
+    expect(locked.commit).toEqual({ kind: 'hold', label: 'この位置では確定できません', enabled: false, note: null })
+    expect(locked.provenance).toBeNull()
+    // ⚖ 92 fix round 11 P1 (breaker #10 #1) — against the SENTENCE, not against
+    // itself. `toEqual(face.impact)` compared the composer's answer with the
+    // composer's answer, so a level arm that silently swapped the headline for
+    // anything at all would have passed as long as both arms swapped together.
+    expect(locked.impact).toEqual({ head: 'ここに置くと、新規のお客様の90分', yen: '約¥10,590', tail: 'が入らなくなります。' })
+    // ⚖ 9/1 F1 — AND THE MIDDLE LEVEL IS PERMITTED, so it is not walled either.
+    // 'needs-approval' is composed only from an operator the dial DOES admit
+    // (`perm === 'approve' && base === 'allow-warned'`, the settings room), so
+    // the strict dial has nothing to say to them; their own approval control —
+    // disabled, with its own honest note — is what answers.
+    expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).commit)
+      .toEqual({ kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' })
+    expect(warnFaceFor(input({ cell: strict, level: 'needs-approval' })).lock).toBeNull()
+    // ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND THE WALL IS UNCONDITIONAL ON THE
+    // CHECKS GATE. The disabled state is the LITERAL `false`, never
+    // `confirmEnabled`: a gate that says GO cannot hand back a commit the store's
+    // own dial refused this operator. Read off the composer's line too, so a
+    // future `input.confirmEnabled` here goes red.
+    expect(warnFaceFor(input({ cell: strict, level: 'refuse', confirmEnabled: true })).commit!.enabled).toBe(false)
+    expect(INT).toContain("      commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },\n")
+    // AND THE OTHER HALF OF HIS RULE, on the same pair of cells: a landing the
+    // engine calls PLACEABLE is not the dial's to wall any more. `ackAllowed` is
+    // still the whole of the difference — it decides whether the commit is LIVE,
+    // where the level used to decide it too (⚖ 92 fix round 9 W1: the dead half
+    // is a disabled control saying why, not an absent one).
+    expect(REP().ackAllowed).toBe(true)
+    const costly = warnFaceFor(input({ cell: REP(), level: 'refuse' }))
+    expect(costly.lock).toBeNull()
+    expect(costly.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // …and the provenance under it does not claim a permission the store
+    // withheld: the record clause alone (R-A.5).
+    expect(costly.provenance).toBe('見本 あずさの名前で記録されます')
+    // The composer really asks the physics branch and nothing else: no level
+    // branch stands beside it any more, and `lock` has no producer at all.
+    // ⚖ 92 fix round 8 Z1 (breaker #7) — and it asks `guardWarn` first, so the
+    // branch answers only the floors the GUARD found. Both cells above are
+    // guard-lit (a real 6→5 loss each), which is why every assertion in this
+    // test is unchanged by that narrowing.
+    // ⚖ 9/1 F1 — and `level === 'refuse'` is on the front of it with them, which
+    // is the line that makes this whole test a matrix rather than a mode switch.
+    // ⚖ 9/1 (fix round 2 D1) — the level test is now the SHARED predicate, so this
+    // seam and the landing seam ask one question. `!dialAdmits(level)` is the same
+    // set as the round-1 `level === 'refuse'` over a three-member union.
+    expect(INT).toContain("if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && !dialAdmits(level)) {")
+    expect(INT.match(/lock: null/g)).toHaveLength(3)
+    expect(INT).not.toContain("lock: 'この場所への配置は")
+  })
+
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE DEGRADED CELL UNDER 店長のみ
+   *  CONFIRMS, AND ⚖ 92 fix round 2 S6 IS OVERTURNED WITH THE FACE IT PINNED.
+   *
+   *  S6 pinned the opposite of this: a landing `computeChecks` calls confirmable,
+   *  shown at 店長のみ with the red lock line and NO commit control. The round-2
+   *  stress lens had read that as a blocker and it was adjudicated NO CHANGE
+   *  (FIXLIST-round2 A1) on PKT-MOCK-WARN-CONFIRM's face 3 — 置けない at 店長のみ,
+   *  the commit replaced by the lock line. Rounds 3 T1, 4 U2 and 6 X1 then built
+   *  a narrower card on top of that reading.
+   *
+   *  Asked the sharpened question at the merge gate, Liam picked "Loosen it": the
+   *  dial walls only true 置けない, and a cost the engine will let the store pay
+   *  is not that. The three dissenting reviewers were right; the face-3 reading
+   *  was wrong. Same cell, same dial, opposite pin — and it says out loud which
+   *  way it was decided, so the next lens reads a ruling rather than a drift. */
+  it('⚖ 9/1 ruling 1 — a DEGRADED landing at 店長のみ confirms, out loud (S6 overturned)', () => {
+    // DEG is `computeChecks`-confirmable and ack-allowed: the engine says this
+    // start is placeable, which is exactly why the dial may no longer refuse it.
+    expect(DEG().ackAllowed).toBe(true)
+    const locked = warnFaceFor(input({ cell: DEG(), level: 'refuse' }))
+    // The red line is gone from the card…
+    expect(locked.lock).toBeNull()
+    // …and the commit that was replaced by it is back, naming its own cost.
+    expect(locked.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+    // The panel above it is unchanged — the operator is told what it costs
+    // before they are allowed to pay it, which is the whole of flag 92.
+    expect(locked.impact.head).toBe('ここに置くと、新規のお客様の90分の空き')
+    expect(locked.impact.tail).toBe('が6枠から5枠に減ります。')
+    // On DEG the engine has no better start to name, so the slot is empty — and
+    // (⚖ 92 fix round 5 V3) nothing is appended in its place.
+    expect(locked.safePrimary).toBeNull()
+    expect(locked.rows).toEqual([])
+    // The dial now changes exactly ONE thing on this card: whose authority the
+    // record carries. Everything else is the shipped default's face, field for
+    // field (R-A.5).
+    const staff = warnFaceFor(input({ cell: DEG() }))
+    expect({ ...locked, provenance: null }).toEqual({ ...staff, provenance: null })
+    expect(locked.provenance).toBe('見本 あずさの名前で記録されます')
+    expect(staff.provenance).toBe('店舗の設定で、スタッフの上書きが許可されています。見本 あずさの名前で記録されます')
+    // ⚖ 31b's note says the same thing where the row is composed, so the two
+    // laws stop reading as a contradiction to the next lens that arrives.
+    // ⚖ 92 fix round 8 Z3 (breaker #7 #3) — and it now says it in the RULING'S
+    // words. The clause used to end 「at the shipped default level; …a store
+    // dialled to 店長のみ refuses the press」, which is the face this very test
+    // overturned on the night it was written — a stale sentence pinned by a
+    // machine check reads as law to the next lens, so the pin moves with it.
+    expect(SRC).toContain('degraded landing stays confirmable at every override level')
+    // The overturned half is gone from the clause rather than left standing
+    // beside its correction. (Narrow on purpose: 「at the shipped default level」
+    // is still TRUE where round 4 U1 uses it, two hundred lines down, about
+    // where a defect was execution-proven.)
+    expect(SRC).not.toContain('refuses the press without any of that')
+  })
+
+  it('⚖ 52 / 73-74 — a record never goes invisible because a nicer face was drawn', () => {
+    // The overridden sentence IS the fact when there is no guard fact, so the
+    // panel says it and the row does not repeat it. NO CELL AT ALL here: the
+    // guard is off, or the lane owns no cell at this start.
+    const overOnly = warnFaceFor(input({ rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
+    expect(overOnly.impact).toEqual({ head: '満室です', yen: null, tail: '' })
+    expect(overOnly.rows).toEqual([])
+
+    /** ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE CASE ABOVE WAS THE ONE SHAPE
+     *  WITH NOTHING TO LOSE. It is the only override-led face this test ever
+     *  asked, and `cell: null` is precisely the shape that carries no guard
+     *  verdict — so the class where the verdict EXISTS and the panel is busy
+     *  saying something else went unpinned, and the engine's sentence fell off
+     *  the card for four rounds.
+     *
+     *  The breaker's own scene, off the REAL engine: a 60分 card dropped at 19:00
+     *  on a 〜19:00 shift. The pocket ends with the shift, so the guard refuses
+     *  the start — and it never reached the capacity question, so the cell costs
+     *  the store nothing and does NOT light the face (⚖ 9/1 ruling 2/2). The
+     *  walked-past 勤務不可 row is what lights it. The panel therefore carries the
+     *  OVERRIDE, and the guard's sentence has no other home on this face: the
+     *  screen draws `guardRow` on the clean face only. */
+    const shiftEnd = cellAt(1140)
+    expect(shiftEnd.state).toBe('blocked')
+    expect(shiftEnd.ackAllowed).toBe(false)
+    expect(lossOf(shiftEnd)).toBe(0)
+    // `computeChecks`' own shift-end label (drag-rules :220) is the sentence this
+    // landing was staged THROUGH, so the 勤務 row leaves the greens and comes back
+    // as the △ the operator walked past.
+    const shiftOver = '見本 あずさは19:00以降勤務不可'
+    const overLed = warnFaceFor(input({
+      cell: shiftEnd,
+      override: shiftOver,
+      rows: [...GREENS.filter((r) => !r.label.includes('勤務時間内')), { label: `注意して配置: ${shiftOver}`, tone: 'warn' as const }],
+    }))
+    expect(overLed.face).toBe('warn')
+    expect(overLed.impact).toEqual({ head: shiftOver, yen: null, tail: '' })
+    // THE FIX: the engine's verdict is on the card, in the board's own △ grammar…
+    expect(overLed.rows).toEqual([{ label: 'この開始には60分の連続した空きがありません', tone: 'warn' }])
+    // …and it is the engine's OWN row, through the one home that composes it —
+    // never a sentence this surface wrote for itself (⚖ GAP-6/FIX-6).
+    expect(overLed.rows).toEqual([guardCheckRow(shiftEnd)])
+    // The rest of the face is untouched: the greens the line could name are still
+    // folded, and ⚖ 92 fix round 8 Z1 gives this landing its commit back.
+    expect(overLed.greensLine).toBe('時間の重複・資格・価格は問題ありません')
+    expect(overLed.commit).toEqual({ kind: 'hold', label: '長押しで注意して配置', enabled: true, note: null })
+
+    // With BOTH, the guard's verdict leads (it is the store's law about the day)
+    // and the walked-past sentence stays a △ row — visible, in the board's own
+    // grammar, exactly where ⚖ 73-74 put it.
+    const both = warnFaceFor(input({ cell: REP(), rows: [...GREENS, { label: '注意して配置: 満室です', tone: 'warn' }], override: '満室です' }))
+    expect(both.impact.tail).toBe('が入らなくなります。')
+    // …and Z2's append does NOT fire here: the panel above IS the guard's verdict
+    // in the approved shape, so repeating it as a row would be the duplication
+    // ⚖ 92 fix round 5 V3 deleted. The row list is the override's alone.
+    expect(both.rows).toEqual([{ label: '注意して配置: 満室です', tone: 'warn' }])
+    expect(both.rows).not.toContainEqual(guardCheckRow(REP()))
+    // A × row survives the re-face too, and it still kills the commit — the
+    // ⚖ 50(d) gate is carried in, never re-decided here.
+    const blocked = warnFaceFor(input({
+      cell: REP(), confirmEnabled: false,
+      rows: [...GREENS, { label: '見本 あずさは18:00以降勤務不可', tone: 'bad' }],
+    }))
+    expect(blocked.rows).toEqual([{ label: '見本 あずさは18:00以降勤務不可', tone: 'bad' }])
+    expect(blocked.commit!.enabled).toBe(false)
+    // …and the safe answer stays live: the blocker is about THIS start.
+    expect(blocked.safePrimary).not.toBeNull()
+  })
+
+  it('the store’s dial is DATA, on the one home, with the settings round named', () => {
+    const FIX = readFileSync(join(process.cwd(), 'src/business/lib/fixtures-today.ts'), 'utf8')
+    // ⚠SETTINGS-BATCH — the value lives on core's record beside the other two
+    // authority dials, and `opsConfig` only aliases it (§6's one dial home).
+    expect(FIX).toContain('overrideHoldToConfirm: true,')
+    expect(FIX).toContain('overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,')
+    expect(opsConfig.overrideHoldToConfirm).toBe(true)
+    // ⚖ Liam's 8/31 GENERAL LAW quoted where the settings round will read it:
+    // every settings entry ships with a one-line description of what it changes.
+    // ⚖ 92 micro-fix M2 (JP native pass): 「置けない」 said the placement was
+    // impossible; the dial guards one that IS allowed and merely warns.
+    expect(FIX).toContain('注意が必要な場所への配置に、0.6秒の長押しを求めます')
+    // ⚖ 92's default is a design-page decision, and it says so — the next round
+    // may overturn it on Liam's word without hunting for where it was decided.
+    expect(FIX).toContain('OVERTURNABLE')
+  })
+
+  it('the page seam asks the dial ONCE — the boolean is a reading of the level', () => {
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain('const overrideLevel = overrideLevelFor(planes.opsConfig.overridePolicy, shell.operator)')
+    expect(PAGE).toContain("canOverride: overrideLevel === 'allow-warned',")
+    expect(PAGE).toContain('overrideLevel,')
+    expect(PAGE).toContain('holdToConfirm: planes.opsConfig.overrideHoldToConfirm,')
+    expect(PAGE).toContain('operatorName: shell.operator.name,')
+    // ONE call, so the consult path and the card can never disagree about who
+    // may place — ⚖ 54's disease at the permission layer.
+    expect(PAGE.match(/overrideLevelFor\(/g)).toHaveLength(1)
+  })
+
+  it('the surface paints the model and decides nothing', () => {
+    // The ⚖ 71/74 ask-gate is still ONE gate; the face is chosen inside it.
+    expect(SRC).toContain('{holdPop.asking && (holdPop.warn ? (')
+    // Every piece reads off the model — no second composition in the JSX.
+    expect(SRC).toContain('<p className="wc-impact">')
+    // ⚖ 92 fix round 2 S4 — and the panel is drawn only when it has a headline.
+    // `warnFaceFor` composes an empty one for a warn-grade row with no sentence
+    // behind it, and an empty <p> carrying the panel's padding is a silent gap
+    // above the safe answer.
+    expect(SRC).toContain('{holdPop.warn.impact.head && (')
+    expect(SRC).toContain('{holdPop.warn.impact.yen && <span className="wc-yen">（{holdPop.warn.impact.yen}）</span>}')
+    expect(SRC).toContain('{holdPop.warn.provenance && (')
+    expect(SRC).toContain('<span>{holdPop.warn.provenance}</span>')
+    expect(SRC).toContain("{holdPop.warn.safePrimary?.kind === 'place' && holdPop.placeSafe && (")
+    // ⚖ 92 fix round 3 T2 — and the 'info' branch is GONE from the JSX with the
+    // shape it painted, its dead CSS rule deleted beside it rather than left to
+    // rot in the sheet.
+    expect(SRC).not.toContain('wc-info')
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8'))
+      .not.toContain('.wc-info')
+    expect(SRC).toContain('{holdPop.warn.lock && (')
+    expect(SRC).toContain('<span>{holdPop.warn.lock}</span>')
+    // ⚖ 92 fix round F4 — the approved page's two glyphs, ONE path, sized to the
+    // line and coloured by it. Both are decoration beside a sentence that
+    // already says the thing, so both are hidden from assistive tech.
+    expect(SRC).toContain("const WC_LOCK_PATH = 'M4 7V5a4 4 0 018 0v2h1v8H3V7h1zm2 0h4V5a2 2 0 10-4 0v2z'")
+    expect(SRC).toContain('<p className="wc-prov">\n                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>')
+    expect(SRC).toContain('<p className="wc-lock">\n                  <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d={WC_LOCK_PATH} fill="currentColor" /></svg>')
+    expect(SRC.match(/WC_LOCK_PATH/g)).toHaveLength(3)
+    expect(SRC).toContain('{holdPop.warn.greensLine && <p className="wc-greens">{holdPop.warn.greensLine}</p>}')
+    // ⚖ 52/73-74 — the unconsumed rows render in the clean face's OWN grammar.
+    expect(SRC).toContain('<div className="holdbar-checks wc-rows">')
+    expect(SRC).toContain('{holdPop.warn.rows.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : \'\'}`} key={c.label}>{c.label}</span>)}')
+    // Every commit kind carries the gate; none of them re-decides it.
+    for (const kind of ['hold', 'press', 'approval']) {
+      expect(SRC).toContain(`{holdPop.warn.commit?.kind === '${kind}'`)
+    }
+    expect(SRC.match(/disabled=\{!holdPop\.warn\.commit\.enabled\}/g)).toHaveLength(3)
+    // ⚖ 74's recall half is untouched: the head and the day-pin still render
+    // above the gate, so a closed override-stage keeps its pill either way.
+    const surface = SRC.slice(SRC.indexOf('{holdPop && ('), SRC.indexOf('{/* ⚖ Liam 19/20'))
+    expect(surface.indexOf('className="hp-head"')).toBeLessThan(surface.indexOf('{holdPop.asking && ('))
+  })
+
+  /** ⚖ 92 fix round 12 R2 (breaker #12 #2/#3/#4/#5) — THE WIRING ITSELF, PINNED.
+   *  Every test above this one asks the composer for a model or asks the JSX for
+   *  a shape; none of them held the JOINS between the two. Cutting
+   *  `warn: pendingWarn` to `warn: null` disconnected the entire warning face —
+   *  no impact line, no safe answer, no long press, at every store — and the
+   *  suite stayed green, because the model was still composed correctly and the
+   *  branch that paints it was still written correctly; only the wire between
+   *  them was gone. These are the lines with that property: load-bearing at
+   *  runtime, invisible to a test that reads either side alone. Each is pinned as
+   *  it exists, with the mutation it kills named beside it. */
+  it('the load-bearing joins between the composer and the surface are wired', () => {
+    // MUTATION: `warn: null` — the composer→surface join. Severing it takes the
+    // whole warning face off the card and every other flag-92 test still passes.
+    expect(SRC).toContain('        warn: pendingWarn,\n')
+    // MUTATION: `placeSafe: null` — the safe answer's door. Without it the
+    // `holdPop.placeSafe &&` gate is false and the biggest control never renders.
+    expect(SRC).toContain('        placeSafe: placePendingAt,\n')
+    // MUTATION: an empty arrow — the safe button paints and presses to nothing.
+    // Re-read at the press on purpose (the model is rebuilt every render), which
+    // is why the start comes off `holdPop.warn` here and not off a closure.
+    expect(SRC).toContain("onClick={() => { const p = holdPop.warn?.safePrimary; if (p?.kind === 'place') holdPop.placeSafe?.(p.start) }}\n")
+    // MUTATION: drop the `onClick` — the press-grade commit becomes a dead
+    // button. Pinned as the whole line: `onClick={holdPop.confirm.run}` alone
+    // also lives on the clean face's 確定, so a bare pin would survive this.
+    expect(SRC).toContain('<button className="btn wc-warn-btn" type="button" disabled={!holdPop.warn.commit.enabled} onClick={holdPop.confirm.run}>\n')
+    // MUTATION: drop the was-guard — a CANCELLED press commits. `h.mode` is
+    // cleared on every ending, and only the ending that ran the clock out to
+    // 'hold' may reach `holdComplete`; an unguarded call places the booking the
+    // operator lifted their finger to refuse.
+    expect(SRC).toContain("    if (was === 'hold') holdComplete()\n")
+    // MUTATION: `false &&` — ⚖ 52's law silently repealed. The rows the panel did
+    // not consume vanish and the card shows a nicer face over a hidden record.
+    expect(SRC).toContain('              {holdPop.warn.rows.length > 0 && (\n')
+    // MUTATION: delete the node — the impact sentence loses its closing half and
+    // the headline reads as a fragment ending at the ¥ figure.
+    expect(SRC).toContain('                  {holdPop.warn.impact.tail}\n')
+    // MUTATION: drop the ref — `holdFill` writes to a null node, so the meter
+    // never moves and the 0.6秒 press gives no feedback while it runs.
+    expect(SRC).toContain('<span className="wc-hold-fill" ref={holdFillRef} />\n')
+    // MUTATION: drop the `onClick` — the warn face's 元に戻す stops undoing and
+    // the operator's only way out of the staged move is a reload. Pinned with the
+    // `wc-foot` line above it: the clean face carries a byte-identical button.
+    expect(SRC).toContain('<div className="hp-actions wc-foot">\n'
+      + '                <button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>')
+  })
+
+  it('the CLEAN face’s own render is byte-identical to the card that ships today', () => {
+    // The exact three lines the clean branch has always been. If a future round
+    // "tidies" the warn face into this one, this is what fails.
+    const surface = SRC.slice(SRC.indexOf('{holdPop.asking && ('))
+    const clean = surface.slice(surface.indexOf('          ) : ('))
+    expect(clean).toContain('<div className="holdbar-checks">')
+    expect(clean).toContain('{holdPop.checks.map((c) => <span className={`ck${c.tone ? ` ${c.tone}` : \'\'}`} key={c.label}>{c.label}</span>)}')
+    expect(clean).toContain('{holdPop.guardRow && <span className={`ck ${holdPop.guardRow.tone}`}>{holdPop.guardRow.label}</span>}')
+    expect(clean).toContain('<div className="hp-actions">')
+    expect(clean).toContain('<button className="btn primary" type="button" disabled={!holdPop.confirm.enabled} onClick={holdPop.confirm.run}>{holdPop.confirm.label}</button>')
+    expect(clean).toContain('<button className="btn" type="button" disabled={!holdPop.revert.enabled} onClick={holdPop.revert.run}>元に戻す</button>')
+    // …and the day's own standing 仮押さえ never grows a second face: its rows
+    // are the server's plain sentences with no verdict behind them.
+    expect(SRC).toContain('          warn: null,\n          placeSafe: null,')
+  })
+
+  it('the safe answer is a LANDING — judged by the one verdict, staged by the one door', () => {
+    const fn = SRC.slice(SRC.indexOf('function placePendingAt('), SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'))
+    // ⚖ 92 fix round 9 W2 (breaker #8 #3) — THE LENGTH IS THE STAGED CARD'S OWN,
+    // and it was the one number in this door nothing read. `dur` is the staged
+    // span's width in minutes; skew it and the landing keeps the engine's start
+    // but takes a length the operator never staged — a card silently growing or
+    // shrinking as it moves, past a verdict that was asked about the wrong span.
+    // Pinned as the exact line so the arithmetic itself is what goes red.
+    expect(fn).toContain('    const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)\n')
+    // The engine's start becomes a real span on the board's own clock.
+    expect(fn).toContain('const span = place(start, start + dur, hours)')
+    // ⚖ 50 — the ONE verdict home, not a trusted offer.
+    expect(fn).toContain('const again = verdictAtLanding({')
+    // ⚖ 31c — refused means refused: ⚖ 47's one door, and NOTHING staged.
+    expect(fn).toContain("if (again.kind === 'blocked') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
+    expect(fn.indexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
+    // ⚖ 45 — the ONE door, both sides, one span. No second write path exists.
+    expect(fn).toContain('stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })')
+    expect(fn).not.toContain('setMoves(')
+    expect(fn).not.toContain('setBedMoves(')
+    // The origin is the CHANGE's, so 元に戻す still undoes the whole change; and
+    // NO override rides along — `stage`'s fifth argument is absent, so the stamp
+    // is cleared and the △ goes with the reason that is now gone.
+    expect(fn).not.toContain('pending.override')
+    // ⚖ 87 — the room the operator chose survives this gesture too.
+    expect(fn).toContain('bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),')
+    // NO SUCCESS PANEL. The re-verdict re-renders the card at the new start —
+    // that IS the answer, and the clean face is what it looks like.
+    expect(fn).not.toContain('show(')
+  })
+
+  it('the long press commits through the SAME 確定, and answers a keyboard', () => {
+    const block = SRC.slice(SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'), SRC.indexOf('// canon (:6941-6947): Escape puts down whatever is in'))
+    // ⚖ 92 — completion is `confirmPending`, never a second commit path, so
+    // canon's R11-7 re-check and the off-board test both fire on a long press.
+    expect(SRC).toContain('h.settle = window.setTimeout(() => { holdReset(); confirmPending() }, 250)')
+    expect(SRC).toContain('if (holdReduced() || !btn) { holdReset(); confirmPending(); return }')
+    // The arithmetic is NOT in the screen — it is `holdClock`'s, pinned above.
+    expect(block).toContain('holdClock({ mode: h.mode, t0: h.t0, x0: h.x0 }, now)')
+    expect(block).toContain('h.t0 = holdResumeAt(h.progress, performance.now())')
+    expect(block).not.toContain('Math.exp(')
+    // The press acknowledgment, and the recoil that carries the press's velocity.
+    expect(block).toContain("btn.classList.add('holding')")
+    expect(block).toContain("h.mode = 'spring'")
+    // Keyboard parity, with the OS key-repeat refused so it cannot self-fill.
+    expect(block).toContain("if (e.repeat || (e.key !== 'Enter' && e.key !== ' ')) return")
+    for (const on of ['onPointerDown', 'onPointerUp', 'onPointerLeave', 'onPointerCancel', 'onBlur', 'onKeyDown', 'onKeyUp']) {
+      expect(block).toContain(`${on}:`)
+    }
+    // prefers-reduced-motion is a real branch, not only a CSS rule.
+    expect(block).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches")
+    expect(block).toContain('}, HOLD_MS / 3)')
+    // The fill is written to the NODE, never to state: no re-render per frame.
+    expect(block).toContain('node.style.transform = `scaleX(${p})`')
+    expect(block).not.toContain('setHoldProgress')
+  })
+
+  /** ⚖ 92 fix round 5 V4 (breaker #4) — THE SEVEN BINDINGS, NOT THE SEVEN NAMES.
+   *
+   *  The pin above walks the handler NAMES (`onPointerUp:` and friends) and stops
+   *  there, so the one mutation that matters most on this control slips straight
+   *  through it: point `onPointerUp` at `holdComplete` instead of `holdCancel`
+   *  and every release becomes a commit — a finger lifted off the button places
+   *  the card the operator was backing out of — with the suite still green
+   *  (mutation-proven, breaker #4's own run). There is no DOM renderer for the
+   *  hold machine by fence, so the file's own source-pin convention is the
+   *  armour, and like ⚖ 92 fix round 3 T4's teardown it covers the WHOLE body
+   *  rather than a sample of it: every key with the exact call it is wired to. */
+  it('⚖ 92 fix round 5 V4 — the hold’s seven handlers are pinned to the calls they make', () => {
+    expect(SRC).toContain(
+      '  const holdHandlers = {\n'
+      + '    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {\n'
+      + '      e.preventDefault()\n'
+      + '      // ⚖ 92 fix round F9 (blind L2#4) — A FINGER KEEPS THE ABORT GESTURE. A\n'
+      + '      // touch pointer gets IMPLICIT pointer capture on the element it lands on,\n'
+      + '      // so `pointerleave` never fires and sliding off the button — the one\n'
+      + '      // gesture every operator already knows for "no, stop" — could not cancel\n'
+      + '      // the press: it committed instead. Releasing the capture puts touch on the\n'
+      + '      // same road as the mouse. The mouse path is unchanged (it captures\n'
+      + '      // nothing), and jsdom implements neither, hence the guard.\n'
+      + '      try { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* no pointer-capture support */ }\n'
+      + '      holdStart(e.currentTarget)\n'
+      + '    },\n'
+      + '    onPointerUp: () => holdCancel(),\n'
+      + '    onPointerLeave: () => holdCancel(),\n'
+      + '    onPointerCancel: () => holdCancel(),\n'
+      + '    onBlur: () => holdCancel(),\n'
+      + '    onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => {\n'
+      + '      if (e.repeat || (e.key !== \'Enter\' && e.key !== \' \')) return\n'
+      + '      e.preventDefault()\n'
+      + '      holdStart(e.currentTarget)\n'
+      + '    },\n'
+      + '    onKeyUp: (e: React.KeyboardEvent<HTMLButtonElement>) => {\n'
+      + '      if (e.key === \'Enter\' || e.key === \' \') holdCancel()\n'
+      + '    },\n'
+      + '  }\n',
+    )
+    // …and there is exactly ONE such object, spread onto exactly one control, so
+    // the pin cannot be satisfied by a second copy left behind somewhere.
+    expect(SRC.match(/const holdHandlers = \{/g)).toHaveLength(1)
+    expect(SRC.match(/\{\.\.\.holdHandlers\}/g)).toHaveLength(1)
+    // The four cancel bindings are the release gestures, and `holdComplete` is
+    // reachable from the CLOCK alone — never from a handler.
+    expect(SRC.match(/holdCancel\(\),/g)).toHaveLength(4)
+    expect(SRC).not.toContain('holdComplete(),')
+  })
+
+  it('⚖ 92 fix round F3 — the hold dies with its button, on every ending', () => {
+    const block = SRC.slice(SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'), SRC.indexOf('// canon (:6941-6947): Escape puts down whatever is in'))
+    // (a) THE SETTLE TIMER IS HELD. It carries the pointerdown-era
+    // `confirmPending`, so an unheld one committed a card a 元に戻す or an
+    // Escape had already taken back — inside its own 250ms, with both toasts on
+    // screen (⚖ 56's class). It lives with the hold's other clocks…
+    expect(SRC).toContain('const holdRef = useRef({ raf: 0, step: 0, settle: 0,')
+    expect(block).toContain('h.settle = window.setTimeout(')
+    // …and the ONE teardown ends it with them.
+    expect(block).toContain('if (h.settle) { clearTimeout(h.settle); h.settle = 0 }')
+    for (const clock of ['if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }', 'if (h.step) { clearInterval(h.step); h.step = 0 }']) {
+      expect(block).toContain(clock)
+    }
+    expect(SRC.match(/clearTimeout\(h\.settle\)/g)).toHaveLength(1)
+    // ⚖ 92 fix round 2 S3 — AND THE METER DRAINS WITH THEM. The fill is a node
+    // transform no render rewrites, so stopping the clocks and leaving the bar
+    // painted froze it: 70% under a finger when the button went disabled
+    // mid-press, 100% over a commit that was refused after a completed hold.
+    expect(block).toContain('    h.progress = 0\n    holdFill(0)\n')
+
+    // ⚖ 92 fix round 3 T4 (breaker #4) — AND THE WHOLE TEARDOWN IS PINNED, LINE
+    // FOR LINE. The pins above named the clocks and the meter and stopped there,
+    // so the two FLAGS the machine runs on were unarmoured: deleting
+    // `h.completing = false` bricks the button for the rest of the session (the
+    // next press returns at holdStart's guard and never fires again) and the
+    // suite stayed 1599 green through it — mutation-proven. There is no DOM
+    // renderer for this control by fence, so the file's own source-pin
+    // convention is the armour, and it covers the body rather than a sample.
+    expect(block).toContain(
+      '    const h = holdRef.current\n'
+      + '    if (h.raf) { cancelAnimationFrame(h.raf); h.raf = 0 }\n'
+      + '    if (h.step) { clearInterval(h.step); h.step = 0 }\n'
+      + '    if (h.settle) { clearTimeout(h.settle); h.settle = 0 }\n'
+      + "    h.btn?.classList.remove('holding', 'settle')\n"
+      + "    h.mode = ''\n"
+      + '    h.progress = 0\n'
+      + '    holdFill(0)\n'
+      + '    h.completing = false\n'
+      + '    h.btn = null\n',
+    )
+    // …and the two guards that flag exists for: a press already holding or
+    // already committing is not restarted, and a release inside the settle
+    // window does not run the recoil over a commit that is on its way.
+    expect(block).toContain("if (h.mode === 'hold' || h.completing) return")
+    expect(block).toContain('if (h.completing) return')
+
+    // (b) THE KEY IS THE LIVE ARMED STATE, not the commit's kind. Keyed on the
+    // kind, the effect slept through a button that unmounted with the kind
+    // unchanged (`asking` going false when a second finger clears `pendingOpen`)
+    // and through `enabled` flipping false mid-press (a disabled button swallows
+    // the pointerup, so `holdCancel` never runs).
+    expect(SRC).toContain("const holdArmed = holdPop?.asking === true && holdPop.warn?.commit?.kind === 'hold' && holdPop.warn.commit.enabled === true")
+    expect(SRC).not.toContain('const holdCommitKind =')
+    // (c) …and the teardown is the CLEANUP too, so the screen's own unmount (a
+    // day flip remounts it) clears the clock by exactly the same road.
+    expect(SRC).toContain('const release = () => { holdReset(); setHoldHinting(false) }\n    if (!holdArmed) release()')
+    expect(SRC).toContain('return release\n  }, [holdArmed, holdReset])')
+  })
+
+  // ⚖ 92 micro-fix M5 (delta-verify D2) — the second F3 test is DELETED. 「a revert
+  // inside the settle window cancels the commit rather than racing it」 built its
+  // own timer, cleared it, and asserted the callback never ran: a test of
+  // `clearTimeout`, over zero product code. The source pins above are the whole
+  // of F3's proof — the teardown line, the armed predicate, and the cleanup.
+
+  it('⚖ 92 fix round F9/F12/F13/F14 — the press answers a finger, and the control it offers stays put', () => {
+    const block = SRC.slice(SRC.indexOf('// ── ⚖ LIAM flag 92 — the long press'), SRC.indexOf('// canon (:6941-6947): Escape puts down whatever is in'))
+    // F9 — a touch pointer gets IMPLICIT capture, so `pointerleave` never fired
+    // and sliding off the button (the universal "no, stop") committed instead of
+    // cancelling. Releasing the capture puts touch on the mouse's road; the
+    // guard is jsdom, which implements neither half.
+    expect(block).toContain('if (e.currentTarget.hasPointerCapture?.(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)')
+    // F12 — reduced motion has no resume: `holdCancel` zeroes the progress on
+    // that path, so the seed it used to read back was provably 0 every time.
+    expect(block).toContain('let n = 0')
+    expect(block).not.toContain('Math.round(h.progress * 3)')
+    // F14 — the press instruction is the control's description.
+    // ⚖ 92 micro-fix M4 (delta-verify D1) — and it points at a node that is
+    // ALWAYS in the accessibility tree. The visible hint is `visibility: hidden`
+    // until a cancelled press shows it, and a hidden node is pruned, so the
+    // description was absent exactly when the operator needed it. The sr copy
+    // sits OUTSIDE the button, so it describes the control instead of joining
+    // its accessible name.
+    // ⚖ 92 fix round 10 V2 (breaker #9 #2) — AND ONLY WHILE THE PRESS IS REAL.
+    // Round 9's dead pill reads 「この位置では確定できません」, and the description
+    // rode along unchanged: a control that says it cannot be confirmed described
+    // itself as 「押し続けると配置します」. Both halves — the pointer and the node it
+    // points at — carry the same `enabled` the `disabled` attribute does.
+    expect(SRC).toContain("aria-describedby={holdPop.warn.commit.enabled ? 'wc-hold-hint-desc' : undefined}")
+    expect(SRC).toContain("{holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <span className=\"wc-sr\" id=\"wc-hold-hint-desc\">押し続けると配置します</span>}")
+    expect(SRC).not.toContain('aria-describedby="wc-hold-hint-desc"')
+    expect(SRC).not.toContain('id="wc-hold-hint"')
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — …and the VISIBLE hint keeps its own
+    // eye-only show/hide, which the sr node above deliberately does not share.
+    // Stripped to a bare `wc-hold-hint show` the copy stands permanently under
+    // the button — an instruction shouted before the operator has done anything
+    // — and every test on this card still passed. Now one does not.
+    expect(SRC).toContain('<p className={`wc-hold-hint${holdHinting ? \' show\' : \'\'}`}>押し続けると配置します</p>')
+    // ⚖ 92 fix round 11 P4 (breaker #10 #5) — …and the visible hint is gated on
+    // `enabled` too. The node is `visibility: hidden` rather than `display: none`
+    // precisely so it holds its own space, and on the permanently-disabled pill no
+    // press can ever be cancelled — so the card reserved a strip of empty space
+    // under a dead button for an instruction nothing could obey. Four things now
+    // read one flag: the `disabled` attribute, the `aria-describedby`, the sr copy
+    // and this line.
+    expect(SRC).toContain("{holdPop.warn.commit?.kind === 'hold' && holdPop.warn.commit.enabled && <p className={`wc-hold-hint")
+    // F13 — `.holding` scales the control to 98% and hit-testing uses the scaled
+    // box, so an edge press landed outside it on the next frame and cancelled
+    // itself. A halo of hit area reaching OUTSIDE the border box — it is the
+    // button's own ::after, and a pseudo-element's hit area belongs to its
+    // originating element, so `pointerleave` never fires over it (⚖ 92 fix round
+    // 5 V6 corrected this sentence; the CSS never moved) — and the pill's clip
+    // moves one layer in so the button's own `overflow: hidden` cannot cut the
+    // halo away.
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    const face = CSS.slice(CSS.indexOf('/* ═══ H2 — ⚖ LIAM flag 92'), CSS.indexOf('/* ═══ I — incident band ═══ */'))
+    // ⚖ 92 fix round 10 V3 (breaker #9 #3) — the dead pill gives the scroll back.
+    // `touch-action: none` on the live control is bought by a press that is going
+    // somewhere; on round 9's permanently-disabled pill there is no press to
+    // protect and the rule only ate the finger's swipe over the tallest control on
+    // the card.
+    // ⚖ 92 fix round 11 P3 (breaker #10 #4) — …and it says NOTHING ELSE. Round 5
+    // V6 corrected this rule's dim to the shell's own .48 and left the pair
+    // standing here beside it — the same two-homes problem, one value later.
+    // `.biz button:disabled` owns both declarations for every disabled control in
+    // Business and out-specifies `.biz .wc-hold`'s `cursor: pointer` (one type
+    // selector against none), so the pill keeps only the thing the shell has no
+    // opinion about. The shell pin below is what makes this a re-home and not a
+    // deletion.
+    expect(face).toContain('.biz .wc-hold:disabled { touch-action: auto; }')
+    expect(face.slice(face.indexOf('.biz .wc-hold:disabled'), face.indexOf('.biz .wc-hold::after'))).not.toMatch(/opacity|cursor/)
+    expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business-shell.css'), 'utf8'))
+      .toContain('.biz button:disabled { cursor: not-allowed; opacity: .48; }')
+    // M4's clip lives in this face, and it is the sheet's own existing technique
+    // (`.board-keyhelp`) rather than a second way of hiding a node.
+    expect(face).toContain('.biz .wc-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }')
+    expect(face).toContain('.biz .wc-hold::after {\n  content: \'\';\n  position: absolute;\n  inset: -5px;\n  border-radius: inherit;\n}')
+    expect(face.slice(face.indexOf('.biz .wc-hold {'), face.indexOf('.biz .wc-hold:disabled'))).not.toContain('overflow')
+    expect(face).toContain('.biz .wc-hold-clip {')
+    expect(face.slice(face.indexOf('.biz .wc-hold-clip'))).toContain('overflow: hidden;')
+    expect(SRC).toContain('<span className="wc-hold-clip" aria-hidden="true">')
+    // …and the meter itself is untouched: one node, one scaleX, one rule.
+    expect(face.match(/scaleX\(0\)/g)).toHaveLength(1)
+    expect(SRC.match(/wc-hold-fill/g)).toHaveLength(1)
+    /** ⚖ 92 fix round 11 P5 (breaker #10 #7) — TWO LINES THIS CARD'S PRESS IS
+     *  BUILT ON, NEITHER OF THEM PINNED UNTIL NOW.
+     *
+     *  (a) The one line of teaching, and WHERE it lives. `holdCancel` is the only
+     *  place the hint may be raised — the whole design of it is that the surface
+     *  says how only after a press that did not finish — and `holdStart` and the
+     *  armed teardown both lower it. Deleted or moved, the copy either never
+     *  appears or appears before the operator has touched anything, and no test
+     *  on this card noticed either way. */
+    expect(block.slice(block.indexOf('function holdCancel'), block.indexOf('function holdComplete'))).toContain('setHoldHinting(true)')
+    /** (b) …and the fill sweeps FROM THE LEADING EDGE. `scaleX` grows a box about
+     *  its origin, so the default `center` opens the wash out of the middle of
+     *  the pill in both directions — a meter that reads as a pulse rather than as
+     *  a press landing, and the gradient's own feathered edge (right-hand, 100%)
+     *  ends up on the wrong side of it. One declaration, and every other pin on
+     *  this control passes without it. */
+    expect(face.slice(face.indexOf('.biz .wc-hold-fill'), face.indexOf('.biz .wc-hold-text'))).toContain('transform-origin: left center;')
+  })
+
+  it('the card’s colours obey the design laws — amber warns, red locks, nothing stretches', () => {
+    const CSS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')
+    const face = CSS.slice(CSS.indexOf('/* ═══ H2 — ⚖ LIAM flag 92'), CSS.indexOf('/* ═══ I — incident band ═══ */'))
+    // Amber is the WARN family and appears nowhere else on this card.
+    expect(face).toContain('background: var(--amber-soft);')
+    expect(face).toContain('border: 1.5px solid var(--amber);')
+    // The red family appears in exactly one rule — the 店長のみ lock line.
+    const reds = face.split('\n').filter((l) => l.includes('var(--red'))
+    expect(reds).toHaveLength(2)
+    expect(reds.every((l) => l.includes('var(--red-soft)') || l.includes('var(--red-dark)'))).toBe(true)
+    expect(face.slice(face.indexOf('.biz .wc-lock'), face.indexOf('.biz .wc-greens'))).toContain('var(--red-soft)')
+    expect(face.slice(0, face.indexOf('.biz .wc-lock'))).not.toContain('--red')
+    // R13 — no dark fill anywhere; the ONE solid fill is `.btn.primary`'s own
+    // commit recipe, which the safe primary wears rather than redeclaring.
+    expect(SRC).toContain('className="btn primary wc-safe"')
+    expect(face).not.toContain('background: var(--ink')
+    // NATURAL WIDTHS. `.hp-actions .btn { flex: 1 }` is right for the clean
+    // face's two-button row and wrong for a column of single controls, so the
+    // warn face's footer releases it and every control sizes to its words.
+    expect(CSS).toContain('.biz .hp-actions .btn { flex: 1; justify-content: center; }')
+    expect(face).toContain('.biz .hp-actions.wc-foot .btn { flex: 0 0 auto;')
+    for (const rule of ['.biz .wc-safe', '.biz .wc-warn-btn', '.biz .wc-approve', '.biz .wc-hold', '.biz .wc-lock']) {
+      expect(face.slice(face.indexOf(rule), face.indexOf('}', face.indexOf(rule)))).toContain('width: fit-content;')
+    }
+    // ONE progress voice, and it is the fill on the control itself: exactly one
+    // rule paints a meter and exactly one node wears it. No second bar, no
+    // percentage, no spinner beside the button that already says it is filling.
+    expect(face.match(/scaleX\(0\)/g)).toHaveLength(1)
+    expect(face.match(/\.wc-hold-fill/g)).toHaveLength(1)
+    expect(SRC.match(/wc-hold-fill/g)).toHaveLength(1)
+    // Reduced motion is answered in the sheet as well as in the screen.
+    expect(face).toContain('@media (prefers-reduced-motion: reduce) {')
+    expect(face.slice(face.indexOf('@media (prefers-reduced-motion'))).toContain('.biz .wc-hold.settle { animation: none; }')
+  })
+
+  it('the long press is 600ms of arithmetic — it resumes, it recoils, it completes', () => {
+    // Fills linearly across the store's 0.6 秒.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1000)).toEqual({ progress: 0, done: false })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1300)).toEqual({ progress: 0.5, done: false })
+    // The threshold is reached, never overrun.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 1600)).toEqual({ progress: 1, done: true })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 9000)).toEqual({ progress: 1, done: true })
+    // ⚖ 92 fix round 6 X6 (breaker #5) — AND IT IS CLAMPED AT THE OTHER END TOO.
+    // `t0` is not always in the past: `holdResumeAt` re-seeds it from a ratio,
+    // and a re-seed can land AHEAD of the frame timestamp the caller already
+    // holds. The fill's transform is `scaleX(progress)`, so a negative ratio
+    // painted one frame of the bar coming out of the wrong edge. A ratio of
+    // elapsed time is never negative, and it never was `done` either.
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 700)).toEqual({ progress: 0, done: false })
+    expect(holdClock({ mode: 'hold', t0: 1000, x0: 0 }, 999).progress).toBe(0)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 4000).progress).toBe(0)
+    // RESUME: a second press continues the first one's fill rather than
+    // restarting it — the finger already did that work.
+    expect(holdResumeAt(0.5, 5000)).toBe(5000 - HOLD_MS / 2)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 5000).progress).toBe(0.5)
+    expect(holdClock({ mode: 'hold', t0: holdResumeAt(0.5, 5000), x0: 0 }, 5300).progress).toBe(1)
+    // CANCEL: the fill springs back carrying the press's own velocity, so it
+    // recoils past its start rather than snapping to zero…
+    const first = holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 10)
+    expect(first.done).toBe(false)
+    expect(first.progress).toBeGreaterThan(0.5)
+    expect(HOLD_CANCEL_V).toBeCloseTo(1.6667, 3)
+    // …and it always settles, inside the page's own budget.
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 400)).toEqual({ progress: 0, done: true })
+    // ⚖ 92 fix round 10 V5 (breaker #9 #5) — AND THE FLOOR IS 「close enough to
+    // zero to be zero」, not 「small enough to give up on」. The 400ms line above
+    // proves only that the floor EXISTS: raise it from .002 to .2 and the recoil
+    // is cut off at 100ms with the fill still a sixth of the way across, which is
+    // a visible snap in place of the spring the cancel was written to feel like.
+    // The one number below is the whole difference.
+    const midRecoil = holdClock({ mode: 'spring', t0: 0, x0: 0.5 }, 100)
+    expect(midRecoil.done).toBe(false)
+    expect(midRecoil.progress).toBeCloseTo(0.169, 3)
+    // The runaway guard: even an absurd start is over by 600ms.
+    // ⚖ 92 fix round 4 U4 (breaker #3) — AND THE TIME CLAUSE IS THE ONE DOING
+    // IT. At x0 = 99 the exponential has already decayed under the 0.002
+    // amplitude floor by 601ms, so the old assertion passed with `t > 0.6`
+    // deleted — a guard proven by the clause it is not about. At x0 = 1e7 the
+    // fill is still ~86 at 600ms, well above the floor, so ONLY the elapsed
+    // time can close it: the two lines below fail the moment either clause goes.
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).done).toBe(false)
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 600).progress).toBeGreaterThan(1)
+    expect(holdClock({ mode: 'spring', t0: 0, x0: 1e7 }, 601)).toEqual({ progress: 0, done: true })
+  })
+})
+
+// ── ⚖ R6 B2 · 次回予約の仮押さえカードの金額 ────────────────────────────────
+//
+// THE LIE, measured at tip 4d10d4d5. `placeNextVisit` wrote
+// `ticketCore: yen(dialogs.pricing.base)` — the store's FLAT 基準価格. It is
+// neither this person's 定価 (staff prices differ: the fixture runs 7,000 /
+// 7,700 / 8,800) nor this hour's (the curve dips 15% at 15:00 and sits at the
+// peak at 17:00), so a ¥7,700 staff member's staged card read ¥6,600 at every
+// hour of every day — and the 仮押さえ bar's own sentence quotes the same field.
+//
+// ⚖ F1 (line audit) — THE FIRST FIX WAS STILL WRONG. `priceAt` prices ONE
+// clock hour; a staged card is not an hourly sell slot — its start sits on
+// the 5-minute lattice (often off the hour) and its length is the store's
+// `standardSessionMin` (90 for some stores), not always 60. Pricing the
+// start's hour alone was wrong for an off-hour start and for a ≠60-minute
+// session. `packedPrice` is the span-true home the multi-hour packing pass
+// already prices through (today-interactions :1419/:1485): it prices the
+// whole span across the hour curve end to end, so an off-hour start and a
+// 90-minute standard session both come out honest.
+describe('⚖ R6 B2 — the staged 次回予約 card is priced by the board, not by the flat base', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  /** The store's own levers, exactly as TodayScreen composes them from the HQ
+   *  frame (`clampPriceInputs(hqMax, base, pricingRule)` on fixtures-today's
+   *  6,600 / 6,600 / 7,260) — the same three numbers ⚖ 92's warn-card pins use. */
+  const HI = 7260
+  const HQ_MIN = 6600
+  const DEPTH = 9
+  const BASE = 6600
+  const FRAME = { hi: HI, lo: BASE, hqMin: HQ_MIN, hqMax: HI }
+
+  it('the spelling is `packedPrice`, and both the flat base and the hourly-only `priceAt` spelling are gone', () => {
+    // ⚖ R6 fix round D2 — …and a lane with no 定価 says NOTHING rather than ¥0.
+    expect(SRC).toContain(
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+    )
+    // ⚖ A7 (L4-7) — BROADENED, because the old pins named two exact full lines
+    // and nothing else: either mistake could come back in any other punctuation,
+    // or at a THIRD `ticketCore` site, and stay green. Every ticket line the
+    // screen mints is enumerated instead. (`yen(dialogs.pricing.base)` on its
+    // own is legal elsewhere — the 基準 label in the pricing dialog is exactly
+    // that number — so the negative has to be anchored on `ticketCore`.)
+    expect(SRC.match(/ticketCore: .*/g)).toEqual([
+      'ticketCore: lane.listPrice > 0 ? yen(packedPrice(lane.listPrice, start, end, frame, depth)) : null,',
+      "ticketCore: tab === 'book' ? (menu?.price ?? '価格未記録') : null,",
+    ])
+    expect(SRC).not.toContain('yen(priceAt(')
+    expect(SRC).not.toContain('ticketCore: yen(dialogs.pricing.base)')
+    expect(SRC).not.toContain(
+      'ticketCore: yen(priceAt(lane.listPrice, Math.floor(start / 60), price.hi, dialogs.pricing.hqMin, depth)),',
+    )
+  })
+
+  it('D2 — an unpriced staff lane stages a card with no ¥ line at all, and the bar quotes nothing either', () => {
+    // `staffListPrice[id] ?? 0` is a real store state — a staff member whose
+    // 定価 has not been set. Every price the board mints for that lane is 0, so
+    // the old spelling put 「¥0」 on the staged card's face AND inside the
+    // 仮押さえ bar's sentence, which reads as FREE to the customer at the
+    // counter rather than as 「not priced yet」.
+    expect(packedPrice(0, 900, 960, FRAME, DEPTH)).toBe(0)
+    expect(yen(0)).toBe('¥0')
+    // The board's own type says a card may carry no ticket line (today-board.ts
+    // `ticketCore: string | null`), and it draws such cards every day — so the
+    // unpriced lane joins them instead of inventing a word for the state.
+    const BOARD = readFileSync(join(process.cwd(), 'src/business/lib/today-board.ts'), 'utf8')
+    expect(BOARD).toContain('ticketCore: string | null')
+    // The 仮押さえ bar composes its sentence by dropping the empty parts, so a
+    // null core takes the ¥ out of the sentence rather than printing 「¥0」.
+    expect([null, '¥0'].filter(Boolean)).toEqual(['¥0'])
+    expect(['単発', null].filter(Boolean).join(' ')).toBe('単発')
+    expect(SRC).toContain(
+      "label: `${hhmm(start)}–${hhmm(end)} ${chip.item.title}様 / ${[chip.item.ticketCat, chip.item.ticketCore].filter(Boolean).join(' ')}",
+    )
+  })
+
+  it('and it is a real difference — the ¥7,700 staff member’s card was wrong at every hour', () => {
+    // The lane the probe named: a 定価 that is not the store's base at all.
+    const LIST = 7700
+    expect(LIST).not.toBe(BASE)
+    // Every hour the curve knows: the board's answer, and never the flat base.
+    const hours = Object.keys(SELL_CURVE).map(Number).sort((a, b) => a - b)
+    expect(hours.length).toBeGreaterThan(0)
+    for (const h of hours) {
+      const board = priceAt(LIST, h, HI, HQ_MIN, DEPTH)
+      expect({ h, board, base: BASE, same: board === BASE }).toEqual({ h, board, base: BASE, same: false })
+    }
+    // …and the hour actually moves it, so "use priceAt" is not a rename of a
+    // constant: 15:00 sits in the curve's dip and 17:00 at its peak.
+    expect(priceAt(LIST, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 17, HI, HQ_MIN, DEPTH))
+    // …and the staff member's own 定価 moves it too — the other half of the lie.
+    expect(priceAt(7000, 15, HI, HQ_MIN, DEPTH)).toBeLessThan(priceAt(LIST, 15, HI, HQ_MIN, DEPTH))
+  })
+
+  it('F1 — an off-hour start with a 90-minute session prices differently than `priceAt` alone would', () => {
+    // A staged card never starts on the hour (the 5-minute lattice) and its
+    // length is the store's own `standardSessionMin`, not always 60 — exactly
+    // the shape `priceAt`'s one-hour assumption gets wrong. 16:30–18:00 is a
+    // 90-minute span straddling hour 16 (curve dip, 0.92) and hour 17 (peak, 1).
+    const LIST = 7700
+    const START = 16 * 60 + 30 // 16:30 — off the hour
+    const SESSION_MIN = 90
+    const END = START + SESSION_MIN // 18:00
+
+    // The OLD (F1) spelling: `priceAt` on the start's hour alone, blind to the
+    // end and to the session length.
+    const oldSpelling = priceAt(LIST, Math.floor(START / 60), HI, HQ_MIN, DEPTH)
+    expect(oldSpelling).toBe(8060)
+
+    // The fixed spelling: `packedPrice`, priced hour by hour across the whole
+    // span — computed here independently, from the same two `priceAt` calls
+    // the span decomposes into (30 of the 90 minutes in hour 16, 60 in hour
+    // 17), not by calling `packedPrice` and comparing it to itself.
+    const inHour16 = priceAt(LIST, 16, HI, HQ_MIN, DEPTH)
+    const inHour17 = priceAt(LIST, 17, HI, HQ_MIN, DEPTH)
+    const expected = Math.round((inHour16 * 0.5 + inHour17 * 1) / 10) * 10
+    expect(expected).toBe(12500)
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).toBe(expected)
+
+    // The two spellings disagree — proof this pin actually distinguishes them.
+    expect(packedPrice(LIST, START, END, FRAME, DEPTH)).not.toBe(oldSpelling)
+  })
+
+  it('the staged card asks the SAME span-true function the packing layer already uses, not the hourly sell box’s', () => {
+    // `packedPrice` is the one home for a SPAN (today-interactions :1419/:1485);
+    // `priceAt` stays the hourly 販売可能枠 box's own job (:1114) — a different
+    // question, proven at both call sites rather than asserted in prose.
+    const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    expect(INTERACTIONS).toContain('packedPrice: (lane, s, e) => packedPrice(listOf(lane), s, e, opts.frame, opts.depth),')
+    expect(INTERACTIONS).toContain('priceFor: (lane, hour) => priceAt(lane.listPrice, hour, opts.hi, opts.hqMin, opts.depth),')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 F5 + DELTA G3 — THE ARMOUR'S OWN COMMENT STRIPPER, PINNED
+//
+// Every ban and every count in the T1, GAP-11 and T4 blocks below runs over
+// `codeOnly`, so a blind spot in it is a blind spot in all of them. F5 found
+// one — a TRAILING `// … /*` was not a whole-line comment, so it survived into
+// the block pass and opened a block that swallowed real, compiled code — and
+// the DELTA found that the two-pass FIX for it closed the shape and not the
+// class: a per-line quote walker cannot tell a string from an apostrophe, and
+// the block pass read no strings at all. v3 is one state machine, and this is
+// its table: every shape the breaker has hidden a live reader behind.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 F5 — codeOnly cuts a line comment where it starts', () => {
+  /** The line that stands between a trailing comment which OPENS a block and
+   *  the `*\/` that closes it — real code the type-checker compiles and every
+   *  ban and count on this lane must be able to see. */
+  const HIDDEN = 'const alt = readCanon(at)'
+
+  /** Every trailing-comment shape the breaker has used, by its own id. The last
+   *  two are the DELTA's: `N12` is one apostrophe inside a same-line block
+   *  comment, which is all it took to blind the per-line walker. */
+  const SHAPES: readonly (readonly [string, string])[] = [
+    ['R-M13b — a bare trailing // that opens a block', ') // shim /*'],
+    ['N23 — a // inside a string before the trailing comment', ") // a string with '//' in it: 'x//y' shim /*"],
+    ['N24 — an escaped quote before the trailing comment', ") /* an escaped quote: 'it\\'s' */ // shim /*"],
+    ['N25 — a // inside a template-literal expression', ") // `${'a'} // b` template shim /*"],
+    ['N12 — an apostrophe inside a SAME-LINE block comment', ") /* it's fine */ // shim /*"],
+  ]
+
+  it('a trailing // that opens a block comment cannot swallow the code under it', () => {
+    for (const [why, line] of SHAPES) {
+      const code = codeOnly(['const checks = wrap(', line, HIDDEN, 'if (alt) return alt', '/* */'].join('\n'))
+      // The hidden reader is visible…
+      expect({ why, sees: code.includes(HIDDEN), keeps: code.includes('if (alt) return alt') }).toEqual({ why, sees: true, keeps: true })
+      // …and the comment itself is gone, so it cannot inflate a count either.
+      expect({ why, shim: code.includes('shim') }).toEqual({ why, shim: false })
+    }
+  })
+
+  it('a block delimiter inside a STRING LITERAL is a character, not a comment', () => {
+    // `N13` — no `//` anywhere, so the old line pass never looked, and the old
+    // block pass ran over the joined source with no string state: `'/*'` opened
+    // a comment and `'*\/'` closed it, hiding every line between them.
+    const src = ['const checks = wrap(', ')', "const OPEN: string = '/*'", HIDDEN, 'if (alt) return alt', "const CLOSE: string = '*/'"].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain(HIDDEN)
+    expect(code).toContain('if (alt) return alt')
+    // …and the strings come back verbatim, delimiters and all.
+    expect(code).toContain("const OPEN: string = '/*'")
+    expect(code).toContain("const CLOSE: string = '*/'")
+    // The mirror shape, double-quoted, and one where the delimiters share a line.
+    expect(codeOnly('const p = "/*" + x + "*/"')).toBe('const p = "/*" + x + "*/"')
+  })
+
+  it('a // inside a string literal is code, not a comment', () => {
+    const src = ["const u = 'https://example.test/a'", 'const v = "b//c"', 'const w = `d//e`']
+    for (const line of src) expect({ line, kept: codeOnly(line) }).toEqual({ line, kept: line })
+    // An escaped quote does not end the string, so the `//` after it is still
+    // inside one.
+    const esc = "const q = 'it\\'s //not a comment'"
+    expect(codeOnly(esc)).toBe(esc)
+    // A template's `${ … }` hole is CODE and a template nested inside one is
+    // text again — the state machine walks both, so the inner `//` survives…
+    const nested = 'const t = `a${ b(`c//d`) }e`'
+    expect(codeOnly(nested)).toBe(nested)
+    // …while a real line comment INSIDE a hole is still a comment.
+    expect(codeOnly('const t = `a${ b // gone\n }`')).not.toContain('gone')
+  })
+
+  it('whole-line comments and /* */ blocks are still blanked, and a /* inside a // is not a block', () => {
+    // A `/*` written inside a line comment used to open a block; the line is cut
+    // at the `//` now, so there is nothing left to open one (⚖ D5).
+    const src = ['const a = 1', '  // a comment with /* in it', 'const b = 2'].join('\n')
+    const code = codeOnly(src)
+    expect(code).toContain('const a = 1')
+    expect(code).toContain('const b = 2')
+    // …while a real block still goes. ⚖ DELTA G3 — blanked to SPACES rather
+    // than deleted, so a slice's indices are the file's own indices.
+    expect(codeOnly('const a = 1 /* gone */ + 2').replace(/ +/g, ' ')).toBe('const a = 1 + 2')
+    expect(codeOnly('const a = 1 /* gone */ + 2')).not.toContain('gone')
+    // Which makes the whole output the same LENGTH as the input, line for line
+    // and column for column…
+    for (const s of [src, 'const a = 1 /* gone */ + 2']) {
+      expect({ s, len: codeOnly(s).length }).toEqual({ s, len: s.length })
+    }
+    // …and the line COUNT is preserved, which is what `callSlice` slices on.
+    expect(codeOnly(src).split('\n')).toHaveLength(3)
+    // The two-pass version deleted the newlines INSIDE a block comment, so
+    // every line under a JSDoc moved up. It does not any more.
+    const multi = ['const a = 1', '/* one', '   two */', 'const b = 2'].join('\n')
+    expect(codeOnly(multi).split('\n')).toHaveLength(4)
+    expect(codeOnly(multi).split('\n')[3]).toBe('const b = 2')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T1 — 予約時価格を保持 IS A CLAIM, SO IT NEEDS A PRICE TO BE ABOUT
+//
+// canon `computeChecks` (drag-rules.ts:227) pushes the row unconditionally and
+// canon is frozen, so the two app callers that consume its raw rows filter it:
+// `landingVerdict` here and `checksFor` on the screen. apt-09 carries
+// `booked_price: null` by documented fixture intent — it is the scene.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+  const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+  const CANON = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/drag-rules.ts'), 'utf8')
+
+  // ⚖ BREAKER-828 DELTA 4 — comment-STRIPPED lines, foundation's own
+  // line-prefix strip with the JSX comment opener (open-brace, slash,
+  // star) added — foundation's own form does not cover it, and a bare JSX
+  // comment line reads as code without it (RED on `B4LT` in the breaker's
+  // own delta-4 run, which pays the raw budget from a JSDoc line AND the
+  // strip budget from a JSX comment together, and over-pays: `sets` moves
+  // to 11, one BELOW its own pin). LINE-BASED ON PURPOSE: a regex-literal
+  // `/*` lid (`H1`, `/[/*]/`) opens a real block comment inside `codeOnly`,
+  // but cannot blind a strip that only asks whether a LINE begins with a
+  // comment marker. Its own ceiling, named plainly: a CODE line that
+  // begins with `*` (a tsc-clean multiplicative continuation) is dropped
+  // like a comment line too — the exact-line arrays below are the belt for
+  // that gap, not this helper.
+  const stripped = (s: string) => s.split('\n').filter((l) => !/^\s*(\{?\/\/|\*|\{?\/\*)/.test(l)).join('\n')
+
+  // ⚖ BREAKER-828 DELTA 4 — one entry per MATCH (not per line): the line the
+  // match sits on, trimmed, in file order. A line that mentions the same
+  // name several times stands several times — the `hasPriceFor` bind line
+  // mentions `sets` four times and appears four times in `SETS_SRC` below.
+  // This is the belt the strip above cannot be: ANY added line, removed
+  // line, or reworded line — even a comment — changes the array, so paying
+  // for a mutation out of a prose budget is impossible here, not merely
+  // expensive (`B7`/`B8` below are the documentation-only mutants that
+  // prove the raw counts already carry this exact cost; a failing array
+  // prints the diff, so a legitimate edit re-spells one entry).
+  const rawLineHits = (s: string, re: RegExp): string[] =>
+    s.split('\n').flatMap((l) => Array.from({ length: (l.match(re) ?? []).length }, () => l.trim()))
+
+  // ⚖ BREAKER-828 DELTA 4 — a plain substring count for the import-door belt
+  // below, spelled without a regex escape on the path's slashes: a regex
+  // literal escapes `/` as `\/`, and this repo's own import-isolation
+  // scanner (business-isolation.test.ts) reads raw text for anything
+  // shaped like `from '…'`, so an ESCAPED specifier reads back as a
+  // "bare package off the allowlist" to that unrelated suite. A plain
+  // string needle, split-counted, spells the specifier exactly as it
+  // appears in real code and is invisible to that concern.
+  const rawSubstringCount = (s: string, needle: string): number => s.split(needle).length - 1
+
+  // ⚖ BREAKER-828 DELTA 4 — the raw lines themselves, script-emitted off this
+  // tip via `rawLineHits` and pasted verbatim, never hand-retyped.
+  const COMPUTECHECKS_SRC: readonly string[] = [
+    "computeChecks,",
+    "*  A `BoardItem` has no price (today-board.ts), and canon's `computeChecks`",
+    "*  ledger and `computeChecks` are never run per pixel. */",
+    "/** canon `computeChecks` fed from the board as it currently stands. The sell",
+    "computeChecks(at, {",
+    "// ⚖ PLAN F10 — the hold bar's rows are a `computeChecks` walk over the whole",
+    "*  and cannot be confirmed is still `computeChecks`' answer alone and a",
+    "*  CONTROLS THAT RENDER. 「`computeChecks`' answer alone」 is the gate wherever",
+    "*  than `computeChecks` says; there is simply nothing to gate. ⚖ 92 fix round 8",
+    "*  literal `false`, so ⚖ 73 is intact and `computeChecks` still has no subject",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+    "// and `computeChecks` (FROZEN) emits no row for a room, no row for the",
+  ]
+  const COMPUTECHECKS_INT: readonly string[] = [
+    "computeChecks,",
+    "*  reading before 確定 — as INFORMATION, not as a gate: `computeChecks` still",
+    "*  `computeChecks` alone is the gate), so it cannot earn ×, whatever the engine",
+    "/** ⚖ 73 — the ONE hard row the frozen engine emits. `computeChecks`",
+    "/** WHY, in the board's existing vocabulary — `computeChecks`' own sentence for",
+    "/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,",
+    "/** The same span in canon's percent units — `computeChecks` speaks percent. */",
+    "*  the wrong board first, then the person (重複/勤務/ロック — `computeChecks`'",
+    "computeChecks(q.span, {",
+    "*  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules",
+    "*  can legitimately carry the same one — the day `computeChecks` grows a second",
+    "*  `computeChecks`-confirmable) was walled by the dial. It was composed from",
+  ]
+  const PRICEFACTSETS_SRC: readonly string[] = [
+    "priceFactSets,",
+    "*  `priceFactSets` is where a truth table can be written about them. It also",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+  ]
+  const HASPRICEFACT_SRC: readonly string[] = [
+    "hasPriceFact,",
+    "*  `hasPriceFact` (today-interactions), which is where its reasoning and its",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+  ]
+  const SETS_SRC: readonly string[] = [
+    "*   確定/元に戻す, which are the question. Clicking the card sets this true. */",
+    "*  sets built once per board, handed to the pure function. It is a `useMemo`",
+    "*  so the sets are built once per board rather than once per gesture, and it",
+    "*  two lines are the whole binder — the sets, then the question. */",
+    "const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])",
+    "*  keyboard nudge sets it deliberately (Shift/Alt cannot change a start, ⚖",
+    "// rendered nothing, which is flag 3's disease exactly. Canon sets it from",
+    "{/* canon sets this as the cards' aria-description (:3865).",
+  ]
+  // ⚖ BREAKER-828 DELTA 5 C1 — THE EXACT-LINE ARRAY OVER THE BARE MODULE
+  // PATH, RAW. `C1` (a second `import` NEWLINE `* as canonRules from
+  // "…drag-rules"` with DOUBLE quotes, read through a computed key) is
+  // invisible to BOTH belts above: `rawDragImports`'s needle is
+  // quote-specific (single quotes only) and `stripDragImports` drops any
+  // line beginning with `*` — the very line the two-line form's path lands
+  // on. Quote style, one line or two, `import`/`export … from`/`require`
+  // with a CONTIGUOUS path — every static form puts the contiguous path on
+  // SOME raw line, so this array is the zero-budget closure over both
+  // belts: any added, removed or reworded line — even a comment — moves it.
+  // The one non-contiguous form (a concatenated `require`, `C5`) is shut by
+  // foundation's import inventory AND eslint's `no-require-imports` error,
+  // both outside this file — measured, not chased here.
+  const DRAGRULES_SRC: readonly string[] = [
+    "//     src/business/lib/canon-logic/drag-rules.ts. A booking that starts at 17:12",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
+  const DRAGRULES_INT: readonly string[] = [
+    "} from '@/business/lib/canon-logic/drag-rules'",
+  ]
+
+  // ⚖ BREAKER-828 DELTA 6 K1 — THE FILTER ITSELF HAS NO SHADOW ARMOUR. Every
+  // other name item T1 rests on is declared-once-pinned — `computeChecks`,
+  // `priceFactSets`, `hasPriceFact` above, `hasPriceFor` below — except
+  // `withPriceFact`, the one function the whole item exists to prove runs. A
+  // local `const withPriceFact = (rows, p) => (p ? rows : rows)` declared one
+  // line above the pinned wrapper line makes the wrapper a no-op: 1925 + 1
+  // green, tsc exit 0, eslint exit 0 (one new `no-unused-vars` warning — the
+  // shadow makes the import dead; the tip already carries 229, so no gate
+  // fails). `withPriceFact`'s own numbers do not fit the priceFactSets/
+  // hasPriceFact loop below (its raw mentions read 2 today, not that loop's
+  // fixed 3 — no prose mention exists yet), so this is its own small block
+  // rather than a bent loop. A legitimate new use, even in a comment, must
+  // update it.
+  const WITHPRICEFACT_SRC: readonly string[] = [
+    "withPriceFact,",
+    "const checks = withPriceFact(",
+  ]
+
+  // ⚖ BREAKER-828 DELTA 6 K2 — THE IMPORT-DOOR BELTS ABOVE ARE PER FILE, AND
+  // THE FILE NEXT DOOR IS UNSEALED. `held-committed.ts` sits in this same
+  // folder, is already imported by the screen, and is NOT in
+  // `foundation.test.ts`'s sealed inventory — so it can take a new
+  // drag-rules import with nothing watching and re-export canon's function
+  // under another name, and the screen adds one specifier to a one-line
+  // import whose specifier list nothing above pins (only
+  // `./today-interactions` is pinned specifier-by-specifier). The screen's
+  // WHOLE import header, ordered, script-emitted off this tip (15 lines) —
+  // subsumes `C1`/`C2`/`B5`/`S2`/`E3` as a by-product (all five read 16
+  // lines and change the hash) and closes the unsealed-neighbour route on
+  // THIS screen. The general answer — the five `today/` modules joining
+  // foundation's sealed inventory — is a rider on `foundation.test.ts`
+  // (untouchable from this file). Any import added, removed or reworded —
+  // even a comment on the same line — moves this array and prints the diff.
+  const SRC_FROM_LINES: readonly string[] = [
+    "import Link from 'next/link'",
+    "import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'",
+    "} from '@/business/lib/canon-logic/drag-rules'",
+    "} from '@/business/lib/canon-logic/pricing'",
+    "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
+    "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
+    "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
+    // ⚖ two entries below are split with `+` at the SAME runtime value —
+    // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for
+    // `from '…'` across every file in its own territory, this test file
+    // included, and reads a literal quoted string here as if it were a real
+    // import; resolved relative to THIS file's own path (not the screen's),
+    // `../../BusinessSessionEdits` lands one level outside territory. The
+    // split changes no character of the string these lines equal — verified
+    // by `toEqual` below — only how the source spells it.
+    "import { useSessionEdits, type ParkChip } " + "fr" + "om '../../BusinessSessionEdits'",
+    "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
+    "} from './today-interactions'",
+    "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
+    "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
+    "import { heldCommittedFor } from './held-committed'",
+    "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
+    "import { SELLING_ENGINE_LAW } from './selling-engine-gate'",
+  ]
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1 + F3) — the whole binder, as two lines. */
+  const SETS_LINE =
+    'const sets = useMemo(() => priceFactSets({ pricedIds: props.pricedIds, serverLanes: props.lanes, added: addedHere, parked: parkChips }), [props.pricedIds, props.lanes, addedHere, parkChips])'
+  const BIND_LINE =
+    'const hasPriceFor = useMemo(() => (id: string | null): boolean => hasPriceFact(id, sets.priced, sets.fromServer, sets.sessionPriced), [sets])'
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F4) — EVERY LINE ON THIS SCREEN THAT ANSWERS
+   *  「has this placement a price?」, with how many times it stands. The count
+   *  pin below sees a missing site and a doubled one; only the lines see a
+   *  suffix (`|| Boolean(1)`) or a parameter shadow. */
+  const ASK_LINES: readonly (readonly [string, number])[] = [
+    ['hasPrice: hasPriceFor(live.id),', 1],
+    ['hasPrice: hasPriceFor(chip.id),', 2],
+    ['hasPrice: hasPriceFor(pending.id),', 2],
+    ['hasPrice: hasPriceFor(ctx.id),', 3],
+    ['hasPrice: hasPriceFor(id),', 1],
+    ["{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },", 1],
+    ['{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },', 1],
+  ]
+
+  const rows = (): Check[] => [
+    { ok: true, label: '時間帯の重複なし' },
+    { ok: false, label: '見本 あずさは18:00以降勤務不可' },
+    { ok: true, label: '整体資格 一致' },
+    { ok: true, label: PRICE_HOLD_ROW },
+  ]
+
+  // (b) — THE CONSTANT IS CANON'S, and canon cannot be edited to agree with it.
+  it('PRICE_HOLD_ROW is the literal canon pushes, read out of canon’s own source', () => {
+    const compute = CANON.slice(CANON.indexOf('export function computeChecks('), CANON.indexOf('export function confirmCaption('))
+    expect(compute.length).toBeGreaterThan(0)
+    expect(pinnedLine(compute, `checks.push({ ok: true, label: '${PRICE_HOLD_ROW}' })`)).toBe(true)
+    // …and it is pushed with no condition in front of it — which is WHY the app
+    // side filters rather than asking canon to stop.
+    expect((codeOnly(compute).match(/checks\.push\(\{ ok: true, label: '予約時価格を保持/g) ?? []).length).toBe(1)
+  })
+
+  // (a) — THE FILTER ITSELF.
+  it('withPriceFact drops exactly canon’s row, exactly when there is no price', () => {
+    const before = rows()
+    // A priced booking keeps every row, in canon's order, byte for byte.
+    expect(withPriceFact(before, true)).toEqual(rows())
+    expect(withPriceFact(before, true).map((c) => c.label)).toEqual(rows().map((c) => c.label))
+    // A price-less one loses THAT row and nothing else — same order, same
+    // objects, one fewer.
+    const after = withPriceFact(before, false)
+    expect(after.map((c) => c.label)).toEqual(['時間帯の重複なし', '見本 あずさは18:00以降勤務不可', '整体資格 一致'])
+    expect(after).toEqual(rows().slice(0, 3))
+    expect(after).toHaveLength(before.length - 1)
+    // It reads the LABEL, not the position: the same row anywhere in the list
+    // is the same row.
+    const shuffled = [{ ok: true, label: PRICE_HOLD_ROW }, ...rows().slice(0, 3)]
+    expect(withPriceFact(shuffled, false).map((c) => c.label)).toEqual(rows().slice(0, 3).map((c) => c.label))
+    // …and it never invents one: a list canon did not put the row in comes back
+    // unchanged under both answers.
+    const without = rows().slice(0, 3)
+    expect(withPriceFact(without, false)).toEqual(without)
+    expect(withPriceFact(without, true)).toEqual(without)
+    // The input is not mutated — the caller's list is still canon's.
+    expect(before).toHaveLength(4)
+  })
+
+  // …proven THROUGH the verdict, so the wiring is walked and not only the unit.
+  it('the one verdict carries the filter: the same landing, two prices, two lists', () => {
+    const lanes = [lane({ key: 'p-01', group: 'staff', label: '見本 あずさ' }), lane({ key: 'bed-01', group: 'beds' })]
+    const q = (hasPrice: boolean) => ({
+      staffLane: 'p-01', bedLane: 'bed-01', solveRoom: true, id: 'apt-1', vip: false,
+      start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice,
+      locked: [] as string[], rooms: POLICY, minutesOf: (x: number) => minuteOf(x, HOURS),
+    })
+    const priced = landingVerdict(lanes, q(true), null).checks.map((c) => c.label)
+    const priceless = landingVerdict(lanes, q(false), null).checks.map((c) => c.label)
+    expect(priced).toContain(PRICE_HOLD_ROW)
+    expect(priceless).not.toContain(PRICE_HOLD_ROW)
+    // Everything else about the landing is identical — the filter took one row
+    // and changed no judgement.
+    expect(priceless).toEqual(priced.filter((l) => l !== PRICE_HOLD_ROW))
+    expect(landingVerdict(lanes, q(false), null).kind).toBe(landingVerdict(lanes, q(true), null).kind)
+  })
+
+  // (d) — BOTH RAW-CANON ENTRY POINTS GO THROUGH IT. Anchored whole lines over
+  // comment-blanked source, each bounded to the call it belongs to, each
+  // counted, with the dodges the breaker reaches for banned outright.
+  // ⚖ BREAKER-828 DELTA 3 I4 — TITLE HONESTY (pre-existing, not this PR): a
+  // third raw consumer of canon's rows exists at
+  // settings/page.tsx:244 (the 設定 room's own hypothetical sample landing) —
+  // outside this test's scope (the settings room is the release program's
+  // lane; rider filed there). This test counts the BOARD's two call sites
+  // only.
+  it('every consumer of canon’s raw rows filters them — the board’s two call sites, counted', () => {
+    for (const [where, src, open_, close_, call] of [
+      ['checksFor (screen)', SRC, 'const checks = withPriceFact(', 'hasPriceFor(id),', 'computeChecks(at, {'],
+      ['landingVerdict (interactions)', INT, 'checks = withPriceFact(', 'q.hasPrice,', 'computeChecks(q.span, {'],
+    ] as const) {
+      const slice = callSlice(src, open_, close_)
+      expect({ where, ok: slice.ok, opens: slice.opens, closes: slice.closes }).toEqual({ where, ok: true, opens: 1, closes: 1 })
+      // canon's call is INSIDE the wrapper, which is the whole claim.
+      expect({ where, wrapped: pinnedLine(slice.text, call) }).toEqual({ where, wrapped: true })
+      // …and there is exactly one of each in the file, so a second copy has
+      // nowhere to stand and a moved line leaves the slice.
+      expect({ where, calls: pinnedLines(src, call) }).toEqual({ where, calls: 1 })
+      expect({ where, wraps: pinnedLines(src, open_) }).toEqual({ where, wraps: 1 })
+      // …and canon's raw rows have exactly ONE reader in each file, counted
+      // WITHOUT the line anchor. A second call spelled `const other =
+      // computeChecks(at, {` is real code that an anchored count cannot see —
+      // it is the one decoy the two counts above walked past.
+      expect({ where, readers: (codeOnly(src).match(/computeChecks\(/g) ?? []).length }).toEqual({ where, readers: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — AND THE RAW SOURCE, BESIDE IT. `codeOnly`
+      // does not parse regex literals, and it is not only a quote that leaks:
+      // the very next `/*` INSIDE the regex body (`/[/*]/`, `/a\/*b/`) opens a
+      // real block comment too, closing string-blind on the next `*/` — a
+      // second live `computeChecks(` reader can sit hidden in there and the
+      // blanked count above never sees it (`N31`, `N31b`: GREEN at 30 suites,
+      // `tsc --noEmit` clean). Hiding is only red when it removes a PINNED
+      // line from a count; hiding a mutant's own addition moves nothing
+      // above. The raw count cannot be blinded the same way — it reads `src`
+      // itself, never `codeOnly(src)`.
+      expect({ where, rawReaders: (src.match(/computeChecks\(/g) ?? []).length }).toEqual({ where, rawReaders: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I1 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE CALL SPELLING. `rawReaders` above matches `computeChecks(` — one
+      // spelling of a call among many (a local alias, `.call`, a spaced
+      // paren, a second import specifier, a string-built lookup all move
+      // NOTHING on that count — `A1` `A2` `A3` `A4` `A7`: 1925 tests and
+      // `tsc --noEmit` green, each a second live reader inside `checksFor`).
+      // This one reads the bare identifier: any of those five shapes adds a
+      // second `computeChecks` mention and this number moves. A legitimate
+      // new use of the name anywhere in the file — even in a comment — must
+      // update it.
+      expect({ where, rawIdents: (src.match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, rawIdents: 12 })
+      // ⚖ BREAKER-828 DELTA 4 J1 — AND `rawIdents` ABOVE IS A WHOLE-FILE
+      // TOTAL THAT PROSE AND CODE SHARE. Ten of `computeChecks`'s twelve raw
+      // mentions in this file are prose; a mutant that adds one live reader
+      // inside `checksFor` and rewords one distant JSDoc mention pays for
+      // itself out of that prose budget and leaves `rawIdents` sitting at 12
+      // (`B1` `B1L`: 1925 tests, `tsc --noEmit` clean, byte-identical
+      // eslint — a second live raw-canon reader in `checksFor`). This one
+      // counts over comment-STRIPPED lines, which removes the currency:
+      // both files read 2 live mentions today — the import specifier and
+      // the pinned call. A legitimate new use, even inside a comment, must
+      // update it.
+      expect({ where, codeIdents: (stripped(src).match(/\bcomputeChecks\b/g) ?? []).length }).toEqual({ where, codeIdents: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // `computeChecks` in this file, trimmed, in file order (one entry per
+      // mention — a line naming it twice stands twice). Any added, removed
+      // or REWORDED line — even a comment reworded to pay `codeIdents`
+      // above — changes this array and prints the diff.
+      expect(rawLineHits(src, /\bcomputeChecks\b/g)).toEqual(where === 'checksFor (screen)' ? COMPUTECHECKS_SRC : COMPUTECHECKS_INT)
+      // ⚖ BREAKER-828 DELTA 4 J4 — THE IMPORT-DOOR RAW BELT. `B5` spells
+      // `computeChecks` NOWHERE — it reaches canon through a SECOND import
+      // statement from a module this screen already imports
+      // (`import * as canonRules from '…/drag-rules'`), read through a
+      // computed key (`bag['compute' + 'Checks']`). `foundation.test.ts`'s
+      // import inventory collects into a `Set`, so a duplicate module
+      // specifier is invisible to the door that catches a NEW module — it
+      // sees new modules, not new imports (that general fix is a rider on
+      // `foundation.test.ts`, untouchable from this file). This raw count of
+      // the quoted specifier is the in-scope substitute: zero budget on the
+      // tip today, proven by script — no comment line in either file
+      // contains the string.
+      expect({ where, rawDragImports: rawSubstringCount(src, "from '@/business/lib/canon-logic/drag-rules'") }).toEqual({ where, rawDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE SAME DOOR, OVER THE STRIP. Recorded
+      // beside the raw belt above rather than instead of it: `S2`
+      // (`B5` re-spelt as the two-line import form `import` NEWLINE
+      // `* as canonRules from '…drag-rules'`) puts the quoted specifier on a
+      // line that STARTS WITH `*` — exactly the strip's own named ceiling —
+      // so this count may stay at 1 while `S2` is still RED, on the raw
+      // belt above. That is why the raw belt exists rather than only this.
+      expect({ where, stripDragImports: (stripped(src).match(/canon-logic\/drag-rules/g) ?? []).length }).toEqual({ where, stripDragImports: 1 })
+      // ⚖ BREAKER-828 DELTA 5 C1 — AND THE EXACT LINES OVER THE BARE PATH,
+      // CLOSING THE GAP BETWEEN THE TWO BELTS ABOVE. `C1` writes a second
+      // `import` NEWLINE `* as canonRules from "…drag-rules"` with DOUBLE
+      // quotes: the raw belt's needle only matches single quotes, and the
+      // strip drops the `*`-prefixed second line — the very line the path
+      // sits on — so neither counter above moves. Quote style, one line or
+      // two, `import`/`export … from`/`require` with a contiguous path —
+      // every static form puts the contiguous path on SOME raw line, so any
+      // added, removed or reworded line — even a comment — moves this
+      // array. The only non-contiguous form (a concatenated `require`, C5)
+      // is shut outside this file, by foundation's import inventory AND
+      // eslint's `no-require-imports` error — both measured, not this pin's
+      // job.
+      expect(rawLineHits(src, /canon-logic\/drag-rules/g)).toEqual(where === 'checksFor (screen)' ? DRAGRULES_SRC : DRAGRULES_INT)
+      // ⚖ BREAKER-828 DELTA 6 K3 — THE CHEAP BELT AGAINST `eval`/`new
+      // Function`. `eval('compute' + 'Checks')` inside `checksFor` reaches
+      // the module's own `computeChecks` binding while the token
+      // `computeChecks` appears nowhere and no second import exists — every
+      // pin above is silent on it, and every column it moves is identical to
+      // CLEAN. This is a two-token denylist, not a general answer: it closes
+      // `eval(`/`new Function(` and nothing more. The real closer lives
+      // outside these files — eslint's `no-eval` / `no-implied-eval`, which
+      // this repo's config does not currently enable (measured; filed as a
+      // rider, not chased here).
+      expect({ where, evalOrFunction: (stripped(src).match(/\b(?:eval|Function)\s*\(/g) ?? []).length }).toEqual({ where, evalOrFunction: 0 })
+      // The PRE-FIX spellings, and the hardcodes that would make the wrapper a
+      // no-op, are gone in every shape the breaker has used on this lane.
+      for (const dodge of ['const checks = computeChecks(at, {', 'checks = computeChecks(q.span, {', 'withPriceFact(checks, true)', 'hasPrice: true', '!0', '!1']) {
+        expect({ where, dodge, at: codeOnly(src).indexOf(dodge) }).toEqual({ where, dodge, at: -1 })
+      }
+    }
+    // ⚖ BREAKER-828 DELTA 6 K2 — the screen's whole import header, as an
+    // ordered exact-line array (see SRC_FROM_LINES above for the reason: the
+    // door found by the breaker is a file the belts above never watch,
+    // `held-committed.ts`, reached through an unpinned specifier on THIS
+    // line).
+    expect(SRC.split('\n').filter((l) => /\bfrom\s*['"]/.test(l)).map((l) => l.trim())).toEqual(SRC_FROM_LINES)
+  })
+
+  // (e) — AND EVERY LANDING THE SCREEN ASKS CARRIES THE FACT. `hasPrice` is a
+  // REQUIRED field, so tsc already refuses a site that forgets it; this is the
+  // count that refuses a site that answers it TWICE (a spread override beside a
+  // real one) or drops one along with its `solveRoom:`.
+  it('every ask constructor in the screen carries hasPrice — one per solveRoom', () => {
+    const code = codeOnly(SRC)
+    const solveRooms = (code.match(/solveRoom:/g) ?? []).length
+    const hasPrices = (code.match(/hasPrice:/g) ?? []).length
+    expect(solveRooms).toBeGreaterThan(0)
+    expect({ solveRooms, hasPrices }).toEqual({ solveRooms, hasPrices: solveRooms })
+    // The screen's answer is always DERIVED — never the literal `true` that
+    // would put canon's row back on a price-less booking (banned above), and
+    // never a bare `false` anywhere but the create-form ask, which opens the
+    // dialog where the price is still to be chosen.
+    expect((code.match(/hasPrice: false/g) ?? []).length).toBe(1)
+  })
+
+  // ⚖ FIX ROUND 3 (BREAKER-828 F4) — AND EACH ASK SITE BY ITS OWN LINE.
+  //
+  // The count above is blind to anything that keeps the count: the breaker
+  // suffixed one site with `|| Boolean(1)` (M09) and wrapped another in an IIFE
+  // whose PARAMETER is called `hasPriceFor` (M10) — 1912 tests and `tsc`
+  // green both times, and the 「declared exactly ONCE」 regex above reads
+  // declarations only, so a parameter binding walked straight past it. The
+  // contrast is the argument: the two raw-canon call sites ARE line-bounded and
+  // the same attack dies there (M16, RED). These eleven lines are that same
+  // boundary for the ask sites.
+  it('every hasPrice line in the screen is EXACTLY one of these, and nothing dresses it up', () => {
+    const code = codeOnly(SRC)
+    // Read as a whole multiset off the file, so a CHANGED site, an added one and
+    // a removed one are all one red that prints the block.
+    const asks = code.split('\n').filter((l) => l.includes('hasPrice:')).map((l) => l.trim()).sort()
+    const want = ASK_LINES.flatMap(([line, times]) => Array.from({ length: times }, () => line)).sort()
+    expect(asks).toEqual(want)
+    // …and each distinct line anchored and counted where it stands, which is the
+    // shape the rest of this file's armour uses.
+    for (const [line, times] of ASK_LINES) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: times })
+    }
+    // The dodges that do NOT move a count: an operator suffixed onto the real
+    // answer, the name arriving as a call argument or a parameter rather than a
+    // declaration, and a hardcoded answer spelled as a Boolean call.
+    for (const [why, re] of [
+      ['an operator suffixed onto the real answer', /hasPriceFor\([^)]*\)\s*(\|\||\?\?|&&)/],
+      ['hasPriceFor arriving inside a parameter list', /\(\s*hasPriceFor\b/],
+      ['hasPriceFor bound as an argument or a parameter', /[,(]\s*hasPriceFor\s*[,)=:]/],
+      ['hasPriceFor as an arrow parameter', /\bhasPriceFor\s*=>/],
+      ['a hardcoded yes in Boolean form', /Boolean\(1\)/],
+      ['a hardcoded no in Boolean form', /Boolean\(0\)/],
+    ] as const) {
+      expect({ why, found: re.test(code) }).toEqual({ why, found: false })
+    }
+    // …and the declared-once law now counts PARAMETER bindings too, which is
+    // the hole M10 walked through.
+    expect((code.match(/[(,]\s*hasPriceFor\s*[,)]/g) ?? []).length).toBe(0)
+  })
+
+  // (f) — ⚖ FIX ROUND 1 (blind round 1, L2 F10) — AND THE ANSWER ITSELF, NOT
+  // ONLY ITS WIRING. The screen's closure kept T1's whole rule and had no unit
+  // pin at all: dropping the server guard inside it left 444 tests green while
+  // the 保持 row came back on a price-less booking — the exact defect this item
+  // exists to remove. The rule is a pure function now (`hasPriceFact`), and
+  // this is its whole truth table.
+  it('hasPriceFact reads the server’s record first and the session’s mint only second', () => {
+    // apt-26 is priced on the server; apt-09 is a server booking with
+    // `booked_price: null`; `nextvisit-*` are ids no server lane knows.
+    const priced = new Set(['apt-26'])
+    const fromServer = new Set(['apt-26', 'apt-09', 'apt-25'])
+    const minted = new Set(['nextvisit-1', 'apt-09'])
+    // A server card WITH a price — the record says so.
+    expect(hasPriceFact('apt-26', priced, fromServer, minted)).toBe(true)
+    // apt-09's shape — a server card with no recorded price.
+    expect(hasPriceFact('apt-09', priced, fromServer, new Set())).toBe(false)
+    // …and STILL none while the session is carrying that same card with its
+    // ticket line intact: `placeFromShelf` puts a real booking's own card back
+    // into the session's list carrying a non-null `ticketCore`, so a rule that
+    // read the mint FIRST would answer 「price」 for apt-09. THIS is the row the
+    // surviving mutant deleted.
+    expect(hasPriceFact('apt-09', priced, fromServer, minted)).toBe(false)
+    // A 次回予約 minted this session on a lane WITH a 定価 — no server row knows
+    // it, and the mint wrote a ¥ face onto it.
+    expect(hasPriceFact('nextvisit-1', priced, fromServer, minted)).toBe(true)
+    // The same mint on a lane with NO 定価 (⚖ R6 D2 — `ticketCore` null, so the
+    // id is not in the minted-priced set).
+    expect(hasPriceFact('nextvisit-2', priced, fromServer, minted)).toBe(false)
+    // A booking that does not exist yet (the empty-slot form ask) has no price
+    // for a row to be about.
+    expect(hasPriceFact(null, priced, fromServer, minted)).toBe(false)
+    // An empty world prices nothing, and a card that is both is still just yes.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set())).toBe(false)
+    expect(hasPriceFact('apt-26', priced, fromServer, new Set(['apt-26']))).toBe(true)
+    // ⚖ FIX ROUND 2 (Greptile on #828) — THE CROSS-DAY SCENE, both ways round.
+    // The shelf survives day navigation and `placeFromShelf` places on ANOTHER
+    // DAY by design; that day's `pricedIds` and lanes have never heard of the
+    // booking, so BOTH server sets are empty and the only thing left to answer
+    // with is the stamp the shelf took at park time. A price-less booking was
+    // not stamped, so canon's 保持 row stays off…
+    expect(hasPriceFact('apt-09', new Set(), new Set(), new Set())).toBe(false)
+    // …and its priced twin WAS stamped, so the row is still there. Before the
+    // stamp the session's side was read off `item.ticketCore`, and a price-less
+    // booking's ticket line is the NON-NULL text 「価格未記録」 (today-board.ts
+    // :409-410) — so the first of these two answered `true` and the 保持 row
+    // came back on exactly the booking T1 took it off.
+    expect(hasPriceFact('apt-26', new Set(), new Set(), new Set(['apt-26']))).toBe(true)
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F3 + F1) — THE SETS THE RULE IS ASKED WITH,
+   *  now that building them is a pure function rather than four lines inside a
+   *  component the suite cannot execute. */
+  it('priceFactSets sorts every source into the right set, and only the stamped ones into the session set', () => {
+    const item = (caseId: string | null) => ({ caseId })
+    const sets = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [
+        lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] }),
+        // A lane row that is NOT a booking (a 休憩 block carries no caseId) is
+        // not a booking the server priced, and it is not a booking at all.
+        lane({ key: 'p-02', group: 'staff', items: [booking({ key: 'c', caseId: null }, 720, 780)] }),
+      ],
+      added: [
+        { priced: true, item: item('nextvisit-1') },
+        { priced: false, item: item('nextvisit-2') },
+        // A card the create dialog minted has no booking id yet.
+        { priced: true, item: item(null) },
+      ],
+      parked: [
+        { id: 'apt-26', priced: true },
+        { id: 'apt-09', priced: false },
+      ],
+    })
+    expect([...sets.priced].sort()).toEqual(['apt-26'])
+    // Every booking the server's lanes know, priced or not — the row with no
+    // caseId is not one of them.
+    expect([...sets.fromServer].sort()).toEqual(['apt-09', 'apt-26'])
+    // The session set is the UNION of the two session writers, and it holds
+    // ONLY what a mint stamped: the unpriced added row, the null-id row and the
+    // unpriced chip are all absent.
+    expect([...sets.sessionPriced].sort()).toEqual(['apt-26', 'nextvisit-1'])
+    // Nothing invented out of nothing.
+    const empty = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [] })
+    expect([empty.priced.size, empty.fromServer.size, empty.sessionPriced.size]).toEqual([0, 0, 0])
+  })
+
+  /** ⚖ FIX ROUND 3 (BREAKER-828 F1) — ONE GESTURE, ONE ANSWER.
+   *
+   *  Fix round 2 stamped `ParkChip.priced` so the fact would survive a day
+   *  change, and only `placeFromShelf` read it. The two questions asked about
+   *  the chip WHILE IT IS IN THE HAND — `inHand` (the mid-drag word and the
+   *  60分配置 strip's × marks) and `chipAsk` (the release) — went on asking
+   *  `hasPriceFor(chip.id)`, which never looked at the shelf. Measured by the
+   *  breaker on day+1: apt-26 (¥6,600) answered FALSE in hand and TRUE after the
+   *  drop, so the red 置けない box's check list was missing 予約時価格を保持 and
+   *  the placed card's rows carried it again. One gesture, two answers to one
+   *  question — the disease this PR exists to remove, in the mirror direction.
+   *
+   *  The scene, as the pure pair: another day's board (both server sets empty),
+   *  the same chip asked in the hand and then as the row the drop writes. */
+  it('a chip answers the same in the hand and after the drop, on a day that knows nothing', () => {
+    for (const chip of [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }]) {
+      const held = priceFactSets({ pricedIds: [], serverLanes: [], added: [], parked: [chip] })
+      // `placeFromShelf` writes the row with `priced: chip.priced` — the stamp
+      // carried, never re-derived on the landing day.
+      const dropped = priceFactSets({ pricedIds: [], serverLanes: [], added: [{ priced: chip.priced, item: { caseId: chip.id } }], parked: [] })
+      expect({
+        id: chip.id,
+        inHand: hasPriceFact(chip.id, held.priced, held.fromServer, held.sessionPriced),
+        afterDrop: hasPriceFact(chip.id, dropped.priced, dropped.fromServer, dropped.sessionPriced),
+      }).toEqual({ id: chip.id, inHand: chip.priced, afterDrop: chip.priced })
+    }
+    // …and on the chip's OWN day the stamp is redundant rather than a second
+    // author: the server's record answers first, and it is the same answer.
+    const sameDay = priceFactSets({
+      pricedIds: ['apt-26'],
+      serverLanes: [lane({ key: 'p-01', group: 'staff', items: [booking({ key: 'a', caseId: 'apt-26' }, 600, 660), booking({ key: 'b', caseId: 'apt-09' }, 660, 720)] })],
+      added: [],
+      parked: [{ id: 'apt-26', priced: true }, { id: 'apt-09', priced: false }],
+    })
+    expect(hasPriceFact('apt-26', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(true)
+    expect(hasPriceFact('apt-09', sameDay.priced, sameDay.fromServer, sameDay.sessionPriced)).toBe(false)
+  })
+
+  it('the screen has exactly ONE hasPriceFor, and it only binds that function', () => {
+    const code = codeOnly(SRC)
+    // The memo hands the three sets to the pure rule and returns its answer —
+    // not a constant, and not a second copy of the rule.
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
+    expect((code.match(/hasPriceFact\(/g) ?? []).length).toBe(1)
+    // …and the name is DECLARED once. A `const hasPriceFor = () => true`
+    // dropped above any ONE of the 11 ask sites answered for that site alone
+    // and every wiring pin above still passed (blind round 1, L2 F2), because
+    // they only ever read the text `hasPrice: hasPriceFor(`.
+    expect((code.match(/\b(?:const|let|var|function)\s+hasPriceFor\b/g) ?? []).length).toBe(1)
+    // ⚖ FIX ROUND 3 — the declaration and the binder are now ONE line, so the
+    // line pinned above is also the declaration this count is about.
+    expect((code.match(/\bconst hasPriceFor\b/g) ?? []).length).toBe(1)
+    // …and it cannot arrive as an import either: no module exports that name,
+    // so there is no shim to swap the one declaration for.
+    expect(pinnedLines(SRC, 'hasPriceFor,')).toBe(0)
+    expect(codeOnly(INT)).not.toContain('hasPriceFor')
+    // ⚖ FIX ROUND 1 (blind round 1, L1 F1) — and both hooks that ask it LIST
+    // it, so neither can answer from a board that has moved on.
+    expect(pinnedLines(SRC, '}, [live, proxy, parkChips, boardLanes, props.store, hasPriceFor])')).toBe(1)
+    expect(pinnedLines(SRC, '[boardLanes, sellDrawn.cells, hours, locked, hasPriceFor],')).toBe(1)
+  })
+
+  /** ⚖ BREAKER-828 DELTA G2 (MAJOR) — THE TWO HELPERS THE WHOLE ITEM RESTS ON
+   *  ARRIVE BY IMPORT, AND MAY NEVER BE DECLARED HERE.
+   *
+   *  Blind round 1's L2 F2 was a local `const hasPriceFor = () => true`, and fix
+   *  round 1 closed it with a declared-exactly-once count. Fix rounds 1 and 3
+   *  then moved the actual decision and the actual set-building into two
+   *  IMPORTED names — `hasPriceFact` and `priceFactSets` — and neither got that
+   *  pin. Both were guarded only by a `name(` count of one, which a declaration
+   *  does not match (`const priceFactSets = (` has a space before the paren), so
+   *  one line inserted above the memo shadowed either of them with every
+   *  anchored line, every count and the import inventory untouched:
+   *
+   *  · `N10` — a local `priceFactSets` returning every parked chip and every
+   *    session card as priced. GREEN at 1920 + 1, tsc exit 0. A price-less
+   *    booking parked and carried gets 予約時価格を保持 back — T1's own defect.
+   *  · `N11` — a local `hasPriceFact` whose body ORs the three sets, i.e. the
+   *    `!fromServer` guard removed. GREEN at 1920 + 1, tsc exit 0. Every server
+   *    booking counts as priced, apt-09 included — EXACTLY the mutation blind
+   *    round 1's F10 was raised for, re-entered through the door the fix built.
+   *
+   *  So both names get the armour `hasPriceFor` has, and then the whole
+   *  accounting: on this screen each name is mentioned exactly TWICE — its
+   *  import specifier and its one call — so a third mention of any shape, a
+   *  declaration, a parameter, an alias, is red. */
+  it('priceFactSets and hasPriceFact arrive by import and are never re-declared here', () => {
+    const code = codeOnly(SRC)
+    const INTCODE = codeOnly(INT)
+    for (const name of ['priceFactSets', 'hasPriceFact'] as const) {
+      // (1) NEVER DECLARED ON THE SCREEN — the hole N10 and N11 walked through.
+      expect({ name, declared: (code.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declared: 0 })
+      // (2) …and never bound as an argument or a parameter, which is how M10
+      //     shadowed `hasPriceFor` without declaring anything.
+      expect({ name, bound: (code.match(new RegExp('[(,][ \\t]*' + name + '[ \\t]*[,)=]', 'g')) ?? []).length })
+        .toEqual({ name, bound: 0 })
+      // (3) CALLED exactly once.
+      expect({ name, calls: (code.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, calls: 1 })
+      // ⚖ BREAKER-828 DELTA 2 H1 — and the RAW source beside it, same reason
+      // as the computeChecks pair above: a regex-literal `/*` can hide a
+      // second live call from the blanked count without hiding a pinned
+      // line, and the raw count reads `SRC` itself, never `codeOnly(SRC)`.
+      expect({ name, rawCalls: (SRC.match(new RegExp(name + '\\(', 'g')) ?? []).length }).toEqual({ name, rawCalls: 1 })
+      // ⚖ BREAKER-828 DELTA 3 I2 — AND THE RAW COUNT PINS THE IDENTIFIER, NOT
+      // THE `name(` CALL SPELLING. `rawCalls` above cannot see a shadow
+      // declaration — the test's own JSDoc already says why: `const
+      // priceFactSets = (` has a space before the paren, so it never matches
+      // `name + '('`. That is how `A8`/`A9` re-open N10/N11 under the
+      // regex-comment lid without moving `rawCalls`. This one reads every
+      // bare mention of the name in raw SRC: the import specifier, the call,
+      // and one prose mention — three today. A shadow adds a fourth and this
+      // number moves; a legitimate new mention must update it.
+      expect({ name, rawMentions: (SRC.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawMentions: 3 })
+      // ⚖ BREAKER-828 DELTA 4 J2 — AND `rawMentions` ABOVE HAS A BUDGET OF
+      // EXACTLY ONE, AND IT IS A JSDoc LINE. The pin's own comment already
+      // names the third mention as prose — that one line is the whole
+      // budget, and one line is all a shadow costs: `B2`/`B3` add the
+      // delta-3 shadow under the `/[/*]/` lid AND reword that one JSDoc
+      // mention, leaving `rawMentions` sitting at 3 (1925 tests, `tsc
+      // --noEmit` clean, one new `no-unused-vars` eslint warning per name —
+      // the tip already carries 229, so no gate fails). This one counts over
+      // comment-STRIPPED lines: both names read 2 today — the pinned
+      // specifier and the call on the pinned `SETS_LINE`/`BIND_LINE`. A
+      // shadow adds a third live mention and this number moves.
+      expect({ name, codeMentions: (stripped(SRC).match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, codeMentions: 2 })
+      // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+      // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+      // this name in `TodayScreen.tsx`, trimmed, in file order. Any added,
+      // removed or reworded line changes this array and prints the diff.
+      expect(rawLineHits(SRC, new RegExp('\\b' + name + '\\b', 'g'))).toEqual(name === 'priceFactSets' ? PRICEFACTSETS_SRC : HASPRICEFACT_SRC)
+      // ⚖ BREAKER-828 DELTA 4 — A CHEAP SECOND BELT FOR J2, RAW AND
+      // SHAPE-BASED RATHER THAN BUDGETED. It does NOT cover a destructured
+      // shadow (`const { priceFactSets: x } = …`) — `codeMentions` and the
+      // exact-line array above are the primary; this is a second, cheaper
+      // trip-wire on the DECLARATION shape `B2`/`B3` actually use.
+      expect({ name, rawDeclared: (SRC.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, rawDeclared: 0 })
+      // (4) …and it ARRIVES by import: the specifier stands in the pinned
+      //     import block above, counted.
+      expect({ name, specifier: pinnedLines(SRC, name + ',') }).toEqual({ name, specifier: 1 })
+      // (5) …which is the WHOLE accounting. Two mentions: the specifier and the
+      //     call. A third is a shadow, an alias or a second reader.
+      expect({ name, mentions: (code.match(new RegExp('\\b' + name + '\\b', 'g')) ?? []).length }).toEqual({ name, mentions: 2 })
+      // (6) …and on the other side of the import there is ONE author: exported
+      //     once, declared once, never re-bound to something else.
+      expect({ name, exported: (INTCODE.match(new RegExp('export function ' + name + '\\(', 'g')) ?? []).length })
+        .toEqual({ name, exported: 1 })
+      expect({ name, declaredThere: (INTCODE.match(new RegExp('\\b(?:const|let|var|function|class)\\s+' + name + '\\b', 'g')) ?? []).length })
+        .toEqual({ name, declaredThere: 1 })
+    }
+    // ⚖ BREAKER-828 DELTA 6 K1 — AND THE FILTER ITSELF, WHICH DOES NOT FIT
+    // THE LOOP ABOVE (its raw mentions read 2 today, not the loop's fixed 3
+    // — no prose mention exists yet). Every other name this item rests on is
+    // declared-once-pinned; `withPriceFact`, the one function the whole item
+    // exists to prove runs, was the one name that never got the treatment. A
+    // local shadow of the same name, declared one line above the pinned
+    // wrapper line, makes the wrapper a no-op with every other count and
+    // array in the file untouched — this is the belt for exactly that shape.
+    expect({ name: 'withPriceFact', wpfDeclared: (stripped(SRC).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfDeclared: 0 })
+    expect({ name: 'withPriceFact', wpfCode: (stripped(SRC).match(/\bwithPriceFact\b/g) ?? []).length })
+      .toEqual({ name: 'withPriceFact', wpfCode: 2 })
+    expect(rawLineHits(SRC, /\bwithPriceFact\b/g)).toEqual(WITHPRICEFACT_SRC)
+    // …and the same declared-once law on the OTHER door: `landingVerdict`'s
+    // call site has a unit that CALLS it (the test above), so that door is
+    // already closed by behaviour — this is the text belt beside it. The ONE
+    // declaration there is the export itself.
+    expect((stripped(INT).match(/\b(?:const|let|var|function|class)\s+withPriceFact\b/g) ?? []).length).toBe(1)
+  })
+
+  /** ⚖ FIX ROUND 2 (Greptile on #828) — THE FACT IS STAMPED WHERE IT IS KNOWN,
+   *  AND NEVER INFERRED FROM THE CARD.
+   *
+   *  The memo's session set was `a.item.ticketCore != null` — a price read off
+   *  DISPLAY TEXT, and 「価格未記録」 is display text. Park a price-less booking,
+   *  page to another day, drop it there (`placeFromShelf` supports exactly that
+   *  — 「on another day it may be taken」): that day's `pricedIds` and lanes know
+   *  nothing about the id, so the session branch answered, the ticket line was
+   *  non-null, and canon's 予約時価格を保持 row came back on the one booking T1
+   *  takes it off. The fix is a FIELD (`ParkChip.priced` / `AddedRow.priced`)
+   *  written by the mint that knew the answer, so this pin is the count of
+   *  writers against the count of stamps, plus each writer's own line. */
+  it('the price fact is STAMPED at every session write, and the memo only reads it', () => {
+    const code = codeOnly(SRC)
+    // (1) THE MEMO READS SETS IT DOES NOT BUILD — ⚖ FIX ROUND 3 (BREAKER-828
+    // F3). The set construction used to live inside this memo, where an
+    // anchored line and a `ticketCore` ban were the whole armour, and two
+    // tsc-clean edits INSIDE it re-opened T1's own defect: a wrapper-body
+    // `addedPriced.add(...)` that stamped every session row (M07), and a
+    // `priced` rebuilt off `props.lanes` so every server card counted as priced
+    // (M08). Both are dead now because the building is a pure function with a
+    // truth table — and these two lines are all that is left on the screen.
+    expect(pinnedLines(SRC, SETS_LINE)).toBe(1)
+    expect(pinnedLines(SRC, BIND_LINE)).toBe(1)
+    expect((code.match(/priceFactSets\(/g) ?? []).length).toBe(1)
+    // ⚖ BREAKER-828 DELTA G1 — AND THEY ARE ONE BLOCK, NOT TWO LINES THAT
+    // HAPPEN TO EXIST. The bans below are a DENYLIST over a slice that was
+    // allowed to be non-empty, and one line walked straight through it:
+    // `Object.assign(sets, { priced: sets.fromServer })` between the two memos
+    // — 1920 tests and `tsc --noEmit` green, every server booking counted as
+    // priced, apt-09's card carrying 予約時価格を保持 while the page's 根拠
+    // list still said no. `Object.assign` is one spelling of many; the hole was
+    // the gap, not the word. One anchored regex over the pair says line A is
+    // IMMEDIATELY followed by line B, so there is no gap to spell anything in —
+    // a line between reds, and so does a blank line, which is also a gap.
+    expect((code.match(new RegExp('^[ \\t]*' + escapeRegExp(SETS_LINE) + '$\\n^[ \\t]*' + escapeRegExp(BIND_LINE) + '$', 'gm')) ?? []).length).toBe(1)
+    // …and NOTHING stands between them. A wrapper body needs a body; this is
+    // the only place on the screen a set could be built for this question, and
+    // the four ways of building one are banned inside it.
+    const binder = callSlice(SRC, SETS_LINE, BIND_LINE)
+    expect({ ok: binder.ok, opens: binder.opens, closes: binder.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    for (const built of ['new Set(', '.add(', 'ticketCore', 'filter(']) {
+      expect({ built, at: binder.text.indexOf(built) }).toEqual({ built, at: -1 })
+    }
+    // ⚖ BREAKER-828 DELTA 3 I3 — AND THE LINE BELOW THE PAIR IS GUARDED TOO.
+    // The adjacency regex above and the slice it opens only cover the text
+    // BETWEEN `SETS_LINE` and `BIND_LINE`; nothing stopped a mutation on the
+    // line immediately AFTER the pair from adding a second writer to
+    // `sets.priced` outside the slice (`A11`: `for (const c of parkChips)
+    // (sets.priced as Set<string>).add(c.id)` — 1925 tests and `tsc --noEmit`
+    // green, byte-identical eslint). A raw count of the bare identifier
+    // `sets` catches it: any new mention anywhere in the file, in or out of
+    // the slice, moves this number. A legitimate new use of `sets` must
+    // update it.
+    expect((SRC.match(/\bsets\b/g) ?? []).length).toBe(12)
+    // ⚖ BREAKER-828 DELTA 4 J3 — AND `sets` IS AN ENGLISH VERB, AND ITS
+    // BUDGET IS FOUR UNRELATED COMMENTS. `sets` is not a rare identifier —
+    // this file uses it as an ordinary verb seven times in prose, four of
+    // those in comments about entirely different features. `B4` pays for
+    // the second writer below by trading `sets` → `marks` in a comment
+    // about card clicking 590 lines above the binder (1925 tests, `tsc
+    // --noEmit` clean, byte-identical eslint); `B4L` is the same under the
+    // `/[/*]/` lid. This one counts over comment-STRIPPED lines: one
+    // mention on `SETS_LINE`, four on `BIND_LINE` — five today. There is
+    // nothing left to spend: every mention the strip still counts sits on
+    // a line another pin already fixes whole.
+    expect((stripped(SRC).match(/\bsets\b/g) ?? []).length).toBe(5)
+    // ⚖ BREAKER-828 DELTA 4 — AND THE EXACT LINES, SO A TRADE IS
+    // IMPOSSIBLE RATHER THAN MERELY EXPENSIVE. Every RAW line mentioning
+    // `sets` in this file, trimmed, in file order — the bind line mentions
+    // it four times and stands four times here. Any added, removed or
+    // reworded line, even the double-trade `B4LT` pays (a JSDoc line AND
+    // the one `{/* … */}` JSX comment a bare strip reads as code), changes
+    // this array and prints the diff.
+    expect(rawLineHits(SRC, /\bsets\b/g)).toEqual(SETS_SRC)
+
+    // (2) EVERY ROW THIS SESSION PUTS ON THE BOARD IS STAMPED BY ITS MINT.
+    // `AddedRow` has ONE construction shape on this screen, so the writers can
+    // be counted — and a sixth that forgets the fact moves the second count.
+    const rows = code.split('\n').filter((l) => l.includes('{ ...board, laneKey'))
+    expect(rows).toHaveLength(5)
+    expect(rows.filter((l) => /\bpriced\b/.test(l))).toHaveLength(5)
+    // …each with its own answer, as its own whole line: the 次回予約 mint's own
+    // predicate (the one its `ticketCore:` line mints the ¥ face with, ⚖ R6
+    // D2), the chip's carried stamp, and the create dialog's コース.
+    for (const line of [
+      '{ ...board, laneKey: lane.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-staff`, tag: `【${partner.label}】` } },',
+      '{ ...board, laneKey: partner.key, priced: lane.listPrice > 0, item: { ...face, key: `${id}-bed`, tag: `【${lane.label}】` } },',
+      '{ ...board, laneKey: staff.key, fromChip: chip, priced: chip.priced, item: { ...landed, key: `${chip.id}-staff`, tag: `【${bed.label}】` } },',
+      '{ ...board, laneKey: bed.key, priced: chip.priced, item: { ...landed, key: `${chip.id}-bed`, tag: `【${staffLabel}】` } },',
+      'setAdded((was) => [...was, { ...board, laneKey, item, priced }])',
+      "tab === 'book' && menu?.price != null,",
+    ]) {
+      expect({ line, pinned: pinnedLines(SRC, line) }).toEqual({ line, pinned: 1 })
+    }
+    expect((code.match(/priced: chip\.priced/g) ?? []).length).toBe(2)
+    expect((code.match(/priced: lane\.listPrice > 0/g) ?? []).length).toBe(2)
+
+    // (3) THE CHIP IS STAMPED AT PARK TIME, on the same-day board — the only
+    // board that can answer — and the stamp goes INSIDE the chip the shelf
+    // keeps, so it travels with it to whatever day the drop happens on.
+    const park = callSlice(SRC, 'function park(id: string, item: BoardItem, from: Move) {', 'function unpark(id: string) {')
+    expect({ ok: park.ok, opens: park.opens, closes: park.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(park.text, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {')).toBe(true)
+    // …and the stamp is inside the CHIP LITERAL itself, not merely somewhere in
+    // the handler: a copy parked in a dead branch beside it falls outside this
+    // slice, and the file-wide count refuses a second live one.
+    const chip = callSlice(SRC, 'setParkChips((was) => [...was.filter((c) => c.id !== id), {', '}])')
+    expect({ ok: chip.ok, opens: chip.opens, closes: chip.closes }).toEqual({ ok: true, opens: 1, closes: 1 })
+    expect(pinnedLine(chip.text, 'priced: hasPriceFor(id),')).toBe(true)
+    expect(pinnedLines(SRC, 'priced: hasPriceFor(id),')).toBe(1)
+    // The shelf's only OTHER writer puts the WHOLE chip back — stamp and all —
+    // rather than rebuilding one that has to re-derive the fact.
+    expect(pinnedLines(SRC, 'setParkChips((was) => (was.some((c) => c.id === id) ? was : [...was, chip]))')).toBe(1)
+
+    // (4) THE DODGES: a hardcoded yes in either spelling, a spread that
+    // re-answers a stamped row, and the retired inference coming back.
+    for (const dodge of ['priced: true', 'priced: !0', 'ticketCore != null', '...{ priced']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 GAP-11 — the dragged card’s time follows the landing', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('proxyTimeLabel speaks today-board’s grammar, and falls back to the resting label', () => {
+    // The landing's start, in the board's own 「HH:MM〜」 (start only, ⚖
+    // today-board :423) — never the origin's.
+    expect(proxyTimeLabel('10:00〜', 870)).toBe('14:30〜')
+    expect(proxyTimeLabel('10:00〜', 600)).toBe('10:00〜')
+    expect(proxyTimeLabel('10:00〜', 845)).toBe('14:05〜')
+    // Midnight-adjacent and zero are real minutes, not falsy nothings — the one
+    // arm a `liveStartMin ||` spelling would get wrong.
+    expect(proxyTimeLabel('10:00〜', 0)).toBe('00:00〜')
+    // No landing = the card keeps the face it rests with, whatever that is.
+    expect(proxyTimeLabel('10:00〜', null)).toBe('10:00〜')
+    expect(proxyTimeLabel('13:00〜14:00', null)).toBe('13:00〜14:00')
+    expect(proxyTimeLabel('', null)).toBe('')
+  })
+
+  it('the card proxy prints that label, and the board card still prints its own', () => {
+    const code = codeOnly(SRC)
+    // ONE `.e-time` author on this board, and it prints what it is handed.
+    expect(pinnedLines(SRC, '<small className="e-time">{timeLabel}</small>')).toBe(1)
+    expect(code).not.toContain('<small className="e-time">{item.time}</small>')
+    // The proxy is the ONE caller that hands it anything else, and what it
+    // hands is the live landing.
+    expect(pinnedLines(SRC, 'cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId), proxyTimeLabel(proxy.item.time, liveStart))')).toBe(1)
+    // TWO callers since the fix round: the card branch here and the block
+    // branch below it. Nothing else on this screen labels a thing in flight.
+    expect((code.match(/proxyTimeLabel\(/g) ?? []).length).toBe(2)
+    // …read off the GHOST's own landing, so the dashed preview and the card in
+    // hand can never name two different starts.
+    expect(pinnedLines(SRC, 'const liveStart = !blockLive && landing ? minuteOf(landing.x, hours) : null')).toBe(1)
+    // The pre-fix spelling, and the two ways a decoy could make the label stand
+    // still, are gone.
+    expect(code).not.toContain('cardFace(proxy.item, proxy.item.caseId != null && settled.includes(proxy.item.caseId))')
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null)', 'const liveStart = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+
+  // ⚖ FIX ROUND 1 (blind round 1, L1 F2) — THE BLOCK IN HAND TOLD THE SAME LIE.
+  // A 休憩 being carried printed the time it came FROM while the ghost under it
+  // said where it was going. Same law, same seam, one grammar along: a block
+  // wears a SPAN (today-board :462/:472), not a start.
+  it('the block proxy says the span under the cursor, in the block’s own grammar', () => {
+    const code = codeOnly(SRC)
+    // Both ends known — the block's face, start AND end, from the landing.
+    expect(proxyTimeLabel('12:00〜13:00', 780, 840)).toBe('13:00〜14:00')
+    // A start with no end is the CARD's grammar, byte-unchanged.
+    expect(proxyTimeLabel('12:00〜13:00', 780)).toBe('13:00〜')
+    expect(proxyTimeLabel('12:00〜13:00', 780, null)).toBe('13:00〜')
+    // No landing at all leaves the resting face alone, end or no end — and 0 is
+    // a real minute on both ends.
+    expect(proxyTimeLabel('12:00〜13:00', null, 840)).toBe('12:00〜13:00')
+    expect(proxyTimeLabel('12:00〜13:00', 0, 0)).toBe('00:00〜00:00')
+    // The branch reads the BLOCK's own landing — the one its dashed ghost is
+    // drawn from — and the pre-fix spelling is gone from the file.
+    expect(pinnedLines(SRC, '{!proxy.item.micro && <small>{proxyTimeLabel(proxy.item.time, blockSpan?.s ?? null, blockSpan?.e ?? null)}</small>}')).toBe(1)
+    expect(code).not.toContain('<small>{proxy.item.time}</small>')
+    expect(pinnedLines(SRC, 'const blockSpan = blockLive ? { s: minuteOf(blockLive.x, hours), e: minuteOf(blockLive.x + blockLive.w, hours) } : null')).toBe(1)
+    // The two ways a decoy could make the block's label stand still.
+    for (const dodge of ['proxyTimeLabel(proxy.item.time, null, null)', 'const blockSpan = null']) {
+      expect({ dodge, at: code.indexOf(dodge) }).toEqual({ dodge, at: -1 })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ R8 T4 — ONE LABEL PER NUMBER
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ R8 T4 — the incident stat and the header chip name one count once', () => {
+  const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+
+  it('both surfaces print sellDrawn.staffBands.length under the SAME words', () => {
+    const code = codeOnly(SRC)
+    // The chip and the stat, each pinned as the whole line it is.
+    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
+    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
+    // Two LABELS for one derivation, and they are the same words. (The number
+    // itself appears a third time, inside the 公開価格 button's toast — a
+    // sentence about what was just updated, not a name for the count.)
+    expect((code.match(/公開中の販売可能枠/g) ?? []).length).toBe(2)
+    expect((code.match(/sellDrawn\.staffBands\.length}枠/g) ?? []).length).toBe(3)
+    // 安全な空き was the second NAME for that one count, and it is retired —
+    // gone from the rendered board and from every comment that taught it.
+    expect(code).not.toContain('安全な空き')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BREAKER-828 DELTA G3 — THE THREE COPIES OF codeOnly CANNOT DRIFT
+//
+// `codeOnly` is duplicated verbatim in three suites (they do not import one
+// another, and a new module is forbidden on this lane), so a fix applied to one
+// copy and forgotten in the other two leaves two suites reading the blind
+// version — which is exactly how F5's blind spot lived in three places at once.
+// Every suite asserts all three copies are byte-identical, marker to marker.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('⚖ BREAKER-828 G3 — the three codeOnly copies are byte-identical', () => {
+  // Assembled from two halves on purpose: written whole, THIS line would itself
+  // be a third marker in the file it lives in.
+  const MARK = '// ⚖ codeOnly v3 — BYTE-IDENTICAL' + ' IN THREE SUITES'
+  const COPIES = ['today-screen-interactions.test.ts', 'today-explains.test.ts', 'selling-engine-doors.test.ts']
+
+  const blockOf = (file: string) => {
+    const text = readFileSync(join(process.cwd(), 'src/__tests__/integration/business', file), 'utf8')
+    const a = text.indexOf(MARK)
+    const b = text.indexOf(MARK, a + 1)
+    return { file, marks: text.split(MARK).length - 1, text: a > -1 && b > a ? text.slice(a, b) : '' }
+  }
+
+  it('every suite carries the same tokenizer, marker to marker', () => {
+    const blocks = COPIES.map(blockOf)
+    // Exactly two markers per file, and something real between them — a pair of
+    // markers around nothing would make three empty strings 「identical」.
+    for (const b of blocks) {
+      expect({ file: b.file, marks: b.marks }).toEqual({ file: b.file, marks: 2 })
+      expect({ file: b.file, opens: b.text.includes('const codeOnly = (src: string) => {') }).toEqual({ file: b.file, opens: true })
+      expect({ file: b.file, long: b.text.length > 800 }).toEqual({ file: b.file, long: true })
+    }
+    for (const b of blocks.slice(1)) {
+      expect({ file: b.file, same: b.text === blocks[0].text }).toEqual({ file: b.file, same: true })
+    }
   })
 })

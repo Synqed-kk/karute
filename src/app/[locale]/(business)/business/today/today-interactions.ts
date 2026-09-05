@@ -25,7 +25,7 @@ import {
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
-import { gapFillPrice, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
+import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
   confirmCaption,
@@ -38,7 +38,7 @@ import {
   type DragMode,
   type DragOrigin,
 } from '@/business/lib/canon-logic/drag-rules'
-import { minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
+import { hhmm, minuteOf, place, type BoardItem, type BoardLane, type Hours } from '@/business/lib/today-board'
 // ⚖ SPEC-SELLING-ENGINE §2 — TYPE-ONLY, and it has to stay that way: the mask
 // imports `laneSpans` from this file as a VALUE, and the capacity book imports
 // `allocateBed`, so a value import back to either would be a real module cycle.
@@ -756,7 +756,7 @@ export function laneSpans(lane: BoardLane, exclude?: string | null): Array<{ sta
  *  `sellLayerFor` now reconciles the sell layer against
  *  the gap layer's finished cells (`reconcile` below), so the bed axis has one
  *  answer too — and the sentence above is finally true as written. */
-export function sellStaffLanes(lanes: BoardLane[], locked: string[]): SellStaffLane[] {
+export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): SellStaffLane[] {
   return lanes
     .filter((l) => l.group === 'staff' && l.window != null && l.listPrice > 0)
     .map((l) => ({
@@ -893,8 +893,8 @@ export interface SellDrop {
  *  box could both point at ベッド2 at the same minute. The shipped suppression
  *  ran inside `renderLane` and filtered `onThisLane` — the same DRAWN ROW — so
  *  it could not see a cross-row collision at all, and because it ran after
- *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, 安全な空き)
- *  were computed from boxes the screen then declined to draw.
+ *  `buildSellLayer` the counts it fed (公開中 N枠, 販売可能枠 N窓, the 運営影響
+ *  stat) were computed from boxes the screen then declined to draw.
  *
  *  Reconciling HERE, between `deriveSellableCells` and `buildSellLayer`, makes
  *  those counts honest BY CONSTRUCTION: every surface reads a layer built out of
@@ -1155,7 +1155,7 @@ export const isHeldBound = (c: SellCell): boolean => (c as { heldBound?: unknown
  *  purchasable, or be painted.
  *
  *  ⚖ R4's OWN LESSON, OBEYED. The reconcile moved out of the renderer in R4
- *  precisely because 公開中 N枠 / 販売可能枠 N窓 / 安全な空き and the 公開価格
+ *  precisely because 公開中 N枠 / 販売可能枠 N窓 / the 運営影響 stat and the 公開価格
  *  button were counting boxes the paint then declined to draw. Withholding at
  *  the RENDERER would rebuild that defect one law along, so it happens to the
  *  LAYER: every surface that reads the layer stays honest for free, both rows
@@ -1359,9 +1359,22 @@ export const isCrumbOffer = (c: { s: number; e: number }, sessionMin: number): b
  *
  *  R2, and the reason this cannot be done by adding the pieces up: the price is
  *  ONE `packedPrice` call over the union. Each piece is rounded to ¥10 on its
- *  own, and summing rounded pieces charges the rounding remainder twice. */
-function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKey: string, s: number, e: number) => number): GapCell[] {
-  const out: GapCell[] = []
+ *  own, and summing rounded pieces charges the rounding remainder twice.
+ *
+ *  ⚖ R6 fix round D1 — EXPORTED, because there are TWO producers now and only
+ *  one of them was merging. The fragment fallback emits through the same canon
+ *  function and then applies the same display floor, so an un-merged pair there
+ *  meets a floor written for merged runs: canon hands a menu-exact 50-minute
+ *  residue back as [30, 20], and the floor deletes the 20 the native layer
+ *  would have kept inside a 50-minute box. Generic over the cell so the
+ *  fallback's provenance fields ride through the merge rather than being cast
+ *  back on afterwards. */
+export function combineCrumbs<T extends GapCell>(
+  cells: readonly T[],
+  sessionMin: number,
+  priceUnion: (laneKey: string, s: number, e: number) => number,
+): T[] {
+  const out: T[] = []
   // The engine emits a staff row and a bed row per piece, so the previous cell
   // in the array is never the previous cell of the same run — each run is
   // tracked by its own (group, staff lane, bed) identity. A piece that found no
@@ -1372,7 +1385,7 @@ function combineCrumbs(cells: GapCell[], sessionMin: number, priceUnion: (laneKe
     const at = lastOfRun.get(runKey)
     const prev = at == null ? null : out[at]
     if (at != null && prev && prev.e === c.s && isCrumbOffer(prev, sessionMin) && isCrumbOffer(c, sessionMin)) {
-      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) }
+      out[at] = { ...prev, e: c.e, price: priceUnion(prev.laneKey, prev.s, c.e) } as T
       continue
     }
     lastOfRun.set(runKey, out.length)
@@ -1420,6 +1433,36 @@ export function gapPackingDials(
     gapFillPrice: (lane, s, e) => gapFillPrice(listOf(lane), s, e, opts.frame, opts.depth, opts.gapFillDiscountPct),
   }
 }
+
+/** ⚖ R6 B3 (plan R6, perf F11) — WHICH KIND OF BOX THIS IS, SAID ON THE CELL
+ *  rather than re-derived by whoever draws it.
+ *
+ *  The renderer used to ask `gapDrawn.packed.includes(c)` (TodayScreen :5252,
+ *  and again for the React key and the 名前タグ): an O(n) scan per cell per
+ *  frame whose answer is OBJECT IDENTITY. The day any pass copies a cell on its
+ *  way to the screen — a spread for a tag, a sort into a new array, a memo that
+ *  re-freezes — every 詰め込み box silently becomes a スキマ枠: wrong wash, wrong
+ *  word, wrong price format, and nothing anywhere to fail. The kind is a fact
+ *  about the box, so it is written ON the box, at BOTH producers, at creation,
+ *  which also keeps one object identity for every downstream consumer.
+ *
+ *  Canon's `GapCell` cannot grow a field, so this is `HeldBoundSellCell`'s exact
+ *  pattern (:1137-1144): an app-side interface the tag rides in, and ONE narrow
+ *  reader. Never test the property by hand. */
+export interface KindedGapCell extends GapCell {
+  readonly gapKind: 'packed' | 'scrap'
+}
+
+/** The one reader. An untagged cell reads as 'scrap' — the same answer
+ *  `.includes` gave for anything not in `packed` — so a cell from some future
+ *  producer that has not been taught to tag degrades exactly as it did before
+ *  rather than into a shape nobody has drawn. */
+export const gapKindOf = (c: GapCell): 'packed' | 'scrap' =>
+  (c as { gapKind?: unknown }).gapKind === 'packed' ? 'packed' : 'scrap'
+
+const kinded =
+  (gapKind: 'packed' | 'scrap') =>
+  (c: GapCell): KindedGapCell => ({ ...c, gapKind })
 
 /** The スキマ枠 (orange, discounted) and 詰め込みセッション (blue, full price)
  *  layers, derived from the same board reading as everything else. Canon's own
@@ -1481,9 +1524,14 @@ export function gapLayerFor(
   })
   const floor = opts.minSellableMin ?? 0
   const sellable = (c: GapCell) => c.e - c.s >= floor
+  // ⚖ R6 B3 — TAGGED AT THE RETURN, which IS creation for everything downstream:
+  // `combineCrumbs` mints new objects and the floor throws some away, so tagging
+  // any earlier would tag boxes the board never draws and leave the survivors of
+  // a merge untagged. These objects are the ones `gapClaims`, the reconcile, the
+  // fallback's survivor set and the renderer all hold.
   return {
-    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable),
-    scraps: raw.scraps.filter(sellable),
+    packed: combineCrumbs(raw.packed, opts.sessionMin, priceUnion).filter(sellable).map(kinded('packed')),
+    scraps: raw.scraps.filter(sellable).map(kinded('scrap')),
   }
 }
 
@@ -1529,6 +1577,45 @@ export interface RailCell {
   alternativeKind: 'safe' | 'least-loss' | null
   /** canon's `ackAllowed`: standard mode lets the 操作者 place anyway. */
   ackAllowed: boolean
+  /** ⚖ LIAM flag 92 (2026-08-31) — THE FACT UNDER THE SENTENCE, for the warn
+   *  card's impact panel.
+   *
+   *  `sentence` is the ENGINE'S OWN WORDS and stays that (⚖ GAP-6/FIX-6 bind
+   *  the check rows to it, byte-untouched). The warn card is the ⚖-approved NEW
+   *  surface and says the consequence in its own approved shape — so it needs
+   *  the DATA, not the prose, and the alternative would be string-editing the
+   *  engine's sentence back into numbers: flag 54's disease, one layer down.
+   *
+   *  Only `railCell` sets it, at the two branches where the engine has actually
+   *  weighed the protected window (`degraded`, and a guard refusal); every other
+   *  cell leaves it absent, which is the honest answer for a cell that never
+   *  reached the capacity question. `code` is the engine's own class, carried
+   *  rather than re-derived from the words.
+   *
+   *  ⚖ 92 fix round 5 V1 (breaker #4) — AND THE WINDOWS THEMSELVES, not only how
+   *  many there were. The card's ¥ used to be its own arithmetic (定価 × the
+   *  protected length × the loss count), which is a SECOND BASIS for a question
+   *  the board already answers through canon's pricing door — proven −23%..+10%
+   *  off the figure the very same screen prints for the very same minutes. The
+   *  engine has always carried the window STARTS (gap-guard :84-85, its own
+   *  `.slice()` copies), so carrying them here lets the composer ask canon what
+   *  those exact spans are worth instead of inventing a price for them.
+   *
+   *  BOTH SETS, never a pre-computed difference: the after-set is re-solved by
+   *  the same earliest-finish greedy with the placement excluded, so its starts
+   *  can SHIFT rather than being a subset (a 10:00 landing on a free day turns
+   *  [10:00, 11:30, 13:00, …] into [11:00, 12:30, 14:00, …] — six starts in
+   *  「before」 and none of them in 「after」, for a loss of exactly one). What the
+   *  store loses is therefore the difference of the two sets' VALUE, and only
+   *  the two sets can answer that. Same `GuardResult`, same expression as the
+   *  counts above, so the pair can never disagree with them. */
+  impact?: {
+    code: GuardReason['code']
+    capacityBefore: number
+    capacityAfter: number
+    windowsBefore: number[]
+    windowsAfter: number[]
+  }
 }
 
 export interface GuardRail {
@@ -1649,7 +1736,19 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
   // `input.close` and takes the render thread with it. Unreachable today only
   // because both call sites hardcode canon's 30 — which is exactly the kind of
   // "safe by accident" a settings dial stops being. No step, no rails.
-  if (input.stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — AND NOW IT CATCHES NaN, which `<= 0`
+  // never could: NaN fails every comparison, so a non-numeric step walked
+  // straight past this line, painted ONE cell at `input.open`, then ended the
+  // loop the moment `start` became NaN. Not a hang — a SILENT WRONG ANSWER,
+  // which is worse: the rail rendered, and it was a lie about the rest of the
+  // day. The room shipping this round puts a real number field (予約の刻み) in
+  // front of an operator for the first time, so the shape that catches an empty
+  // or half-typed box is the one this file already uses for exactly this reason
+  // (`impactOf`'s `!(protectedDur > 0)`). Infinity goes with it: a step no
+  // arithmetic can advance is no step. Same answer as before — no step, no
+  // rails — for one more class of input.
+  if (!(Number.isFinite(input.stepMin) && input.stepMin > 0)) return []
   const engine = createGapGuard(input.guard)
   const rails: GuardRail[] = []
   for (const lane of lanes) {
@@ -1778,6 +1877,16 @@ function railCell(
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
       ackAllowed: true,
+      // ⚖ 92 — the same two numbers the sentence above spells, carried as data.
+      // ⚖ 92 fix round 5 V1 (breaker #4) — plus the window starts behind them, so
+      // the card can price the loss through canon instead of guessing at it.
+      impact: {
+        code: 'DEGRADED',
+        capacityBefore: v.protectedCapacityBefore,
+        capacityAfter: v.protectedCapacityAfter,
+        windowsBefore: v.protectedWindowsBefore,
+        windowsAfter: v.protectedWindowsAfter,
+      },
     }
   }
   return {
@@ -1785,6 +1894,20 @@ function railCell(
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,
+    // ⚖ 92 — the engine's own class (R-REP / R-DEAD / R-SALV), carried rather
+    // than read back out of the sentence it produced.
+    // ⚖ 92 fix round 5 V1 (breaker #4) — with the window starts, as above.
+    ...(v.reason
+      ? {
+          impact: {
+            code: v.reason.code,
+            capacityBefore: v.protectedCapacityBefore,
+            capacityAfter: v.protectedCapacityAfter,
+            windowsBefore: v.protectedWindowsBefore,
+            windowsAfter: v.protectedWindowsAfter,
+          },
+        }
+      : {}),
   }
 }
 
@@ -2229,7 +2352,32 @@ export function offerableCell(
   // candidate is garbage and the gate is asked about starts that do not exist.
   // No lattice means nothing this function can honestly offer, so it offers
   // nothing rather than something meaningless.
-  if (stepMin <= 0) return { ...cell, alternatives: [] }
+  //
+  // ⚖ 92 fix round 2 S5 (stress lens #8) — AND THE TEST IS `!(stepMin > 0)`,
+  // NOT `<= 0`. NaN fails every comparison, so a settings text input that hands
+  // this a NaN step walked straight past the old gate into the same arithmetic
+  // the gate exists to refuse — and the card put 「NaN:NaNに置く」 on its biggest
+  // control.
+  //
+  // ⚖ 92 fix round 10 V1 (breaker #9 #1) — AND THE STEP MUST BE FINITE, NOT
+  // MERELY POSITIVE. S5's own closing claim was false: it said the only value
+  // newly caught was the one that is not a number, and Infinity IS a number
+  // greater than zero. It sailed through, `s % Infinity` is `s` — never 0 — so
+  // every start took the off-lattice branch, where `Math.floor(s / Infinity) *
+  // Infinity` is `0 * Infinity` = NaN: 「NaN:NaNに置く」 back on the biggest
+  // control, through the gate written to stop it. A settings field reaching
+  // `Number('1e400')` or a bare `Infinity` is the same text input S5 named.
+  // Behaviour-identical for every finite step; ±Infinity and NaN now share the
+  // one door.
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND (fix round 1 F8) — AND THE CLAUSE THAT USED TO
+  // STAND HERE IS DELETED, NOT CORRECTED. It said `guardRailsFor` could keep the
+  // weaker `<= 0` spelling because 「the rail comes back short rather than wrong
+  // — a degeneracy, not a lie on a control」. The settings round's own M1 red-run
+  // disproved it on a NaN step: the rail painted ONE cell at `input.open` and
+  // then ended, so it did not come back short, it came back WRONG about the rest
+  // of the day. That sibling now carries this same guard (:1703) and says so.
+  if (!(Number.isFinite(stepMin) && stepMin > 0)) return { ...cell, alternatives: [] }
   const out: number[] = []
   for (const s of cell.alternatives) {
     const candidates = s % stepMin === 0 ? [s] : [Math.floor(s / stepMin) * stepMin, Math.ceil(s / stepMin) * stepMin]
@@ -2279,7 +2427,18 @@ export function nearestFreeStarts(
   // board's whole render thread with it. A refusal box is not the place to find
   // out a store typed 0 into a settings field: no step means no lattice to walk,
   // and no lattice means nothing to offer.
-  if (stepMin <= 0) return []
+  //
+  // ⚖ 9/1, THE SETTINGS ROUND'S RIDER — the SAME shape as `guardRailsFor`'s
+  // sibling guard, landed in the same commit as the 予約の刻み field that can
+  // finally produce a non-number. ⚠ AND IT IS THE HONEST HALF OF THAT PAIR:
+  // unlike the rail's, this guard changes NO behaviour. A NaN step makes
+  // `attempted + dir * stepMin` NaN, and `NaN >= hours.open` is false, so the
+  // loop never ran and this already returned `[]` — measured, not assumed. It is
+  // kept because a reader may not be left to work that out from the arithmetic:
+  // the two siblings now refuse the same inputs in the same words, and neither
+  // is safe only by accident. The packet's 「nearestFreeStarts can HANG on NaN」
+  // does not reproduce; the rail's silent-wrong-answer, next door, does.
+  if (!(Number.isFinite(stepMin) && stepMin > 0)) return []
   const out: number[] = []
   for (const dir of [-1, 1] as const) {
     for (let s = attempted + dir * stepMin; s >= hours.open && s + dur <= hours.close; s += dir * stepMin) {
@@ -2550,6 +2709,33 @@ export function liveTimeLabel(nodes: readonly Element[], text: string): void {
     const t = node.querySelector('.e-time')
     if (t) t.textContent = text
   }
+}
+
+/** ⚖ R8 GAP-11 — THE CARD IN HAND SAYS THE TIME UNDER THE CURSOR.
+ *
+ *  A card being CARRIED shares its face with the one standing on the board
+ *  (`cardFace`), and that face prints the booking's committed start — so for the
+ *  whole gesture the thing in the operator's hand advertised where it came FROM
+ *  while the dashed landing under it said where it was going. Two answers to one
+ *  question, which is ⚖ 54's disease on the one surface the eye is actually on.
+ *
+ *  `liveStartMin` is the landing the ghost is already drawn from, in minutes;
+ *  `null` means there is no landing to speak of (nothing in flight, over the
+ *  shelf, off the board) and the card keeps the label it rests with. The
+ *  grammar is `today-board`'s own — `${hhmm(startMinute)}〜`, start only
+ *  (:423) — reused rather than re-spelled, so a card in hand and the same card
+ *  at rest can never format one minute two ways.
+ *
+ *  ⚖ FIX ROUND 1 (blind round 1, L1 F2) — AND THE SAME LIE WAS ON THE BLOCK.
+ *  A 休憩/予定ブロック in flight printed the time it came FROM too, for exactly
+ *  the reason the card did, so it gets the same answer here rather than a
+ *  second author on the same board. Its face is the OTHER grammar today-board
+ *  writes — `${hhmm(start)}〜${hhmm(end)}` (:462 休憩, :472 block), a span and
+ *  not a start — so an end minute, when the caller has one already in render,
+ *  selects it; no end, and the start-only card grammar stands. */
+export function proxyTimeLabel(restTime: string, liveStartMin: number | null, liveEndMin: number | null = null): string {
+  if (liveStartMin == null) return restTime
+  return liveEndMin == null ? `${hhmm(liveStartMin)}〜` : `${hhmm(liveStartMin)}〜${hhmm(liveEndMin)}`
 }
 
 /** Every drawing of one booking. The board puts the same card on a staff lane
@@ -2990,6 +3176,127 @@ export interface LandingVerdict {
   checks: Check[]
 }
 
+/** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,
+ *  and canon is frozen. The constant is the app side's copy of that literal, and
+ *  it is pinned against the canon source so the two cannot drift apart in
+ *  silence (today-screen-interactions.test.ts). */
+export const PRICE_HOLD_ROW = '予約時価格を保持（動的価格は適用しません）'
+
+/** ⚖ R8 T1 — A CHECK ROW THAT NEVER RAN A CHECK.
+ *
+ *  canon asserts 予約時価格を保持 over every landing, including a booking that
+ *  has NO recorded price (apt-09 carries `booked_price: null` by documented
+ *  fixture intent). The row then promises to hold a number that does not exist,
+ *  on a card whose own 予約時価格 fact three lines away reads 記録なし.
+ *
+ *  The row is DROPPED rather than reworded (Fable default, overturnable): the
+ *  fact line already says 記録なし in the operator's own words, so a second
+ *  sentence about the same nothing is noise, and rewording it would be a new
+ *  operator string for a state the surface can already say.
+ *
+ *  Pure, and applied at the two app callers that consume canon's raw rows —
+ *  `landingVerdict` below and the screen's `checksFor`. Order is canon's: a
+ *  filter, never a rebuild. */
+export function withPriceFact(checks: Check[], hasPrice: boolean): Check[] {
+  return hasPrice ? checks : checks.filter((c) => c.label !== PRICE_HOLD_ROW)
+}
+
+/** ⚖ R8 FIX ROUND 3 (BREAKER-828 F1 + F3) — THE THREE SETS THE PRICE QUESTION
+ *  IS ANSWERED FROM, built by ONE author and beside the rule that reads them.
+ *
+ *  F3 — WHY IT LEFT THE SCREEN. The memo built these inline, where an anchored
+ *  text pin was the only armour there is, and two tsc-clean edits inside it
+ *  re-opened this item's own defect: a wrapper-body `addedPriced.add(...)` that
+ *  stamped every session row whatever its mint said, and a `priced` rebuilt off
+ *  the server's LANES so every card on the board counted as priced while the
+ *  page's 根拠 list still said no. Set-building is logic; logic lives where a
+ *  truth table can be written about it.
+ *
+ *  F1 — AND THE SHELF IS A SESSION SOURCE, exactly like `added`. A chip carried
+ *  to another day (⚖ Liam 22 — `placeFromShelf` supports that on purpose) is on
+ *  none of THAT day's server lanes and in no `added` row until it lands. The two
+ *  questions asked about the same chip — the mid-drag word (`inHand`) and the
+ *  release (`chipAsk`) — therefore answered 「no price」 for a priced booking in
+ *  hand and 「price」 one gesture later, after the drop stamped the row from
+ *  `chip.priced`: one gesture, two answers to one question, which is the disease
+ *  this item exists to remove. The shelf's own park-time stamp joins the session
+ *  set, so the answer is the same in hand and after the drop.
+ *
+ *  `sessionPriced` is the UNION of the two session writers — rows this session
+ *  added ∪ chips on the shelf — and both halves are STAMPS, never a reading of
+ *  the card's ticket line. `fromServer` is every booking the server's lanes know,
+ *  priced or not: it is what tells a server card apart from a session one, and
+ *  the reason a price-less server booking cannot be answered for by the session.
+ *  Pure — no React, no props, nothing to memoise here. */
+export function priceFactSets(input: {
+  pricedIds: readonly string[]
+  serverLanes: readonly BoardLane[]
+  added: readonly { priced: boolean; item: { caseId: string | null } }[]
+  parked: readonly { id: string; priced: boolean }[]
+}): { priced: ReadonlySet<string>; fromServer: ReadonlySet<string>; sessionPriced: ReadonlySet<string> } {
+  const fromServer = new Set<string>()
+  for (const lane of input.serverLanes) for (const item of lane.items) if (item.caseId != null) fromServer.add(item.caseId)
+  const sessionPriced = new Set<string>()
+  for (const row of input.added) if (row.priced && row.item.caseId != null) sessionPriced.add(row.item.caseId)
+  for (const chip of input.parked) if (chip.priced) sessionPriced.add(chip.id)
+  return { priced: new Set(input.pricedIds), fromServer, sessionPriced }
+}
+
+/** ⚖ R8 T1, FIX ROUND 1 (blind round 1, L2 F10) — 「DOES THIS PLACEMENT HAVE A
+ *  PRICE THE 保持 ROW CAN BE ABOUT?」, asked once for the whole screen.
+ *
+ *  It lives HERE, over four primitives, because the answer IS the item: the
+ *  screen's own closure could have its guard dropped and 444 tests stayed green
+ *  — the wiring was counted, the decision was not. Its two siblings on this
+ *  round (`withPriceFact`, `proxyTimeLabel`) were lifted for that reason and
+ *  this one was not; the truth table below is now pinned like theirs.
+ *
+ *  Two kinds of card stand on this board and they carry their price in two
+ *  different places:
+ *  · a card the SERVER put here answers from the server's own record —
+ *    `priced`, the bookings whose `price` is non-null. apt-09 has none by
+ *    documented fixture intent, and it is the scene this item is for.
+ *  · a card this SESSION put on the board has no server row at all; it answers
+ *    from the STAMP its mint wrote on the row (`AddedRow.priced` — the lane's
+ *    定価 for a 次回予約, `null` on a lane with no 定価 (⚖ R6 D2); the chip's own
+ *    park-time stamp for a shelf placement; the dialog's コース for a creation).
+ *  · a booking this session is HOLDING — a chip on the shelf — answers from that
+ *    same park-time stamp, before it has landed anywhere. `sessionPricedIds` is
+ *    the union of those two, and nothing else.
+ *
+ *  The two are told apart by whether the SERVER's lanes know the id
+ *  (`fromServer`) — never by the shape of the id, and never by the mint alone:
+ *  a real booking's ticket line is non-null even with no price (「価格未記録」/
+ *  「残り3回」), and `placeFromShelf` puts a real booking's own card back into
+ *  the session's list, so reading the session FIRST would answer 「price」 for
+ *  apt-09, which is the exact bug this item removes. That ordering is the whole
+ *  logic, and it is why the guard is a pinned row and not a comment.
+ *
+ *  ⚖ FIX ROUND 2 (Greptile on #828) — AND THE SESSION'S SIDE IS A STAMP NOW,
+ *  never a reading of the card. The session set used to be built from
+ *  `item.ticketCore != null`, which is DISPLAY TEXT: on ANOTHER DAY, where
+ *  `priced` and `fromServer` are both empty, a price-less booking placed from
+ *  the shelf still carried the non-null line 「価格未記録」 and the 保持 row came
+ *  back on exactly the booking T1 removed it from. Every writer now stamps
+ *  `AddedRow.priced` / `ParkChip.priced` at the moment the price is known, and
+ *  this function only reads.
+ *
+ *  ⚖ FIX ROUND 3 (BREAKER-828 F1) — AND THE FOURTH ARGUMENT IS THE WHOLE
+ *  SESSION, which is why it is named for the session and not for `added`. It is
+ *  the UNION of the rows this session put on the board and the CHIPS on the
+ *  shelf (`priceFactSets` above builds it): a chip is a session-held booking
+ *  that has not landed yet, and while it is in the operator's hand on another
+ *  day nothing else on that board knows its price. Reading only `added` is what
+ *  made one gesture answer twice — false in hand, true after the drop. */
+export function hasPriceFact(
+  id: string | null,
+  priced: ReadonlySet<string>,
+  fromServer: ReadonlySet<string>,
+  sessionPricedIds: ReadonlySet<string>,
+): boolean {
+  return id != null && (priced.has(id) || (!fromServer.has(id) && sessionPricedIds.has(id)))
+}
+
 /** One landing, as a question. Every field is something the caller already has;
  *  nothing here reads the DOM, so the same question is asked by the mid-drag
  *  cursor, by the 60分配置 strip's × marks and by the release itself. */
@@ -3011,6 +3318,12 @@ export interface LandingQuestion {
   span: { x: number; w: number }
   /** ⚖ 46 — a chip or a 配置モード intent carried onto a foreign store's board. */
   foreignRefusal: string | null
+  /** ⚖ R8 T1 — does this placement have a price the 保持 row can be ABOUT?
+   *  REQUIRED, because absent would have to default to one of the two answers
+   *  and both defaults lie on the other half of the board: `true` re-asserts the
+   *  row over a price-less booking (the defect), `false` deletes it from every
+   *  caller that simply forgot to say. The screen answers it per gesture. */
+  hasPrice: boolean
   locked: string[]
   rooms: RoomPolicy
   minutesOf: (x: number) => number
@@ -3019,6 +3332,18 @@ export interface LandingQuestion {
    *  honest default: a board with nothing staged has no such occupant, and every
    *  caller that genuinely has one passes it. */
   stagedId?: string | null
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — WHO IS ASKING, at the only
+   *  landing class where the store's dial has anything to say about it.
+   *
+   *  Every other field here is geometry, and that was the whole bug: with no
+   *  operator in the question, a STRICT store's guard refusal was `'hard'` for
+   *  everyone, so 「確保枠を壊す場所に置けるのは店長だけです」 shipped over a board
+   *  where the 店長 could not place there either. `TodayScreen` has had the answer
+   *  all along (`props.overrideLevel`) and simply never handed it over.
+   *
+   *  OPTIONAL, and absent means NOT ADMITTED (`dialAdmits`): the callers that ask
+   *  this question about pure geometry keep working and keep the closed answer. */
+  overrideLevel?: OverrideLevel
 }
 
 /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT HOME.
@@ -3092,14 +3417,20 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       spans.push({ id: i.caseId ?? i.key, x: i.x, w: i.w, title: i.title, derived: i.kind === 'cleanup', parked: false })
     }
   }
-  checks = computeChecks(q.span, {
-    spans,
-    bookingId: q.id ?? '',
-    staffName: staff.label,
-    staffUntil: staff.untilLabel,
-    laneLocked: q.locked.includes(staff.key),
-    minutesOf: q.minutesOf,
-  })
+  // ⚖ R8 T1 — canon's rows, minus the 価格保持 assertion when there is no price
+  // to hold. Applied HERE, at the raw-canon entry point, so the cursor word, the
+  // × strip and the red box's fact list all read one filtered list.
+  checks = withPriceFact(
+    computeChecks(q.span, {
+      spans,
+      bookingId: q.id ?? '',
+      staffName: staff.label,
+      staffUntil: staff.untilLabel,
+      laneLocked: q.locked.includes(staff.key),
+      minutesOf: q.minutesOf,
+    }),
+    q.hasPrice,
+  )
 
   // ⚖ STORE ISOLATION on the explicit room choice — `allocateBed` filters, this
   // tests, and `sharesStore` is the one spelling of the rule either way.
@@ -3181,7 +3512,40 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
   // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls
   // impossible is not a floor a manager can be given authority over.
-  if (cell?.state === 'blocked' && !cell.ackAllowed) return stop(cell.sentence, 'hard')
+  //
+  /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — AND THE STRICT DIAL'S REFUSAL
+   *  IS NOT THAT FLOOR, SO IT IS NOT EVERYONE'S.
+   *
+   *  `ackAllowed: false` arrives from TWO different places and this line read
+   *  them as one:
+   *    · gap-guard :372 — `R-UNAVAILABLE`, a placement that cannot be made. It
+   *      comes through `railCell`'s `blocked()` with NO `impact` at all, because
+   *      the engine never weighed a protected window there.
+   *    · gap-guard :398 — `ackAllowed = mode === 'standard'`, i.e. the STORE'S
+   *      strict dial refusing a landing the engine has costed. It always carries
+   *      an `impact`: that is what the refusal is about.
+   *  Collapsing them made the store's own dial as absolute as physics, so at
+   *  STRICT no drag, nudge or rail tap could place for ANYONE — while this very
+   *  round ships 「確保枠を壊す場所に置けるのは店長だけです」 on the settings page.
+   *
+   *  THE SPLIT IS THE ENGINE'S OWN SIGNAL, NEVER THE MODE. `lossOf(cell) > 0` is
+   *  the identical test `warnFaceFor` calls `guardWarn`, so the card and the board
+   *  classify one cell one way. Reading `mode` instead would soften physics: an
+   *  `R-UNAVAILABLE` at a strict store would become escalatable, and ⚖ 73 says a
+   *  floor the engine calls impossible is not one a manager may be given
+   *  authority over. The mutation is pinned red for exactly that reason.
+   *
+   *  'policy' is not a grant — it is the floor the board already escalates
+   *  through (a failed 勤務/ロック row lands here), so the operator still reads
+   *  置けない and still has to press 注意して配置; `canOverride` is the authority
+   *  gate, untouched. For a `refuse` operator the stop stays `'hard'`, which is
+   *  the dial's promise word for word: the sentence, the safe suggestions and
+   *  元に戻す, and no button onto a card they could not commit. */
+  if (cell?.state === 'blocked' && !cell.ackAllowed) {
+    return lossOf(cell) > 0 && dialAdmits(q.overrideLevel)
+      ? stop(cell.sentence, 'policy')
+      : stop(cell.sentence, 'hard')
+  }
   if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
   return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
 }
@@ -3220,6 +3584,30 @@ export function overrideLevelFor(
   return policy.roles.includes(operator.role) ? 'allow-warned' : 'refuse'
 }
 
+/** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — DOES THE 上書きの権限 DIAL ADMIT
+ *  THIS OPERATOR? One spelling, because TWO seams now gate on the answer and they
+ *  may never disagree: the LANDING (`landingVerdict`, whether the strict store
+ *  even offers the escalation) and the CARD (`warnFaceFor`, whether the staged
+ *  commit is live). Round 1 fixed only the second, and the delta-verifier proved
+ *  the first still walled everyone — the board hard-stopped 店長 at the landing,
+ *  so the composer's permitted arm was reachable only when the board moved under
+ *  an already-staged hold. Two questions, one predicate, no drift.
+ *
+ *  ⚠ ABSENT IS NOT ADMITTED. `LandingQuestion.overrideLevel` is optional (most
+ *  callers of that shape are asking about geometry, not people), so this answers
+ *  `false` for `undefined` — a caller that has not been taught the question gets
+ *  the CLOSED answer. A permission gate that fails open on a forgotten field is
+ *  the defect this round exists to remove, not one to introduce next to it.
+ *
+ *  'needs-approval' IS admitted here, deliberately (⚖ D2, which refused the
+ *  verifier's `level !== 'allow-warned'`): the dial promises 確定できなくなります,
+ *  and a DISABLED 店長に許可を求める is not a 確定 — the sentence stays literally
+ *  true while the approval tier keeps the middle ground it was designed for. It
+ *  is unreachable today at BOTH seams (`overrideLevelFor` cannot return it), so
+ *  this states the contract rather than lighting a path. */
+export const dialAdmits = (level: OverrideLevel | undefined): boolean =>
+  level === 'allow-warned' || level === 'needs-approval'
+
 /** ⚖ SPEC-SELLING-ENGINE §1's Release clause, MANUAL half (ruling Q5, 8/30:
  *  release is automatic AND a manager button, logged) — WHO MAY PRESS IT.
  *
@@ -3256,6 +3644,687 @@ export const canReleaseHeld = (roles: readonly string[], operator: { role: strin
 export function overrideCaption(checks: Check[], override: string | null): { enabled: boolean; label: string } {
   return confirmCaption(override == null ? checks : checks.filter((c) => c.ok || c.label !== override))
 }
+
+// ── ⚖ LIAM flag 92 — 警告カード: the confirm surface's warn face ─────────────
+
+/** ⚖ LIAM flag 92 (2026-08-31, design-approved on `warncard-design.html`) — ONE
+ *  CARD, COMPOSED BY THE STORE'S SETTINGS.
+ *
+ *  Today a placement that costs the store its protected 新規 window stages a
+ *  仮押さえ whose confirm card shows four green ✓s and one quiet △ — it reads
+ *  "all clear" for a move that is about to make the day worse. His ruling is
+ *  that the SAME popover re-composes when the staged card carries a warn-grade
+ *  fact: the consequence leads, the safe alternative is the biggest control on
+ *  the card, and the commit says out loud what it commits to.
+ *
+ *  IT IS A COMPOSER, NOT A RENDERER, for this file's own stated reason: an
+ *  answer the operator acts on has to be provable without a renderer. Every
+ *  branch of the ruling set — the three permission faces, the long-press dial,
+ *  the name line, the three alternative shapes, the ¥ — is decided HERE, and
+ *  TodayScreen paints the model it hands back.
+ *
+ *  THE CLEAN FACE IS UNTOUCHED. `face: 'clean'` is the byte-identical card that
+ *  ships today, and the screen keeps its existing render for it — this function
+ *  only ever ADDS a second face to a surface that had one. */
+export interface WarnCardInput {
+  /** The confirm surface's own rows, in its own ✓/×/△ grammar — composed once,
+   *  by the screen, so the two faces can never disagree about what was checked.
+   *  `''` = ✓ passed, `'bad'` = × still blocking, `'warn'` = △ walked past. */
+  rows: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
+  /** The guard's verdict at the staged start. `null` = the guard is off, or the
+   *  lane owns no cell there. */
+  cell: RailCell | null
+  /** The red sentence this landing was placed THROUGH (`pending.override`). */
+  override: string | null
+  /** ⚖ ruling 91's three levels, threaded whole (see `overrideLevel` on
+   *  TodayProps for why the boolean could not carry this). */
+  level: OverrideLevel
+  /** ⚠SETTINGS-BATCH — `storeBookingPolicy.overrideHoldToConfirm`. */
+  holdToConfirm: boolean
+  /** `BoardLane.mine` on the lane the staged card now sits on (today-board :548,
+   *  already computed from `operatorStaffId` — READ ONLY, never re-derived). */
+  targetLaneMine: boolean
+  operatorName: string
+  /** The staff lane's own `listPrice`. `<= 0` = this store prices nothing here,
+   *  and the card says nothing about money rather than guessing a zero. */
+  listPrice: number
+  /** ⚖ 92 fix round 5 V1 (breaker #4) — THE BOARD'S OWN PRICE FRAME, threaded
+   *  rather than re-derived: `frame` and `depth` are the very objects the sell
+   *  layer is built from on the same screen (`sellLayerFor`'s `hi`/`hqMin`/
+   *  `depth` opts, composed once at TodayScreen :1341-1345), so the card's ¥ and
+   *  the board's ¥ are answers from one set of levers by construction.
+   *
+   *  `null` = a store with no pricing frame at all, and it omits the ¥ exactly as
+   *  `listPrice <= 0` does: a wrong number is worse than no number. */
+  frame: PriceFrame | null
+  /** The store's 割引の深さ, the sell layer's own `depth` opt. */
+  depth: number
+  /** 新規のお客様のために確保する長さ (`props.guard.protectedDurationMin`). */
+  protectedDur: number
+  /** `overrideCaption`'s answer, carried in. ⚖ 50(d)'s gate is UNTOUCHED and is
+   *  still the only thing that decides whether a commit may fire. */
+  confirmEnabled: boolean
+}
+
+/** The commit control, which on a warn face is never the neutral この内容で確定:
+ *  a button that commits to a cost has to name the cost. */
+export interface WarnCardCommit {
+  /** `hold` = the store's 0.6-秒 long press · `press` = a plain warn button ·
+   *  `approval` = the UNREACHABLE 承認 request (see the level branch below). */
+  kind: 'hold' | 'press' | 'approval'
+  label: string
+  enabled: boolean
+  /** The small line under the 承認 control. `null` on the two live kinds. */
+  note: string | null
+}
+
+export interface WarnCardModel {
+  face: 'clean' | 'warn'
+  /** The amber impact panel, split at the money so the ¥ can carry its own
+   *  emphasis (the approved page's `.yen`). `yen: null` omits the parenthetical
+   *  ENTIRELY, and `head + tail` then reads as one unbroken sentence. */
+  impact: { head: string; yen: string | null; tail: string }
+  /** Where the authority came from, and whose name the record will carry. */
+  provenance: string | null
+  /** The red 店長のみ line, and ⚖ 9/1 ruling 1/2 LEFT IT WITH NO PRODUCER: the
+   *  dial no longer walls a merely-costly landing, so nothing in this composer
+   *  fills it any more. Kept — slot, render and its one red CSS rule — for the
+   *  same stated reason the 'needs-approval' face is kept unreachable: the
+   *  settings round owns the presets, and a wall it may yet decide to light must
+   *  be RE-LIT rather than re-invented. Always `null` until then. */
+  lock: string | null
+  /** The safe answer, and it is always the biggest control on the card. `place`
+   *  is a real alternative start; `null` omits the slot (⚖ 31c — never a dead
+   *  button).
+   *
+   *  ⚖ 92 fix round 3 T2 (breaker #2) — THERE IS NO THIRD SHAPE. The 'info' line
+   *  「ここが、損が最少の開始です」 was the SURFACE's own claim, and it fired on
+   *  every degraded cell whose alternatives came back empty — including the ones
+   *  EMPTIED BY THE SNAP GATE above, where the engine had named a better start
+   *  and the store's lattice could not reach it. It then stood over the engine's
+   *  own 「11:45はこの区間で損が最少の開始です」 saying the opposite. When there
+   *  is no offer the slot is simply empty.
+   *
+   *  ⚖ 92 fix round 5 V3 (breaker #4) — AND T2'S CURE BECAME THIS ROUND'S
+   *  DISEASE, so it is reversed. T2 filled the empty slot by appending the
+   *  engine's own check row, reading ⚖ GAP-6's 「on the HOLD popover it is the
+   *  only answer there is」 as a duty. On THIS face it is neither. The row's
+   *  first clause repeats the panel — the impact headline above it already
+   *  states the loss in the approved words — and its second clause names a
+   *  least-loss START, which is precisely the start the draw gates deliberately
+   *  withheld (round-2 S1's clean-only bar, round-3 T1's level bar, round-4 U1's
+   *  strictly-better-loss bar). So the card said 「11:45はこの区間で損が最少の
+   *  開始です」 in a row while refusing to offer 11:45 as a button: duplication
+   *  above, contradiction-by-absence below. FIX-6's own principle is the answer —
+   *  a surface picks the row it is ENTITLED to rather than re-authoring the
+   *  engine — and this surface is entitled to none: the panel plus 元に戻す is
+   *  the whole honest answer when there is nothing to offer. */
+  safePrimary: { kind: 'place'; start: number; main: string; sub: string } | null
+  commit: WarnCardCommit | null
+  /** ⚖ 52 / 73-74 — every row the panel did NOT consume, in the board's existing
+   *  grammar. A record may never go invisible because a nicer face was drawn. */
+  rows: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
+  /** The passed rows, as one muted sentence. `null` when nothing passed. */
+  greensLine: string | null
+}
+
+/** ⚖ 92 — WHAT THE GREEN TICKS REDUCE TO. Four ✓ rows saying four true things
+ *  are four things to read on a card whose whole point is the ONE thing that is
+ *  wrong, so the approved design demotes them to a single muted line.
+ *
+ *  Keyed on a stable fragment of `computeChecks`' own labels (drag-rules
+ *  :206-228, FROZEN) rather than on the whole sentence, because the sentences
+ *  carry names and clock times.
+ *
+ *  ⚖ 92 fix round 2 S2 (stress lens #3) — AND A ROW THIS LINE HAS NO NAME FOR
+ *  STAYS A ROW. The count form it used to fall back to (「その他の確認（5件）は
+ *  問題ありません」) had TWO faults at once: 「その他の」 had no antecedent —
+ *  nothing else on the card named a first group for it to be other than — and
+ *  buying that sentence cost the operator the one ok row the frozen engine
+ *  emits that is actual news, the 清掃 auto-re-place notice, which vanished
+ *  into a number the moment it appeared. So the named sentence folds ONLY the
+ *  subjects it can name, and every other ✓ row keeps its place in `rows`,
+ *  rendered in the clean face's own ✓ grammar (⚖ 73-74 — a record may never go
+ *  invisible because a tidier face was drawn over it). Nothing is guessed at
+ *  either way; the day the frozen engine grows a fifth row, the card shows it. */
+const GREEN_SUBJECTS: ReadonlyArray<[fragment: string, subject: string]> = [
+  ['時間帯の重複なし', '時間の重複'],
+  ['勤務時間内', '勤務時間'],
+  ['資格', '資格'],
+  ['価格を保持', '価格'],
+]
+
+/** The one home for "does the muted line have a word for this row?" — asked by
+ *  the line itself and by the row filter below, so the two can never disagree
+ *  about which ✓ rows the sentence consumed. */
+const greenSubjectOf = (label: string): string | null =>
+  GREEN_SUBJECTS.find(([fragment]) => label.includes(fragment))?.[1] ?? null
+
+/** ⚖ 92 fix round 8 Z4 (breaker #7 #5) — AND EACH SUBJECT IS NAMED ONCE. The
+ *  subjects are keyed on FRAGMENTS of the frozen engine's labels, so two rows
+ *  can legitimately carry the same one — the day `computeChecks` grows a second
+ *  資格 row, the muted line reads 「…資格・資格は…」. A set is the whole fix, and
+ *  it keeps the first-seen order the four subjects are already written in. */
+function greensLineOf(oks: ReadonlyArray<{ label: string }>): string | null {
+  const subjects = oks.map((r) => greenSubjectOf(r.label)).filter((s): s is string => s !== null)
+  return subjects.length > 0 ? `${[...new Set(subjects)].join('・')}は問題ありません` : null
+}
+
+/** ⚖ 92 fix round 5 V1 (breaker #4) — WHAT A SET OF PROTECTED WINDOWS IS WORTH,
+ *  ASKED OF CANON. `gapFillRawTotal` is the door the board's own 詰め込み price
+ *  is built on (pricing.ts :128-141 — it pro-rates `priceAt` hour by hour and
+ *  leaves the rounding to its caller), so the card is reading the same curve,
+ *  from the same levers, as the boxes drawn behind it.
+ *
+ *  ⚖ 92 fix round 6 X5 (breaker #5) — AND THE ROUNDING SENTENCE SAYS WHAT
+ *  ACTUALLY HAPPENS HERE. 「Unrounded on purpose」 was half true and read as the
+ *  whole truth: `priceAt` (pricing :58) rounds EVERY hour to ¥10 inside canon,
+ *  so what this total carries unrounded is the PRO-RATING remainder — never the
+ *  hourly price, which canon has already rounded at its own door. The ¥10 round
+ *  the card adds is its own, applied ONCE to the difference rather than once per
+ *  window, because 約 may not license a figure to the digit and rounding per
+ *  window double-counts the remainder. Canon's door, canon's rounding; ours on
+ *  top of it, once. */
+const protectedValueOf = (starts: readonly number[], listPrice: number, protectedDur: number, frame: PriceFrame, depth: number) =>
+  starts.reduce((total, s) => total + gapFillRawTotal(listPrice, s, s + protectedDur, frame, depth), 0)
+
+/** ⚖ 92 — THE CONSEQUENCE, IN THE APPROVED SENTENCE SHAPE, FROM THE DATA.
+ *
+ *  ⚖ LAW BOUNDARY, spelled out because it is the one thing easy to get wrong
+ *  here: ⚖ GAP-6 / FIX-6 bind the CHECK ROWS to the engine's own sentence
+ *  (`guardCheckRow` / `…BesideOffer`, byte-untouched above) — the rail and the
+ *  consult box keep the engine's words exactly. This panel is the ⚖-approved
+ *  NEW surface, so it composes from `cell.impact`'s numbers (⚖ 92's own field)
+ *  and never by string-editing the engine's sentence back into data.
+ *
+ *  A class the approved design gave no shape to — R-DEAD / R-SALV, a pocket
+ *  that cannot hold the session, a room that cannot — keeps the ENGINE'S
+ *  SENTENCE VERBATIM as the headline. Inventing a fifth sentence for a case
+ *  nobody ruled on is how a surface starts disagreeing with the board.
+ *
+ *  ⚖ 92 fix round F1 (blind L4#1 + L4#2 + L1#3) — AND THE FACT IS THE LOSS
+ *  COUNT, NEVER THE REASON CODE. `reasonForKey` emits R-REP for TWO different
+ *  causes — a protected window actually lost (`before > after`) and a
+ *  repertoire that shrank with the count unchanged (`before === after`) — and
+ *  DEGRADED can fire on a short-pocket residue that costs the store nothing
+ *  either. Keying the approved 「が入らなくなります。」 sentence on the CODE
+ *  therefore printed a loss, with money beside it, over landings that lose
+ *  nothing. The window count is what the store actually loses, so it is what
+ *  decides the sentence:
+ *    · loses nothing → the engine's own words, and NO ¥ at all;
+ *    · loses exactly one, R-REP → the approved sentence Liam signed off on;
+ *    · loses any other number → the capacity form, which is true for all of
+ *      them (a DEGRADED loss, and an R-REP that costs more than one window).
+ *  The ¥ follows the same count: one window's price beside a two-window loss is
+ *  a wrong number, and 約 does not license a wrong number.
+ *
+ *  ⚖ 92 fix round 5 V1 (breaker #4) — AND THE ¥ IS THE BOARD'S OWN PRICE. It
+ *  used to be this surface's own arithmetic (定価 × the protected length × the
+ *  count), which is a SECOND BASIS for a question the board already answers
+ *  through canon's pricing door — measured at −23%..+10% off the figure the
+ *  same screen prints for the same minutes. The 一つの真実 fix is to ask canon:
+ *  the engine hands over the protected windows themselves, the screen hands over
+ *  the levers the sell layer is built from, and the loss is the difference
+ *  between what that inventory was worth before and after. */
+function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame: PriceFrame | null, depth: number): WarnCardModel['impact'] {
+  const verbatim = { head: cell.sentence, yen: null, tail: '' }
+  // The two classes the approved design gave a shape to, and no others: an
+  // unruled class keeps the engine's sentence exactly as it did before this fix
+  // (and with it, no ¥ — the queued design note about that is Liam's to rule on,
+  // not this round's to pre-empt).
+  const ruled = cell.impact?.code === 'R-REP' || cell.impact?.code === 'DEGRADED'
+  if (!cell.impact || !ruled) return verbatim
+  /** ⚖ 92 fix round 5 V5 (breaker #4) — NO PROTECTED LENGTH, NO SENTENCE OF OUR
+   *  OWN. Every approved shape below prints 「新規のお客様の{N}分」, so a store
+   *  whose 確保する長さ is 0, negative or unset hands the operator 「0分」 or
+   *  「NaN分」 with money beside it. Written as `!(x > 0)` rather than `x <= 0`
+   *  because NaN fails every comparison — the one spelling that catches it. The
+   *  engine's own sentence is the honest answer, and it is ¥-free. */
+  if (!(protectedDur > 0)) return verbatim
+  const { capacityBefore, capacityAfter, windowsBefore, windowsAfter } = cell.impact
+  const loss = capacityBefore - capacityAfter
+  if (loss <= 0) return verbatim
+  // ⚖ 92 fix round 5 V1 (breaker #4) — THE ¥ IS THE BOARD'S OWN PRICE. What the
+  // store loses is the difference between what its protected inventory was worth
+  // before this landing and what it is worth after, both priced through canon's
+  // door — never 定価 × minutes × count, which was a second opinion about a
+  // question the board already answers on the same screen.
+  //
+  // The DIFFERENCE, never 「the starts that vanished」: the after-set is re-solved
+  // and its windows SHIFT (see `RailCell.impact`), so the starts missing from it
+  // over-count the loss by the whole set on a degraded landing. `hqMin` is a
+  // divisor inside `priceAt`, so a frame without one prices nothing rather than
+  // printing an infinity; `listPrice <= 0` is a store that prices nothing here.
+  // Both omit the money entirely rather than showing 約¥0.
+  const value = frame != null && frame.hqMin > 0 && listPrice > 0
+    ? Math.round(
+        (protectedValueOf(windowsBefore, listPrice, protectedDur, frame, depth)
+          - protectedValueOf(windowsAfter, listPrice, protectedDur, frame, depth)) / 10,
+      ) * 10
+    : 0
+  const yen = value > 0 ? `約${money(value)}` : null
+  // ⚖ 92 micro-fix M1, JP native pass — the ¥ renders in brackets right after
+  // the head, so 「…90分（約¥21,000）の空きが…」 read as a price PER 90 分. The
+  // 空き belongs to the noun the money is about, so it joins the head and the
+  // tail opens on が: 「…90分の空き（約¥21,000）が6枠から4枠に減ります。」
+  const head = `ここに置くと、新規のお客様の${protectedDur}分`
+  if (cell.impact.code === 'R-REP' && loss === 1) return { head, yen, tail: 'が入らなくなります。' }
+  const shrink = `が${capacityBefore}枠から${capacityAfter}枠に減ります`
+  // ⚖ 92 fix round 5 V1 (breaker #4) — AND AT A LOSS OF MORE THAN ONE THE MONEY
+  // MOVES OFF THE NOUN. 「…の90分の空き（約¥21,000）が6枠から4枠に減ります。」 puts
+  // one bracket against one 空き and then says two of them went: the figure reads
+  // as the price of the single window the noun names. Past one, the ¥ belongs to
+  // the LOSS, so it rides the 枠 clause — 「（2枠分・約¥21,000）」 — where the
+  // count it multiplies is standing right beside it.
+  //
+  // The model's contract is UNCHANGED (`{head, yen, tail}`, no fourth field) and
+  // `yen` is null on this arm, so the screen's own `{…impact.yen && <span
+  // className="wc-yen">}` simply does not fire and the JSX needs no branch. The
+  // trade is deliberate and it is the honest one: the plural loss's figure gives
+  // up the `.wc-yen` emphasis to sit where it is true. With no money at all the
+  // parenthetical goes entirely — 「6枠から4枠に減ります」 already says 2 — rather
+  // than printing a 枠分 bracket nobody ruled on.
+  return loss === 1
+    ? { head: `${head}の空き`, yen, tail: `${shrink}。` }
+    : { head: `${head}の空き`, yen: null, tail: yen ? `${shrink}（${loss}枠分・${yen}）。` : `${shrink}。` }
+}
+
+/** ⚖ 92 fix round 4 U1 — WHAT A LANDING COSTS THE STORE, in the one number the
+ *  warn card is already about: protected windows before, minus after. A null
+ *  cell, a safe cell and a cell that never reached the capacity question all
+ *  cost nothing — `impact` is absent exactly where the engine never weighed it.
+ *
+ *  ⚖ 92 fix round 6 X2 (breaker #5) — LIFTED OUT so the DRAW and the PRESS read
+ *  one definition. The press re-asks the draw's own least-loss rule
+ *  (`placePendingAt`), and two spellings of "what does this cost" is ⚖ 54's
+ *  disease in the one place where the two answers must agree by construction.
+ *
+ *  ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — RE-HOMED HERE, out of TodayScreen, for
+ *  that same ⚖ 54 reason one scope wider: the ruling makes this number the warn
+ *  face's own TRIGGER, so the composer, the draw gate and the press now all ask
+ *  it. Three readers, one spelling, and the screen imports it. */
+export const lossOf = (c: RailCell | null): number =>
+  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+
+/** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
+ *
+ *  The 設定 room's guardrail line 「…確保枠を◯枠作れます」 is about exactly this
+ *  number, and a room that counted pockets of its own would be a second spelling
+ *  of the question `protectedCapacity` already answers — the same disease ⚖ 54
+ *  names and the same reason `lossOf` above was lifted out of a screen.
+ *
+ *  So it lives beside `lossOf`, on the same inputs the rail is drawn from
+ *  (`RailInput`), and the lane walk is `guardRailsFor`'s own — staff lanes with a
+ *  window, minus the locked ones — so the number counts precisely the lanes the
+ *  rail would draw on. `.before` is the day AS IT STANDS: nothing is being placed
+ *  here, the question is what the day can still hold. */
+export function protectedCapacityOf(lanes: BoardLane[], input: RailInput): number {
+  const engine = createGapGuard(input.guard)
+  let total = 0
+  for (const lane of lanes) {
+    if (lane.group !== 'staff' || lane.window == null || input.locked.includes(lane.key)) continue
+    const pockets = freePockets({
+      from: lane.window.from,
+      until: lane.window.until,
+      close: input.close,
+      now: input.nowMinute,
+      occupied: laneSpans(lane, input.excludeId),
+    })
+    // `railCtx` is this file's one ctx home, so the capacity question is asked in
+    // exactly the ctx the rail's own verdicts are — a caller that supplies the
+    // bed callbacks is answered by them here too, rather than by a second,
+    // callback-less ctx spelled beside it.
+    const ctx = railCtx(lane, input)
+    for (const pocket of pockets) total += engine.protectedCapacity(pocket, null, ctx).before
+  }
+  return total
+}
+
+export function warnFaceFor(input: WarnCardInput): WarnCardModel {
+  const { cell, rows, level, protectedDur, operatorName } = input
+  /** ⚖ 9/1 ruling 2/2 (Liam, merge-gate) — ZERO-LOSS IS QUIET. The trigger used
+   *  to be "any non-safe cell", which lit the amber face and the long press over
+   *  guard facts that cost the store NOTHING: a 0枠減 DEGRADED residue, R-DEAD,
+   *  R-SALV, a repertoire R-REP whose count never moved. His pick at the gate:
+   *  the warn face and the hold fire only where protected 新規 windows are
+   *  actually lost, and everything else goes back to the clean face's quiet △
+   *  row — which is exactly where those facts lived before flag 92, and where
+   *  `pendingGuardRow.row` still renders them.
+   *
+   *  `state !== 'safe'` is kept beside it though `lossOf` already answers 0 for a
+   *  safe cell: it is the sentence the ruling is written in, and it says out loud
+   *  that a safe cell was never a fact at all. */
+  const guardWarn = cell != null && cell.state !== 'safe' && lossOf(cell) > 0
+  // The trigger, and it is the OR the ruling names: the guard found a fact, or a
+  // row was already walked past. `tone === 'warn'` is the △ row itself, so a
+  // future warn-grade row lights this face without a second predicate.
+  const warn = guardWarn || rows.some((r) => r.tone === 'warn')
+  const oks = rows.filter((r) => r.tone === '')
+  if (!warn) {
+    return { face: 'clean', impact: { head: '', yen: null, tail: '' }, provenance: null, lock: null, safePrimary: null, commit: null, rows, greensLine: null }
+  }
+
+  // ⚖ 92, THE STRONGEST FACT LEADS. The guard's verdict is the store's own law
+  // about the day and outranks a sentence the operator already walked past; with
+  // no guard fact, the overridden sentence IS the fact. Whichever one does NOT
+  // lead stays a △ row below (⚖ 73-74 — a record may never go invisible), which
+  // is also why the row list is filtered rather than the panel doubled.
+  const overrideRow = input.override == null ? null : `注意して配置: ${input.override}`
+  const impact = guardWarn
+    ? impactOf(cell, input.listPrice, protectedDur, input.frame, input.depth)
+    : { head: input.override ?? '', yen: null, tail: '' }
+  // ⚖ 92 fix round 2 S2 — and an ok row the greens line could not NAME is kept
+  // beside them: the line consumed the four subjects it has words for, so
+  // anything else that passed is still unsaid, and unsaid is invisible.
+  /** ⚖ 92 fix round 8 Z2 (breaker #7 #2) — AND THE GUARD'S SENTENCE SURVIVES A
+   *  FACE IT DID NOT LIGHT.
+   *
+   *  With `guardWarn` false the panel above is carrying the OVERRIDE, and the
+   *  guard's own verdict — a zero-loss caution, a bed that cannot be held, the
+   *  shift-end no-pocket refusal — had nowhere to go: the screen renders
+   *  `pendingGuardRow.row` on the CLEAN face only, so a warn face composed from a
+   *  walked-past row alone dropped the engine's sentence off the card entirely.
+   *  ⚖ 52 / 73-74 is exactly this law — a record may never go invisible because a
+   *  nicer face was drawn over it — and it is the engine's OWN row, through the
+   *  one home that composes it, never a sentence of this surface's own.
+   *
+   *  A GUARD-LIT face appends nothing: the panel there is already the same
+   *  verdict in the approved shape, and round 5 V3 is the precedent for not
+   *  saying it twice. The CLEAN face appends nothing either, for that same reason
+   *  one scope over — it is the face whose own `guardRow` renders precisely this
+   *  row, which is where ⚖ 9/1 ruling 2/2 sends every zero-loss fact.
+   *
+   *  `guardCheckRow` already answers null for a null cell and for a safe one, so
+   *  its own law is the whole of the condition and there is no second spelling of
+   *  「is there a verdict to show?」 here. */
+  const guardRow = guardWarn ? null : guardCheckRow(cell)
+  const kept = [
+    ...rows.filter(
+      (r) => (r.tone !== '' || greenSubjectOf(r.label) === null) && !(!guardWarn && r.label === overrideRow),
+    ),
+    ...(guardRow ? [guardRow] : []),
+  ]
+
+  // ⚖ 92 — the safe answer, from the ENGINE'S own alternatives. Two shapes and
+  // no third: a start it can name, or nothing at all. ⚖ 31c binds the second —
+  // a button that cannot perform what it names must not exist, so the slot is
+  // omitted rather than filled with a dead control.
+  //
+  // ⚖ 92 fix round 3 T2 (breaker #2) — AND THE SLOT IS NEVER FILLED WITH A CLAIM
+  // OF OUR OWN. See `safePrimary` on the model above for the contradiction the
+  // deleted 'info' line printed.
+  //
+  // ⚖ 92 fix round 4 U1 (breaker #3) — AND THE SUB-LINE MAY NOT OUTRANK THE
+  // RANKING. 「（損が最少）」 is a SUPERLATIVE about a start the engine never
+  // scored: `offerableCell` snaps each ranked start to the store's own lattice,
+  // so what the card shows is a neighbour, and the screen's gate now keeps it
+  // only when the store loses strictly less there than at the staged start.
+  // 「（損を減らす）」 is exactly that, and it is canon's OWN aside vocabulary —
+  // the 「・損を減らす」 the engine writes into its sentence and `guardCheckRow`
+  // strips. True of every start this slot can now carry, and claiming no rank
+  // the guard did not hand us. The 'safe' label is unchanged: 確保を壊さない is
+  // the engine's own word about the cell, not a rank among starts.
+  const alt = cell?.alternatives[0]
+  const safePrimary: WarnCardModel['safePrimary'] =
+    alt != null
+      ? { kind: 'place', start: alt, main: `${clockOf(alt)}に置く`, sub: cell!.alternativeKind === 'safe' ? '（確保を壊さない）' : '（損を減らす）' }
+      : null
+
+  // ⚖ 92 — THE NAME LINE IS AUTOMATIC AND OTHER-LANE-ONLY (the approved page's
+  // own rule: 「記録の名前は、他の人のシフトに置くときだけ表示されます（自動）」).
+  // Printing the operator's own name back at them on their own shift is noise;
+  // on someone else's shift it is the whole point of the line.
+  const recordedBare = input.targetLaneMine ? '記録されます' : `${operatorName}の名前で記録されます`
+
+  // ⚖ 92 / ruling 91 — THREE LEVELS, THREE FACES, and they are not flattened.
+  //
+  // ⚖ 'needs-approval' IS COMPOSED AND UNREACHABLE, deliberately, exactly as the
+  // level itself is (`overrideLevelFor` above cannot return it and its comment
+  // says why: a real request→approve moment needs server-backed request state
+  // this board does not have). The face exists so the settings round LIGHTS it
+  // rather than inventing it, and nothing here creates a way to reach it: no
+  // policy value, no server state, no second dial.
+  /** ⚖ 92 fix round 4 U3 (breaker #3) — AND A FLOOR THE ENGINE CALLS IMPOSSIBLE
+   *  WEARS NO COMMIT AND NO PERMISSION LINE.
+   *
+   *  `ackAllowed: false` on a blocked cell is the engine's own word for a
+   *  placement that CANNOT be made — strict mode's refusals, `R-UNAVAILABLE`
+   *  (gap-guard :370-377) — and ⚖ 73's law is already written for exactly this:
+   *  「A floor the engine calls impossible is not a floor a manager can be given
+   *  authority over」. So this face may carry neither a live 注意して配置 nor the
+   *  affirmative 「店舗の設定で、スタッフの上書きが許可されています」: nothing is
+   *  being permitted here, and no dial ever had the authority to permit it.
+   *
+   *  The lock line stays NULL too: 「この場所への配置は店長のみ」 would be false —
+   *  this is physics, not the store's setting, and naming the manager would
+   *  send the operator to ask for something no manager can grant.
+   *
+   *  ⚖ 92 fix round 5 V2 (breaker #4) — AND IT ANSWERS BEFORE THE DIAL DOES.
+   *  Round 4 put this branch under 'refuse', so a locked-out operator standing on
+   *  an IMPOSSIBLE start read 「この場所への配置は店長のみ（店舗の設定）」 — the
+   *  store's setting named as the obstacle over a spot no setting governs, which
+   *  sends them to ask a manager who is refused by the very same physics. This
+   *  branch's own sentence three paragraphs up is the citation: naming the
+   *  manager sends the operator after something no manager can grant, and that is
+   *  no less true when the dial happens to refuse them too. Physics outranks the
+   *  dial, so it is asked first.
+   *
+   *  Safe primary, rows, greens and 元に戻す are untouched — being unable to
+   *  place HERE is not being unable to place.
+   *
+   *  ⚖ 92 fix round 8 Z1 (breaker #7 #1) — AND IT IS THE GUARD'S OWN FLOOR, NEVER
+   *  A FACE THE OVERRIDE LIT.
+   *
+   *  ⚖ 73's law is about the floors the GUARD found: a placement the engine calls
+   *  impossible is not one a manager can be given authority over. Round 4 U3 wrote
+   *  the branch on `cell` alone, so it also answered a face lit ONLY by a
+   *  walked-past row — the breaker's scene is a 60分 card dropped at 19:00 on a
+   *  〜19:00 shift and staged through the checks-policy override, whose cell is the
+   *  no-pocket refusal: `ackAllowed: false`, and impact-less, so the guard never
+   *  weighed a protected window here at all. That face lost its commit to a law
+   *  about a fact it was not carrying, and the operator was walled out of a
+   *  landing ⚖ 50(d)'s gate had already cleared. It shipped in round 4 and was
+   *  live until now; rounds 5 and 6 probed only the strict-mode and board-moved
+   *  paths and read it as latent.
+   *
+   *  So the branch asks `guardWarn` — the guard's own trigger, which since ⚖ 9/1
+   *  ruling 2/2 means a cell that actually costs the store a protected window. A
+   *  strict-mode R-REP with a real loss is guard-lit and stays commit-less (⚖ 73
+   *  intact); an impact-less blocked cell is guardWarn-false by construction, so a
+   *  face lit by a walked-past override alone composes its commit from ⚖ 50(d)'s
+   *  gate exactly as the clean face always did.
+   *
+   *  ⚖ 92 fix round 9 W1 (breaker #8 #1) — AND IT SAYS SO, IN THE CLEAN FACE'S
+   *  OWN WORDS. Round 4 returned `commit: null` here, so a strict-mode card
+   *  printed the ruled cost sentence — ¥ and all — and then simply had no control
+   *  under it: a face that names a price the operator cannot pay and never says
+   *  WHY the button is missing. The clean face has always answered this exact
+   *  state honestly with `confirmCaption`'s 「この位置では確定できません」
+   *  (drag-rules :234, FROZEN), and the F10 arm below already says those same
+   *  words on the warn face, so this branch says them too rather than going mute.
+   *
+   *  ⚖ 73 IS INTACT, AND IT IS PINNED IN THE CODE: `enabled` is the literal
+   *  `false`, NOT `input.confirmEnabled`. The manager still cannot be given
+   *  authority over a floor the engine calls impossible — this branch's disabled
+   *  state is UNCONDITIONAL, because physics outranks the checks gate, so no
+   *  dial and no gate anywhere can turn this control live. The kind follows the
+   *  store's dial exactly as every other commit does (the hold physics are inert
+   *  when disabled), and `provenance` / `lock` stay null: nothing is being
+   *  permitted here, so nothing on the card claims it is.
+   *
+   *  ⚖ 92 fix round 11 P1 (breaker #10 #1) — AND U3'S CLOSING SENTENCE GOES WITH
+   *  THE READING THAT WROTE IT. It said the headline here was 「already the
+   *  engine's verbatim sentence (`impactOf`'s unruled fallback, ¥-free), which is
+   *  the whole answer」 — true of the class U3 was looking at, and false of every
+   *  cell that can actually arrive since round 8 Z1 put `guardWarn` on the front
+   *  of this branch. Guard-lit means a REAL protected loss, and `lossOf` counts
+   *  one only off an impact the panel above rules on (`R-REP` / `DEGRADED`), so
+   *  what leads this face is the ruled sentence with the board's own ¥ beside it.
+   *  The un-ackable class U3 cited alongside strict mode — `R-UNAVAILABLE`
+   *  (gap-guard :372) — reaches the rail through `blocked()` with no `impact` at
+   *  all, so it is `guardWarn`-false by construction and never arrives here.
+   *  What answers the operator is round 9 W1's DEAD LABELED COMMIT below: the
+   *  price is named, and the button that cannot pay it says why. */
+  /** ⚖ 9/1 STRICT-SWITCH RULING (settings round, fix round 1 F1) — AND THE WALL
+   *  IS THE DIAL'S, SO IT ANSWERS THE DIAL'S OWN QUESTION: WHO.
+   *
+   *  `ackAllowed` is role-BLIND — gap-guard sets it from the store's mode alone
+   *  (`reason.ackAllowed = mode === 'standard'`, :398, FROZEN) — so this branch
+   *  walled EVERYONE at STRICT, 店長・オーナー included. The approved settings
+   *  page says the opposite in as many words: its 店長がしっかり見る preset reads
+   *  「確保枠を壊す場所に置けるのは店長だけです」, and 「店長のみでも警告を止める」
+   *  promises 「権限のないスタッフは…確定できなくなります」. Both are about the
+   *  people the 上書きの権限 dial EXCLUDES; the permitted keep the warn commit.
+   *  The copy is the ruling, and the code drifted when ruling 1/2's lock face was
+   *  deleted — the wall lost the only branch that knew whose it was.
+   *
+   *  So the role half is composed HERE rather than in the engine, which is where
+   *  it has to live anyway: gap-guard is canon and knows nothing about operators,
+   *  and this composer is already handed `level` — ruling 91's answer about THIS
+   *  operator (`overrideLevelFor`: the store's own override roles, with
+   *  `lockedOut` answering first). `refuse` is exactly 「the store did not give
+   *  this person the override」, by role or by name, so it is the whole of the
+   *  test. A store at STRICT whose dial admits everyone is a coherent no-op, and
+   *  STANDARD is untouched (`ackAllowed` is true there, so this branch never
+   *  fired for anyone: ⚖ ruling 1/2's loosen stands, walls only true 置けない).
+   *
+   *  ⚖ 73 IS UNTOUCHED. Its floor — `R-UNAVAILABLE`, the physically impossible
+   *  placement — reaches the rail through `railCell`'s `blocked()` with NO
+   *  `impact` at all (gap-guard :372 → :1747), so `lossOf` is 0, `guardWarn` is
+   *  false, and it has never arrived at this branch since round 8 Z1 put
+   *  `guardWarn` on the front of it (round 11 P1 says so in its own words). What
+   *  survives here is the STRICT refusal and nothing else, which is why the level
+   *  may decide it: a cost the engine WILL let the store pay is the dial's to
+   *  govern, and this is the dial governing it. */
+  if (guardWarn && cell.state === 'blocked' && cell.ackAllowed === false && !dialAdmits(level)) {
+    return {
+      face: 'warn', impact, provenance: null, lock: null, safePrimary,
+      commit: { kind: input.holdToConfirm ? 'hold' : 'press', label: 'この位置では確定できません', enabled: false, note: null },
+      rows: kept, greensLine: greensLineOf(oks),
+    }
+  }
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — THE LOCK FACE IS DELETED, AND THE
+   *  READING THAT BUILT IT IS OVERTURNED.
+   *
+   *  A `level === 'refuse'` branch used to stand here and return the red line
+   *  「この場所への配置は店長のみ（店舗の設定）」 with no commit at all, so a
+   *  locked-out operator standing on a merely-COSTLY start (ack-allowed,
+   *  `computeChecks`-confirmable) was walled by the dial. It was composed from
+   *  PKT-MOCK-WARN-CONFIRM's face 3 and pinned as deliberate by rounds 2 S6 /
+   *  3 T1 / 4 U2 / 6 X1 against three dissenting reviewers who read it as a
+   *  blocker.
+   *
+   *  Asked the sharpened question at the merge gate, Liam picked "Loosen it".
+   *  The three reviewers were right and Fable's face-3 reading was wrong, and it
+   *  is recorded here rather than quietly deleted. His rule now: the dial walls
+   *  only TRUE 置けない — the engine's own impossible floors, which the branch
+   *  above already answers commit-less by ⚖ 73, and the consult box's
+   *  policy-floor override, which stays `canOverride`-gated on its own surface.
+   *  A cost the engine will let the store pay is not the dial's to forbid; it is
+   *  the operator's to confirm, out loud, through the warn commit.
+   *
+   *  So every level below 承認 now composes the SAME staff-OK anatomy — the
+   *  provenance line and the hold/press commit — and the level is left saying
+   *  only what it is still true about: WHOSE authority the record carries
+   *  (`provenance` below) and whether an approval is owed (`needs-approval`).
+   *  `WarnCardModel.lock` is kept as a slot with no producer, exactly as the
+   *  'needs-approval' face is kept unreachable: the settings round owns the
+   *  presets, and re-lighting a wall there must not mean re-inventing it. */
+  const commit: WarnCardCommit =
+    level === 'needs-approval'
+      // ⚖ 92 fix round F5 (blind L1#9) — AND IT RENDERS DISABLED. The request
+      // has nowhere to go: there is no server-backed approval state on this
+      // board, so a live-looking control would promise a message nobody
+      // receives. Its own note already says where it comes from, and the
+      // settings round is what lights it.
+      // ⚖ 92 micro-fix M3, JP native pass — the note is STAFF-FACING, so it says
+      // what the operator can act on (nothing yet) and not which build round
+      // wires it. 「設定の回で接続」 is our process, printed on their card.
+      ? { kind: 'approval', label: '店長に許可を求める', enabled: false, note: '承認機能は準備中です' }
+      // ⚖ 92 — NEVER the neutral この内容で確定 on a warn face, and the store's
+      // dial decides only HOW the press is made, never whether it is allowed:
+      // `confirmEnabled` is `overrideCaption`'s answer, untouched, and a second
+      // blocker standing after the override still kills the button (canon R11-7).
+      //
+      // ⚖ 92 fix round F10 (blind L2#5) — AND A BLOCKED COMMIT SAYS WHY. A
+      // greyed 注意して配置する still names the act, so it reads as "press this
+      // to place anyway" over a control that will never fire — the clean face
+      // has always answered this honestly, with `confirmCaption`'s own
+      // 「この位置では確定できません」 (drag-rules :234, FROZEN), and the warn
+      // face says the same words about the same state. The KIND is unchanged:
+      // the hold physics are disabled anyway, and swapping the control's shape
+      // under a blocker would move the button the operator is aiming at.
+      : {
+          kind: input.holdToConfirm ? 'hold' : 'press',
+          label: input.confirmEnabled
+            ? (input.holdToConfirm ? '長押しで注意して配置' : '注意して配置する')
+            : 'この位置では確定できません',
+          enabled: input.confirmEnabled,
+          note: null,
+        }
+  /** ⚖ 9/1 ruling 1/2 (Liam, merge-gate) — AND THE LINE MAY NOT THANK A DIAL
+   *  THAT REFUSED. With the lock face gone, a 'refuse' operator reaches the same
+   *  commit as a permitted one — but 「店舗の設定で、スタッフの上書きが許可され
+   *  ています」 would be a plain lie to them: the store did NOT permit their
+   *  overrides, and this ruling is what lets them confirm anyway. So at 'refuse'
+   *  the permission clause is dropped and only the record clause stands, in the
+   *  same words the two permitted faces already use (the ⚖ 92 name rule
+   *  unchanged: the operator's name on someone else's lane, bare on their own).
+   *
+   *  ⚖ 92 fix round 8 Z5 (JP native pass) — AND ON THEIR OWN LANE IT IS A WHOLE
+   *  SENTENCE. Everywhere else 「記録されます」 rides a lead-in clause; here it is
+   *  the entire line, and standing alone a native eye reads it as incomplete —
+   *  and asymmetric beside the other-lane line right next to it, which names a
+   *  person. 「あなたの名前で記録されます」 closes both: it prints no actual name,
+   *  so the ⚖ 92 rule that the name line is other-lane-only still holds. The
+   *  other-lane wording is untouched. */
+  const provenance =
+    level === 'refuse'
+      ? (input.targetLaneMine ? 'あなたの名前で記録されます' : recordedBare)
+      : (level === 'needs-approval' ? '店舗の設定で、上書きには店長の承認が必要です' : '店舗の設定で、スタッフの上書きが許可されています') + `。${recordedBare}`
+  return { face: 'warn', impact, provenance, lock: null, safePrimary, commit, rows: kept, greensLine: greensLineOf(oks) }
+}
+
+/** ⚖ 92 — THE LONG PRESS, AS ARITHMETIC. Ported from the approved page's own
+ *  mechanics (`warncard-design.html`, the HOLD/W block) so the feel Liam signed
+ *  off on is the feel that ships, and kept out here so 600ms / resume / cancel
+ *  are provable without a DOM or a fake clock in a renderer.
+ *
+ *  `hold` is a plain ratio of elapsed time, which is what makes RESUME free: the
+ *  caller re-seeds `t0` through `holdResumeAt` and the same expression continues
+ *  from where the finger left off. `spring` is the critically-damped release the
+ *  page uses to run the fill back to zero — it carries the press's own velocity
+ *  out, so a cancelled hold recoils instead of snapping. */
+export const HOLD_MS = 600
+/** Critically-damped rate — the page's own W: ~280ms to settle. */
+export const HOLD_SPRING_W = 24
+/** The velocity the cancel carries out: one full fill per HOLD_MS, in units/sec. */
+export const HOLD_CANCEL_V = 1000 / HOLD_MS
+
+export function holdClock(
+  s: { mode: 'hold' | 'spring'; t0: number; x0: number },
+  now: number,
+): { progress: number; done: boolean } {
+  if (s.mode === 'hold') {
+    // ⚖ 92 fix round 6 X6 (breaker #5) — CLAMPED AT BOTH ENDS. `t0` is not
+    // always in the past: `holdResumeAt` re-seeds it from a progress ratio, and
+    // a cancel can re-seed it AHEAD of the frame timestamp the caller is already
+    // holding — one frame of `scaleX(-0.0…)`, a sliver of fill painted out of
+    // the wrong edge. A ratio of ELAPSED time cannot honestly be negative, so
+    // the floor is stated rather than left to the callers to remember.
+    const progress = Math.min(1, Math.max(0, (now - s.t0) / HOLD_MS))
+    return { progress, done: progress >= 1 }
+  }
+  const t = (now - s.t0) / 1000
+  const x = (s.x0 + (HOLD_CANCEL_V + HOLD_SPRING_W * s.x0) * t) * Math.exp(-HOLD_SPRING_W * t)
+  // The page's own two exits: close enough to zero to be zero, or long enough
+  // that a numerically odd start may not keep a fill on screen for ever.
+  return x <= 0.002 || t > 0.6 ? { progress: 0, done: true } : { progress: x, done: false }
+}
+
+/** The `t0` a hold resumes from, so a second press continues the first one's
+ *  fill rather than restarting it (the page's `performance.now() - prog * HOLD`). */
+export const holdResumeAt = (progress: number, now: number): number => now - progress * HOLD_MS
 
 /** ⚖ Liam 2026-08-20 — LENGTH-MATCHED DRAG EMPHASIS, and the one place the rule
  *  lives. Canon deepens EVERY derived window while a card is in flight (CSS

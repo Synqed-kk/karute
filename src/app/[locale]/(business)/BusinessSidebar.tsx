@@ -75,7 +75,11 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     group: '店舗フロア',
     items: [
       { key: 'today', segment: 'today', label: '今日の運営', mini: '今日', live: true },
-      { key: 'reservations', segment: 'reservations', label: '予約', mini: '予約', live: true },
+      // ⚖ Liam F-5 (9/2) — 「予約一覧」, not 「予約」. The room IS a list of
+      // bookings, and the one-word label read as a verb ("book something") to a
+      // manager scanning the rail. `mini` stays 「予約」: the collapsed rail is
+      // 76px wide and a four-character label does not fit it.
+      { key: 'reservations', segment: 'reservations', label: '予約一覧', mini: '予約', live: true },
       { key: 'customers', segment: 'customers', label: '顧客', mini: '顧客', live: true },
       { key: 'inbox', segment: 'inbox', label: '受信トレイ', mini: '受信', live: true },
       { key: 'shifts', segment: 'shifts', label: 'スタッフ・シフト', mini: 'シフト', live: true },
@@ -86,12 +90,15 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
   {
     group: '記録・AI',
     items: [
-      { key: 'recording', segment: null, label: '録音', mini: '録音', live: false },
+      { key: 'recording', segment: 'recording', label: '録音', mini: '録音', live: true },
       { key: 'karute', segment: 'karute', label: 'カルテ', mini: 'カルテ', live: true },
-      { key: 'askAi', segment: null, label: 'AI相談', mini: 'AI相談', live: false },
+      { key: 'askAi', segment: 'ask-ai', label: 'AI相談', mini: 'AI相談', live: true },
       { key: 'coaching', segment: null, label: 'コーチング', mini: 'コーチ', live: false },
     ],
   },
+  // ⚖ Liam 9/1 (PKT-BUILD-SETTINGS §1) — the settings ROOM is built, so its one
+  // item flips live exactly as the NAV LAW above promises: one `live: true`, one
+  // segment, nothing else in this file moves.
   { group: '設定', items: [{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }] },
 ]
 

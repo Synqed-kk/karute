@@ -339,7 +339,10 @@ export interface BuildInput {
   crossStore: boolean
 }
 
-const CATEGORY_LABEL: Record<BookingCategory, string> = {
+/** ⚖ ONE WORD, ONE HOME. 顧客's lifecycle chip renders the SAME label off the
+ *  SAME `bookingCategory`, so the word a customer is described by has exactly
+ *  one source (a NAMED shared-seam touch, S14 §3.3). */
+export const CATEGORY_LABEL: Record<BookingCategory, string> = {
   new: '新規',
   repeat: '再来',
   ticket: '回数券',

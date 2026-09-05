@@ -133,6 +133,8 @@ describe('menus editor — pristine 保存 (inert gray)', () => {
     price_min_amount: 6600,
     currency: 'JPY',
     tax_included: true,
+    required_room_class: null,
+    required_qualification_id: null,
     nomination_allowed: true,
     online_visible: true,
     active: true,

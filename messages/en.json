@@ -753,7 +753,8 @@
         "unsettled": "No result has come back yet",
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
-        "localAudio": "The audio is still on this device (unsaved)"
+        "localAudio": "The audio is still on this device (unsaved)",
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)"
       },
       "action": {
         "open": "Open",
@@ -2398,7 +2399,8 @@
           "entries_regenerate": "Regenerated karute entries",
           "summary_edit": "Edited detailed record",
           "outcome_set": "Recorded session outcome",
-          "customer_reassign": "Reassigned karute customer"
+          "customer_reassign": "Reassigned karute customer",
+          "manual_create": "Manually created karute record"
         },
         "staff": {
           "add": "Added staff",
@@ -2457,8 +2459,11 @@
           "suggested_message_view": "Viewed AI suggested message"
         },
         "recording": {
+          "capture_finalized": "Recording audio saved",
+          "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
           "session_cleanup": "Recording discarded",
+          "take_named": "Recording upload address issued (existing session)",
           "transcribe": "Transcribed recording"
         }
       },

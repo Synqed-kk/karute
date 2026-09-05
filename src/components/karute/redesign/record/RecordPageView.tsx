@@ -15,7 +15,9 @@ import {
   getRecoverableTake,
   listOwnTakes,
   loadTakeBlob,
+  markDiscardTranscriptDone,
   readTakeOutcome,
+  settleTakeAfterSave,
   stampDiscardPending,
   stampTakeOutcome,
   type DiscardPending,
@@ -27,9 +29,10 @@ import {
   runDiscardTranscript,
   sweepDiscardTranscripts,
 } from '@/lib/recording/discard-transcript'
+import { drainOwedTakes } from '@/lib/recording/owed-drain'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -103,6 +106,17 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
 import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
+
+/** How long the page waits before it looks at the worklist again (fix round
+ *  11). It is take-store's own SECURE_RETRY_COOLDOWN_MS: a take that just
+ *  failed is not eligible again until then, so a shorter tick could only re-read
+ *  the list and find it hidden. Deliberately a copy rather than an import — this
+ *  is the PAGE's policy (how often it looks), the store's is the TAKE's (how
+ *  soon it may be tried again), and they are equal only by today's arithmetic. */
+const REDRAIN_MS = 60_000
+/** …plus a spread, so a salon's phones — all mounted at the same 10:00 opening
+ *  — do not knock on the same door in the same instant. */
+const REDRAIN_JITTER_MS = 5_000
 
 export interface RecordPageNextAppointment {
   id: string
@@ -703,6 +717,112 @@ export function RecordPageView({
       alive = false
     }
   }, [])
+  // Capture pipeline PR3 — the retry for every stop the network missed, on its
+  // OWN read (owed-drain's listOwnStoppedUnsecuredTakeIds), never the recovery
+  // one below. STOPPED takes only: a take whose recorder never stopped may still
+  // be running (this tab remounting, another same-origin tab), and sealing its
+  // finalized key early would truncate it forever.
+  //
+  // ⚖ AND THE WEB KEEPS THIS DRAIN (slice five, D3). The phone gets a LAUNCH
+  // drain instead (thin/data/launch-drain.ts), which the web cannot have: a
+  // browser can hold this app open in five tabs, and a drain per tab load is
+  // five runners on one worklist. The mount is the web's honest moment.
+  //
+  // ⚖ AND IT RUNS MORE THAN ONCE PER PAGE LIFE (fix round 11). It used to run
+  // exactly once, at mount — so a take that failed retryably while the staffer
+  // stayed on this page, and a take whose stop stamp landed after the effect had
+  // already read the worklist, both waited for a REMOUNT. This is the page the
+  // recorder lives on, the one a staffer never navigates away from mid-shift:
+  // that wait is the whole shift, and the audio stays device-only for it.
+  // (getRecoverableTake's own 20 s grace hid the same take from the recovery
+  // offer, so nothing on screen said so either.) FOUR moments now schedule the
+  // SAME lock-guarded drain — the mount, the page becoming visible again, the
+  // recorder reaching `recorded`, and a tick that runs only while a take still
+  // owes its bytes — and every timer and listener dies with the mount.
+  //
+  // No UI, no toast, and deliberately outside every render branch: whether the
+  // audio is on the server has nothing to do with what this page shows.
+  // secureTake is idempotent (its in-flight guard and finalizedAt make the
+  // repeats free) and records its own outcome, so a needless run costs a read.
+  useEffect(() => {
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // ⚖ `recorded` and nothing else: a take still recording (or paused) must
+    // never be finalized — its remaining audio could not land afterwards.
+    // isActiveTake is that rule read from the recorder itself, the belt behind
+    // the worklist's own stopped-only filter.
+    const isActive = (id: string) => globalRecorder.isActiveTake(id)
+
+    /** THE scheduler: ONE pending wake-up, ever. Every trigger routes through
+     *  here, so a burst (the page comes back AND a recording stops AND the tick
+     *  is due) still leaves exactly one timer — and unmount exactly one to
+     *  clear. */
+    const schedule = () => {
+      if (!alive) return
+      clearTimeout(timer)
+      timer = setTimeout(() => void drain(), REDRAIN_MS + Math.random() * REDRAIN_JITTER_MS)
+    }
+
+    const drain = async () => {
+      if (!alive) return
+      // The loop, the lock and the "still owed?" read all live in owed-drain.ts
+      // now (slice five packet A) — the phone's launch runner calls the SAME
+      // function, so a navigation onto this page while that drain is working
+      // cannot put two whole takes on the wire. What stays here is the PAGE's
+      // half: when to ask.
+      const r = await drainOwedTakes(isActive)
+      if (!alive) return
+      // Busy = another runner holds the lock and nothing happened here, so ask
+      // again after it. Still owed = a take is waiting, cooling-down ones
+      // counted. …and a take a stop leg is still HOLDING is owed too (fix round
+      // 17): it is deliberately absent from both lists while its tail is being
+      // written, so a drain that ran inside that window would otherwise be the
+      // last one this page ever ran — the duration stamp lands a moment later
+      // and makes it eligible with nobody looking.
+      if (r.busy || globalRecorder.isSecuring() || r.stillOwed) schedule()
+    }
+
+    // 1. The mount — every navigation onto this page, as before.
+    void drain()
+
+    // 2. The page comes back: a phone locked mid-upload, a WebView the OS
+    //    froze, a staffer who was on another tab. A stalled PUT's own deadline
+    //    has landed by then, so the take is answerable again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void drain()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    // 3. A recording just stopped. The stop path secures it itself, un-awaited;
+    //    this is the net under that leg. SCHEDULED, never immediate — at the
+    //    `recorded` transition the take carries no duration stamp yet (onstop
+    //    writes it after the tail flush resolves), so a drain fired on this
+    //    instant would find the worklist empty and stop looking.
+    //
+    // 3b. …and that same leg SETTLES (fix round 17). The state never changes —
+    //    it was already `recorded` at the stop — so the transition above cannot
+    //    see it, and the take only becomes drainable here: this is where the
+    //    duration stamp has landed and the hold is gone. The recorder's own
+    //    notify is the signal; the edge below is the page reading it.
+    let lastState = globalRecorder.state
+    let wasSecuring = globalRecorder.isSecuring()
+    const unsubscribe = globalRecorder.subscribe(() => {
+      const justStopped = globalRecorder.state === 'recorded' && lastState !== 'recorded'
+      lastState = globalRecorder.state
+      const securing = globalRecorder.isSecuring()
+      const justSettled = wasSecuring && !securing
+      wasSecuring = securing
+      if (justStopped || justSettled) schedule()
+    })
+
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      unsubscribe()
+    }
+  }, [])
+
   useEffect(() => {
     // Both loads are async and owner-gated at their store layer — only the
     // staff member who recorded/saved is ever offered anything (privacy on a
@@ -915,8 +1035,13 @@ export function RecordPageView({
   // keeps its other call sites (the recordings action + the facade route).
 
   /** `keepTake` (A2-2): the take has been stamped `discardPending` and its audio
-   *  is owed to the discard record — the persist run deletes it, not this. Every
-   *  other discard still takes the audio with it, exactly as before. */
+   *  is owed to the discard record, so this arm hands no take id on to be
+   *  cleared — the persist run settles it (markDiscardTranscriptDone).
+   *
+   *  ⚖ AND NO DISCARD DESTROYS AUDIO THE SERVER DOES NOT HAVE (capture pipeline
+   *  PR4). The other arms still call deleteTake, but deleteTake now refuses an
+   *  unfinalized take, so "the discard takes the audio with it" is true only
+   *  once the take is safely on the server. */
   function proceedDiscard(keepTake = false) {
     toastDroppedErrorPhotos()
     // A2-1: NO session cleanup here any more. The reason row keys on this
@@ -1133,6 +1258,36 @@ export function RecordPageView({
       // The review arm closes its own dialog, in its tail — see below. Every
       // other arm keeps the close-then-act order it always had.
       if (origin !== 'review') setDiscardReasonFor(null)
+      // ⚖ MARK, NEVER DELETE — for the two arms that owe NO WORDS (fix round 4,
+      // G5), the same shape G2 gave the below-floor recorder discard. Both of
+      // them end in `void deleteTake(takeId)`, which the never-delete guard
+      // refuses for a take the server does not have: the take then survived
+      // with nothing on it, listOwnTakes' A2-2 exclusion never fired, and the
+      // recovery banner offered the staffer back the recording they had just
+      // thrown away. The stamp is that exclusion; marking it done in the same
+      // breath is what keeps the mount sweep from ever transcribing a take
+      // whose words are settled by construction. The delete calls stay exactly
+      // as they are — refused for an unsecured take (the stamp is then what
+      // hides it), and for a finalized one the rows go with the stamp on them,
+      // which is the same answer.
+      // `sessionId` rather than the outer `let`: this closure would otherwise
+      // read it un-narrowed, and it is the id the RECEIPT above was filed
+      // against — the only one the words could ever have belonged to.
+      const sessionId = recordingSessionId
+      const markDiscardedNoWords = async (
+        takeId: string,
+        durationSeconds: number,
+        belowFloor?: true,
+      ) => {
+        const stamped = await stampDiscardPending(takeId, {
+          recordingSessionId: sessionId,
+          durationSeconds,
+          locale,
+          stampedAt: Date.now(),
+          belowFloor,
+        })
+        if (stamped) await markDiscardTranscriptDone(takeId)
+      }
       // Ids read BEFORE the await, handed in — the same read-it-first rule
       // proceedDiscard obeys for the recorder singleton.
       if (origin === 'review') {
@@ -1182,12 +1337,25 @@ export function RecordPageView({
         // it never wrote a draft — clearDraft() here could only destroy a
         // FOREIGN crash-surviving draft from an unrelated earlier session.
         // Inline cleanup, scoped to this run's own take only.
-        if (ctx?.takeId) void deleteTake(ctx.takeId)
+        //
+        // G5: no words are owed here — this origin IS the transcript already
+        // refused, so there is nothing a sweep could collect. Deliberately NOT
+        // marked `belowFloor`: such a take can be an hour long, and that field
+        // says what it says. The settle is `markDiscardTranscriptDone` itself.
+        if (ctx?.takeId) {
+          await markDiscardedNoWords(ctx.takeId, ctx.duration ?? 0)
+          void deleteTake(ctx.takeId)
+        }
         setRecoveredTake((prev) => (prev && prev.takeId === ctx?.takeId ? null : prev))
         globalPipeline.reset()
       } else if (bannerSnap) {
         // ⚖ 8/26 rider case (b): idle cleanup only — no pipeline reset (nothing
         // is running); harmless if added, but pointless, so it stays out.
+        //
+        // G5: this offer is BELOW the floor by construction — onDiscard is
+        // wired only when `belowFloor` is true — so it is marked as such, and
+        // no words were ever owed for it.
+        await markDiscardedNoWords(bannerSnap.takeId, bannerSnap.durationSec, true)
         void deleteTake(bannerSnap.takeId)
         // SHOULD-FIX-3: keyed to the snapshot, not unconditional — a take
         // swap during the awaits above (handleInboxSaveTake promoting a
@@ -1205,10 +1373,11 @@ export function RecordPageView({
         // discarded take out of every recovery offer), then hold it back from
         // proceedDiscard until the persist run lands.
         //
-        // BELOW the floor nothing is kept and nothing is transcribed (⚖ spend
-        // gate): an accidental tap has no words worth a Deepgram call, and the
-        // take goes with the discard exactly as it always did. Same on the
-        // phone, which has no route to persist through this round.
+        // BELOW the floor nothing is transcribed (⚖ spend gate): an accidental
+        // tap has no words worth a Deepgram call. The take is still MARKED
+        // there — see the round-4 note below the payload. Same on the phone,
+        // which since PHONEWIRE-2C persists through the facade twin of these
+        // actions — the floor, not the world, is what decides here now.
         //
         // The stamp's span, honestly: it is written AFTER core accepted the
         // discard, so a crash in that window leaves the discard filed and the
@@ -1226,9 +1395,27 @@ export function RecordPageView({
           locale,
           stampedAt: Date.now(),
         }
+        // ⚖ AND BELOW THE FLOOR THE STAMP IS STILL OWED (fix round 4). Nothing
+        // is transcribed down there — an accidental tap has no words worth a
+        // Deepgram call — but the STAMP is not about words: it is the recovery
+        // exclusion (listOwnTakes' A2-2 filter). Since the never-delete guard
+        // began refusing an unsecured take, a below-floor discard left the take
+        // alive with NO stamp, and the recovery banner offered the staffer back
+        // the very recording they had just thrown away. So it goes through the
+        // SAME door the other two word-less arms use (markDiscardedNoWords
+        // above): marked `belowFloor`, settled in the same breath, because
+        // 「録音が10秒未満のため、文字起こしは行っていません」 is the ruled
+        // state, not a pending one. The audio itself stays (mark, never
+        // delete); proceedDiscard's own deleteTake below is unchanged —
+        // refused for an unsecured take, and for a finalized one the rows go
+        // with the stamp on them, which is the same answer.
+        const belowFloor = durationSeconds < BELOW_FLOOR_SEC
+        if (belowFloor && takeId) await markDiscardedNoWords(takeId, durationSeconds, true)
+        // ABOVE the floor the words ARE owed, so the stamp is a promise the
+        // persist run below has to keep — never settled here.
         const keepTake =
           takeId !== null &&
-          durationSeconds >= BELOW_FLOOR_SEC &&
+          !belowFloor &&
           discardTranscriptSupported() &&
           (await stampDiscardPending(takeId, pending))
         // The photos die HERE, past the gate — never before it. Still ahead of
@@ -1360,9 +1547,19 @@ export function RecordPageView({
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
-      // null on timeout/failure → save proceeds without recording_session_id,
-      // exactly as before this feature existed (no dedupe for that save).
-      const recordingSessionId = await awaitRecordingSessionId()
+      let recordingSessionId = await awaitRecordingSessionId()
+      // ⚖ THE SAVE FINDS THE ROW WHATEVER MINTED IT (fix round 12, P2). Since
+      // the take is secured at STOP, the recorder is no longer the only route
+      // to a row: a start-mint that failed leaves this await answering null
+      // forever (the promise is settled), while secureTake's own session-first
+      // call has already minted the take's row and STAMPED it. Saving null
+      // there files the karute unlinked beside audio that is on that row —
+      // silently, because null is also the honest answer when there simply is
+      // no row. So read the stamp the same way the discard gate does: the
+      // retry returns it without minting anything when it is there, and mints
+      // once (bounded) when it is not. Still null → the save proceeds without
+      // a session id, exactly as before any of this existed.
+      if (!recordingSessionId) recordingSessionId = await globalRecorder.retryRecordingSessionMint()
       // A discard during the await bumps the generation — this take no longer
       // belongs to us; drop it instead of pipelining a discarded recording.
       if (gen !== useRecordingGen.current) return
@@ -1449,9 +1646,19 @@ export function RecordPageView({
       ? offer.take.startedAt
       : offer.draft.savedAt - (offer.draft.duration ?? 0) * 1000
     : null
+  // The take's STOP STAMP first (slice five, D12): it is what the recorder
+  // measured, pauses subtracted, and it is what this save writes onto the
+  // karute. The flush window below it is short by however long the tail flush
+  // took and long by every pause — an estimate for a take that never stopped
+  // cleanly, which is the only take that carries no stamp.
   const offerDurationSec = offer
     ? offer.kind === 'take'
-      ? Math.max(1, Math.round((offer.take.updatedAt - offer.take.startedAt) / 1000))
+      ? Math.max(
+          1,
+          Math.round(
+            (offer.take.durationMs ?? offer.take.updatedAt - offer.take.startedAt) / 1000,
+          ),
+        )
       : (offer.draft.duration ?? 0)
     : 0
   const offerDayYmd = offerStartedAt ? ymdInJst(new Date(offerStartedAt)) : null
@@ -1667,7 +1874,20 @@ export function RecordPageView({
   function handleInboxOpenRecord(row: InboxRow) {
     if (!row.karuteRecordId) return
     if (row.state === 'awaiting-check' && row.takeId) {
-      void deleteTake(row.takeId).then(() => loadInbox())
+      // ⚖ THE ONE HUMAN-RESOLVED DELETE (capture pipeline PR4 fix round 1),
+      // asked of the take rather than asserted since fix round 4. A staff
+      // member, on this row, with the karute record already on the server, is
+      // tapping 確認する — and settleTakeAfterSave decides what that may take:
+      // a finalized take goes as it always did, and a take that can NEVER be
+      // sealed goes too (without that, 確認待ち — BY DEFINITION a take this
+      // device never secured — was a 要対応 badge nobody could clear).
+      // A take whose secure merely failed RETRYABLY keeps its audio and its
+      // row: the drain will finalize it, and the next tap clears it. That is
+      // honest — the server does not have this recording yet — and the re-fold
+      // below shows the row still 確認待ち, not a settle that did not happen.
+      // Device bytes only: the settle reaches IndexedDB and nothing else, and
+      // no server object is touched here or anywhere downstream of it.
+      void settleTakeAfterSave(row.takeId).then(() => loadInbox())
     }
     router.push(`/karute/${row.karuteRecordId}` as Parameters<typeof router.push>[0])
   }
@@ -2299,6 +2519,30 @@ export function RecordPageView({
           setRecoveredTake(null)
           return
         }
+        // ⚖ THE STAMP CAN BE NEWER THAN THIS OFFER (fix round 17, AF1). The
+        // take's session id was read when the inbox/banner loaded, and the
+        // mount drain's session-first leg mints and stamps a row for exactly
+        // the takes this offer is made of — so a save that carries the snapshot
+        // writes a karute pointing at nothing while the audio sits on a real
+        // row. The retry re-reads the stamp and only mints when there is still
+        // none, which is the same call the discard gate makes.
+        const recordingSessionId =
+          o.take.recordingSessionId ??
+          (await globalRecorder.retryRecordingSessionMint({
+            takeId: o.take.takeId,
+            customerId: dest.customerId,
+            appointmentId: dest.appointmentId || null,
+            // ⚖ THE SAVE-TIME BOUND IS NOT THIS ONE (fix round 20, AL1). The
+            // default is 1.5 s — the bound for a mint the recorder ALREADY has
+            // in flight, where giving up costs nothing because the field will
+            // hold the answer a moment later. This mint is issued right here
+            // and nobody waits for it afterwards: on a slow phone network the
+            // race simply answers null and the karute saves UNLINKED, which is
+            // the outcome AF1 exists to prevent. The stop leg's 10 s is the
+            // right bound — the staffer has already tapped 保存する and is
+            // watching it work.
+            timeoutMs: SECURE_MINT_AWAIT_MS,
+          }))
         globalPipeline.start(blob, {
           locale,
           customers,
@@ -2319,7 +2563,7 @@ export function RecordPageView({
           // own toast since round 0, and this is the take path's twin.
           // Client-side only, like recoveryUnanswered: never on the job body.
           autoFinish: flow.autoFinish,
-          recordingSessionId: o.take.recordingSessionId,
+          recordingSessionId,
           takeId: o.take.takeId,
         })
         // globalPipeline.start() has already minted this run's id (run()/
@@ -2364,7 +2608,18 @@ export function RecordPageView({
         return
       }
       clearDraft()
-      if (d.takeId) void deleteTake(d.takeId)
+      // ⚖ THE SECOND HUMAN-RESOLVED EXIT (capture pipeline PR4 fix round 2),
+      // beside 確認する on the inbox row — one rule for both since fix round 4.
+      // By the time we are here the record has landed on the server WITH that
+      // take's words, transcribed by the in-tab leg from this very blob, on a
+      // tap by the staffer who owns the row; settleTakeAfterSave is what turns
+      // that into a decision about the AUDIO. Unsettled, the expired/stranded
+      // cohort re-folded as 復元可能 for ever — the save wrote the karute, the
+      // take survived, the next fold offered the same row again — and settling
+      // a merely-retryable take would throw away the only copy the drain can
+      // still seal. Device bytes only — it reaches IndexedDB and nothing else,
+      // and no server object is touched here or anywhere below it.
+      if (d.takeId) void settleTakeAfterSave(d.takeId)
       setRecoveredDraft(null)
       setRecoveredTake(null)
       // The draft's write is synchronous-to-completion, so its notice is armed
@@ -2533,8 +2788,13 @@ export function RecordPageView({
             // Save persisted the record → drop the recovery draft (storage +
             // in-memory) AND the persisted take, so no stale banner reoffers a
             // finished session.
+            // ⚖ THE FOURTH SETTLED EXIT (fix round 6) — and the one a walk-in
+            // normally takes (the autosave gate needs an appointment customer),
+            // so a bare deleteTake here was refused for every UNSECURABLE take:
+            // alive, unstamped, re-offered as 復元可能 for a session already saved,
+            // re-transcribing on every retap. One rule decides all four exits.
             clearDraft()
-            if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
+            if (pipeline.context?.takeId) void settleTakeAfterSave(pipeline.context.takeId)
             setRecoveredDraft(null)
             setRecoveredTake(null)
             globalPipeline.reset()

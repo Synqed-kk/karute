@@ -179,9 +179,22 @@ export function CustomerForm({
       member_number: values.memberNumber ?? '',
     }
 
-    const result = customerId
-      ? await updateCustomer(customerId, submitPayload)
-      : await createCustomer(submitPayload)
+    // The action can REJECT, not just answer { success: false } — a facade
+    // transport failure on the phone, a missing session, a not-yet-wired port.
+    // Unhandled, that rejection escaped to the console: the form simply sat
+    // there with nothing said and the typed 顧客 lost. Same tolerant shape
+    // QuickCreateCustomer already uses — the generic translated toast, never a
+    // raw internal message. (react-hook-form clears isSubmitting either way,
+    // so the button was never stuck; what was missing was the TELLING.)
+    let result: Awaited<ReturnType<typeof createCustomer>>
+    try {
+      result = customerId
+        ? await updateCustomer(customerId, submitPayload)
+        : await createCustomer(submitPayload)
+    } catch {
+      toast.error(t('toast.error'))
+      return
+    }
 
     if (!result.success) {
       toast.error(result.error || t('toast.error'))

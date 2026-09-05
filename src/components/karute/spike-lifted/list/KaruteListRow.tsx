@@ -16,14 +16,12 @@
 //   findKaruteNumberByName fallback      → not needed (number passed in)
 //   AIStatusChip / ConversionStatusChip  → inline below (small, file-local)
 
-import { useEffect, useState } from 'react'
 import { Link } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey } from '@/lib/staff-colors'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { partsInJst } from '@/lib/date/jst'
-import { isNativeShell } from '@/lib/platform'
 import type {
   KaruteListItem,
   KaruteAiStatus,
@@ -225,14 +223,17 @@ function ConversionChip({ status }: { status: KaruteConversionStatus }) {
 // so this gets its own small renderer rather than overloading KaruteListRow
 // with a second data shape.
 //
-// Web renders a カルテを作成 button (opens NewKaruteDialog preselected —
-// wired by the caller via onCreateClick); the phone shell has no wired
-// create action (createManualKaruteRecord is a deliberate notWired stub
-// there), so it makes the whole row a Link to the customer hub instead —
-// same destination the pre-PR-1a placeholder rows used. isNativeShell() is
-// the existing app-wide "are we in the Capacitor shell" signal (src/lib/
-// platform.ts, e.g. WebOnly) — deferred to a post-mount effect so SSR and
-// the shell agree on the FIRST paint (same defensive posture WebOnly uses).
+// ONE row, both doors: a カルテを作成 button that opens NewKaruteDialog
+// preselected (wired by the caller via onCreateClick).
+//
+// History: the phone used to render the whole row as a Link to the customer
+// hub instead, because the shell had no wired create action
+// (createManualKaruteRecord was a deliberate notWired stub there). PHONEWIRE-2A
+// wired it (POST /api/app/v1/karute/manual), which left the suppression
+// standing on a dead premise; ⚖ Liam 2026-09-02 ruled the phone rows show the
+// button, same behavior both doors. The isNativeShell() branch — and with it
+// the post-mount effect that kept SSR and the shell agreeing on the first
+// paint — is gone, so there is nothing platform-dependent left to render.
 // ─────────────────────────────────────────────────────────────
 
 export interface NoKaruteCandidate {
@@ -249,11 +250,6 @@ interface NoKaruteRevealRowProps {
 
 export function NoKaruteRevealRow({ candidate, onCreateClick }: NoKaruteRevealRowProps) {
   const t = useTranslations('karute.recordList')
-  const [isNative, setIsNative] = useState(false)
-  useEffect(() => {
-    setIsNative(isNativeShell())
-  }, [])
-
   const isoDate = candidate.registeredDate.slice(0, 10)
   // JST-EXPLICIT weekday (fix round 6), same defect and same fix as
   // screen-rows.ts: the instant is anchored to JST midnight, but `.getDay()`
@@ -291,18 +287,6 @@ export function NoKaruteRevealRow({ candidate, onCreateClick }: NoKaruteRevealRo
       </div>
     </>
   )
-
-  if (isNative) {
-    return (
-      <Link
-        href={`/customers/${candidate.id}` as Parameters<typeof Link>[0]['href']}
-        className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
-      >
-        {body}
-        <span className="shrink-0 text-[11px] text-muted-foreground">{t('noSessionYet')}</span>
-      </Link>
-    )
-  }
 
   return (
     <div className="relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 last:border-b-0 dark:border-white/5 md:gap-4">

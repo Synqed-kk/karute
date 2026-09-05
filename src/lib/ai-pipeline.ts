@@ -1,6 +1,7 @@
 import { Entry } from '@/types/ai'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { ensureFinalizedPath, readTakeSecureMeta } from '@/lib/karute/take-store'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -86,6 +87,12 @@ export type PipelineContext = {
 
 export async function runAIPipeline(
   audioBlob: Blob,
+  /** The persisted take this audio belongs to (lib/karute/take-store), or null
+   *  when the store never held it. ⚖ capture pipeline PR4: the take carries the
+   *  finalized key its whole self was PUT to at stop, and THAT object is what
+   *  this transcribes — read here rather than passed in, so every caller gets
+   *  the same answer and none of them has to remember to ask. */
+  takeId: string | null,
   locale: string,
   onProgress: (step: PipelineStep) => void,
   ctx: PipelineContext = {},
@@ -98,7 +105,32 @@ export async function runAIPipeline(
   // + /api/app/v1/ai (no supabase-js in the bundle). The GlobalRecorder /
   // globalPipeline / draft singletons are unchanged — the seam is HERE only.
   const recordingPort = getRecordingPipelinePort()
-  const { body: transcribeBody, cleanup } = await recordingPort.prepareTranscription(audioBlob)
+  // …AND THE STOP GETS TO FINISH FIRST (capture pipeline PR4 fix round 2). The
+  // 自動 arm reaches this line at the stop instant, with that take's own whole
+  // upload still in flight — so the read below answered null on an ORDINARY
+  // recording and prepareTranscription's fallback staged a second copy of the
+  // same audio to a key no row points at. Free when this runtime has no stop
+  // leg for the take (the recovery/inbox saves, another tab), bounded at two
+  // minutes when it does.
+  // Lazy, and for this file's oldest reason (see recording-port's own): the
+  // recorder's import graph reaches @/actions/recordings → next/cache, which
+  // jest cannot load in a node-environment suite — a static import here breaks
+  // every consumer of this module, inbox-store's page included.
+  if (takeId) await (await import('@/lib/global-recorder')).globalRecorder.awaitTakeSecured(takeId)
+  // ⚖ …AND A TAKE FINALIZED BY SLICE THREE HAS A KEY TOO (fix round 7). That
+  // deploy stamped `finalizedAt` alone and this line gates on `finalizedPath`,
+  // so a web take finalized in between read as UNSECURED and the fallback below
+  // staged a row-less duplicate of audio the server already holds.
+  // ensureFinalizedPath recomposes the deterministic key once through the port
+  // and remembers it; null (the phone, whose cohort is empty by construction)
+  // leaves this exactly as it was.
+  const meta = takeId ? await readTakeSecureMeta(takeId) : null
+  const finalizedPath =
+    takeId && meta ? await ensureFinalizedPath(takeId, meta, recordingPort) : null
+  const { body: transcribeBody } = await recordingPort.prepareTranscription(
+    audioBlob,
+    finalizedPath,
+  )
 
   const transcribeRes = await fetchWithRetry(() =>
     getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
@@ -110,9 +142,8 @@ export async function runAIPipeline(
     throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // Clean up storage after transcription (web removes the object; thin is a
-  // no-op — the facade transcribe route deletes it server-side).
-  cleanup()
+  // ⚖ NOTHING IS CLEANED UP (capture pipeline PR4): the object this just read is
+  // the take's finalized audio, and audio is never deleted.
 
   const transcribeData = await transcribeRes.json()
   const transcript: string = transcribeData.transcript

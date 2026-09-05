@@ -78,17 +78,41 @@ jobs:
 
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
-        # (packet-09 F-1: the breach masked a §1.5 purchase-code leak). Dummy
-        # env: the gate measures bytes and greps forbidden markers — the baked
-        # values don't affect either, and real values in CI are forbidden.
+        # (packet-09 F-1: the breach masked a §1.5 purchase-code leak).
+        #
+        # The env below is FAKE — real values in CI are forbidden — but it is
+        # deliberately RELEASE-LENGTH fake. The old comment here claimed "the
+        # baked values don't affect either", and that was wrong about bytes:
+        # Vite INLINES these as string literals, so short dummies made CI
+        # measure a smaller bundle than the one that actually ships. Bake 21
+        # caught it — the release build was 183 B OVER the ceiling while CI on
+        # the identical commit was green, because CI under-read by 255 B
+        # (evidence/bake21-20260902).
+        #
+        # So each value is padded with obvious 'x' filler to the byte LENGTH of
+        # its release counterpart (24 / 40 / 208), and the two build stamps
+        # release.mjs passes are supplied at their release lengths too (an
+        # 8-char short SHA, a 2-digit build number). Nothing here is or
+        # resembles a credential; only the LENGTHS are copied, never a value.
+        # Verified 2026-09-02: this env reproduces the release-way measurement
+        # of the same tip byte-for-byte (2,018,793 B).
+        #
+        # Keep the lengths in sync if the real facade URL or anon key ever
+        # changes shape, or CI silently goes back to under-measuring.
         run: |
           npx --no -- vite build --config thin/vite.config.ts
           node scripts/thin/check-bundle-budget.mjs
         env:
           VITE_SHELL_MODE: local
+          # 24 chars
           VITE_FACADE_URL: https://ci-dummy.invalid
-          VITE_SUPABASE_URL: https://test-dummy.supabase.co
-          VITE_SUPABASE_ANON_KEY: dummy-not-a-key
+          # 40 chars
+          VITE_SUPABASE_URL: https://ci-dummy-xxxxxxxxxxx.supabase.co
+          # 208 chars
+          VITE_SUPABASE_ANON_KEY: not-a-key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          # 8 chars (short SHA shape) / 2 digits
+          VITE_BUILD_COMMIT: cidummyx
+          VITE_BUILD_NUMBER: '00'
 
   # ── Audit gates — ISOLATED job (fresh-eyes fix round 2, 2026-07-28) ──────
   # These two gates enforce the audit taxonomy (contract §8 CP4/CP8). They
@@ -179,6 +203,16 @@ jobs:
       # perfectly on its own), so it needs a machine.
       - name: Route CSS collision guard
         run: node scripts/audit/check-route-css-collisions.mjs
+
+      - name: Audio-never-deleted guard selftest (fixture red→green)
+        # ⚖ audio is never deleted (capture pipeline PR4). The live run below
+        # scans a repo with exactly ONE (exempt, fenced) delete, so it exercises
+        # almost none of the rules — these fixtures pin every shape a re-added
+        # delete could arrive in, the split-chain one included.
+        run: node scripts/audit/check-audio-never-deleted.selftest.mjs
+
+      - name: Audio-never-deleted guard
+        run: node scripts/audit/check-audio-never-deleted.mjs
 
       - name: Business data-access guard selftest (fixture red→green)
         # The live run below scans real territory files, but they exercise

@@ -181,14 +181,38 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           },
           () => setMenuOpen(false),
         )}
-        className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
+        className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2 ${
           active
             ? 'font-semibold text-primary'
             : 'text-muted-foreground hover:text-foreground'
         }`}
         aria-current={active ? 'page' : undefined}
       >
-        <Icon className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`} />
+        {/* NO transition on this Link, and a CONSTANT icon stroke weight.
+         *
+         *  History, restated rather than deleted. #809 (TABCALM, 2026-09-01)
+         *  read the jiggle as a TIMING mismatch — the active tab thickened its
+         *  icon (stroke 2 → 2.5) in one frame while `transition-colors` eased
+         *  the colour beside it over 150ms — and put stroke-width on the same
+         *  clock. Liam's release-21 device video says that made it worse, not
+         *  better: frame analysis (evidence/tabcalm2-20260902) shows every tab
+         *  tap producing TWO visible icon events — ~130ms of glyph
+         *  RE-RASTERIZATION while stroke-width animates (a stroke change is
+         *  not compositable, so WebKit repaints the glyph every frame), then a
+         *  single-frame snap at +200ms when a main-thread stall (the screen's
+         *  always-revalidate DTO fetch committing) freezes the mid-flight
+         *  transition and drops it on its final value. The sliding indicator,
+         *  which moves on transform/opacity, shows neither artifact.
+         *
+         *  ⚖ Liam 2026-09-02: the bolder-active-icon effect is REMOVED
+         *  outright — selection is colour + the sliding indicator, nothing
+         *  else. With one constant stroke weight there is no icon animation
+         *  left to stall, and dropping `transition-colors` at the LINK (not
+         *  just at the icon) keeps icon and label changing colour in the SAME
+         *  frame; easing one while snapping the other is the mismatch this
+         *  round exists to end. Desktop hover colour is instant now — accepted.
+         *  The indicator's own transition is deliberate and untouched. */}
+        <Icon className="h-5 w-5" />
         <span className="text-[10px] font-medium leading-none">{label(route.label)}</span>
       </Link>
     )
@@ -330,7 +354,10 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
             {...tapActivation(() => setMenuOpen((v) => !v))}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
+            // Instant colour, same as the tabs beside it (⚖ 9/2): this cell
+            // sits in the same row and flips the same way, so an eased メニュー
+            // next to three instant tabs would be the mismatch all over again.
+            className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 ${
               menuOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
           >

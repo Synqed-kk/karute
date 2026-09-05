@@ -69,22 +69,38 @@ const CRUMB: Record<string, string> = {
   analytics: '売上分析',
   shifts: 'スタッフ・シフト',
   karute: 'カルテ',
+  recording: '録音',
+  // ⚖ S17 FOLD — the leaf is 設定 again. #812's room is no longer a route of its
+  // own: 予約と確保 is ONE section inside the 設定 rail, so the crumb's last word
+  // is the page the reader is on and the section names itself in the panel.
   settings: '設定',
+  'ask-ai': 'AI相談',
 }
 
-/** The crumb's GROUP word. Canon's store pages all read 「店舗フロア / 店 / 画面」
- *  and its settings family reads 「設定 / 店 / 画面」 (fable-settings-store-hours
- *  .html:415), so the group is a per-screen fact rather than a constant.
+/** …and its GROUP, for the crumb's first word. The rail already groups every
+ *  item (`NAV`, BusinessSidebar); every room built so far happens to live under
+ *  店舗フロア, which is why that word was a literal. ⚖ Liam 9/1 — the settings
+ *  room is the first that does NOT, so the crumb reads the group instead of
+ *  claiming one. A segment with no entry keeps the default, so no existing
+ *  room's crumb moves a byte.
  *
- *  `null` DROPS the group entirely, and 設定 is why: this room is ONE route with
- *  its own category rail inside it, so its leaf IS 設定 — and 「設定 / 店 / 設定」
- *  is the same word twice with a store between them. Every other screen keeps
- *  the value the bar has always printed, byte for byte, so no merged room's
- *  crumb moves. (⚠ カルテ and コーチング belong under 記録・AI by canon and still
- *  read 店舗フロア here; that changes a MERGED room's visible crumb, so it rides
- *  the family sweep rather than this packet — the same call room 8 made.) */
-const CRUMB_GROUP: Record<string, string | null> = { settings: null }
-const DEFAULT_GROUP = '店舗フロア'
+ *  ⚠ AI相談 IS THE SECOND (Greptile G-1 on #808). The rail files it under
+ *  記録・AI, so without an entry here its crumb claimed 店舗フロア — the topbar
+ *  disagreeing with the navigation the reader just used. 録音 and カルテ are in
+ *  that same rail group and still fall through to the default; they are two
+ *  other rooms' pins, so they ride a follow-up rather than this room's diff.
+ *
+ *  ⚖ S17 FOLD (A4) — `null` DROPS the group entirely, and 設定 is why: the room
+ *  is ONE route with its own category rail inside it, so its leaf IS 設定 and
+ *  「設定 / 店 / 設定」 would be the same word twice with a store between them.
+ *  ONE map, main's name, with the branch's null semantics: a segment with no
+ *  entry keeps 店舗フロア, so no other room's crumb moves a byte. (⚠ カルテ and
+ *  コーチング belong under 記録・AI by canon and still read 店舗フロア here; that
+ *  changes a MERGED room's visible crumb, so it rides the family sweep.) */
+const GROUP: Record<string, string | null> = {
+  settings: null,
+  'ask-ai': '記録・AI',
+}
 
 export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; syncLabel: string }) {
   const pathname = usePathname()
@@ -93,7 +109,6 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
 
   const segment = pathname.split('/business/')[1]?.split('/')[0] ?? ''
   const leaf = CRUMB[segment] ?? '顧客'
-  const group = segment in CRUMB_GROUP ? CRUMB_GROUP[segment] : DEFAULT_GROUP
   // No ?store= opens on the operator's own store, matching the sidebar's
   // switcher since すべての店舗 left it (⚖ Liam 2026-08-20).
   const store = stores.find((s) => s.id === search.get('store')) ?? stores[0]
@@ -101,7 +116,7 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
   return (
     <header className="topbar">
       <div className="crumb">
-        {group === null ? '' : `${group} / `}
+        {GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}
         {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
       </div>
       <div className="top-actions">

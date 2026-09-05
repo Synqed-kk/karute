@@ -296,6 +296,42 @@ export const storeBookingPolicy = {
    *  reader is the one `isHeldBound` already names — eligibility is
    *  server-derived rank, never request-carried (the golden-time precedent). */
   heldRankAccess: 'closed' as 'closed' | 'silver' | 'gold' | 'platinum',
+  /** ⚠SETTINGS-BATCH — 「注意して配置」に長押しを求める (⚖ Liam flag 92,
+   *  2026-08-31: the warn card is ONE BLEND composed by the store's settings,
+   *  and the long press is the one launch switch in that blend).
+   *
+   *  TRUE = the warn face's commit is a 0.6 秒の長押し rather than a plain press.
+   *  It is DATA for the same reason the two dials above it are: whether a store
+   *  wants a deliberate gesture on a placement that costs it a 新規 window is
+   *  that store's judgement about its own people, and a component that spelled
+   *  the answer would make every store the same store.
+   *
+   *  ⚖ DEFAULT ON, decided on the design page itself (2026-08-31: 「長押しは ON
+   *  で出荷（この画面での確認をもって決定）」) — Fable default, OVERTURNABLE on
+   *  Liam's word. The 店舗設定 control ships with the settings round beside the
+   *  override dial, and it carries ⚖ HIS 8/31 GENERAL LAW: 「every settings entry
+   *  carries a one-line description of what it changes/turns off」. That line,
+   *  written here so the settings round does not have to invent it:
+   *  「注意が必要な場所への配置に、0.6秒の長押しを求めます」.
+   *  (⚖ 92 micro-fix M2, JP native pass — 「置けない」 says the placement is
+   *  impossible; the dial guards a placement that IS allowed but warns.)
+   *
+   *  It guards EVERY warn commit the card composes — ⚖ 9/1 ruling 1/2 deleted the
+   *  lock face, so a 店長のみ store reaches the same 注意して配置 as anyone else and
+   *  the dial decides only HOW that press is made. The one face it cannot reach is
+   *  the one with no control at all: 店長承認, whose commit is a request rather
+   *  than a press.
+   *  (⚖ 92 fix round 8 Z3 — this note used to read 「Meaningful ONLY at override
+   *  level `allow-warned`: a 店長のみ store has no staff commit for the press to
+   *  guard」, which the 9/1 ruling overturned the same night it was written.)
+   *  (⚖ 92 fix round 10 V4 (breaker #9 #4) — and it used to count a SECOND
+   *  unreachable face, 「a floor the guard itself calls impossible, which carries
+   *  no commit at all」. ⚖ 92 fix round 9 W1 gave that floor a control after all —
+   *  the clean face's own 「この位置では確定できません」, permanently disabled — and
+   *  its kind is composed from THIS dial like every other commit. So the dial does
+   *  reach it; what it decides there is only the shape of a button that can never
+   *  fire, which is why nothing in the settings copy above changes.) */
+  overrideHoldToConfirm: true,
 }
 
 /** スキマガード / Reserve受付 dials (canon `opsConfig`). The board never
@@ -355,6 +391,19 @@ export const opsConfig = {
   overridePolicy: storeBookingPolicy.overridePolicy,
   /** DERIVED — the same alias, for ruling Q5's own list (E5). */
   releaseHeldRoles: storeBookingPolicy.releaseHeldRoles,
+  /** DERIVED — ⚖ Liam 9/1, the settings round. The value LIVES on
+   *  `storeBookingPolicy` (⚠SETTINGS-BATCH, whose own note says 「The screen
+   *  joins the settings round beside the other guard dials」) and this line is
+   *  only the shorter name `readDayPlanes` hands a screen, on the same one-home
+   *  pattern as the three aliases above it. The number moves house, it does not
+   *  change: the dial still has ZERO readers on the board, so nothing about how
+   *  the day is drawn moves a byte. */
+  heldRankAccess: storeBookingPolicy.heldRankAccess,
+  /** DERIVED — ⚖ flag 92's long-press switch, on the same one-home pattern as
+   *  the two aliases above: the value LIVES on `storeBookingPolicy` (core's
+   *  record) and this line is only the shorter name `readDayPlanes` hands the
+   *  board. The number moves house, it does not change. */
+  overrideHoldToConfirm: storeBookingPolicy.overrideHoldToConfirm,
 }
 
 /** レジ (ask T-08). The aggregates the money band shows that no booking row

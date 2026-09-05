@@ -59,7 +59,7 @@
 
 import { createContext, useContext, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { Move, Moves } from './business/today/today-interactions'
-import type { BoardItem } from '@/business/lib/today-board'
+import type { BoardItem, BookingCategory } from '@/business/lib/today-board'
 
 /** ⚖ Liam 22 — where a parked card came from, WITH THE DAY AS DATA. Canon's
  *  park snapshot carries `day` on every element it took (fable-store-today.html
@@ -99,6 +99,15 @@ export interface ParkChip {
   home: ParkHome
   lenMin: number
   item: BoardItem
+  /** ⚖ R8 FIX ROUND 2 (Greptile on #828) — WHETHER THE BOOKING HAS A RECORDED
+   *  PRICE, stamped at park time, while the board that knows the answer is
+   *  still the board on screen. The chip travels to another day (⚖ Liam 22),
+   *  where neither `pricedIds` nor the server's lanes have ever heard of the
+   *  id; the placement that lands there used to infer the fact from the card's
+   *  ticket LINE, which for a price-less booking is the non-null text
+   *  「価格未記録」 (today-board.ts :409-410) — a fact read off display prose.
+   *  Carried, it cannot be re-read wrong. */
+  priced: boolean
 }
 
 /** ⚖ Liam 22 — a card this session put on a board, and THE DAY it belongs to.
@@ -115,6 +124,10 @@ export interface AddedRow {
   laneKey: string
   item: BoardItem
   fromChip?: ParkChip
+  /** ⚖ R8 FIX ROUND 2 — the same fact for a row this SESSION minted, written by
+   *  the mint that knew the price (the chip's own stamp, the lane's 定価, the
+   *  dialog's コース) and never inferred afterwards from `item.ticketCore`. */
+  priced: boolean
 }
 
 /** canon's `pendingChange`, and — ⚖ R11-4 (:5686) — the DAY it is staged on. A
@@ -168,6 +181,16 @@ export interface PlacingIntent {
   name: string
   store: string | null
   storeLabel: string
+  /** ⚖ 51 — THE NEXT VISIT'S CATEGORY RIDES THE INTENT, so the landing can ask
+   *  the room floor the same question a card asks. 配置モード placed the ご来店中
+   *  customer's 次回予約 with `vip: false` hardcoded, so a VIP was solved onto a
+   *  standard bed with no word said — the silent path ⚖ 51 exists to prevent.
+   *
+   *  ⚖ Greptile #827 — the NEXT visit's, not today's. VIP and 回数券 are the
+   *  customer's own traits; 新規 is a fact about the visit being paid for now,
+   *  and the intent describes the one after it. TodayScreen's
+   *  `nextVisitCategory` is the one place that word is turned over. */
+  category: BookingCategory
 }
 
 /** ⚖ Liam flag 41 (2026-08-21) — A CONFIRM SURFACE EXISTS ONLY WHILE ITS

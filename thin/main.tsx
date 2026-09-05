@@ -17,6 +17,11 @@ import { bindForegroundRevalidate } from './data/foreground-revalidate'
 // way via the Chrome.tsx import below) — its module-scope subscribeSessionState
 // arms on the sign-in settle with no explicit init call needed.
 import './data/screen-prefetch'
+// Capture pipeline slice five (D3): same side-effect idiom — the launch drain
+// secures whatever audio this device still owes the server the moment the shell
+// opens with a known session, instead of waiting for somebody to walk onto the
+// 録音 page. Nothing on screen waits for it.
+import './data/launch-drain'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'

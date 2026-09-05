@@ -242,6 +242,9 @@ export type FacadeEndpointKey =
   | 'customer.consent.grant'
   | 'customer.consent.read'
   | 'customer.consent.revoke'
+  | 'customer.create'
+  | 'customer.deletion.cancel'
+  | 'customer.deletion.schedule'
   | 'customer.lifecycle.set'
   | 'customer.memory.add'
   | 'customer.memory.delete'
@@ -258,6 +261,7 @@ export type FacadeEndpointKey =
   | 'customer.photo.delete'
   | 'customer.photo.upload'
   | 'customer.photos.list'
+  | 'customer.quickCreate'
   | 'customer.read'
   | 'customer.update'
   | 'customers.list'
@@ -269,6 +273,7 @@ export type FacadeEndpointKey =
   | 'karute.ai.suggestedMessage'
   | 'karute.entry.update'
   | 'karute.entryEdits.list'
+  | 'karute.manualCreate'
   | 'karute.outcome.set'
   | 'karute.read'
   | 'karute.reassign'
@@ -285,6 +290,8 @@ export type FacadeEndpointKey =
   | 'recordings.discard'
   | 'recordings.discards.list'
   | 'recordings.discards.transcript'
+  | 'recordings.discards.transcript.write'
+  | 'recordings.finalize'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
@@ -351,6 +358,25 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // Opening ONE customer's full profile = a view event.
   'customer.read': { kind: 'view', category: 'customer', action: 'customer.view', targetType: 'customer' },
   'customer.update': { kind: 'mutation', category: 'customer', action: 'customer.edit', targetType: 'customer' },
+  // 新規顧客 create, both doors of it. LIVE rows (not 'skip'): the shared
+  // bodies createCustomerWithClient/createQuickCustomerWithClient are
+  // deliberately audit-free — the WEB wrappers own the web emit — so the
+  // generic hook here is the facade's ONE writer, exactly the split
+  // 'customer.update' already uses. Both carry the SAME customer.create
+  // action: quick-create is the same create pathway under one action name
+  // (packet 30 §2), which is what the web wrapper emits too. Neither route
+  // has a path param, so the target id comes from ctx.auditTargetId.
+  'customer.create': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
+  'customer.quickCreate': { kind: 'mutation', category: 'customer', action: 'customer.create', targetType: 'customer' },
+  // ＋新規カルテ manual create (PHONEWIRE-2A). A LIVE row, and deliberately
+  // unlike 'karute.save' directly below: manual create does NOT pass through
+  // the createOrUpdateKaruteRecord choke point — it calls karuteRecords.create
+  // directly — so there is no other writer and no double-log risk. This is the
+  // ONE emit for the action, and it CLOSES a real gap: the web action emits
+  // nothing at all (SDK_WRITE_ALLOWLIST has recorded createManualKaruteRecord
+  // as "genuinely untracked" since 2026-07-27). The route has no path param,
+  // so the target id comes from ctx.auditTargetId.
+  'karute.manualCreate': { kind: 'mutation', category: 'karute', action: 'karute.manual_create', targetType: 'karute' },
   // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
   // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
   // instead — that ONE emit covers the web save actions AND this facade
@@ -492,6 +518,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // discard itself is audited at its own choke point ('recordings.discard').
   'recordings.discards.list': { kind: 'skip', category: 'recording', action: '' },
   'recordings.discards.transcript': { kind: 'skip', category: 'recording', action: '' },
+  // …and the WRITE beside them (PHONEWIRE-2C) skips for the reason the shared
+  // body's own SDK_WRITE_ALLOWLIST row states, not for the reads' one: the
+  // staff discard that authorises this write already emitted its own
+  // recording.discard receipt (AUDITED_CORES) and both bodies refuse to write
+  // at all unless that row exists, so a row here would double-count one act —
+  // and ⚖ 8/17 doc law forbids the CONTENT this call persists reaching an
+  // audit detail. Same ruling, same act, whichever door files it.
+  'recordings.discards.transcript.write': {
+    kind: 'skip',
+    category: 'recording',
+    action: '',
+    coveredBy: 'src/lib/recording/discard.ts#discardRecordingWithClient',
+  },
 
   // screens.dashboard (§3.1 D4, Liam-confirmed): the attention cards render a
   // one-line per-customer memo preview (attention.ts:142-144) and AI-generated
@@ -658,6 +697,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer' },
   'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer' },
   'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer' },
+  // The 30-day deletion pair (PHONEWIRE-2B) — the phone twins of the web
+  // actions' privacy.* rows. Category 'privacy', not 'customer': the act is
+  // an APPI erasure decision, and the audit viewer's privacy filter is where
+  // a manager looks for it (the web emitDeletionAudit files it there too).
+  // A guarded no-op files nothing — both routes set ctx.auditSuppress.
+  'customer.deletion.schedule': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_scheduled', targetType: 'customer' },
+  'customer.deletion.cancel': { kind: 'mutation', category: 'privacy', action: 'privacy.customer_delete_canceled', targetType: 'customer' },
   'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
 
   // Photos are the customer (§3.1).
@@ -715,11 +761,17 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // over the whole symbol, silently amnestying any SDK write a future edit
   // drops inside it. Every gate is green without one; do not add it back.
   'recordings.discard': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/discard.ts#discardRecordingWithClient' },
+  // Same doctrine as the receipt above: the ONE emit lives at the shared choke
+  // point, which alone knows whether this call actually WROTE anything. The
+  // generic hook would emit on every 2xx — including the soft refusals and the
+  // idempotent no-op this route deliberately returns in a 2xx body.
+  'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
-  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
-  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // viteRecordingPort.mintTakeUrl and prepareTranscription's un-finalized
+  // fallback both call the SAME upload-url facade endpoint before diverging —
+  // .stageForJob, the third caller, was deleted in PR4 — one leg reaches
   // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
   // other reaches processJob via enqueueJob). coveredBy keeps citing the
   // interactive choke point (the default/primary flow when no job is
@@ -732,7 +784,18 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // 'mutation' row here would double-log every facade discard.
   'recordings.session.delete': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient' },
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
-  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // The mint's OWN row (capture pipeline PR2 fix round 2) is
+  // recording.take_named, emitted at the shared core for a CLIENT-NAMED take
+  // only — the case where the caller names a take it may not own (storage
+  // refuses the overwrite; the row records who reached for the name). The
+  // generic hook would instead emit for every mint,
+  // including the server-named uuid that claims nothing.
+  // coveredBy REPOINTED (fix round 7, ledgered): it used to cite the
+  // interactive karute save at the far end of the flow this endpoint feeds,
+  // which is a different act entirely and could be true of any recording
+  // route. This endpoint's own write is the RESERVATION, and the emit that
+  // dominates it is auditTakeNamed — cite the writer, not the destination.
+  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/mint-take-url.ts#auditTakeNamed' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
   // with machine-readable coveredBy" — C2 formalizes what the comments above
@@ -882,7 +945,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
 
   cleanup: {
     kind: 'skip',
-    justification: 'CRON_SECRET-gated system janitor: orphaned-recording + expired-cache deletion; no user-attributable action.',
+    justification: 'CRON_SECRET-gated system janitor: orphaned-recording REPORTING (it deletes no audio, 2026-09-03) + expired-cache deletion; no user-attributable action.',
     dated: '2026-07-27',
   },
   'jobs/process': {

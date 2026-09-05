@@ -1,7 +1,9 @@
 // Facade: enqueue the server-side recording→karute job (packet 22 B2). The
 // client half of Anthony's server worker handoff (karute #576 + core #53):
-// after stageForJob uploads the audio, this mints the core job row so the
-// worker (this repo's /api/jobs/process, or the minutely cron) picks it up.
+// once the take's whole audio is secured at its finalized key (PR4 — the
+// client PUTs it at stop; there is no separate staging upload any more), this
+// mints the core job row so the worker (this repo's /api/jobs/process, or the
+// minutely cron) picks it up against that same object.
 // Same attribution rule as the web action (src/actions/recording-jobs.ts):
 // staff is resolved SERVER-side from the confirmed Bearer identity, never
 // accepted from the body (a spoofed staffId would misattribute the coaching
