@@ -1092,6 +1092,14 @@ describe('the 配置ガイド rail', () => {
     // The window's LENGTH is the store's dial, never a literal.
     expect(protectedWindowsClause([600], 60)).toBe('10:00〜11:00')
     expect(protectedWindowsClause([600, 660], 60)).toBe('10:00〜11:00・11:00〜12:00')
+    // Breaker 9/5 (F7) — past midnight the clause keeps counting rather than
+    // wrapping at 24:00, the same clock convention as reservedSentence's own
+    // homes (clockOf here has no `% 24`); no scene in this suite reaches a
+    // lane running this late, so a local shadow of clockOf inside the clause
+    // author would drift unseen without this pin.
+    expect(protectedWindowsClause([1350], 90)).toBe('22:30〜24:00')
+    expect(protectedWindowsClause([1350, 1440, 1530], 90))
+      .toBe('22:30〜24:00・24:00〜25:30・25:30〜27:00')
   })
 
   it('⚖ 90 — the eaten set is an OVERLAP, half-open at both ends', () => {
@@ -1142,6 +1150,17 @@ describe('the 配置ガイド rail', () => {
     const bigDial = { protectedDur: 200, guard: { ...GUARD, newClientSessionMin: 200 } }
     expect(at(guardRailsFor([held], railInput(bigDial))[0], 600).sentence)
       .toBe('配置できます。この区間には現在、守れる新規200分の空きはありません')
+    // Breaker 9/5 (F4/F5/F6) — every ✓ scene above names three survivors or
+    // fewer, so a rebinding ABOVE these pinned lines, or a wrapper edit BELOW
+    // them, can silently strip a FOLDED ✓ list unseen by any pin in this
+    // suite. Lane 10:00–19:00, now=700, leadTimeMin=120, 60 at dial 90 —
+    // two starts whose survivor set folds past three.
+    const busy = lane({ key: 'p-01', group: 'staff' })
+    const busyRail = guardRailsFor([busy], railInput({ nowMinute: 700, guard: { ...GUARD, leadTimeMin: 120 } }))[0]
+    expect(at(busyRail, 720).state).toBe('safe')
+    expect(at(busyRail, 720).sentence).toBe('13:00〜14:30・14:30〜16:00・16:00〜17:30、ほか1件の新規90分の空きを守れます')
+    expect(at(busyRail, 810).state).toBe('safe')
+    expect(at(busyRail, 810).sentence).toBe('11:40〜13:10・14:30〜16:00・16:00〜17:30、ほか1件の新規90分の空きを守れます')
   })
 
   it('⚖ 90 (b) — △ names the windows the START EATS, never the whole shift', () => {
