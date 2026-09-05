@@ -264,12 +264,39 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
     expect(lines.filter((l) => l.action === 'recording.play')).toHaveLength(0)
   })
 
-  it('the probe runs on the row’s OWN key, before anything is signed', async () => {
+  it('the probe runs on the row’s OWN key, after the ACL and before anything is signed', async () => {
     await mint()
     expect(info).toHaveBeenCalledWith(TAKE_KEY)
     expect(info.mock.invocationCallOrder[0]).toBeLessThan(
       createSignedUrl.mock.invocationCallOrder[0],
     )
+  })
+
+  // ⚠ FIX ROUND 3 — the probe used to run BEFORE the ACL. That made the bucket
+  // pay for every refused attempt, and let a same-tenant staffer who may NOT
+  // hear a colleague's take still tell "the bytes are there" (forbidden) from
+  // "they are gone" (no_audio): new information about someone else's audio,
+  // handed out before the permission question was asked.
+  it('a caller the ACL refuses never probes storage at all', async () => {
+    const r = await mint({ staffId: 'someone-else' })
+    expect(r).toEqual({ error: 'forbidden' })
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('an authorized listen probes exactly ONCE', async () => {
+    await mint()
+    expect(info).toHaveBeenCalledTimes(1)
+  })
+
+  // Wrapped like session-cleanup.ts's twin of this probe: a THROW is this
+  // door's own 502, never an escape to the handler's 500.
+  it('a THROWN probe → upstream, never a 500 and never a false no_audio', async () => {
+    info.mockRejectedValue(new Error('storage exploded'))
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await mint()).toEqual({ error: 'upstream' })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   // A probe that could not ANSWER is not a miss. Saying "no audio" when storage

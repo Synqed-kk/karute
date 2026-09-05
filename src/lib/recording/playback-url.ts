@@ -142,22 +142,6 @@ export async function mintPlaybackUrlWithClient(
   if (!serverHoldsTakeRow(row, actor.businessId)) return { error: 'no_audio' }
   const audioPath = row.audio_storage_path
 
-  //    Second half: ASK STORAGE. The row is a heuristic (see the helper's own
-  //    header — a reasoned discard stamps an unproven duration, and the
-  //    ordinary discard keeps the take key), so the only honest fact about
-  //    whether these bytes exist is the bucket's. The repo's ONE existence
-  //    spelling, shared with the upload mint and the session mint — never a
-  //    third.
-  //
-  //    A proven MISS is `no_audio`: there is genuinely nothing to hear. A probe
-  //    that could not ANSWER ('unknown') is `upstream`, never a miss — telling
-  //    a staffer her recording has no audio when storage merely blipped is the
-  //    one wrong thing to say here, and it is the same fail-closed reading the
-  //    mint and the discard door already take.
-  const exists = await objectExists(audioPath)
-  if (exists === false) return { error: 'no_audio' }
-  if (exists === 'unknown') return { error: 'upstream' }
-
   // 4. THE ACL (claim 2). Recorder-lock fix (⚖ Liam 8/22): the karute's staff
   //    id sometimes carries a synqed-core staff CARD id rather than a profile
   //    id, which locked the recorder out of her own record. Translate for the
@@ -179,7 +163,40 @@ export async function mintPlaybackUrlWithClient(
     return { error: 'forbidden' }
   }
 
-  // 5. The signed READ url — service-role, same by-construction posture as the
+  // 5. ASK STORAGE — the fence's second half, and it runs AFTER the ACL (fix
+  //    round 3). The row is only a heuristic (see the helper's own header: a
+  //    reasoned discard stamps an unproven duration, and the ordinary discard
+  //    keeps the take key), so the only honest fact about whether these bytes
+  //    exist is the bucket's. The repo's ONE existence spelling, shared with the
+  //    upload mint and the session mint — never a third.
+  //
+  //    ⚠ WHY IT SITS HERE AND NOT ABOVE THE ACL. It used to run first, which
+  //    bought two things nobody wanted: the bucket paid for every REFUSED
+  //    attempt (the header promises "one probe per LISTEN", not per try), and a
+  //    same-tenant staffer who may not hear a colleague's take could still tell
+  //    "the bytes are there" (forbidden) from "they are gone" (no_audio) — new
+  //    information about someone else's audio, handed out before the permission
+  //    question was even asked. Below the ACL, every authorized answer is
+  //    identical and an unauthorized caller learns nothing.
+  //
+  //    A proven MISS is `no_audio`: there is genuinely nothing to hear. A probe
+  //    that could not ANSWER ('unknown') is `upstream`, never a miss — telling a
+  //    staffer her recording has no audio when storage merely blipped is the one
+  //    wrong thing to say here, and it is the same fail-closed reading the mint
+  //    and the discard door already take. A THROW is the same answer: wrapped
+  //    like session-cleanup.ts's twin of this probe, so it leaves as this door's
+  //    own 502 rather than escaping to the handler as a 500.
+  let exists: boolean | 'unknown'
+  try {
+    exists = await objectExists(audioPath)
+  } catch (err) {
+    console.warn('[playback-url] object probe failed:', err)
+    return { error: 'upstream' }
+  }
+  if (exists === false) return { error: 'no_audio' }
+  if (exists === 'unknown') return { error: 'upstream' }
+
+  // 6. The signed READ url — service-role, same by-construction posture as the
   //    job worker's Deepgram mint. The fence above is all that stands between a
   //    caller and another tenant's audio, which is why it runs first.
   const supabase = createServiceClient()
@@ -191,7 +208,7 @@ export async function mintPlaybackUrlWithClient(
     return { error: 'upstream' }
   }
 
-  // 6. ONE ROW PER MINT (claim 3). Legal hygiene, never a notification: an
+  // 7. ONE ROW PER MINT (claim 3). Legal hygiene, never a notification: an
   //    owner listening to a staffer's take is `breakGlass`, and nobody is told.
   //    ⚖ 8/17 doc law keeps content out of details — ids and the TTL only.
   audit({
