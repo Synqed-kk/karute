@@ -441,12 +441,42 @@ export function SettingsScreen(props: SettingsScreenProps) {
     settledAt.current = tourOpen ? Date.now() : Number.POSITIVE_INFINITY
   }, [tourOpen])
 
+  /** ⚖ S17 · F12 — ONE ESCAPE KEY, TWO LAYERS, IN THAT ORDER.
+   *
+   *  The tour is the outer layer: while it is open Escape closes IT and nothing
+   *  else, which is the ④ room's own precedent. Underneath it, Escape closes the
+   *  詳しく disclosure the reader is standing in and puts focus back on its
+   *  button — the half of 「Escape closes the tour and 詳しく」 that was never
+   *  built (`.st-det-btn` carried no key handler at all, so a reader who opened
+   *  a disclosure by keyboard had no way to close it by keyboard).
+   *
+   *  ⚠ ONE DOCUMENT-LEVEL HANDLER RATHER THAN A HANDLER PER ROW, because the
+   *  layering is the point: two independent handlers would both fire, and the
+   *  React root sees a bubbling key before `document` does, so a row-level
+   *  `onKeyDown` would beat the tour to it. Written here, the priority is a
+   *  `return` a reader can see.
+   *
+   *  ⚠ THE ROW IS ASKED FOR ITS OWN ID (`data-row-id`), never parsed out of the
+   *  `aria-controls` string: the id FORMAT is not a contract this room wants to
+   *  owe anybody. */
   useEffect(() => {
-    if (!tourOpen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setTourIdx(-1)
-      if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
-      if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
+      if (tourOpen) {
+        if (e.key === 'Escape') setTourIdx(-1)
+        if (e.key === 'ArrowRight') setTourIdx((i) => wrapStep(i + 1, tourRectsRef.current.length))
+        if (e.key === 'ArrowLeft') setTourIdx((i) => wrapStep(i - 1, tourRectsRef.current.length))
+        return
+      }
+      if (e.key !== 'Escape') return
+      const here = document.activeElement
+      const dial = here instanceof Element ? here.closest('.st-dial') : null
+      if (!(dial instanceof HTMLElement)) return
+      const btn = dial.querySelector('.st-det-btn')
+      if (!(btn instanceof HTMLElement) || btn.getAttribute('aria-expanded') !== 'true') return
+      const rowId = dial.dataset.rowId
+      if (rowId === undefined) return
+      setOpenRows((prev) => ({ ...prev, [rowId]: false }))
+      btn.focus()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -1470,6 +1500,9 @@ function Row({
   return (
     <section
       className={`st-dial${row.link ? ' is-door' : ''}`}
+      /* ⚖ S17 · F12 — the row names itself, so Escape can close THIS row's
+         詳しく without anybody parsing an id back out of `aria-controls`. */
+      data-row-id={row.id}
       data-guide-title={row.label}
       data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}${detail.length > 0 ? ' 初期値や決まりは「詳しく」で開けます。' : ''}`.trim()}
     >

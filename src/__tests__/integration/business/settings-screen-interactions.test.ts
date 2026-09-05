@@ -269,6 +269,42 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('}, [on, reduced])')
   })
 
+  // ⚖ S17 · F12 — ESCAPE CLOSES 詳しく TOO, AND THE TOUR STILL GOES FIRST.
+  // The room shipped ONE Escape handler, scoped to the tour; `.st-det-btn`
+  // carried no key handler at all, so a reader who opened a disclosure with the
+  // keyboard had no keyboard way to close it. Both layers now live in one
+  // handler so the priority is a `return` rather than two listeners racing —
+  // and the React root sees a bubbling key BEFORE `document` does, which is why
+  // a per-row `onKeyDown` would have beaten the tour to Escape.
+  it('⚖ F12 — one Escape handler, two layers: the tour first, then the open 詳しく', () => {
+    const eff = SRC_CODE.slice(SRC_CODE.indexOf('const onKey = (e: KeyboardEvent)'))
+    const body = eff.slice(0, eff.indexOf("document.addEventListener('keydown', onKey)"))
+    // the tour layer is first, and it ends the handler…
+    expect(body.indexOf('if (tourOpen) {')).toBeLessThan(body.indexOf("if (e.key !== 'Escape') return"))
+    expect(body).toContain('setTourIdx(-1)')
+    // …then the disclosure layer, scoped to the row the reader is standing in…
+    expect(body).toContain("here.closest('.st-dial')")
+    expect(body).toContain("btn.getAttribute('aria-expanded') !== 'true'")
+    expect(body).toContain('setOpenRows((prev) => ({ ...prev, [rowId]: false }))')
+    // …and focus goes back to the button that opened it.
+    expect(body).toContain('btn.focus()')
+    // …the row is asked for its own id rather than having it parsed out of
+    // `aria-controls`, so the id FORMAT is nobody's contract.
+    expect(body).toContain('const rowId = dial.dataset.rowId')
+    expect(SRC_CODE).toContain('data-row-id={row.id}')
+    expect(body).not.toMatch(/aria-controls'\)\??\.replace/)
+    // …and there is exactly ONE keydown listener in the room…
+    expect((SRC_CODE.match(/addEventListener\('keydown'/g) ?? []).length).toBe(1)
+    // …which is not short-circuited back to the tour's own scope. This is the
+    // exact shape the room shipped: a handler that returns unless the tour is
+    // open leaves the disclosure with no keyboard way out, while every line
+    // below it still reads as if it were reachable.
+    expect(body).not.toMatch(/if \(!tourOpen\) return/)
+    // …and it is not registered only while the tour is open, either.
+    const eff2 = SRC_CODE.slice(0, SRC_CODE.indexOf('const onKey = (e: KeyboardEvent)'))
+    expect(eff2.slice(-260)).not.toMatch(/if \(!tourOpen\) return/)
+  })
+
   // ⚖ S17 · F11 — THE ROOM DOES NOT STATE A GUARD RULE THE GUARD DOES NOT HAVE.
   // A comment here claimed the data-access guard 「forbids `.set(` / `.delete(`
   // tokens outright」. `.set(` is not one of the guard's patterns, and this file
