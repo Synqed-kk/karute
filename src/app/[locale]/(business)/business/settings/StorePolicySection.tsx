@@ -39,7 +39,7 @@
 // ¥) is decided by that function and by nothing here, which is what makes the
 // preview an honest answer to 「what will my staff actually see?」.
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
 import { Collapse, DetailToggle } from './Collapse'
@@ -297,9 +297,31 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   /** ⚖ A2 / F12 — the invariant, carried onto the shell's walk. #812 forced
    *  詳細設定 open from its own ? handler (`onClick={() => { setAdvOpen(true);
    *  setTourIdx(0) }}`); the ? now belongs to 設定, so the section answers the
-   *  walk instead of launching it. Same guarantee, one owner. */
+   *  walk instead of launching it. Same guarantee, one owner.
+   *
+   *  ⚖ S17 fix round 4 · M3 — AND IT PUTS THE PAGE BACK. The walk is a READ-ONLY
+   *  action: a manager who folded 詳細設定 away, pressed ?, read four steps and
+   *  pressed Escape came back to a page they had not left it as. F12 has to
+   *  force the fold open — nine dials inside a closed `<details>` measure zero
+   *  and drop out of the count — but forcing it open is a loan, not a decision.
+   *
+   *  ⚠ UNLESS THE READER CHANGED IT DURING THE WALK, which is the one case where
+   *  restoring would be the rude answer: if 詳細設定 is CLOSED when the tour
+   *  ends, that is the reader's own press and it stands. Only a fold still
+   *  standing open — the state the tour itself put there — is handed back. */
+  const advOpenRef = useRef(advOpen)
+  useEffect(() => { advOpenRef.current = advOpen }, [advOpen])
+  const beforeTour = useRef<boolean | null>(null)
   useEffect(() => {
-    if (props.tourOpen) setAdvOpen(true)
+    if (props.tourOpen) {
+      beforeTour.current = advOpenRef.current
+      setAdvOpen(true)
+      return
+    }
+    const was = beforeTour.current
+    if (was === null) return
+    beforeTour.current = null
+    setAdvOpen((now) => (now ? was : now))
   }, [props.tourOpen])
 
   const dials: Dials = { perm, hold, mode, gaps, minutes, rank, slot: Number(slotText) }

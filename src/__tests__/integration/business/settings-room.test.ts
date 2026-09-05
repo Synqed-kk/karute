@@ -310,6 +310,24 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     // one render call, everything the room needs, nothing carried across.
     expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS, onAnchorJump })}</>')
     expect(SCREEN).toContain("const onAnchorJump = (id: string) => { if (id === 'bg.adv') setAdvOpen(true) }")
+
+    /* ⚖ S17 fix round 4 · M3 — AND THE WALK PUTS THE FOLD BACK. F12 has to force
+       詳細設定 open (nine dials inside a closed `<details>` measure zero and drop
+       out of the count), and forcing it open is a LOAN: the ? is a read-only
+       action, and a manager who folded the section away, walked it and pressed
+       Escape came back to a page they had not left. The pre-tour state is
+       remembered when the walk opens and handed back when it closes — unless the
+       reader closed the fold DURING the walk, which is their own press and
+       stands. */
+    const tourEffect = SCREEN.slice(SCREEN.indexOf('const beforeTour = useRef'), SCREEN.indexOf('}, [props.tourOpen])'))
+    expect(tourEffect).toContain('beforeTour.current = advOpenRef.current')
+    expect(tourEffect).toContain('setAdvOpen(true)')
+    expect(tourEffect).toContain('setAdvOpen((now) => (now ? was : now))')
+    // …and the remembered value is READ from a live ref rather than from the
+    // effect's own closure, or the walk would restore whatever the fold was on
+    // the render that first mounted it.
+    expect(SCREEN).toContain('const advOpenRef = useRef(advOpen)')
+    expect(SCREEN).toContain('useEffect(() => { advOpenRef.current = advOpen }, [advOpen])')
     expect(SHELL_SCREEN_CODE).toContain('(id) => { slots.onAnchorJump(id); jumpTo(id) },')
     // ⚖ mock D4 — AND THE LEAD TELLS THE TRUTH AT BOTH WIDTHS. #812's sentence
     // points at 「右のカード」, and the card is on the right ONLY in the ③
@@ -326,7 +344,14 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     const three = CSS.slice(CSS.indexOf('@container st-body (min-width: 960px)'))
     expect(three).toMatch(/\.st-lead-wide \{ display: inline; \}/)
     expect(three).toMatch(/\.st-lead-narrow \{ display: none; \}/)
-    expect(SCREEN_CODE).toContain('if (props.tourOpen) setAdvOpen(true)')
+    // ⚠ D-35 (⚖ S17 fix round 4 · M3) — THE FORCE-OPEN GAINED A RETURN LEG, so
+    // the one-line effect this pin held is now a branch. The GUARANTEE is the
+    // same and is asserted where it lives: opening the walk still opens 詳細設定
+    // (or nine dials measure zero and drop out of the count), and closing it
+    // hands the fold back — see the M3 pin above.
+    const tourBody = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const beforeTour = useRef'), SCREEN_CODE.indexOf('}, [props.tourOpen])'))
+    expect(tourBody).toContain('if (props.tourOpen) {')
+    expect(tourBody).toContain('setAdvOpen(true)')
     expect(SCREEN_CODE).toContain('}, [props.tourOpen])')
     // …and the shell's own ? is what sets `tourOpen`, so the chain is closed.
     expect(SHELL_SCREEN_CODE).toContain('onClick={() => setTourIdx(0)}')
