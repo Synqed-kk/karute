@@ -738,16 +738,25 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(dts).toContain('presets: Record<PermissionRoleKey, string[]>;')
   })
 
-  it('⚖ C7/F1 — and the page SAYS so, by key, where the roles are chosen', async () => {
+  // ⚖ S17 · F6 — AND THE PAGE SAYS SO IN JAPANESE, NOT IN WIRE KEYS.
+  // The first cut printed `area_manager / trainee / accountant` inside the
+  // sentence. The counts are the reader's half of this contract; the keys are
+  // the SDK pin's half (above). This pin holds both halves of that split, so a
+  // later hand cannot put the identifiers back into the copy and cannot drop
+  // the count that makes the sentence true.
+  it('⚖ C7/F1/F6 — and the page SAYS how many, in Japanese, where the roles are chosen', async () => {
     const props = await room({ store: STORE_A })
     const roster = rowsOf(props).find((r) => r.id.startsWith('staff.row-') && r.controls.some((c) => c.id.startsWith('staff.preset-')))!
-    // The three are named in the row's own receipt, so a reader meets them on
-    // this page rather than at reconnect…
-    for (const k of rulebook.unadoptedRoleKeys) expect(roster.source ?? '').toContain(k)
-    // …and the counts in that sentence are DERIVED, so a tenth role on the wire
-    // cannot ship beside a page still saying nine.
-    expect(roster.source ?? '').toContain('9')
-    expect(roster.source ?? '').toContain('6')
+    const src = roster.source ?? ''
+    // The counts in that sentence are DERIVED, so a tenth role on the wire
+    // cannot ship beside a page still saying nine…
+    const total = rulebook.roles.length + rulebook.unadoptedRoleKeys.length
+    expect(src).toContain(`役職の種類が${total}つ`)
+    expect(src).toContain(`いまカルテが使っているのは${rulebook.roles.length}つ`)
+    expect(src).toContain(`残る${rulebook.unadoptedRoleKeys.length}つ`)
+    expect(total).toBe(9)
+    // …and NOT ONE of the wire's own identifiers is printed at the reader.
+    for (const k of rulebook.unadoptedRoleKeys) expect(src).not.toContain(k)
     // …while the CONTROL still offers only the six that have grants behind them.
     const preset = roster.controls.find((c) => c.id.startsWith('staff.preset-'))!
     const options = preset.control.kind === 'select' ? preset.control.options : []
@@ -755,6 +764,27 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     for (const k of rulebook.unadoptedRoleKeys) {
       expect({ key: k, offered: options.some((o) => o.value === k) }).toEqual({ key: k, offered: false })
     }
+  })
+
+  // ⚖ S17 · F7 — 契約・請求 NAMES ONE DESTINATION, ONCE.
+  // The section used to send the reader two ways for one errand: its lead said
+  // 「このWeb画面」 and the block's own fact line said 「Webのお支払い画面」, six
+  // lines apart. A reader who reads both has to work out whether they are the
+  // same place. The lead's words are the room's words; the fact line adds only
+  // what the lead does not enumerate, and no second name for the destination
+  // survives anywhere in the section.
+  it('⚖ F7 — 契約・請求 names ONE destination for the plan change, in one form of words', async () => {
+    const sec = sectionOf(await room({ store: STORE_A, role: 'オーナー' }), 'billing')
+    const facts = sec.blocks.flatMap((b) => b.facts ?? [])
+    const change = facts.find((f) => f.includes('プランの変更'))!
+    expect(change).toContain('このWeb画面')
+    expect(sec.lead).toContain('このWeb画面')
+    // …and the second name is gone from every reader-facing string of the section.
+    const reader = [sec.lead, ...facts, ...sec.blocks.flatMap((b) => [b.title, b.note ?? '', ...b.rows.flatMap((r) => [r.label, r.description, r.source ?? ''])])]
+    expect(reader.filter((t) => t.includes('Webのお支払い画面'))).toEqual([])
+    // …and 「この画面」 on its own never stands for two different places in one
+    // section: the row's receipt says WHICH screen cannot change the plan.
+    expect(reader.filter((t) => /この画面/.test(t) && !/この設定画面|このWeb画面/.test(t))).toEqual([])
   })
 
   // ⚖ S17 · C4 — the same proof for the 26 business types.

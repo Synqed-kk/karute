@@ -1692,14 +1692,22 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           chips(`staff.caps-${id}`, `${name}ができること`, capOpts, granted, undefined, true),
         ], {
           meta: [s.pin ? '暗証番号 設定済み' : '暗証番号 未設定', s.voice ? '音声登録 済み' : '音声登録 なし'],
-          // ⚖ C7 / F1 — the wire's rulebook defines NINE role keys
-          // (`PermissionRoleKey`, dist/types.d.ts:1186) and Karute has adopted
-          // six of them; the other three carry no preset grants yet. So the row
-          // OFFERS six and NAMES the three by key: a reader who meets them here
-          // does not meet them as a surprise at reconnect, and naming them by key
-          // rather than inventing Japanese labels keeps the page from promising a
-          // role nobody can currently be.
-          source: `カルテと同じ権限の一覧です（役職を選ぶとひな形どおりに入り、そのあと1つずつ足し引きできます）。コアの権限表には役職の種類が${rulebook.roles.length + rulebook.unadoptedRoleKeys.length}あり、うち${rulebook.roles.length}つをカルテが使っています（まだ使っていないもの: ${rulebook.unadoptedRoleKeys.join(' / ')}）`,
+          // ⚖ C7 / F1 / F6 — the wire's rulebook defines NINE role keys
+          // (`PermissionRoleKey`, dist/types.d.ts:1186 — `area_manager` /
+          // `trainee` / `accountant` are the three Karute has not adopted) and
+          // Karute has preset grants behind six of them. So the row OFFERS six
+          // and COUNTS all nine.
+          //
+          // ⚠ THE THREE KEYS ARE NOT PRINTED. The first cut dropped
+          // `area_manager / trainee / accountant` into the middle of a Japanese
+          // sentence: a salon owner opening 詳しく met three raw English
+          // identifiers, which reads as an unfinished developer artifact rather
+          // than as something written for them. The fix for 「we have not named
+          // these yet」 is a sentence that SAYS so in Japanese — and not an
+          // invented Japanese gloss either, because a name for a role nobody can
+          // currently be is a label the room made up. The keys live in this
+          // comment and in the SDK disk-read pin; the reader gets the count.
+          source: `カルテと同じ権限の一覧です（役職を選ぶとひな形どおりに入り、そのあと1つずつ足し引きできます）。コアの権限表には役職の種類が${rulebook.roles.length + rulebook.unadoptedRoleKeys.length}つあり、いまカルテが使っているのは${rulebook.roles.length}つです。残る${rulebook.unadoptedRoleKeys.length}つは、まだ名前も権限のひな形も用意されていません。`,
         })
       }), {
         facts: [
@@ -2147,12 +2155,18 @@ function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         ], {
           scopeLabel: BUSINESS_SCOPE,
           meta: [entitlement.isUnlimited ? '上限なし' : '通常の上限'],
-          source: '契約はコアの事業ごとの記録から読んでいます（この画面からは変更しません）',
+          source: '契約はコアの事業ごとの記録から読んでいます（この設定画面からは変更しません）',
         }),
       ], {
         facts: [
           `いまの月額の合計は${yen(total)}（税込）です。`,
-          'プランの変更・お支払い方法の変更・領収書は、Webのお支払い画面で行います。カルテやReserveのアプリの中では扱いません。',
+          // ⚖ F7 — ONE DESTINATION, ONE NAME. This line used to send the reader
+          // to 「Webのお支払い画面」 while the section's own lead six lines up
+          // sends them to 「このWeb画面」. Two names for one place, in one
+          // section, is a reader working out whether they are the same. It is
+          // the lead's words now, and it adds only what the lead does not
+          // enumerate (お支払い方法の変更) — no new promise.
+          'プランの変更・お支払い方法の変更・領収書は、このWeb画面だけで扱います。',
         ],
         // ⚠ NO DOOR HERE, AND THAT IS THE LABEL-TRUTH RULE DOING ITS JOB. The
         // 「Web限定」 destination IS this page — a button that opens the section it
@@ -2160,7 +2174,7 @@ function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         // says where the change happens; when the Stripe portal has a real
         // address, this becomes a link to THAT.
       }),
-      block('billing.payment', 'お支払い方法', 'お支払いはStripeの安全なWeb画面で行い、この画面には結果だけが届きます。', [
+      block('billing.payment', 'お支払い方法', 'お支払いはStripeの安全なWeb画面で行い、この設定画面には結果だけが届きます。', [
         row('billing.row-card', 'カード', `有効期限 ${d.cardExpiry}`, [
           ro('billing.card', 'カード', `•••• ${d.cardLast4}`),
         ], { scopeLabel: BUSINESS_SCOPE }),
