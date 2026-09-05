@@ -2047,6 +2047,19 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // (the compact head's own scale) and grow to 44 in the touch band with every
     // other control, which is where the law actually applies.
     expect(touch).toMatch(/\.st-rail-item,[\s\S]*min-height: 44px/)
+    /* ⚠ AND THE TWO NUMBERS THE LIST ABOVE CANNOT HOLD (⚖ S17 fix round 2 · P3).
+       `.st-lockchip button` was already IN that list while it measured 34px, and
+       the list stayed green: it asserts that a selector is NAMED inside the band,
+       which is the right claim for the shared `min-height: 44px` group and no
+       claim at all about a control sized by its own rule. The chip and its ✕ are
+       both sized by their own rules — which is also why `.st-lockchip` sits in
+       EXEMPT above — so naming them proved nothing.
+       They are held HERE or nowhere: `lockedOut` is empty in every fixture, so
+       the ✕ is a pressable no width sweep in this repo ever renders. The probe's
+       G1b meets it only because that sweep ADDS a lock chip first, and a probe is
+       not a pin. Same class of miss as F14 itself, one layer in. */
+    expect(touch).toMatch(/\.st-lockchip \{[^}]*min-height: 44px/)
+    expect(touch).toMatch(/\.st-lockchip button \{[^}]*width: 44px;[^}]*height: 44px/)
   })
 })
 
