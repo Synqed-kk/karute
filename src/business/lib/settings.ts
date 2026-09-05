@@ -30,7 +30,15 @@
 // round and kept killed here). The eight seams this room's store dials reconnect
 // through, for the Anthony ask:
 //   ① 店舗ポリシーの保存        — the write door for the board-policy cluster
-//   ② 設定の権限トークン        — per-section settings capabilities + guard.override
+//   ② 設定の権限トークン        — ⚖ S17 · C7 NARROWED. What is actually missing
+//                                 is `guard.override` (who may override a
+//                                 protected window, recorded in core) plus
+//                                 PER-SECTION settings tokens; the general
+//                                 permission model is NOT missing — it is
+//                                 eighteen capabilities and six role presets,
+//                                 mirrored in `fixtures-settings.rulebook` with
+//                                 their cites, and `business.manage` among them
+//                                 is real and grantable.
 //   ③ コーチングの店舗設定      — org_settings for the four コーチング dials
 //   ④ 文字起こしの公開範囲の実装 — enforcement at the data door, not the screen
 //   ⑤ 再来促しのしきい値        — ONE value both doors read
@@ -59,90 +67,47 @@
 
 // ── the capability vocabulary ───────────────────────────────────────────────
 //
-// canon's スタッフ管理 page (fable-settings-staff.html) is the ONE place the real
-// tokens are enumerated — EIGHT of them, plus `business.manage`, which canon's
-// own roster comment names to explain why a 店舗管理者 cannot reach 事業構成 and
-// which is NOT one of the eight (DIAL-HOME-MAP conflict (c)2). The room keeps
-// canon's rail behaviour and says the honest thing rather than inventing it.
+// ⚖ S17 · C7 — THE RULEBOOK IS DATA, AND IT IS KARUTE'S. The first cut built
+// this room's permission vocabulary out of canon's staff MOCK — eight tokens
+// from a developer artefact's `CAP_ORDER` — and reasoned from there that
+// `business.manage` 「is not a store's to grant」. Both were wrong: the product's
+// list is EIGHTEEN (`src/lib/auth/permissions.ts:14-46` on `origin/main`) and
+// `business.manage` is capability #2, owner-only BY DEFAULT and grantable per
+// staff member. `PermissionClient.rulebook()` is documented 「One source for both
+// apps' toggle UIs」, so the room mirrors that one source rather than inventing a
+// second, and `fixtures-settings.ts`'s `rulebook` is where the mirror lives —
+// beside every other value this world states, read through the props file.
+//
+// WHAT STAYS HERE IS THE RULE, NOT THE LIST. `accessFor` decides what a role
+// HOLDS; the rulebook says what there is to hold. Keeping the list here would
+// give one question two homes, and this file may import nothing (its inventory
+// is empty and pinned), so the data comes in as an argument.
 
+/** The tokens THIS ROOM gates a section on. Every one is a real Karute
+ *  capability (`permissions.ts:14-46`); the room simply does not gate on all
+ *  eighteen, because only these six answer 「may this reader open this section」. */
 export type Capability =
   | 'staff.manage'
   | 'staff.invite'
   | 'settings.manage'
-  | 'records.write'
-  | 'customers.view'
   | 'analytics.viewAll'
   | 'billing.manage'
-  | 'data.export'
-  /** ⚠ NOT ONE OF THE EIGHT — see the note above. */
+  /** ⚠ REAL, AND GRANTABLE. `permissions.ts:16` — owner-only by DEFAULT (it is
+   *  excluded from the manager preset at `:76`), never by nature: nothing
+   *  strips it from an explicit per-staff grant the way `effectiveCapabilities`
+   *  strips `recordings.viewAll` for non-owners (`:137`). The 事業構成 boundary
+   *  sentence says how it is handed out, instead of the room claiming it cannot
+   *  be. */
   | 'business.manage'
 
-/** ⚠ THE READER NEVER SEES A TOKEN, AND THAT IS A RULING RATHER THAN A TASTE
- *  (⚖ 「plain names, never codes」). canon's mock prints `staff.manage` as a chip
- *  because canon is a developer artefact; this room prints what the permission
- *  DOES. The grid is canon's — eight switches, the same eight facts — wearing
- *  the product's own language. Deviation S9L-2, argued in the build report. */
-export const CAPABILITY_LABEL: Record<Capability, string> = {
-  'staff.manage': 'スタッフの管理',
-  'staff.invite': 'スタッフの招待',
-  'settings.manage': '設定の変更',
-  'records.write': 'カルテの記録',
-  'customers.view': '顧客の閲覧',
-  'analytics.viewAll': '売上分析の閲覧（店舗全体）',
-  'billing.manage': '契約・請求の管理',
-  'data.export': 'データの書き出し',
-  'business.manage': '事業構成の管理',
+/** What the room needs from the rulebook to answer its own gate: which tokens a
+ *  role is seeded with, and what this demo world's role WORDS map to. The shape
+ *  is `fixtures-settings.ts`'s `rulebook`, taken as an argument because this
+ *  file imports nothing. */
+export interface AccessRules {
+  grants: Readonly<Record<string, readonly string[]>>
+  roleKeyOf: Readonly<Record<string, string>>
 }
-
-/** canon's own eight, in canon's own order (fable-settings-staff.html CAP_ORDER).
- *  `business.manage` is deliberately NOT here: a switch for a permission that
- *  does not exist would be the room inventing a contract. */
-export const CAPABILITY_ORDER: readonly Capability[] = [
-  'staff.manage',
-  'staff.invite',
-  'settings.manage',
-  'records.write',
-  'customers.view',
-  'analytics.viewAll',
-  'billing.manage',
-  'data.export',
-]
-
-/** canon's FROZEN preset grants (fable-settings-staff.html PRESET_GRANTS, from
- *  the real app's ROLE_PRESETS), filtered to the eight tokens the grid shows. */
-export const PRESET_GRANTS: Record<string, readonly Capability[]> = {
-  owner: ['staff.manage', 'staff.invite', 'settings.manage', 'records.write', 'customers.view', 'analytics.viewAll', 'billing.manage', 'data.export'],
-  manager: ['staff.manage', 'staff.invite', 'settings.manage', 'records.write', 'customers.view', 'analytics.viewAll', 'data.export'],
-  senior: ['records.write', 'customers.view', 'analytics.viewAll', 'data.export'],
-  practitioner: ['records.write', 'customers.view'],
-  frontdesk: ['customers.view'],
-}
-
-export const PRESET_LABEL: Record<string, string> = {
-  owner: 'オーナー',
-  manager: '店舗管理者',
-  senior: '主任',
-  practitioner: '施術スタッフ',
-  frontdesk: '受付',
-}
-
-/** The demo world's roles → the tokens they hold, THROUGH canon's own presets.
- *  An unknown role holds NOTHING, never a default grant. */
-const PRESET_BY_ROLE: Record<string, string> = {
-  オーナー: 'owner',
-  店舗管理者: 'manager',
-  スタッフ: 'practitioner',
-}
-
-/** ⚠ THE NINTH TOKEN, AND WHY IT IS NOT IN THE MATRIX (DIAL-HOME-MAP (c)2).
- *  `business.manage` gates 事業構成, and canon's staff page does NOT list it
- *  among the eight a store can switch — because it is not a store's to grant.
- *  canon's own roster comment reasons exactly that way about the demo persona:
- *  she is denied 事業構成 and 契約・請求, 「i.e. no business.manage, which rules
- *  out owner」. So an OWNER holds it, a 店舗管理者 does not, and the capability
- *  grid offers no switch for it. The room says that in the boundary sentence
- *  rather than inventing a permission somebody could be given. */
-const OWNER_ONLY: readonly Capability[] = ['business.manage']
 
 export interface SettingsAccess {
   has(cap: Capability): boolean
@@ -150,12 +115,12 @@ export interface SettingsAccess {
   role: string
 }
 
-export function accessFor(role: string): SettingsAccess {
-  const preset = PRESET_BY_ROLE[role] ?? ''
-  const held: readonly Capability[] = [
-    ...(PRESET_GRANTS[preset] ?? []),
-    ...(preset === 'owner' ? OWNER_ONLY : []),
-  ]
+/** ⚠ AN UNKNOWN ROLE HOLDS NOTHING, never a default grant — the safe side of
+ *  every gate in the room, and the reason a mis-spelled role shows a boundary
+ *  rather than a manager's page. */
+export function accessFor(role: string, rules: AccessRules): SettingsAccess {
+  const key = rules.roleKeyOf[role] ?? ''
+  const held: readonly string[] = rules.grants[key] ?? []
   return { role, has: (cap) => held.includes(cap) }
 }
 

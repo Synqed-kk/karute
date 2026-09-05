@@ -42,6 +42,7 @@ import {
   colorTokenMeaning,
   connectorCatalog,
   planPricing,
+  rulebook,
   storeDials,
   type StoreDials,
 } from '@/business/lib/fixtures-settings'
@@ -49,8 +50,6 @@ import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import {
   accessFor,
-  CAPABILITY_LABEL,
-  CAPABILITY_ORDER,
   clampCoachingFloor,
   clampCoachingRetention,
   clampWinBackDays,
@@ -60,8 +59,6 @@ import {
   gateOf,
   hhmm,
   minutesLabel,
-  PRESET_GRANTS,
-  PRESET_LABEL,
   RAIL,
   RETENTION_MAX_MONTHS,
   RETENTION_MIN_MONTHS,
@@ -147,7 +144,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
 
   const now = renderNow()
   const role = world?.role ?? operator.role
-  const access = accessFor(role)
+  const access = accessFor(role, rulebook)
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
   const lensLabel = clamped ? (storeName.get(storeId!) ?? 'この店舗') : 'すべての店舗'
 
@@ -242,8 +239,8 @@ const txt = (
 const num = (id: string, aria: string, value: number, min: number, max: number, step: number, unit: string): RowControl =>
   ({ id, aria, control: { kind: 'number', min, max, step, unit }, value: String(value) })
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
-const chips = (id: string, aria: string, options: ControlOption[], value: string[], locked?: string): RowControl =>
-  ({ id, aria, control: { kind: 'chips', options }, value, ...(locked ? { locked } : {}) })
+const chips = (id: string, aria: string, options: ControlOption[], value: string[], locked?: string, grid?: boolean): RowControl =>
+  ({ id, aria, control: { kind: 'chips', options, ...(grid ? { grid } : {}) }, value, ...(locked ? { locked } : {}) })
 const swatch = (id: string, aria: string, options: ControlOption[], value: string): RowControl =>
   ({ id, aria, control: { kind: 'swatch', options }, value })
 const ro = (id: string, aria: string, text: string, unit = '', numeric = false): RowControl =>
@@ -326,13 +323,18 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
 type SectionBase = Pick<SettingsSection, 'id' | 'group' | 'label' | 'scope' | 'gate' | 'boundaryLine'>
 
 function boundaryLineFor(entry: RailEntry, role: string): string {
-  // ⚠ `business.manage` IS NOT ONE OF THE EIGHT REAL TOKENS (DIAL-HOME-MAP (c)2).
-  // canon's roster comment names it to explain this exact row, and the honest
-  // sentence says the row is not reachable for anyone yet rather than implying a
-  // permission somebody could be granted. It carries no build code either — the
-  // seam it waits on lives in `settings.ts`'s registry comment and in the report.
+  // ⚖ S17 · C7 — THE SENTENCE WAS WRONG AND IS CORRECTED AT THE SOURCE.
+  // It used to end 「この権限は、スタッフ管理の権限の一覧からは配れません」, on the
+  // first cut's reading of canon's staff MOCK, which lists eight tokens and not
+  // this one. The product's own list has eighteen and `business.manage` is #2
+  // (`src/lib/auth/permissions.ts:16`): owner-only BY DEFAULT — excluded from
+  // the manager preset at `:76` — and grantable per staff member, since nothing
+  // strips it from an explicit grant the way `effectiveCapabilities()` strips
+  // `recordings.viewAll` for non-owners (`:137`). Telling a manager that a
+  // permission cannot be handed out, when it can, is the room closing a door
+  // that is open.
   if (entry.needs === 'business.manage') {
-    return `${entry.label}は、${role}の権限では開けません。事業体そのものに関わる設定のため、オーナーのアカウントでのみ開けます。この権限は、スタッフ管理の権限の一覧からは配れません。`
+    return `${entry.label}を変えられるのは「事業の管理」の権限を持つ人です（標準ではオーナーだけ）。${role}の権限では開けません。この権限は、スタッフ管理の権限の一覧から配れます。`
   }
   return `${entry.label}は、${role}の権限では開けません。この設定を変更できる権限を持つアカウントでのみ表示されます。`
 }
@@ -659,6 +661,11 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
   }
 }
 
+/** ⚖ C7 — one place turns a role KEY into the word a reader sees, and it is the
+ *  rulebook's own label. A second table would let 主任 read as 主任 on one page
+ *  and as senior on another. */
+const roleLabelOf = (key: string): string => rulebook.roles.find((r) => r.key === key)?.label ?? key
+
 const roleOptions = (): ControlOption[] => opts([['オーナー', 'オーナー'], ['店舗管理者', '店舗管理者'], ['スタッフ', 'スタッフ']])
 
 /** ⚖ S17 · C4 — 0…23 as 「0時」…「23時」, the VALUES being the integers
@@ -761,7 +768,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         row(`people.row-${id}`, nameOf.get(id) ?? id, '', [
           sw(`people.active-${id}`, `${nameOf.get(id) ?? id}を稼働にする`, '稼働', '休止', d.staffActive[id]),
         ], {
-          meta: [PRESET_LABEL[d.staffSettings[id]?.preset ?? 'practitioner'] ?? '施術スタッフ'],
+          meta: [roleLabelOf(d.staffSettings[id]?.preset ?? 'practitioner')],
         })), {
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
@@ -1427,7 +1434,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
     blocks: [
       block('reserve.window', '受付ウィンドウ', 'お客様がオンラインで予約できる期間です。', [
         row('reserve.row-days', '何日先まで受け付けるか', 'この日数を超える先の予約は、オンラインでは受け付けません（店頭・電話は対象外です）。', [
-          num('reserve.days', '何日先まで受け付けるか', d.acceptWindowDays, 1, 90, 1, '日'),
+          num('reserve.days', '何日先まで受け付けるか', d.bookingOpenDays, 1, 90, 1, '日'),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1435,14 +1442,19 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             guardrail: '上限は90日です。長すぎると、先の予定が変わったときのキャンセルが増えます。',
           },
         }),
+        // ⚖ S17 · C6 — THE LABEL IS HOURS, THE VALUE IS MINUTES, because
+        // `cutoff_minutes` (dist/types.d.ts:1054) is minutes. A reader thinks in
+        // 「2時間前」 and the wire keeps 120; holding hours here and multiplying
+        // at the seam is where a factor of 60 goes missing between two rounds.
         row('reserve.row-cutoff', '直前締切', '予約開始時刻の何時間前に、オンラインの受付を締め切るかです。', [
-          sel('reserve.cutoff', '直前締切', opts([['1', '1時間前'], ['2', '2時間前'], ['3', '3時間前'], ['6', '6時間前']]), String(d.acceptCutoffHours)),
+          sel('reserve.cutoff', '直前締切', opts([['60', '1時間前'], ['120', '2時間前'], ['180', '3時間前'], ['360', '6時間前']]), String(d.cutoffMinutes)),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
             base: '初期値: 2時間前',
             guardrail: '締切のあとの空きは、店頭・電話でのみ扱えます。短くすると直前の準備が間に合わなくなります。',
           },
+          source: 'コアは「分」で持ちます（2時間前 = 120分）',
         }),
         row('reserve.row-grid', 'お客様が選べる開始時刻', 'お客様がReserveで選べる開始時刻の刻みです。コースの長さはメニュー側の設定に従います。', [
           seg('reserve.grid', 'お客様が選べる開始時刻', minuteOpts([15, 30, 60], opsConfig.reserveStartGridMin), String(opsConfig.reserveStartGridMin)),
@@ -1510,7 +1522,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。', [
-          sel('reserve.free', '無料キャンセル期限', opts([['12', '12時間前'], ['24', '24時間前'], ['48', '48時間前']]), String(d.freeCancelHours)),
+          sel('reserve.free', '無料キャンセル期限', opts([['12', '12時間前'], ['24', '24時間前'], ['48', '48時間前']]), String(d.cancelFreeUntilHours)),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1519,7 +1531,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-sameday', '当日キャンセル料', '無料の期限を過ぎたキャンセルにかかる料金です（メニュー代に対する割合）。', [
-          seg('reserve.sameday', '当日キャンセル料', opts([['0', '無料'], ['50', '50%'], ['100', '100%']]), String(d.sameDayFeePct)),
+          seg('reserve.sameday', '当日キャンセル料', opts([['0', '無料'], ['50', '50%'], ['100', '100%']]), String(d.cancelLatePct)),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1528,7 +1540,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
           },
         }),
         row('reserve.row-noshow', '無断キャンセル料', 'ご連絡がなくご来店がなかった場合の料金です。', [
-          seg('reserve.noshow', '無断キャンセル料', opts([['0', '無料'], ['50', '50%'], ['100', '100%']]), String(d.noShowFeePct)),
+          seg('reserve.noshow', '無断キャンセル料', opts([['0', '無料'], ['50', '50%'], ['100', '100%']]), String(d.noShowPct)),
         ], {
           scopeLabel: STORE_SCOPE,
           trio: {
@@ -1648,8 +1660,14 @@ const channelsOf = (v: { app: boolean; mail: boolean } | undefined): string[] =>
 function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   const nameOf = new Map(staff.map((s) => [s.id, s.full_name]))
   const roster = Object.keys(d.staffSettings)
-  const presetOpts = Object.keys(PRESET_GRANTS).map((k) => ({ value: k, label: PRESET_LABEL[k] ?? k }))
-  const capOpts = CAPABILITY_ORDER.map((c) => ({ value: c, label: CAPABILITY_LABEL[c] }))
+  // ⚖ S17 · C7 — THE GRID RENDERS FROM THE RULEBOOK. Both lists are Karute's
+  // own, mirrored with their cites in `fixtures-settings.rulebook`; at the
+  // reconnect they are replaced by `PermissionClient.rulebook()` and nothing
+  // else on this page has to move. `custom` is offered like any other role
+  // because Karute offers it — a blank canvas is a real answer to 「what is this
+  // person allowed to do」.
+  const presetOpts = rulebook.roles.map((r) => ({ value: r.key, label: r.label }))
+  const capOpts = rulebook.capabilities.map((c) => ({ value: c.token, label: c.label }))
   return {
     ...base,
     kicker: '組織・管理',
@@ -1658,16 +1676,20 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
     blocks: [
       block('staff.roster', 'スタッフ一覧', '役職と、その人ができることです。役職はひな形で、下の一覧で個別に足し引きできます。', roster.map((id) => {
         const s = d.staffSettings[id]
-        const granted = s.caps.length > 0 ? s.caps : [...(PRESET_GRANTS[s.preset] ?? [])]
+        const granted = s.caps.length > 0 ? s.caps : [...(rulebook.grants[s.preset] ?? [])]
         const name = nameOf.get(id) ?? id
         return row(`staff.row-${id}`, name, '', [
           sel(`staff.preset-${id}`, `${name}の役職`, presetOpts, s.preset),
-          chips(`staff.caps-${id}`, `${name}ができること`, capOpts, granted),
+          chips(`staff.caps-${id}`, `${name}ができること`, capOpts, granted, undefined, true),
         ], {
           meta: [s.pin ? '暗証番号 設定済み' : '暗証番号 未設定', s.voice ? '音声登録 済み' : '音声登録 なし'],
         })
       }), {
         facts: [
+          // ⚖ 8/25 — a number says WHAT it counts, and both are DERIVED from the
+          // rulebook so a nineteenth capability cannot ship beside a page still
+          // claiming eighteen.
+          `権限は全部で${rulebook.capabilities.length}項目、役職のひな形は${rulebook.roles.length}つです。`,
           '氏名は人・設備の名簿と合わせています。この画面では氏名を編集しません。',
           '音声登録は録音設定で本人が行います。この画面では状態だけを表示します。',
         ],
@@ -1764,7 +1786,10 @@ function integrations(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSecti
 
 function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
-  const mayExport = ctx.access.has('data.export')
+  // ⚖ C7 — the room gates SECTIONS on six tokens; this block's own finer gate
+  // asks the same rulebook the grid renders, so 「may this reader export」 has
+  // one answer rather than a second copy of the grant table.
+  const mayExport = (rulebook.grants[rulebook.roleKeyOf[ctx.access.role] ?? ''] ?? []).includes('data.export')
   const locked = mayExport ? undefined : 'データを書き出す権限が必要です。'
   return {
     ...base,

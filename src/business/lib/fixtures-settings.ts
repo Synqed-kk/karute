@@ -183,12 +183,26 @@ export interface StoreDials {
   syncStartHour: number
   syncEndHour: number
   syncConflict: 'latest' | 'reserve' | 'manual'
-  /** Reserve 受付. */
-  acceptWindowDays: number
-  acceptCutoffHours: number
-  freeCancelHours: number
-  sameDayFeePct: number
-  noShowFeePct: number
+  /** Reserve 受付 — ⚖ S17 · C6, MIRRORED FIELD FOR FIELD FROM THE ACCEPTANCE
+   *  FAMILY so the reconnect is one line per value rather than a translation
+   *  layer. Every name below is the wire's own name in this file's casing, and
+   *  every unit is the wire's own unit:
+   *    @synqed-kk/client@1.34.0 dist/types.d.ts:1051-1066 `StoreBookingPolicy`
+   *      booking_open_days: number            ← days
+   *      cutoff_minutes: number               ← MINUTES (not hours)
+   *      cancel_free_until_hours: number      ← hours
+   *      cancel_late_pct: number              ← percent
+   *      no_show_pct: number                  ← percent
+   *    …:1067-1078 `SetStoreBookingPolicyInput` takes the same five, optional.
+   *  ⚠ `cutoffMinutes` IS THE ONE THAT MOVED. The first cut held HOURS and the
+   *  select offered 1/2/3/6 時間前; the wire stores minutes, so a room holding
+   *  hours has to multiply somewhere, and 「somewhere」 is where a factor of 60
+   *  goes missing. The value is minutes end to end; only the LABEL says 時間前. */
+  bookingOpenDays: number
+  cutoffMinutes: number
+  cancelFreeUntilHours: number
+  cancelLatePct: number
+  noShowPct: number
   priceLockDuringRecalc: boolean
   /** 通知 — event → channel. */
   notify: Record<string, { app: boolean; mail: boolean }>
@@ -285,11 +299,11 @@ const ginza: StoreDials = {
   syncStartHour: 8,
   syncEndHour: 22,
   syncConflict: 'latest',
-  acceptWindowDays: 30,
-  acceptCutoffHours: 2,
-  freeCancelHours: 24,
-  sameDayFeePct: 50,
-  noShowFeePct: 100,
+  bookingOpenDays: 30,
+  cutoffMinutes: 120,
+  cancelFreeUntilHours: 24,
+  cancelLatePct: 50,
+  noShowPct: 100,
   priceLockDuringRecalc: false,
   notify: {
     'new-booking': { app: true, mail: false },
@@ -353,9 +367,9 @@ const daikanyama: StoreDials = {
   coachingEnabled: false,
   coachingCadence: 'biweekly',
   syncIntervalMin: 30,
-  acceptWindowDays: 45,
-  acceptCutoffHours: 3,
-  freeCancelHours: 48,
+  bookingOpenDays: 45,
+  cutoffMinutes: 180,
+  cancelFreeUntilHours: 48,
   quietStart: '22:00',
   quietEnd: '08:00',
   connectors: { calendar: 'pending', accounting: 'off', messaging: 'off', 'booking-site': 'off' },
@@ -466,6 +480,114 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
   { value: 'training_school', label: 'スクール・レッスン' },
   { value: 'other', label: 'その他' },
 ]
+
+// ══ ⚖ S17 · C7 — THE PERMISSION RULEBOOK, BY SHAPE ══════════════════════════
+//
+// `PermissionClient.rulebook()` is documented 「One source for both apps' toggle
+// UIs」 (@synqed-kk/client dist/permissions.d.ts:10). Until the reconnect PR
+// calls it, the room carries KARUTE'S REAL LIST — mirrored by shape, with its
+// cite, and pinned by a suite that reads Karute's own file off disk so a drift
+// on either side goes red.
+//
+// ⚠ WHAT THE FIRST CUT HAD, AND WHY IT WAS WRONG. It carried EIGHT capabilities
+// — canon's staff MOCK's `CAP_ORDER`, a developer artefact — as though those
+// were the product's permissions. The real list is EIGHTEEN
+// (`src/lib/auth/permissions.ts:14-46`), and the ten it was missing are not
+// obscure: 監査ログの閲覧, 予約同期の状態, カルテの削除, カルテの付け替え, ほかの
+// スタッフの録音の閲覧, 全店舗の閲覧, メニューの管理, アラートの操作, 予約の管理,
+// 事業の管理. A manager reading this page would have concluded those permissions
+// do not exist. A settings page that under-reports the permission model is worse
+// than one that says nothing, because it is believed.
+//
+// ⚠ AND `business.manage` IS REAL AND GRANTABLE — capability #2, owner-only BY
+// DEFAULT rather than by nature (`permissions.ts:16`, excluded from the manager
+// preset at `:76`, and NOT stripped for non-owners by `effectiveCapabilities()`
+// at `:124-146`, unlike `recordings.viewAll` which IS). The first cut said it
+// 「is not a store's to grant」 and left it out of the grid on that reasoning.
+// It is in the grid now, and the 事業構成 boundary sentence says how it is
+// handed out.
+
+/** ⚠ D-NUMBERED: THE PACKET SAID NINE ROLES INCLUDING `custom`; THERE ARE SIX,
+ *  and there is no `PermissionRoleKey` symbol anywhere on `origin/main`. The
+ *  type is `PermissionRole` (`src/lib/auth/permissions.ts:59`) over
+ *  `PERMISSION_ROLES` (`:51-58`). Verified by reading the file, not by trusting
+ *  the brief — the whole point of pinning a contract is that the pin is read
+ *  from the source. */
+export interface Rulebook {
+  /** All 18, in Karute's own source order, each with what it DOES in plain
+   *  Japanese (⚖ 「plain names, never codes」 — the reader never sees a token). */
+  capabilities: ReadonlyArray<{ token: string; label: string }>
+  /** The 6 role presets, in Karute's own order, `custom` last. */
+  roles: ReadonlyArray<{ key: string; label: string }>
+  /** Karute's `ROLE_PRESETS` — what each role is seeded with. */
+  grants: Readonly<Record<string, readonly string[]>>
+  /** This demo world's role WORDS → the preset they map to. An unknown role
+   *  holds NOTHING, never a default grant. */
+  roleKeyOf: Readonly<Record<string, string>>
+}
+
+/** `src/lib/auth/permissions.ts:14-46` (CAPABILITIES) · `:51-58`
+ *  (PERMISSION_ROLES) · `:64-90` (ROLE_PRESETS), all on `origin/main`. */
+export const rulebook: Rulebook = {
+  capabilities: [
+    { token: 'billing.manage', label: '契約・請求の管理' },
+    { token: 'business.manage', label: '事業の管理（削除・譲渡）' },
+    { token: 'staff.invite', label: 'スタッフの招待' },
+    { token: 'staff.manage', label: 'スタッフの管理（役職の変更・削除）' },
+    { token: 'settings.manage', label: '設定の変更' },
+    { token: 'menus.manage', label: 'メニューの管理' },
+    { token: 'audit.view', label: '監査ログの閲覧' },
+    { token: 'sync.view', label: '予約同期の状態の閲覧' },
+    { token: 'data.export', label: 'データの書き出し・取り込み' },
+    { token: 'records.delete', label: 'カルテ・顧客の削除' },
+    { token: 'records.reassign', label: 'カルテの付け替え' },
+    { token: 'records.write', label: 'カルテの記録' },
+    { token: 'recordings.viewAll', label: '全スタッフの録音の閲覧' },
+    { token: 'analytics.viewAll', label: '売上分析の閲覧（店舗全体）' },
+    { token: 'stores.viewAll', label: '全店舗の閲覧' },
+    { token: 'alerts.manage', label: '離客・回数券のお知らせの操作' },
+    { token: 'customers.view', label: '顧客の閲覧' },
+    { token: 'bookings.manage', label: '予約の管理' },
+  ],
+  roles: [
+    { key: 'owner', label: 'オーナー' },
+    { key: 'manager', label: '店舗管理者' },
+    { key: 'senior', label: '主任' },
+    { key: 'practitioner', label: '施術スタッフ' },
+    { key: 'frontdesk', label: '受付' },
+    // ⚠ `custom` STARTS EMPTY, and that is Karute's own comment: 「a blank
+    // canvas — toggle up exactly what this business needs」 (`permissions.ts:88`).
+    { key: 'custom', label: 'カスタム' },
+  ],
+  grants: {
+    // owner: ALL (`permissions.ts:66`).
+    owner: [
+      'billing.manage', 'business.manage', 'staff.invite', 'staff.manage', 'settings.manage',
+      'menus.manage', 'audit.view', 'sync.view', 'data.export', 'records.delete',
+      'records.reassign', 'records.write', 'recordings.viewAll', 'analytics.viewAll',
+      'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+    ],
+    // manager: ALL minus billing.manage · business.manage · recordings.viewAll ·
+    // audit.view · sync.view (`permissions.ts:73-81`).
+    manager: [
+      'staff.invite', 'staff.manage', 'settings.manage', 'menus.manage', 'data.export',
+      'records.delete', 'records.reassign', 'records.write', 'analytics.viewAll',
+      'stores.viewAll', 'alerts.manage', 'customers.view', 'bookings.manage',
+    ],
+    senior: [
+      'records.write', 'records.delete', 'records.reassign', 'data.export',
+      'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage', 'menus.manage',
+    ],
+    practitioner: ['records.write', 'customers.view', 'bookings.manage'],
+    frontdesk: ['customers.view', 'bookings.manage'],
+    custom: [],
+  },
+  roleKeyOf: {
+    オーナー: 'owner',
+    店舗管理者: 'manager',
+    スタッフ: 'practitioner',
+  },
+}
 
 /** 契約・請求 — the monthly price of each product, business-wide. */
 export const planPricing = { karute: 5800, reserve: 3000 }
