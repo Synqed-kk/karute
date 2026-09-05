@@ -217,6 +217,10 @@ export interface CoachingSelfReady {
   maturityNote: string | null
   stats: CoachingStat[]
   trendTitle: string
+  /** ⚖ I-3 (S16C) — the trend's own first-and-last sentence, composed once in
+   *  the props file: 「6月 38% → 9月 52%」. It is what the sparkline SAYS, so the
+   *  picture is never the only place the movement exists. */
+  trendCaption: string
   trend: Array<{ label: string; value: number; display: string }>
   findings: CoachingFinding[]
   /** staff-focus.ts:163-176 FOCUS_L1, resolved — the WHOLE list (≤3), not just
@@ -1257,6 +1261,60 @@ export function CoachingScreen(props: CoachingProps) {
                     </section>
                   )}
 
+                  {/* ⚖ I-3 (S16C) — 成績 IS ONE STRIP, AND THE TREND LIVES INSIDE
+                      THE NUMBER IT IS A TREND OF.
+                      Five facts stacked 3+2 in a 380px column read as a card of
+                      leftovers; across the page they read as a spine. And the
+                      推移 card that used to sit two cards below 成約率 was the
+                      SAME metric drawn twice, far enough apart that nobody put
+                      them together — so the four months are a sparkline inside the
+                      成約率 tile now, with the first and last month spelled out
+                      beside it. The retired card's own title is the picture's
+                      accessible name (⚖-ADJ K: every string keeps a home). */}
+                  <section
+                    className="cg-spine"
+                    data-guide-title="あなたの成績"
+                    data-guide="あなたのセッションから出した成績です。成約率には月ごとの動きも入れてあり、いまがこれまでと比べてどうかが一目で分かります。何回ぶんの分析なのかを必ず添えています。回数が少ないうちは荒削りで、増えるほど正確になります。"
+                  >
+                    <div className="cg-sec-head">
+                      <h2 className="cg-sec-title">あなたの成績</h2>
+                      {lock}
+                      <button {...refused('気づきを作り直す', props.refusals.regenerate, 'cg-regen')}>気づきを作り直す</button>
+                    </div>
+                    <div className="cg-stats">
+                      {ready.stats.map((s) => (
+                        <div className="cg-stat" key={s.key}>
+                          <div className="cg-stat-label">{s.label}</div>
+                          <div className="cg-stat-value">{s.value}</div>
+                          {/* ⚠ THE PICTURE IS A PICTURE, and it says so: the bars
+                              are one `role="img"` whose name is the retired card's
+                              own title plus the sentence beside it, so a screen
+                              reader hears the movement rather than four empty
+                              boxes. The last bar keeps the room's ONE data accent
+                              — the month the reader is in. */}
+                          {s.key === 'closingRate' && ready.trend.length > 1 && (
+                            <span className="cg-spark">
+                              <span className="cg-bars" role="img" aria-label={`${ready.trendTitle}。${ready.trendCaption}`}>
+                                {ready.trend.map((p, i) => (
+                                  <span className="cg-bar" key={`${p.label}-${i}`}>
+                                    <span className="cg-bar-track">
+                                      <span className="cg-bar-fill" style={{ height: `${Math.round(p.value * 100)}%` }} />
+                                    </span>
+                                  </span>
+                                ))}
+                              </span>
+                              <span className="cg-spark-cap">{ready.trendCaption}</span>
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="cg-basis">
+                      {ready.sessionsLabel}
+                      {ready.maturityNote ? ` ・ ${ready.maturityNote}` : ''}
+                    </p>
+                  </section>
+
                   {/* ⚖ THE DECISION DESK (S16 §2.3/§2.4, mock D5 — ONE grid, two
                       packed stacks). LEFT: the evidence — why the numbers are what
                       they are. RIGHT: the numbers themselves and what supports
@@ -1375,30 +1433,6 @@ export function CoachingScreen(props: CoachingProps) {
                     </div>
 
                     <div className="cg-side">
-                      <section
-                        className="cg-spine"
-                        data-guide-title="あなたの成績"
-                        data-guide="あなたのセッションから出した成績です。何回ぶんの分析なのかを必ず添えています。回数が少ないうちは荒削りで、増えるほど正確になります。"
-                      >
-                        <div className="cg-sec-head">
-                          <h2 className="cg-sec-title">あなたの成績</h2>
-                          {lock}
-                          <button {...refused('気づきを作り直す', props.refusals.regenerate, 'cg-regen')}>気づきを作り直す</button>
-                        </div>
-                        <div className="cg-stats">
-                          {ready.stats.map((s) => (
-                            <div className="cg-stat" key={s.key}>
-                              <div className="cg-stat-label">{s.label}</div>
-                              <div className="cg-stat-value">{s.value}</div>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="cg-basis">
-                          {ready.sessionsLabel}
-                          {ready.maturityNote ? ` ・ ${ready.maturityNote}` : ''}
-                        </p>
-                      </section>
-
                       {/* ⚖ あなたの強み (audit §5 rank 4) — the shape is in
                           staff-focus.ts:200-204 and the data had been sitting in
                           this room's own plane since the build round, resolved and
@@ -1427,27 +1461,6 @@ export function CoachingScreen(props: CoachingProps) {
                               <li className="cg-strength" key={s.label}>
                                 <span className="cg-strength-label">{s.label}</span>
                                 <span className="cg-strength-detail">{s.detail}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      )}
-
-                      {ready.trend.length > 1 && (
-                        <section
-                          className="cg-trend"
-                          data-guide-title="成約率の推移"
-                          data-guide="月ごとの成約率です。他の人と比べるものではなく、自分のこれまでと比べるためのものです。"
-                        >
-                          <div className="cg-sec-head"><h2 className="cg-sec-title">{ready.trendTitle}</h2>{lock}</div>
-                          <ul className="cg-bars">
-                            {ready.trend.map((p, i) => (
-                              <li className="cg-bar" key={`${p.label}-${i}`}>
-                                <span className="cg-bar-value">{p.display}</span>
-                                <span className="cg-bar-track">
-                                  <span className="cg-bar-fill" style={{ height: `${Math.round(p.value * 100)}%` }} />
-                                </span>
-                                <span className="cg-bar-label">{p.label}</span>
                               </li>
                             ))}
                           </ul>

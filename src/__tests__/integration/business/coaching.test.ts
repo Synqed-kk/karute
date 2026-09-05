@@ -3348,12 +3348,14 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // ⚖ I-1 (S16C) — THE PRACTICE SHEET LEADS. `cg-focus` did not leave the page;
     // it is the sheet's FIRST COLUMN now, so it moved ABOVE `cg-cols` rather than
     // out of the order. The desk that follows it is the evidence and the numbers.
-    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-sheet', 'cg-focus', 'cg-sheet-do', 'cg-sheet-why', 'cg-cols', 'cg-main', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
+    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-sheet', 'cg-focus', 'cg-sheet-do', 'cg-sheet-why', 'cg-spine', 'cg-cols', 'cg-main', 'cg-findings', 'cg-side', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
     const at = order.map((c) => panel.indexOf(c))
     expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
-    // 強み LEADS the supporting column now, right under the numbers it explains
+    // 強み LEADS the supporting column now (⚖ I-3 moved 成績 out of it)
     const side = panel.slice(panel.indexOf('className="cg-side"'))
-    const sideOrder = ['cg-spine', 'cg-strengths', 'cg-trend', 'cg-outcomes', 'cg-skills', 'cg-learn', 'cg-share']
+    // ⚖ I-3 — 成績 is a STRIP above the desk now and the 推移 card is retired into
+    // the 成約率 tile's own sparkline, so neither is in the supporting column.
+    const sideOrder = ['cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-learn', 'cg-share']
     const sideAt = sideOrder.map((c) => side.indexOf(c))
     expect({ sideOrder, ascending: sideAt.every((v, i) => v > 0 && (i === 0 || v > sideAt[i - 1])) })
       .toEqual({ sideOrder, ascending: true })
@@ -3753,6 +3755,35 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(PROPS_CODE).toContain("doTitle: 'やること'")
     expect(PROPS_CODE).toContain("whyTitle: '根拠'")
     expect(SCREEN_CODE).not.toContain("'今週の練習'")
+  })
+
+  it('⚖ I-3 · 成績 IS A STRIP and the trend lives INSIDE the number it is a trend of', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    // the caption is the FIRST and the LAST point the run really carries
+    expect(self.trendCaption).toBe(
+      `${self.trend[0].label} ${self.trend[0].display} → ${self.trend[self.trend.length - 1].label} ${self.trend[self.trend.length - 1].display}`,
+    )
+    expect(self.trendCaption).toMatch(/^\d+月 \d+% → \d+月 \d+%$/)
+    // the strip is a full-width band ABOVE the desk, not a card inside a column
+    const panel = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelSelf"'), SCREEN_CODE.indexOf('id="cgPanelTeam"'))
+    expect(panel.indexOf('className="cg-spine"')).toBeLessThan(panel.indexOf('className={`cg-cols'))
+    expect(panel.slice(panel.indexOf('className="cg-side"')).includes('cg-spine')).toBe(false)
+    // the sparkline rides the 成約率 tile and nothing else, and its accessible
+    // name is the RETIRED card's own title plus the sentence beside it (⚖-ADJ K)
+    expect(SCREEN_CODE).toContain("{s.key === 'closingRate' && ready.trend.length > 1 && (")
+    expect(SCREEN_CODE).toContain('aria-label={`${ready.trendTitle}。${ready.trendCaption}`}')
+    expect(PROPS_CODE).toContain("trendTitle: '成約率の推移（月ごと）'")
+    // …and the retired card is really gone — no orphan rule, no second drawing
+    // of the same metric, and the two labels its bars carried are gone with it.
+    expect(SCREEN_CODE).not.toContain('className="cg-trend"')
+    expect(CSS_CODE).not.toContain('.cg-trend')
+    expect(CSS_CODE).not.toContain('.cg-bar-value')
+    expect(CSS_CODE).not.toContain('.cg-bar-label')
+    // the room's ONE data accent is still the last bar — the month you are in
+    expect(CSS_CODE).toContain('.cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }')
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

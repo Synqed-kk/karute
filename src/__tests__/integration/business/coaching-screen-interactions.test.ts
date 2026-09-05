@@ -161,7 +161,9 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       // ⚖ I-1 (S16C) — 「次の一手」 is no longer a section of its own: it is the
       // FIRST COLUMN of the practice sheet, so the declaration it used to carry
       // belongs to the band that now holds it, its steps and its receipt.
-      'あなたの成績', '今週の練習', '気づき', '成約率の推移', '不成約の理由', '会話スキル', '上位層から学ぶ',
+      // ⚖ I-3 — 「成約率の推移」 is retired into the 成約率 tile's own sparkline;
+      // its title is that picture's accessible name, so the string keeps a home.
+      'あなたの成績', '今週の練習', '気づき', '不成約の理由', '会話スキル', '上位層から学ぶ',
       'マネージャーへの共有', 'まだ表示できないもの',
       // …and the look-fix round's own self-tab sections
       'コーチングを受けることへの同意', 'あなたの強み',
@@ -181,8 +183,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // look-fix round's own 27, re-derived on the new shape. ⚠ R2-28 makes it 28
     // DECLARATIONS for 27 STEPS: the withheld money card is the second arm of
     // 費用との比較 and never renders beside the first.
-    expect(titles.length).toBe(28)
-    expect(new Set(titles).size).toBe(27)
+    // ⚖ I-3 (S16C) — ONE declaration retired with its card (成約率の推移 → the
+    // sparkline inside the 成約率 tile), so 27 for 26 steps.
+    expect(titles.length).toBe(27)
+    expect(new Set(titles).size).toBe(26)
     // …and the two COMPOSED declarations are really in the census rather than
     // dropped by a parser that could not read them (the room-6 lesson: a census
     // that only counts what it can parse is self-referential).

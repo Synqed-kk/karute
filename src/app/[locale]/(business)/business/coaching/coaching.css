@@ -474,7 +474,6 @@
 .biz .pg-coaching .cg-sheet,
 .biz .pg-coaching .cg-spine,
 .biz .pg-coaching .cg-focus,
-.biz .pg-coaching .cg-trend,
 .biz .pg-coaching .cg-outcomes,
 .biz .pg-coaching .cg-skills,
 .biz .pg-coaching .cg-learn,
@@ -785,13 +784,19 @@
    .ts:203 requires the detail to cite the metric that evidences the strength. */
 .biz .pg-coaching .cg-strength-detail { color: var(--ink-2); font-size: 12.5px; line-height: 1.8; font-variant-numeric: tabular-nums; }
 
-.biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 12px; margin: 0; padding: 0; list-style: none; }
-.biz .pg-coaching .cg-bar { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; }
-.biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 74px; border-radius: 6px; background: var(--cg-soft); }
-.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 6px; background: #9db4e8; }
+/* ⚖ I-3 — THE SPARKLINE, INSIDE THE NUMBER IT IS A TREND OF. The four months
+   used to be a card of their own, two cards below the 成約率 tile: the same
+   metric drawn twice, far enough apart that nobody put them together. Inside the
+   tile the movement is part of the number rather than a second reading of it.
+   ⚠ THE ROOM'S ONE DATA ACCENT IS STILL THE LAST BAR — the month the reader is
+   in (CLAUDE.md's own chart/data carve-out; nothing else here is accent). */
+.biz .pg-coaching .cg-spark { display: block; margin-top: 7px; }
+.biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-bar { display: flex; flex-direction: column; justify-content: flex-end; flex: 1 1 0; min-width: 0; }
+.biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 26px; border-radius: 4px; background: #fff; }
+.biz .pg-coaching .cg-bar-fill { width: 100%; min-height: 3px; border-radius: 4px; background: #9db4e8; }
 .biz .pg-coaching .cg-bar:last-child .cg-bar-fill { background: var(--cg-accent); }
-.biz .pg-coaching .cg-bar-value { color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
-.biz .pg-coaching .cg-bar-label { color: var(--quiet); font-size: 11px; letter-spacing: .01em; }
+.biz .pg-coaching .cg-spark-cap { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.6; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
 
 .biz .pg-coaching .cg-reasons { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-reason { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 8px; background: var(--cg-soft); }
@@ -1280,8 +1285,7 @@
   .biz .pg-coaching .cg-row-act { width: 100%; }
   .biz .pg-coaching .cg-spine,
   .biz .pg-coaching .cg-focus,
-  .biz .pg-coaching .cg-trend,
-  .biz .pg-coaching .cg-outcomes,
+    .biz .pg-coaching .cg-outcomes,
   .biz .pg-coaching .cg-skills,
   .biz .pg-coaching .cg-learn,
   .biz .pg-coaching .cg-share,

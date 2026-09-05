@@ -596,6 +596,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
               { key: 'pendingCount', label: '「後で決める」のまま', value: `${self.view.pendingCount}件` },
             ],
             trendTitle: '成約率の推移（月ごと）',
+            // ⚖ I-3 — THE SPARKLINE'S OWN SENTENCE, composed here from the FIRST
+            // and LAST points the trend really has. The picture is never the only
+            // place the movement exists: a reader who cannot see four 26px bars
+            // reads the same fact in words, and so does a screen reader.
+            trendCaption: trendCaption(
+              self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', display: pct(v) })),
+            ),
             trend: self.view.history.map((v, i) => ({ label: trendLabels[i] ?? '', value: v, display: pct(v) })),
             findings: self.view.findings.map((f) => ({
               id: f.id,
@@ -896,6 +903,16 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
 }
 
 const pct = (r: number) => `${Math.round(r * 100)}%`
+
+/** ⚖ I-3 — 「6月 38% → 9月 52%」. The FIRST and the LAST point the run really
+ *  carries, never a window this plane did not scope: with fewer than two points
+ *  there is no movement to state and the sparkline does not render either. */
+const trendCaption = (points: Array<{ label: string; display: string }>) => {
+  if (points.length < 2) return ''
+  const a = points[0]
+  const b = points[points.length - 1]
+  return `${a.label} ${a.display} → ${b.label} ${b.display}`
+}
 /** contract.ts:38-43 — money is ALWAYS currency-tagged, never a bare JPY number. */
 const money = (m: { amount: number; currency: string }) => {
   try {
