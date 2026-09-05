@@ -311,6 +311,15 @@ export async function storePolicyProps({
       // (⚖ Liam 8/21, `minSellableMin`). The dial is the sentence, the number is
       // the data behind it.
       gapSelling: planes.opsConfig.minSellableMin > 0,
+      // ⚖ S17 · C12 — THE NUMBER ITSELF, AS A RECEIPT AND NEVER AS A SECOND
+      // CONTROL. 店舗情報・営業時間 used to carry 販売可能な最小の長さ as its own
+      // dial; §3.1 moved that rule here and the ON/OFF switch above is the ONE
+      // control. The length is still a fact a manager needs — 「ON, but from how
+      // short?」 — so it prints inside the row as the value 今日の運営 is
+      // actually using. When CORE-10 lands `min_sellable_min` as an int, this
+      // switch widens into a length picker; until then, offering one would name
+      // a value the store cannot save.
+      minSellableMin: planes.opsConfig.minSellableMin,
       bookingStepMin: planes.opsConfig.bookingStepMin,
     },
     scenes,

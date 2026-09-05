@@ -79,6 +79,9 @@ export interface StorePolicyProps {
     heldRankAccess: 'closed' | 'silver' | 'gold' | 'platinum'
     /** ⚠SETTINGS-BATCH — the store advertises its leftovers (`minSellableMin`). */
     gapSelling: boolean
+    /** ⚖ S17 · C12 — the LENGTH behind that switch, printed as a receipt in the
+     *  row rather than offered as a second control (see `store-policy-props`). */
+    minSellableMin: number
     /** ⚠SETTINGS-BATCH — `opsConfig.bookingStepMin`, 予約のドラッグ刻み. */
     bookingStepMin: number
   }
@@ -642,6 +645,12 @@ export function StorePolicySection(props: StorePolicySectionProps) {
               <button type="button" className={!gaps ? 'on' : undefined} aria-pressed={!gaps} onClick={() => setGaps(false)}>OFF</button>
             </div>
             <p className="st-ctrl-d">短い空き時間も予約枠として販売します</p>
+            {/* ⚖ S17 · C12 — the receipt, not a second dial. 店舗情報・営業時間's
+                own 販売可能な最小の長さ control moved here as this ON/OFF; the
+                number it was set to is still the number 今日の運営 uses, so the
+                row says it instead of leaving the manager to wonder from how
+                short a gap counts. */}
+            <p className="st-ctrl-d dim">販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）</p>
             <p className="st-ctrl-d dim"><span className="st-chip">準備中</span>{PENDING_NOTE}</p>
           </section>
 

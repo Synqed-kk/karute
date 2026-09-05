@@ -37,10 +37,12 @@ import { defaultStoreId, listStoreOptions, renderNow, type StoreLens } from '@/b
 import { business, menus, operator, reserveSync, staff, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
 import {
+  AUDIT_CATEGORIES,
   bookingPalette,
   businessProfiles,
   colorTokenMeaning,
   connectorCatalog,
+  entitlement,
   planPricing,
   rulebook,
   storeDials,
@@ -1846,12 +1848,17 @@ function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 // ── 監査ログ ────────────────────────────────────────────────────────────────
 
-const AUDIT_CATEGORY: Array<[string, string]> = [
-  ['all', 'すべて'], ['pricing', '料金'], ['reserve', '受付'], ['permissions', '権限'], ['store', '店舗'], ['other', 'その他'],
+/** ⚖ S17 · C8 — the filter's options ARE the writers' own categories, plus
+ *  canon's own 「すべて」 (which the screen's `filterTable` treats as matching
+ *  every row). Derived from `AUDIT_CATEGORIES` so a tenth category cannot ship
+ *  beside a filter that cannot find it. */
+const AUDIT_FILTER: Array<[string, string]> = [
+  ['all', 'すべて'],
+  ...AUDIT_CATEGORIES.map((c) => [c.token, c.label] as [string, string]),
 ]
 
 function auditLog(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const catLabel = new Map(AUDIT_CATEGORY)
+  const catLabel = new Map(AUDIT_FILTER)
   return {
     ...base,
     kicker: '組織・管理',
@@ -1863,7 +1870,7 @@ function auditLog(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           seg('audit.period', '期間', opts([['0', '今日'], ['7', '7日'], ['30', '30日']]), '30'),
         ]),
         row('audit.row-category', '種類', '変更の種類で絞り込みます。', [
-          sel('audit.category', '種類', AUDIT_CATEGORY.map(([value, label]) => ({ value, label })), 'all'),
+          sel('audit.category', '種類', AUDIT_FILTER.map(([value, label]) => ({ value, label })), 'all'),
         ]),
       ], {
         preview: { template: 'いま{audit.period}以内・{audit.category}の記録を表示しています。' },
@@ -1976,6 +1983,19 @@ function languageDisplay(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
 
 // ── 色・テーマ ──────────────────────────────────────────────────────────────
 
+/** ⚖ S17 · C9 — 色・テーマ IS BUSINESS'S OWN, AND IT SHARES NO KEY WITH KARUTE.
+ *
+ *  Karute has a colour setting called `theme_colors` and it is a DIFFERENT
+ *  QUESTION: `src/lib/theme.ts:1-9` `ThemeColors { barOpen, barBooking,
+ *  barRecording, barCompleted, barBlocked, barProcessing, tableBg, tableRowBg }`
+ *  — the six status colours of the phone's appointment bars plus two table
+ *  surfaces. What this section edits is the FAMILY'S OWN CSS token names
+ *  (`--commit-bg`, `--select-bg`, …). Zero overlap, verified key by key, so
+ *  writing this room's values into `theme_colors` would silently repaint the
+ *  phone's status bars with a settings page's accent.
+ *
+ *  ⚠ NO WIRE: the column these belong in does not exist. Registry line —
+ *  `business_theme`, per business, on the Anthony list. NEVER `theme_colors`. */
 function colors(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   void ctx
   const tokens = Object.keys(d.colorTokens)
@@ -2029,6 +2049,16 @@ function colors(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
 
 // ── 事業構成 ────────────────────────────────────────────────────────────────
 
+/** ⚖ S17 · C10 — 会社名 IS ITS OWN KEY, and it is not `OrgSettings.name`.
+ *
+ *  Karute binds the org-settings name to `salon_name` — the SHOP's public name,
+ *  which `upsertOrgSettings` writes straight through to `orgSettings.upsert({
+ *  name })` (`src/actions/org-settings.ts:363-366`). The contracting entity
+ *  behind it (「見本サンプル整体 合同会社」) is a different fact from the shop's
+ *  name, and a business whose legal entity is renamed has not renamed its salon.
+ *  So 会社名 · 代表 · 法人格 keep their OWN keys (`companyName`,
+ *  `representative`, `companyForm` in `fixtures-settings`), all NO WIRE, and
+ *  they stay read-only-until-reconnect exactly as built. Registry ⑨. */
 function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   return {
     ...base,
@@ -2080,23 +2110,40 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
 // ── 契約・請求 ──────────────────────────────────────────────────────────────
 
 function billing(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
-  const total = (d.entitlements.karute ? planPricing.karute : 0) + (d.entitlements.reserve ? planPricing.reserve : 0)
+  const total = planPricing.karute + planPricing.reserve
   return {
     ...base,
     kicker: '組織・管理',
     title: '契約・請求',
     lead: 'プランの変更・お支払い・領収書は、このWeb画面だけで扱います。カルテやReserveのアプリの中で請求することはありません。',
     blocks: [
-      block('billing.plan', 'ご契約中のプラン', 'この店舗が契約している製品です。', [
-        row('billing.row-karute', 'カルテ（カルテ・AI・録音）', `${yen(planPricing.karute)} / 月`, [
-          sw('billing.karute', 'カルテを契約する', '契約中', '未契約', d.entitlements.karute),
-        ], { scopeLabel: STORE_SCOPE }),
-        row('billing.row-reserve', 'Reserve（オンライン予約受付）', `${yen(planPricing.reserve)} / 月`, [
-          sw('billing.reserve', 'Reserveを契約する', '契約中', '未契約', d.entitlements.reserve),
-        ], { scopeLabel: STORE_SCOPE }),
+      // ⚖ S17 · C11 — A STATEMENT AND A DOOR, NOT TWO SWITCHES.
+      // The entitlement is `{ business_id, tier, is_unlimited }` — ONE row for
+      // the whole business (dist/types.d.ts:250-254) — so the first cut's two
+      // per-STORE switches offered something the model cannot hold: カルテ on
+      // for 銀座 and off for 代官山. And a settings screen does not write it at
+      // all: the billing seam does, through Stripe, which is also canon's own
+      // 「Web限定」 ruling. So the plan is READ, the money is stated, and the way
+      // to change it is a door that really opens (⚖ label truth — 「Web限定」 is
+      // what it says, and this Web page is where it lands).
+      block('billing.plan', 'ご契約中のプラン', 'この事業のご契約です。プランは事業ぜんたいでひとつで、店舗ごとには分かれていません。', [
+        row('billing.row-tier', '現在のプラン', 'カルテ（カルテ・AI・録音）とReserve（オンライン予約受付）が含まれます。', [
+          ro('billing.tier', '現在のプラン', entitlement.tierLabel),
+        ], {
+          scopeLabel: BUSINESS_SCOPE,
+          meta: [entitlement.isUnlimited ? '上限なし' : '通常の上限'],
+          source: '契約はコアの事業ごとの記録から読んでいます（この画面からは変更しません）',
+        }),
       ], {
-        preview: { template: 'カルテは{billing.karute}、Reserveは{billing.reserve}です。次回の請求は月初にまとめて行います。' },
-        facts: [`いまの月額の合計は${yen(total)}（税込）です。契約の変更は、影響（金額・機能・開始日）を確認してから確定します。`],
+        facts: [
+          `いまの月額の合計は${yen(total)}（税込）です。`,
+          'プランの変更・お支払い方法の変更・領収書は、Webのお支払い画面で行います。カルテやReserveのアプリの中では扱いません。',
+        ],
+        // ⚠ NO DOOR HERE, AND THAT IS THE LABEL-TRUTH RULE DOING ITS JOB. The
+        // 「Web限定」 destination IS this page — a button that opens the section it
+        // is already in is a dead lever with a promise on it. The sentence above
+        // says where the change happens; when the Stripe portal has a real
+        // address, this becomes a link to THAT.
       }),
       block('billing.payment', 'お支払い方法', 'お支払いはStripeの安全なWeb画面で行い、この画面には結果だけが届きます。', [
         row('billing.row-card', 'カード', `有効期限 ${d.cardExpiry}`, [

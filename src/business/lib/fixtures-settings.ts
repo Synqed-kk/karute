@@ -94,11 +94,44 @@ export interface StaffSettings {
   voice: boolean
 }
 
+/** ⚖ S17 · C8 — the nine categories the audit writers ACTUALLY emit, in
+ *  `AUDIT_CATEGORIES`' own order, each with what it means in plain Japanese.
+ *
+ *  ⚠ `billing` IS DECLARED AND NEVER WRITTEN, so it is not here. The reason it
+ *  can be left out with certainty rather than guessed at: every direct
+ *  `audit()` / `auditWeb()` call site passes a literal, and the ONE indirection
+ *  — `audit({ category: rule.category })` at `src/lib/app-api/handler.ts:220` —
+ *  reads `FACADE_AUDIT_MAP` (`src/lib/audit.ts:357`), whose every row assigns a
+ *  literal typed `AuditCategory`, and whose only `billing` row is
+ *  `'entitlement.read': { kind: 'skip', … }` which `logFacadeAudit` returns on
+ *  before it writes (`handler.ts:193`). Offering a tenth filter that can never
+ *  match a row would be a dead lever with a label. */
+export const AUDIT_CATEGORIES = [
+  { token: 'auth', label: 'ログイン・暗証番号' },
+  { token: 'customer', label: '顧客' },
+  { token: 'karute', label: 'カルテ' },
+  { token: 'recording', label: '録音' },
+  { token: 'ai', label: 'AI' },
+  { token: 'privacy', label: '同意・音声の登録' },
+  { token: 'settings', label: '設定' },
+  { token: 'staff', label: 'スタッフ' },
+  { token: 'booking', label: '予約' },
+] as const
+export type AuditCategory = (typeof AUDIT_CATEGORIES)[number]['token']
+
 export interface AuditEntry {
   dayOffset: number
   at: string
   who: string
-  category: 'pricing' | 'reserve' | 'permissions' | 'store' | 'other'
+  /** ⚖ S17 · C8 — THE PRODUCT'S OWN CATEGORIES, not this room's invention.
+   *  `src/lib/audit.ts:20-31` on `origin/main` declares ten
+   *  (`AUDIT_CATEGORIES`), of which NINE are ever emitted — `billing` appears
+   *  only as a `kind: 'skip'` row in `FACADE_AUDIT_MAP` and is returned before
+   *  it can reach `audit()` (`src/lib/app-api/handler.ts:193`). The first cut
+   *  invented five of its own (pricing / reserve / permissions / store / other),
+   *  so a manager filtering this log by 「権限」 was filtering by a word the
+   *  writers never write. */
+  category: AuditCategory
   what: string
   subject: string
   before: string
@@ -233,8 +266,12 @@ export interface StoreDials {
    *  GUARDRAIL: `clampWinBackDays` holds it inside 14…365.
    *  業種: ruled type-dependent by Liam (a 整体 cycle is not a hair cycle). */
   winBackDays: number
-  /** 契約・請求 — which products this store is entitled to. */
-  entitlements: { karute: boolean; reserve: boolean }
+  /** 契約・請求 — ⚖ S17 · C11 RETIRED FROM THE STORE. `Entitlement` is
+   *  `{ business_id; tier; is_unlimited }` (@synqed-kk/client@1.34.0
+   *  dist/types.d.ts:250-254) — ONE ROW PER BUSINESS, and a TIER rather than a
+   *  pair of per-product switches. The first cut offered two per-store switches
+   *  that could turn a product on for 銀座 and off for 代官山, which the
+   *  entitlement model cannot express at all. See `entitlement` below. */
   cardLast4: string
   cardExpiry: string
 }
@@ -318,17 +355,25 @@ const ginza: StoreDials = {
   exportFormat: 'csv',
   lastExport: 'まだ書き出していません',
   auditLog: [
-    { dayOffset: 0, at: '12:10', who: '見本 あずさ', category: 'pricing', what: '価格帯の変更', subject: 'テスト整体 60分・最低価格', before: '¥6,180', after: '¥6,270' },
-    { dayOffset: 0, at: '09:12', who: '見本 あずさ', category: 'store', what: '営業時間の変更', subject: '定休日', before: '火曜', after: '月曜' },
-    { dayOffset: 1, at: '10:00', who: '見本 あずさ', category: 'store', what: 'スタッフの稼働状態を変更', subject: '見本 みらい', before: '稼働', after: '休止' },
-    { dayOffset: 1, at: '09:52', who: 'システム', category: 'pricing', what: '表示の自動切替', subject: 'テスト骨盤ケア 90分・比較表示', before: '割引表示', after: '価格のみ表示（基準取引不足のため）' },
-    { dayOffset: 2, at: '11:20', who: '見本 あずさ', category: 'reserve', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '21日', after: '30日' },
-    { dayOffset: 3, at: '18:22', who: '見本 あずさ', category: 'permissions', what: '権限の変更', subject: '見本 ごろう', before: '施術スタッフ', after: '主任' },
-    { dayOffset: 4, at: '10:12', who: '見本 あずさ', category: 'other', what: '支払い方法の変更', subject: 'カード決済', before: 'オフ', after: 'オン' },
-    { dayOffset: 6, at: '14:05', who: '見本 あずさ', category: 'reserve', what: 'キャンセル規定の変更', subject: '当日キャンセル料', before: '30%', after: '50%' },
-    { dayOffset: 11, at: '10:00', who: '見本 あずさ', category: 'other', what: 'お知らせ設定の変更', subject: '表示の健全性のお知らせ', before: 'オフ', after: 'オン' },
-    { dayOffset: 16, at: '21:15', who: '見本 あずさ', category: 'other', what: '静かな時間の設定', subject: '静かな時間', before: '未設定', after: '21:00〜9:00' },
-    { dayOffset: 34, at: '09:40', who: '見本 あずさ', category: 'store', what: '会社名の表記を修正', subject: '会社名', before: '表記ゆれあり', after: '見本サンプル整体 合同会社' },
+    { dayOffset: 0, at: '12:10', who: '見本 あずさ', category: 'settings', what: '価格帯の変更', subject: 'テスト整体 60分・最低価格', before: '¥6,180', after: '¥6,270' },
+    { dayOffset: 0, at: '09:12', who: '見本 あずさ', category: 'settings', what: '営業時間の変更', subject: '定休日', before: '火曜', after: '月曜' },
+    { dayOffset: 1, at: '10:00', who: '見本 あずさ', category: 'staff', what: 'スタッフの稼働状態を変更', subject: '見本 みらい', before: '稼働', after: '休止' },
+    { dayOffset: 1, at: '09:52', who: 'システム', category: 'settings', what: '表示の自動切替', subject: 'テスト骨盤ケア 90分・比較表示', before: '割引表示', after: '価格のみ表示（基準取引不足のため）' },
+    { dayOffset: 2, at: '11:20', who: '見本 あずさ', category: 'settings', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '21日', after: '30日' },
+    { dayOffset: 3, at: '18:22', who: '見本 あずさ', category: 'staff', what: '権限の変更', subject: '見本 ごろう', before: '施術スタッフ', after: '主任' },
+    { dayOffset: 4, at: '10:12', who: '見本 あずさ', category: 'settings', what: '支払い方法の変更', subject: 'カード決済', before: 'オフ', after: 'オン' },
+    { dayOffset: 6, at: '14:05', who: '見本 あずさ', category: 'settings', what: 'キャンセル規定の変更', subject: '当日キャンセル料', before: '30%', after: '50%' },
+    { dayOffset: 11, at: '10:00', who: '見本 あずさ', category: 'settings', what: 'お知らせ設定の変更', subject: '表示の健全性のお知らせ', before: 'オフ', after: 'オン' },
+    { dayOffset: 16, at: '21:15', who: '見本 あずさ', category: 'settings', what: '静かな時間の設定', subject: '静かな時間', before: '未設定', after: '21:00〜9:00' },
+    { dayOffset: 34, at: '09:40', who: '見本 あずさ', category: 'settings', what: '会社名の表記を修正', subject: '会社名', before: '表記ゆれあり', after: '見本サンプル整体 合同会社' },
+    // ⚖ DEMO DATA IS PRODUCT TRUTH. A store's audit log after a month is not
+    // twelve settings changes: the writers also record customer edits, recording
+    // lifecycle and consent (`src/actions/customers.ts:218`,
+    // `src/lib/recording/finalize-take.ts:359`, `src/actions/voice.ts:126`), so
+    // the log shows them and the 種類 filter has something to do.
+    { dayOffset: 0, at: '15:40', who: '見本 はなこ', category: 'recording', what: '録音の保存が完了', subject: '見本 あかり 様 10:00', before: '送信中', after: '保存済み' },
+    { dayOffset: 2, at: '16:02', who: '見本 しろう', category: 'customer', what: 'お客様情報の変更', subject: '見本 かえで 様・連絡先', before: '未登録', after: '登録済み' },
+    { dayOffset: 8, at: '19:30', who: '見本 ごろう', category: 'privacy', what: '自分の声の登録', subject: '見本 ごろう', before: '未登録', after: '登録済み' },
   ],
   uiLanguage: 'ja',
   karuteLanguage: 'ja',
@@ -344,7 +389,6 @@ const ginza: StoreDials = {
     '--guard-dark': '#6d28d9',
   },
   winBackDays: 61,
-  entitlements: { karute: true, reserve: true },
   cardLast4: '4242',
   cardExpiry: '2028/06',
 }
@@ -374,13 +418,12 @@ const daikanyama: StoreDials = {
   quietEnd: '08:00',
   connectors: { calendar: 'pending', accounting: 'off', messaging: 'off', 'booking-site': 'off' },
   auditLog: [
-    { dayOffset: 1, at: '11:00', who: '見本 たろう', category: 'store', what: '営業時間の変更', subject: '定休日', before: '月曜', after: '月曜（変更なし）' },
-    { dayOffset: 5, at: '16:45', who: '見本 たろう', category: 'reserve', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '30日', after: '45日' },
-    { dayOffset: 12, at: '09:30', who: '見本 たろう', category: 'pricing', what: '動的価格の切り替え', subject: '動的価格', before: '使わない', after: '使う' },
+    { dayOffset: 1, at: '11:00', who: '見本 たろう', category: 'settings', what: '営業時間の変更', subject: '定休日', before: '月曜', after: '月曜（変更なし）' },
+    { dayOffset: 5, at: '16:45', who: '見本 たろう', category: 'settings', what: '受付ウィンドウの変更', subject: '何日先まで予約可', before: '30日', after: '45日' },
+    { dayOffset: 12, at: '09:30', who: '見本 たろう', category: 'settings', what: '動的価格の切り替え', subject: '動的価格', before: '使わない', after: '使う' },
   ],
   winBackDays: 90,
   voiceStatus: 'revoked',
-  entitlements: { karute: true, reserve: false },
 }
 
 export const storeDials: Record<string, StoreDials> = {
@@ -587,6 +630,18 @@ export const rulebook: Rulebook = {
     店舗管理者: 'manager',
     スタッフ: 'practitioner',
   },
+}
+
+/** ⚖ S17 · C11 — THE ENTITLEMENT IS THE BUSINESS'S, AND IT IS READ-ONLY HERE.
+ *  `Entitlement { business_id; tier; is_unlimited }`
+ *  (@synqed-kk/client@1.34.0 dist/types.d.ts:250-254); it is written by the
+ *  billing seam (Stripe), never by a settings screen, which is why the room
+ *  STATES the plan and offers the door to the place that changes it. Canon's own
+ *  ruling is that billing is Web限定 and gated on `billing.manage`. */
+export const entitlement: { tier: string; isUnlimited: boolean; tierLabel: string } = {
+  tier: 'standard',
+  isUnlimited: false,
+  tierLabel: 'スタンダード',
 }
 
 /** 契約・請求 — the monthly price of each product, business-wide. */
