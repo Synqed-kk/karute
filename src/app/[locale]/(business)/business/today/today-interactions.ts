@@ -1635,27 +1635,30 @@ const clockOf = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:$
  *  the starts, so it says them out loud:
  *  「17:30〜19:00の新規90分の空きを守れます」.
  *
- *  IT NAMES THE WINDOWS AS THEY STAND NOW, never a before-minus-after
- *  difference. The after-set is re-solved with the placement excluded, so its
- *  starts SHIFT instead of dropping out of the before-set: a 10:00 landing on an
- *  open day turns [10:00, 11:30, 13:00, …] into [11:00, 12:30, 14:00, …] — six
- *  starts before, none of them after, for a loss of exactly one. A set
- *  difference would therefore name six windows for a one-window loss, in the
- *  commonest scene there is. The current windows read the same in every case:
- *  「the protected 90s live at A・B・C; placing here leaves one fewer」 — and the
- *  chip's own start already says which of them the placement eats.
+ *  THIS FUNCTION ONLY FORMATS A LIST. Which list is the caller's decision, and
+ *  each of the three callers inside `railCell` makes a different one: the safe
+ *  ✓ site hands it the windows that SURVIVE the drop (`protectedWindowsAfter`),
+ *  because 「守れます」 is a promise about what is still there after the card
+ *  goes down, never about what was there before it. The degraded △ site and the
+ *  window-refusal hand it the windows the placement EATS instead
+ *  (`windowsEatenBy`'s result), whose own comment explains why a
+ *  before-minus-after difference names the wrong set. This function never
+ *  chooses between them.
  *
- *  Three named, the remainder folded as 「ほかN件」 — 件 rather than 枠, because
- *  枠 is already carrying the loss count in the same sentence and two different
- *  「N枠」 in one line collide. Empty list → '' and the caller keeps the sentence
- *  it shipped with; the de-duplicating sort is defensive only, the engine emits
- *  ascending unique starts (gap-guard's own `.slice()` copy of its window list).
+ *  Three named, the remainder folded as 「、ほかN件」 — a 読点 closes the named
+ *  list before the count, so a skimming eye doesn't run the last window straight
+ *  into the fold (JP-NATIVE-PASS-R8-PR2-007c81b9.md §D). 件 rather than 枠,
+ *  because 枠 is already carrying the loss count in the same sentence and two
+ *  different 「N枠」 in one line collide. Empty list → '' and the caller keeps
+ *  the sentence it shipped with; the de-duplicating sort is defensive only, the
+ *  engine emits ascending unique starts (gap-guard's own `.slice()` copy of its
+ *  window list).
  */
 export function protectedWindowsClause(starts: readonly number[], protectedDur: number): string {
   const windows = [...new Set(starts)].sort((a, b) => a - b)
   if (windows.length === 0) return ''
   const named = windows.slice(0, 3).map((s) => `${clockOf(s)}〜${clockOf(s + protectedDur)}`).join('・')
-  return windows.length > 3 ? `${named}ほか${windows.length - 3}件` : named
+  return windows.length > 3 ? `${named}、ほか${windows.length - 3}件` : named
 }
 
 /** ⚖ 90 — WHICH of the protected windows THIS placement eats.

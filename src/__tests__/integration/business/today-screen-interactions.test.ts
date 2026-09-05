@@ -1077,18 +1077,18 @@ describe('the 配置ガイド rail', () => {
     // Past three, the first three are named and the rest are a count — 件 and
     // not 枠, because 枠 is already spelling the loss in the same sentence.
     expect(protectedWindowsClause([600, 690, 780, 870], 90))
-      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件')
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか1件')
     expect(protectedWindowsClause([600, 690, 780, 870, 960], 90))
-      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか2件')
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか2件')
     expect(protectedWindowsClause([600, 690, 780, 870, 960, 1050], 90))
-      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか3件')
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか3件')
     // Ascending and unique whatever it is handed — the engine already emits it
     // that way, so this is the defence and not the behaviour. The fold counts
     // what SURVIVED the de-duplication, not what came in.
     expect(protectedWindowsClause([780, 600, 690, 600, 780], 90))
       .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30')
     expect(protectedWindowsClause([870, 600, 780, 690, 600, 960], 90))
-      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか2件')
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか2件')
     // The window's LENGTH is the store's dial, never a literal.
     expect(protectedWindowsClause([600], 60)).toBe('10:00〜11:00')
     expect(protectedWindowsClause([600, 660], 60)).toBe('10:00〜11:00・11:00〜12:00')
@@ -1149,7 +1149,7 @@ describe('the 配置ガイド rail', () => {
     // six 新規90分 windows and a 60 at 10:00 leaves five — but the after-set is
     // RE-SOLVED with the card in, so its starts SHIFT ([11:00, 12:30, …]) and not
     // one of them is in the before-set. A before-minus-after difference would
-    // name all six windows 「ほか3件」 for a loss of exactly one. One window is
+    // name all six windows 「、ほか3件」 for a loss of exactly one. One window is
     // under the card, and it is the one the sentence names.
     const open = lane({ key: 'p-01', group: 'staff' })
     const cell = at(guardRailsFor([open], railInput())[0], 600)
@@ -1168,7 +1168,7 @@ describe('the 配置ガイド rail', () => {
     // A card long enough to cross four of them folds the list — 件 for the
     // ranges, 枠 for the loss, the two counters kept apart. Open lane, 300 at 10:00.
     expect(at(guardRailsFor([open], railInput({ dur: 300 }))[0], 600).sentence).toBe(
-      '10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件の新規90分の空き6→2（4枠減・損を減らす）。10:00はこの区間で損が最少の開始です',
+      '10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか1件の新規90分の空き6→2（4枠減・損を減らす）。10:00はこの区間で損が最少の開始です',
     )
   })
 
@@ -1189,7 +1189,7 @@ describe('the 配置ガイド rail', () => {
     // …and it folds on the same rule as the other two sentences. Open lane, 300 at 10:30.
     const open = lane({ key: 'p-01', group: 'staff' })
     expect(at(guardRailsFor([open], railInput({ dur: 300 }))[0], 630).sentence)
-      .toBe('ここに置くと10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件の新規（90分）が入らなくなります')
+      .toBe('ここに置くと10:00〜11:30・11:30〜13:00・13:00〜14:30、ほか1件の新規（90分）が入らなくなります')
     // THE OTHER R-REP IS UNTOUCHED. Lane 10:00–12:30, 60 at 10:30, dial 200: no
     // 新規 window fits the pocket at all, so what the placement kills is a
     // SERVICE from the repertoire (gap-guard's `repLabel`) — not a window, no
