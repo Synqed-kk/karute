@@ -1564,8 +1564,19 @@
   .biz .pg-settings .st-panel { display: none; }
   .biz .pg-settings.is-detail .st-rail { display: none; }
   .biz .pg-settings.is-detail .st-panel { display: grid; }
+  /* ⚖ S17 fix round 3 · R3-4 — A BACK LINK IS THE WIDTH OF ITS OWN WORDS.
+     「‹ 設定」 rendered as a full-width bar in the touch band — 286px at 390, 664
+     at 768 — a pill the size of a primary action for a control that only goes
+     back. ⚠ AND `align-self: flex-start` WAS NOT WRONG, IT WAS ON THE WRONG
+     AXIS: at ① `.st-side` is `display: contents`, so this pill is a direct item
+     of `.st-panel`, and `.st-panel` is a GRID. In a grid `align-self` is the
+     BLOCK axis; the inline axis is `justify-self`, whose initial value is
+     `stretch` — so the pill filled its column while a declaration that reads like
+     the fix sat right there doing nothing. The same shape a reader would get
+     from `display: inline-flex` in a flex parent, said in the grid's own
+     vocabulary. */
   .biz .pg-settings .st-back {
-    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; order: 1;
+    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; justify-self: start; order: 1;
     padding: 4px 14px 4px 11px;
     border: 1px solid var(--st-accent); border-radius: 999px;
     background: var(--st-accent-wash); color: var(--st-accent);

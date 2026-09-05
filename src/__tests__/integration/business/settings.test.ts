@@ -2145,6 +2145,23 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // …and the state the rule reads is the one the head really publishes.
     expect(SCREEN_CODE).toContain('aria-expanded={jumpOpen}')
   })
+
+  it('⚖ S17 fix round 3 · R3-4 — the 「‹ 設定」 back control is the width of its own words, on the axis a GRID actually reads', () => {
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
+    /* ⚠ THE AXIS IS THE WHOLE FINDING. At ① `.st-side` is `display: contents`,
+       so the pill is a direct item of `.st-panel` — and `.st-panel` is a grid.
+       `align-self` is the grid's BLOCK axis; the inline axis is `justify-self`,
+       whose initial value is `stretch`. A declaration that READS like the fix was
+       already there and could not do it, which is why the pill measured 286px at
+       390 and 664px at 768. Both are pinned: the one that was inert is kept
+       because the panel is a flex column in the boundary states, and the one that
+       does the work is named beside it. */
+    expect(phone).toMatch(/\.st-back \{[\s\S]*?align-self: flex-start; justify-self: start;/)
+    expect(phone).toMatch(/\.pg-settings\.is-detail \.st-panel \{ display: grid; \}/)
+    // …and it is still a 44px target: the floor is the touch band's shared group.
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    expect(touch).toMatch(/\.st-back,[\s\S]*min-height: 44px/)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
