@@ -142,6 +142,11 @@ const EMPHASIS_ID = 'my-display.emphasis'
  *  as a jump rather than as an opening. No third number, and no second easing:
  *  `makeSpring` is the room's only integrator (`spring.ts` is FROZEN, reused). */
 const SPRING_THUMB = 0.3
+/** ⚖ S17 fix round 1 · F16 — the panel's arrival. Slower than a thumb because
+ *  it is the whole reading column moving, still well under a beat: ⚖ apple-
+ *  design's 「response is how quickly the value reaches the target, not a
+ *  duration」, damping 1.0 like everything else in this room. */
+const SPRING_PANEL = 0.32
 
 /** See `blocks` in the screen: one empty array, so a section with nothing to
  *  jump to does not re-subscribe the scroll listener on every render. */
@@ -515,6 +520,60 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  `? section.blocks : []` hands the scroll-spy effect a fresh array on every
    *  render, so it tears down and re-subscribes its listener each pass. */
   const blocks = section && section.gate === 'open' ? section.blocks : NO_BLOCKS
+  /** ⚖ S17 fix round 1 · F16 — THE PANEL ARRIVES, IT DOES NOT BLINK.
+   *
+   *  Section change is this room's most frequent transition — twenty-two rail
+   *  rows, and the purpose sentence has a manager landing on the right one
+   *  between two bookings — and it had no motion at all: the old panel was
+   *  replaced on the frame. The packet asks for a cross-fade plus a 6px rise on
+   *  the room's ONE spring (⚖ Studio: no second easing, no `@keyframes` for
+   *  state), and `prefers-reduced-motion` reduces it to the cross-fade alone
+   *  (⚖ apple-design §14 — reduced motion is a gentler equivalent, not the
+   *  absence of feedback).
+   *
+   *  ⚠ IT STARTS FROM THE PRESENTATION VALUE, not from zero (⚖ apple-design §3).
+   *  A manager clicking down the rail faster than the spring settles would
+   *  otherwise see each panel restart from invisible — a strobe. Read live, the
+   *  next panel continues from wherever the last one had got to.
+   *
+   *  ⚠ SAME PATH BOTH WAYS: the only axis is opacity plus a 6px rise, so the
+   *  outbound of one panel and the inbound of the next are the same line. The
+   *  room mounts ONE section at a time (the panel swaps rather than stacking
+   *  22), so there is no separate exit tween to mirror — the honest ceiling, and
+   *  it is why the continuity above is the thing that carries the feeling. */
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelSpring = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const panelBuiltWith = useRef<boolean | null>(null)
+  const panelFirst = useRef(true)
+  useLayoutEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    if (!panelSpring.current || panelBuiltWith.current !== reduced) {
+      panelSpring.current?.stop()
+      panelBuiltWith.current = reduced
+      panelSpring.current = makeSpring(
+        (v) => {
+          const n = panelRef.current
+          if (!n) return
+          const t = Math.min(1, Math.max(0, v))
+          n.style.opacity = String(t)
+          n.style.transform = reduced ? '' : `translateY(${((1 - t) * 6).toFixed(2)}px)`
+        },
+        { response: SPRING_PANEL, reduced, eps: 0.004 },
+      )
+    }
+    const spring = panelSpring.current
+    if (panelFirst.current) {
+      panelFirst.current = false
+      spring.jump(1)
+      return
+    }
+    const live = Number(el.style.opacity)
+    spring.jump(Number.isFinite(live) && live < 1 ? live : 0)
+    spring.set(1)
+  }, [picked, section?.id, reduced])
+  useEffect(() => () => panelSpring.current?.stop(), [])
+
   /** The ids the scroll-spy measures. 予約と確保 renders itself and its anchors
    *  are the section's own (`STORE_POLICY_ANCHORS`), so the spy asks the same
    *  list the jump list offers rather than a second one that could drift. */
@@ -813,7 +872,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           </p>
         </aside>
 
-        <div className="st-panel">
+        <div className="st-panel" ref={panelRef}>
           {section === null ? (
             columnAnd(boundaryFallbackNode, null)
           ) : section.gate === 'no-rights' ? (

@@ -767,6 +767,41 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  // ⚖ S17 · F16 — SECTION CHANGE HAS MOTION, ON THE ROOM'S ONE SPRING.
+  // It had none: the old panel was replaced on the frame, on the room's most
+  // frequent transition (22 rail rows, and the purpose sentence has a manager
+  // landing on the right one between two bookings). The reduced-motion clause
+  // was written around a cross-fade that did not exist.
+  // ⚖ apple-design §3 (start from the presentation value — a fast rail-clicker
+  // must not see each panel restart from invisible), §7 (one axis, so the path
+  // in and the path out are the same line), §14 (reduced motion = the fade
+  // alone, never the absence of feedback).
+  it('⚖ F16 — the panel cross-fades and rises on section change, and only cross-fades under reduce', () => {
+    expect(SCREEN_CODE).toContain('const SPRING_PANEL = 0.32')
+    expect(SCREEN_CODE).toContain('<div className="st-panel" ref={panelRef}>')
+    const eff = SCREEN_CODE.slice(SCREEN_CODE.indexOf('const panelSpring = useRef'))
+    const body = eff.slice(0, eff.indexOf('}, [picked, section?.id, reduced])'))
+    // transform AND opacity, never a width or a height…
+    expect(body).toContain('n.style.opacity = String(t)')
+    expect(body).toContain("n.style.transform = reduced ? '' : `translateY(${((1 - t) * 6).toFixed(2)}px)`")
+    // …driven by the room's ONE integrator, keyed on the section AND on the
+    // preference, so a reader who turns 「動きを減らす」 on mid-session is obeyed…
+    expect(body).toContain('makeSpring(')
+    expect(body).toContain('{ response: SPRING_PANEL, reduced, eps: 0.004 }')
+    expect(body).toContain('panelBuiltWith.current !== reduced')
+    expect(eff).toContain('}, [picked, section?.id, reduced])')
+    // …starting from the CURRENT rendered opacity rather than from zero…
+    expect(body).toContain('const live = Number(el.style.opacity)')
+    expect(body).toContain('spring.jump(Number.isFinite(live) && live < 1 ? live : 0)')
+    // …and the first paint does not animate: a page that fades in on load is a
+    // page that looks slow.
+    expect(body).toContain('panelFirst.current')
+    // ⚠ AND NO SECOND MOTION LANGUAGE: no keyframes for state anywhere, and no
+    // CSS transition on the panel's own transform racing the spring.
+    expect(CSS_CODE).not.toContain('@keyframes')
+    expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*transition/)
+  })
+
   // ⚖ S17 · F15 — 予約と確保'S EIGHT DIALS SPEAK THE ROOM'S ROW GRAMMAR.
   // The section arrived from #812 as a stacked block at EVERY width — label over
   // control over three or four description lines, 12px/11px against the room's

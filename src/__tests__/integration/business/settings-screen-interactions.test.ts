@@ -242,8 +242,31 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // changes, it simply stops moving, which is this family's rule.
     expect(SRC_CODE).toContain('const reduced = useReducedMotion()')
     // …every spring in the room takes it.
-    const springs = [...SRC_CODE.matchAll(/makeSpring\([\s\S]{0,400}?\)\n/g)].map((m) => m[0])
-    expect(springs.length).toBeGreaterThanOrEqual(4)
+    // ⚠ D-21 RE-PIN (⚖ S17 fix round 1 · F16): the extraction was a 400-character
+    // window ending at the first `)\n`, which is a shape of code rather than a
+    // call — a callback whose last line happens to close a paren truncated the
+    // match, and the fifth spring (the panel's own, added this round) read as
+    // 「does not take reduced」 while taking it. The window is gone: each call is
+    // read to its own matching close paren, so the CLAIM (every spring in this
+    // room is handed the reader's preference) is the same and nothing about how
+    // the callback is written can hide from it.
+    const callsOf = (src: string) => {
+      const out: string[] = []
+      let i = src.indexOf('makeSpring(')
+      while (i >= 0) {
+        let depth = 0
+        let j = i + 'makeSpring'.length
+        for (; j < src.length; j += 1) {
+          if (src[j] === '(') depth += 1
+          else if (src[j] === ')') { depth -= 1; if (depth === 0) break }
+        }
+        out.push(src.slice(i, j + 1))
+        i = src.indexOf('makeSpring(', j)
+      }
+      return out
+    }
+    const springs = [...callsOf(SRC_CODE), ...callsOf(DISCLOSURE)]
+    expect(springs.length).toBeGreaterThanOrEqual(5)
     for (const sp of springs) {
       expect({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: sp.includes('reduced') })
         .toEqual({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: true })
