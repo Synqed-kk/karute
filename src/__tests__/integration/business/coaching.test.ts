@@ -55,6 +55,7 @@ import {
   maturityNote,
   maturityOf,
   moduleOn,
+  patternLeaks,
   sampleFloor,
   sessionsOf,
   summaryLeaks,
@@ -5089,5 +5090,54 @@ describe('⚖ B2-4-4 (S16F) — the practice sheet keeps ONE proportion in both 
     // this region answers to interior slack instead of to `align-items`.
     const at = CSS_CODE.indexOf('.cg-sheet-cols {')
     expect(/align-items:\s*(start|flex-start)/.test(CSS_CODE.slice(at, CSS_CODE.indexOf('}', at)))).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ S16F-D5 — the pattern shelf keeps the FIGURE guard and gives back the durations', () => {
+  const NAMES = ['見本 はなこ', '見本', 'はなこ']
+
+  it('the board still refuses every duration B2-2-3 caught, and the shelf does not', () => {
+    for (const text of ['三度、提案の前に確認を入れています。', '二週間ほど間があいています。', '三日おきに同じ場面が出ています。', '一年を通して同じ型が出ています。', '二ヶ月ぶんの記録から見えています。']) {
+      expect({ text, board: summaryLeaks(text, NAMES), shelf: patternLeaks(text, NAMES) })
+        .toEqual({ text, board: true, shelf: false })
+    }
+  })
+
+  it('the FIGURE half is shared — a headcount, a fraction or any digit is refused on BOTH', () => {
+    for (const text of ['上位層8名中7名が実践しています。', '上位層八名中七名が実践しています。', '三割の場面で出ています。', '十数回、同じ場面が出ています。', '半分ほどで止まっています。', '2件あります。']) {
+      expect({ text, board: summaryLeaks(text, NAMES), shelf: patternLeaks(text, NAMES) })
+        .toEqual({ text, board: true, shelf: true })
+    }
+    // …and so is the name half, which is the reason VL-3 brought the guard here
+    expect(patternLeaks('はなこさんの受けとめ方に近いやり方です。', NAMES)).toBe(true)
+  })
+
+  it('every one of the five patterns keeps its spoken line, and exactly one shelf is empty', () => {
+    const shelves = buildPatternLibrary(patternLibrary)
+    expect(shelves.flatMap((s) => s.entries).length).toBe(patternLibrary.length)
+    expect(shelves.flatMap((s) => s.entries).map((e) => e.example)).toEqual(patternLibrary.map((p) => p.anonymizedExample))
+    expect(shelves.filter((s) => s.entries.length === 0).length).toBe(1)
+    // the two the board's duration class was eating, named so a re-widening shows
+    const kept = shelves.flatMap((s) => s.entries).map((e) => e.example)
+    expect(kept).toContain('一日のうちで、いつがいちばん気になりますか')
+    expect(kept).toContain('次は二週間後あたりが目安です')
+  })
+
+  it('a planted name and a planted denominator still take the whole entry off the shelf', () => {
+    const planted = [
+      { ...patternLibrary[0], anonymizedExample: 'はなこさんのように聞いてみてください' },
+      { ...patternLibrary[2], behaviorDescription: '上位層8名中7名がこの順番を守っています。' },
+    ]
+    const shelves = buildPatternLibrary(planted, [{ name: '見本 はなこ' }])
+    expect(shelves.flatMap((s) => s.entries).length).toBe(0)
+  })
+
+  it('the shelf calls its OWN guard, and the two clauses are declared apart', () => {
+    expect(LIB_CODE).toContain('.some((s) => patternLeaks(s, needles))')
+    expect(LIB_CODE).toContain('const L2_DURATION =')
+    expect(LIB_CODE).toContain('const L2_FIGURE =')
+    // the board keeps both clauses; the shelf keeps one
+    expect(LIB_CODE).toContain('if (L2_FIGURE.test(text) || L2_DURATION.test(text)) return true')
   })
 })

@@ -631,7 +631,23 @@ export const STATUS_BODY: Record<SelfView['status'], string | null> = {
  *  with a spacer between the numeral and its counter, and this room's own ROI
  *  copy says 「Nヶ月」 — a class that read the spacer as prose would let the
  *  commonest duration in the language through. */
-const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千数][\sヶヵカか]*[割分回件名人倍点度日週月年％%]|半[分数]/
+const L2_FIGURE = /[0-9０-９]|[一二三四五六七八九十百千数][\sヶヵカか]*[割分回件名人倍点％%]|半[分数]/
+
+/** ⚖ S16F-D5 — AND THE DURATION HALF IS THE BOARD'S ALONE, which is a sentence
+ *  that had to be written the moment B2-2-3 widened the class: 度 / 日 / 週 /
+ *  月 / 年 were added because 「二週間ほど間があいています」 is a quantity ABOUT A
+ *  PERSON, said to an owner, exactly as 「三回」 is. That reasoning holds for the
+ *  board's per-member sentence and for nothing else in this room. The pattern
+ *  shelf's strings are about a CATEGORY — no member is attached to them — and a
+ *  duration inside one is the technique itself (「一日のうちで、いつがいちばん気
+ *  になりますか」 is the LINE a top performer says; 「次は二週間後あたりが目安で
+ *  す」 is the whole rebooking pattern). Handing the shelf the board's duration
+ *  class silently emptied two of its five entries and a whole shelf with them,
+ *  and protected nobody. So the two questions get two names instead of one
+ *  regexp doing double duty: `summaryLeaks` for the board, `patternLeaks` for
+ *  the shelf, and the FIGURE half — the one that catches 「上位層8名中7名」 —
+ *  is shared, because that leak is real on both. */
+const L2_DURATION = /[一二三四五六七八九十百千数][\sヶヵカか]*[度日週月年]/
 
 /** True when `text` must NOT be printed to an owner. `names` is every name this
  *  room can check against — see `nameNeedles` for which lists that is.
@@ -642,7 +658,16 @@ const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千数][\s�
  *  names FIRST, and the roster the board is built from is one STORE's — so a
  *  colleague at another branch was a name this guard did not know. */
 export function summaryLeaks(text: string, names: string[]): boolean {
-  if (L2_QUANTITY.test(text)) return true
+  if (L2_FIGURE.test(text) || L2_DURATION.test(text)) return true
+  return names.some((n) => text.includes(n))
+}
+
+/** ⚖ S16F-D5 — THE SHELF'S OWN GUARD. Same shape, same one-way effect (a string
+ *  that fails is OMITTED, never printed), one clause fewer: a figure or a name,
+ *  and not a duration. See `L2_DURATION` for why that clause belongs to the
+ *  board and to no other surface. */
+export function patternLeaks(text: string, names: string[]): boolean {
+  if (L2_FIGURE.test(text)) return true
   return names.some((n) => text.includes(n))
 }
 
@@ -1142,7 +1167,13 @@ export interface PatternShelf {
  *  reaching the same owner screen, and `top-performer-patterns.ts:157`
  *  explicitly permits 「any verbatim ≤15 chars」 — exactly the width a Japanese
  *  name rides in. Same remedy as the board: a string that fails the check is
- *  OMITTED, not printed (staff-focus.ts:144-145's own rule, applied here). */
+ *  OMITTED, not printed (staff-focus.ts:144-145's own rule, applied here).
+ *  ⚖ S16F-D5 — AND IT IS `patternLeaks`, NOT `summaryLeaks`. VL-3's reason for
+ *  bringing the guard here was the NAME riding in a ≤15-char verbatim; the
+ *  figure half comes with it because 「上位層8名中7名」 must never reach a screen
+ *  (`adoptionSentence`'s own note). The board's DURATION clause does not: it
+ *  reads a spoken line's 「一日のうちで」 as a quantity about somebody and drops
+ *  the entry. */
 export function buildPatternLibrary(
   patterns: Array<{
     category: string | null
@@ -1157,7 +1188,7 @@ export function buildPatternLibrary(
 ): PatternShelf[] {
   const needles = nameNeedles(roster.map((m) => m.name))
   const safe = (p: (typeof patterns)[number]) =>
-    ![p.title, p.behaviorDescription, p.anonymizedExample, p.transferability].some((s) => summaryLeaks(s, needles))
+    ![p.title, p.behaviorDescription, p.anonymizedExample, p.transferability].some((s) => patternLeaks(s, needles))
   return PATTERN_CATEGORIES.map((key) => ({
     key,
     title: PATTERN_SHELF[key].title,
