@@ -1697,7 +1697,8 @@ export function windowsEatenBy(
  *
  *  THE CALLER DECIDES, not this function. R-REP wears two shapes: a lost
  *  PROTECTED window (`params.capacityLost > 0`, label 「新規（90分）」) and a
- *  SERVICE that no longer fits (label 「整体60」, gap-guard :327-338). Only the
+ *  SERVICE that no longer fits (label 「整体60」, gap-guard `reasonForKey`'s
+ *  `key[0]`/`key[1]` branches — :327-338). Only the
  *  first is a window and only the first may be given a clause, and the thing
  *  that knows which is the composer holding the verdict — so `railCell` passes
  *  '' for the other. */
@@ -1951,7 +1952,8 @@ function railCell(
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
     // window cannot claim to be protecting one.
     // ⚖ Liam 8/30 — and it names them. THE WINDOWS THAT SURVIVE THE DROP
-    // (`protectedWindowsAfter`, filled for every verdict at gap-guard :362-365),
+    // (`protectedWindowsAfter`, filled for every verdict at gap-guard `evaluate`'s
+    // `result` literal, its `protectedWindowsAfter:` line),
     // because that is what 「守れます」 promises: the before-set would name spans
     // that no longer exist once the card is down — a 30 at a pocket's start
     // pushes every window along with it. The empty guard cannot fire on a real
@@ -1968,11 +1970,18 @@ function railCell(
     const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
     // ⚖ Liam 8/30 — and it names the windows this start EATS, which is the
     // question a cost sentence answers. Not the whole before-set (most of it
-    // survives) and not before-minus-after (the after-set re-tiles).
-    const atRisk = protectedWindowsClause(
-      windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
-      input.protectedDur,
-    )
+    // survives) and not before-minus-after (the after-set re-tiles). A degraded
+    // verdict can carry 0枠減 (canon's 「nowhere wins」 path, when the loss is a
+    // dead or salvage gap and the window count re-tiles unchanged); naming a
+    // window as the cost of a placement that costs no window is a
+    // contradiction, so the clause waits for a real loss.
+    const atRisk =
+      loss > 0
+        ? protectedWindowsClause(
+            windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
+            input.protectedDur,
+          )
+        : ''
     return {
       start,
       state: 'degraded',
@@ -1997,8 +2006,9 @@ function railCell(
   // ⚖ Liam 8/30 — THE THIRD SENTENCE, and the decision that guards it. A refusal
   // that names 新規（90分） is the same fact as the ✓ and △ rows above and gets
   // the same leading clause; a refusal that names a SERVICE (「整体60が入らなく
-  // なります」, gap-guard :338) is not a protected window and gets nothing. The
-  // engine's own `capacityLost` is the test — the words are not.
+  // なります」, gap-guard `reasonForKey`'s `repLabel(lossSet)` line — :338) is not
+  // a protected window and gets nothing. The engine's own `capacityLost` is the
+  // test — the words are not.
   const repWindows =
     v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
       ? protectedWindowsClause(

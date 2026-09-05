@@ -1172,6 +1172,29 @@ describe('the 配置ガイド rail', () => {
     )
   })
 
+  it('⚖ 90 (b) fix round 2 — a 0枠減 degraded verdict names no window at all', () => {
+    // L4's boundary find (blindround-r8-pr2-c3abea75/L4-boundary.md #1, run on
+    // the real engine, never hand-computed): a late-closing pocket carries 30
+    // minutes of dead slack past its sixth 90-min tiling. A short placement
+    // landing on the sixth window's own start (17:30) forces canon to re-tile
+    // that ONE window past the placement, into the slack — the count survives
+    // 6→6 (0枠減), but the verdict is still `degraded` (canon's 「nowhere
+    // wins」 path: the placement leaves an unsellable dead/salvage scrap
+    // elsewhere in the pocket, a cost the window count never saw). Naming
+    // 17:30〜19:00 as the thing this start "costs" would be false — nothing
+    // was eaten. Lane 10:00–19:30 (a 570-min pocket), 15 at 17:30, dial 90.
+    const lateClosing = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 1170 }, untilLabel: '19:30' })
+    const cell = at(guardRailsFor([lateClosing], railInput({ dur: 15 }))[0], 1050)
+    expect(cell.state).toBe('degraded')
+    expect(cell.impact!.capacityBefore).toBe(cell.impact!.capacityAfter)
+    expect(cell.sentence).toBe(
+      '新規90分の空き6→6（0枠減・損を減らす）。11:45はこの区間で損が最少の開始です',
+    )
+    // Beside it, the ordinary loss>0 scene already above (⚖ 90 (b), 10:00 on
+    // the 10:00–11:30 lane) still names its window — the gate is on `loss`,
+    // never on the clause author.
+  })
+
   it('⚖ 90 (c) — a refusal that costs a 新規 window names it; one that costs a SERVICE does not', () => {
     // Lane 10:00–13:00, 60 at 10:30, dial 90. The engine refuses (10:00 is
     // strictly better) with the capacityLost shape of R-REP — the label is
@@ -1301,7 +1324,10 @@ describe('the 配置ガイド rail', () => {
     // △ and the refusal the windows the placement eats.
     expect(pinnedLine(INT, "    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)")).toBe(true)
     expect(pinnedLines(INT, "windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),")).toBe(2)
-    expect(pinnedLine(INT, "    const atRisk = protectedWindowsClause(")).toBe(true)
+    expect(pinnedLine(INT, "const atRisk =")).toBe(true)
+    // ⚖ 90 fix round 2 (F1) — and only when the placement actually COSTS a
+    // window: a 0枠減 degraded verdict gets the un-clause'd sentence.
+    expect(pinnedLine(INT, "loss > 0")).toBe(true)
     // The refusal's clause is gated on the ENGINE's own flag, not on the words.
     expect(pinnedLine(INT, "v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0")).toBe(true)
     // `reasonLine` reads its third argument in the R-REP branch and nowhere else.
