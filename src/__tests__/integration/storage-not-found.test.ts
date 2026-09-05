@@ -39,6 +39,17 @@ describe('isStorageNotFound', () => {
     ).toBe(true)
   })
 
+  it('is true when statusCode arrives as a NUMBER, not a string — the numeric branch stays pinned, message gate keeps it safe', () => {
+    expect(
+      isStorageNotFound({
+        name: 'StorageApiError',
+        status: 400,
+        statusCode: 404,
+        message: 'Object not found',
+      }),
+    ).toBe(true)
+  })
+
   it('is false for "Bucket not found" — a config problem, not a missing object, must stay unknown', () => {
     expect(
       isStorageNotFound({
@@ -150,6 +161,20 @@ describe('warnStorageUnknown — the 502 that used to log nothing', () => {
     const [line] = warnSpy.mock.calls[0] as [string]
     expect(line).toContain('"evt":"storage_probe_unknown"')
     expect(line).toContain('"where":"objectSize"')
+    // Greptile fix round 2: the raw message never rides in the log — only
+    // the normalized messageKind.
+    expect(line).not.toContain('Internal')
+    expect(line).toContain('"messageKind":"other"')
+  })
+
+  it('logs messageKind "bucket_not_found" for a bucket-config problem — never the raw message', async () => {
+    info.mockResolvedValueOnce({
+      data: null,
+      error: { status: 400, statusCode: '404', message: 'Bucket not found' },
+    })
+    expect(await objectExists(KEY2)).toBe('unknown')
+    const [line] = warnSpy.mock.calls[0] as [string]
+    expect(line).toContain('"messageKind":"bucket_not_found"')
   })
 
   it('never logs for the ordinary miss', async () => {
@@ -159,5 +184,21 @@ describe('warnStorageUnknown — the 502 that used to log nothing', () => {
     })
     expect(await objectExists(KEY2)).toBe(false)
     expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('a missing-ROUTE message never puts the key (business + take id) in the log', async () => {
+    info.mockResolvedValueOnce({
+      data: null,
+      error: {
+        status: 404,
+        statusCode: '404',
+        message: `Route GET:/object/info/recordings/${KEY2} not found`,
+      },
+    })
+    expect(await objectExists(KEY2)).toBe('unknown')
+    const [line] = warnSpy.mock.calls[0] as [string]
+    expect(line).toContain('"messageKind":"other"')
+    expect(line).not.toContain('app_biz-1')
+    expect(line).not.toContain('/object/info')
   })
 })

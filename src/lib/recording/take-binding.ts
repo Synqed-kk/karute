@@ -49,10 +49,20 @@ export function isStorageNotFound(error: unknown): boolean {
  *  proven miss nor a proven hit must be VISIBLE in the function logs, because
  *  it turns every mint/finalize into a 502 and nothing else says why. House
  *  style = audit.ts's `audit_sink_error` line (one JSON object, ids/status
- *  only — never the key, never a body). */
+ *  only — never the key, never a body). The raw `message` is deliberately NOT
+ *  logged (Greptile, fix round 2): storage's own route errors embed the
+ *  requested path (`Route GET:/object/info/<bucket>/<key> not found`), which
+ *  is the business + take id — logged only as a normalized `messageKind`,
+ *  by exact comparison, never the text. */
 export function warnStorageUnknown(where: string, error: unknown): void {
   const e = (error && typeof error === 'object' ? error : {}) as { status?: unknown; statusCode?: unknown; message?: unknown }
-  console.warn(JSON.stringify({ evt: 'storage_probe_unknown', where, status: e.status, statusCode: e.statusCode, message: typeof e.message === 'string' ? e.message.slice(0, 120) : undefined }))
+  const messageKind =
+    e.message === 'Bucket not found'
+      ? 'bucket_not_found'
+      : e.message === 'Object not found'
+        ? 'object_not_found'
+        : 'other'
+  console.warn(JSON.stringify({ evt: 'storage_probe_unknown', where, status: e.status, statusCode: e.statusCode, messageKind }))
 }
 
 /** Statuses the JOB PIPELINE owns. NEITHER door writes `status` on one of
