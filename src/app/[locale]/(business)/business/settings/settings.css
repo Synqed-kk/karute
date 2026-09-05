@@ -448,9 +448,28 @@
 /* ⚠ THE WRAPPER'S HEIGHT IS DRIVEN BY THE SPRING, NEVER BY A TRANSITION — one
    integrator for every moving thing in this room. `overflow: hidden` is safe
    here because the panel holds NO focusable: it is four sentences. */
-.biz .pg-settings .st-det-wrap { grid-column: 1 / -1; height: 0; overflow: hidden; }
+/* ⚠ `height: 0` IS NOT HIDDEN, IT IS ONLY INVISIBLE. A collapsed panel whose
+   content is still in the accessibility tree means a screen reader reads four
+   guardrail sentences for EVERY row of this page, always — a room that got
+   quieter to look at and far louder to listen to. `visibility: hidden` takes it
+   out of the tree; the transition is DELAYED on the way down (0s at 260ms) so
+   the height animation still plays out before it goes, and immediate on the way
+   up so the content is there the moment it starts opening. */
+.biz .pg-settings .st-det-wrap {
+  grid-column: 1 / -1; height: 0; overflow: hidden;
+  visibility: hidden; transition: visibility 0s linear 260ms;
+}
+.biz .pg-settings .st-det-wrap[data-open="true"] { visibility: visible; transition: visibility 0s linear 0s; }
 .biz .pg-settings .st-det-inner { opacity: 0; transform: translateY(-3px); transition: opacity 170ms ease-out, transform 200ms cubic-bezier(.22, .9, .24, 1); }
 .biz .pg-settings .st-det-inner.is-in { opacity: 1; transform: none; }
+
+/* A locked control's reason — VISIBLE, never a tooltip and never folded (see the
+   note in the screen beside `lockReasons`). It is the answer to 「why can I not
+   change this at all」, which a manager needs BEFORE they press. */
+.biz .pg-settings .st-why {
+  grid-column: 1 / -1; margin: 5px 0 0;
+  color: var(--orange); font-size: 11.5px; line-height: 1.7;
+}
 .biz .pg-settings .st-det {
   margin: 6px 0 2px; padding: 9px 12px;
   list-style: none;

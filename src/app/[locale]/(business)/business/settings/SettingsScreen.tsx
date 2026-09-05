@@ -717,6 +717,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                            state for a dot to be about. */
                         dirtyOf={() => false}
                         onJump={jumpTo}
+                        /* ⚖ A3 — this section's 保存 is a refusal, so there is
+                           never anything for the card to rise about. */
+                        raised={false}
                         reduced={reduced}
                       />
                     </>
@@ -794,6 +797,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                       return b !== undefined && blockDirty(b, values, saved)
                     }}
                     onJump={jumpTo}
+                    raised={changed > 0}
                     reduced={reduced}
                   />
                 </>
@@ -906,6 +910,7 @@ function Side({
   highlighted,
   dirtyOf,
   onJump,
+  raised,
   reduced,
 }: {
   /** The anchors this section actually renders, in page order. It is a LIST
@@ -918,6 +923,8 @@ function Side({
   highlighted: string | null
   dirtyOf: (blockId: string) => boolean
   onJump: (blockId: string) => void
+  /** ⚖ the save card MOVES only when it has something to say — see `SaveCard`. */
+  raised: boolean
   reduced: boolean
 }) {
   return (
@@ -956,7 +963,7 @@ function Side({
           <p className="st-jump-note">見出しを押すとその場所へ移動します。●は未保存の変更です。</p>
         </nav>
       )}
-      <SaveCard reduced={reduced}>{save}</SaveCard>
+      <SaveCard raised={raised} reduced={reduced}>{save}</SaveCard>
     </div>
   )
 }
@@ -964,7 +971,7 @@ function Side({
 /** The save state, and the ONE piece of chrome that moves on its own: it rises
  *  when there is something to save and sits back down after 保存, on the room's
  *  own spring. */
-function SaveCard({ children, reduced }: { children: ReactNode; reduced: boolean }) {
+function SaveCard({ children, raised, reduced }: { children: ReactNode; raised: boolean; reduced: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const spring = useRef<ReturnType<typeof makeSpring> | null>(null)
   useEffect(() => {
@@ -972,11 +979,16 @@ function SaveCard({ children, reduced }: { children: ReactNode; reduced: boolean
       const el = ref.current
       if (el) el.style.transform = v === 0 ? '' : `translateY(${v.toFixed(2)}px)`
     }, { response: SPRING_THUMB, reduced })
-    spring.current.jump(8)
-    spring.current.set(0)
     const s = spring.current
     return () => s.stop()
   }, [reduced])
+  /** ⚠ IT RISES WHEN THERE IS SOMETHING TO SAVE, AND SINKS AFTER 保存 — not once
+   *  on mount. The movement is the card SAYING something ("you have unsaved
+   *  work"), so tying it to anything but that fact makes it decoration, and
+   *  decoration that moves is the kind of motion the Studio standard removes. */
+  useEffect(() => {
+    spring.current?.set(raised ? -6 : 0)
+  }, [raised])
   return (
     <section
       className="st-save-card"
@@ -1359,7 +1371,13 @@ function Row({
     if (row.trio.businessType) detail.push({ cls: 'st-det-type', text: row.trio.businessType })
   }
   if (row.source) detail.push({ cls: 'st-det-src', text: `出どころ: ${row.source}` })
-  for (const c of row.controls) if (c.locked) detail.push({ cls: 'st-det-why', text: c.locked })
+  /** ⚠ A LOCKED CONTROL'S REASON DOES NOT FOLD, and that is `RowControl.locked`'s
+   *  own law restated: 「the reason is VISIBLE, never a tooltip」. Everything else
+   *  in 詳しく is context a manager opens WHEN they are changing the dial; a lock
+   *  reason is the answer to 「why can I not change this at all」, which they need
+   *  before they press it. It rode into the disclosure with the trio on the first
+   *  cut of this round and comes back out here. */
+  const lockReasons = row.controls.map((c) => c.locked).filter((r): r is string => r !== undefined)
   const detailId = `st-det-${row.id}`
 
   return (
@@ -1430,6 +1448,10 @@ function Row({
         )}
       </div>
 
+      {lockReasons.map((r) => (
+        <p className="st-why" key={r}>{r}</p>
+      ))}
+
       {detail.length > 0 && (
         <Collapse open={open} id={detailId} reduced={reduced}>
           <ul className="st-det">
@@ -1495,7 +1517,15 @@ function Collapse({
   useEffect(() => () => springRef.current?.stop(), [])
 
   return (
-    <div className="st-det-wrap" id={id} ref={wrapRef} hidden={false}>
+    /* ⚠ `height: 0` HIDES A PANEL FROM EYES AND FROM NOBODY ELSE. A collapsed
+       disclosure whose content is still in the accessibility tree means a screen
+       reader reads four guardrail sentences for EVERY row of a settings page,
+       always — the room would be quieter to look at and far louder to listen to.
+       The sheet drops `visibility` when it is closed (with the transition
+       delayed so the height still animates on the way down), which takes the
+       content out of the tree without taking it out of the DOM the spring is
+       measuring. `data-open` is what the sheet reads. */
+    <div className="st-det-wrap" id={id} ref={wrapRef} data-open={open ? 'true' : 'false'}>
       <div className={`st-det-inner${open ? ' is-in' : ''}`} ref={innerRef}>
         {children}
       </div>

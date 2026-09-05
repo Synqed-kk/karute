@@ -170,6 +170,40 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('<h3 id={`st-blkh-${block.id}`} tabIndex={-1}>')
   })
 
+  it('⚖ S17 — what 詳しく folds, and the three things it must NOT', () => {
+    // ⚠ 1. A LOCKED CONTROL'S REASON DOES NOT FOLD. `RowControl.locked`'s own
+    // law is 「the reason is VISIBLE, never a tooltip」, and the whole point of it
+    // is that a manager reads it BEFORE they press something that will not move.
+    // Everything else behind 詳しく is context they open WHILE changing a dial.
+    expect(SRC_CODE).toContain("const lockReasons = row.controls.map((c) => c.locked).filter((r): r is string => r !== undefined)")
+    expect(SRC_CODE).toMatch(/\{lockReasons\.map\(\(r\) => \(\s*<p className="st-why" key=\{r\}>\{r\}<\/p>/)
+    // …and it is rendered OUTSIDE the disclosure: the reason appears before the
+    // `<Collapse>` in the row's own markup.
+    const row = SRC_CODE.slice(SRC_CODE.indexOf('className={`st-dial${'), SRC_CODE.indexOf('/** A height that travels'))
+    expect(row.indexOf('className="st-why"')).toBeLessThan(row.indexOf('<Collapse open={open}'))
+    expect(SRC_CODE).not.toContain("detail.push({ cls: 'st-det-why'")
+
+    // ⚠ 2. A CLOSED PANEL IS CLOSED TO A SCREEN READER TOO. `height: 0` with
+    // `overflow: hidden` hides content from EYES and from nobody else — a
+    // collapsed disclosure whose body is still in the accessibility tree means
+    // four guardrail sentences read aloud for every row of this page, always.
+    expect(SRC_CODE).toContain(`data-open={open ? 'true' : 'false'}`)
+    expect(CSS_CODE).toMatch(/\.st-det-wrap \{[^}]*visibility: hidden/)
+    expect(CSS_CODE).toMatch(/\.st-det-wrap\[data-open="true"\] \{ visibility: visible/)
+    // …and the delay is on the way DOWN only, or the height animation would be
+    // played to a box that has already vanished.
+    expect(CSS_CODE).toMatch(/\.st-det-wrap \{[^}]*transition: visibility 0s linear 260ms/)
+    expect(CSS_CODE).toMatch(/\[data-open="true"\] \{ visibility: visible; transition: visibility 0s linear 0s/)
+
+    // ⚠ 3. THE SAVE CARD MOVES ONLY WHEN IT HAS SOMETHING TO SAY. A rise on
+    // mount is decoration, and decoration that moves is exactly the motion the
+    // Studio standard exists to remove; a rise tied to 「there is unsaved work」
+    // is the card speaking.
+    expect(SRC_CODE).toContain('spring.current?.set(raised ? -6 : 0)')
+    expect(SRC_CODE).toContain('raised={changed > 0}')
+    expect(SRC_CODE).toContain('raised={false}')
+  })
+
   it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
     // The room-5 F5 defect: a target taller than the viewport forces the engine's
     // last resort, which puts the card on top of the thing it is explaining. This
