@@ -19,6 +19,9 @@ type MintInput =
       recordingSessionId?: string | null
       /** PR4 fix round 7: the session a STAGED copy is staged for. */
       stagedFor?: string | null
+      /** Slice five packet B (D10): the TAKE that copy is of — the key's uuid
+       *  slot, and the identity a row-less object otherwise has none of. */
+      stagedTake?: string | null
     }
   | undefined
 type MintReply =
@@ -28,6 +31,15 @@ type MintReply =
       token: string
       contentType: string
       recordingSessionId: string | null
+    }
+  /** Fix round 2: the door found an object already at this key, so it signed
+   *  NOTHING and answered its size instead. No url, no token — absent, not
+   *  empty, so nothing here can be PUT against. */
+  | {
+      path: string
+      contentType: string
+      recordingSessionId: string | null
+      existingSize: number | null
     }
   | { error: string }
 const MINTED = {
@@ -189,9 +201,172 @@ describe('webRecordingPort.prepareTranscription — the fallback (no finalized o
     expect(mintRecordingUploadUrl).toHaveBeenCalledWith(undefined)
   })
 
-  it('a copy staged FOR a discard carries that session to the mint', async () => {
-    await webRecordingPort.prepareTranscription(blob(), null, { stagedFor: 'rs-7' })
-    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({ stagedFor: 'rs-7' })
+  // ⚖ …AND ITS TAKE, AND ITS CONTAINER (slice five packet B, D10). The take
+  // fills the key's uuid slot, which is what makes the row-less copy findable
+  // from the core row that owes it; `blob.type` is the take's own container
+  // (loadTakeBlob sets it from the stored meta), so an iOS copy is finally
+  // `.mp4` instead of the `.webm` every staged copy used to wear.
+  it('a copy staged FOR a discard carries that session, its take and its container', async () => {
+    await webRecordingPort.prepareTranscription(blob(), null, {
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+    })
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+      mimeType: 'audio/webm',
+    })
+  })
+
+  it('an iOS take stages as audio/mp4 — the blob’s own type, not a hardcoded webm', async () => {
+    mintRecordingUploadUrl.mockImplementation(async () => ({
+      ...MINTED,
+      path: 'stg/biz-1_rs-7_take-7.mp4',
+      contentType: 'audio/mp4',
+    }))
+    await webRecordingPort.prepareTranscription(
+      new Blob(['audio'], { type: 'audio/mp4' }),
+      null,
+      { stagedFor: 'rs-7', stagedTake: 'take-7' },
+    )
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+      mimeType: 'audio/mp4',
+    })
+    // The PUT wears the MINT's answer — the same closed-map value that decided
+    // the key's extension, never this arm's own guess.
+    const [, init] = (fetchMock as unknown as jest.Mock).mock.calls[0] as [string, RequestInit]
+    expect(init.headers).toEqual({ 'content-type': 'audio/mp4' })
+  })
+
+  it('a blob with no type omits mimeType — the server’s default stands', async () => {
+    await webRecordingPort.prepareTranscription(new Blob(['audio']), null, {
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+    })
+    expect(mintRecordingUploadUrl).toHaveBeenCalledWith({
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+      mimeType: undefined,
+    })
+  })
+
+  // ⚖ ONLY OUR OWN BYTE LENGTH IS ADOPTED (fix round 2). Packet B read a PUT's
+  // "already there" as a success — which, with a key that is composable in
+  // advance and D11 releasing the device copy, let a records.write holder put
+  // any bytes at their own discarded session's staged key first and have the
+  // device adopt them, then throw the real recording away. The door answers
+  // existence with a SIZE now, and only a match adopts.
+  describe('an object already at the staged key', () => {
+    /** The door's other success arm — it signs nothing. */
+    const existing = (size: number | null) => ({
+      path: 'stg/biz-1_rs-7_take-7.webm',
+      contentType: 'audio/webm',
+      recordingSessionId: 'rs-7',
+      existingSize: size,
+    })
+
+    it('OUR OWN size is adopted with NO upload — the lost-markTakeStaged retry', async () => {
+      const take = blob()
+      mintRecordingUploadUrl.mockImplementation(async () => existing(take.size))
+      const { path } = await webRecordingPort.prepareTranscription(take, null, {
+        stagedFor: 'rs-7',
+        stagedTake: 'take-7',
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(path).toBe('stg/biz-1_rs-7_take-7.webm')
+      // …and no read url, per F9 below — the fence would refuse a `stg/` key.
+      expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+    })
+
+    it('a DIFFERENT size is refused — nothing is adopted and nothing is uploaded', async () => {
+      mintRecordingUploadUrl.mockImplementation(async () => existing(blob().size + 1))
+      await expect(
+        webRecordingPort.prepareTranscription(blob(), null, {
+          stagedFor: 'rs-7',
+          stagedTake: 'take-7',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+    })
+
+    it('a size storage would not give proves nothing — refused too', async () => {
+      mintRecordingUploadUrl.mockImplementation(async () => existing(null))
+      await expect(
+        webRecordingPort.prepareTranscription(blob(), null, {
+          stagedFor: 'rs-7',
+          stagedTake: 'take-7',
+        }),
+      ).rejects.toThrow('staged copy mismatch')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
+  // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
+  // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
+  // is fenced at `kind === 'take'` (requireOwnPath → isOwnRecordingKey), so a
+  // `stg/` key is refused there by construction: the web arm PUT the copy and
+  // then THREW on the very next line, so the discard's words were never
+  // collected on that arm at all. Nothing needs the URL — runDiscardTranscript
+  // reads `path`, and the discard action signs its own URL from it.
+  it('the staged branch returns the path and mints NO read url', async () => {
+    const { body, path } = await webRecordingPort.prepareTranscription(blob(), null, {
+      stagedFor: 'rs-7',
+      stagedTake: 'take-7',
+    })
+    expect(fetchMock).toHaveBeenCalled() // the copy WAS uploaded
+    expect(path).toBe('app_biz-1_uuid-1.webm')
+    expect(body).toEqual({})
+    expect(mintRecordingReadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE STAGED PUT CARRIES A DEADLINE (slice five fix round 3, F7). It is
+  // a real network call on this arm, so the law applies: a stalled one holds
+  // its take in runDiscardTranscript's `inFlight` set while the sequential
+  // sweep waits behind it. Same size-derived number as the whole-take PUT.
+  it('a stalled staged PUT is cut at the blob’s own deadline', async () => {
+    jest.useFakeTimers()
+    try {
+      ;(fetchMock as unknown as jest.Mock).mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new Error('The operation was aborted.')),
+            )
+          }),
+      )
+      const settled = webRecordingPort
+        .prepareTranscription(blob(), null, { stagedFor: 'rs-7', stagedTake: 'take-7' })
+        .then(
+          () => 'resolved',
+          () => 'rejected',
+        )
+      // The floor, for a blob this small (storage-put.ts's PUT_FLOOR_MS).
+      await jest.advanceTimersByTimeAsync(60_000)
+      await expect(settled).resolves.toBe('rejected')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  // …and on the SIGNED arm the 409 is a failure again: it is a race the mint
+  // did not see a moment ago, and the next mount's mint answers it with a size.
+  // (On the WHOLE-TAKE path it stays a success — finalize re-proves the size
+  // and the row's ownership there; a staged copy is row-less and has neither.)
+  it('a 409 on a SIGNED PUT is a failure — it is not proof the copy is ours', async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ statusCode: '409', error: 'Duplicate' }), { status: 400 }),
+    )
+    await expect(
+      webRecordingPort.prepareTranscription(blob(), null, {
+        stagedFor: 'rs-7',
+        stagedTake: 'take-7',
+      }),
+    ).rejects.toThrow('Upload failed (400)')
+    expect(mintRecordingReadUrl).not.toHaveBeenCalled()
   })
 
   it('a rejected upload fails the take loudly (no silent empty transcript)', async () => {

@@ -201,6 +201,18 @@ export async function runDiscardTranscript(
       // mount retry is coming for it; leave the stamp and let the next sweep
       // read the finalized key it will have by then.
       if (!isUnsecurableTake(meta)) return
+      // ⚖ AND NOT WHILE THE RECORDER STILL HOLDS IT (slice five fix round 3,
+      // F5). `awaitTakeSecured` above is belted at SECURE_SETTLE_BELT_MS
+      // (120 s); a stop leg that overran that belt is still holding this take,
+      // its tail is still queued, and `loadTakeBlob` would answer segments
+      // 0..N with N+1 on its way to disk. Staging THAT is a SHORT copy — and
+      // D11 later reads `stagedPath` + the discard's done mark as proof the
+      // server holds this take and releases the device's own, longer one. So
+      // the hold is asked one more time here, right before the read: a held
+      // take keeps its stamp and the next sweep collects its words once the
+      // leg has let go. The probe is the singleton's, lazily for the reason
+      // the awaitTakeSecured call above names.
+      if ((await import('@/lib/global-recorder')).globalRecorder.isActiveTake(takeId)) return
       // It will never have one. The audio is still on the device, so the words
       // are still collectable — stage this take's own blob through the port's
       // existing fallback and transcribe from there. No blob (persistence
@@ -214,8 +226,16 @@ export async function runDiscardTranscript(
       // object can carry — and without it the door had to accept any
       // same-tenant key as this discard's audio, so a colleague's finished take
       // could be claimed onto a session it has nothing to do with.
-      path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))
-        .path
+      // ⚖ …AND FOR ITS TAKE (slice five packet B, D10). The take fills the key's
+      // uuid slot, so the whole copy is composable from the core row alone and
+      // the copy of a take that is staged twice is the SAME object, not a second
+      // one. `blob` carries the take's container, which the port sends on.
+      path = (
+        await port.prepareTranscription(blob, null, {
+          stagedFor: pending.recordingSessionId,
+          stagedTake: takeId,
+        })
+      ).path
       await markTakeStaged(takeId, path)
     }
     const { transcribeAndPersistDiscard } = await transcriptActions()
@@ -252,10 +272,17 @@ export async function runDiscardTranscript(
   }
 }
 
-/** Record-page mount: finish whatever a reload left owing. A take the discard
- *  arm kicked moments ago is still stamped while its run is in flight — the
- *  in-flight guard inside runDiscardTranscript is what stops this sweep from
- *  staging it a second time. */
+/** Record-page mount (and, on the phone, the launch drain): finish whatever a
+ *  reload left owing. A take the discard arm kicked moments ago is still
+ *  stamped while its run is in flight — the in-flight guard inside
+ *  runDiscardTranscript is what stops this sweep from staging it a second time.
+ *
+ *  SEQUENTIAL BY DESIGN, and the ceiling is named: each run may wait on that
+ *  take's own stop leg, which is belted at SECURE_SETTLE_BELT_MS (120 s), so a
+ *  worklist whose first take has a hung leg holds the rest of the sweep for up
+ *  to two minutes. That is the accepted cost of one take at a time on salon
+ *  wifi — this is fire-and-forget, nothing rendered waits on it, and every
+ *  unfinished take keeps its stamp for the next sweep to pick up. */
 export async function sweepDiscardTranscripts(): Promise<void> {
   if (!discardTranscriptSupported()) return
   for (const t of await listPendingDiscardTakes()) {

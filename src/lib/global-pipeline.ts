@@ -9,7 +9,7 @@ import {
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { deleteTake, ensureFinalizedPath, readTakeSecureMeta } from '@/lib/karute/take-store'
+import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
@@ -594,7 +594,7 @@ class GlobalPipeline {
       if ('error' in status) continue
 
       if (status.status === 'DONE' && status.karuteRecordId) {
-        // The record already exists server-side. Delete the take, then settle
+        // The record already exists server-side. Settle the take, then finish
         // via the SAME 'autosaving' path the in-tab autosave uses — its effect
         // (ProcessingIndicator) checks serverSavedRecordId FIRST and skips
         // straight to the toast/hold/reset, reusing that UI verbatim instead
@@ -604,7 +604,11 @@ class GlobalPipeline {
         // rather than deleting the audio and then settling on a falsy id (which
         // would slip past ProcessingIndicator's truthy check into the in-tab
         // branch with no result → a dead review state, audio already gone).
-        if (this.context?.takeId) void deleteTake(this.context.takeId)
+        // ⚖ THROUGH THE ONE RULE (slice five, D12). This was the last bare
+        // `deleteTake` on a save path: an unsecurable take's device copy may go,
+        // a retryable one is KEPT for the drain — and only settleTakeAfterSave
+        // reads the take to tell those apart.
+        if (this.context?.takeId) void settleTakeAfterSave(this.context.takeId)
         this.serverSavedRecordId = status.karuteRecordId
         this.state = 'autosaving'
         this.notify()

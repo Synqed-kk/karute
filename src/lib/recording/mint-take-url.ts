@@ -67,7 +67,11 @@
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { createServiceClient } from '@/lib/supabase/service'
-import { composeStagedKey, composeTakeKey } from '@/lib/recording/key-grammar'
+import {
+  composeStagedKey,
+  composeTakeKey,
+  parseRecordingKey,
+} from '@/lib/recording/key-grammar'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
@@ -112,6 +116,17 @@ export interface MintTakeUrlInput {
    *  together with `takeId` (the schema refuses the pair): a staged copy is
    *  not a take, reserves nothing and is bound to no row. */
   stagedFor?: string | null
+  /** ⚖ …AND IT NAMES ITS TAKE (slice five packet B, D10). The take whose bytes
+   *  these are, which goes in the key's uuid slot: with it the whole staged key
+   *  is composable from the core row alone (session = the row id, take + ext =
+   *  the row's own reserved pointer), so an object that has no row of its own
+   *  is still FINDABLE from the row that owes it. Requires `stagedFor`; absent
+   *  or unusable, the server names the slot as it always did.
+   *
+   *  ⚖ A HINT, NEVER THE AUTHORITY (fix round 3, F4). When the row named by
+   *  `stagedFor` already carries a take pointer, THAT take fills the slot and a
+   *  value disagreeing with it is `bad_input`. See the staged branch. */
+  stagedTake?: string | null
 }
 
 export type MintTakeUrlResult =
@@ -124,6 +139,25 @@ export type MintTakeUrlResult =
        *  take, which claims nothing and reserves nothing. The client stamps it
        *  on the take and must send it back at finalize. */
       recordingSessionId: string | null
+    }
+  /**
+   * ⚖ THE OBJECT IS ALREADY THERE, AND NOTHING IS SIGNED (fix round 2). Only
+   * the STAGED branch answers this: a staged key is composable in advance now
+   * (slice five packet B), so "an object exists at this key" stopped being
+   * proof that the device put it there. No `url` and no `token` — deliberately
+   * absent rather than empty strings, so a caller cannot PUT against this
+   * answer at all, and every consumer must NARROW before it reaches for one.
+   *
+   * `existingSize` is what the caller compares against its OWN blob: equal
+   * means this really is its own copy (the retry whose markTakeStaged was
+   * lost), and ONLY that adopts the key. `null` means storage answered without
+   * a size, which proves nothing and must never be adopted.
+   */
+  | {
+      path: string
+      contentType: string
+      recordingSessionId: string | null
+      existingSize: number | null
     }
   | {
       error:
@@ -176,24 +210,44 @@ function auditTakeNamed(
 }
 
 /**
- * Does the bucket already hold this key?
+ * What the bucket holds at this key, and how big it is.
  *
  * `info()` is the same cheap single-object read finalize uses (one GET for one
- * key). Storage failing to ANSWER is not "free": we fail CLOSED with the
- * caller's retryable error rather than reserve a key that may already hold
- * somebody else's audio.
+ * key). Storage failing to ANSWER is not "free": every caller fails CLOSED on
+ * `'unknown'` rather than act on a key that may already hold somebody else's
+ * audio.
+ *
+ * THE SIZE IS THE NEW HALF (fix round 2). A staged key is composable in
+ * advance since slice five packet B, so "something exists here" no longer says
+ * the DEVICE put it there — only its byte length, compared against the blob
+ * the device still holds, can. `size: null` is storage answering without one:
+ * it proves nothing, and the caller must treat it as a mismatch.
+ *
+ * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
+ * size dropped, so the two questions can never drift into two probes.
+ */
+export async function objectSize(
+  key: string,
+): Promise<{ exists: true; size: number | null } | { exists: false } | 'unknown'> {
+  const supabase = createServiceClient()
+  const { data, error } = await supabase.storage.from('recordings').info(key)
+  if (error) return isStorageNotFound(error) ? { exists: false } : 'unknown'
+  if (!data) return { exists: false }
+  return { exists: true, size: typeof data.size === 'number' ? data.size : null }
+}
+
+/**
+ * Does the bucket already hold this key?
  *
  * EXPORTED (fix round 11, fresh-eyes #7 P2): the session-start reservation
  * (session-mint.ts) runs this SAME check before its own create — a
  * hard-deleted sibling row's object staying on storage while its row is gone
  * is exactly the gap a second, independent "does this exist" spelling would
- * eventually drift from. One home, both callers.
+ * eventually drift from. One home, four callers.
  */
 export async function objectExists(key: string): Promise<boolean | 'unknown'> {
-  const supabase = createServiceClient()
-  const { data, error } = await supabase.storage.from('recordings').info(key)
-  if (error) return isStorageNotFound(error) ? false : 'unknown'
-  return Boolean(data)
+  const answer = await objectSize(key)
+  return answer === 'unknown' ? 'unknown' : answer.exists
 }
 
 type ReservationPlan = { kind: 'update'; row: Recording } | { kind: 'retry'; row: Recording }
@@ -417,8 +471,9 @@ export async function mintTakeUploadUrl(
   // but it is no longer ANONYMOUS: the key carries the session, so the
   // transcribe door can check the binding rather than accept any same-tenant
   // key as that discard's audio. The row is read only to prove the caller may
-  // record onto it, with the SAME staff rule the take mint applies: the client
-  // is tenant-scoped, so another business's session simply is not found.
+  // record onto it — and since fix round 4 (G2) that proof is STRICTER than the
+  // take mint's: the caller must BE the recorder, view-all included out. The
+  // client is tenant-scoped, so another business's session is not found at all.
   if (input.stagedFor) {
     // Nothing to attribute a staging to — the take mint's own first refusal.
     if (!actor.staffId) return { error: 'forbidden' }
@@ -432,13 +487,98 @@ export async function mintTakeUploadUrl(
     }
     const denied = assertRecorderOwnsRow(row, actor)
     if (denied) return denied
-    // DEFAULT_MIME, because a staged copy carries no client-named container:
-    // the schema pairs mimeType with takeId, which this body may not have, and
-    // both ports PUT this blob as audio/webm.
-    const composed = composeStagedKey(businessId, input.stagedFor, DEFAULT_MIME)
-    // The schema proved the uuid shape; zod's check is case-INSENSITIVE, so an
-    // uppercase one still lands here and is refused by the case-exact grammar.
+    // ⚖ AND ONLY THE RECORDER THEMSELVES MAY STAGE (slice five fix round 4,
+    // G2). `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right
+    // for the TAKE mint — an owner reserving a colleague's take is a designed
+    // act there — and wrong here. Staging is something the RECORDER'S OWN
+    // DEVICE does: the discard word-collection reads the owner-gated take store
+    // and nothing else in the app stages at all, so view-all has no legitimate
+    // reach through this door. What it had instead was a lever: the staged key
+    // is deterministic and immutable, so a view-all holder could mint a
+    // colleague's key first, PUT anything, and that colleague's device would
+    // meet a size mismatch for ever — its discard's words never landing, its
+    // device copy never releasable. A plain equality, `canViewAll` deliberately
+    // not consulted; the tenant half stays where it is, one line above.
+    //
+    // ⚖ THE CEILING, NAMED (P3, record only): the recorder can still pre-fill
+    // their OWN session's key from outside the app. No audio is lost — the
+    // device keeps it — and the only thing denied is that staffer's own
+    // discard's words. Self-harm, out of this door's reach.
+    if (row.staff_id !== actor.staffId) return { error: 'forbidden' }
+    // ⚖ THE ROW NAMES THE SLOT, NOT THE CALLER (slice five fix round 3, F4).
+    // Packet B fenced the SESSION here and nothing else, so `stagedTake` was
+    // interpolated into the key on a shape check alone: a `recordings.viewAll`
+    // holder could read a colleague's row, learn both halves of the identity
+    // D10 deliberately made composable, and PUT arbitrary bytes at that take's
+    // staged key before the device ever staged it. The key is immutable and the
+    // ports adopt only their own byte length, so no audio is lost — but the
+    // take can then never be staged, its discard's words are never collected,
+    // and it never becomes releasable. That is a denial the door can close.
+    //
+    // The row already knows the answer. Its `audio_storage_path` is this
+    // session's OWN reserved pointer, `app_<biz>_<take>.<ext>` — the same value
+    // D10 composes the staged key from — so when it parses as a take, THAT take
+    // id is the slot and a client naming a different one is `bad_input`. The
+    // row outranks the caller because the reservation was written by the mint
+    // that bound the recording; the caller's field is a hint about it.
+    //
+    // A row with no take pointer — a legacy unbound row, or the row of a
+    // `no_uuid` take that could never reserve one — has nothing to outrank the
+    // caller with, so the client's slot stands if it is a uuid and
+    // composeStagedKey mints a random one if it is not (F3's cohort).
+    //
+    // (Round 3 named a residual ceiling here — a view-all holder pre-filling a
+    // colleague's OWN take's key, where both halves are legitimate and this
+    // fence cannot see the difference. Fix round 4's G2 above CLOSED it at the
+    // door instead: view-all no longer reaches this branch at all.)
+    const rowKey = parseRecordingKey(row.audio_storage_path, businessId)
+    const rowTake = rowKey?.kind === 'take' ? rowKey.takeId : null
+    if (rowTake && input.stagedTake && input.stagedTake !== rowTake) {
+      return { error: 'bad_input' }
+    }
+    // ⚖ THE COPY IS THE TAKE'S, CONTAINER AND ALL (slice five packet B, D10).
+    // `stagedTake` fills the key's uuid slot, which is what makes this row-less
+    // object composable from the core row alone; `mimeType` is the TAKE's own
+    // negotiated container, so an iOS copy is finally `.mp4` instead of the
+    // `.webm` every staged copy carried — and both ports now PUT it under the
+    // contentType this same composition answers with. DEFAULT_MIME still stands
+    // in for the in-tab fallback, which names neither: nothing ever claims ITS
+    // path to a discard, so it has no identity to compose.
+    const composed = composeStagedKey(
+      businessId,
+      input.stagedFor,
+      input.mimeType ?? DEFAULT_MIME,
+      rowTake ?? input.stagedTake,
+    )
+    // Only the SESSION and the container can fail the grammar now — the slot
+    // never does, because composeStagedKey mints its own for anything that is
+    // not a lowercase take uuid.
     if (composed === null) return { error: 'bad_input' }
+    // ⚖ EXISTENCE IS ANSWERED HERE, NOT AT THE PUT (fix round 2). Packet B made
+    // this key composable in advance, and the ports read a PUT's "already
+    // there" refusal as a SUCCESS — so a records.write holder could mint their
+    // OWN discarded session's staged key, PUT any bytes under it before the
+    // device staged, and the device would adopt those bytes as its copy, mark
+    // the take staged, and (D11) release the only real recording it had. The
+    // ⚖ 9/3 rule is that no staffer action can erase a recording.
+    //
+    // So the door refuses to SIGN over an object that is already there and
+    // answers its SIZE instead. The device adopts the key only when that size
+    // is its own blob's, which is the one thing a caller cannot forge without
+    // already holding the recording. Nothing is signed on this arm, so the
+    // answer hands out no way to write.
+    const existing = await objectSize(composed.key)
+    // Storage did not answer. Retryable, and nothing is signed meanwhile — the
+    // same posture the take mint's own exists check takes.
+    if (existing === 'unknown') return { error: 'upstream' }
+    if (existing.exists) {
+      return {
+        path: composed.key,
+        contentType: composed.contentType,
+        recordingSessionId: input.stagedFor,
+        existingSize: existing.size,
+      }
+    }
     const signed = await signUpload(composed)
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: input.stagedFor }

@@ -462,6 +462,21 @@ export async function createTake(
  * shape rather than guarding it: the tail bytes and the fact that the take is
  * complete land together or not at all. The gate above is what round 18 named
  * as the fold's one cost — a stamp riding an ungated write — and it is paid.
+ *
+ * ⚖ AND A LOST WRITE GETS TWO MORE TRIES (slice five, D12 — the "3-try final
+ * flush"). Exactly patchTakeMeta's loop, for exactly its reason, and this is
+ * the write that needed it most: since round 18 the STOP STAMP rides the tail
+ * flush's own transaction, so a momentary IndexedDB refusal at the stop instant
+ * — a transaction the browser aborted under memory pressure, a store locked by
+ * another tab's transaction, a quota blip — used to cost the whole tail AND the
+ * stamp. The take is marked `tailIncomplete` for that, and that mark is
+ * permanent: no drain will ever take the take, and a human has to finish it off
+ * 要対応. Three tries and two short pauses, because the failures worth catching
+ * here are momentary by nature.
+ *
+ * Only a THROWN write retries. Every settled `false` below is a settled ANSWER
+ * — no store, the meta row is gone, another staffer owns it — and re-asking
+ * those costs time and changes nothing.
  */
 export async function appendTakeSegment(
   takeId: string,
@@ -469,43 +484,47 @@ export async function appendTakeSegment(
   blob: Blob,
   stampDurationMs?: number,
 ): Promise<boolean> {
-  try {
-    const db = await openDb()
-    if (!db) return false
-    // ⚖ A TRANSIENT NULL SESSION MUST NEVER COST AUDIO (fix round 3). The uid
-    // is COMPARED, never required: `getSession()` answers null on a FAILED
-    // refresh too (auth-js 2.99.1), so a long recording that crosses its token
-    // expiry while the network is down used to fail this write, latch the
-    // recorder's `p.disabled`, go memory-only and be marked tailIncomplete at
-    // the stop — permanently unsecurable, for a blip. The gate is here for
-    // FOREIGN callers, and a known mismatch is still refused; the only caller
-    // is the recorder's own flush, with the take id it minted this session. The
-    // read paths are all gated on their own, so nothing a null-uid flush writes
-    // is ever visible to a colleague.
-    const uid = await currentUserId()
-    const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
-    const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (!meta || (uid && meta.ownerUid !== uid)) return false
-    await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
-    await req(
-      tx.objectStore(TAKES).put(
-        stampDurationMs === undefined
-          ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
-          : {
-              ...meta,
-              updatedAt: Date.now(),
-              lastSeq: seq,
-              durationMs: stampDurationMs,
-              // The one write that clears it, exactly as stampTakeDuration does.
-              stopPendingAt: undefined,
-            },
-      ),
-    )
-    return true
-  } catch (err) {
-    console.error('[take-store] appendTakeSegment failed:', err)
-    return false
+  for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
+    try {
+      const db = await openDb()
+      if (!db) return false
+      // ⚖ A TRANSIENT NULL SESSION MUST NEVER COST AUDIO (fix round 3). The uid
+      // is COMPARED, never required: `getSession()` answers null on a FAILED
+      // refresh too (auth-js 2.99.1), so a long recording that crosses its token
+      // expiry while the network is down used to fail this write, latch the
+      // recorder's `p.disabled`, go memory-only and be marked tailIncomplete at
+      // the stop — permanently unsecurable, for a blip. The gate is here for
+      // FOREIGN callers, and a known mismatch is still refused; the only caller
+      // is the recorder's own flush, with the take id it minted this session. The
+      // read paths are all gated on their own, so nothing a null-uid flush writes
+      // is ever visible to a colleague.
+      const uid = await currentUserId()
+      const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
+      const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
+      if (!meta || (uid && meta.ownerUid !== uid)) return false
+      await req(tx.objectStore(SEGMENTS).put({ takeId, seq, blob } satisfies SegmentRow))
+      await req(
+        tx.objectStore(TAKES).put(
+          stampDurationMs === undefined
+            ? { ...meta, updatedAt: Date.now(), lastSeq: seq }
+            : {
+                ...meta,
+                updatedAt: Date.now(),
+                lastSeq: seq,
+                durationMs: stampDurationMs,
+                // The one write that clears it, exactly as stampTakeDuration does.
+                stopPendingAt: undefined,
+              },
+        ),
+      )
+      return true
+    } catch (err) {
+      console.error('[take-store] appendTakeSegment failed:', err)
+      if (attempt < STAMP_WRITE_TRIES)
+        await new Promise((resolve) => setTimeout(resolve, STAMP_RETRY_MS * attempt))
+    }
   }
+  return false
 }
 
 /** Stamp the server-minted recording_sessions id once the mint resolves.
@@ -562,21 +581,42 @@ export async function stampTakeSession(
  *  ANSWER, not a failure: no store, nobody signed in, the take is gone, it is
  *  another staffer's, or `when` refused it. Re-asking those costs time and
  *  changes nothing, and re-asking `when` would be worse — it is the
- *  first-write-wins brace, and its "no" is the point. */
+ *  first-write-wins brace, and its "no" is the point.
+ *
+ *  ⚖ AND THE STOP LEG'S OWN MARKS DO NOT NEED A UID (slice five fix round 3,
+ *  F1). `gate: 'compare'` is `appendTakeSegment`'s gate, in the same words: the
+ *  uid is COMPARED when it resolves and never REQUIRED. It exists because on
+ *  the phone every sign-out path NULLS the session store BEFORE the wipe runs
+ *  (src/lib/auth/mobile/session-lifecycle.ts:71-77, thin/auth/session.ts:155
+ *  then :168 — which is exactly why both of those thread an explicit uid), and
+ *  thin `currentUserId()` reads that store. So a take live at a sign-out ran
+ *  its real stop (D4) into three writes that were all guaranteed no-ops, and
+ *  the row it left — bytes on disk, no `durationMs`, no `stopPendingAt`, no
+ *  `tailIncomplete` — is the quiet-and-whole shape `isStoppedTake` reads as
+ *  FINISHED on the native shell. The launch drain then sealed the committed
+ *  prefix under the immutable key.
+ *
+ *  ONLY the three marks the stop leg writes take it, and each is the recorder's
+ *  own write on a take IT minted in this runtime — the same argument
+ *  appendTakeSegment makes for the flush beside them. Every other stamp here
+ *  carries a take id from somewhere else (a late mint resolution, a drain, a
+ *  sweep) and keeps 'require'. The read paths are all owner-gated on their own,
+ *  so nothing a null-uid mark writes is ever visible to a colleague. */
 async function patchTakeMeta(
   takeId: string,
   patch: Partial<TakeMeta>,
   when?: (meta: TakeMeta) => boolean,
+  opts?: { gate?: 'require' | 'compare' },
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= STAMP_WRITE_TRIES; attempt++) {
     try {
       const db = await openDb()
       if (!db) return false
       const uid = await currentUserId()
-      if (!uid) return false
+      if (!uid && opts?.gate !== 'compare') return false
       const tx = db.transaction(TAKES, 'readwrite')
       const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-      if (!meta || meta.ownerUid !== uid) return false
+      if (!meta || (uid && meta.ownerUid !== uid)) return false
       if (when && !when(meta)) return false
       await req(tx.objectStore(TAKES).put({ ...meta, ...patch }))
       return true
@@ -655,7 +695,10 @@ export async function ensureFinalizedPath(
 ): Promise<string | null> {
   if (meta.finalizedPath) return meta.finalizedPath
   if (!meta.finalizedAt) return null
-  const key = await port.finalizedKey(takeId, meta.mimeType)
+  // The MINT's own default (secure-take's DEFAULT_MIME) for a legacy take that
+  // was written with no container — an empty string composes no extension, so
+  // the recomposed key would not be the one the mint reserved.
+  const key = await port.finalizedKey(takeId, meta.mimeType || 'audio/webm')
   if (!key) return null
   await patchTakeMeta(takeId, { finalizedPath: key })
   return key
@@ -699,16 +742,32 @@ export async function markTakeStartBoundAttempted(takeId: string): Promise<void>
  *  first act, so a start()/discard landing inside THAT write leaves the flush
  *  behind it answering "skipped", and this mark would then write 途中 across a
  *  complete take. `when` is patchTakeMeta's own first-write-wins brace, read
- *  inside the write transaction, so there is no window of its own. */
+ *  inside the write transaction, so there is no window of its own.
+ *
+ *  ⚖ AND IT IS WRITTEN WITHOUT A UID (slice five fix round 3, F1). A logout is
+ *  a real stop now (D4), and on the phone the session store is already nulled
+ *  by the time that stop runs — so under the 'require' gate this mark, the one
+ *  thing that keeps a truncated take out of every drain, was a guaranteed
+ *  no-op on exactly the platform that seals it. `gate: 'compare'` is
+ *  `appendTakeSegment`'s argument, unchanged: this is the recorder's own write
+ *  on a take it minted in this runtime, and a known mismatch is still refused. */
 export async function markTakeTailIncomplete(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { tailIncomplete: true }, (m) => m.durationMs === undefined)
+  await patchTakeMeta(takeId, { tailIncomplete: true }, (m) => m.durationMs === undefined, {
+    gate: 'compare',
+  })
 }
 
 /** Capture pipeline PR3 fix round 17: this take's stop leg has BEGUN. Queued as
  *  the leg's first act — see `stopPendingAt` above for why the stop is written
- *  down before the tail rather than after it. */
+ *  down before the tail rather than after it.
+ *
+ *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1), for the same reason and on
+ *  the same gate as `markTakeTailIncomplete` above: it is the abandoned stop's
+ *  FIRST act, and on the phone that stop runs after the session store is
+ *  nulled. `appendTakeSegment`'s compare-don't-require argument covers it —
+ *  the recorder's own write on its own take, in its own runtime. */
 export async function markTakeStopPending(takeId: string): Promise<void> {
-  await patchTakeMeta(takeId, { stopPendingAt: Date.now() })
+  await patchTakeMeta(takeId, { stopPendingAt: Date.now() }, undefined, { gate: 'compare' })
 }
 
 /** Capture pipeline PR3: the recorder's own paused-aware duration for this take,
@@ -721,14 +780,24 @@ export async function markTakeStopPending(takeId: string): Promise<void> {
  *  Retried by the shared body above, and it ANSWERS now (fix round 13): true
  *  when the stamp is on disk. onstop does not wait on that answer — it holds
  *  the live measurement either way — but a caller that needs to know whether a
- *  later attempt will find this take can ask. */
+ *  later attempt will find this take can ask.
+ *
+ *  ⚖ AND WITHOUT A UID (slice five fix round 3, F1). Same gate, same argument
+ *  as the two marks above: a logout is a real stop, on the phone it runs after
+ *  the session store is nulled, and the tail flush beside this write already
+ *  tolerates that (`appendTakeSegment` COMPARES the uid rather than requiring
+ *  it). Without it a whole take stopped by a sign-out landed its bytes and lost
+ *  its stamp — drainable on the native arm by the quiet-and-whole rule, but
+ *  with the paused-aware measurement gone. */
 export async function stampTakeDuration(
   takeId: string,
   durationMs: number,
 ): Promise<boolean> {
   // …and it is the one write that CLEARS `stopPendingAt` (fix round 17): the
   // stop that set it has finished, and this stamp is how it says so.
-  return patchTakeMeta(takeId, { durationMs, stopPendingAt: undefined })
+  return patchTakeMeta(takeId, { durationMs, stopPendingAt: undefined }, undefined, {
+    gate: 'compare',
+  })
 }
 
 /** The owner gate every read in this file shares, in one place: the take's meta
@@ -962,6 +1031,57 @@ export async function settleTakeAfterSave(takeId: string): Promise<void> {
   return deleteTake(takeId, { humanResolved: !!meta && isUnsecurableTake(meta) })
 }
 
+/** ⚖ THE SERVER PROVABLY HOLDS THIS TAKE — the one question the never-delete
+ *  guard actually wants answered (slice five packet B, D11).
+ *
+ *  Until this round the guard asked only `finalizedAt`, which left a cohort
+ *  IMMORTAL AND INVISIBLE on the device: a discarded take that can never be
+ *  sealed under its finalized key. Its bytes were staged to the server and its
+ *  words were read off that copy — and then nothing could ever collect it, so
+ *  tens of megabytes sat on a shared iPad past the TTL, surfaced only as a 要対応
+ *  row nobody can finish, because there is nothing left to finish.
+ *
+ *  THREE facts, and each one is a server-side act that has already happened:
+ *   · `finalizedAt` — the whole take is at its finalized key. Unchanged, and by
+ *     itself enough, exactly as before.
+ *   · `stagedPath` under `stg/` — markTakeStaged wrote this key back, and the
+ *     port only ever hands it one it PUT ITSELF with a 2xx, or one whose object
+ *     already at that key matched its OWN blob's byte length at the mint (fix
+ *     round 2). That is what makes the fact trustworthy: the key is composable
+ *     in advance, so "an object exists there" says nothing on its own, and the
+ *     size is the one thing a caller who never held the recording cannot
+ *     produce. The prefix is the point too: the transitional cohort carries
+ *     round 4's take-shaped `app_…` staged key, which the transcribe door now
+ *     refuses, so those copies prove nothing and are excluded.
+ *   · `discardTranscriptDoneAt` — the words question is SETTLED
+ *     (markDiscardTranscriptDone), so nothing is still reading this blob.
+ *   · and `isUnsecurableTake` — the take can never be sealed under its own key,
+ *     so the staged copy is not an interim step: it is the best the server will
+ *     ever hold. A RETRYABLE take is kept, because the drain is still coming.
+ *
+ *  Pure and exported so the guard and the TTL prune read ONE spelling of it —
+ *  the whole lesson of the three guard spellings that had to die at once. */
+export function serverHoldsTake(
+  meta: Pick<
+    TakeMeta,
+    | 'finalizedAt'
+    | 'stagedPath'
+    | 'discardTranscriptDoneAt'
+    | 'tailIncomplete'
+    | 'stopPendingAt'
+    | 'durationMs'
+    | 'secureError'
+  >,
+): boolean {
+  if (meta.finalizedAt) return true
+  return (
+    typeof meta.stagedPath === 'string' &&
+    meta.stagedPath.startsWith('stg/') &&
+    meta.discardTranscriptDoneAt !== undefined &&
+    isUnsecurableTake(meta)
+  )
+}
+
 /** The rows themselves, no owner question asked — for THIS file's two sweeps,
  *  which have already settled ownership in ways the gate above cannot: the TTL
  *  prune in listOwnTakes drops EXPIRED takes of every owner (nobody is coming
@@ -976,9 +1096,12 @@ export async function settleTakeAfterSave(takeId: string): Promise<void> {
  * twelve call sites (the save, the below-floor discard, the reasoned discard,
  * the inbox), plus the TTL prune and the logout wipe that come straight here —
  * and each of them used to be free to destroy the only copy of a recording. A
- * take with no `finalizedAt` is audio that exists NOWHERE ELSE, so it is
- * refused and kept; the record page's mount retry (and PR5's launch drain) is
- * what turns it into a finalized one, and then the same call succeeds. The one
+ * take the SERVER DOES NOT HOLD is audio that exists nowhere else, so it is
+ * refused and kept; the record page's mount retry and the launch drain are what
+ * turn it into a finalized one, and then the same call succeeds. What "holds"
+ * means is serverHoldsTake above — `finalizedAt`, or the staged copy of a take
+ * that can never be sealed and whose words are already settled (slice five,
+ * D11), which is the cohort this guard used to make immortal. The one
  * exception is a human who settled the row themselves — see `humanResolved` on
  * the door above. What that flag ASSERTS, stated once for all three of its call
  * sites (fix round 4): a save or a tap settled this row, and the server can
@@ -1011,7 +1134,11 @@ async function deleteTakeRows(
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
-    if (meta && !meta.finalizedAt && !opts?.humanResolved) return
+    // A take the server does NOT hold is audio that exists nowhere else. The
+    // released cohort is the one serverHoldsTake names: a discarded take that
+    // could never be sealed, whose staged copy the server holds and whose
+    // words are settled.
+    if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return
     await req(tx.objectStore(TAKES).delete(takeId))
     // ponytail: full getAll + filter — rows are few and blobs are lazy
     // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
@@ -1101,7 +1228,11 @@ export async function listOwnTakes(
       // through deleteTakeRows (fix round 14, AA3): this prune drops expired
       // takes of EVERY owner, which the door's owner gate cannot answer for.
       const expired = now - lastActivity > TAKE_TTL_MS
-      if (expired && m.finalizedAt) {
+      // …and "the server has it" is the SAME question the guard below asks
+      // (slice five packet B, D11): a finalized take, or a discarded one that
+      // could never be sealed, whose staged copy the server holds and whose
+      // words are settled. Anything else falls through and is SHOWN.
+      if (expired && serverHoldsTake(m)) {
         void deleteTakeRows(m.takeId)
         continue
       }
@@ -1141,6 +1272,13 @@ export async function listOwnTakes(
         // Carried so a recovery surface can tell "the server already has this"
         // from "this is still device-only" without a second store read.
         finalizedAt: m.finalizedAt,
+        // ⚖ THE STOP STAMP REACHES THE SURFACES (slice five, D12; §17
+        // carry-forward 1). It is the ONE measured length a take has —
+        // `updatedAt - startedAt` is the flush WINDOW, which is short by
+        // however long the tail took and long by however long a pause ran.
+        // Every reader was deriving from those two stamps because this
+        // projection dropped the real one on the floor.
+        durationMs: m.durationMs,
         // …and the two facts a stop can leave behind (fix round 18, AH2). Both
         // are optional on RecoverableTake, so their absence type-checked
         // silently and `recoverableReason` could never answer 'tailIncomplete'
@@ -1148,8 +1286,8 @@ export async function listOwnTakes(
         // them away.
         tailIncomplete: m.tailIncomplete,
         stopPendingAt: m.stopPendingAt,
-        // Only ever true past the TTL with no finalizedAt — the branch above
-        // returned every other expired take to the prune.
+        // Only ever true past the TTL for a take the server does not hold — the
+        // branch above returned every other expired take to the prune.
         expiredUnsecured: expired || undefined,
       })
     }
@@ -1232,9 +1370,12 @@ export async function getRecoverableTake(
  *  drains to read unstamped takes — so the fact is written down now.
  *
  *  `isActive` comes from the caller because the recorder is a module singleton
- *  in the layer ABOVE this one (globalRecorder.isActiveTake); a caller with no
- *  recorder in its runtime at all (PR5's launch drain) passes nothing rather
- *  than inventing a check it never made — at launch there is nothing to ask. */
+ *  in the layer ABOVE this one (globalRecorder.isActiveTake). Every caller in
+ *  the app passes it, the phone's launch runner included: it shares the single
+ *  WebView with the recorder, so `globalRecorder.isActiveTake` there is the
+ *  real singleton's answer and not an invented one. The parameter stays
+ *  optional for a caller that genuinely has no recorder in its runtime — a
+ *  test, or a future worker. */
 export function isStoppedTake(
   takeId: string,
   meta: Pick<

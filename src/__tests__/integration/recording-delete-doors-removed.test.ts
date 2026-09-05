@@ -37,6 +37,15 @@ const srcFiles = () =>
     .map((r) => `src/${r.split(sep).join('/')}`)
     .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
 
+/** …and every non-test source file under thin/ — the phone's own half of the
+ *  app, which the src/ walk above cannot see. Same census, one directory over
+ *  (slice five, A8: the file-set pin has to be able to say "and none there
+ *  either", or a delete door simply moves to the shell). */
+const thinFiles = () =>
+  (readdirSync(join(process.cwd(), 'thin'), { recursive: true, encoding: 'utf8' }) as string[])
+    .map((r) => `thin/${r.split(sep).join('/')}`)
+    .filter((rel) => /\.tsx?$/.test(rel) && !rel.includes('/__tests__/'))
+
 /** The two components that own a take: the record page and the autosave chip.
  *  Every remaining delete door in the app's own code is in one of these. */
 const VIEW = 'src/components/karute/redesign/record/RecordPageView.tsx'
@@ -104,9 +113,48 @@ describe('the six doors that could delete a recording', () => {
 })
 
 describe('what REPLACED them', () => {
-  it('deleteTake carries the one guard: no finalizedAt, no delete', () => {
+  // ⚖ STRENGTHENED (slice five packet B, D11). The guard used to ask
+  // `finalizedAt` alone, which made one cohort immortal: a discarded take that
+  // can never be sealed, whose staged copy the server already holds and whose
+  // words are already settled. The question is now the whole of "does the
+  // server have this?", in ONE spelling both readers share — so the pin moves
+  // with it rather than pinning a rule that is no longer the rule.
+  // ⚖ NEITHER PORT MAY READ "ALREADY THERE" AS PROOF (fix round 2). A staged
+  // key is composable in advance, so an object meeting a staging PUT is not
+  // evidence the device wrote it — and with D11 releasing the device copy, a
+  // records.write holder who pre-filled that key could erase a recording
+  // through a staffer action, which ⚖ 9/3 forbids. The rule that replaced it is
+  // the mint's size answer, adopted only on an exact match. Pinned as a census
+  // because the failure mode is a two-line convenience quietly coming back.
+  it('the staging ports adopt on SIZE, never on a PUT saying "already there"', () => {
+    for (const rel of ['src/lib/ports/recording-port.ts', 'thin/ports/recording.vite.ts']) {
+      expect(code(rel)).not.toContain('putSaysAlreadyThere')
+      expect(code(rel)).toContain("throw new Error('staged copy mismatch')")
+    }
+    // …and the whole-take path keeps it, because finalize re-proves the size
+    // and the row's ownership there. Two paths, two different right answers.
+    expect(code('src/lib/recording/secure-take.ts')).toContain(
+      'if (!put.ok && !(await putSaysAlreadyThere(put))) {',
+    )
+    // The door answers existence BEFORE it signs — one probe, the shared one.
+    const mint = code('src/lib/recording/mint-take-url.ts')
+    expect(mint).toContain('const existing = await objectSize(composed.key)')
+    expect(mint).toContain("if (existing === 'unknown') return { error: 'upstream' }")
+  })
+
+  it('deleteTake carries the one guard: the server does not hold it, no delete', () => {
     const src = code('src/lib/karute/take-store.ts')
-    expect(src).toContain("if (meta && !meta.finalizedAt && !opts?.humanResolved) return")
+    expect(src).toContain("if (meta && !serverHoldsTake(meta) && !opts?.humanResolved) return")
+    // …and the rule itself, spelled where both readers can see it. All four
+    // facts, because dropping any one of them releases audio the server may
+    // not have: the staged PUT landed under the STAGED prefix (round 4's
+    // take-shaped copies prove nothing), the words are settled, and the take
+    // can never be sealed under its own key.
+    expect(src).toContain('export function serverHoldsTake(')
+    expect(src).toContain('if (meta.finalizedAt) return true')
+    expect(src).toContain("meta.stagedPath.startsWith('stg/')")
+    expect(src).toContain('meta.discardTranscriptDoneAt !== undefined')
+    expect(src).toContain('isUnsecurableTake(meta)')
   })
 
   // ⚖ ITS EXITS ARE SETTLED SAVES, AND ONE RULE DECIDES THEM (fix rounds 1, 2,
@@ -245,7 +293,7 @@ describe('what REPLACED them', () => {
     const store = code('src/lib/karute/take-store.ts')
     // The TTL branch returns only takes deleteTake will actually take; the rest
     // fall through to the list carrying the flag 録音履歴 renders them from.
-    expect(store).toContain('if (expired && m.finalizedAt) {')
+    expect(store).toContain('if (expired && serverHoldsTake(m)) {')
     expect(store).toContain('expiredUnsecured: expired || undefined')
     expect(code('src/lib/recordings/inbox.ts')).toContain('strandedTakes')
   })
@@ -332,8 +380,17 @@ describe('what REPLACED them', () => {
     expect(src).toContain('if (!isUnsecurableTake(meta)) return')
     // …and the copy it stages NAMES the session it is staged for (fix round 7),
     // which is the identity a row-less object otherwise has none of.
+    // …and its TAKE (slice five packet B, D10) — the uuid slot of the key, and
+    // the reason the copy is findable from the core row at all.
     expect(src).toContain(
-      "path = (await port.prepareTranscription(blob, null, { stagedFor: pending.recordingSessionId }))",
+      [
+        '      path = (',
+        '        await port.prepareTranscription(blob, null, {',
+        '          stagedFor: pending.recordingSessionId,',
+        '          stagedTake: takeId,',
+        '        })',
+        '      ).path',
+      ].join('\n'),
     )
     expect(src).toContain('const port = getRecordingPipelinePort()')
     expect(src).not.toContain('.remove(')
@@ -344,6 +401,63 @@ describe('what REPLACED them', () => {
     expect(store).toContain(
       'if (meta.stopPendingAt !== undefined && meta.durationMs === undefined) return true',
     )
+  })
+
+  // ⚖ THE THREE GUARD SPELLINGS DIE AT ONCE (slice five, A8 / D12). The census
+  // above pins the CALLS in the two take-owning components and the CONSTANT
+  // across src/. What neither could say is where the door may be REACHED FOR at
+  // all — and the guard has three spellings a future edit could pick from
+  // (`deleteTake(id)`, `deleteTake(id, { humanResolved })`, and the flag
+  // written as a shorthand from a variable). These two say it once, over the
+  // whole of src/ AND thin/.
+  it('deleteTake( is called from exactly these files, and NOWHERE in thin/', () => {
+    // The record page's three marked discard arms, the recorder's own discard,
+    // and the store the door lives in. global-pipeline left this list in slice
+    // five: its server-DONE arm settles through the one rule now.
+    expect(srcFiles().filter((rel) => code(rel).includes('deleteTake(')).sort()).toEqual([
+      VIEW,
+      'src/lib/global-recorder.ts',
+      'src/lib/karute/take-store.ts',
+    ])
+    // The phone shell has never had one, and must not gain one: nothing there
+    // owns a take.
+    expect(thinFiles().filter((rel) => code(rel).includes('deleteTake('))).toEqual([])
+  })
+
+  it('humanResolved is an identifier only take-store.ts may spell', () => {
+    // The flag is the ONE way past the never-delete guard, and it is computed
+    // from the take itself. A call site that could WRITE it — in any spelling,
+    // including a shorthand off a variable the constant census cannot see — is
+    // a call site that can destroy audio the server never received.
+    for (const rel of srcFiles()) {
+      if (rel === 'src/lib/karute/take-store.ts') continue
+      expect([rel, /\bhumanResolved\b/.test(code(rel))]).toEqual([rel, false])
+    }
+    for (const rel of thinFiles()) {
+      expect([rel, /\bhumanResolved\b/.test(code(rel))]).toEqual([rel, false])
+    }
+  })
+
+  // ⚖ AND A LOGOUT KEEPS THE TAKE (slice five, D4). `discard()` cut the mic
+  // without running onstop: the take was left unstamped, short of what the mic
+  // captured, and carrying no `tailIncomplete` — a shape the native rule reads
+  // as FINISHED, so the next drain would seal the prefix under the immutable
+  // key. `abandon()` runs the real stop and publishes nothing.
+  it('the logout wipe abandons the recorder — it never discards it', () => {
+    const src = code('src/lib/karute/logout-wipe.ts')
+    expect(src).toContain('globalRecorder.abandon()')
+    expect(src).not.toContain('globalRecorder.discard(')
+  })
+
+  // ⚖ AND THE PHONE STILL LOADS THE LAUNCH DRAIN (slice five fix round 3, F8).
+  // D3's whole delivery hangs on ONE side-effect import line with no consumer:
+  // an import-sorting sweep, a merge-conflict resolution or a bundle-budget
+  // trim can drop it, every suite stays green, the bundle SHRINKS, and the
+  // phone silently stops draining owed takes at launch — audio that exists
+  // nowhere else. The module's own suite reaches it with require(), so it
+  // proves the module's behaviour and nothing about whether the shell loads it.
+  it('the phone entry imports the launch drain — D3 is one side-effect line', () => {
+    expect(code('thin/main.tsx')).toContain("import './data/launch-drain'")
   })
 
   it('the ONE exemption is voice enrolment, and it is fenced at runtime', () => {

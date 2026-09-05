@@ -499,6 +499,29 @@ describe('録音履歴 — window, ordering and the count', () => {
     )
     expect(row.durationSeconds).toBe(15 * 60)
   })
+
+  // ⚖ …AND THE STOP STAMP OUTRANKS THAT FALLBACK (slice five, D12). The window
+  // between the take's two timestamps is the FLUSH window: short by however
+  // long the tail flush took, long by every pause. `durationMs` is what the
+  // recorder measured, and listOwnTakes projects it now — so a take that
+  // carries it must show it, not the estimate beside it.
+  it('…but a take that carries its STOP STAMP shows the measured length', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', durationSeconds: null })],
+      [
+        take({
+          takeId: 't1',
+          recordingSessionId: 's1',
+          // A 40 s flush window around a 30 s recording — the shape a stop
+          // whose tail took ten seconds to write leaves behind.
+          startedAt: NOW - 40_000,
+          updatedAt: NOW,
+          durationMs: 30_000,
+        }),
+      ],
+    )
+    expect(row.durationSeconds).toBe(30)
+  })
 })
 
 describe('録音履歴 — i18n parity for the new keys', () => {

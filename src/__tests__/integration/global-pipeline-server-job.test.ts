@@ -30,7 +30,13 @@ jest.mock('@/lib/global-recorder', () => ({
   },
 }))
 
-const deleteTake = jest.fn()
+/** ⚖ THE ONE RULE, not a bare delete (slice five, D12). global-pipeline's
+ *  server-DONE arm used to remove the take outright, which is false for a take
+ *  whose secure failed retryably — no finalized key, and the delete destroying
+ *  the only audio the drain could still seal. `settleTakeAfterSave` READS the
+ *  take and decides; this spy is therefore the door itself, and every "take
+ *  KEPT" case below still means what it says: it was never asked. */
+const settleTakeAfterSave = jest.fn()
 /** ⚖ capture pipeline PR4: the job's audio_path is the take's OWN finalized
  *  key, read off the take meta. `null` here is a take that is not secured yet —
  *  the pre-enqueue failure that used to be a staging error. */
@@ -42,7 +48,8 @@ const readTakeSecureMeta = jest.fn(
   }),
 )
 jest.mock('@/lib/karute/take-store', () => ({
-  deleteTake: (...a: unknown[]) => (deleteTake as (...a: unknown[]) => unknown)(...a),
+  settleTakeAfterSave: (...a: unknown[]) =>
+    (settleTakeAfterSave as (...a: unknown[]) => unknown)(...a),
   readTakeSecureMeta: (...a: unknown[]) =>
     (readTakeSecureMeta as (...a: unknown[]) => unknown)(...a),
   // ⚖ THE REAL RULE (PR4 fix round 7), not a restatement: whether a take
@@ -284,7 +291,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     expect(mockDeferreds).toHaveLength(0) // in-tab never runs on a guess
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('unknown')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
@@ -404,7 +411,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('unknown')
     expect(mockDeferreds).toHaveLength(0) // in-tab never ran
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
@@ -426,7 +433,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     await tick(0)
     expect(mockDeferreds).toHaveLength(0) // no blind fallback
     expect(globalPipeline.state).toBe('error')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
@@ -543,7 +550,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
 })
 
 describe('globalPipeline server-path poll settlement (packet 22)', () => {
-  it('DONE → deletes the take and settles via autosaving + serverSavedRecordId (the mirrored-toast trigger)', async () => {
+  it('DONE → settles the take through the ONE rule and finishes via autosaving + serverSavedRecordId (the mirrored-toast trigger)', async () => {
     jobStatus
       .mockResolvedValueOnce({ status: 'QUEUED', karuteRecordId: null, attempts: 0, maxAttempts: 3, lastError: null })
       .mockResolvedValueOnce({ status: 'DONE', karuteRecordId: 'record-1', attempts: 1, maxAttempts: 3, lastError: null })
@@ -551,14 +558,14 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     await tick(0)
     await tick(5000) // tick 1 → still QUEUED
     expect(globalPipeline.state).toBe('processing')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
     await tick(5000) // tick 2 → DONE
     expect(globalPipeline.state).toBe('autosaving')
     expect(globalPipeline.serverSavedRecordId).toBe('record-1')
-    expect(deleteTake).toHaveBeenCalledWith('take-1')
+    expect(settleTakeAfterSave).toHaveBeenCalledWith('take-1')
   })
 
-  it('DONE but karuteRecordId null (core anomaly) → unknown error, take KEPT (never deleted on a falsy id)', async () => {
+  it('DONE but karuteRecordId null (core anomaly) → unknown error, take KEPT (never settled on a falsy id)', async () => {
     jobStatus.mockResolvedValueOnce({
       status: 'DONE',
       karuteRecordId: null,
@@ -572,7 +579,7 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('unknown')
     expect(globalPipeline.serverSavedRecordId).toBeNull()
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 
   it('FAILED with CONSENT_REQUIRED_ERROR → consent-required, take kept', async () => {
@@ -588,7 +595,7 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     await tick(5000)
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('consent-required')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 
   it("FAILED with 'EMPTY_TRANSCRIPT' → empty-transcript, take kept", async () => {
@@ -603,7 +610,7 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     await tick(0)
     await tick(5000)
     expect(globalPipeline.error).toBe('empty-transcript')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 
   it('FAILED with an unmapped lastError → unknown, take kept', async () => {
@@ -618,7 +625,7 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     await tick(0)
     await tick(5000)
     expect(globalPipeline.error).toBe('unknown')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 })
 
@@ -648,7 +655,7 @@ describe('globalPipeline server-path poll cadence + cap (packet 22, Greptile #58
     await tick(60 * 60 * 1000 + 30_000) // past the backstop; job never settles
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('unknown')
-    expect(deleteTake).not.toHaveBeenCalled()
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 })
 
