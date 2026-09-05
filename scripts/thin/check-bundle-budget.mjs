@@ -396,10 +396,34 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // fit without a second raise, and anything larger than that should have to come
 // back and say so.
 //
+// RAISED 2026-09-06 for the player's blind-round fixes (fix round 2), ⚖ 8/25 +
+// 9/4: 2,048,300 → 2,049,200. A CORRECTNESS raise, not a feature one — the
+// method is unchanged from the 2026-09-02 entry above (release-length
+// placeholder env, emptied thin/dist).
+//
+// What is in the phone for the bytes, all of it found by the blind round:
+// the recorder guard now holds ACROSS the mint and on the re-mint (a take used
+// to be able to start playing over a live microphone), the second tap is
+// synchronous so Karute web in mobile Safari can play at all, one tap mints
+// once instead of once per impatient tap, the element's own play/pause events
+// drive the button so a system pause cannot leave it lying, the speed chip
+// states the rate the engine is ACTUALLY running, the controls got 44 pt hit
+// areas (the look is unchanged), the scrub commits on release instead of per
+// pixel, and an unknown total says –:–– instead of claiming 0:00.
+//
+// Measured at this round's tip, the CI/release way: en 130,244 · index 980,662
+// · vendor 937,743 = 2,048,649 B — 349 B over the 2,048,300 ceiling, which is
+// the breach this raise answers. The whole fix round costs the phone +861 B
+// over round 1b's 2,047,788 B.
+//
+// The new ceiling leaves 551 B of headroom — the same narrow margin the last
+// two entries kept, and for the same reason: the next thing to land here should
+// have to come back and say what it is.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_048_300
+const BUDGET_BYTES = 2_049_200
 
 let dir
 try {
