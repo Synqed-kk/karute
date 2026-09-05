@@ -761,10 +761,27 @@ export function SettingsScreen(props: SettingsScreenProps) {
 
   /** The rail after the query. Every row keeps its group so the list never
    *  reshuffles under a reader mid-type. */
-  const shownRail = useMemo(
+  const railHits = useMemo(
     () => props.rail.filter((row) => matchesQuery(searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id)), query)),
     [props.rail, sectionById, query],
   )
+  /** ⚖ S17 fix round 4 · M6 — AND THE OPEN SECTION'S ROW STAYS ON THE LIST.
+   *
+   *  Filtering past the section the panel is showing left the rail with NO
+   *  current row: 契約・請求 open, 「コーチング」 typed, and the panel still full
+   *  of 契約・請求 with nothing on screen saying which section it belonged to.
+   *  The row comes back, marked 「表示中」 so it is not read as a search result —
+   *  and it is prepended, so it sits at the top of its own group rather than
+   *  wherever the unfiltered order would have put it.
+   *
+   *  ⚠ THE COUNT IS STILL THE COUNT OF MATCHES. `railHits` is what 「n件」 is
+   *  about; a foot saying 2件 over one match would be the room lying about its
+   *  own search to explain a row it added itself. */
+  const shownRail = useMemo(() => {
+    if (shownId === null || railHits.some((r) => r.id === shownId)) return railHits
+    const open = props.rail.find((r) => r.id === shownId)
+    return open ? [open, ...railHits] : railHits
+  }, [railHits, props.rail, shownId])
 
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
@@ -973,13 +990,14 @@ export function SettingsScreen(props: SettingsScreenProps) {
           </div>
 
           <div className="st-rail-list" ref={railListRef}>
-            {shownRail.length === 0 ? (
+            {railHits.length === 0 && (
               <p className="st-rail-empty">
                 「{query.trim()}」に当てはまる設定は見つかりませんでした。
                 <br />
                 別の言葉でお試しください。
               </p>
-            ) : (
+            )}
+            {shownRail.length > 0 && (
               groups
                 .filter((group) => shownRail.some((row) => row.group === group))
                 .map((group) => (
@@ -993,6 +1011,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           row={row}
                           hit={hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))}
                           on={row.id === shownId && (!narrow || isDetail)}
+                          // ⚖ M6 — this row is here because it is OPEN, not
+                          // because it answered the search, and it says so.
+                          kept={!railHits.some((r) => r.id === row.id)}
                           onOpen={openSection}
                         />
                       ))}
@@ -1007,7 +1028,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
           <p className="st-rail-foot">
             {query.trim() === ''
               ? `全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`
-              : `${shownRail.length}件 / 全${props.rail.length}件の設定`}
+              : `${railHits.length}件 / 全${props.rail.length}件の設定`}
           </p>
         </aside>
 
@@ -1198,6 +1219,7 @@ function RailItem({
   row,
   hit,
   on,
+  kept,
   onOpen,
 }: {
   row: RailRow
@@ -1209,6 +1231,10 @@ function RailItem({
    *  place nobody is standing in. It is the same fact the panel is drawn from,
    *  asked with the band that decides whether the panel is there at all. */
   on: boolean
+  /** ⚖ S17 fix round 4 · M6 — this row did NOT answer the search; it is here
+   *  because its section is the one on screen. Saying so is the difference
+   *  between a rail that keeps its bearings and a rail that looks wrong. */
+  kept: boolean
   onOpen: (id: string, fromRail: boolean) => void
 }) {
   return (
@@ -1226,6 +1252,7 @@ function RailItem({
             answer — the block that matched is named under the row. */}
         {hit && <span className="st-rail-hit">{hit}</span>}
       </span>
+      {kept && <span className="st-flag is-shown">表示中</span>}
       {row.state === 'no-rights' && <span className="st-flag is-rights">権限がありません</span>}
       {row.scope === 'self' && <span className="st-flag is-self">自分だけ</span>}
     </button>

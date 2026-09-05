@@ -1700,6 +1700,29 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
   })
 
+  it('⚖ S17 fix round 4 · M6 — filtering past the OPEN section keeps its row, marked 表示中, and the count still counts matches', () => {
+    // ⚠ THE PANEL MUST ALWAYS HAVE A CURRENT ROW. Open 契約・請求, type
+    // 「コーチング」, and the rail showed one row (コーチング) while the panel
+    // still showed 契約・請求 — `.st-rail-item.is-on` count 0, and nothing on
+    // screen saying which section the panel belonged to.
+    expect(SCREEN_CODE).toContain('if (shownId === null || railHits.some((r) => r.id === shownId)) return railHits')
+    expect(SCREEN_CODE).toContain('return open ? [open, ...railHits] : railHits')
+    // …it is PREPENDED, so it sits at the top of its own group rather than
+    // wherever the unfiltered order would have dropped it…
+    expect(SCREEN_CODE).toContain('kept={!railHits.some((r) => r.id === row.id)}')
+    expect(SCREEN_CODE).toContain('{kept && <span className="st-flag is-shown">表示中</span>}')
+    // …and the COUNT is still the count of MATCHES, or the room would be lying
+    // about its own search to explain a row it added itself.
+    expect(SCREEN_CODE).toContain('`${railHits.length}件 / 全${props.rail.length}件の設定`')
+    expect(SCREEN_CODE).not.toContain('`${shownRail.length}件 / 全${props.rail.length}件の設定`')
+    // …and a query nothing answers still says so, ABOVE the kept row.
+    expect(SCREEN_CODE).toContain('{railHits.length === 0 && (')
+    expect(SCREEN_CODE).toContain('に当てはまる設定は見つかりませんでした。')
+    // …the chip is NEUTRAL: the row already carries the accent as `.is-on`, and
+    // 表示中 is a statement about where the reader is, never an action.
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-flag.is-shown { background: var(--st-soft); color: var(--ink-3); }')
+  })
+
   it('a block is dirty when one of ITS OWN controls moved, and 変更 n件 counts controls', async () => {
     const props = await room({ store: STORE_A })
     const sec = sectionOf(props, 'store-hours')
