@@ -405,6 +405,15 @@ describe('⚖ 1b RULED — 新規のお客様の確保 is three fixed choices, a
     // not fall back to a standard scene, it stops.
     expect(SCREEN_CODE).toContain('const sceneKey = sceneKeyFor(mode, minutes)')
     expect(SCREEN_CODE).toContain('const guardOff = sceneKey === null')
+    // ⚖ S17 — AND IT IS THE SEAM'S FUNCTION, NEVER A COPY OF IT. The whole point
+    // of `store-policy-seam.ts` is that the reconnect replaces two function
+    // bodies and no reader moves; a local re-implementation beside the caller is
+    // a second spelling of the third state, which is exactly ⚖ F4's defect
+    // wearing the fix's name.
+    expect(SCREEN_CODE).toContain(importOf('./store-policy-seam'))
+    expect(SCREEN_CODE).not.toMatch(/(?:const|function)\s+sceneKeyFor/)
+    expect(PAGE_CODE).toContain(importOf('./store-policy-seam'))
+    expect(PAGE_CODE).not.toMatch(/(?:const|function)\s+sceneKeyFor/)
     expect(SCREEN_CODE).toContain('const card = sample === null || guardOff ? null : warnFaceFor({')
 
     // ⚖ 9/1 (fix round 1 F4b) — AND THE OFF STORE DOES NOT GET A FABRICATED

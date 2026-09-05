@@ -463,6 +463,32 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  it('⚖ S17 — the cross-link rows are the ONE home’s address, and they really navigate', async () => {
+    // ⚖ ONE RULE ONE HOME. Five controls left this vocabulary; two rows stand in
+    // their place, and a row that says where a rule is decided and cannot take
+    // the reader there is a signpost with no road.
+    const props = await room({ store: STORE_A })
+    const linked = rowsOf(props).filter((r) => r.link)
+    expect(linked.map((r) => r.id).sort()).toEqual(['services.row-new-client-moved', 'store-hours.row-guard-moved'])
+    for (const r of linked) {
+      expect({ id: r.id, to: r.link!.sectionId }).toEqual({ id: r.id, to: 'booking-guard' })
+      // ⚖ LABEL TRUTH — the link OPENS, it never promises to change anything.
+      expect({ id: r.id, label: r.link!.label }).toEqual({ id: r.id, label: '予約と確保を開く' })
+      expect({ id: r.id, says: r.label.includes('「予約と確保」で決めます') }).toEqual({ id: r.id, says: true })
+      // …and it is a signpost, not a second control.
+      expect({ id: r.id, controls: r.controls.length }).toEqual({ id: r.id, controls: 0 })
+    }
+    // FIRST in its own block, so the address is met before the dials that stayed.
+    const ops = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.ops')!
+    expect(ops.rows[0].id).toBe('store-hours.row-guard-moved')
+    // …the destination is a real rail row…
+    expect(RAIL.some((e) => e.id === 'booking-guard')).toBe(true)
+    // …and the screen renders the address as a REAL button that navigates (⚖ the
+    // keyboard-reach law: a tap-to-open control ships focusable).
+    expect(SCREEN_CODE).toContain('onClick={() => onLink(row.link!.sectionId)}')
+    expect(SCREEN_CODE).toContain('<button type="button" className="st-link"')
+  })
+
   it('every control is LIVE, uniquely keyed, and carries an accessible name', async () => {
     const props = await room({ store: STORE_A, role: 'オーナー' })
     const controls = controlsOf(props)
