@@ -737,9 +737,17 @@ export function SettingsScreen(props: SettingsScreenProps) {
      *  summary), so one lookup serves both. */
     const head = document.getElementById(`st-blkh-${blockId}`)
     const el = document.getElementById(`st-blk-${blockId}`)
-    el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    /** ⚠ AND THE SCROLL OBEYS THE READER'S PREFERENCE (⚖ S17 fix round 4 · M1).
+     *  `behavior: 'smooth'` was unconditional, so a reader who asked the
+     *  platform for stillness got a 1 554px animated slide out of a jump list —
+     *  measured under `reduce`: scrollY 0 → 47 at 60ms → 1554 settled. The
+     *  sheet cannot cover it twice over: `scroll-behavior: auto !important` in
+     *  the shell is scoped to `.biz *` and the scrolling element here is the
+     *  DOCUMENT, and an explicit `behavior` argument beats the CSS property
+     *  anyway. The flag the room already holds is the answer. */
+    el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
     head?.focus({ preventScroll: true })
-  }, [])
+  }, [reduced])
 
   const groups: string[] = []
   for (const row of props.rail) if (!groups.includes(row.group)) groups.push(row.group)

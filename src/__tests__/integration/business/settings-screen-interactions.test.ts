@@ -396,6 +396,19 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       expect({ what: r.what, guarded: /\bif\s*\(/.test(upto.replace('if (!springRef.current || builtWith.current !== reduced)', '')) })
         .toEqual({ what: r.what, guarded: false })
     }
+    // ⚖ S17 fix round 4 · M1 — AND THE ONE PIECE OF MOTION THAT IS NOT A SPRING.
+    // このページの中身 scrolled with `behavior: 'smooth'` unconditionally: a
+    // 1 554px animated slide for a reader who asked the platform for stillness,
+    // out of a control whose whole job is to put them somewhere. The stylesheet
+    // cannot reach it (the scrolling element is the document, and an explicit
+    // `behavior` argument beats the CSS property), so the flag does.
+    expect(SRC_CODE).toContain("el?.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })")
+    expect(SRC_CODE).not.toContain("scrollIntoView({ block: 'start', behavior: 'smooth' })")
+    // …and the callback is keyed on it, or it would capture the first answer
+    // for the life of the page (the F20 lesson, one file over).
+    const jump = SRC_CODE.slice(SRC_CODE.indexOf('const jumpTo = useCallback'))
+    expect(jump.slice(0, jump.indexOf('\n  const'))).toContain('}, [reduced])')
+
     // …and the reader who changes their mind MID-SESSION is heard: the hook
     // subscribes, so a rebuild has something to be triggered by at all. (The
     // probe measures the behaviour — S6d flips the preference for real.)
