@@ -168,8 +168,10 @@ export type MintTakeUrlResult =
    * ⚖ ON THE TAKE ARM IT IS DIAGNOSTIC ONLY (hotfix 2026-09-05). The client
    * does not compare it and must not: a take's key is reserved on the
    * caller's OWN row, and FINALIZE re-proves the object's size server-side
-   * against the row it is handed — a second proof the staged and segment
-   * consumers do not have. So this arm's `null` costs nothing there.
+   * against the row it is handed — when storage reports one; a `size_unknown`
+   * answer there still proceeds, just with `size_verified: false` — a second
+   * proof the staged and segment consumers do not have. So this arm's `null`
+   * costs nothing there.
    */
   | {
       path: string
@@ -279,8 +281,11 @@ function auditTakeNamed(
  * backoff, never `seg_mismatch` — because there the mark is terminal for the
  * take's whole life, and a storage version that stopped reporting sizes would
  * otherwise switch every take's pump off fleet-wide on a fact about the API
- * rather than about anybody's audio. Finalize splits the same two off this same
- * read (`size_unknown` vs `size_mismatch`).
+ * rather than about anybody's audio. For the TAKE arm's retry exit (hotfix
+ * 2026-09-05) it costs NOTHING at all: the value is diagnostic only there, and
+ * finalize re-proves the size server-side regardless of what this read said.
+ * Finalize splits the same two off this same read (`size_unknown` vs
+ * `size_mismatch`).
  *
  * ONE `info()` READ IN THIS FILE: objectExists below is this function with the
  * size dropped, so the two questions can never drift into two probes.
@@ -306,7 +311,8 @@ export async function objectSize(
  * (session-mint.ts) runs this SAME check before its own create — a
  * hard-deleted sibling row's object staying on storage while its row is gone
  * is exactly the gap a second, independent "does this exist" spelling would
- * eventually drift from. One home, four callers.
+ * eventually drift from. One home, three callers (the hotfix took
+ * planReservation off this list — it now reads objectSize directly).
  */
 export async function objectExists(key: string): Promise<boolean | 'unknown'> {
   const answer = await objectSize(key)
@@ -493,6 +499,7 @@ type SignedUpload = { path: string; url: string; token: string; contentType: str
  *  caller attaches it once the reservation (if any) has actually landed. */
 async function signUpload(
   composed: { key: string; ext: string; contentType: string },
+  where: 'staged' | 'take-server-named' | 'take' | 'segment',
 ): Promise<SignedUpload | { error: 'upstream' }> {
   const supabase = createServiceClient()
   const { data, error } = await supabase.storage
@@ -505,10 +512,13 @@ async function signUpload(
     // became a facade 502 with nothing in the logs saying why. House style =
     // take-binding's own `storage_probe_unknown` line (one JSON object,
     // status/flags only — never the raw message, which embeds the key).
+    // `where` names WHICH of the four call sites refused, mirroring
+    // warnStorageUnknown's own `where` argument (take-binding.ts).
     const e = (error ?? {}) as { status?: unknown; statusCode?: unknown }
     console.warn(
       JSON.stringify({
         evt: 'sign_upload_refused',
+        where,
         status: e.status,
         statusCode: e.statusCode,
         messageKind: storageMessageKind(error),
@@ -677,7 +687,7 @@ export async function mintTakeUploadUrl(
         existingSize: existing.size,
       }
     }
-    const signed = await signUpload(composed)
+    const signed = await signUpload(composed, 'staged')
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: input.stagedFor }
   }
@@ -716,7 +726,7 @@ export async function mintTakeUploadUrl(
   // A SERVER-NAMED take: a fresh uuid nobody could have claimed, bound to no
   // row and claiming nothing. Signed and returned exactly as before this round.
   if (!input.takeId) {
-    const signed = await signUpload(composed)
+    const signed = await signUpload(composed, 'take-server-named')
     if ('error' in signed) return signed
     return { ...signed, recordingSessionId: null }
   }
@@ -752,6 +762,12 @@ export async function mintTakeUploadUrl(
   // loses none of the reservation the signed arm would have made — `plan.row.id`
   // is the same id it returns. The segment arm and the staged arm have had this
   // exit since fix round 2; the take arm was the one door without it.
+  //
+  // GIVEN UP ON PURPOSE: commitReservation's own re-reservation of a pointer
+  // CLEARED between plan and commit (fix round 9, above) never runs on this
+  // exit — no app code clears audio_storage_path, so that window is not one
+  // this retry can meet, and a pointer that somehow WAS cleared would surface
+  // as `not_reserved` at finalize rather than silently re-binding here.
   if (plan.kind === 'retry' && plan.existing.exists)
     return {
       path: composed.key,
@@ -760,7 +776,7 @@ export async function mintTakeUploadUrl(
       existingSize: plan.existing.size,
     }
 
-  const signed = await signUpload(composed)
+  const signed = await signUpload(composed, 'take')
   if ('error' in signed) return signed
 
   let reservation: { recordingSessionId: string } | { error: MintErrorCode }
@@ -806,7 +822,7 @@ async function mintOneSegment(one: {
       contentType: one.contentType,
       existingSize: existing.size,
     }
-  const signed = await signUpload(one)
+  const signed = await signUpload(one, 'segment')
   if ('error' in signed) return signed
   return { seq: one.seq, ...signed }
 }

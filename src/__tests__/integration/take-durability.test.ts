@@ -2182,6 +2182,39 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).secureError).toBeUndefined()
   })
 
+  // ⚖ THE GUARD READS THE VALUE, NOT THE SHAPE (review round, hotfix
+  // 2026-09-05). secure-take.ts guards on `if ('url' in minted && minted.url)`
+  // rather than `'url' in minted` alone, because the phone port REBUILDS this
+  // answer field by field (thin/ports/recording.vite.ts) and a stale build of
+  // it could carry an explicit `url: undefined` key on the already-there arm —
+  // `in` alone would still read true. Pins the value half of that guard.
+  it('an already-there answer carrying an explicit `url: undefined` key still sends nothing', async () => {
+    mintTakeUrl.mockImplementation(
+      async (
+        takeId: string,
+        mimeType: string,
+        recordingSessionId: string | null,
+      ): Promise<MintTakeUrlPortResult> => {
+        order.push('mint')
+        if (!recordingSessionId) return { error: 'bad_input' }
+        const answer: Record<string, unknown> = { ...alreadyThere(takeId, mimeType, recordingSessionId) }
+        answer.url = undefined
+        return answer as unknown as MintTakeUrlPortResult
+      },
+    )
+    const takeId = await stoppedOwedTake()
+    order.length = 0
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['session', 'mint', 'finalize'])
+    expect(putMock).not.toHaveBeenCalled()
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({ takeId, recordingSessionId: MINTED_SESSION }),
+    )
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
   it('…and the SIGNED arm still PUTs, to the url the mint handed back', async () => {
     const takeId = await stoppedOwedTake()
     order.length = 0

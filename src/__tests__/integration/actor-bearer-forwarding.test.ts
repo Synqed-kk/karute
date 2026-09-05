@@ -209,6 +209,7 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
+  held.clear()
   setRow({ ...ROW, audio_storage_path: KEY })
   fetchCalls.length = 0
 })

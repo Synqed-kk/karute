@@ -183,6 +183,7 @@ describe('the take mint answers "the object is already there"', () => {
     // whose route errors embed the business id and the take id.
     expect(warned).toContainEqual({
       evt: 'sign_upload_refused',
+      where: 'take',
       status: 400,
       statusCode: '409',
       messageKind: 'other',
