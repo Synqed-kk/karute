@@ -118,6 +118,13 @@ const GINZA = { locale: 'ja', store: STORE_A }
 /** ⚖ I-2 — the CARD classes the self screen composes into columns. Named here so
  *  the hole-law assignment pin reads the desk's decision rather than every span
  *  inside it. */
+/** ⚖ §3 — true when no `resize` listener in the screen reaches a state setter
+ *  that holds BROWSING state. Read as a window after each listener rather than
+ *  over the whole file, so an unrelated `setTab` elsewhere cannot make it lie. */
+const RESIZE_TOUCHES_NO_STATE = (code: string) =>
+  [...code.matchAll(/addEventListener\('resize'[\s\S]{0,200}/g)]
+    .every((m) => !/set(Filter|Tab|NoticeOpen|OpenShelves|SummaryOpen|Reduced)\(/.test(m[0]))
+
 const SECTION_CARDS = [
   'cg-sheet', 'cg-spine', 'cg-findings', 'cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-share',
   'cg-patterns', 'cg-modules',
@@ -3855,14 +3862,25 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(Math.max(...gaps)).toBeGreaterThan(Math.min(...gaps))
     expect([...gaps].sort((a, b) => b - a)).not.toEqual(gaps)
     // …and a category with NO benchmark prints no distance at all, rather than 0.
-    const noBench = buildSelfView({
-      selfId: 'p-06',
-      rows: [{ ...coachingStaff[0], categories: [{ key: 'next_step', score: 58, topBenchmark: null, confidence: 'high' }] }],
-      patterns: teamPatterns,
+    // ⚠ ON THE PAYLOAD, NOT ON THE MODEL (mutant M95 survived the first cut: the
+    // label is composed in the PROPS file, so a `buildSelfView` assertion could
+    // never see it — and every category in the demo world HAS a benchmark, so the
+    // null branch was never rendered at all).
+    pinClock(MID_MONTH)
+    const { props: bare } = await coachingProps({
+      ...GINZA,
+      world: {
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-06'
+            ? { ...r, categories: [{ key: 'next_step' as const, score: 58, topBenchmark: null, confidence: 'high' as const }] }
+            : r,
+        ),
+      },
     })
-    expect(noBench.kind).toBe('ready')
-    if (noBench.kind !== 'ready') return
-    expect(noBench.view.categories[0].topBenchmark).toBeNull()
+    unpinClock()
+    const only = (bare.self as Extract<CoachingSelf, { kind: 'ready' }>).categories[0]
+    expect(only.topBenchmark).toBeNull()
+    expect(only.gapLabel).toBeNull()
     expect(SCREEN_CODE).toContain('{c.gapLabel && <span className="cg-skill-gap">{c.gapLabel}</span>}')
     // the chip is neutral — a gap is a place to practise, not a grade (⚖ 8/25's
     // B family: no threshold tone on a per-person number).
@@ -4118,12 +4136,25 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     const a = props.roi!.adoption
     // BOTH counts come from the same helper the manager's board reads, so the two
     // screens cannot disagree about how many people opened up (⚖ A8).
-    const roster = props.team!.rows.length
-    const counts = adoptionCounts({ roster: (await listStaff(STORE_A)).map((m) => ({ id: m.id })), rows: coachingStaff, consent: coachingConsent })
-    expect(a.consentLine).toBe(`コーチングに同意 ${counts.coaching}名 ／ 在籍 ${counts.total}名`)
-    expect(a.sharingLine).toBe(`深い共有を許可 ${counts.sharing}名 ／ 在籍 ${counts.total}名`)
-    expect(counts.total).toBe(roster)
-    expect(props.team!.adoptionLine).toContain(`${counts.sharing}名`)
+    // ⚠ COUNTED FROM THE PLANE, NOT FROM THE HELPER (mutant M91 survived the
+    // first cut of this pin: it asked `adoptionCounts` for the expected value AND
+    // for the actual one, so a count of the whole roster agreed with itself).
+    // The expectation is now derived from the consent records and the grants
+    // directly, and the two numbers are asserted to be SMALLER than the roster —
+    // without that, 「everybody consented」 would still read as correct.
+    const ids = (await listStaff(STORE_A)).map((m) => m.id)
+    const consented = ids.filter((id) => coachingConsent[id]?.status === 'granted').length
+    const shared = ids.filter((id) => coachingStaff.find((r) => r.staffId === id)?.grant === 'granted').length
+    expect(consented).toBeGreaterThan(0)
+    expect(consented).toBeLessThan(ids.length)
+    expect(shared).toBeLessThan(consented)
+    expect(a.consentLine).toBe(`コーチングに同意 ${consented}名 ／ 在籍 ${ids.length}名`)
+    expect(a.sharingLine).toBe(`深い共有を許可 ${shared}名 ／ 在籍 ${ids.length}名`)
+    expect(ids.length).toBe(props.team!.rows.length)
+    expect(props.team!.adoptionLine).toContain(`${shared}名`)
+    // …and the helper both screens read really is ONE arithmetic
+    expect(adoptionCounts({ roster: ids.map((id) => ({ id })), rows: coachingStaff, consent: coachingConsent }))
+      .toEqual({ coaching: consented, sharing: shared, total: ids.length })
     // …and NOTHING a person could be read out of: no roster, no name, no
     // per-staff figure anywhere in the block.
     const blob = JSON.stringify(a)
@@ -4200,6 +4231,24 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // …and the only easing curves in the sheet are the two it already had
     const curves = new Set([...CSS_CODE.matchAll(/cubic-bezier\([^)]*\)/g)].map((m) => m[0]))
     expect([...curves].sort()).toEqual(['cubic-bezier(.2, .7, .1, 1)', 'cubic-bezier(.22, .9, .24, 1)'])
+  })
+
+  it('⚖ §3 · browsing state is REACT’s — nothing in this room resets it on a RESIZE', () => {
+    // The fold/unfold gate: a Galaxy Fold opening mid-read recomposes the page
+    // through CONTAINER queries and keeps the open tab, the pressed filter tile
+    // and both disclosures. A listener that clears state on a resize is the same
+    // defect as a media query that re-mounts the tree, wearing a different hat —
+    // and the probe measures the survival, so THIS is the pin that makes the
+    // mechanism unbreakable in the source (mutant M92 had no killer without it).
+    const listeners = [...SCREEN_CODE.matchAll(/addEventListener\('resize'/g)]
+    expect(listeners.length).toBe(2)
+    // …and neither of the two touches a state setter: one places the tab
+    // underline through a ref, the other re-measures the tour's hole.
+    expect(RESIZE_TOUCHES_NO_STATE(SCREEN_CODE)).toBe(true)
+    expect(SCREEN_CODE).toContain("window.addEventListener('resize', place)")
+    expect(SCREEN_CODE).toContain("window.addEventListener('resize', bump)")
+    // both are removed on cleanup, so a re-render cannot stack them
+    expect([...SCREEN_CODE.matchAll(/removeEventListener\('resize'/g)].length).toBe(2)
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
