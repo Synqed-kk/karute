@@ -84,13 +84,18 @@ const ROOT = 'page pg-coaching'
  *  that lands on nothing declared, and its opener is the ? it mounts on top of. */
 const SETTLE_MS = 500
 
-/** ⚖-ADJ K — THE RETIRED SUBTITLE'S NEW HOME. S16's head is ONE row, so the
- *  `subtitle` paragraph left the page furniture; it is FOLDED, not cut, into the
- *  head's own guide text as its first sentence, where the ? already takes any
- *  reader who wants the orientation. This constant is the second half — the head
- *  guide the room has carried since the tour shipped. */
+/** ⚖-ADJ K — THE RETIRED SUBTITLE'S NEW HOME, AND IT IS ONE PASSAGE RATHER THAN
+ *  TWO BLURBS STAPLED (R2-5). S16's head is ONE row, so the `subtitle` paragraph
+ *  left the page furniture; its two FACTS — the numbers come from the session
+ *  records, and the per-person detail is the person's own — are folded into the
+ *  head's guide text, which is where the ? already takes any reader who wants the
+ *  orientation. Concatenating the two strings made a tour listener hear 「what
+ *  this page shows」 twice and 「what it is FOR」 third, so the passage is
+ *  WRITTEN as one: what it is for, where the numbers come from, and who may read
+ *  the detail. `props.subtitle` still exists as the canonical sentence the
+ *  ⚖-ADJ K pin names; the head no longer concatenates it. */
 const HEAD_GUIDE =
-  '接客を振り返るための画面です。数字も気づきも、セッションの記録から出しています。一人ひとりの詳しい内容と会話の引用は、本人だけが見られます。'
+  '接客を振り返るための画面です。セッションの記録から、数字も気づきも事実にもとづいて出しています。一人ひとりの詳しい内容と会話の引用は、本人だけが見られます。'
 
 type Severity = 'priority' | 'watch' | 'strength'
 /** personal-findings.ts:222 — the run's own four statuses. */
@@ -291,7 +296,7 @@ export interface CoachingProps {
   /** ⚖ Q6 (Liam 9/2) — the honest clause that names the SETTING, plus the door
    *  to it. Null when the business is not on `'managers'`, because then the
    *  sentence would not be true of this business. */
-  teamBoundaryPolicy: { line: string; doorLabel: string; doorHref: string; doorState: string } | null
+  teamBoundaryPolicy: { line: string; doorLabel: string; doorHref: string; note: string } | null
   self: CoachingSelf
   team: CoachingTeam | null
   roi: CoachingRoi | null
@@ -713,12 +718,17 @@ export function CoachingScreen(props: CoachingProps) {
           it — and its sentence is true on BOTH tabs, which is the room-5 F5-1
           rule: anything that belongs to one screen is declared on that screen's
           own element and drops with it.
-          ⚖-ADJ K — and it now carries the retired `subtitle` as its first
-          sentence, so the head is ONE row without a sentence being cut. */}
+          ⚖-ADJ K — and it now carries the two retired head sentences, so the
+          head is ONE row without a sentence losing its reach. R2-20: the window
+          paragraph and the viewer paragraph live on two non-focusable chips as
+          `title`, which is a MOUSE-ONLY home — no touch device shows it and Tab
+          cannot reach it. The tour is the keyboard-and-touch path, so both
+          sentences ride here as well. ⚠ THE 。 IS ADDED HERE because neither
+          `windowTitle` nor `viewerLine` ends with one. */}
       <header
         className="cg-head"
         data-guide-title="コーチング"
-        data-guide={`${props.subtitle}${HEAD_GUIDE}`}
+        data-guide={`${HEAD_GUIDE}${props.windowTitle}。${props.viewerLine}。`}
       >
         <div className="cg-eyebrow">{props.dateline}</div>
         <div className="cg-titleline">
@@ -879,12 +889,18 @@ export function CoachingScreen(props: CoachingProps) {
                ⚠ R1-3 — THE DOOR IS A REAL LINK. The 設定 room exists (#812);
                what does not exist is this dial's own editor inside it. So the
                label 「設定を開く」 promises OPENING and the link really opens,
-               keeping the store the reader is on — and the 「準備中」 chip beside
-               it is the one place that says the editor is not there yet. Never
-               「設定で変更」: THAT label would promise a change the destination
-               cannot make (the 9/4 label law). The head's 「コーチングの設定」 is a
-               different lever — its label promises CHANGING — and stays refused. */
-            <section className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。表示する範囲は事業ごとの設定で決まり、「設定を開く」から設定画面に移動できます。この項目の編集は準備中です。">
+               keeping the store the reader is on. Never 「設定で変更」: THAT label
+               would promise a change the destination cannot make (the 9/4 label
+               law). The head's 「コーチングの設定」 is a different lever — its
+               label promises CHANGING — and stays refused.
+               ⚠ R2-1 — AND THE CAVEAT IS A SENTENCE, NEVER A CHIP BESIDE THE
+               DOOR. Everywhere else in Business a 「準備中」 chip marks a control
+               that does NOTHING (ReservationsScreen, SettingsScreen, TodayScreen),
+               so a chip standing beside a link that really navigates reads — in
+               the grammar this codebase itself taught the reader — as 「this door
+               is broken」. The family's own answer is the 売上分析 shape: a plain
+               working link, and a quiet note naming what is unfinished. */
+            <section className="cg-boundary" data-guide-title="全スタッフ表示について" data-guide="店舗全体を見る画面は、権限のあるアカウントだけに表示されます。この画面では自分の記録だけを見ています。表示する範囲は事業ごとの設定で決まり、「設定を開く」から設定画面に移動できます。公開範囲の編集は準備中です。">
               <p className="cg-boundary-line">{props.teamBoundaryLine}</p>
               {props.teamBoundaryPolicy && (
                 <p className="cg-boundary-policy">{props.teamBoundaryPolicy.line}</p>
@@ -894,7 +910,7 @@ export function CoachingScreen(props: CoachingProps) {
                   <a className="cg-boundary-link" href={props.teamBoundaryPolicy.doorHref} data-press>
                     {props.teamBoundaryPolicy.doorLabel}
                   </a>
-                  <span className="cg-note-chip">{props.teamBoundaryPolicy.doorState}</span>
+                  <span className="cg-boundary-note">{props.teamBoundaryPolicy.note}</span>
                 </span>
               )}
             </section>
@@ -922,7 +938,7 @@ export function CoachingScreen(props: CoachingProps) {
                   <section
                     className={`cg-consent is-${ready.consent.status}`}
                     data-guide-title="コーチングを受けることへの同意"
-                    data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。断っても勤務には影響しませんし、断ったことは誰にも表示されません。${ready.consent.body}`}
+                    data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${ready.consent.body}`}
                   >
                     {ready.consent.strip ? (
                       <p className="cg-consent-strip" title={ready.consent.body}>
@@ -1004,7 +1020,7 @@ export function CoachingScreen(props: CoachingProps) {
                       <section
                         className="cg-findings"
                         data-guide-title="気づき"
-                        data-guide="良かった点も、直したほうがいい点も、そのまま出しています。左が「次にやること」、右がその根拠 — 「何回中何回」という実際の回数と、そのときの会話の引用です。引用はあなただけが見られます。"
+                        data-guide="良かった点も、直したほうがいい点も、そのまま出しています。左が「次にやること」、右がその根拠です。「何回中何回」という実際の回数と、そのときの会話の引用があります。引用はあなただけが見られます。"
                       >
                         <div className="cg-sec-head">
                           <h2 className="cg-sec-title">{ready.statusTitle}</h2>
@@ -1438,7 +1454,7 @@ export function CoachingScreen(props: CoachingProps) {
                           `aria-pressed` is the state, and pressing the pressed
                           tile clears it. ⚠ IT FILTERS, IT NEVER SORTS — there is
                           no comparator anywhere in this room. */}
-                      <div className="cg-tiles" role="group" aria-label="区分でしぼり込む">
+                      <div className="cg-tiles" role="group" aria-label="区分で絞り込む">
                         {team.counts.map((c) => (
                           <button
                             key={c.key}

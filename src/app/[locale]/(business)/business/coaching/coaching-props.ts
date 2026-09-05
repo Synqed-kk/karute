@@ -290,9 +290,10 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // ⚖ R1-3 — THE SETTINGS ROOM EXISTS (#812), so the door to it is a REAL LINK
   // and it keeps the lens the reader is on (the 売上分析 pattern,
   // analytics-props.ts:400). What does NOT exist is the ⚖ Q6 dial's own editor
-  // inside that room — and the 「準備中」 chip beside the link is what says so.
+  // inside that room — and the NOTE SENTENCE under the link is what says so
+  // (R2-1: a 「準備中」 chip beside a working link reads as a broken door).
   // One truth, one place: the label promises OPENING, which the link really
-  // does; the chip promises nothing.
+  // does; the note names what is still missing.
   const settingsHref = `/${locale}/business/settings${clamped ? `?store=${encodeURIComponent(storeId!)}` : ''}`
 
   const storeName = new Map(storeOptions.map((s) => [s.id, s.name]))
@@ -420,8 +421,12 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     // depend on having seen the other variant. True in production, where there
     // is no preview and the role is simply the reader's own.
     // The chip says WHO is reading; the whole sentence — including the reach
-    // list — is its `title` and the head's guide text. Same fact, two lengths.
-    viewerChip: `${role}として表示`,
+    // list — is its `title` AND the head's guide text (R2-20 made the second
+    // half of that true: a `title` on a non-focusable span is mouse-only, so the
+    // tour carries the sentence for a keyboard and a finger). Same fact, two
+    // lengths. ⚠ 「…として表示中」 rather than 「…として表示」: the bare verb stem
+    // reads clipped beside its own finished-sentence `title` (R2-4).
+    viewerChip: `${role}として表示中`,
     viewerLine: `この画面は「${role}」として表示しています ・ ${
       access.viewRoi
         ? '自分のコーチング・全スタッフ表示・経営への効果'
@@ -465,16 +470,22 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     // product. The clause renders only when the dial really is at 'managers',
     // because under 'all-staff' this sentence would be false for the one reader
     // who could still land here (a role the access table does not know).
-    // ⚠ 「設定を開く」 + 「準備中」, NEVER 「設定で変更」 (the 9/4 label law): the
-    // editor is registry ⑤ and does not exist yet, so the label may not promise
-    // a change its destination cannot make.
+    // ⚠ 「設定を開く」, NEVER 「設定で変更」 (the 9/4 label law): the editor is
+    // registry ⑤ and does not exist yet, so the label may not promise a change
+    // its destination cannot make.
+    // ⚠ R2-1 — AND THE CAVEAT IS A NOTE SENTENCE, NOT A CHIP. In this app a
+    // 「準備中」 CHIP always marks a disabled control, so one standing beside a
+    // link that really navigates says 「this door is broken」. The family's own
+    // grammar for exactly this shape is 売上分析's (a plain link plus a `note`
+    // naming what is unfinished), and it is what this door wears now: the label
+    // promises opening, the sentence says the editing is not built yet.
     teamBoundaryPolicy:
       visibility === 'managers'
         ? {
             line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
             doorLabel: '設定を開く',
             doorHref: settingsHref,
-            doorState: '準備中',
+            note: '公開範囲の編集は準備中です。',
           }
         : null,
     self:

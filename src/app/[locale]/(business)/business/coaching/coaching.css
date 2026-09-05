@@ -410,10 +410,14 @@
 }
 .biz .pg-coaching .cg-boundary-line { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-coaching .cg-boundary-policy { margin: 0; color: var(--ink-3); font-size: 12px; line-height: 1.75; }
-.biz .pg-coaching .cg-boundary-door { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* ⚠ R2-1 — THE DOOR IS A LINK AND A SENTENCE, never a link and a chip. A
+   「準備中」 chip is this app's own marker for a control that does nothing, so
+   beside a working link it reads as a broken door; the caveat is a quiet note
+   instead, and it names WHAT is unfinished rather than labelling the door. */
+.biz .pg-coaching .cg-boundary-door { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.biz .pg-coaching .cg-boundary-note { color: var(--muted); font-size: 11.5px; line-height: 1.75; }
 /* ⚖ R1-3 — a REAL link to the 設定 room, so the accent belongs on it (the
-   one-way accent law's main clause). The 「準備中」 chip beside it is what says
-   this dial's own editor is not there yet. */
+   one-way accent law's main clause). */
 .biz .pg-coaching .cg-boundary-link {
   display: inline-flex; align-items: center; min-height: 34px; padding: 6px 13px;
   border: 1px solid rgba(37, 99, 235, .28); border-radius: 999px;

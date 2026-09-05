@@ -76,6 +76,11 @@ const CSS_CODE = stripComments(CSS_SRC)
 const SCREEN_CODE = stripComments(SCREEN_SRC).replace(/^\s*\/\/.*$/gm, '')
 const LIB_CODE = stripComments(LIB_SRC).replace(/^\s*\/\/.*$/gm, '')
 const PROPS_CODE = stripComments(PROPS_SRC).replace(/^\s*\/\/.*$/gm, '')
+/** The head's guide passage, READ OUT OF THE SCREEN'S OWN SOURCE. A pin that
+ *  restates the string it is checking proves only that somebody typed it twice;
+ *  this one asserts what the passage SAYS (⚖-ADJ K's two facts) against the
+ *  passage the room really ships. */
+const HEAD_GUIDE_TEXT = /const HEAD_GUIDE =\s*'([^']*)'/.exec(SCREEN_SRC)?.[1] ?? ''
 
 // ── the pinned clock, one mechanism for the whole file ──────────────────────
 /** 12:00 JST on the 15th — mid-month on purpose, so no assertion in this file
@@ -2131,14 +2136,26 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
   it('⚖-ADJ K · every retired sentence has a NEW HOME, and the room can name it', () => {
     // A string with no new home fails the round. Four sentences left the page
     // furniture in S16; each is pinned to where it went.
-    //  · the subtitle → the head's own guide text, as its first sentence
-    expect(SCREEN_CODE).toContain('data-guide={`${props.subtitle}${HEAD_GUIDE}`}')
-    //  · the window paragraph → the window chip's `title`
+    //  · the subtitle → the head's guide text. ⚠ R2-5 RE-SPELLS THIS PIN: the
+    //    guide is ONE COMPOSED PASSAGE rather than the subtitle string glued in
+    //    front of it, so what is asserted is the two FACTS the subtitle carried
+    //    (the numbers come from the session records; the per-person detail is
+    //    the person's own), not a verbatim concatenation. `props.subtitle` is
+    //    still the canonical sentence and still crosses the boundary.
+    expect(SCREEN_CODE).toContain('const HEAD_GUIDE =')
+    expect(HEAD_GUIDE_TEXT).toContain('セッションの記録から')
+    expect(HEAD_GUIDE_TEXT).toContain('本人だけが見られます')
+    expect(PROPS_CODE).toContain("subtitle:\n      'セッションの記録から、事実にもとづく気づきを表示します。")
+    //  · the window paragraph → the window chip's `title` AND the head's guide
+    //    (R2-20: a `title` on a non-focusable span is mouse-only, so the tour
+    //    carries the sentence for a keyboard and a finger)
     expect(SCREEN_CODE).toContain('<span className="cg-chip-window" title={props.windowTitle}>{props.windowChip}</span>')
     expect(PROPS_CODE).toContain('windowTitle: `${windowLabel}のセッションを見ています`')
+    expect(SCREEN_CODE).toContain('data-guide={`${HEAD_GUIDE}${props.windowTitle}。${props.viewerLine}。`}')
     //  · the viewer paragraph (reach list and all) → the viewer chip's `title`
+    //    and the same head guide
     expect(SCREEN_CODE).toContain('<span className="cg-chip-viewer" title={props.viewerLine}>{props.viewerChip}</span>')
-    expect(PROPS_CODE).toContain('viewerChip: `${role}として表示`')
+    expect(PROPS_CODE).toContain('viewerChip: `${role}として表示中`')
     //  · the granted consent body → the strip's `title` AND the section's guide
     expect(SCREEN_CODE).toContain('<p className="cg-consent-strip" title={ready.consent.body}>')
     expect(SCREEN_CODE).toContain('${ready.consent.body}`}')
@@ -2147,9 +2164,16 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     expect(bar).toContain('props.noticeLines.map')
     // …and NOTHING ELSE retired: every other sentence the assembly builds is
     // still read by the screen.
-    for (const field of ['dateline', 'subtitle', 'viewerLine', 'viewerChip', 'windowChip', 'windowTitle', 'privacyBadge', 'actionFootnote']) {
+    for (const field of ['dateline', 'viewerLine', 'viewerChip', 'windowChip', 'windowTitle', 'privacyBadge', 'actionFootnote']) {
       expect({ field, read: SCREEN_CODE.includes(`props.${field}`) }).toEqual({ field, read: true })
     }
+    // ⚠ `subtitle` JOINS `windowLabel` AND `lensLabel` IN THAT POSITION AT R2-5.
+    // Its two FACTS are what ⚖-ADJ K owes a home to, and both are asserted above
+    // against the head's own passage; the sentence itself stays in the payload as
+    // the canonical form, exactly as `windowLabel` does. A verbatim
+    // concatenation was the thing R2-5 removed, so pinning one here would pin the
+    // defect back in.
+    expect(SCREEN_CODE).not.toContain('${props.subtitle}')
     // ⚠ `windowLabel` AND `lensLabel` REACH THE READER THROUGH OTHER STRINGS, and
     // that is the room's existing pattern rather than a new dead prop: `lensLabel`
     // has always been woven into `dateline` and `dormantBody` without being
@@ -2811,11 +2835,12 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
       line: 'この事業の設定では、全スタッフ表示は店長・オーナーのみに表示されます。',
       doorLabel: '設定を開く',
       doorHref: `/ja/business/settings?store=${encodeURIComponent(STORE_A)}`,
-      doorState: '準備中',
+      note: '公開範囲の編集は準備中です。',
     })
     // ⚠ THE 9/4 LABEL LAW: a link label never promises what its destination
     // cannot do. The editor is registry ⑤ and does not exist, so the door says
-    // 設定を開く + 準備中 — never 設定で変更.
+    // 設定を開く and a NOTE SENTENCE says the editing is not built — never
+    // 設定で変更, and never a 準備中 chip beside the link (R2-1).
     expect(JSON.stringify(props)).not.toContain('設定で変更')
     expect(SCREEN_CODE).not.toContain('設定で変更')
     expect(props.viewerLine).toContain('自分のコーチングのみ')
@@ -2879,11 +2904,23 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     const allStores = await coachingProps({ locale: 'ja', store: undefined, world: { role: 'スタッフ', selfId: 'p-04' } })
     unpinClock()
     // the label promises OPENING and the href really opens — the 設定 room ships
-    // (#812); what is 準備中 is this dial's own editor inside it, and the chip
-    // beside the link is the one place that says so.
+    // (#812); what is 準備中 is this dial's own editor inside it, and the NOTE
+    // SENTENCE under the link is the one place that says so.
     expect(props.teamBoundaryPolicy!.doorLabel).toBe('設定を開く')
-    expect(props.teamBoundaryPolicy!.doorState).toBe('準備中')
+    expect(props.teamBoundaryPolicy!.note).toBe('公開範囲の編集は準備中です。')
     expect(props.teamBoundaryPolicy!.doorHref).toBe(`/ja/business/settings?store=${encodeURIComponent(STORE_A)}`)
+    // ⚠ R2-1 — AND THE WORD 準備中 NEVER SITS IN A CHIP BESIDE THE DOOR. In this
+    // app a 「準備中」 chip marks a control that does nothing, so beside a link
+    // that really navigates it reads as a broken door. Source pin on the
+    // boundary markup: the door span carries the link and a note, and the chip
+    // class this room uses for 「not built yet」 markers is not in it.
+    const doorBlock = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('<span className="cg-boundary-door">'),
+      SCREEN_CODE.indexOf('</section>', SCREEN_CODE.indexOf('<span className="cg-boundary-door">')),
+    )
+    expect(doorBlock).toContain('<span className="cg-boundary-note">{props.teamBoundaryPolicy.note}</span>')
+    expect(doorBlock).not.toContain('cg-note-chip')
+    expect(doorBlock).not.toContain('準備中')
     // ⚠ THE LENS RIDES THE LINK. A door that dropped the store would land the
     // reader on a different shop's settings, which is the isolation law failing
     // at a link rather than at a read.
@@ -2903,8 +2940,8 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     const { props } = await coachingProps(GINZA)
     const staff = await coachingProps(STAFF)
     unpinClock()
-    expect(props.viewerChip).toBe('店舗管理者として表示')
-    expect(staff.props.viewerChip).toBe('スタッフとして表示')
+    expect(props.viewerChip).toBe('店舗管理者として表示中')
+    expect(staff.props.viewerChip).toBe('スタッフとして表示中')
     expect(props.windowChip).toMatch(/^直近90日 ・ .+〜.+$/)
     expect(props.windowTitle).toBe(`${props.windowLabel}のセッションを見ています`)
     // the chip is the SHORT form of the line beside it — same fact, two lengths
@@ -3190,5 +3227,55 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     expect(receipt).toContain('cg-quote')
     expect(receipt).toContain('cg-find-count')
     expect(claim).not.toContain('cg-quote')
+  })
+})
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ⚖ FIX ROUND 2 (S16-R2) — the blind round's findings, each pinned where it
+   was fixed. Copy first, because five of the six copy findings are strings a
+   reader hears rather than shapes a reader sees.
+   ═══════════════════════════════════════════════════════════════════════════ */
+describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
+  /** Every `data-guide` sentence this room ships, read out of the screen. */
+  const GUIDES = [...SCREEN_SRC.matchAll(/data-guide=(?:"([^"]*)"|\{`([^`]*)`\})/g)].map((m) => m[1] ?? m[2])
+
+  it('R2-1 · 準備中 never sits in a chip beside a link that really navigates', () => {
+    // In this app a 「準備中」 CHIP marks a control that does NOTHING — the
+    // 予約一覧, 設定 and 今日の運営 rooms all spell it that way — so beside a
+    // working link it says 「this door is broken」. The caveat is a note
+    // SENTENCE, and it names what is unfinished rather than labelling the door.
+    expect(PROPS_CODE).toContain("note: '公開範囲の編集は準備中です。'")
+    expect(PROPS_CODE).not.toContain('doorState')
+    expect(SCREEN_CODE).not.toContain('doorState')
+    // the boundary's own guide text carries the same caveat, so a reader on the
+    // tour hears it too
+    const guide = GUIDES.find((g) => g.includes('全スタッフ表示は、権限') || g.includes('「設定を開く」から設定画面に移動できます'))
+    expect(guide).toContain('公開範囲の編集は準備中です。')
+  })
+
+  it('R2-2 · no NEW guide sentence carries a mid-sentence em dash', () => {
+    // The room reserves the em dash for two pre-existing strings (the footnote
+    // and the ROI honesty note); every guide sentence is written as sentences.
+    const dashed = GUIDES.filter((g) => g.includes(' — ') || g.includes('—'))
+    expect({ dashed }).toEqual({ dashed: [] })
+    expect(GUIDES.some((g) => g.includes('右がその根拠です。'))).toBe(true)
+  })
+
+  it('R2-3 · 絞り込む is spelled in kanji, as every sibling room spells it', () => {
+    expect(SCREEN_CODE).toContain('aria-label="区分で絞り込む"')
+    expect(SCREEN_SRC).not.toContain('しぼり込')
+  })
+
+  it('R2-6 · the consent guide says each reassurance ONCE', () => {
+    // The fixed lead used to restate what every state's own `body` already
+    // says — 「断ったことは誰にも表示されません」 came out twice in one utterance
+    // on the declined state. The lead keeps only its first sentence.
+    expect(SCREEN_CODE).toContain('data-guide={`あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${ready.consent.body}`}')
+    for (const state of ['unset', 'granted', 'declined'] as const) {
+      const spoken = `あなたのセッションをAIが分析してよいかどうかは、あなたが決めます。${CONSENT_STATE[state].body}`
+      // no sentence is said twice in the composed utterance
+      const sentences = spoken.split('。').filter(Boolean)
+      expect({ state, dupes: sentences.length - new Set(sentences).size }).toEqual({ state, dupes: 0 })
+    }
   })
 })
