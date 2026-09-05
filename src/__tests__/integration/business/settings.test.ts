@@ -1642,8 +1642,13 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     const axisOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-y:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
     expect(axisOwners).toEqual([
       '.biz .pg-settings .st-side',
-      '.biz .pg-settings .st-rail',
+      // ⚠ THE LIST, NOT THE RAIL. The rail is the pinned FRAME and the list is
+      // what moves inside it, so the 設定を検索 field and the count stay put
+      // whatever is scrolled to — a field that scrolls away is one a reader has
+      // to scroll back to in order to change what they are looking for.
+      '.biz .pg-settings .st-rail-list',
     ])
+    expect(CSS_CODE).not.toMatch(/\.st-rail \{[^}]*overflow-y/)
     // …and BOTH are inside the ③ query, where the stickiness that makes them
     // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
