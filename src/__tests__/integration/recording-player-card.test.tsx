@@ -470,7 +470,13 @@ describe('the controls', () => {
 
   // The belt for what is left: an arrow key DID claim the thumb, and then focus
   // moved before its keyup (Tab away mid-seek, a shortcut, an AT moving on).
-  it('losing focus releases the thumb, and commits nothing', async () => {
+  //
+  // ⚠ CONTRACT CHANGED BY RULING (round 8). Round 5 had blur RELEASE the claim
+  // and commit nothing, on the reasoning that a keyboard seek has already
+  // committed on its own keyup. True for the keyboard — but the same handler
+  // also catches a live POINTER drag that loses focus, and there the release
+  // dropped the gesture entirely. Blur now commits what the gesture reached.
+  it('losing focus commits once, at the value the gesture reached', async () => {
     card()
     await act(async () => {
       fireEvent.click(playButton())
@@ -486,11 +492,63 @@ describe('the controls', () => {
     fireEvent.keyDown(range, { key: 'ArrowRight' })
     fireEvent.change(range, { target: { value: '400' } })
     fireEvent.blur(range) // focus moved; the keyup never lands here
-    expect(seeks).toEqual([]) // blur commits nothing
+    expect(seeks).toEqual([400])
+    // A late keyup writes nothing a second time — the ref guard is what makes
+    // commitSeek idempotent across every one of its five entry points.
+    fireEvent.keyUp(range, { key: 'ArrowRight' })
+    expect(seeks).toEqual([400])
+    // …and the playhead has its thumb back.
+    audio.currentTime = 200
     await act(async () => {
       fireEvent.timeUpdate(audio)
     })
-    expect(range.value).toBe('0') // …and the playhead has its thumb back
+    expect(range.value).toBe('200')
+  })
+
+  // ⚠ A DRAG INTERRUPTED BY A FOCUS CHANGE (round 8, delta lens NEW-1). Blur
+  // used to RELEASE the claim without committing, so a staffer who dragged
+  // somewhere, had a system sheet steal focus, then lifted their finger got
+  // nothing: the audio never moved and the display snapped back to the playhead.
+  it('a drag that loses focus then lifts still commits at the finger’s value', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.pointerDown(range)
+    fireEvent.change(range, { target: { value: '400' } })
+    fireEvent.blur(range) // a system sheet takes focus mid-drag
+    fireEvent.pointerUp(range)
+    expect(seeks).toEqual([400])
+  })
+
+  // ⚠ A CANCELLED TOUCH (round 8, delta lens RESIDUAL 1). onTouchStart claimed
+  // the thumb and there was no onTouchCancel, so a touch the system cancelled
+  // without a paired pointercancel stranded the claim and froze the display.
+  it('a cancelled touch releases the thumb and commits once', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    const seeks: number[] = []
+    Object.defineProperty(audio, 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.touchStart(range)
+    fireEvent.change(range, { target: { value: '400' } })
+    fireEvent.touchCancel(range)
+    expect(seeks).toEqual([400])
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('400')
   })
 
   it('a keyboard user’s seek commits on key up', () => {

@@ -416,13 +416,24 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           // must release the thumb too — otherwise the display freezes for good.
           onPointerCancel={commitSeek}
           onTouchEnd={commitSeek}
+          // A touch the system cancels with no matching pointercancel (round 8):
+          // every engine implementing Pointer Events sends both, but the claim
+          // must not depend on that pairing to be given back.
+          onTouchCancel={commitSeek}
           onKeyUp={commitSeek}
           // The belt for every remaining way a claim could be stranded: focus
-          // loss is the one event they all share (Tab after an arrow key, a
-          // shortcut that moves focus, an assistive tool moving on). It commits
-          // nothing — a keyboard seek has already committed on its own keyup
-          // long before blur — it only gives the playhead its thumb back.
-          onBlur={() => void (scrubbing.current = false)}
+          // loss (Tab after an arrow key, a shortcut, an assistive tool moving
+          // on, a system sheet opening mid-drag).
+          //
+          // ⚠ IT COMMITS, IT DOES NOT JUST RELEASE (round 8). Releasing alone
+          // meant a live pointer drag that lost focus was DROPPED: the staffer
+          // dragged somewhere, something took focus, they lifted their finger,
+          // and the audio never moved while the display quietly snapped back to
+          // the playhead. Committing here lands the value the finger actually
+          // reached. The ref guard inside commitSeek makes it idempotent, so a
+          // keyboard seek that already committed on its own keyup writes
+          // nothing a second time.
+          onBlur={commitSeek}
           aria-label={t('transcript.seek')}
           className={cn(
             // ⚠ `touch-pan-y` is load-bearing (fix round 3). F8 made this a

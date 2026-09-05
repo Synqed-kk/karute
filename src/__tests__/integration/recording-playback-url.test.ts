@@ -364,7 +364,7 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
   })
 })
 
-describe('mintPlaybackUrlWithClient — ONE row per mint (claim 3)', () => {
+describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
   const plays = (lines: Record<string, unknown>[]) => lines.filter((l) => l.action === 'recording.play')
 
   it('a successful mint writes exactly ONE recording.play row, severity notice', async () => {
