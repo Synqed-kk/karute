@@ -175,7 +175,17 @@ function kindsOf(props: SettingsProps): Record<string, ControlKind> {
  *  false during SSR and on the first paint by construction — the value the
  *  server can know — and the effect corrects it before anything moves. */
 function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
+  /** ⚠ READ IN THE INITIALISER, NOT IN AN EFFECT, AND THAT IS THE WHOLE BUG THE
+   *  FIRST CUT HAD. An effect runs AFTER mount — after every `useLayoutEffect`
+   *  that builds a spring — so a reader whose OS preference was set BEFORE the
+   *  page loaded got `false` at the one moment it mattered, and the springs were
+   *  built to move. Read here, the client's very FIRST render already has the
+   *  true answer. There is no hydration mismatch to fear: this value reaches no
+   *  markup, only springs, so the server's `false` and the client's `true`
+   *  render byte-identical DOM. */
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     const apply = () => setReduced(mq.matches)
@@ -1540,13 +1550,18 @@ function Collapse({
   const wrapRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
+  const builtWith = useRef<boolean | null>(null)
   const first = useRef(true)
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current
     const inner = innerRef.current
     if (!wrap || !inner) return
-    if (!springRef.current) {
+    // Same shape, same reason as `Segment`: rebuilt when `reduced` changes, so
+    // the flag is never pinned at whatever it happened to be on the first pass.
+    if (!springRef.current || builtWith.current !== reduced) {
+      springRef.current?.stop()
+      builtWith.current = reduced
       springRef.current = makeSpring(
         (v) => { if (wrapRef.current) wrapRef.current.style.height = `${Math.max(0, v).toFixed(2)}px` },
         {
@@ -1845,18 +1860,33 @@ function Segment({
   const geom = useRef({ x: 0, w: 0 })
   const seated = useRef(false)
 
+  /** ⚠ NO `if (!ref.current)` GUARD, AND THAT IS THE FIX RATHER THAN A STYLE
+   *  CHOICE. `makeSpring` captures `reduced` at construction, so a guard that
+   *  builds once pins the FIRST value forever — putting `reduced` in a deps
+   *  array re-runs the effect and the guard then refuses to rebuild, which is
+   *  the shape that shipped and lied. Built unconditionally in an effect keyed
+   *  on `reduced` (the shape `SaveCard` already had right), the springs are
+   *  replaced when the answer changes and the old pair is stopped first. */
+  useLayoutEffect(() => {
+    const paint = () => {
+      const thumb = thumbRef.current
+      if (!thumb) return
+      thumb.style.transform = `translateX(${geom.current.x.toFixed(2)}px)`
+      thumb.style.width = `${Math.max(0, geom.current.w).toFixed(2)}px`
+    }
+    xRef.current?.stop()
+    wRef.current?.stop()
+    xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
+    wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
+    // A rebuilt spring starts at 0, so the thumb is re-SEATED at its place
+    // rather than travelling there from the left edge.
+    seated.current = false
+  }, [reduced])
+
   useLayoutEffect(() => {
     const wrap = wrapRef.current
     const thumb = thumbRef.current
     if (!wrap || !thumb) return
-    const paint = () => {
-      thumb.style.transform = `translateX(${geom.current.x.toFixed(2)}px)`
-      thumb.style.width = `${Math.max(0, geom.current.w).toFixed(2)}px`
-    }
-    if (!xRef.current) {
-      xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
-      wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
-    }
     const on = wrap.querySelector<HTMLButtonElement>('.st-opt[aria-pressed="true"]')
     if (!on) { thumb.style.opacity = '0'; return }
     thumb.style.opacity = ''
@@ -1917,15 +1947,20 @@ function Switch({
   const springRef = useRef<ReturnType<typeof makeSpring> | null>(null)
   const seated = useRef(false)
 
+  /** Same shape, same reason as `Segment` above: built unconditionally, keyed on
+   *  `reduced`, so the flag can never be pinned at its first value. */
+  useLayoutEffect(() => {
+    springRef.current?.stop()
+    springRef.current = makeSpring(
+      (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
+      { response: SPRING_THUMB, eps: 0.3, reduced },
+    )
+    seated.current = false
+  }, [reduced])
+
   useLayoutEffect(() => {
     const thumb = thumbRef.current
-    if (!thumb) return
-    if (!springRef.current) {
-      springRef.current = makeSpring(
-        (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
-        { response: SPRING_THUMB, eps: 0.3, reduced },
-      )
-    }
+    if (!thumb || !springRef.current) return
     /** The travel is the track's own arithmetic, read from the element rather
      *  than typed: the touch band widens the track to 44px and a hard-coded
      *  20px would leave the thumb short of its own end there. */

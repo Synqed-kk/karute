@@ -1346,14 +1346,25 @@
   /* …and the stack goes back to being a column, undoing ②'s strip. It lives in
      THIS query rather than in a second `st-body` block of its own: the room's
      ladder is ONE QUERY PER CONTAINER, and two blocks at one threshold are two
-     places to read the same number. */
+     places to read the same number.
+
+     ⚠ AND UNDOING ② MEANS UNDOING ALL OF IT. ②'s `order` values put the toolbar
+     above the dials and the live card below them; left standing here they
+     reordered the STACK, so このページの中身 and the save state came before the
+     card and pushed it ~509px down — the card's own caption then sat 99px below
+     the pinned column's fold. Measured by the probe (S4) at 1280 rail-open. The
+     card is the stack's TOP by §2.4's ruling, so every ② placement is reset,
+     not just the ones that happened to look wrong. */
   .biz .pg-settings .st-side { flex-direction: column; align-items: stretch; gap: 8px; }
+  .biz .pg-settings .st-side-card,
+  .biz .pg-settings .st-jump,
+  .biz .pg-settings .st-save-card { order: 0; grid-column: auto; max-width: none; }
   .biz .pg-settings .st-jump { display: block; padding: 10px 11px 11px; }
   .biz .pg-settings .st-jump-head { padding: 0 2px 5px; }
   .biz .pg-settings .st-jump-list { flex-direction: column; gap: 1px; overflow: visible; }
   .biz .pg-settings .st-jump-item { width: 100%; border: 0; border-radius: 7px; padding: 5px 8px; white-space: normal; }
   .biz .pg-settings .st-jump-note { display: block; }
-  .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; }
+  .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; white-space: normal; }
   .biz .pg-settings .st-save-card .st-foot { display: block; }
   /* …and the lead may finally say 「右のカード」, because here it is. */
   .biz .pg-settings .st-lead-wide { display: inline; }

@@ -228,10 +228,35 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
       expect({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: sp.includes('reduced') })
         .toEqual({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: true })
     }
-    // …and it is read ONCE and handed down, never re-queried per component: two
-    // components asking `matchMedia` separately can disagree, and a page whose
-    // switch is still while its segment slides is worse than either answer.
-    expect((SRC_CODE.match(/matchMedia/g) ?? [])).toHaveLength(1)
+    // …and it is asked in ONE PLACE and handed down, never re-queried per
+    // component: two components asking `matchMedia` separately can disagree, and
+    // a page whose switch is still while its segment slides is worse than either
+    // answer. Both calls live inside `useReducedMotion` — the initialiser and
+    // the change listener — and nothing else in the room asks.
+    const hook = SRC_CODE.slice(SRC_CODE.indexOf('function useReducedMotion'), SRC_CODE.indexOf('export type SettingsScreenProps'))
+    expect((SRC_CODE.match(/matchMedia/g) ?? [])).toHaveLength((hook.match(/matchMedia/g) ?? []).length)
+
+    // ⚠ THE FLAG IS TRUE ON THE CLIENT'S FIRST RENDER, and this is the half the
+    // first fix got wrong. Reading it in an EFFECT means it is `false` at every
+    // `useLayoutEffect` that builds a spring — so a reader whose OS preference
+    // was set BEFORE the page loaded got springs built to move, and the deps
+    // array could not save it because…
+    expect(SRC_CODE).toContain("() => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,")
+
+    // …⚠ A CREATION GUARD PINS THE FIRST VALUE FOREVER. `makeSpring` captures
+    // `reduced` at construction, so `if (!ref.current)` means the flag can never
+    // change after the first pass — the effect re-runs and the guard refuses to
+    // rebuild. Every spring that takes `reduced` is now built UNCONDITIONALLY in
+    // an effect keyed on it, or explicitly rebuilt when it differs.
+    expect(SRC_CODE).not.toMatch(/if \(!xRef\.current\)/)
+    expect(SRC_CODE).not.toMatch(/if \(!springRef\.current\) \{\s*\n\s*springRef\.current = makeSpring/)
+    expect(SRC_CODE).toContain('builtWith.current !== reduced')
+    // …and each rebuild STOPS the old pair rather than leaking a live rAF.
+    expect(SRC_CODE).toContain('xRef.current?.stop()')
+    expect(SRC_CODE).toContain('springRef.current?.stop()')
+    // …and re-seats, so a rebuilt spring places its thumb instead of sliding it
+    // in from zero.
+    expect((SRC_CODE.match(/seated\.current = false/g) ?? []).length).toBeGreaterThanOrEqual(2)
     // …and the re-seat runs when the answer CHANGES, so a reader who turns the
     // preference on mid-session is obeyed without a reload.
     expect(SRC_CODE).toContain('}, [value, options, reduced])')

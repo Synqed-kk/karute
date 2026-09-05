@@ -1780,6 +1780,18 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // scroller around it would put the room's content behind a second scrollbar.
     expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)
     expect(CSS_CODE).not.toMatch(/\.st-main \{[^}]*overflow/)
+    // ⚠ AND ③ UNDOES ALL OF ②, not just the parts that happened to look wrong.
+    // ②'s `order` values put the toolbar above the dials and the live card below
+    // them; left standing at ③ they reorder the STACK instead, so the card — the
+    // stack's TOP by §2.4's ruling — was pushed ~509px down and its own caption
+    // ended up ~99px below the pinned column's fold, reachable only by scrolling
+    // inside the box that exists to avoid exactly that. Measured by the probe's
+    // S4 at 1280 rail-open; the sheet-level guarantee is that every ② placement
+    // is reset here.
+    expect(three).toMatch(/\.st-side-card,\s*\n\s*\.biz \.pg-settings \.st-jump,\s*\n\s*\.biz \.pg-settings \.st-save-card \{ order: 0; grid-column: auto; max-width: none; \}/)
+    // …and the toolbar's one-line `nowrap` does not follow it into the column.
+    expect(three).toMatch(/\.st-save-card \{[^}]*white-space: normal/)
+
     // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
     // a one-line chip scroller and says so by removing the vertical one.
     const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
