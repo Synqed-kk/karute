@@ -481,6 +481,11 @@ describe('the fixture data door', () => {
         // The tour engine's new address (⚖ Liam 8/23). The board's own tour is
         // unchanged; only where the four functions live moved.
         '@/business/lib/guide',
+        // ⚖ S17 fix round 5 · G2 (D-41) — the ONE link home, reached for the
+        // 保護ルール chip and nothing else. It is a string builder with no
+        // imports of its own, so this arrow adds no module to the graph below
+        // it.
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
         'next/link',
         'react',
@@ -565,6 +570,12 @@ describe('the fixture data door', () => {
         // number is read from there, so a tile, a column head, a provenance row
         // and a tour sentence cannot call one figure two things.
         '@/business/lib/dictionary',
+        // ⚖ S17 fix round 5 · G2 (D-41) — THE ONE LINK HOME. A hand-written
+        // `/business/settings?section=…` here dropped the locale and the store,
+        // so the link opened another store's settings (⚖ 8/17). Pure, no
+        // imports of its own, and this is the honest accounting: one new arrow
+        // per room that points at 設定.
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx': [
@@ -674,6 +685,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
@@ -730,6 +742,11 @@ describe('the fixture data door', () => {
       // the clamps and the refusal table decide things about values they are
       // handed, never values they fetch.
       'src/business/lib/settings.ts': [],
+      // ⚖ S17 fix round 5 · G2 — every link into 設定, built in one place. The
+      // empty inventory is the PIN on what it is: a string out of three values
+      // its caller already resolved. An import here would mean the link builder
+      // started knowing about a room.
+      'src/business/lib/settings-link.ts': [],
       'src/app/[locale]/(business)/business/settings/page.tsx': [
         './SettingsScreen',
         './settings-props',

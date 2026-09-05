@@ -58,6 +58,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { settingsHref } from '@/business/lib/settings-link'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
@@ -6316,7 +6317,10 @@ export function TodayScreen(props: TodayProps) {
                           decided since #812's room folded into the rail; a chip
                           pointing at 店舗情報・営業時間 would open a section that
                           no longer holds this control (⚖ label truth). */}
-                      <Link className="chip" href="/business/settings?section=booking-guard">変更は「設定」＞予約と確保で</Link>
+                      {/* ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME.
+                          The literal dropped the locale and the store, so on
+                          代官山 this chip opened 銀座's 予約と確保 (⚖ 8/17). */}
+                      <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

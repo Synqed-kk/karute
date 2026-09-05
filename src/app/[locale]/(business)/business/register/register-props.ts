@@ -51,6 +51,7 @@ import {
   tenderReconciliation,
   type TransactionModel,
 } from '@/business/lib/register'
+import { settingsHref } from '@/business/lib/settings-link'
 import { hhmm, yen } from '@/business/lib/today-board'
 import { type RegisterProps, type RegisterRowProps } from './RegisterScreen'
 
@@ -522,7 +523,11 @@ export async function registerProps({ locale, store, world }: RegisterPropsInput
               tolerance: redactMoney(`許容額 ${yen(tolerance)}（現金差異の承認しきい値）`),
               // ⑥ THE DIAL'S HOME, NAMED ON THE ROW THAT USES IT (registry ④).
               toleranceLinkLabel: '店舗設定で変更',
-              toleranceLinkHref: '/business/settings?section=payments',
+              // ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME, so it
+              // carries the locale and the store this drawer belongs to. The
+              // literal here opened the operator's DEFAULT store's 決済 settings
+              // from 代官山's register (⚖ 8/17).
+              toleranceLinkHref: settingsHref(locale, clamped ? storeId! : null, 'payments'),
               saveLabel: '計数を保存',
               saveRefusal: REFUSAL.cash,
               // ⑩ 金種で数える — the count sheet, collapsed. 実査額 is what these

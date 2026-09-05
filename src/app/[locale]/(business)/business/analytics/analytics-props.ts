@@ -79,6 +79,7 @@ import {
   UNCONNECTED_NUMBERS,
   type NumberId,
 } from '@/business/lib/dictionary'
+import { settingsHref } from '@/business/lib/settings-link'
 import { treatsPatients, yen } from '@/business/lib/today-board'
 import type { AnalyticsProps, RankingByMetric, TableMetric, TileProps } from './AnalyticsScreen'
 
@@ -397,7 +398,6 @@ export async function analyticsProps({
     : shown.total
   const gap = landingGap(landing, target)
   const averageNewTicket = avgNewTicket(shown.nw, shown.newCount)
-  const settingsHref = `/${locale}/business/settings${storeQuery}`
 
   // ── 推移 chart + reading ──────────────────────────────────────────────────
   const chart = chartModel(
@@ -705,7 +705,11 @@ export async function analyticsProps({
       // reservation/protection dials only — the 目標 editor is a queued
       // registry item, not built yet. The link stays real (settings DOES
       // resolve), the wording just stops promising an edit it can't do.
-      link: { href: settingsHref, label: '設定を開く', note: '目標の編集は準備中' },
+      // ⚖ S17 fix round 5 · G2 — the same ONE home the other two settings links
+      // use. This one was already carrying the locale and the lens; routing it
+      // through the helper keeps that from being a coincidence, and the string
+      // it produces is byte-identical to the one it produced before.
+      link: { href: settingsHref(locale, clamped ? storeId! : null), label: '設定を開く', note: '目標の編集は準備中' },
       bar: target > 0 ? Math.min(pace, 100) : null,
       guide: null,
       calc: null,

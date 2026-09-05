@@ -1264,7 +1264,12 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     // the 決済 section, which the settings page opens on through `?section=`. A
     // signpost that names a destination it could reach and does not is a sentence
     // asking the reader to do the walking.
-    expect(props.close!.cash.toleranceLinkHref).toBe('/business/settings?section=payments')
+    // ⚖ S17 fix round 5 · G2 (D-43) — AND IT REACHES THE RIGHT STORE'S 決済.
+    // The literal this pin held dropped the locale segment this file spells in
+    // every other href AND the resolved store, so on 代官山 the link opened the
+    // operator's DEFAULT store's settings (⚖ 8/17). Same destination section,
+    // built by the one link home every room that points at 設定 uses.
+    expect(props.close!.cash.toleranceLinkHref).toBe(`/ja/business/settings?section=payments&store=${STORE_A}`)
     expect(props.close!.cash.tolerance).not.toContain('準備中')
     // The DIAL itself is still READ from レジ's own plane, never hardcoded.
     expect(props.close!.cash.tolerance).toContain(yen(cashTolerance))

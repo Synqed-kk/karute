@@ -84,6 +84,7 @@ import {
   type SettingsProps,
   type SettingsSection,
 } from '@/business/lib/settings'
+import { settingsHref } from '@/business/lib/settings-link'
 import { settingsProps } from '@/app/[locale]/(business)/business/settings/settings-props'
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
@@ -2962,12 +2963,47 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     // has ONE home — 予約と確保 — so a link to the old section would open a page
     // that cannot do what the chip promises (⚖ label truth). The old target is
     // forbidden, not merely replaced.
-    expect(today).toContain('/business/settings?section=booking-guard')
+    // ⚖ S17 fix round 5 · G2 (D-42) — RE-PINNED AT THE ONE HOME. The literals
+    // these two lines held dropped the LOCALE segment their own files spell in
+    // every other href, and the RESOLVED STORE — so on 代官山 both opened 銀座's
+    // settings (⚖ 8/17, and ④'s own lesson: a key screen is reached by the
+    // resolved lens). The section each one points at is unchanged; what moved is
+    // that neither room spells the path any more.
+    expect(today).toContain("settingsHref(props.locale, props.store, 'booking-guard')")
     expect(today).not.toContain('/business/settings?section=store-hours')
     expect(today).not.toContain('変更は「設定」ルームで（準備中）')
     const register = read('src/app/[locale]/(business)/business/register/register-props.ts')
-    expect(register).toContain('/business/settings?section=payments')
+    expect(register).toContain("settingsHref(locale, clamped ? storeId! : null, 'payments')")
     expect(register).not.toContain('設定の画面はまだ準備中')
+  })
+
+  it('⚖ S17 fix round 5 · G2 — every link into 設定 comes out of ONE home, and carries the store', () => {
+    // ⚠ THE HELPER'S OWN BEHAVIOUR, driven rather than described. A resolved
+    // lens rides on the URL; NO lens writes no `store=` at all, because writing
+    // the reader's default in would turn 「wherever I am」 into a decision they
+    // never made — the same rule 今日の運営's `dayHref` already obeys.
+    expect(settingsHref('ja', STORE_B, 'booking-guard')).toBe(
+      `/ja/business/settings?section=booking-guard&store=${STORE_B}`,
+    )
+    expect(settingsHref('ja', STORE_A, 'payments')).toBe(`/ja/business/settings?section=payments&store=${STORE_A}`)
+    expect(settingsHref('ja', null, 'payments')).toBe('/ja/business/settings?section=payments')
+    expect(settingsHref('ja', STORE_A)).toBe(`/ja/business/settings?store=${STORE_A}`)
+    expect(settingsHref('ja', null)).toBe('/ja/business/settings')
+    // …and the locale is really the caller's, never this room's.
+    expect(settingsHref('en', null, 'payments')).toBe('/en/business/settings?section=payments')
+
+    // ⚠ AND NOBODY SPELLS IT BY HAND ANY MORE — swept, not listed, so a fourth
+    // room pointing here with a literal fails this test on the day it is written
+    // rather than at the next review. The helper itself is the one file allowed
+    // to know the path.
+    const BIZ_DIR = join(process.cwd(), 'src/app/[locale]/(business)')
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : [],
+      )
+    const PATH_BY_HAND = /['"`]\/(?:\$\{[^}]*\}\/)?business\/settings/
+    const handWritten = walk(BIZ_DIR).filter((f) => PATH_BY_HAND.test(readFileSync(f, 'utf8')))
+    expect(handWritten.map((f) => f.slice(BIZ_DIR.length + 1))).toEqual([])
   })
 })
 
