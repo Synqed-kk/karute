@@ -26,7 +26,7 @@ import { useTranslations } from 'next-intl'
 import { Pause, Play, RotateCcw, RotateCw } from 'lucide-react'
 
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
-import { useGlobalRecorder } from '@/hooks/use-global-recorder'
+import { recorderIsLive, useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { cn } from '@/lib/utils'
 
 /** ⚖ Liam 9/3: "X2 or X3". */
@@ -60,6 +60,9 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
    *  a second listen — it never loops). */
   const url = useRef<string | null>(null)
   const remintUsed = useRef(false)
+  /** The mint in flight, so a second tap joins it instead of starting another
+   *  (F5). Cleared in the same `finally` that clears `busy`. */
+  const pending = useRef<Promise<string | null> | null>(null)
 
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -68,8 +71,11 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
   const [speedIndex, setSpeedIndex] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
 
+  // The hook is here to RE-RENDER on recorder changes; it is never the value a
+  // guard is decided on (fix round 2, F3). A snapshot read at the top of an
+  // async handler is stale by the time the mint resolves, and that window is
+  // exactly long enough to start a recording in.
   const recorder = useGlobalRecorder()
-  const recorderLive = recorder.state === 'recording' || recorder.state === 'paused'
 
   const say = useCallback((message: string) => {
     setNotice(message)
@@ -78,13 +84,11 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
 
   // RECORDING WINS: a recorder that starts while this is playing pauses it.
   // Not a refusal — the staffer is mid-session and the sound must stop itself.
+  // (`playing` follows from the element's own pause event — F6.)
   useEffect(() => {
     if (recorder.state !== 'recording') return
     const audio = audioRef.current
-    if (audio && !audio.paused) {
-      audio.pause()
-      setPlaying(false)
-    }
+    if (audio && !audio.paused) audio.pause()
   }, [recorder.state])
 
   // Release on unmount: an element left with a src holds a decoded buffer (and
@@ -101,49 +105,82 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
 
   const mint = useCallback(async (): Promise<string | null> => {
     if (url.current) return url.current
+    // ONE TAP, ONE MINT (fix round 2, F5). `url.current` is only set AFTER the
+    // round trip, so two taps inside it used to run two full mints — two signed
+    // urls and two `recording.play` rows for one listen. Tapping again while
+    // nothing has visibly happened is the normal impatient gesture on a phone,
+    // so this is the common case, not the corner. The second tap awaits the
+    // SAME promise.
+    if (pending.current) return pending.current
     setBusy(true)
-    try {
-      const result = await getRecordingPipelinePort().mintPlaybackUrl(karuteId)
-      if ('error' in result) {
-        say(t('transcript.playbackUnavailable'))
-        return null
+    const run = (async () => {
+      try {
+        const result = await getRecordingPipelinePort().mintPlaybackUrl(karuteId)
+        if ('error' in result) {
+          say(t('transcript.playbackUnavailable'))
+          return null
+        }
+        url.current = result.url
+        if (result.durationSeconds !== null) setTotal(result.durationSeconds)
+        return result.url
+      } finally {
+        pending.current = null
+        setBusy(false)
       }
-      url.current = result.url
-      if (result.durationSeconds !== null) setTotal(result.durationSeconds)
-      return result.url
-    } finally {
-      setBusy(false)
-    }
+    })()
+    pending.current = run
+    return run
   }, [karuteId, say, t])
 
-  const toggle = useCallback(async () => {
+  /** Point the element at `src` and start it. `playing` is NOT set here — the
+   *  element's own `play`/`pause` events are the truth (F6). */
+  const start = useCallback(
+    (audio: HTMLAudioElement, src: string) => {
+      // ⚖ THE LAST-MOMENT GUARD (F3). Asked here, immediately before play(), so
+      // it covers the caller that awaited a mint AND the re-mint path — the two
+      // windows in which a recording can start after the first check passed.
+      if (recorderIsLive()) {
+        say(t('transcript.playBlockedWhileRecording'))
+        return
+      }
+      if (audio.src !== src) {
+        audio.src = src
+        audio.playbackRate = SPEEDS[speedIndex]
+      }
+      // D-11, Karute web in mobile Safari: the async mint can outlive the tap's
+      // gesture (NotAllowedError). The url is in hand by then, so the SECOND
+      // tap plays — the button stays on 再生 rather than lying about its state.
+      // No notice: the staffer's own next tap is the recovery.
+      void audio.play().catch(() => {})
+    },
+    [say, speedIndex, t],
+  )
+
+  const toggle = useCallback(() => {
     const audio = audioRef.current
     if (!audio) return
-    if (recorderLive) {
+    if (recorderIsLive()) {
       say(t('transcript.playBlockedWhileRecording'))
       return
     }
     if (!audio.paused) {
       audio.pause()
-      setPlaying(false)
       return
     }
-    const src = await mint()
-    if (!src) return
-    if (audio.src !== src) {
-      audio.src = src
-      audio.playbackRate = SPEEDS[speedIndex]
+    // ⚖ THE SECOND TAP IS SYNCHRONOUS (F4). With a url already in hand there is
+    // NO await before play(), so the call stays inside the tap's user-gesture
+    // token. Karute web in mobile Safari is the door that needs this: whether
+    // WebKit forwards a gesture across a microtask is version-dependent, and a
+    // shipped play button must not depend on it. The async path is taken only
+    // for the FIRST mint.
+    if (url.current) {
+      start(audio, url.current)
+      return
     }
-    try {
-      await audio.play()
-      setPlaying(true)
-    } catch {
-      // D-11, Karute web in mobile Safari: the async mint can outlive the tap's
-      // gesture (NotAllowedError). The url is in hand now, so the SECOND tap
-      // plays — the button stays on 再生 rather than lying about its state.
-      setPlaying(false)
-    }
-  }, [mint, recorderLive, say, speedIndex, t])
+    void mint().then((src) => {
+      if (src) start(audio, src)
+    })
+  }, [mint, say, start, t])
 
   const seekBy = useCallback(
     (delta: number) => {
@@ -177,6 +214,13 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
             setTotal(e.currentTarget.duration)
           }
         }}
+        // ⚖ THE ELEMENT IS THE TRUTH (F6). On a phone the system pauses media
+        // constantly — an incoming call, another app taking the audio session,
+        // Control Center, the lock screen, a headphone button. Driving `playing`
+        // from our own toggle left the button reading 一時停止 while nothing
+        // played, and the first tap then only paused an already-paused element.
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
         onError={() => {
           // The signed url expired under a long listen (D-3). Re-mint ONCE and
@@ -189,26 +233,21 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           remintUsed.current = true
           const at = elapsed
           url.current = null
-          void (async () => {
-            const src = await mint()
+          void mint().then((src) => {
             if (!src) return
-            audio.src = src
+            // Through `start`, so the re-mint inherits the last-moment recorder
+            // guard it used to have none of (F3).
+            start(audio, src)
             audio.currentTime = at
-            audio.playbackRate = SPEEDS[speedIndex]
-            try {
-              await audio.play()
-              setPlaying(true)
-            } catch {
-              setPlaying(false)
-            }
-          })()
+          })
         }}
       />
 
       <div className="flex items-center gap-[9px]">
         <button
           type="button"
-          onClick={() => void toggle()}
+          onClick={toggle}
+          disabled={busy}
           aria-label={playing ? t('transcript.pause') : t('transcript.play')}
           className={cn(
             'inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover',

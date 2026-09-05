@@ -45,7 +45,13 @@ jest.mock('@/lib/ports/recording-port', () => ({
 
 const recorderState = { current: 'idle' as 'idle' | 'recording' | 'paused' | 'recorded' }
 jest.mock('@/hooks/use-global-recorder', () => ({
+  // The hook is the RENDER snapshot; recorderIsLive is the LIVE read the guard
+  // uses immediately before play(). Both come from this one module, so a test
+  // that moves `recorderState.current` mid-flight moves both — which is what
+  // the race case below needs.
   useGlobalRecorder: () => ({ state: recorderState.current }),
+  recorderIsLive: () =>
+    recorderState.current === 'recording' || recorderState.current === 'paused',
 }))
 
 import { RecordingTranscriptCard } from '@/components/karute/redesign/detail/RecordingTranscriptCard'
@@ -75,11 +81,15 @@ beforeEach(() => {
     expiresAt: '2026-09-06T00:00:00.000Z',
     durationSeconds: 742,
   })
-  // jsdom implements neither play() nor pause() on HTMLMediaElement.
+  // jsdom implements neither play() nor pause() on HTMLMediaElement. The stubs
+  // DISPATCH the real events as well as flipping `paused`, because since F6 the
+  // element is the source of truth for the button's label — a stub that moved
+  // `paused` silently would let a component that never listens still pass.
   Object.defineProperty(HTMLMediaElement.prototype, 'play', {
     configurable: true,
     value: jest.fn(function (this: HTMLMediaElement) {
       Object.defineProperty(this, 'paused', { configurable: true, value: false })
+      this.dispatchEvent(new Event('play'))
       return Promise.resolve()
     }),
   })
@@ -87,6 +97,7 @@ beforeEach(() => {
     configurable: true,
     value: jest.fn(function (this: HTMLMediaElement) {
       Object.defineProperty(this, 'paused', { configurable: true, value: true })
+      this.dispatchEvent(new Event('pause'))
     }),
   })
 })
@@ -211,6 +222,75 @@ describe('the controls', () => {
     expect(audioEl().currentTime).toBe(300)
   })
 
+  // ⚠ L4-2 (F4). Karute web in mobile Safari: whether WebKit forwards the user
+  // gesture across a microtask is version-dependent, so the cached-url path
+  // must not await anything before play().
+  it('with a url in hand the SECOND tap calls play() synchronously, inside the gesture', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '一時停止' }))
+    })
+    ;(HTMLMediaElement.prototype.play as jest.Mock).mockClear()
+    // NO await, NO act flush — if anything yields before play(), this is 0.
+    fireEvent.click(screen.getByRole('button', { name: '再生' }))
+    expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
+  })
+
+  // ⚠ L1 MEDIUM-1 (F5). Two taps inside one round trip used to mint twice —
+  // two signed urls and two `recording.play` rows for ONE listen.
+  it('two rapid taps mint ONCE — the second joins the promise in flight', async () => {
+    let release: (v: { url: string; expiresAt: string; durationSeconds: number | null }) => void = () => {}
+    mintPlaybackUrl.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    card()
+    const btn = playButton()
+    // BOTH taps inside ONE act, i.e. before React re-renders — so `disabled`
+    // has not applied yet and the second tap really does reach the handler.
+    // Without the in-flight promise ref this mints twice: two signed urls and
+    // two `recording.play` rows for one listen.
+    await act(async () => {
+      fireEvent.click(btn)
+      fireEvent.click(btn)
+    })
+    await act(async () => {
+      release({ url: 'https://proj/read/take.mp4?token=t', expiresAt: 'x', durationSeconds: 742 })
+    })
+    expect(mintPlaybackUrl).toHaveBeenCalledTimes(1)
+  })
+
+  // The other half of F5: once React HAS re-rendered, the button is disabled,
+  // so an impatient third tap cannot reach the handler at all.
+  it('the play button is disabled while a mint is in flight', async () => {
+    mintPlaybackUrl.mockReturnValue(new Promise(() => {}))
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(playButton()).toBeDisabled()
+  })
+
+  // ⚠ L4-5 (F6). On a phone the system pauses media constantly — a call, the
+  // lock screen, another app taking the audio session. The button used to keep
+  // reading 一時停止 while nothing played, and the first tap only re-paused it.
+  it('an OUTSIDE pause flips the button back to 再生 without a tap', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(screen.getByRole('button', { name: '一時停止' })).toBeTruthy()
+    await act(async () => {
+      Object.defineProperty(audioEl(), 'paused', { configurable: true, value: true })
+      fireEvent.pause(audioEl())
+    })
+    expect(screen.getByRole('button', { name: '再生' })).toBeTruthy()
+  })
+
   it('a mint refusal shows one line and leaves the button on 再生', async () => {
     mintPlaybackUrl.mockResolvedValue({ error: 'forbidden' })
     card()
@@ -242,6 +322,43 @@ describe('recording always wins', () => {
       fireEvent.click(playButton())
     })
     expect(mintPlaybackUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚠ L4-1, REPRODUCED THEN CLOSED (F3). The old code read the recorder ONCE at
+  // the top of the handler and never again after the mint's await, and the
+  // pause-on-record effect was a no-op because the element was not playing yet.
+  // Net effect: tap 再生, start a recording while the url is minting, and the
+  // previous session's audio played into the live microphone.
+  it('a recorder that starts DURING the mint is seen — the take never plays over a live mic', async () => {
+    let release: (v: { url: string; expiresAt: string; durationSeconds: number | null }) => void = () => {}
+    mintPlaybackUrl.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    card()
+    fireEvent.click(playButton())
+    // …the recording starts while the url is still in flight.
+    recorderState.current = 'recording'
+    await act(async () => {
+      release({ url: 'https://proj/read/take.mp4?token=t', expiresAt: 'x', durationSeconds: 742 })
+    })
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
+    expect(screen.getByText('録音中は再生できません')).toBeTruthy()
+  })
+
+  // The re-mint path had no recorder check at all — the same window, wider.
+  it('the re-mint after a media error also refuses while the recorder is live', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    ;(HTMLMediaElement.prototype.play as jest.Mock).mockClear()
+    recorderState.current = 'recording'
+    await act(async () => {
+      fireEvent.error(audioEl())
+    })
+    expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
   })
 
   it('a recorder that STARTS pauses the player', async () => {
