@@ -45,7 +45,7 @@ import {
   accessFor,
   addToCollection,
   blockDirty,
-  blockHitOf,
+  hitOf,
   blockingError,
   changedCount,
   clampCoachingFloor,
@@ -1292,7 +1292,7 @@ describe('the rail — canon’s IA, and never an option wall', () => {
 // cannot mount React (no react-dom in the module map), and a rule that only
 // exists inside a handler can only be checked by mounting one.
 describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shapes', () => {
-  it('the search index is the ROW, its GROUP, its SECTION and every BLOCK TITLE inside it', async () => {
+  it('the search index is the ROW, its GROUP, its SECTION, every BLOCK TITLE and every ROW LABEL inside it', async () => {
     const props = await room({ store: STORE_A })
     const byId = Object.fromEntries(props.sections.map((sec) => [sec.id, sec]))
     const rowOf = (id: string) => props.rail.find((r) => r.id === id)!
@@ -1309,9 +1309,61 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and a query that matches ONLY a block title still finds the row, and the
     // rail says WHICH block explained it rather than looking like a mismatch.
     expect(matchesQuery(hours, '臨時休業')).toBe(true)
-    expect(blockHitOf(rowOf('store-hours'), byId['store-hours'], '臨時休業')).toBe('臨時休業')
+    expect(hitOf(rowOf('store-hours'), byId['store-hours'], '臨時休業')).toBe('臨時休業')
     // …and a query the row's OWN label carries needs no explanation.
-    expect(blockHitOf(rowOf('store-hours'), byId['store-hours'], '営業時間')).toBeNull()
+    expect(hitOf(rowOf('store-hours'), byId['store-hours'], '営業時間')).toBeNull()
+
+    // ⚖ S17 · F13 — AND THE SETTINGS THEMSELVES ARE FINDABLE BY THEIR OWN NAME.
+    // The room's own worked example was false: 「休憩」 is 休憩の有給扱い, a ROW,
+    // and no block title contains it — so typing the word the tour teaches
+    // returned the empty state. Row labels are in the index now, and the rail
+    // chip names the ROW rather than the block it happens to sit in, because the
+    // row is what the reader typed.
+    expect(hours).toContain('休憩の有給扱い')
+    expect(matchesQuery(hours, '休憩')).toBe(true)
+    expect(hitOf(rowOf('store-hours'), byId['store-hours'], '休憩')).toBe('休憩の有給扱い')
+    // …and the tour really does teach that word, so the sentence is true as
+    // written rather than true in a later round.
+    expect(SCREEN_CODE).toContain('「休憩」と入れると、その言葉を持つページが残ります。')
+    // …every row label of every section is in its own row's index — not a
+    // sample, the whole page (339 controls' worth of names).
+    for (const sec of props.sections) {
+      const text = searchTextOf(rowOf(sec.id), sec)
+      for (const b of sec.blocks) for (const r of b.rows) {
+        expect({ section: sec.id, row: r.label, indexed: text.includes(r.label) }).toEqual({ section: sec.id, row: r.label, indexed: true })
+      }
+    }
+    // …and the ONE section that renders itself hands over its own sub-headings,
+    // so 予約と確保 is findable by 上書きの権限 like every other setting is
+    // findable by its name (⚖ D-8 keeps the JUMP list at two — findable and
+    // jumpable are different questions).
+    // ⚠ READ OUT OF THE SECTION'S OWN SOURCE, not imported: this suite's import
+    // fence keeps react-dom out, so the component module cannot be loaded here —
+    // and reading the list from the file is the stronger pin anyway, because the
+    // next assertion checks every entry against a declaration in that same file.
+    const headBlock = SECTION_CODE.slice(SECTION_CODE.indexOf('export const STORE_POLICY_HEADINGS'))
+    const headings = [...headBlock.slice(headBlock.indexOf('= ['), headBlock.indexOf(']')).matchAll(/'([^']+)'/g)].map((m) => m[1])
+    expect(headings.length).toBe(12)
+    // …and the list COVERS everything that section declares, which is the
+    // direction that matters: a heading it draws and this list forgets is a
+    // setting a reader cannot type the name of. (詳細設定 declares nothing — it
+    // is the disclosure the eight dials fold into, not a setting — so it is
+    // checked as text.)
+    const declared = [...SECTION_CODE.matchAll(/data-guide-title="([^"]+)"/g)].map((m) => m[1])
+    expect(declared.length).toBeGreaterThan(0)
+    for (const d of declared) expect({ declares: d, indexed: headings.includes(d) }).toEqual({ declares: d, indexed: true })
+    expect(headings).toContain('詳細設定')
+    expect(SECTION_CODE).toContain("{ id: 'bg.adv', title: '詳細設定' }")
+    const bg = searchTextOf(rowOf('booking-guard'), byId['booking-guard'], headings)
+    for (const h of headings) expect({ heading: h, indexed: bg.includes(h) }).toEqual({ heading: h, indexed: true })
+    expect(hitOf(rowOf('booking-guard'), byId['booking-guard'], '上書きの権限', headings)).toBe('上書きの権限')
+    expect(byId['booking-guard'].blocks).toEqual([])
+    // …and the SCREEN really hands them over — to the filter AND to the chip.
+    // Without this the list above is a fact about a function nobody calls with
+    // it, which is exactly how the battery caught the first cut of this pin.
+    expect(SCREEN_CODE).toContain('(id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)')
+    expect(SCREEN_CODE).toContain('searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id))')
+    expect(SCREEN_CODE).toContain('hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))')
     // An empty query is not a filter; a query nothing matches is honest silence.
     expect(matchesQuery(hours, '')).toBe(true)
     expect(matchesQuery(hours, '   ')).toBe(true)

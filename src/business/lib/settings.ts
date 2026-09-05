@@ -628,14 +628,30 @@ export function controlIdsOf(section: SettingsSection): string[] {
 // second list to keep in step: a block that renders is a block that is findable,
 // and one that is deleted stops being findable in the same commit.
 
-/** What a rail row matches on: its own label, its group, its section's title and
- *  every block title inside it. */
-export function searchTextOf(row: RailRow, section: SettingsSection | null): string {
+/** What a rail row matches on: its own label, its group, its section's title,
+ *  every block title inside it, and EVERY ROW LABEL inside those blocks.
+ *
+ *  ⚖ S17 · F13 — THE ROWS ARE THE SETTINGS, so a search that cannot find one by
+ *  its own name is not a settings search. The room's own worked example proved
+ *  it: 「休憩」 is 休憩の有給扱い, a ROW inside 予約ボードの操作, and typing it
+ *  returned the empty state while the tour told the reader it would find
+ *  店舗情報・営業時間. Rail labels and block titles alone index 22 + 55 names for
+ *  a page that offers 339 controls.
+ *
+ *  `extra` is for the ONE section that renders itself and therefore has no
+ *  blocks in this vocabulary (予約と確保 — ⚖ D-8): it hands over its own
+ *  sub-headings rather than keeping a second list here. Still no second list —
+ *  the terms come from the file that draws them. */
+export function searchTextOf(row: RailRow, section: SettingsSection | null, extra?: readonly string[]): string {
   const parts = [row.label, row.group]
   if (section) {
     parts.push(section.title)
-    for (const b of section.blocks) parts.push(b.title)
+    for (const b of section.blocks) {
+      parts.push(b.title)
+      for (const r of b.rows) parts.push(r.label)
+    }
   }
+  if (extra) parts.push(...extra)
   return parts.join(' ')
 }
 
@@ -649,15 +665,30 @@ export function matchesQuery(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(q)
 }
 
-/** The block title that EXPLAINS a hit whose row label does not contain the
- *  query — 「休憩」 finds 店舗情報・営業時間 through its 予約ボードの操作 block, and
- *  the rail says so instead of looking like a mismatch. `null` when the row's
- *  own label already carries the query. */
-export function blockHitOf(row: RailRow, section: SettingsSection | null, query: string): string | null {
+/** WHAT EXPLAINS a hit whose rail label does not contain the query — 「休憩」
+ *  finds 店舗情報・営業時間 through its 休憩の有給扱い row, and the rail says so
+ *  instead of looking like a mismatch. `null` when the row's own label already
+ *  carries the query.
+ *
+ *  ⚖ S17 · F13 — THE MOST SPECIFIC MATCH WINS, and that is the row: it is the
+ *  setting the reader typed the name of, and a rail chip reading 予約ボードの操作
+ *  when they typed 休憩 sends them looking for a block head instead of a switch.
+ *  Block titles answer next, then the self-rendering section's own sub-headings.
+ *  (Named `blockHitOf` before this round, when a block title was the only thing
+ *  it could return.) */
+export function hitOf(row: RailRow, section: SettingsSection | null, query: string, extra?: readonly string[]): string | null {
   const q = query.trim()
-  if (q === '' || section === null) return null
+  if (q === '') return null
   if (matchesQuery(row.label, q)) return null
-  return section.blocks.find((b) => matchesQuery(b.title, q))?.title ?? null
+  if (section !== null) {
+    for (const b of section.blocks) {
+      const hitRow = b.rows.find((r) => matchesQuery(r.label, q))
+      if (hitRow) return hitRow.label
+    }
+    const hitBlock = section.blocks.find((b) => matchesQuery(b.title, q))
+    if (hitBlock) return hitBlock.title
+  }
+  return extra?.find((t) => matchesQuery(t, q)) ?? null
 }
 
 // ── ⚖ S17 STEP 1 — WHAT IS UNSAVED, PER BLOCK AND PER SECTION ───────────────

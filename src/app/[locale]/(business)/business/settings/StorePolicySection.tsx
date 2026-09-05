@@ -144,6 +144,34 @@ export type StorePolicySectionProps = StorePolicyProps & {
  *  panel is a control that does nothing, which is the dead lever this room's own
  *  census exists to catch. The card is not an anchor either: it is IN the stack
  *  that holds the list. */
+/** ⚖ S17 · F13 — WHAT A READER CAN TYPE TO FIND THIS SECTION.
+ *
+ *  Every other section is indexed from `settingsProps`' own blocks and rows.
+ *  This one renders itself (⚖ A1) and has no blocks in that vocabulary, so it
+ *  hands over its own sub-headings — the twelve `data-guide-title` declarations
+ *  it really draws. There is still no second list: the suite pins every entry
+ *  here against a declaration in this file, so a heading that is renamed or
+ *  removed fails the round rather than quietly leaving the search index.
+ *
+ *  ⚠ NOT the jump list. `STORE_POLICY_ANCHORS` is two on purpose (⚖ D-8): the
+ *  eight dials live inside a `<details>` a reader may have folded away, and a
+ *  jump item landing on a collapsed panel is a dead lever. Being FINDABLE and
+ *  being JUMPABLE are different questions. */
+export const STORE_POLICY_HEADINGS: ReadonlyArray<string> = [
+  'プリセット',
+  'スタッフが見るカード',
+  '詳細設定',
+  '上書きの権限',
+  '名指しロック',
+  '長押しで確定',
+  '店長のみでも警告を止める',
+  'すき間の販売',
+  '新規のお客様の確保',
+  '確保枠の会員ランク開放',
+  '予約の刻み',
+  '保存',
+]
+
 export const STORE_POLICY_ANCHORS: ReadonlyArray<{ id: string; title: string }> = [
   { id: 'bg.presets', title: 'プリセット' },
   { id: 'bg.adv', title: '詳細設定' },

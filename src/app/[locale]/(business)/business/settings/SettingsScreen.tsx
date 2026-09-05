@@ -73,11 +73,11 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
-import { StorePolicySection, STORE_POLICY_ANCHORS, type StorePolicyProps } from './StorePolicySection'
+import { StorePolicySection, STORE_POLICY_ANCHORS, STORE_POLICY_HEADINGS, type StorePolicyProps } from './StorePolicySection'
 import {
   addToCollection,
   blockDirty,
-  blockHitOf,
+  hitOf,
   blockingError,
   changedCount,
   commitNumber,
@@ -122,6 +122,12 @@ const SETTLE_MS = 500
  *  (A3). Named once so the three places that ask are asking the same question,
  *  and `settings.ts`'s RAIL is where the id itself is declared. */
 const BOOKING_GUARD_ID = 'booking-guard'
+
+/** ⚖ S17 · F13 — the search terms of the ONE section that renders itself. Asked
+ *  exactly the way the scroll-spy asks for its anchors, so 予約と確保 is one
+ *  special case in this file rather than two. */
+const termsFor = (id: string): readonly string[] | undefined =>
+  (id === BOOKING_GUARD_ID ? STORE_POLICY_HEADINGS : undefined)
 
 /** 自分の表示設定's home. Versioned in the name so a later shape change cannot
  *  read an older one's value. */
@@ -578,7 +584,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
   /** The rail after the query. Every row keeps its group so the list never
    *  reshuffles under a reader mid-type. */
   const shownRail = useMemo(
-    () => props.rail.filter((row) => matchesQuery(searchTextOf(row, sectionById[row.id] ?? null), query)),
+    () => props.rail.filter((row) => matchesQuery(searchTextOf(row, sectionById[row.id] ?? null, termsFor(row.id)), query)),
     [props.rail, sectionById, query],
   )
 
@@ -787,7 +793,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                         <RailItem
                           key={row.id}
                           row={row}
-                          hit={blockHitOf(row, sectionById[row.id] ?? null, query)}
+                          hit={hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))}
                           on={row.id === shownId}
                           onOpen={openSection}
                         />
