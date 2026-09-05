@@ -900,6 +900,49 @@ export function CoachingScreen(props: CoachingProps) {
               aria-label="表示の切り替え"
               data-guide-title="表示の切り替え"
               data-guide="自分の記録だけを見る画面と、店舗のスタッフ全体を見る画面を切り替えます。全スタッフ表示では、一人ひとりの数字は出ません。"
+              /* ⚖ GREPTILE-1 — A TAB ROW IS ONE TAB STOP, AND THE ARROWS MOVE
+                 INSIDE IT (WAI-ARIA tabs). Three tabs each sitting in the normal
+                 tab order is three stops a keyboard reader has to walk past to
+                 reach the panel, and no way at all to change the selection
+                 without a pointer — the ⚖ KEYBOARD-REACH law, on the room's
+                 primary control. So: `tabIndex` roves with the selection (below)
+                 and ONE handler on the ROW owns the keys that move within it,
+                 because the movement belongs to the row rather than to any tab.
+                 · THE WALK IS READ OUT OF THE ROW ITSELF, so its order IS the DOM
+                   order and 経営への効果 joins or leaves the walk exactly when it
+                   joins or leaves the page — nothing here is told about
+                   `canViewRoi` a second time, so nothing here can disagree with
+                   the JSX about which tabs exist.
+                 · AUTOMATIC ACTIVATION: an arrow SELECTS as well as focuses, the
+                   same rule a click follows (one rule, one home). The panels are
+                   already assembled, so there is no cost to opening one, and a
+                   reader arrowing along the row hears each screen rather than a
+                   name they must then press Enter to see.
+                 · `preventDefault` fires ONLY on the four keys handled here —
+                   Tab still leaves the row, Enter and Space stay native on the
+                   button, and every other key is left to the browser.
+                 ⚠ The underline is NOT touched: it follows `activeTab` through
+                 its own layout effect (R2-29), and `setTab` is the only thing
+                 this handler moves. */
+              onKeyDown={(e) => {
+                const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+                if (step === 0 && e.key !== 'Home' && e.key !== 'End') return
+                // ⚠ `[role=tab]` UNQUOTED, deliberately: the room's own census counts
+                // the JSX attribute `role="tab"` and expects exactly three of them, so
+                // a selector spelling it the same way would read as a fourth tab.
+                const tabs = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]'))
+                const at = tabs.findIndex((t) => t.dataset.tab === activeTab)
+                const next = e.key === 'Home'
+                  ? tabs[0]
+                  : e.key === 'End'
+                    ? tabs[tabs.length - 1]
+                    : tabs[(at + step + tabs.length) % tabs.length]
+                const key = next?.dataset.tab
+                if (key !== 'self' && key !== 'team' && key !== 'roi') return
+                e.preventDefault()
+                setTab(key)
+                next.focus()
+              }}
             >
               <span className="cg-tab-line" ref={tabLineRef} aria-hidden="true" />
               <button
@@ -909,6 +952,12 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-selected={activeTab === 'self'}
                 aria-controls="cgPanelSelf"
                 className={`cg-tab${activeTab === 'self' ? ' is-on' : ''}`}
+                /* ⚖ GREPTILE-1 — the roving half of the pattern: the SELECTED tab is
+                   the row’s one tab stop, the rest are reached with the arrows, and
+                   `data-tab` is what lets the row’s handler name the screen a tab
+                   opens without keeping a second list of them. */
+                tabIndex={activeTab === 'self' ? 0 : -1}
+                data-tab="self"
                 data-press
                 onClick={() => setTab('self')}
               >
@@ -921,6 +970,8 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-selected={activeTab === 'team'}
                 aria-controls="cgPanelTeam"
                 className={`cg-tab${activeTab === 'team' ? ' is-on' : ''}`}
+                tabIndex={activeTab === 'team' ? 0 : -1}
+                data-tab="team"
                 data-press
                 onClick={() => setTab('team')}
               >
@@ -940,6 +991,8 @@ export function CoachingScreen(props: CoachingProps) {
                   aria-selected={activeTab === 'roi'}
                   aria-controls="cgPanelRoi"
                   className={`cg-tab${activeTab === 'roi' ? ' is-on' : ''}`}
+                  tabIndex={activeTab === 'roi' ? 0 : -1}
+                  data-tab="roi"
                   data-press
                   onClick={() => setTab('roi')}
                 >

@@ -2500,6 +2500,48 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     expect(coachingStaff.some((r) => r.staffId === 'c-03')).toBe(false)
   })
 
+  it('⚖ GREPTILE-1 — the tab row is ONE tab stop, and the keys that move inside it live on the ROW', () => {
+    // Greptile (CoachingScreen.tsx:913): 「the new role="tablist" leaves every tab
+    // in the normal tab order and supplies only click handlers」. The WAI-ARIA tabs
+    // pattern is both halves at once — a roving `tabIndex` so the row is one stop,
+    // and arrow keys so the selection can be moved without a pointer — and neither
+    // half is worth anything alone, so both are pinned here together.
+    for (const key of ['self', 'team', 'roi'] as const) {
+      expect({ key, roving: SCREEN_CODE.includes(`tabIndex={activeTab === '${key}' ? 0 : -1}`) })
+        .toEqual({ key, roving: true })
+      // …and each tab NAMES the screen it opens, which is what lets the row's own
+      // handler stay a single list-free rule over whatever tabs are rendered.
+      expect({ key, named: SCREEN_CODE.includes(`data-tab="${key}"`) }).toEqual({ key, named: true })
+    }
+    // ONE handler, and it is on the TABLIST — before the first tab, so it cannot
+    // be three handlers on three buttons wearing one name.
+    const tablistAt = SCREEN_CODE.indexOf('role="tablist"')
+    const handlerAt = SCREEN_CODE.indexOf('onKeyDown={(e) => {', tablistAt)
+    const firstTabAt = SCREEN_CODE.indexOf('id="cgTabSelf"')
+    expect({ tablist: tablistAt > 0, onRow: handlerAt > tablistAt && handlerAt < firstTabAt })
+      .toEqual({ tablist: true, onRow: true })
+    const handler = SCREEN_CODE.slice(handlerAt, firstTabAt)
+    // ⚠ THE FOUR KEYS, READ OUT OF THE HANDLER ITSELF rather than out of the file:
+    // a room that lost ArrowRight would still contain the string somewhere else.
+    for (const key of ["e.key === 'ArrowRight'", "e.key === 'ArrowLeft'", "e.key === 'Home'", "e.key === 'End'"]) {
+      expect({ key, handled: handler.includes(key) }).toEqual({ key, handled: true })
+    }
+    // …and the arrows WRAP, over the RENDERED tabs — the row is read out of the
+    // DOM, so 経営への効果 is in the walk exactly when it is on the page.
+    expect(handler).toContain("querySelectorAll<HTMLButtonElement>('[role=tab]')")
+    expect(handler).toContain('tabs[(at + step + tabs.length) % tabs.length]')
+    // AUTOMATIC ACTIVATION — an arrow selects AND focuses, the same rule a click
+    // follows; and `preventDefault` comes AFTER the unhandled-key return, so Tab
+    // still leaves the row and Enter/Space stay native on the button.
+    const order = ["e.key !== 'Home' && e.key !== 'End') return", 'e.preventDefault()', 'setTab(key)', 'next.focus()']
+    const at = order.map((c) => handler.indexOf(c))
+    expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) })
+      .toEqual({ order, ascending: true })
+    // ⚠ AND THE TABS ARE STILL REAL BUTTONS. Enter and Space are the browser's to
+    // answer; the moment a tab stops being a `<button>` this pattern owes them too.
+    expect([...SCREEN_CODE.matchAll(/type="button"\n\s+role="tab"/g)].length).toBe(3)
+  })
+
   it('every new mirrored shape CITES the file it mirrors', () => {
     for (const cite of ['effectiveness.ts:', 'top-performer-patterns.ts:', 'learning-module.ts:', 'coaching-consent/types.ts:']) {
       expect({ cite, inPlane: PLANE.includes(cite) }).toEqual({ cite, inPlane: true })
