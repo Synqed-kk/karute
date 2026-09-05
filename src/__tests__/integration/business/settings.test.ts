@@ -1700,6 +1700,29 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
   })
 
+  it('⚖ S17 fix round 4 · L3 — a DESK pointer target clears WCAG 2.5.8’s 24px too', () => {
+    // ⚠ THE ≤1023 BAND'S 44px FLOOR DOES NOT REACH A DESK, and the room's
+    // smallest controls lived there: the ? — this page's ONLY entry to
+    // 画面の説明 — measured 22×22, 詳しく 61×23, and a capability chip 106×27.
+    // WCAG 2.5.8's minimum is 24 CSS px, and a mouse is not a reason to go under
+    // it. The numbers are read out of the SHEET (fix round 2 · P3's lesson: a
+    // pin that reads a number cannot be argued with) and the probe measures the
+    // rendered boxes at 1280 and 1024.
+    const decl = (sel: string, prop: string): number => {
+      const at = CSS_CODE.indexOf(sel)
+      expect({ sel, found: at >= 0 }).toEqual({ sel, found: true })
+      const body = CSS_CODE.slice(at, CSS_CODE.indexOf('}', at))
+      const m = new RegExp(`${prop}:\\s*(\\d+(?:\\.\\d+)?)px`).exec(body)
+      expect({ sel, prop, stated: m !== null }).toEqual({ sel, prop, stated: true })
+      return Number(m![1])
+    }
+    expect(decl('.biz .pg-settings .st-help {', 'width')).toBeGreaterThanOrEqual(24)
+    expect(decl('.biz .pg-settings .st-help {', 'height')).toBeGreaterThanOrEqual(24)
+    expect(decl('.biz .pg-settings .st-det-btn {', 'min-height')).toBeGreaterThanOrEqual(26)
+    expect(decl('.biz .pg-settings .st-pick {', 'min-height')).toBeGreaterThanOrEqual(28)
+    expect(decl('.biz .pg-settings .st-select,', 'min-height')).toBeGreaterThanOrEqual(28)
+  })
+
   it('⚖ S17 fix round 4 · M6 — filtering past the OPEN section keeps its row, marked 表示中, and the count still counts matches', () => {
     // ⚠ THE PANEL MUST ALWAYS HAVE A CURRENT ROW. Open 契約・請求, type
     // 「コーチング」, and the rail showed one row (コーチング) while the panel
