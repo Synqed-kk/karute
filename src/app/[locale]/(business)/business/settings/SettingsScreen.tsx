@@ -877,6 +877,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
     save: ReactNode,
     dirtyOf: (id: string) => boolean,
     raised: boolean,
+    /** ⚖ S17 fix round 4 · M2 — the ONE section whose jump has something to do
+     *  before it lands: 予約と確保's 詳細設定 is a fold, and a jump onto a folded
+     *  panel is a dead lever. Every other section's jump is `jumpTo` alone. */
+    onJump: (blockId: string) => void = jumpTo,
   ) => (
     <Side
       jump={jump}
@@ -884,7 +888,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       save={save}
       highlighted={highlighted}
       dirtyOf={dirtyOf}
-      onJump={jumpTo}
+      onJump={onJump}
       raised={raised}
       reduced={reduced}
       narrow={narrow}
@@ -1037,6 +1041,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     // for a dot or a rise to be about.
                     () => false,
                     false,
+                    // ⚖ M2 — the section opens what it is about to be jumped
+                    // into, THEN the room scrolls and moves the caret. The fold
+                    // is the section's own state (⚖ A12), so the room asks
+                    // rather than writing `details.open` behind React's back.
+                    (id) => { slots.onAnchorJump(id); jumpTo(id) },
                   ),
                 )
               }

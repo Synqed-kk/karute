@@ -302,7 +302,15 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(SHELL_SCREEN_CODE).toContain('slots.save,')
     expect(SHELL_SCREEN_CODE).toContain('slots.jump,')
     expect(SHELL_SCREEN_CODE).toContain('columnAnd(')
-    expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>')
+    // ⚠ D-34 (⚖ S17 fix round 4 · M2) — THE SLOTS GAINED A FOURTH PIECE. The
+    // section hands back `onAnchorJump` beside its three trees, because 詳細設定
+    // is a FOLD and a jump onto a folded panel is a dead lever — and the fold's
+    // state is the section's (⚖ A12), so the room asks rather than writing
+    // `details.open` behind React's back. The CLAIM this line holds is unchanged:
+    // one render call, everything the room needs, nothing carried across.
+    expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS, onAnchorJump })}</>')
+    expect(SCREEN).toContain("const onAnchorJump = (id: string) => { if (id === 'bg.adv') setAdvOpen(true) }")
+    expect(SHELL_SCREEN_CODE).toContain('(id) => { slots.onAnchorJump(id); jumpTo(id) },')
     // ⚖ mock D4 — AND THE LEAD TELLS THE TRUTH AT BOTH WIDTHS. #812's sentence
     // points at 「右のカード」, and the card is on the right ONLY in the ③
     // composition; below it the card rides above the panel. One character

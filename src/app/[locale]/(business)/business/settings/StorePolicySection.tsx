@@ -145,11 +145,16 @@ export type StorePolicySectionProps = StorePolicyProps & {
  *  existed to end. So the section names its own two anchors, and renders the
  *  ids on them, and the room asks the same list it renders.
  *
- *  ⚠ TWO ANCHORS, NOT NINE. The eight dials live inside the 詳細設定 disclosure,
- *  which a reader may have folded away — a jump item that lands on a collapsed
- *  panel is a control that does nothing, which is the dead lever this room's own
- *  census exists to catch. The card is not an anchor either: it is IN the stack
- *  that holds the list. */
+ *  ⚠ TWO ANCHORS, NOT NINE — and 詳細設定 IS ONE OF THEM (⚖ S17 fix round 4 ·
+ *  M2). The eight dials live inside the disclosure and are not anchors of their
+ *  own, because a jump item landing on a collapsed panel is the dead lever this
+ *  room's own census exists to catch. That reason was written directly above an
+ *  anchor pointing at the collapsible panel itself: pressing 詳細設定 in
+ *  このページの中身 with the section folded scrolled the reader to a closed
+ *  summary and left it closed. The anchor stays — it is a real destination and a
+ *  reader looking for those dials should be able to reach them — and the jump
+ *  OPENS it on the way, through `onAnchorJump`. The card is not an anchor
+ *  either: it is IN the stack that holds the list. */
 /** ⚖ S17 · F13 — WHAT A READER CAN TYPE TO FIND THIS SECTION.
  *
  *  Every other section is indexed from `settingsProps`' own blocks and rows.
@@ -195,6 +200,16 @@ export interface StorePolicySlots {
   /** `STORE_POLICY_ANCHORS`, handed back so the room never reaches past the
    *  section for a list the section owns. */
   jump: ReadonlyArray<{ id: string; title: string }>
+  /** ⚖ S17 fix round 4 · M2 — WHAT THE SECTION HAS TO DO BEFORE A JUMP LANDS.
+   *
+   *  詳細設定 IS the collapsible one, and a jump item that lands on a folded
+   *  panel is the dead lever this room's own census exists to catch: the reader
+   *  was scrolled to a closed summary they then had to press. The fold's state
+   *  belongs to this section (⚖ A12), so the room cannot open it — and reaching
+   *  into the DOM for `details.open` would fight the React state that owns it.
+   *  The section hands back the one call instead, and the room's `jumpTo` makes
+   *  it first. An anchor with nothing to prepare is a no-op. */
+  onAnchorJump: (id: string) => void
 }
 
 // ── the mock's own presets ───────────────────────────────────────────────────
@@ -958,7 +973,10 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     </div>
   )
 
-  return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>
+  /** ⚖ M2 — 詳細設定 is the one anchor with something to prepare. */
+  const onAnchorJump = (id: string) => { if (id === 'bg.adv') setAdvOpen(true) }
+
+  return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS, onAnchorJump })}</>
 }
 
 /** 予約の刻み's clamp. `!(x >= SLOT_MIN)` rather than `x < SLOT_MIN` for the one
