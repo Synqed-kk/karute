@@ -900,17 +900,30 @@ export function StorePolicySection(props: StorePolicySectionProps) {
             この設定を保存
           </button>
           {props.save.refusal !== null && <p className="st-ctrl-d warn">{props.save.refusal}</p>}
-          <p className="st-ctrl-d dim">保存できるのは{props.save.roles.join('・')}です</p>
-          {/* ⚖ S17 fix round 1 · F15 — SAID ONCE, WHERE A READER GOES TO SAVE.
-              This sentence used to ride five of the eight dials as a 準備中 line
-              in the open; folding those into 詳しく would have left the truth
-              with no home on the face at all. Once, on the save block, is also
-              the better place for it: eight copies of one caveat is the noise
-              ⚖ 8/21 (DS9-10) names, and 「can this be saved」 is a question a
-              manager asks HERE. The per-dial chips stay in each row's 詳しく as
-              that dial's own detail. */}
-          <p className="st-ctrl-d dim">{PENDING_NOTE}</p>
         </section>
+  )
+
+  /** ⚖ S17 fix round 3 · R3-1 — THE TWO STANDING SENTENCES, IN FLOW.
+   *  Both are true of the whole section rather than of the press, and at ① the
+   *  save block is stuck to the bottom of the phone's screen — so carrying them
+   *  there charged ~90px of a 390×844 phone against every scroll position, for
+   *  sentences a reader needs once. They read at the END of the dials, which is
+   *  where a manager arrives when they go looking for 保存, and the save card
+   *  keeps only what belongs to the ACT: the button and its one refusal.
+   *  ⚠ NOTHING IS LOST — that is the whole point of moving them rather than
+   *  dropping them, and the room's other sections do the same with their own
+   *  `.st-foot` line, from the same place in the same column.
+   *
+   *  ⚖ S17 fix round 1 · F15 stands: 「この設定はまだ保存できません」 used to ride
+   *  five of the eight dials as a 準備中 line in the open; folding those into
+   *  詳しく would have left the truth with no home on the face at all. It is
+   *  still said ONCE, and the per-dial chips stay in each row's 詳しく as that
+   *  dial's own detail. */
+  const foot = (
+        <div className="st-foots">
+          <p className="st-foot">保存できるのは{props.save.roles.join('・')}です</p>
+          <p className="st-foot">{PENDING_NOTE}</p>
+        </div>
   )
 
   /* `.st-wrap` STAYS, and it is no longer a grid. #812 used it to put the
@@ -922,6 +935,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     <div className="st-wrap">
       {presets}
       {adv}
+      {foot}
     </div>
   )
 

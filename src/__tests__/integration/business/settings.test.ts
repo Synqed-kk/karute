@@ -943,11 +943,19 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(SECTION_CODE).not.toContain('<details className="st-row')
     // ⚠ AND FOLDING A TRUTH GAVE IT A HOME. 「この設定はまだ保存できません」 rode
     // five of the eight dials in the open; folded, it would have had nowhere on
-    // the face at all. It is said ONCE now, on the 保存 block — which is where a
-    // manager asks the question, and one copy instead of five is the noise ⚖
-    // 8/21 (DS9-10) names.
-    const save = SECTION_CODE.slice(SECTION_CODE.indexOf('data-guide-title="保存"'))
-    expect(save.slice(0, save.indexOf('</section>'))).toContain('<p className="st-ctrl-d dim">{PENDING_NOTE}</p>')
+    // the face at all. It is said ONCE, and the per-dial chips stay in each
+    // row's 詳しく as that dial's own detail.
+    //
+    // ⚖ S17 fix round 3 · R3-1 (D-27) — RE-POINTED, because ITS HOME MOVED. The
+    // sentence was pinned INSIDE the 保存 block; at ① that block is stuck to the
+    // bottom of the phone's own screen, so a sentence living in it is charged
+    // against the reader's screen at every scroll position. It now reads at the
+    // END of the section's column, under the last dial, where a manager arrives
+    // when they go looking for 保存 — the claim 「said ONCE, on the face」 is
+    // unchanged and the pin still holds one copy, on the face, in the section.
+    expect((SECTION_CODE.match(/\{PENDING_NOTE\}/g) ?? []).length).toBe(7)
+    const foot = SECTION_CODE.slice(SECTION_CODE.indexOf('<div className="st-foots">'))
+    expect(foot.slice(0, foot.indexOf('</div>'))).toContain('{PENDING_NOTE}</p>')
     // ⚠ WHAT DOES NOT FOLD, and this is the half a later hand will get wrong: a
     // WARNING and a LIVE RESULT stay on the face. 詳しく holds context a manager
     // opens WHILE changing a dial; 「why can I not do this」 and 「this is what
@@ -2060,6 +2068,59 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
        not a pin. Same class of miss as F14 itself, one layer in. */
     expect(touch).toMatch(/\.st-lockchip \{[^}]*min-height: 44px/)
     expect(touch).toMatch(/\.st-lockchip button \{[^}]*width: 44px;[^}]*height: 44px/)
+  })
+
+  /* ⚖ S17 fix round 3 · R3-1 — A STICKY BAR IS CHARGED AGAINST THE SCREEN AT
+     EVERY SCROLL POSITION, so what stands in it has to be the ACT. At ① the save
+     card is `position: sticky; bottom: 0`, and 予約と確保's carried the 保存
+     label, the row's own 18px of section padding and THREE sentences: ~185–220
+     CSS px of a 390×844 phone, permanently, on a button that cannot be pressed
+     on sample data — the section's first preset was a sliver between the head
+     and the card. The sentences are not gone; they moved into the reading column
+     where the room's own rooms already put theirs, and the bar kept the button
+     and its one reason. */
+  it('⚖ S17 fix round 3 · R3-1 — at ① the sticky save bar is the button and its one reason, and the standing sentences read in the column', () => {
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
+    // the bar really is stuck to the bottom of the phone's screen (the reason
+    // the rest of this pin exists)…
+    expect(phone).toMatch(/\.st-save-card \{[^}]*position: sticky; bottom: 0/)
+    // …so the section's save ROW is a button line: no section padding, no rule
+    // above it, and its reason beside the control rather than under it.
+    expect(phone).toMatch(/\.st-save-card \.st-row \{[\s\S]*?padding: 0; border-top: 0;/)
+    expect(phone).toMatch(/\.st-save-card \.st-row \{[\s\S]*?display: flex; align-items: center/)
+    expect(phone).toMatch(/\.st-save-card \.st-ctrl-d \{ margin: 0/)
+    /* ⚠ THE 保存 LABEL IS HIDDEN, NOT DELETED, and that distinction is the whole
+       accessibility of this row: `.sp-save` names itself through
+       `aria-labelledby="stSaveLabel"`, and per accname a DIRECTLY REFERENCED
+       element supplies the name whether or not it is displayed. Delete the
+       element and the section loses its name; hide it and a sighted reader reads
+       the name off the button they are looking at (この設定を保存) while a screen
+       reader still hears 「保存」. */
+    expect(phone).toMatch(/\.st-save-card \.st-ctrl-l \{ display: none; \}/)
+    expect(SECTION_CODE).toContain('<p className="st-ctrl-l" id="stSaveLabel">保存</p>')
+    expect(SECTION_CODE).toContain('aria-labelledby="stSaveLabel"')
+    // …and the block itself is ONE control and at most ONE sentence: the hidden
+    // label and the seam's refusal. A third line put back here is the defect
+    // this item removed.
+    const save = SECTION_CODE.slice(SECTION_CODE.indexOf('data-guide-title="保存"'))
+    const saveBlock = save.slice(0, save.indexOf('</section>'))
+    expect((saveBlock.match(/<p /g) ?? []).length).toBe(2)
+    expect(saveBlock).not.toContain('PENDING_NOTE')
+    expect(saveBlock).not.toContain('{props.save.roles')
+    expect(saveBlock).toContain('{props.save.refusal}</p>')
+    // …the two standing sentences read at the end of the section's own column…
+    expect(SECTION_CODE).toMatch(/<div className="st-wrap">[\s\S]*\{foot\}[\s\S]*<\/div>/)
+    expect(CSS_SRC).toContain('.biz .pg-settings .st-foots { display: flex; flex-direction: column; gap: 3px; }')
+    /* ⚠ AND THE ROOM'S OWN FOOTNOTE MOVED THE SAME WAY, from the same place, for
+       the same reason — one mechanism for all 22 sections, not a special case for
+       the one the review looked at. ⚠ ② GAINED IT: the strip's card is a
+       one-line toolbar and used to hide this line outright, so between 900 and
+       959 the sentence was not merely low — it was GONE. */
+    const mainBlock = SCREEN_CODE.slice(SCREEN_CODE.lastIndexOf('<div className="st-main">'))
+    expect(mainBlock.slice(0, mainBlock.indexOf('</div>,'))).toContain('<p className="st-foot">{props.demoSaveLine}</p>')
+    const sideBlock = SCREEN_CODE.slice(SCREEN_CODE.indexOf('sideNode(', SCREEN_CODE.lastIndexOf('<div className="st-main">')))
+    expect(sideBlock.slice(0, sideBlock.indexOf('changed > 0,'))).not.toContain('st-foot')
+    expect(CSS_CODE).not.toMatch(/\.st-save-card \.st-foot \{/)
   })
 })
 

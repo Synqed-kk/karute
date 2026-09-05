@@ -1006,6 +1006,23 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     reduced={reduced}
                   />
                 ))}
+                {/* ⚖ S17 fix round 3 · R3-1 — THE STANDING FOOTNOTE IS IN FLOW,
+                    NOT IN THE STICKY CARD. At ① the save card is stuck to the
+                    bottom of the phone's own screen, so every sentence inside it
+                    is charged against the reader's screen FOR EVER: 予約と確保's
+                    card carried three of them and stood ~185–220px tall on a
+                    390×844 phone, which left its first setting a sliver between
+                    the head and the card. The card keeps what belongs to the ACT
+                    — the button and, when the seam refuses, the one reason — and
+                    the sentence that is true of the whole section reads at the
+                    end of the section, where a reader arrives after the last
+                    dial. ⚠ AND ② GAINS IT: the strip's card is a one-line
+                    toolbar and used to hide this line outright
+                    (`.st-save-card .st-foot { display: none }`), so between 900
+                    and 959 the sentence was not merely low — it was gone. */}
+                {section.persist === 'local'
+                  ? <p className="st-foot">{props.selfSaveLine}</p>
+                  : <p className="st-foot">{props.demoSaveLine}</p>}
               </div>,
               sideNode(
                 section.blocks.map((b) => ({ id: b.id, title: b.title })),
@@ -1015,14 +1032,11 @@ export function SettingsScreen(props: SettingsScreenProps) {
                    Printing 保存する under it would ask a reader to commit
                    something nobody else can see. */
                 section.persist === 'local' ? (
-                  <>
-                    <p className="st-save-state" role="status">
-                      {committed[section.id]
-                        ? `✓ この端末に保存しました ${props.saveStampTime}`
-                        : '押すとすぐ保存されます'}
-                    </p>
-                    <p className="st-foot">{props.selfSaveLine}</p>
-                  </>
+                  <p className="st-save-state" role="status">
+                    {committed[section.id]
+                      ? `✓ この端末に保存しました ${props.saveStampTime}`
+                      : '押すとすぐ保存されます'}
+                  </p>
                 ) : (
                   <>
                     <div className="st-save-line">
@@ -1043,7 +1057,6 @@ export function SettingsScreen(props: SettingsScreenProps) {
                     >
                       保存する
                     </button>
-                    <p className="st-foot">{props.demoSaveLine}</p>
                   </>
                 ),
                 (id) => {

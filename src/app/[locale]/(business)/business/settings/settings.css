@@ -800,6 +800,11 @@
 .biz .pg-settings .st-save:hover:not(:disabled) { background: var(--st-accent-dark); border-color: var(--st-accent-dark); }
 .biz .pg-settings .st-save:disabled { border-color: var(--line); background: #dfe3ea; color: var(--muted); cursor: default; }
 .biz .pg-settings .st-foot { margin: 0; color: var(--quiet); font-size: 10.5px; line-height: 1.7; }
+/* ⚖ S17 fix round 3 · R3-1 — where a section has TWO standing sentences at
+   the end of its column (予約と確保: who may save, and that the wire is not
+   live yet), they stack tight against each other rather than taking
+   `.st-wrap`'s 24px section gap between two lines of the same aside. */
+.biz .pg-settings .st-foots { display: flex; flex-direction: column; gap: 3px; }
 
 /* Visually hidden, still read aloud — the dirty dot's sentence. */
 .biz .pg-settings .st-sr {
@@ -1361,7 +1366,6 @@
   .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
   .biz .pg-settings .st-jump-note { display: none; }
   .biz .pg-settings .st-save-card { flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; white-space: nowrap; }
-  .biz .pg-settings .st-save-card .st-foot { display: none; }
 }
 
 /* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header.
@@ -1435,7 +1439,6 @@
   .biz .pg-settings .st-jump-item { width: 100%; border: 0; border-radius: 7px; padding: 5px 8px; white-space: normal; }
   .biz .pg-settings .st-jump-note { display: block; }
   .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; white-space: normal; }
-  .biz .pg-settings .st-save-card .st-foot { display: block; }
   /* …and the lead may finally say 「右のカード」, because here it is. */
   .biz .pg-settings .st-lead-wide { display: inline; }
   .biz .pg-settings .st-lead-narrow { display: none; }
@@ -1585,6 +1588,34 @@
     backdrop-filter: saturate(180%) blur(12px);
     box-shadow: 0 -4px 14px rgba(16, 24, 40, .06);
   }
+  /* ⚖ S17 fix round 3 · R3-1 — AND IT IS THE BUTTON AND ITS ONE REASON, FULL
+     STOP. A sticky card is the one box on this page whose height is charged
+     against the reader's screen at EVERY scroll position, so anything in it that
+     is not the act is a permanent tax: 予約と確保's card carried the 保存 label,
+     the row's own 18px section padding and three sentences, stood ~185–220px on
+     a 390×844 phone, and pushed the section's first preset to a sliver between
+     the head and the card. The sentences moved into the column (see
+     `StorePolicySection`'s `foot` and `.st-foots`); what is trimmed HERE is the
+     chrome around the control.
+     ⚠ THE LABEL IS HIDDEN, NOT DELETED. `.sp-save` names it through
+     `aria-labelledby`, and per accname a referenced element supplies the name
+     whether or not it is displayed — so the section keeps 「保存」 for a screen
+     reader while a sighted reader reads it off the button they are looking at
+     (この設定を保存). Deleting the element would take the name away with it. */
+  .biz .pg-settings .st-save-card .st-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0; border-top: 0;
+  }
+  .biz .pg-settings .st-save-card .st-ctrl-l { display: none; }
+  /* ⚠ THE REASON RIDES BESIDE THE BUTTON, NOT UNDER IT — measured, not assumed.
+     Stacked, the refusal wraps to two lines at 390 and 440 and the card came to
+     111.3px against a 96px bar; beside a 44px button the same two lines cost
+     nothing at all, and the card lands at ~68px. This is also the shape ② gives
+     the same card one band up (`flex-direction: row`), so the bar reads the same
+     way on a phone and on a narrow desk. */
+  .biz .pg-settings .st-save-card .st-ctrl-d { margin: 0; min-width: 0; }
+  .biz .pg-settings .st-save-card .btn.primary,
+  .biz .pg-settings .st-save-card .st-save { flex: none; }
   /* A row stacks: the label and its description over the control, in reading
      order, with the control filling the line rather than leaving half of it
      empty. */
