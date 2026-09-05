@@ -67,8 +67,10 @@ import {
   guardVerdictAt,
   isHeldBound,
   laneSpans,
+  protectedWindowsClause,
   restCueStarts,
   sellLayerFor,
+  windowsEatenBy,
   type GuardRail,
   type RailCell,
   type RailInput,
@@ -1549,12 +1551,11 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
     // run pays nothing for it) and classifies every wholeCell-only cell by
     // WHY its sentence still agrees.
     if (R7_EVIDENCE) {
-      const foldOf = (starts: number[]) => {
-        const u = [...new Set(starts)].sort((a, b) => a - b)
-        return u.length > 3 ? [...u.slice(0, 3), `+${u.length - 3}`].join(',') : u.join(',')
-      }
-      const eatenOf = (starts: number[], protectedDur: number, start: number, dur: number) =>
-        starts.filter((s) => s < start + dur && s + protectedDur > start)
+      // ⚖ 90 fix round 2 (F3) — the eaten-set and fold-collapse checks below
+      // call the product's own `windowsEatenBy`/`protectedWindowsClause`
+      // (already imported above) rather than re-spelling their logic here, so
+      // a drift in either author fails loudly on THIS diagnostic too, not just
+      // on the composer pins in today-screen-interactions.test.ts.
       const remainder: string[] = []
       let noWindow = 0
       let afterHides = 0
@@ -1589,12 +1590,15 @@ describe('4b — the DROP verdict answers from the same held set as the rail', (
                   why = `✓ names windowsAfter, which matches (${JSON.stringify(ca)} = ${JSON.stringify(va)}); the differing set is windowsBefore (rail ${JSON.stringify(cb)} vs raw ${JSON.stringify(vb)}), which ✓ never reads`
                   afterHides += 1
                 } else {
-                  const eB = eatenOf(cb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
-                  const eV = eatenOf(vb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
+                  const eB = windowsEatenBy(cb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
+                  const eV = windowsEatenBy(vb, withoutDoor.protectedDur, cell.start, withoutDoor.dur)
                   if (JSON.stringify(eB) === JSON.stringify(eV)) {
                     why = `names the EATEN subset of windowsBefore, which matches (${JSON.stringify(eB)}); the differing windows (rail ${JSON.stringify(cb)} vs raw ${JSON.stringify(vb)}) sit outside the placement's overlap`
                     outsideEaten += 1
-                  } else if (foldOf(eB) === foldOf(eV)) {
+                  } else if (
+                    protectedWindowsClause(eB, withoutDoor.protectedDur) ===
+                    protectedWindowsClause(eV, withoutDoor.protectedDur)
+                  ) {
                     why = `the EATEN subsets differ (rail ${JSON.stringify(eB)} vs raw ${JSON.stringify(eV)}) but the >3 fold names the same first three plus the same count`
                     foldHides += 1
                   } else {
