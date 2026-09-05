@@ -635,6 +635,15 @@
 }
 .biz .pg-settings .st-switch[aria-checked="true"] .st-switch-thumb { background: var(--st-accent); }
 .biz .pg-settings .st-switch[aria-disabled="true"] { cursor: default; }
+/* ⚖ S17 fix round 4 · M5 — 予約と確保's 保存 is REFUSED, not disabled: it keeps
+   its place in the tab order so its reason is reachable, and it still LOOKS
+   refused. The shell paints `button:disabled` (`.biz button:disabled { cursor:
+   not-allowed; opacity: .48 }`) and cannot know about this one, so the room
+   says the same thing for the state it actually uses — including cancelling the
+   commit button's hover, which would otherwise answer a press that cannot
+   happen. */
+.biz .pg-settings .sp-save .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }
+.biz .pg-settings .sp-save .btn.primary[aria-disabled="true"]:hover { border-color: var(--commit-bg); background: var(--commit-bg); }
 
 /* fields */
 .biz .pg-settings .st-select,

@@ -965,11 +965,26 @@ export function StorePolicySection(props: StorePolicySectionProps) {
           data-guide="変更を店舗の設定として保存します。保存できるのは、この店舗の責任者だけです。いまはまだ保存できないので、この画面での動きを確認したあと、そのまま閉じて大丈夫です。"
         >
           <p className="st-ctrl-l" id="stSaveLabel">保存</p>
+          {/* ⚠ REFUSED, NOT REMOVED FROM THE PAGE (⚖ S17 fix round 4 · M5). This
+              was the one refusal in the room wearing a hard `disabled`, while
+              the room states its own law twice for its own controls — a refused
+              control stays FOCUSABLE (`aria-disabled`, never `disabled`) so its
+              reason is reachable by keyboard and by a screen reader. `disabled`
+              takes the button out of the tab order and its `title` with it, so
+              the reader who most needs the reason is the one who cannot reach
+              it. The printed line below stays; this is the same sentence made
+              reachable by the control it is about. */}
           <button
             className="btn primary"
             type="button"
-            disabled={props.save.refusal !== null}
+            aria-disabled={props.save.refusal !== null ? 'true' : undefined}
             title={props.save.refusal ?? undefined}
+            aria-label={props.save.refusal !== null ? `この設定を保存 — ${props.save.refusal}` : undefined}
+            // ⚠ AND THE PRESS IS GUARDED WHERE THE REFUSAL IS DECIDED. An
+            // `aria-disabled` button is a real button: the browser will not stop
+            // it, so the room does — the same shape every locked control in this
+            // room uses. The save wire lands in this handler when ⑨ reconnects.
+            onClick={props.save.refusal !== null ? (e) => e.preventDefault() : undefined}
           >
             この設定を保存
           </button>

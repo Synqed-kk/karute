@@ -547,8 +547,25 @@ describe('⚖ the save gate is DATA, and its refusal is readable', () => {
     // refused for.
     expect(PAGE_CODE).toContain('saveRefusal(managerRoles, shell.operator.role)')
     expect(PAGE_CODE).toContain('releaseHeldRoles')
-    expect(SCREEN_CODE).toContain('disabled={props.save.refusal !== null}')
+    // ⚠ D-38 (⚖ S17 fix round 4 · M5) — THE REFUSAL IS THE SAME FACT, WORN THE
+    // WAY THIS ROOM WEARS ONE. `disabled` took the button out of the tab order
+    // and its `title` reason with it — so the reader who most needs the reason
+    // was the one who could not reach it — while the room states the law twice
+    // for its own controls: 「stays FOCUSABLE (`aria-disabled`, never
+    // `disabled`) so its reason is reachable」. Same predicate, same source, and
+    // the press is guarded where the refusal is decided, because an
+    // `aria-disabled` button is a real button the browser will not stop.
+    expect(SCREEN_CODE).toContain(`aria-disabled={props.save.refusal !== null ? 'true' : undefined}`)
+    expect(SCREEN_CODE).not.toContain('disabled={props.save.refusal !== null}')
+    expect(SCREEN_CODE).toContain('onClick={props.save.refusal !== null ? (e) => e.preventDefault() : undefined}')
+    // …and the reason rides the accessible NAME as well as the description, the
+    // way every locked control in this room does it (a screen reader drops
+    // `title` once a description is present).
+    expect(SCREEN_CODE).toContain('aria-label={props.save.refusal !== null ? `この設定を保存 — ${props.save.refusal}` : undefined}')
     expect(SCREEN_CODE).toContain('{props.save.refusal}')
+    // …and it still LOOKS refused: the shell paints `button:disabled` and cannot
+    // know about this one, so the room says it for the state it really uses.
+    expect(CSS).toContain('.biz .pg-settings .sp-save .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .48; }')
     // …and the roles are NAMED on screen, so a refusal points somewhere.
     expect(SCREEN_CODE).toContain('props.save.roles.join')
     expect(SCREEN_CODE).not.toContain('オーナー')
