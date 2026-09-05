@@ -18,7 +18,9 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { opsConfig, resources } from '@/business/lib/fixtures-today'
-import { appointments, customers } from '@/business/lib/fixtures'
+import { appointments, customers, STORE_A } from '@/business/lib/fixtures'
+import { jstDayKey } from '@/business/lib/clock'
+import * as data from '@/business/lib/data'
 import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
   applyBlockMoves,
@@ -110,7 +112,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
 import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
 import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
-import { minuteOf, place, yen, type BoardItem, type BoardLane } from '@/business/lib/today-board'
+import { buildLanes, dayBookings, minuteOf, place, yen, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
 // and the board's own types, and the book imports today-interactions). Exported
 // for the reason everything on this board's answer path is: an answer the
@@ -12246,5 +12248,98 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // The rule, spelled: the room in hand is the first CANDIDATE, not an
     // exemption from being one.
     expect(INT).toContain('if (current && compatible(current) && free(current))')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ BLANK-SAFE (Liam 2026-09-06 02:2x) — §1 claims 2, 3 (chip + inspector) and
+// 4, pinned on the SCREEN side. Claim 1's board-level proof (dayBookings / the
+// BoardItem reading absent-undefined-null as strict `false`) is pinned in
+// today-board.test.ts; here ONE item is built from a blank row — the real
+// `dayBookings` + `buildLanes` pipe, never a hand-typed `false` — and that
+// item's own field is threaded through `allocateBed`, the shelf chip and
+// `landingVerdict`, the same way the ROOM RULE describe's I2/I4/I11 pins do.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged booking', () => {
+  const apt12 = appointments().find((a) => a.id === 'apt-12')!
+  const dayKey = jstDayKey(apt12.starts_at)
+  const blankRow = { ...apt12, id: 'apt-blank-screen' }
+  delete blankRow.requires_private_room
+
+  /** The one built item claims 2-4 read `requiresPrivateRoom` off — proof it
+   *  came from `dayBookings`, matching `boardFor` in today-board.test.ts. */
+  async function blankItem(): Promise<BoardItem> {
+    const lens = STORE_A
+    const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+      data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+      data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+      data.listStoreOptions(), data.readStaffStores(lens),
+    ])
+    const input: BuildInput = {
+      appointments: [blankRow], customers: custs, menus, staff: staffList, resources: beds,
+      shifts: planes.shifts, qualifications: planes.staffQualifications,
+      staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+      blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+      hours: planes.operatingHours, dayKey,
+      operatorStaffId: shell.operator.staff_id,
+      storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+      crossStore: false,
+    }
+    const lanes = buildLanes(input, dayBookings(input))
+    return lanes.flatMap((l) => l.items).find((i) => i.caseId === blankRow.id)!
+  }
+
+  // the BATCH-9/11 board shape, re-used: one staff lane, one standard bed,
+  // one 個室 — never re-invented per describe.
+  const board = (over: { beds?: BoardLane[] } = {}): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', stores: ['store-a'] }),
+    ...(over.beds ?? [
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+    ]),
+  ]
+  const ask = (over: Partial<Parameters<typeof landingVerdict>[1]> = {}) => ({
+    staffLane: 'p-01', bedLane: 'bed-01', solveRoom: false, id: null, requiresPrivate: false,
+    start: 960, end: 1020, span: place(960, 1020, HOURS), foreignRefusal: null, hasPrice: true,
+    locked: [] as string[], minutesOf: (x: number) => minuteOf(x, HOURS),
+    ...over,
+  })
+  const verdict = (lanes: BoardLane[], over = {}, cell: RailCell | null = null) => landingVerdict(lanes, ask(over), cell)
+
+  it('claim 2 — allocateBed takes a free standard bed first, and the 個室 last, never refusing for the room', async () => {
+    const item = await blankItem()
+    const solve = (lanes: BoardLane[]) =>
+      allocateBed(lanes, { id: null, currentBed: null, stores: ['store-a'], requiresPrivate: item.requiresPrivateRoom === true, start: 960, end: 1020 })
+    expect(solve(board()).laneKey).toBe('bed-01')
+    const onlyPrivateFree = board({
+      beds: [
+        lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1' }, 960, 1020)] }),
+        lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private' }),
+      ],
+    })
+    const at = solve(onlyPrivateFree)
+    expect(at.laneKey).toBe('bed-03')
+    expect(at.refusal).toBeNull()
+  })
+
+  it('claim 3 — the shelf chip carries no 個室のみ for the blank item, and the inspector seam is unchanged', async () => {
+    const item = await blankItem()
+    expect(item.requiresPrivateRoom).toBe(false)
+    expect(parkChipText(item, HOURS, '本日').line1).not.toContain('個室のみ')
+    // The inspector's 予約種別 row reads the SAME `b.requiresPrivateRoom` this
+    // claim just proved is a real `false` at this layer — the seam
+    // today-board.test.ts's 「⚖ ROOM RULE — the inspector says 個室のみ about
+    // the BOOKING」 pins is unchanged here too.
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+  })
+
+  it('claim 4 — the bed-row drop is silent for the blank item: no room stop, floor never hard or hard-room', async () => {
+    const item = await blankItem()
+    const v = verdict(board(), { requiresPrivate: item.requiresPrivateRoom === true })
+    expect(v.kind).toBe('clean')
+    expect(v.floor).not.toBe('hard')
+    expect(v.floor).not.toBe('hard-room')
+    expect(v.reason).toBeNull()
   })
 })

@@ -36,7 +36,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
-import { appointments, operator, reserveSync, STORE_A, STORE_B } from '@/business/lib/fixtures'
+import { appointments, operator, reserveSync, STORE_A, STORE_B, type FixtureAppointment } from '@/business/lib/fixtures'
 import {
   absence,
   bedSecuredProof,
@@ -519,6 +519,66 @@ describe('今日の運営 screen', () => {
     // The pair, stated as the round's claim: tagged ≠ VIP, on the shipped demo.
     expect(tagged.requiresPrivateRoom === vip.requiresPrivateRoom).toBe(false)
     expect((tagged.category === 'vip') === (vip.category === 'vip')).toBe(false)
+  })
+
+  /** ⚖ BLANK-SAFE (Liam 2026-09-06 02:2x) — is the blank-safe claim actually
+   *  stress-tested, or only READ and implicitly exercised? Every row above,
+   *  tagged or not, carries an EXPLICIT `requires_private_room` (`slot()`
+   *  writes `false` on every row that omits it, apt-29 writes `true`) — no
+   *  fixture row has ever had the key absent, `undefined` or `null`. This pins
+   *  §1 claim 1 on those three shapes directly, and claim 3's board half (no
+   *  「個室のみ」 in the accessible name for a blank row). */
+  describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged booking', () => {
+    const apt12 = appointments().find((a) => a.id === 'apt-12')!
+    const dayKey = jstDayKey(apt12.starts_at)
+
+    /** The suite's own async BuildInput assembly (`mergedLanes`/`lanesAt`
+     *  above), reused with the appointment set swapped for the row under
+     *  test — no new harness. */
+    async function boardFor(appts: FixtureAppointment[]) {
+      const lens = STORE_A
+      const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+        data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+        data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+        data.listStoreOptions(), data.readStaffStores(lens),
+      ])
+      const input: BuildInput = {
+        appointments: appts, customers: custs, menus, staff: staffList, resources: beds,
+        shifts: planes.shifts, qualifications: planes.staffQualifications,
+        staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+        blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+        hours: planes.operatingHours, dayKey,
+        operatorStaffId: shell.operator.staff_id,
+        storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+        crossStore: false,
+      }
+      const bookings = dayBookings(input)
+      return { bookings, lanes: buildLanes(input, bookings) }
+    }
+
+    const keyAbsent: FixtureAppointment = { ...apt12, id: 'apt-blank-a' }
+    delete keyAbsent.requires_private_room
+    const isUndefined: FixtureAppointment = { ...apt12, id: 'apt-blank-b', requires_private_room: undefined }
+    // `null` is not in the field's own type (`boolean | undefined`), so ONLY
+    // this row needs the cast — the product type is never widened for it.
+    const isNull = { ...apt12, id: 'apt-blank-c', requires_private_room: null } as unknown as FixtureAppointment
+
+    it.each([
+      ['key absent', keyAbsent],
+      ['undefined', isUndefined],
+      ['null', isNull],
+    ])('claim 1 — %s reads as requiresPrivateRoom === false, on the booking and on the board item', async (_label: string, row: FixtureAppointment) => {
+      const { bookings, lanes } = await boardFor([row])
+      expect(bookings[0].requiresPrivateRoom).toBe(false)
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === row.id)!
+      expect(item.requiresPrivateRoom).toBe(false)
+    })
+
+    it('claim 3 — the accessible name carries no 個室のみ for a blank row', async () => {
+      const { lanes } = await boardFor([keyAbsent])
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === keyAbsent.id)!
+      expect(item.label).not.toContain('個室のみ')
+    })
   })
 
   // ── band by band ────────────────────────────────────────────────────────
