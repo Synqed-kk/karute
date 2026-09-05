@@ -499,7 +499,13 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   const storeLine = (id: string): string => {
     if (!enabled.includes(id)) return '未導入'
     const view = buildRoi({ roi: storeRoi[id] })
-    if (!view) return '導入中 ・ 効果を出せる実績がまだありません'
+    // ⚖ B2-L5-2 (S16F) — PLAIN, AND TRUE. 「効果を出せる実績がまだありません」
+    // nests two capability clauses inside each other and reads bureaucratic
+    // beside the plain sentences this room writes everywhere else — and it says
+    // the wrong thing besides: what is missing is not the EFFECT but the record
+    // to judge one by. 「まだ判断できません」 is the room's own existing phrase
+    // for exactly this state, on the board one tab over.
+    if (!view) return '導入中 ・ まだ判断できる実績がありません'
     return `導入中 ・ ${ROI_METRIC_LABEL[view.headline.key]} ${liftDisplay(view.headline)}（${ROI_CONFIDENCE_LABEL[view.headline.confidence]}）`
   }
 

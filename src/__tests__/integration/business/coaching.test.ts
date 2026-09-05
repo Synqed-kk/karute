@@ -4859,3 +4859,26 @@ describe('⚖ B2-L5-1 (S16F) — one slash for one sentence shape', () => {
     }
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-L5-2 (S16F) — the store adoption line says what is really missing', () => {
+  it('a store with the module on and no computable lift says the RECORD is short', async () => {
+    pinClock(MID_MONTH)
+    // both stores enabled, but 代官山 has no `storeRoi` entry, so `buildRoi`
+    // returns nothing for it — the honest third branch of `storeLine`.
+    const { props } = await coachingProps({
+      locale: 'ja',
+      store: STORE_A,
+      world: { role: 'オーナー', enabledStores: [STORE_A, STORE_B] },
+    })
+    unpinClock()
+    const other = props.roi!.adoption.stores.find((st) => st.id === STORE_B)!
+    expect(other.line).toBe('導入中 ・ まだ判断できる実績がありません')
+    // ⚠ IT MUST NOT CLAIM THERE WAS NO EFFECT — that is a measurement this
+    // store has not made, and printing it would be the overclaim in reverse.
+    expect(other.line).not.toContain('効果はまだ出ていません')
+    // the room's own vocabulary for 「we cannot judge yet」, one word, two tabs
+    expect(other.line).toContain('まだ判断できる')
+    expect(BAND_LABEL.growing.length).toBeGreaterThan(0)
+  })
+})
