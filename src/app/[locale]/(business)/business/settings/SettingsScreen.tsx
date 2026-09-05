@@ -920,7 +920,14 @@ function Side({
   reduced: boolean
 }) {
   return (
-    <aside className="st-side">
+    /* ⚠ A `<div>`, NOT AN `<aside>`. This element is a LAYOUT wrapper — one box
+       so one grid placement moves all three pieces between the room's three
+       compositions — and the semantics live on its children (a `<nav>` for the
+       jump list, a `<section>` for the save state). An `<aside>` here would be a
+       landmark announcing a container that has nothing of its own to say, and
+       the ?-walk's census would ask it to declare itself as a teaching subject
+       when the three things inside it are the subjects. */
+    <div className="st-side">
       {card && <div className="st-side-card">{card}</div>}
       {jump.length > 0 && (
         <nav
@@ -949,7 +956,7 @@ function Side({
         </nav>
       )}
       <SaveCard reduced={reduced}>{save}</SaveCard>
-    </aside>
+    </div>
   )
 }
 
@@ -1749,7 +1756,7 @@ function Segment({
       xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
       wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
     }
-    const on = wrap.querySelector<HTMLButtonElement>('.st-opt.is-on')
+    const on = wrap.querySelector<HTMLButtonElement>('.st-opt[aria-pressed="true"]')
     if (!on) { thumb.style.opacity = '0'; return }
     thumb.style.opacity = ''
     const x = on.offsetLeft
@@ -1775,7 +1782,7 @@ function Segment({
           <button
             key={opt.value}
             type="button"
-            className={`st-opt${on ? ' is-on' : ''}`}
+            className="st-opt"
             aria-pressed={on}
             {...inert}
             onClick={onPick ? () => onPick(opt.value) : undefined}

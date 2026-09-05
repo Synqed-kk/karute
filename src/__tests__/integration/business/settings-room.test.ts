@@ -283,7 +283,20 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     // walk instead of launching it, and the same invariant holds through one
     // effect. The shell really passes the flag, and the section really acts on
     // it; a fold that dropped either half goes red here.
-    expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection tourOpen={tourOpen} {...props.storePolicy} />')
+    // ⚖ S17 STEP 1 — RE-PINNED. The section still renders itself and still gets
+    // `tourOpen` (⚖ A2/F12); what changed is that it hands its three pieces BACK
+    // as slots so the room can put the dials in the panel, the live card at the
+    // top of the sticky stack and the 保存 block in the save slot — a component
+    // cannot return three trees to three parents. Every dial's state is still
+    // inside the section (⚖ A12).
+    expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection')
+    expect(SHELL_SCREEN_CODE).toContain('tourOpen={tourOpen}')
+    expect(SHELL_SCREEN_CODE).toContain('{...props.storePolicy}')
+    expect(SHELL_SCREEN_CODE).toContain('render={(slots) => (')
+    expect(SHELL_SCREEN_CODE).toContain('<div className="st-main">{slots.main}</div>')
+    expect(SHELL_SCREEN_CODE).toContain('card={slots.card}')
+    expect(SHELL_SCREEN_CODE).toContain('save={slots.save}')
+    expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>')
     expect(SCREEN_CODE).toContain('if (props.tourOpen) setAdvOpen(true)')
     expect(SCREEN_CODE).toContain('}, [props.tourOpen])')
     // …and the shell's own ? is what sets `tourOpen`, so the chain is closed.

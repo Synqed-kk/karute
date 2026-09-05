@@ -36,6 +36,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { rulebook } from '@/business/lib/fixtures-settings'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import {
   accessFor,
@@ -122,7 +123,14 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // with a guardrail arrives with a tour step that states it. There is no
     // second sentence to write and none to forget.
     expect(SRC_CODE).toContain('data-guide-title={row.label}')
-    expect(SRC_CODE).toContain("data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}`.trim()}")
+    // ⚖ S17 STEP 1 — RE-PINNED, AND THE SENTENCE GREW ONE CLAUSE. The row's own
+    // words still compose the step; what is new is that the guardrail and the
+    // rest now live behind 詳しく, so a row that has them says where they are.
+    // A walk that explained a row without mentioning the disclosure holding its
+    // guardrail would be teaching half the row.
+    expect(SRC_CODE).toContain(
+      "data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}${detail.length > 0 ? ' 初期値や決まりは「詳しく」で開けます。' : ''}`.trim()}",
+    )
     expect(SRC_CODE).toContain('data-guide-title={block.title}')
     expect(SRC_CODE).toContain('data-guide={block.note || `${block.title}の設定です。`}')
   })
@@ -277,15 +285,25 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
     expect(SRC_CODE).toContain('const [picked, setPicked] = useState<string | null>(null)')
     expect(SRC_CODE).toContain('const shownId = picked ?? props.openingSectionId')
     expect(SRC_CODE).toContain('const isDetail = picked !== null')
-    expect(SRC_CODE).toContain('onClick={() => setPicked(row.id)}')
-    expect(SRC_CODE).toContain('onClick={() => setPicked(null)}')
+    // ⚖ S17 STEP 1 — RE-PINNED THROUGH `openSection`/`backToList`. Picking is
+    // still what opens a section; what the round added is that opening it FROM
+    // THE RAIL remembers which row, so 「‹ 設定」 puts the keyboard back on it
+    // instead of at the top of a list the reader has to re-find (⚖ keyboard
+    // reach). The two calls are the same two facts, with the memory between them.
+    expect(SRC_CODE).toContain('onClick={() => onOpen(row.id, true)}')
+    expect(SRC_CODE).toContain('if (fromRail) cameFromRef.current = id')
+    expect(SRC_CODE).toContain('setPicked(id)')
+    expect(SRC_CODE).toContain('setPicked(null)')
+    expect(SRC_CODE).toContain('railListRef.current?.querySelector<HTMLButtonElement>(`[data-rail-id="${id}"]`)?.focus()')
   })
 
   it('the back button is rendered ALWAYS and hidden by the band', () => {
-    expect(SRC_CODE).toContain('<button className="st-back" type="button"')
-    expect(SRC_CODE).not.toMatch(/isDetail\s*&&\s*\(?\s*<button className="st-back"/)
+    expect(SRC_CODE).toMatch(/<button\s+className="st-back"\s+type="button"/)
+    expect(SRC_CODE).not.toMatch(/isDetail\s*&&\s*\(?\s*<button\s+className="st-back"/)
     expect(CSS_CODE).toMatch(/\.st-back \{ display: none; \}/)
-    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    // ⚖ S17 STEP 1 — the phone band is 899 now, not 743 (see the sheet's ladder:
+    // 744-899 left the panel NARROWER than the phone's own full-width section).
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
     expect(phone).toMatch(/\.st-back \{\s*display: inline-flex/)
   })
 
@@ -294,7 +312,7 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
     // this READER may open, so nobody lands on an empty frame.
     expect(SRC_CODE).toContain('const section = props.sections.find((s) => s.id === shownId) ?? null')
     for (const role of ['オーナー', '店舗管理者', 'スタッフ', '不明', '']) {
-      const opening = firstOpenSection(accessFor(role))
+      const opening = firstOpenSection(accessFor(role, rulebook))
       expect({ role, opens: opening?.id ?? null }).not.toEqual({ role, opens: null })
     }
     // The fallback stays as DEFENCE for a future rail whose every row could be
@@ -384,11 +402,26 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
 
   it('the screen commits a section’s values, and says so — once, per section', () => {
     expect(SRC_CODE).toContain('const commitSection = useCallback((target: SettingsSection) => {')
-    expect(SRC_CODE).toContain("setSavedNote((prev) => ({ ...prev, [target.id]: '保存しました（この画面の中だけ）' }))")
+    // ⚖ S17 STEP 1 — RE-PINNED. The note used to be a SENTENCE stored per
+    // section (「保存しました（この画面の中だけ）」); the save state now shows a
+    // COUNT while there is something to save and a stamped 「保存しました 13:24」
+    // after, so what the screen remembers per section is the FACT that it was
+    // saved, and the words are composed where they are shown. The parenthetical
+    // did not disappear — it is the standing footnote under the same card
+    // (`props.demoSaveLine`), which is where it belongs on every section rather
+    // than only after a press.
+    expect(SRC_CODE).toContain("setCommitted((prev) => ({ ...prev, [target.id]: true }))")
     expect(SRC_CODE).toContain('onClick={() => commitSection(section)}')
-    // The bar reports exactly one of three states, and the blocking sentence
+    // The state reports exactly one of three things, and the blocking sentence
     // wins — a page that offered 保存する beside 「空欄です」 would be lying.
-    expect(SRC_CODE).toContain("{blocked ?? (dirty ? '未保存の変更があります' : savedNote[section.id] ?? '変更はありません')}")
+    expect(SRC_CODE).toContain("{blocked ??")
+    expect(SRC_CODE).toContain("`変更 ${changed}件`")
+    expect(SRC_CODE).toContain("`✓ 保存しました ${props.saveStampTime}`")
+    expect(SRC_CODE).toContain("'変更はありません'")
+    // ⚠ AND THE CLOCK IS THE SERVER'S, not the browser's: the room holds no
+    // clock and no formatter (the family law), and a `new Date()` here would
+    // also make every shot of this page a different picture.
+    expect(SRC_CODE).not.toMatch(/new Date\(\)/)
   })
 
   it('EVERY control shape wires its own change — a shape with no handler is a dead lever', () => {
@@ -398,10 +431,16 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // remove. The probe presses all of them in a real browser; this is the pin
     // that fails in jest the day one loses its handler.
     for (const [shape, wiring] of [
-      ['segment', 'onClick={locked ? undefined : () => onChange(c.id, opt.value)}'],
+      // …and the segment's, for the same reason: `Segment` owns the thumb, and
+      // takes the choice back as `onPick`.
+      ['segment', 'onPick={locked ? undefined : (v) => onChange(c.id, v)}'],
       ['chips', 'onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}'],
       ['swatch', 'onClick={locked ? undefined : () => onChange(c.id, opt.value)}'],
-      ['switch', 'onClick={locked ? undefined : () => onChange(c.id, !on)}'],
+      // ⚖ S17 STEP 1 — the switch's thumb travels on the room's spring now, so
+      // its markup lives in a `Switch` of its own; the WIRING is the same fact,
+      // handed down as `onToggle`. `value !== true` rather than `!on` because
+      // the component is handed the raw value and decides `on` itself.
+      ['switch', 'onToggle={locked ? undefined : () => onChange(c.id, value !== true)}'],
       ['select', 'onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}'],
       ['number commit', 'onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}'],
     ] as const) {
@@ -414,7 +453,11 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
     // wirings is the whole vocabulary: segment · chips · swatch · switch ·
     // select · number (change + commit) · time · text. Lose one and the number
     // moves, whichever shape it was.
-    expect((SRC_CODE.match(/onChange\(c\.id/g) ?? [])).toHaveLength(9)
+    // ⚠ AND THE COUNT IS PART OF THE PIN. ⚖ S17 STEP 1 — TEN, not nine: the
+    // vocabulary gained `date` (⚖ C2, the 臨時休業 collection's own field, a
+    // native `<input type="date">` because that is what the wire's `YYYY-MM-DD`
+    // is). Lose one and the number moves, whichever shape it was.
+    expect((SRC_CODE.match(/onChange\(c\.id/g) ?? [])).toHaveLength(10)
     // ⚠ A CONTROLLED FIELD ALWAYS GETS AN onChange, EVEN LOCKED. React treats
     // `value` without one as read-only and says so in the console on every
     // render — which the probe's console sweep caught on this round's own tip.

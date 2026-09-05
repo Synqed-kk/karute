@@ -38,14 +38,12 @@ import { join } from 'node:path'
 import { analyticsPolicy, salesTargets } from '@/business/lib/fixtures-analytics'
 import { menus, operator, STORE_A, STORE_B, stores } from '@/business/lib/fixtures'
 import { cashTolerance, MAX_CASH_TOLERANCE } from '@/business/lib/fixtures-register'
-import { storeDials } from '@/business/lib/fixtures-settings'
+import { AUDIT_CATEGORIES, businessProfiles, rulebook, storeDials } from '@/business/lib/fixtures-settings'
 import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import {
   accessFor,
   blockingError,
-  CAPABILITY_LABEL,
-  CAPABILITY_ORDER,
   clampCoachingFloor,
   clampCoachingRetention,
   clampWinBackDays,
@@ -59,7 +57,6 @@ import {
   hhmm,
   labelOfValue,
   PREFS_DEFAULT,
-  PRESET_GRANTS,
   RAIL,
   readPrefs,
   RETENTION_MAX_MONTHS,
@@ -267,8 +264,8 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be made page-wide', () => {
-  const NOBODY = accessFor('スタッフ')
-  const MANAGER = accessFor(operator.role)
+  const NOBODY = accessFor('スタッフ', rulebook)
+  const MANAGER = accessFor(operator.role, rulebook)
 
   it('a self-scoped section is open to a reader who holds no settings right', () => {
     const mine = sectionById('my-display')!
@@ -328,8 +325,16 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     // …and 事業構成's own sentence carries the truth (c)2 records: the permission
     // exists, but a store cannot hand it out from the capability grid.
     const asManager = await room({ store: STORE_A })
-    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('オーナーのアカウントでのみ')
-    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('権限の一覧からは配れません')
+    // ⚖ S17 · C7 — RE-PINNED, AND THE SECOND HALF SAYS THE OPPOSITE OF WHAT IT
+    // DID. The sentence used to end 「権限の一覧からは配れません」 on the first
+    // cut's reading of canon's staff MOCK; `business.manage` is capability #2 of
+    // the product's eighteen, owner-only BY DEFAULT and grantable per staff
+    // member (`src/lib/auth/permissions.ts:16`, excluded from the manager preset
+    // at `:76`, never stripped by `effectiveCapabilities()`). Telling a manager a
+    // permission cannot be handed out, when it can, is a closed door that is open.
+    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('「事業の管理」の権限を持つ人です')
+    expect(sectionOf(asManager, 'business-structure').boundaryLine).toContain('権限の一覧から配れます')
+    expect(sectionOf(asManager, 'business-structure').boundaryLine).not.toContain('配れません')
   })
 
   it('a rights-less reader gets the INERT half of the pages canon opens to everyone', async () => {
@@ -376,21 +381,33 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     // opens it, nobody can be granted it from the capability grid, and the
     // boundary sentence says exactly that.
     for (const role of ['店舗管理者', 'スタッフ', '不明']) {
-      expect({ role, open: gateOf(sectionById('business-structure')!, accessFor(role)) }).toEqual({ role, open: 'no-rights' })
+      expect({ role, open: gateOf(sectionById('business-structure')!, accessFor(role, rulebook)) }).toEqual({ role, open: 'no-rights' })
     }
-    expect(gateOf(sectionById('business-structure')!, accessFor('オーナー'))).toBe('open')
-    expect(gateOf(sectionById('billing')!, accessFor('オーナー'))).toBe('open')
-    expect(CAPABILITY_ORDER).not.toContain('business.manage')
+    expect(gateOf(sectionById('business-structure')!, accessFor('オーナー', rulebook))).toBe('open')
+    expect(gateOf(sectionById('billing')!, accessFor('オーナー', rulebook))).toBe('open')
+    // ⚖ S17 · C7 — RE-PINNED, AND THE CLAIM IS THE OPPOSITE OF WHAT IT WAS.
+    // The old pin asserted `business.manage` is NOT in the grid, on the first
+    // cut's reading of canon's staff MOCK. The product's own list has it as
+    // capability #2 (`src/lib/auth/permissions.ts:16`), owner-only BY DEFAULT
+    // and grantable per staff member — so it IS in the grid, and the boundary
+    // sentence says how it is handed out rather than that it cannot be.
+    expect(rulebook.capabilities.map((c) => c.token)).toContain('business.manage')
+    expect(rulebook.grants.owner).toContain('business.manage')
+    expect(rulebook.grants.manager).not.toContain('business.manage')
   })
 
   it('an unknown role holds nothing — never a default grant', () => {
-    expect(accessFor('不明').has('settings.manage')).toBe(false)
-    expect(firstOpenSection(accessFor('不明'))?.id).toBe('recording')
-    // …and the presets are canon's own, unedited.
-    expect(PRESET_GRANTS.manager).toContain('settings.manage')
-    expect(PRESET_GRANTS.practitioner).not.toContain('settings.manage')
-    expect(PRESET_GRANTS.owner).toContain('billing.manage')
-    expect(PRESET_GRANTS.manager).not.toContain('billing.manage')
+    expect(accessFor('不明', rulebook).has('settings.manage')).toBe(false)
+    expect(firstOpenSection(accessFor('不明', rulebook))?.id).toBe('recording')
+    // …and the presets are KARUTE's own, unedited (⚖ C7).
+    expect(rulebook.grants.manager).toContain('settings.manage')
+    expect(rulebook.grants.practitioner).not.toContain('settings.manage')
+    expect(rulebook.grants.owner).toContain('billing.manage')
+    expect(rulebook.grants.manager).not.toContain('billing.manage')
+    // ⚠ `custom` IS A REAL ROLE AND IT STARTS EMPTY — Karute's own 「blank
+    // canvas」 (`permissions.ts:88`). A role the room dropped is a role a store
+    // cannot give anyone.
+    expect(rulebook.grants.custom).toEqual([])
   })
 })
 
@@ -456,7 +473,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(head.lead.length).toBeGreaterThan(20)
     expect((head.guide ?? '').length).toBeGreaterThan(20)
     const section = await policyOf({ store: STORE_A })
-    expect(Object.keys(section.policy)).toHaveLength(9)
+    // ⚖ S17 · C12 — TEN, not nine: `minSellableMin` joined the payload so the
+    // すき間の販売 row can print the length behind its switch as a RECEIPT
+    // (「販売可能な最小の長さ 30分（今日の運営の値）」) rather than the room growing
+    // a second control for a value core has no int field for yet.
+    expect(Object.keys(section.policy)).toHaveLength(10)
+    expect(Object.keys(section.policy)).toContain('minSellableMin')
+    expect(SECTION_CODE).toContain('販売可能な最小の長さ {props.policy.minSellableMin}分（今日の運営の値）')
     expect(section.save.roles.length).toBeGreaterThan(0)
     for (const dial of ['上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める', 'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '保存']) {
       expect({ dial, declared: SECTION_CODE.includes(`data-guide-title="${dial}"`) }).toEqual({ dial, declared: true })
@@ -629,21 +652,71 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(PAGE_SRC).toContain('section: query.section')
   })
 
-  it('the staff matrix is canon’s own eight capabilities, in plain words', async () => {
+  // ⚖ S17 · C7 — RE-DERIVED. The pin used to assert EIGHT capabilities, taken
+  // from canon's staff MOCK's `CAP_ORDER`; the product's own list is EIGHTEEN.
+  it('the staff matrix is KARUTE’s own eighteen capabilities, in plain words', async () => {
     const props = await room({ store: STORE_A })
     const grid = controlsOf(props).find((c) => c.id.startsWith('staff.caps-'))!
     expect(grid.control.kind).toBe('chips')
     const options = grid.control.kind === 'chips' ? grid.control.options : []
-    expect(options.map((o) => o.value)).toEqual([...CAPABILITY_ORDER])
-    expect(options).toHaveLength(8)
-    // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. canon's mock prints
-    // `staff.manage` on a chip because canon is a developer artefact; ⚖ 「plain
-    // names, never codes」 outranks the mock, so the grid keeps canon's eight
-    // facts and wears the product's own language (S9L-2).
+    expect(options.map((o) => o.value)).toEqual(rulebook.capabilities.map((c) => c.token))
+    expect(options).toHaveLength(18)
+    // ⚠ AND NOT ONE OF THEM IS SPELLED AS A TOKEN. Karute's own file carries the
+    // tokens with English comments; ⚖ 「plain names, never codes」 means the grid
+    // wears the product's own language (S9L-2, kept).
     for (const o of options) {
-      expect({ value: o.value, plain: o.label === CAPABILITY_LABEL[o.value as never] && !/\./.test(o.label) })
+      expect({ value: o.value, plain: !/\./.test(o.label) && o.label.length > 0 })
         .toEqual({ value: o.value, plain: true })
     }
+    // ⚠ AND IT IS A GRID, NOT A RAG (⚖ mock D9): eighteen chips wrapping freely
+    // is the readability defect this round is for.
+    expect(grid.control.kind === 'chips' && grid.control.grid).toBe(true)
+  })
+
+  // ⚖ S17 · C7 — THE PIN THAT MAKES THE MIRROR REAL. Business territory may not
+  // import `src/lib/**`, so the rulebook is COPIED with its cite; this reads
+  // Karute's own file off disk and asserts the copy still matches it. A drift on
+  // either side goes red the day it lands, which is the whole difference between
+  // a mirrored contract and a stale one.
+  it('⚖ C7 — the rulebook still equals Karute’s own permissions.ts', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/auth/permissions.ts'), 'utf8')
+    const caps = src.slice(src.indexOf('export const CAPABILITIES = ['), src.indexOf('] as const', src.indexOf('export const CAPABILITIES = [')))
+    const tokens = [...caps.matchAll(/^\s*'([a-z]+\.[a-zA-Z]+)',/gm)].map((m) => m[1])
+    expect(tokens).toEqual(rulebook.capabilities.map((c) => c.token))
+    expect(tokens).toHaveLength(18)
+
+    const roles = src.slice(src.indexOf('export const PERMISSION_ROLES = ['), src.indexOf('] as const', src.indexOf('export const PERMISSION_ROLES = [')))
+    const roleKeys = [...roles.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])
+    expect(roleKeys).toEqual(rulebook.roles.map((r) => r.key))
+    // ⚠ SIX, NOT NINE. The packet said nine including `custom` and there is no
+    // `PermissionRoleKey` symbol on origin/main at all — the type is
+    // `PermissionRole` over these six (`permissions.ts:51-59`). Read from the
+    // source, which is the only reason a pin is worth anything.
+    expect(roleKeys).toHaveLength(6)
+  })
+
+  // ⚖ S17 · C4 — the same proof for the 26 business types.
+  it('⚖ C4 — the 26 業種 still equal Karute’s own business-types.ts', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/welcome/business-types.ts'), 'utf8')
+    const block = src.slice(src.indexOf('export const BUSINESS_TYPES'), src.indexOf('\n]', src.indexOf('export const BUSINESS_TYPES')))
+    const pairs = [...block.matchAll(/\{ value: '([^']+)',[^}]*labelJa: '([^']+)' \}/g)].map((m) => ({ value: m[1], label: m[2] }))
+    expect(pairs).toHaveLength(26)
+    expect(businessProfiles.map((p) => ({ value: p.value, label: p.label }))).toEqual(pairs)
+  })
+
+  // ⚖ S17 · C8 — and for the audit writers' own categories.
+  it('⚖ C8 — the 種類 filter offers the categories the writers really emit', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/audit.ts'), 'utf8')
+    const block = src.slice(src.indexOf('export const AUDIT_CATEGORIES = ['), src.indexOf('] as const', src.indexOf('export const AUDIT_CATEGORIES = [')))
+    const declared = [...block.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])
+    expect(declared).toHaveLength(10)
+    // ⚠ NINE ARE OFFERED, NOT TEN. `billing` is declared and never written: its
+    // only `FACADE_AUDIT_MAP` row is `kind: 'skip'`, which `logFacadeAudit`
+    // returns on before it can call `audit()`. A filter option that can never
+    // match a row is a dead lever with a label on it.
+    expect(AUDIT_CATEGORIES.map((c) => c.token)).toEqual(declared.filter((d) => d !== 'billing'))
+    expect(src).toContain("'entitlement.read': { kind: 'skip', category: 'billing'")
+    for (const c of AUDIT_CATEGORIES) expect(c.label).not.toMatch(/[a-z]\./)
   })
 })
 
@@ -685,7 +758,18 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(PROPS_CODE).not.toContain('業種による初期値の決まりはありません')
     // The screen renders the line CONDITIONALLY, so a future row that omits it
     // cannot print an empty bullet.
-    expect(SCREEN_CODE).toContain('{row.trio.businessType && <li className="st-trio-type">{row.trio.businessType}</li>}')
+    // ⚖ S17 STEP 1 — RE-PINNED AT ITS NEW HOME. The three lines did not change
+    // and none of them was cut; they moved behind the row's own 詳しく, where a
+    // manager opens them at the moment they are changing the dial instead of
+    // reading them between every pair of dials the rest of the time. The
+    // CONDITION is what this pin is about, and it is still a condition: a 業種
+    // line prints only where a ruling gave one.
+    expect(SCREEN_CODE).toContain("if (row.trio.businessType) detail.push({ cls: 'st-det-type', text: row.trio.businessType })")
+    expect(SCREEN_CODE).toContain("detail.push({ cls: 'st-det-base', text: row.trio.base })")
+    expect(SCREEN_CODE).toContain("detail.push({ cls: 'st-det-rail', text: row.trio.guardrail })")
+    // …and a row with none of the four grows no 詳しく at all — an empty
+    // disclosure is a control that opens onto nothing.
+    expect(SCREEN_CODE).toContain('{detail.length > 0 && (')
   })
 
   it('every clamp refuses the harmful end, both ways, and survives a non-number', () => {
@@ -730,7 +814,14 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
       // the figure's 20px read as a headline shouting over the section title.
       expect({ id: c.id, phrase: c.control.numeric === false }).toEqual({ id: c.id, phrase: true })
     }
-    expect(CSS_CODE).toContain('.st-readout.is-phrase b { font-size: 14px;')
+    // ⚖ S17 STEP 1 — RE-PINNED TO THE ROOM'S NEW SCALE. The compact head took
+    // the page's whole type scale down a step (h1 26→22, section title 19→17),
+    // so the readout came with it: 20→15 for a figure, 14→12.5 for a phrase.
+    // The CLAIM is unchanged and is what this pin is for — a MEASURE gets the
+    // big tabular figure a reader scans for, a PHRASE does not, because at the
+    // figure's size a role list shouts over the section title.
+    expect(CSS_CODE).toContain('.st-readout b { font-size: 15px;')
+    expect(CSS_CODE).toContain('.st-readout.is-phrase b { font-size: 12.5px;')
     expect(SCREEN_CODE).toContain("className={`st-readout${k.numeric ? '' : ' is-phrase'}`}")
   })
 
@@ -777,6 +868,13 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
     'template',
     // `requires` names a control, and `attrs` maps an attribute name to one.
     'requires',
+    // ⚖ S17 · C2 — a collection's two fields name the controls its 追加 row reads
+    // (`SettingsCollection.dateControlId` / `reasonControlId`). Same shape as
+    // `requires`: an id the SCREEN uses, never a string a reader meets. Its
+    // visible words — `addLabel`, `removeLabel`, `emptyLine`, `duplicateError`,
+    // `emptyDateError`, and every item's `title`/`note` — are NOT skipped, and
+    // the sample below proves the walk still reaches them.
+    'dateControlId', 'reasonControlId',
   ])
   /** ⚠ THE SKIP IS BY PATH, AND THE BATTERY PROVED WHY once already: the trace
    *  card's lines are `{ label, value }` and that `value` is a SENTENCE the
@@ -862,6 +960,10 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
           ['a block fact', '記録は削除できません。すべての変更は自動で記録され、いつでも確認できます。'],
           ['a switch label', '有給（休憩も含めて計算）'],
           ['a list item', 'まとめての書き出しはできません。'],
+          // ⚖ S17 · C2 — the collection's own visible words, one per shape, so
+          // the two id keys skipped above cannot quietly take the block with them.
+          ['a collection refusal', 'その日はすでに臨時休業です'],
+          ['a collection empty state', '臨時休業の予定はありません。'],
         ] as const) {
           expect({ shape, seen: strings.includes(sample) }).toEqual({ shape, seen: true })
         }
@@ -948,7 +1050,14 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
     // ⚖ S17 FOLD — 予約の移動単位 moved to 予約と確保; 予定ブロックの移動単位 is
     // the row in the same block that stayed, and it carries the same scope.
     expect(rowOf('store-hours.row-block-step').scopeLabel).toBe('事業全体')
-    expect(rowOf('coaching.row-enabled').scopeLabel).toBe('この店舗')
+    // ⚖ S17 · C4 — RE-PINNED TO 事業全体. `coaching_enabled` lives in the
+    // BUSINESS's own org-settings blob, so a manager switching it off in 銀座
+    // switches it off for 代官山 too — which is exactly the mistake the scope
+    // chip exists to prevent, and the chip was saying the opposite.
+    expect(rowOf('coaching.row-enabled').scopeLabel).toBe('事業全体')
+    // …and a row that really IS per-store still says so, so the pin is not just
+    // agreeing with whatever the payload happens to hold.
+    expect(rowOf('store-hours.row-breaks').scopeLabel).toBe('この店舗')
   })
 
   it('a world with no settings is a DESIGNED state, not a blank panel', async () => {
@@ -1041,28 +1150,44 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
   it('each threshold equals the SUM of its own terms plus its stated slack', () => {
     // ⚠ THE NUMBERS ARE PARSED, NEVER RETYPED (room-6 B4-1). Move one term and
     // the threshold has to move with it or this goes red.
-    expect(tokenOf('st-what-min') + tokenOf('st-what-gap') + tokenOf('st-ctl-min') + 4).toBe(410)
-    expect(tokenOf('st-main-min') + tokenOf('st-cols-gap') + tokenOf('st-aside-min') + 10).toBe(720)
+    //
+    // ⚖ S17 STEP 1 — RE-DERIVED, because the compositions changed. The ①→②
+    // threshold RETIRED: the row's label track is now `minmax(0, min(240px,42%))`
+    // beside `minmax(min-content, 1fr)`, so it has no floor to cross — the label
+    // yields and the shape holds at every width the panel can be, and the stack
+    // is the phone's media band instead. What replaced it is the ②→③ threshold,
+    // which is the one this room actually has a choice about: whether the sticky
+    // stack fits beside the panel.
+    expect(
+      tokenOf('st-rail-w') + tokenOf('st-gap') + tokenOf('st-main-min') + tokenOf('st-gap') + tokenOf('st-side-w'),
+    ).toBe(960)
+    // three preset cards + their two 12px gaps + 16px of slack
+    expect(tokenOf('st-preset-min') * 3 + 24 + 16).toBe(640)
   })
 
-  it('every term of the ①→② threshold is REALLY SPENT by a rule, not just summed', () => {
-    // `--st-ctl-min` was once declared, summed and consumed by NO RULE: the
-    // control track was `minmax(0, max-content)`, floor zero, so the threshold
-    // pin proved that three numbers add up while the column squeezed to 198 and
-    // wrapped an orphan chip across 744-791. A term that nothing spends is not a
-    // term.
-    expect((CSS_CODE.match(/--st-ctl-min:\s*\d+px/g) ?? []).length).toBe(1)
-    expect(CSS_CODE).toMatch(
-      /\.st-dial \{\s*grid-template-columns: minmax\(var\(--st-what-min\), 1fr\) minmax\(var\(--st-ctl-min\), max-content\);/,
-    )
-    expect(CSS_CODE).not.toMatch(/\.st-dial \{[^}]*minmax\(0, max-content\)/)
-    // …and a control set that must wrap anyway wraps to the RIGHT, so a spare
-    // chip is never orphaned under the first one.
-    expect(CSS_CODE).toContain('.st-dial > .st-dial-ctl .st-seg { justify-content: flex-end; }')
-    for (const token of ['--st-what-min', '--st-what-gap']) {
+  it('every term of the ②→③ threshold is REALLY SPENT by a rule, not just summed', () => {
+    // A term that nothing spends is not a term — the defect this pin was written
+    // for (`--st-ctl-min` was once declared, summed, and consumed by no rule at
+    // all, so the arithmetic proved three numbers add up while the column
+    // squeezed to 198). Every token below is read by the rule that lays out the
+    // composition its number belongs to.
+    for (const token of ['--st-rail-w', '--st-side-w', '--st-gap', '--st-main-min']) {
       const uses = (CSS_CODE.match(new RegExp(`var\\(${token}\\)`, 'g')) ?? []).length
       expect({ token, uses: uses >= 1 }).toEqual({ token, uses: true })
     }
+    // ③ really is rail | panel | stack, and the stack's column is the token.
+    expect(CSS_CODE).toMatch(/\.st-grid \{ grid-template-columns: var\(--st-rail-w\) minmax\(0, 1fr\); \}/)
+    expect(CSS_CODE).toMatch(/\.st-panel \{ grid-template-columns: minmax\(var\(--st-main-min\), 1fr\) var\(--st-side-w\); \}/)
+    // …and the ROW's own track is the bounded one the ultra-wide law asks for:
+    // a label track that CAN shrink to zero (so a wide dial is never clipped)
+    // but never grows past 240px (so a 2560px display becomes page white on the
+    // right rather than 400px of dead space) — ⚖ mock review v2-1 / D14 / D15.
+    expect(CSS_CODE).toMatch(
+      /\.st-dial \{\s*display: grid;\s*grid-template-columns: minmax\(0, min\(var\(--st-label-w\), 42%\)\) minmax\(min-content, 1fr\);/,
+    )
+    expect(CSS_CODE).not.toMatch(/\.st-dial \{[^}]*minmax\(0, max-content\)/)
+    // …and the control track is CAPPED, which is what stops the field floating.
+    expect(CSS_CODE).toMatch(/\.st-dial-ctl \{[^}]*max-width: var\(--st-ctl-max\)/)
   })
 
   it('⚠ THE OVER-WIDE CHOICES USE canon’s OTHER SHAPE, THE SELECT (S9L-3)', async () => {
@@ -1099,76 +1224,107 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
 
   it('exactly two container queries, both min-width, one per container', () => {
     const queries = [...CSS_CODE.matchAll(/@container\s+(st-\w+)\s*\(([^)]*)\)/g)].map((m) => [m[1], m[2].trim()])
+    // ⚖ S17 STEP 1 — RE-DERIVED. `st-panel`/`st-main` at 720/410 were the trace
+    // card's threshold and the row's; the trace card is gone from the column and
+    // the row has no threshold. What is left is the composition (`st-body`) and
+    // the three-across grids (`st-main`). ⚠ ONE BLOCK EACH: two blocks at one
+    // threshold are two places to read the same number, which is the thing this
+    // pin exists to stop.
     expect(queries.map((q) => q.join(' '))).toEqual([
-      'st-panel min-width: 720px',
-      'st-main min-width: 410px',
+      'st-body min-width: 960px',
+      'st-main min-width: 640px',
     ])
     // ⚠ NO `max-width` CONTAINER QUERY ANYWHERE. A max-width band can be left and
     // re-entered on the way up, which is exactly the non-monotonic ladder the
     // gate forbids; every composition here is gained once and never given back.
     expect(CSS_CODE).not.toMatch(/@container[^)]*max-width/)
+    // ⚠ AND NEITHER CONTAINER IS THE PAGE ROOT. `container-type: inline-size`
+    // computes to `contain: layout …`, and `contain: layout` makes an element the
+    // containing block for its `position: fixed` descendants — the ?-tour's four
+    // layers are fixed and are children of the root, so a container there would
+    // pin the spotlight to the page instead of the viewport.
+    expect(CSS_CODE).not.toMatch(/\.page\.pg-settings \{[^}]*container/)
+    expect(CSS_CODE).toMatch(/\.st-body \{ container: st-body \/ inline-size/)
+    expect(CSS_CODE).toMatch(/\.st-main \{ container: st-main \/ inline-size/)
   })
 
   it('the ladder is crossed once across the sweep, at the shell’s REAL rail widths', () => {
-    // ⚠ THE HARNESS-GEOMETRY LAW, ARITHMETICALLY. `.st-main` is the page minus
-    // the shell rail, minus the page's own gutters, minus this room's 220px rail
-    // and its 20px gap (from 744 up). The shell rail is 76px collapsed, 264px
-    // open, and ALWAYS 76 below 1024 (business-shell.css ≤1023 band).
-    const gutter = (page: number) => (page >= 1400 ? 28 : page >= 1024 ? 24 : page >= 744 ? 18 : 14)
-    const panel = (page: number, railOpen = false) => {
+    // ⚠ THE HARNESS-GEOMETRY LAW, ARITHMETICALLY. The composition turns on
+    // `.st-body`'s own width — the page minus the SHELL's rail minus this page's
+    // gutters, capped at the ultra-wide 1416 — and never on the viewport's,
+    // because the shell rail is 264px at ≥1024 and 76px below it, so a viewport
+    // rule decides this from the wrong number.
+    const gutter = (page: number) => (page >= 1400 ? 28 : page >= 1024 ? 24 : page >= 900 ? 18 : 14)
+    const body = (page: number, railOpen = false) => {
       const shellRail = page >= 1024 && railOpen ? 264 : 76
-      const content = page - shellRail - 2 * gutter(page)
-      return page >= 744 ? content - 220 - 20 : content
+      return Math.min(page - shellRail - 2 * gutter(page), 1416)
     }
+    const rail = (page: number) => (page >= 1440 ? 240 : 200)
+    const side = (page: number) => (page >= 1440 ? 300 : 288)
+    const gap = (page: number) => (page >= 1440 ? 20 : 16)
+    const SIDE_AT = 960
     const main = (page: number, railOpen = false) => {
-      const p = panel(page, railOpen)
-      return p < 720 ? p : ((p - 20) * 2.2) / 3.2
+      const b = body(page, railOpen)
+      return b >= SIDE_AT ? b - rail(page) - gap(page) - side(page) - gap(page) : b - rail(page) - gap(page)
     }
 
     // ⚠ CHECKED AGAINST A HARDCODED EXPECTATION, not one derived by sorting the
     // same values this pin exists to catch: a sort-then-walk is monotonic BY
-    // CONSTRUCTION no matter what `main()` returns, which is why that shape
+    // CONSTRUCTION no matter what the function returns, which is why that shape
     // shipped once already (V9-1) and had to be re-pinned as a literal array.
-    const LEVEL_AT = 410
-    const widths = [390, 412, 480, 743, 744, 768, 800, 1024, 1180, 1280, 1586]
-    const level = widths.map((w) => `${w}:${Math.round(main(w))}:${main(w) >= LEVEL_AT ? '②' : '①'}`)
-    expect(level).toEqual([
-      '390:286:①', '412:308:①', '480:376:①', '743:639:②',
-      '744:392:①', '768:416:②', '800:448:②', '1024:660:②',
-      '1180:547:②', '1280:616:②', '1586:821:②',
+    const widths = [900, 1024, 1180, 1280, 1440, 1680, 1920, 2560]
+    const shape = widths.map((w) => `${w}:${body(w, true)}:${body(w, true) >= SIDE_AT ? '③' : '②'}`)
+    expect(shape).toEqual([
+      '900:788:②', '1024:712:②', '1180:868:②', '1280:968:③',
+      '1440:1120:③', '1680:1360:③', '1920:1416:③', '2560:1416:③',
     ])
-    expect(level.some((r) => r.endsWith('②')) && level.some((r) => r.endsWith('①'))).toBe(true)
-    // ⚠ iPad PORTRAIT IS ②, and 744 split view is ① — named, because that is the
-    // pair the ladder turns on and the next reader will check it first.
-    expect({ p768: main(768) >= LEVEL_AT, split744: main(744) >= LEVEL_AT }).toEqual({ p768: true, split744: false })
-    expect(main(1024, true) >= LEVEL_AT).toBe(true)
-    const desk = [390, 743, 744, 800, 1024, 1180, 1280, 1586].map((w) => panel(w) >= 720)
-    expect(desk).toEqual([false, false, false, false, false, true, true, true])
-    // ⚠ AND THE REFERENCE LAPTOP WITH THE SHELL'S RAIL OPEN, which is the state
-    // this product is really read in: 1280 open must reach the desk composition.
-    expect(panel(1280, true) >= 720).toBe(true)
-    expect(main(1180) >= LEVEL_AT).toBe(true)
+    // ⚠ THE REFERENCE LAPTOP, WITH THE SHELL'S RAIL OPEN, IS THE WHOLE POINT.
+    // 1280 open lands on 968 — EIGHT pixels over the threshold, deliberately,
+    // because that is the width this product is actually read on. The fold
+    // round's own D-2 was this arithmetic wrong by 52px in the other direction,
+    // and the first cut of THIS round put it at exactly 960 (a scrollbar would
+    // have dropped the room back to the strip) before the gutter band was fixed.
+    expect(body(1280, true)).toBe(968)
+    expect(body(1280, true) - SIDE_AT).toBe(8)
+    // …and the reading column still clears its own floor there.
+    expect(main(1280, true)).toBe(448)
+    expect(main(1280, true) >= 440).toBe(true)
+    // The strip is REACHED, so the composition is not a one-state ladder: a
+    // narrow laptop with the rail open is ②, the same laptop collapsed is ③.
+    expect(body(1180, true) >= SIDE_AT).toBe(false)
+    expect(body(1180, false) >= SIDE_AT).toBe(true)
+    // ⚖ ULTRA-WIDE — past 1920 the extra width is page margin, never stretch.
+    expect(body(2560, true)).toBe(body(1920, true))
   })
 
   it('the ONE media-driven swap is the ⚖ list-is-the-page law, and nothing else', () => {
-    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 743px)'))
+    // ⚖ S17 STEP 1 — 899, NOT 743. At 744-899 the rail and the panel together
+    // left the panel under 400px, which is NARROWER than the phone's own
+    // full-width section: the composition meant to be the richer one was the
+    // poorer one. From 900 up both are on screen and the panel has room.
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
     expect(phone).toMatch(/\.st-panel \{ display: none; \}/)
     expect(phone).toMatch(/\.pg-settings\.is-detail \.st-rail \{ display: none; \}/)
-    expect(phone).toMatch(/\.pg-settings\.is-detail \.st-panel \{ display: flex; \}/)
-    expect(CSS_CODE).toMatch(/@media \(min-width: 744px\) \{\s*\.biz \.pg-settings \.st-body \{ grid-template-columns: 220px/)
+    expect(phone).toMatch(/\.pg-settings\.is-detail \.st-panel \{ display: grid; \}/)
+    // ⚠ `display: contents` IS WHAT LETS ONE DOM SERVE THREE COMPOSITIONS: the
+    // stack dissolves so its three children become grid items of the panel in
+    // their own right, which is the only way このページの中身 lands under the head
+    // and the save bar sticks to the bottom without either being rendered twice.
+    expect(phone).toMatch(/\.st-side \{ display: contents; \}/)
+    expect(CSS_CODE).toMatch(/@media \(min-width: 900px\) \{\s*\.biz \.pg-settings \.st-grid \{ grid-template-columns: var\(--st-rail-w\)/)
     // …and no media band restates a COMPOSITION the container queries decided.
-    const bands = CSS_CODE.slice(CSS_CODE.indexOf('@media (min-width: 1400px)'))
-    expect(bands).not.toMatch(/\.st-dial \{[^}]*grid-template-columns/)
-    expect(bands).not.toMatch(/\.st-cols \{[^}]*grid-template-columns/)
+    const bands = CSS_CODE.slice(CSS_CODE.indexOf('@media (min-width: 1440px)'))
+    expect(bands).not.toMatch(/\.st-grid \{[^}]*grid-template-columns/)
+    expect(bands).not.toMatch(/\.st-panel \{[^}]*grid-template-columns/)
   })
 
   it('the ALL-SCREEN ladder states every band the law names', () => {
     for (const band of [
-      '@media (min-width: 1400px)',
+      '@media (min-width: 1440px)',
       '@media (max-width: 1399px)',
       '@media (max-width: 1023px)',
-      '@media (max-width: 743px)',
-      '@media (min-width: 744px)',
+      '@media (max-width: 899px)',
+      '@media (min-width: 900px)',
       '@media (prefers-reduced-motion: reduce)',
     ]) {
       expect({ band, present: CSS_SRC.includes(band) }).toEqual({ band, present: true })
@@ -1176,12 +1332,19 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
   })
 
   it('≥44px targets from 1023 down — every touch device, not just the phone', () => {
-    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 743px)'))
-    for (const sel of ['.st-opt', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input', '.st-back', '.st-link', '.st-save', '.st-spot-foot button']) {
+    const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
+    for (const sel of [
+      '.st-opt', '.st-pick', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input',
+      '.st-back', '.st-link', '.st-save', '.st-jump-item', '.st-rail-item', '.st-det-btn',
+      '.st-search-field', '.st-spot-foot button',
+    ]) {
       expect({ sel, sized: touch.includes(sel) }).toEqual({ sel, sized: true })
     }
-    // The rail's own rows are 44 at EVERY width — they are the page on a phone.
-    expect(CSS_CODE).toMatch(/\.st-rail-item \{[^}]*min-height: 44px/)
+    // ⚠ RE-PINNED AS A GROUPED SELECTOR. The rail's rows used to carry their own
+    // `min-height: 44px` at every width; the room's rows are 34px on a desk now
+    // (the compact head's own scale) and grow to 44 in the touch band with every
+    // other control, which is where the law actually applies.
+    expect(touch).toMatch(/\.st-rail-item,[\s\S]*min-height: 44px/)
   })
 })
 
@@ -1197,13 +1360,57 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
     // belongs to every one of them — the wash recipe on a selected option, and
     // the SOLID fill on the two commit actions, which is what R13 reserves a
     // solid fill for. A decoration or a status line carrying accent would fail.
-    const accented = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--st-accent[^}]*\}/g)].map((m) => m[1].trim())
+    // ⚠ THE SCAN IS FOR THE SATURATED ACCENT, NOT FOR THE WASH — and that
+    // distinction IS the law rather than a loosening of it. CLAUDE.md's own
+    // clause: 「LEGAL and out of scope: soft washes (bg-primary/8, bg-blue-50
+    // info banners, wash-styled status chips — wash-level opacity or a *-50
+    // tint, never a solid bg-primary fill on a non-pressable)」. So
+    // `--st-accent-wash` is allowed anywhere and `--st-accent` / `--st-accent-dark`
+    // are allowed only on a pressable. The old regex caught both because nothing
+    // non-pressable in this room wore a wash yet; the preview card does now, and
+    // a pin that cannot tell a wash from a fill would have forced the card to
+    // lose the tint the law explicitly permits.
+    const SATURATED = /var\(--st-accent(?!-wash)[a-z-]*\)/
+    const accented = [...CSS_CODE.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((m) => SATURATED.test(m[2]))
+      .map((m) => m[1].trim())
     for (const sel of accented) {
-      const pressable = /st-rail-item|st-help|st-opt|st-switch|st-swatch|st-save|st-act|st-link/.test(sel)
+      // ⚖ S17 STEP 1 — RE-DERIVED, and the four new names are all pressables or
+      // parts of one. `st-seg-thumb` is the selected state OF the segment (it is
+      // `pointer-events: none` decoration behind a real button); `st-rail-hit` is
+      // a span INSIDE the rail's own `<button>` — 「judge the ELEMENT, not the
+      // file: accent on a span inside a link/button is part of the pressable」
+      // (CLAUDE.md, the one-way accent law's own clause). `st-jump-item`,
+      // `st-det-btn`, `st-pick`, `st-back` and `st-search-field` are buttons and
+      // a field.
+      // `st-spot-hole` is the ?-walk's RING around the element being explained
+      // and `st-spot-next` is its own button — the first is the law's named
+      // exemption (「focus rings and focus-visible styles (a11y)」: a ring drawn
+      // around the thing being taught is the same category), the second is a
+      // control.
+      const pressable = /st-rail-item|st-rail-hit|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-swatch|st-save|st-act|st-link|st-jump-item|st-det-btn|st-back|st-search-field|st-coll-del|st-spot-hole|st-spot-next/.test(sel)
       expect({ sel, pressable }).toEqual({ sel, pressable: true })
     }
-    // The selected option really is R13's wash recipe, never a solid fill…
-    expect(CSS_CODE).toMatch(/\.st-opt\[aria-pressed="true"\] \{ background: var\(--st-accent-wash\)/)
+    // …and the WASH really is limited to the surfaces the law names — a selected
+    // state, a door, and one info card — rather than being sprayed about because
+    // the scan above stopped looking at it.
+    const washed = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*var\(--st-accent-wash\)[^}]*\}/g)].map((m) => m[1].trim())
+    for (const sel of washed) {
+      const named = /st-preview|st-help|st-opt|st-seg-thumb|st-pick|st-switch|st-rail-item|st-link|st-jump-item|st-det-btn|st-back|st-block|st-spot-next/.test(sel)
+      expect({ sel, named }).toEqual({ sel, named: true })
+    }
+    // The selected option really is R13's wash recipe, never a solid fill — and
+    // ⚖ S17 STEP 1 re-pins WHERE the recipe is painted rather than whether it is.
+    // The segment grew a THUMB that travels on the room's spring, so the wash and
+    // the accent border moved onto the thumb and the accent TEXT stayed on the
+    // selected button. Same three ingredients, same law, one of them now moving.
+    // (The mock drew a white thumb on a grey track — the platform's own
+    // segmented control — which would have left the room with no accent at all
+    // on the thing that IS selected. The law outranks the picture.)
+    expect(CSS_CODE).toMatch(/\.st-seg-thumb \{[^}]*border: 1px solid var\(--st-accent\)/)
+    expect(CSS_CODE).toMatch(/\.st-seg-thumb \{[^}]*background: var\(--st-accent-wash\)/)
+    expect(CSS_CODE).toMatch(/\.st-opt\[aria-pressed="true"\] \{ color: var\(--st-accent\)/)
+    expect(CSS_CODE).not.toMatch(/\.st-seg-thumb \{[^}]*background: #fff/)
     // …and the commit button really is the solid fill with its own text colour
     // and a hover that DARKENS within the accent rather than lightening.
     expect(CSS_CODE).toMatch(/background: var\(--st-accent\); color: #fff;/)
@@ -1215,20 +1422,48 @@ describe('⚖ R13 + the one-way accent law — pressables only', () => {
   })
 
   it('press feedback exists for live controls and NOT for locked ones', () => {
-    const block = CSS_CODE.slice(CSS_CODE.indexOf('.st-rail-item:active'), CSS_CODE.indexOf('transform: scale(.98)'))
-    expect(block).toContain('.st-opt:not([aria-disabled="true"]):active')
-    expect(block).toContain('.st-save:active')
-    expect(block).not.toMatch(/\.st-opt:active[,\s]/)
+    // ⚠ AND THE REDUCED-MOTION RESET MIRRORS THE SAME SELECTORS. It was written
+    // once with a bare `.st-opt:active`, which states a press rule for a LOCKED
+    // option even though its effect is to turn motion off — a rule that reads as
+    // the opposite of the law it obeys. The scan is the WHOLE sheet for exactly
+    // that reason.
+    expect(CSS_CODE).toContain('.st-opt:not([aria-disabled="true"]):active')
+    expect(CSS_CODE).toContain('.st-save:not(:disabled):active')
+    expect(CSS_CODE).not.toMatch(/\.st-opt:active[,\s{]/)
+    expect(CSS_CODE).not.toMatch(/\.st-pick:active[,\s{]/)
+    expect(CSS_CODE).toMatch(/transform: scale\(\.97\)/)
   })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () => {
-  it('not one container in this room owns an axis', () => {
-    expect(CSS_CODE).not.toMatch(/overflow-y/)
-    expect(CSS_CODE).not.toMatch(/overscroll-behavior/)
-    expect(CSS_CODE).not.toMatch(/max-height/)
-    expect(CSS_CODE).not.toMatch(/overflow-x/)
+  it('the PAGE scrolls, and the two boxes that own an axis are the two that are pinned', () => {
+    // ⚖ S17 STEP 1 — RE-DERIVED FROM 「NOT ONE CONTAINER」 TO 「TWO, NAMED」, and
+    // the reason is a property of `position: sticky` rather than a preference: a
+    // box pinned to the viewport that is TALLER than the viewport can never show
+    // its own last row, because the page scroll no longer moves it. The rail
+    // (22 rows) and the stack (a live card + a jump list + the save state) are
+    // both pinned at ③, so each is capped at the viewport and scrolls inside
+    // itself. This is the ② room's `.rv-sheet` precedent — one named exception,
+    // stated where it is made — and the pin NAMES them so a third one goes red.
+    const axisOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-y:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
+    expect(axisOwners).toEqual([
+      '.biz .pg-settings .st-side',
+      '.biz .pg-settings .st-rail',
+    ])
+    // …and BOTH are inside the ③ query, where the stickiness that makes them
+    // necessary also lives. At ② and ① neither is sticky and neither owns an axis.
+    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
+    for (const owner of axisOwners) expect(three).toContain(owner)
+    // ⚠ AND THE PANEL NEVER DOES. The reading column is what the page is for; a
+    // scroller around it would put the room's content behind a second scrollbar.
+    expect(CSS_CODE).not.toMatch(/\.st-panel \{[^}]*overflow/)
+    expect(CSS_CODE).not.toMatch(/\.st-main \{[^}]*overflow/)
+    // ⚠ NO HORIZONTAL AXIS ANYWHERE except the ② strip's own jump run, which is
+    // a one-line chip scroller and says so by removing the vertical one.
+    const xOwners = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow-x:\s*auto[^}]*\}/g)].map((m) => m[1].trim())
+    expect(xOwners).toEqual(['.biz .pg-settings .st-jump-list'])
+    expect(CSS_CODE).toMatch(/\.st-jump-list \{[^}]*overflow-x: auto; overflow-y: hidden/)
   })
 
   it('NO container holding a focusable clips — a ring the room clips is not a ring', () => {
@@ -1242,11 +1477,31 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // rule sets `pointer-events: none` and whose only child is a `<span>`. It
     // can clip no ring because no ring can exist inside it — and this pin says
     // so by name, so a fourth clipper still goes red.
-    expect(clippers).toEqual(['.biz .pg-settings .st-pv-card .wc-hold-clip'])
+    // ⚖ S17 STEP 1 — TWO MORE, AND EACH IS PROVEN RATHER THAN LISTED.
+    //   `.st-det-wrap` is the 詳しく panel's height animator: `overflow: hidden`
+    //     is what a height spring needs, and the panel holds FOUR SENTENCES —
+    //     the proof below scans the screen's own markup for a focusable inside
+    //     it, so the day someone puts a button in there this goes red.
+    //   `.st-sr` is the visually-hidden helper that carries the dirty dot's
+    //     sentence to a screen reader. It is a `<span>` of text by construction.
+    expect(clippers).toEqual([
+      '.biz .pg-settings .st-det-wrap',
+      '.biz .pg-settings .st-sr',
+      '.biz .pg-settings .st-pv-card .wc-hold-clip',
+    ])
     // …proven, not asserted: the card that holds it is inert, and the mask's
     // only child is not focusable.
     expect(CSS_CODE).toMatch(/\.biz \.pg-settings \.st-pv-card \{[^}]*pointer-events: none/)
     expect(SECTION_CODE).toContain('<span className="wc-hold-clip" aria-hidden="true"><span className="wc-hold-fill" /></span>')
+    // …and the 詳しく panel really holds nothing that can take focus: its whole
+    // body is the `<ul className="st-det">` of `<li>` sentences, and the screen
+    // renders no interactive element inside `Collapse`.
+    const collapse = SCREEN_CODE.slice(SCREEN_CODE.indexOf('<Collapse open={open}'), SCREEN_CODE.indexOf('</Collapse>'))
+    for (const focusable of ['<button', '<input', '<select', '<a ', 'tabIndex']) {
+      expect({ focusable, inside: collapse.includes(focusable) }).toEqual({ focusable, inside: false })
+    }
+    // …and `.st-sr` is the screen-reader span, never a box anything is put in.
+    expect(SCREEN_CODE).toMatch(/<span className="st-sr">[^<]+<\/span>/)
   })
 
   it('the room states no width floor of its own — the shell owns that', () => {

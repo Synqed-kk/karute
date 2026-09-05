@@ -755,6 +755,12 @@ describe('the fixture data door', () => {
         './StorePolicySection',
         '@/business/lib/guide',
         '@/business/lib/settings',
+        // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
+        // page (the segment's thumb, the switch's thumb, the 詳しく panel's
+        // height, the save card's rise) is driven by `makeSpring`; a second
+        // easing written by hand beside it would be a second motion language on
+        // one page, which is the thing the Studio standard exists to prevent.
+        '@/business/lib/spring',
         'react',
       ],
       // ⚖ S17 FOLD — 予約と確保, #812's room re-homed as ONE section of 設定.
