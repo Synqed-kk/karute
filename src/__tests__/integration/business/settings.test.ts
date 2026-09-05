@@ -810,7 +810,12 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // wrapper — `:not(.st-det-wrap)` keeps it off the real disclosure, whose
     // height is its spring's — and it lives inside ①, so no other band sees it.
     expect(phone).toContain('.biz .pg-settings .st-jump #stJumpList:not(.st-det-wrap) { display: none; }')
-    expect(CSS_CODE.slice(0, CSS_CODE.indexOf('@media (max-width: 899px)'))).not.toContain('#stJumpList')
+    // …and HIDING it is ①'s alone: everywhere else that same wrapper is a
+    // pass-through (`display: contents`), so ②'s toolbar and ③'s column lay the
+    // list and its note out exactly as they did when they were direct children.
+    const above = CSS_CODE.slice(0, CSS_CODE.indexOf('@media (max-width: 899px)'))
+    expect(above).toContain('.biz .pg-settings .st-jump #stJumpList:not(.st-det-wrap) { display: contents; }')
+    expect(above).not.toMatch(/#stJumpList[^\n]*display: none/)
   })
 
   // ⚖ S17 · F18 — EVERY PRESSABLE ANSWERS THE FINGER, NOT THE RELEASE.

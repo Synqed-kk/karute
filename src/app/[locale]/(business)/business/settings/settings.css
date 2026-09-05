@@ -755,6 +755,14 @@
   cursor: default;
 }
 .biz .pg-settings .st-jump-head .st-det-caret { display: none; }
+/* ⚠ THE PRE-HYDRATION WRAPPER IS A PASS-THROUGH, NOT A BOX. Before the client
+   knows the width, the list sits inside a plain `<div id="stJumpList">` so the
+   disclosure has something to replace; `display: contents` dissolves it, which
+   keeps ②'s toolbar and ③'s column laying out the list and its note exactly as
+   they did when they were direct children. `:not(.st-det-wrap)` keeps this off
+   the real disclosure — that one is a box on purpose, because its height is its
+   spring's. */
+.biz .pg-settings .st-jump #stJumpList:not(.st-det-wrap) { display: contents; }
 .biz .pg-settings .st-jump-list { display: flex; flex-direction: column; gap: 1px; }
 .biz .pg-settings .st-jump-item {
   display: flex; align-items: center; gap: 7px;
