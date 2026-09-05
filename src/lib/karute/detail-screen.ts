@@ -16,7 +16,7 @@ import {
   karuteSummaryToBullets,
 } from '@/lib/adapters/karute-detail'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { computeAge, jpGender } from '@/lib/customers/demographics'
 import { formatJoinDate } from '@/lib/customers/list-enrich'
@@ -174,19 +174,24 @@ export function buildKaruteDetailScreen(
   // with the OWNER floor OR'd in through `canHearAll` (kept out of the
   // transcript input above so the two rules stay separable).
   //
-  // The key fence is `isOwnRecordingKey`, never a prefix: it is TAKE-only, so a
-  // null path, a discarded take's `stg/` staged copy and another tenant's key
-  // are all the same answer — no player, nothing said. Widening it here would
-  // widen every other fence's meaning too (key-grammar.ts's own note).
+  // ⚠ A KEY ON THE ROW IS NOT AUDIO (fix round 1). The row is BORN RESERVED:
+  // session-mint.ts stamps `audio_storage_path` when the row is created, before
+  // any byte exists. So the question is `serverHoldsTakeRow` — the take fence
+  // AND the server's own receipt that the object landed (take-binding.ts, the
+  // module the mint and finalize already share). Reading the pointer alone put
+  // a player on a take still sitting on the device, whose every tap could only
+  // answer 「再生できませんでした」.
+  //
+  // The fence inside stays TAKE-only, so a null path, a discarded take's `stg/`
+  // staged copy and another tenant's key are all the same answer — no player,
+  // nothing said.
   const canHearRecording = canViewTranscript({
     ownerStaffId,
     viewerStaffId,
     canViewAll: canHearAll,
   })
   const recording =
-    recordingRow &&
-    canHearRecording &&
-    isOwnRecordingKey(recordingRow.audio_storage_path, businessId)
+    recordingRow && canHearRecording && serverHoldsTakeRow(recordingRow, businessId)
       ? {
           audioPresent: true,
           durationSeconds: recordingRow.duration_seconds,

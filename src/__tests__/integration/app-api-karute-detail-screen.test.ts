@@ -75,6 +75,9 @@ const karuteGet = jest.fn(async (id: string) => {
 // The recording behind the karute (slice ①, the player's presence probe). The
 // path is a REAL take key for this tenant — the fence is isOwnRecordingKey, so
 // a hand-written prefix would not prove what these tests claim to prove.
+/** The fixture karute's id — spelled once for the fix-round-1 cases below;
+ *  the pre-existing cases keep their literals rather than churn them. */
+const KARUTE_UUID = '00000000-0000-4000-8000-000000000008'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 const REC = {
@@ -288,6 +291,41 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
       const dto = await res.json()
       expect(dto.recording).toBeNull()
       expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    })
+
+    // FIX ROUND 1 — the row is BORN RESERVED (session-mint.ts:171), so a key
+    // with no receipt behind it is a take still on the DEVICE. A player there
+    // could only ever answer 「再生できませんでした」.
+    it('a RESERVED-but-not-secured row (UPLOADING, no duration) → recording:null', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('finalize’s own stamp (UPLOADING + a duration) → the player appears', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: 45 }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 45, status: 'UPLOADING' })
+    })
+
+    it('a job-owned COMPLETED row with no duration still carries the player', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'COMPLETED', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    it('a RECORDING row → recording:null (a live recorder owns it)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'RECORDING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
     })
 
     it('a PROCESSING row still carries the player — the audio is already safe (F6)', async () => {

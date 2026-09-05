@@ -4,8 +4,11 @@
 //
 // THE FALSIFIABLE CLAIMS THIS FILE MAKES, in the order it checks them:
 //   1. THE FENCE. The object it signs is a FINALIZED TAKE of the caller's own
-//      tenant, proved with the shared grammar (isOwnRecordingKey), never a
-//      prefix. So a null pointer, a discard's `stg/` staged copy and another
+//      tenant — `serverHoldsTakeRow` (take-binding.ts), which is the shared
+//      TAKE-only grammar AND the server's own receipt that the bytes landed.
+//      The pointer alone would not do: the row is BORN RESERVED, so a take
+//      still on the device carries a key with no object behind it. A null
+//      pointer, an unlanded take, a discard's `stg/` staged copy and another
 //      tenant's key are one answer: no_audio. Widening this to reach a
 //      discarded take is a different surface (manager discard review), not a
 //      loosened fence here.
@@ -45,7 +48,7 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 
@@ -114,6 +117,7 @@ export async function mintPlaybackUrlWithClient(
     store_id?: string | null
     audio_storage_path: string | null
     duration_seconds: number | null
+    status: string
   }
   try {
     row = await synqed.recordings.get(sessionId)
@@ -121,10 +125,11 @@ export async function mintPlaybackUrlWithClient(
     return { error: upstreamStatus(err) === 404 ? 'no_audio' : 'upstream' }
   }
 
-  // 3. THE FENCE (claim 1). Take-only, by the shared grammar.
-  if (!isOwnRecordingKey(row.audio_storage_path, actor.businessId)) {
-    return { error: 'no_audio' }
-  }
+  // 3. THE FENCE (claim 1). Take-only, by the shared grammar, AND the server's
+  //    own receipt that the object is really there — the same predicate the
+  //    card's presence uses, so a player never appears for audio this door
+  //    would refuse to sign (defence in depth, one truth).
+  if (!serverHoldsTakeRow(row, actor.businessId)) return { error: 'no_audio' }
   const audioPath = row.audio_storage_path
 
   // 4. THE ACL (claim 2). Recorder-lock fix (⚖ Liam 8/22): the karute's staff

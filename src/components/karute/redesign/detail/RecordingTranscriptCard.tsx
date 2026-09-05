@@ -11,7 +11,14 @@ import type { KaruteDetailRecording } from '@/lib/karute/detail-screen'
 /** Statuses whose transcript has not landed YET — the audio is already safe, so
  *  the card shows the player plus an honest "still working on the words" body
  *  (mock frame F6). Anything else with no transcript has no body at all: there
- *  is no state to invent. */
+ *  is no state to invent.
+ *
+ *  RECORDING is kept in the set but is now unreachable HERE (fix round 1): the
+ *  server only reports `audioPresent` once it actually holds the take
+ *  (serverHoldsTakeRow), and a row still at RECORDING never passes that. Left
+ *  in rather than trimmed — this set answers "are the words still coming?", and
+ *  narrowing it to today's reachable subset would tie a display question to a
+ *  server rule it does not own. */
 const PENDING_STATUSES = new Set(['RECORDING', 'UPLOADING', 'PROCESSING'])
 
 interface RecordingTranscriptCardProps {

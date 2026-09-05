@@ -43,6 +43,7 @@ import { composeTakeKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
 import {
   assertRecorderOwnsRow,
+  finalizedBefore,
   isJobOwnedStatus,
   isStorageNotFound,
   statusOf,
@@ -128,18 +129,6 @@ async function objectVerdict(
   if (!data) return 'missing'
   if (typeof data.size !== 'number') return 'size_unknown'
   return data.size === byteLength ? 'ok' : 'size_mismatch'
-}
-
-/**
- * Has this take already been finalized once?
- *
- * The MINT leaves the row pointing at the key with no duration (it cannot know
- * one), so the pointer alone can no longer mean "finalized". The duration IS
- * the finalize's own mark — plus a status the recorder has left behind, so a
- * row still sitting at RECORDING is never mistaken for a finished one.
- */
-function finalizedBefore(row: Recording): boolean {
-  return row.duration_seconds !== null && row.status !== 'RECORDING'
 }
 
 /**

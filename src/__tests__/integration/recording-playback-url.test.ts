@@ -68,6 +68,7 @@ const ROW = {
     store_id: 'store-9',
     audio_storage_path: TAKE_KEY as string | null,
     duration_seconds: 742 as number | null,
+    status: 'COMPLETED',
   },
 }
 const karuteGet = jest.fn(async (id: string) => {
@@ -125,7 +126,7 @@ beforeEach(() => {
   rosterThrows.current = false
   cardLookup.current = null
   KAR.current = { id: KARUTE_ID, staff_id: 'auth-user-1', recording_session_id: SESSION }
-  ROW.current = { id: SESSION, store_id: 'store-9', audio_storage_path: TAKE_KEY, duration_seconds: 742 }
+  ROW.current = { id: SESSION, store_id: 'store-9', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
   createSignedUrl.mockResolvedValue({
     data: { signedUrl: `https://proj.supabase.co/read/${TAKE_KEY}?token=t` },
     error: null,
@@ -202,6 +203,34 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
 
   it('another tenant’s app_ key → no_audio (nothing is signed)', async () => {
     ROW.current = { ...ROW.current, audio_storage_path: `app_other-biz_${TAKE}.mp4` }
+    expect(await mint()).toEqual({ error: 'no_audio' })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  // FIX ROUND 1 — defence in depth. The card already refuses to show a player
+  // for this row; the door must refuse to sign for it too, from the SAME
+  // predicate, so the two can never disagree.
+  it('a RESERVED-but-not-secured row (UPLOADING, no duration) → no_audio, nothing signed, no row', async () => {
+    ROW.current = { ...ROW.current, status: 'UPLOADING', duration_seconds: null }
+    const lines = await auditLines(async () => {
+      expect(await mint()).toEqual({ error: 'no_audio' })
+    })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(lines.filter((l) => l.action === 'recording.play')).toHaveLength(0)
+  })
+
+  it('finalize’s own stamp (UPLOADING + a duration) mints', async () => {
+    ROW.current = { ...ROW.current, status: 'UPLOADING', duration_seconds: 45 }
+    expect('url' in (await mint())).toBe(true)
+  })
+
+  it('a job-owned COMPLETED row with no duration mints (the legacy worker path)', async () => {
+    ROW.current = { ...ROW.current, status: 'COMPLETED', duration_seconds: null }
+    expect('url' in (await mint())).toBe(true)
+  })
+
+  it('a RECORDING row → no_audio — a live recorder owns it', async () => {
+    ROW.current = { ...ROW.current, status: 'RECORDING', duration_seconds: null }
     expect(await mint()).toEqual({ error: 'no_audio' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
