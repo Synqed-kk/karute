@@ -1626,16 +1626,102 @@ export interface GuardRail {
 
 const clockOf = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
-/** canon `reasonLine` (:7092). The engine's refusal, said out loud. */
-export function reasonLine(reason: GuardReason | undefined, protectedDur: number): string {
+/** ⚖ Liam 2026-08-30 — THE GUARD PRESS NAMES *WHERE* THE PROTECTED WINDOW IS.
+ *
+ *  Both sentences below used to say only HOW MANY 新規 windows a start keeps or
+ *  costs. An operator who wanted to know which minutes were being protected had
+ *  to rebuild the stretch by hand off the rail's marks — and a 60 + a 30 read as
+ *  one composite 90 that the engine never counted. The board is already holding
+ *  the starts, so it says them out loud:
+ *  「17:30〜19:00の新規90分の空きを守れます」.
+ *
+ *  IT NAMES THE WINDOWS AS THEY STAND NOW, never a before-minus-after
+ *  difference. The after-set is re-solved with the placement excluded, so its
+ *  starts SHIFT instead of dropping out of the before-set: a 10:00 landing on an
+ *  open day turns [10:00, 11:30, 13:00, …] into [11:00, 12:30, 14:00, …] — six
+ *  starts before, none of them after, for a loss of exactly one. A set
+ *  difference would therefore name six windows for a one-window loss, in the
+ *  commonest scene there is. The current windows read the same in every case:
+ *  「the protected 90s live at A・B・C; placing here leaves one fewer」 — and the
+ *  chip's own start already says which of them the placement eats.
+ *
+ *  Three named, the remainder folded as 「ほかN件」 — 件 rather than 枠, because
+ *  枠 is already carrying the loss count in the same sentence and two different
+ *  「N枠」 in one line collide. Empty list → '' and the caller keeps the sentence
+ *  it shipped with; the de-duplicating sort is defensive only, the engine emits
+ *  ascending unique starts (gap-guard's own `.slice()` copy of its window list).
+ */
+export function protectedWindowsClause(starts: readonly number[], protectedDur: number): string {
+  const windows = [...new Set(starts)].sort((a, b) => a - b)
+  if (windows.length === 0) return ''
+  const named = windows.slice(0, 3).map((s) => `${clockOf(s)}〜${clockOf(s + protectedDur)}`).join('・')
+  return windows.length > 3 ? `${named}ほか${windows.length - 3}件` : named
+}
+
+/** ⚖ 90 — WHICH of the protected windows THIS placement eats.
+ *
+ *  Two of the three sentences name the windows the drop costs, and neither may
+ *  take the before-set minus the after-set to find them: the engine RE-TILES the
+ *  pocket with the placement excluded, so the after-set's starts shift rather
+ *  than dropping out (a 10:00 landing on an open lane turns [10:00, 11:30, …]
+ *  into [11:00, 12:30, …] — every start differs, for a loss of exactly one), and
+ *  a set difference would name every window on the lane for a one-window loss.
+ *
+ *  The honest question is the one canon itself asks when it re-tiles: does this
+ *  window overlap the span being placed (gap-guard :199, its private `overlaps`
+ *  at :187-188). Same predicate, spelled here because canon's is not exported —
+ *  half-open on both sides, so a window that ENDS exactly where the placement
+ *  begins, or BEGINS exactly where it ends, is untouched and is not named.
+ *
+ *  Order and duplicates are left exactly as given; `protectedWindowsClause` is
+ *  the one place that sorts and de-duplicates. */
+export function windowsEatenBy(
+  windows: readonly number[],
+  protectedDur: number,
+  start: number,
+  dur: number,
+): number[] {
+  return windows.filter((s) => s < start + dur && s + protectedDur > start)
+}
+
+/** canon `reasonLine` (:7092). The engine's refusal, said out loud.
+ *
+ *  ⚖ Liam 8/30 (flag 90) — `windows` is the ONE addition, and only the R-REP
+ *  branch reads it: 「ここに置くと17:30〜19:00の新規（90分）が入らなくなります」.
+ *  It defaults to '' so every existing two-argument call — canon's parity
+ *  contract, and the rail's own R-UNAVAILABLE call — returns the identical
+ *  string it always did.
+ *
+ *  THE CALLER DECIDES, not this function. R-REP wears two shapes: a lost
+ *  PROTECTED window (`params.capacityLost > 0`, label 「新規（90分）」) and a
+ *  SERVICE that no longer fits (label 「整体60」, gap-guard :327-338). Only the
+ *  first is a window and only the first may be given a clause, and the thing
+ *  that knows which is the composer holding the verdict — so `railCell` passes
+ *  '' for the other. */
+export function reasonLine(reason: GuardReason | undefined, protectedDur: number, windows = ''): string {
   if (!reason) return '配置できません'
   const p = reason.params as Record<string, number | string>
   switch (reason.code) {
-    case 'R-REP': return `ここに置くと${p.label}が入らなくなります`
+    case 'R-REP': return `ここに置くと${windows ? `${windows}の` : ''}${p.label}が入らなくなります`
     case 'R-DEAD': return `ここに置くと${p.n}分の売れない空きが残ります`
     case 'R-SALV': return `ここに置くと${p.n}分の割引でしか売れない空きが残ります`
     case 'R-UNAVAILABLE': return `この開始には既存${p.dur}分を配置できません`
     case 'EXEMPT': return `端は${wallJa(String(p.wallType ?? ''), p.trigger === 'wall')}に接するため空きになりません`
+    /** ⚖ Liam 8/30 (flag 90) — THIS BRANCH IS UNREACHABLE FROM THE BOARD, which
+     *  is why it alone names no windows while the rail's three other sentences
+     *  do. Its `params` carry the counts and the least-loss minute and never the
+     *  spans, and the `windows` argument above is the R-REP branch's alone —
+     *  there is nothing honest to give this one.
+     *
+     *  It cannot be reached: canon mints `code: 'DEGRADED'` only in the block
+     *  that has just set `verdict = 'degraded'` (gap-guard :407 + :411), and
+     *  `railCell` answers `v.verdict === 'degraded'` with its own sentence and
+     *  RETURNS before the fallthrough that calls `reasonLine` for a refusal.
+     *  The rail's other call sits under `R-UNAVAILABLE`. `reasonLine` has no
+     *  caller outside `railCell`.
+     *
+     *  It stays anyway: it is a straight transplant of canon's own reason line
+     *  (parity is its reason to exist) and the unit contract pins its shape. */
     case 'DEGRADED': {
       const before = Number(p.capacityBefore)
       const after = Number(p.capacityAfter)
@@ -1861,18 +1947,34 @@ function railCell(
   if (v.verdict === 'ok' || v.verdict === 'exempt') {
     // canon `exactAimConsequence` (:7570): a pocket that never held a protected
     // window cannot claim to be protecting one.
+    // ⚖ Liam 8/30 — and it names them. THE WINDOWS THAT SURVIVE THE DROP
+    // (`protectedWindowsAfter`, filled for every verdict at gap-guard :362-365),
+    // because that is what 「守れます」 promises: the before-set would name spans
+    // that no longer exist once the card is down — a 30 at a pocket's start
+    // pushes every window along with it. The empty guard cannot fire on a real
+    // engine (a start that keeps its capacity keeps its windows); it is here so
+    // a future engine that reports a count without its starts falls back to the
+    // sentence that shipped rather than printing a bare 「の」.
+    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)
     const sentence = v.protectedCapacityBefore === 0
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
-      : `新規${input.protectedDur}分の空きを守れます`
+      : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
     const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
+    // ⚖ Liam 8/30 — and it names the windows this start EATS, which is the
+    // question a cost sentence answers. Not the whole before-set (most of it
+    // survives) and not before-minus-after (the after-set re-tiles).
+    const atRisk = protectedWindowsClause(
+      windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
+      input.protectedDur,
+    )
     return {
       start,
       state: 'degraded',
       label: `△${clockOf(start)}`,
-      sentence: `新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
+      sentence: `${atRisk === '' ? '' : `${atRisk}の`}新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
       reason: null,
       alternatives: v.alternatives,
       alternativeKind: v.alternativeKind,
@@ -1889,8 +1991,20 @@ function railCell(
       },
     }
   }
+  // ⚖ Liam 8/30 — THE THIRD SENTENCE, and the decision that guards it. A refusal
+  // that names 新規（90分） is the same fact as the ✓ and △ rows above and gets
+  // the same leading clause; a refusal that names a SERVICE (「整体60が入らなく
+  // なります」, gap-guard :338) is not a protected window and gets nothing. The
+  // engine's own `capacityLost` is the test — the words are not.
+  const repWindows =
+    v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
+      ? protectedWindowsClause(
+          windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
+          input.protectedDur,
+        )
+      : ''
   return {
-    ...blocked(reasonLine(v.reason, input.protectedDur), 'guard'),
+    ...blocked(reasonLine(v.reason, input.protectedDur, repWindows), 'guard'),
     alternatives: v.alternatives,
     alternativeKind: v.alternativeKind,
     ackAllowed: v.reason?.ackAllowed === true,

@@ -88,7 +88,9 @@ import {
   HOLD_CANCEL_V,
   type WarnCardInput,
   pinInViewport,
+  protectedWindowsClause,
   proxyTimeLabel,
+  windowsEatenBy,
   withPriceFact,
   hasPriceFact,
   priceFactSets,
@@ -1041,7 +1043,11 @@ describe('the 配置ガイド rail', () => {
     const cell = at(guardRailsFor([busy], railInput())[0], 600)
     expect(cell.state).toBe('safe')
     expect(cell.label).toBe('✓10:00')
-    expect(cell.sentence).toBe('新規90分の空きを守れます')
+    // ⚖ Liam 8/30 (flag 90) — and it names WHERE, out of the windows that SURVIVE
+    // the drop: the 90 that was at 10:00 is under the card, and the one the store
+    // keeps is the re-tiled 11:00〜12:30. Naming the before-set here would promise
+    // a window the drop has just moved.
+    expect(cell.sentence).toBe('11:00〜12:30の新規90分の空きを守れます')
   })
 
   it('a start that costs the protected window is amber △ and prices the loss', () => {
@@ -1049,7 +1055,280 @@ describe('the 配置ガイド rail', () => {
     const cell = at(guardRailsFor([short], railInput())[0], 600)
     expect(cell.state).toBe('degraded')
     expect(cell.label).toBe('△10:00')
-    expect(cell.sentence).toContain('新規90分の空き1→0（1枠減・損を減らす）')
+    // ⚖ Liam 8/30 (flag 90) — the same head clause as the ✓ sentence, from the
+    // same before-set: the 90 that is about to be lost is the one at 10:00.
+    expect(cell.sentence).toBe('10:00〜11:30の新規90分の空き1→0（1枠減・損を減らす）。10:00はこの区間で損が最少の開始です')
+  })
+
+  // ── ⚖ Liam flag 90 (2026-08-30) — 「守っている90分：17:30〜19:00」 ─────────
+  // His rider on the guard press: it named how many 新規 windows a start keeps
+  // or costs and never WHERE they were, so the operator rebuilt the stretch by
+  // hand off the rail's marks. ONE clause author and ONE overlap helper serve
+  // all three sentences; which LIST each one is handed is the whole design.
+  // Every scene below is read off `guardRailsFor` on a real lane, never
+  // hand-computed — the lane window, the start and the two dials are in the
+  // title so the scene can be re-run by hand.
+  it('⚖ 90 — the clause names the protected windows, three of them, then folds', () => {
+    // Head position, 「・」 between, each window is its own start plus the dial.
+    expect(protectedWindowsClause([], 90)).toBe('')
+    expect(protectedWindowsClause([600], 90)).toBe('10:00〜11:30')
+    expect(protectedWindowsClause([600, 690], 90)).toBe('10:00〜11:30・11:30〜13:00')
+    expect(protectedWindowsClause([600, 690, 780], 90)).toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30')
+    // Past three, the first three are named and the rest are a count — 件 and
+    // not 枠, because 枠 is already spelling the loss in the same sentence.
+    expect(protectedWindowsClause([600, 690, 780, 870], 90))
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件')
+    expect(protectedWindowsClause([600, 690, 780, 870, 960], 90))
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか2件')
+    expect(protectedWindowsClause([600, 690, 780, 870, 960, 1050], 90))
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか3件')
+    // Ascending and unique whatever it is handed — the engine already emits it
+    // that way, so this is the defence and not the behaviour. The fold counts
+    // what SURVIVED the de-duplication, not what came in.
+    expect(protectedWindowsClause([780, 600, 690, 600, 780], 90))
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30')
+    expect(protectedWindowsClause([870, 600, 780, 690, 600, 960], 90))
+      .toBe('10:00〜11:30・11:30〜13:00・13:00〜14:30ほか2件')
+    // The window's LENGTH is the store's dial, never a literal.
+    expect(protectedWindowsClause([600], 60)).toBe('10:00〜11:00')
+    expect(protectedWindowsClause([600, 660], 60)).toBe('10:00〜11:00・11:00〜12:00')
+  })
+
+  it('⚖ 90 — the eaten set is an OVERLAP, half-open at both ends', () => {
+    // The list the two cost sentences name. It cannot be before − after: the
+    // engine re-tiles the pocket with the placement excluded, so the after-set's
+    // starts move instead of dropping out (the scene below proves it on the real
+    // engine) and a difference would name every window for a one-window loss.
+    const w = [600, 690, 780] // 10:00 / 11:30 / 13:00, 90 each
+    expect(windowsEatenBy(w, 90, 600, 60)).toEqual([600])
+    expect(windowsEatenBy(w, 90, 660, 60)).toEqual([600, 690]) // 11:00–12:00 straddles two
+    expect(windowsEatenBy(w, 90, 630, 300)).toEqual([600, 690, 780])
+    expect(windowsEatenBy([], 90, 600, 60)).toEqual([])
+    // BOTH EDGES ARE OPEN, canon's own predicate (gap-guard :187-188, :199): a
+    // window that ends exactly where the placement starts is untouched…
+    expect(windowsEatenBy([600], 90, 690, 60)).toEqual([])
+    expect(windowsEatenBy([600], 90, 689, 60)).toEqual([600])
+    // …and one that starts exactly where the placement ends is untouched too.
+    expect(windowsEatenBy([690], 90, 630, 60)).toEqual([])
+    expect(windowsEatenBy([690], 90, 630, 61)).toEqual([690])
+    // A zero-length placement eats nothing, at any start.
+    expect(windowsEatenBy(w, 90, 690, 0)).toEqual([])
+    // The dial is the window's length, so it decides the left edge too.
+    expect(windowsEatenBy([600], 60, 660, 30)).toEqual([])
+    expect(windowsEatenBy([600], 90, 660, 30)).toEqual([600])
+    // Order and duplicates are the caller's; the clause is what normalises them.
+    expect(windowsEatenBy([780, 600], 90, 600, 300)).toEqual([780, 600])
+  })
+
+  it('⚖ 90 (a) — ✓ names the windows that SURVIVE, and they are not the ones that were there', () => {
+    // Lane 10:00–12:30, 60 at 10:00, dial 90. Before = [10:00]; after = [11:00]
+    // — the same one 新規90分, re-tiled behind the card. The ✓ promise is about
+    // what is still protected AFTER the drop, so it is the after-set it names.
+    const held = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+    const moved = at(guardRailsFor([held], railInput())[0], 600)
+    expect(moved.state).toBe('safe')
+    expect(moved.sentence).toBe('11:00〜12:30の新規90分の空きを守れます')
+    // Same lane, 60 at 11:30 — the card lands in the pocket's tail leftover, so
+    // the window never moves and before and after read the same.
+    const tail = at(guardRailsFor([held], railInput())[0], 690)
+    expect(tail.state).toBe('safe')
+    expect(tail.sentence).toBe('10:00〜11:30の新規90分の空きを守れます')
+    // Lane 10:00–15:30, 60 at 11:30, dial 90 — three survive, named in full.
+    const wide = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 930 }, untilLabel: '15:30' })
+    expect(at(guardRailsFor([wide], railInput())[0], 690).sentence)
+      .toBe('10:00〜11:30・12:30〜14:00・14:00〜15:30の新規90分の空きを守れます')
+    // …and a pocket that never held one still says so in the sentence that
+    // shipped — no clause, no bare 「の」. Lane 10:00–12:30, 60 at 10:00, dial 200.
+    const bigDial = { protectedDur: 200, guard: { ...GUARD, newClientSessionMin: 200 } }
+    expect(at(guardRailsFor([held], railInput(bigDial))[0], 600).sentence)
+      .toBe('配置できます。この区間には現在、守れる新規200分の空きはありません')
+  })
+
+  it('⚖ 90 (b) — △ names the windows the START EATS, never the whole shift', () => {
+    // THE SCENE the eaten rule exists for. An empty 10:00–19:00 staff lane holds
+    // six 新規90分 windows and a 60 at 10:00 leaves five — but the after-set is
+    // RE-SOLVED with the card in, so its starts SHIFT ([11:00, 12:30, …]) and not
+    // one of them is in the before-set. A before-minus-after difference would
+    // name all six windows 「ほか3件」 for a loss of exactly one. One window is
+    // under the card, and it is the one the sentence names.
+    const open = lane({ key: 'p-01', group: 'staff' })
+    const cell = at(guardRailsFor([open], railInput())[0], 600)
+    expect(cell.state).toBe('degraded')
+    expect(cell.impact!.windowsBefore).toEqual([600, 690, 780, 870, 960, 1050])
+    expect(cell.impact!.windowsAfter).toEqual([660, 750, 840, 930, 1020])
+    expect(cell.sentence).toBe(
+      '10:00〜11:30の新規90分の空き6→5（1枠減・損を減らす）。10:00はこの区間で損が最少の開始です',
+    )
+    // Lane 10:00–13:30, 60 at 11:00, dial 90 — the card straddles the seam
+    // between two windows, so it eats both and says both.
+    const straddle = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 810 }, untilLabel: '13:30' })
+    expect(at(guardRailsFor([straddle], railInput())[0], 660).sentence).toBe(
+      '10:00〜11:30・11:30〜13:00の新規90分の空き2→1（1枠減・損を減らす）。10:00はこの区間で損が最少の開始です',
+    )
+    // A card long enough to cross four of them folds the list — 件 for the
+    // ranges, 枠 for the loss, the two counters kept apart. Open lane, 300 at 10:00.
+    expect(at(guardRailsFor([open], railInput({ dur: 300 }))[0], 600).sentence).toBe(
+      '10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件の新規90分の空き6→2（4枠減・損を減らす）。10:00はこの区間で損が最少の開始です',
+    )
+  })
+
+  it('⚖ 90 (c) — a refusal that costs a 新規 window names it; one that costs a SERVICE does not', () => {
+    // Lane 10:00–13:00, 60 at 10:30, dial 90. The engine refuses (10:00 is
+    // strictly better) with the capacityLost shape of R-REP — the label is
+    // 新規（90分）, so the thing that will not fit IS a protected window and the
+    // sentence says which one.
+    const three = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 780 }, untilLabel: '13:00' })
+    const one = at(guardRailsFor([three], railInput())[0], 630)
+    expect(one.state).toBe('blocked')
+    expect(one.impact!.code).toBe('R-REP')
+    expect(one.sentence).toBe('ここに置くと10:00〜11:30の新規（90分）が入らなくなります')
+    // Lane 10:00–14:30, 60 at 11:00 — the same refusal across a seam, two named.
+    const four = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 870 }, untilLabel: '14:30' })
+    expect(at(guardRailsFor([four], railInput())[0], 660).sentence)
+      .toBe('ここに置くと10:00〜11:30・11:30〜13:00の新規（90分）が入らなくなります')
+    // …and it folds on the same rule as the other two sentences. Open lane, 300 at 10:30.
+    const open = lane({ key: 'p-01', group: 'staff' })
+    expect(at(guardRailsFor([open], railInput({ dur: 300 }))[0], 630).sentence)
+      .toBe('ここに置くと10:00〜11:30・11:30〜13:00・13:00〜14:30ほか1件の新規（90分）が入らなくなります')
+    // THE OTHER R-REP IS UNTOUCHED. Lane 10:00–12:30, 60 at 10:30, dial 200: no
+    // 新規 window fits the pocket at all, so what the placement kills is a
+    // SERVICE from the repertoire (gap-guard's `repLabel`) — not a window, no
+    // clock, byte-identical to the sentence that shipped.
+    const bigDial = { protectedDur: 200, guard: { ...GUARD, newClientSessionMin: 200 } }
+    const held = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+    const svc = at(guardRailsFor([held], railInput(bigDial))[0], 630)
+    expect(svc.state).toBe('blocked')
+    expect(svc.impact!.code).toBe('R-REP')
+    expect(svc.impact!.windowsBefore).toEqual([])
+    expect(svc.sentence).toBe('ここに置くと骨盤90が入らなくなります')
+    // …and the discriminating case, where windows DO exist and the refusal is
+    // still not about one. Lane 10:00–12:30 (one 新規90分 at 10:00), a 30 at
+    // 10:30: the 90 survives, what dies is the 整体60. Windows in hand, no
+    // clause — because the engine's `capacityLost` is 0 and the gate reads it.
+    const svcWithWindows = guardVerdictAt([held], 'p-01', 630, railInput({ dur: 30 }))!
+    expect(svcWithWindows.state).toBe('blocked')
+    expect(svcWithWindows.impact!.code).toBe('R-REP')
+    expect(svcWithWindows.impact!.windowsBefore).toEqual([600])
+    expect(svcWithWindows.sentence).toBe('ここに置くと整体60が入らなくなります')
+    // The window's LENGTH is the store's dial wherever it is printed. Lane
+    // 10:00–13:30 with a 200-minute 新規: 60 at 10:30 kills the 10:00〜13:20.
+    const long = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 810 }, untilLabel: '13:30' })
+    expect(at(guardRailsFor([long], railInput(bigDial))[0], 630).sentence)
+      .toBe('ここに置くと10:00〜13:20の新規（200分）が入らなくなります')
+  })
+
+  it('⚖ 90 (c) — every OTHER reasonLine output is byte-unchanged, third argument or not', () => {
+    // The parameter is optional and only R-REP reads it, so canon's parity
+    // contract keeps its exact strings. Two-argument calls first — what every
+    // existing caller and the unit contract below already assert.
+    expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90))
+      .toBe('ここに置くと新規（90分）が入らなくなります')
+    expect(reasonLine({ code: 'R-REP', params: { label: '整体60' } }, 90))
+      .toBe('ここに置くと整体60が入らなくなります')
+    // …and with a clause, ONLY R-REP moves. Every other branch ignores it.
+    expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90, '17:30〜19:00'))
+      .toBe('ここに置くと17:30〜19:00の新規（90分）が入らなくなります')
+    for (const [reason, said] of [
+      [{ code: 'R-DEAD' as const, params: { n: 25 } }, 'ここに置くと25分の売れない空きが残ります'],
+      [{ code: 'R-SALV' as const, params: { n: 40 } }, 'ここに置くと40分の割引でしか売れない空きが残ります'],
+      [{ code: 'R-UNAVAILABLE' as const, params: { dur: 60 } }, 'この開始には既存60分を配置できません'],
+      [{ code: 'EXEMPT' as const, params: { trigger: 'wall', wallType: 'break' } }, '端は休憩に接するため空きになりません'],
+      [{ code: 'DEGRADED' as const, params: { capacityBefore: 2, capacityAfter: 1, t: 945 } },
+        '新規90分の空きが2→1に減ります（1枠減）。15:45はこの区間で損が最少の開始です'],
+    ] as const) {
+      expect([reason.code, reasonLine(reason, 90, '17:30〜19:00')]).toEqual([reason.code, said])
+      expect([reason.code, reasonLine(reason, 90)]).toEqual([reason.code, said])
+    }
+    expect(reasonLine(undefined, 90, '17:30〜19:00')).toBe('配置できません')
+    // An empty clause is the same call as no clause at all — the caller's way of
+    // saying 「this refusal is not about a window」.
+    expect(reasonLine({ code: 'R-REP', params: { label: '整体60' } }, 90, ''))
+      .toBe('ここに置くと整体60が入らなくなります')
+  })
+
+  it('⚖ 90 — the two check rows carry the clause through, from a REAL cell', () => {
+    // Both readers CUT the sentence rather than re-authoring it, so the clause
+    // has to survive their cuts in head position. Fed by the composer's own
+    // output — a hand-built RailCell would still read correctly with the clause
+    // missing from the composer, which is the mutant these rows exist to catch.
+    // Lane 10:00–11:30, 60 at 10:00, dial 90.
+    const short = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 690 }, untilLabel: '11:30' })
+    const cell = at(guardRailsFor([short], railInput())[0], 600)
+    expect(cell.state).toBe('degraded')
+    expect(guardCheckRow(cell)).toEqual({
+      label: '10:00〜11:30の新規90分の空き1→0（1枠減）。10:00はこの区間で損が最少の開始です', tone: 'warn',
+    })
+    // The row beside an offer line keeps clause one — which is now the clause
+    // that carries the windows, which is the wanted reading.
+    expect(guardCheckRowBesideOffer(cell)).toEqual({
+      label: '10:00〜11:30の新規90分の空き1→0（1枠減）', tone: 'warn',
+    })
+    // A REFUSED cell goes through the same row (⚖ 52: warn, never ×), and its
+    // one clause is whole on both surfaces. Lane 10:00–13:00, 60 at 10:30.
+    const three = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 780 }, untilLabel: '13:00' })
+    const refused = at(guardRailsFor([three], railInput())[0], 630)
+    expect(guardCheckRow(refused)).toEqual({
+      label: 'ここに置くと10:00〜11:30の新規（90分）が入らなくなります', tone: 'warn',
+    })
+    expect(guardCheckRowBesideOffer(refused)).toEqual(guardCheckRow(refused))
+    // …and a SAFE cell still says nothing on either surface (⚖ 31b), clause or no.
+    const held = lane({ key: 'p-01', group: 'staff', window: { from: 600, until: 750 }, untilLabel: '12:30' })
+    const safe = at(guardRailsFor([held], railInput())[0], 600)
+    expect(safe.sentence).toBe('11:00〜12:30の新規90分の空きを守れます')
+    expect(guardCheckRow(safe)).toBeNull()
+    expect(guardCheckRowBesideOffer(safe)).toBeNull()
+  })
+
+  it('⚖ 90 — the clause is SPELLED ONCE, and the composer is its only caller', () => {
+    const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    const CODE = codeOnly(INT)
+    // One definition, three calls, and nothing else in the file — a second
+    // author of this list is what the pin exists to stop.
+    expect(CODE.match(/protectedWindowsClause\(/g)).toHaveLength(4)
+    expect(INT.match(/protectedWindowsClause\(/g)).toHaveLength(4)
+    expect(pinnedLines(INT, 'export function protectedWindowsClause(starts: readonly number[], protectedDur: number): string {')).toBe(1)
+    // One overlap author, used by the two cost sentences and by nothing else.
+    expect(CODE.match(/windowsEatenBy\(/g)).toHaveLength(3)
+    expect(INT.match(/windowsEatenBy\(/g)).toHaveLength(3)
+    expect(pinnedLines(INT, 'export function windowsEatenBy(')).toBe(1)
+    // …and every one of those calls stands inside `railCell`, the ONE composer
+    // both the rail and the drop verdict run through.
+    const rail = callSlice(INT, 'function railCell(', 'export const reservedClause = (dur: number): string =>')
+    expect([rail.ok, rail.opens, rail.closes]).toEqual([true, 1, 1])
+    expect(rail.text.match(/protectedWindowsClause\(/g)).toHaveLength(3)
+    expect(rail.text.match(/windowsEatenBy\(/g)).toHaveLength(2)
+    // Each call names the list its own sentence is entitled to: ✓ the survivors,
+    // △ and the refusal the windows the placement eats.
+    expect(pinnedLine(INT, "    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)")).toBe(true)
+    expect(pinnedLines(INT, "windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),")).toBe(2)
+    expect(pinnedLine(INT, "    const atRisk = protectedWindowsClause(")).toBe(true)
+    // The refusal's clause is gated on the ENGINE's own flag, not on the words.
+    expect(pinnedLine(INT, "v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0")).toBe(true)
+    // `reasonLine` reads its third argument in the R-REP branch and nowhere else.
+    expect(CODE.match(/windows \? `\$\{windows\}の` : ''/g)).toHaveLength(1)
+    expect(pinnedLine(INT, "export function reasonLine(reason: GuardReason | undefined, protectedDur: number, windows = ''): string {")).toBe(true)
+    // The PROTECTED window's own template exists exactly once, inside the clause
+    // — so no sentence anywhere can re-format one and drift from this grammar.
+    expect(CODE.match(/\$\{clockOf\(s\)\}〜\$\{clockOf\(s \+ protectedDur\)\}/g)).toHaveLength(1)
+    expect(INT.match(/\$\{clockOf\(s\)\}〜\$\{clockOf\(s \+ protectedDur\)\}/g)).toHaveLength(1)
+    // MEASURED, not assumed: the HH:MM〜HH:MM shape has five homes in this file
+    // and every one of them names a DIFFERENT window — the clause's protected 90,
+    // the reserved chip's own span, the judged chip's span, the landing summary's
+    // from→to, and the full-house refusal's span. A sixth is a new author.
+    expect(CODE.match(/〜\$\{clockOf\(/g)).toHaveLength(5)
+    expect(INT.match(/〜\$\{clockOf\(/g)).toHaveLength(5)
+    for (const home of [
+      '  const named = windows.slice(0, 3).map((s) => `${clockOf(s)}〜${clockOf(s + protectedDur)}`).join(\'・\')',
+      '  `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`',
+      '  const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`',
+      '  const window = `${clockOf(start)}〜${clockOf(end)}`',
+      "  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`",
+    ]) expect([home, pinnedLines(INT, home)]).toEqual([home, 1])
+    // The composer may not go back to a bare count at any of the three sites —
+    // the exact pre-flag-90 sentences, gone from the file.
+    expect(CODE).not.toContain('`新規${input.protectedDur}分の空きを守れます`')
+    expect(CODE).not.toContain('sentence: `新規${input.protectedDur}分の空き${v.protectedCapacityBefore}')
+    expect(CODE).not.toContain('`ここに置くと${p.label}が入らなくなります`')
   })
 
   it('a start with no room at all is grey — and says why, in canon\'s sentence', () => {
@@ -2098,7 +2377,10 @@ describe('⚖ R3 one world — a staged 仮押さえ holds its room and its lane
     // store's own override policy lets a manager walk past — 「注意して配置」 on a
     // start whose room the operator's own staged card was standing in.
     const was = cell(before(board, 'staged', 804), 'p-01', 840)
-    expect(was.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // ⚖ 90 — and the clause follows the POCKET's own clock, not the rail's
+    // 30-minute lattice: the walk clipped this pocket to 13:24, so the two 新規
+    // windows this start would kill are named from there.
+    expect(was.sentence).toBe('ここに置くと13:24〜14:54・14:54〜16:24の新規（90分）が入らなくなります')
     expect(was.ackAllowed).toBe(true)
     // ONE WORLD: the same start is a FACT now, and ⚖ 73's floor takes the
     // override away with it — a full room is not a thing a manager can approve.
@@ -2486,7 +2768,8 @@ describe('a block that damages the day says so, and offers the better position',
     // already speaks everywhere else.
     const mid = askAbout30At(660)
     expect(mid.state).not.toBe('safe')
-    expect(mid.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // ⚖ 90 — and it says WHICH 新規90分 the block would cost.
+    expect(mid.sentence).toBe('ここに置くと10:00〜11:30の新規（90分）が入らなくなります')
     // …it knows where the block should have gone…
     expect(mid.alternatives[0]).toBe(600)
     expect(mid.alternativeKind).toBe('safe')
@@ -6354,7 +6637,9 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     const cell = ackAllowedCell()
     expect(cell.state).toBe('blocked')
     expect(cell.ackAllowed).toBe(true)
-    expect(cell.sentence).toBe('ここに置くと新規（90分）が入らなくなります')
+    // ⚖ 90 — the refusal names the window it costs (10:30 on a free day eats
+    // the 10:00〜11:30; the engine's better start is 10:00).
+    expect(cell.sentence).toBe('ここに置くと10:00〜11:30の新規（90分）が入らなくなります')
     // …and the physically-impossible one is NOT: a start with no pocket that
     // can hold the span is `ackAllowed: false` and stays a floor.
     const noPocket = guardVerdictAt([staff([booking({ key: 'x', caseId: 'apt-x' }, 660, 720)]), ...beds], 'p-01', 630, railIn())
@@ -6367,7 +6652,8 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     const v = landingVerdict([staff(), ...beds], askAt(630), cell)
     expect(v.kind).toBe('caution')
     expect(v.label).toBe('要確認')
-    expect(v.reason).toBe('ここに置くと新規（90分）が入らなくなります')
+    // ⚖ 90 — the photographed sentence, now naming its window.
+    expect(v.reason).toBe('ここに置くと10:00〜11:30の新規（90分）が入らなくなります')
     // R-UNAVAILABLE and the no-pocket branch are `ackAllowed: false` and keep
     // 置けない — this is not "the guard stopped blocking", it is the guard's own
     // two tiers finally being told apart.
@@ -8085,7 +8371,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(SAFE().impact).toBeUndefined()
     // ⚖ GAP-6/FIX-6's law boundary, machine-checked: the engine's own sentence
     // is still the CHECK ROW's, byte-untouched.
-    expect(guardCheckRow(REP())).toEqual({ label: 'ここに置くと新規（90分）が入らなくなります', tone: 'warn' })
+    expect(guardCheckRow(REP())).toEqual({ label: 'ここに置くと10:00〜11:30の新規（90分）が入らなくなります', tone: 'warn' })
   })
 
   it('the trigger is the guard fact OR a walked-past row — and nothing else re-faces the card', () => {
@@ -8398,7 +8684,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     for (const protectedDur of [0, Number.NaN, -90]) {
       // The REAL engine's R-REP cell — only the card's own dial is broken.
       expect(warnFaceFor(input({ cell: REP(), protectedDur })).impact)
-        .toEqual({ head: 'ここに置くと新規（90分）が入らなくなります', yen: null, tail: '' })
+        .toEqual({ head: 'ここに置くと10:00〜11:30の新規（90分）が入らなくなります', yen: null, tail: '' })
     }
     // The same cell with a real length is the approved sentence, so the guard is
     // the only difference — nothing else silently turned the panel off.
