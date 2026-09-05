@@ -88,6 +88,7 @@ import {
   gapKindOf,
   gapLayerFor,
   gapPackingDials,
+  factsRowsShown,
   guardCheckRow,
   guardCheckRowBesideOffer,
   guardRailsFor,
@@ -105,7 +106,6 @@ import {
   lossOf,
   bedClassCell,
   nearestFreeStarts,
-  needsPrivateRoom,
   offerableCell,
   nextSpan,
   onlineOffers,
@@ -143,7 +143,6 @@ import {
   type OverrideLevel,
   type PairLanes,
   type RailCell,
-  type RoomPolicy,
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
@@ -172,7 +171,6 @@ export interface BedViews {
 
 export function bedViewsFor(
   lanes: BoardLane[],
-  policy: RoomPolicy,
   frame: DayFrame,
   handId: string | null,
 ): BedViews {
@@ -184,7 +182,7 @@ export function bedViewsFor(
   // in the caller, not an empty world), and normalising is what stops that
   // throw reaching a render.
   const hand = handId === null || handId === '' ? null : handId
-  return { handId: hand, ...bedTruthViews(lanes, policy, frame, hand === null ? null : { id: hand }) }
+  return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }) }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -210,7 +208,7 @@ export function bedViewsFor(
  *      caller: the engine probes every 5 minutes of every pocket of every cell,
  *      and a naive callback measured 19–41× call growth at 25 staff.
  *    · a booking id — 「may THIS booking go here」. Answered as a `Subject`, which
- *      carries the room it already holds and its VIP-ness, and which
+ *      carries the room it already holds and its 個室のみ tag, and which
  *      `allocateBed` self-excludes exactly as before. When that booking is the
  *      LIVE gesture it is answered out of `worldMinusHand`; when it is anything
  *      else (a staged card's own confirm row, a shelf chip's landing) it is
@@ -259,7 +257,10 @@ export function bedDoor(
   // two reads `bedFeasibility` made (:1555-1558).
   const held = lanes.flatMap((l) => l.items).find((i) => i.caseId === askerId)
   const currentBed = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === askerId))?.key ?? null
-  const vip = held?.category === 'vip'
+  // ⚖ ROOM RULE — the BOOKING's own 個室のみ tag, not the customer's badge. This
+  // door and the allocator now read ONE field, so the 4-of-24 disagreement the
+  // matrix found (the ask's VIP-ness vs the drawn card's category) is unsayable.
+  const requiresPrivate = held?.requiresPrivateRoom === true
   const truth = askerId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
   const seen = new Map<string, boolean>()
   return (lane, start, dur) => {
@@ -267,7 +268,7 @@ export function bedDoor(
     const hit = seen.get(key)
     if (hit !== undefined) return hit
     const free =
-      truth.bedFor(start, start + dur, { id: askerId, currentBed, vip, stores: lane.stores }).laneKey !== null
+      truth.bedFor(start, start + dur, { id: askerId, currentBed, requiresPrivate, stores: lane.stores }).laneKey !== null
     seen.set(key, free)
     return free
   }
@@ -286,6 +287,20 @@ export function bedDoor(
  *  Exported for the reason everything on this board's answer path is: an answer
  *  the operator acts on has to be provable without a renderer. */
 export const nextVisitCategory = (today: BookingCategory): BookingCategory => (today === 'new' ? 'repeat' : today)
+
+/** ⚖ ROOM RULE (Liam 2026-09-05) — A 次回予約 CARRIES NO 個室のみ TAG.
+ *
+ *  配置モード is armed before a menu is chosen, so there is no booking yet and
+ *  nothing that could require the private room — the same reason every other
+ *  hypothetical on this board asks with `false` (`queryOf`, the rail probe, the
+ *  offer re-bedding). Named ONCE because two legs read it — the landing's
+ *  `askGuard` and the release's `solveBed` — and ⚖ 50's law is that the word and
+ *  what the release DOES are one answer. When the intent one day carries the
+ *  next visit's menu, this is the single line that learns it.
+ *
+ *  The customer's VIP badge is NOT this: it still colours the minted card and
+ *  counts toward 保護対象, and it reaches no room decision. */
+const NEXT_VISIT_REQUIRES_PRIVATE = false
 
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
@@ -383,9 +398,6 @@ export interface TodayProps {
     bookingStepMin: number
     config: GuardConfig
   }
-  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
-   *  only judgement in the bed solve. A store dial, never a component's opinion. */
-  rooms: RoomPolicy
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 77 (2026-08-24). Does this store reserve
    *  turnover time between customers? OFF by default, and the ベッド・設備 group's
    *  own note is the one piece of copy that describes the CONVENTION rather than
@@ -743,7 +755,7 @@ interface HoldPop {
  *  — the store's room policy, the locked lanes, the minute conversion — belongs
  *  to the board and is filled in by `verdictFor`, so no caller can ask the
  *  question under a different policy than the one the release answers under. */
-type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'vip' | 'foreignRefusal' | 'hasPrice'> & {
+type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'requiresPrivate' | 'foreignRefusal' | 'hasPrice'> & {
   span: { x: number; w: number }
 }
 
@@ -763,8 +775,8 @@ interface GuardAdvice {
    *  exists at all, which sentence the offer line speaks, and whether this box
    *  carries the confirm's facts (only a landing that CAN be staged does). */
   floor: LandingFloor | null
-  /** ⚖ 73 (T5) — ベッド or 個室, from `needsPrivateRoom`, so the offer line and
-   *  the 満室 sentence above it name the same room. */
+  /** ⚖ 73 (T5) — ベッド or 個室, from the ask's own 個室のみ field, so the offer
+   *  line and the 満室 sentence above it name the same room. */
   roomWord: string
   /** ⚖ LIAM flag 74 (2026-08-23) — THE ONE BOX. Liam had to say okay twice: the
    *  red box asked, and pressing 注意して配置 closed it and opened a second
@@ -1515,7 +1527,6 @@ export function TodayScreen(props: TodayProps) {
       heldCommittedFor({
         gateOn: SELLING_ENGINE_LAW,
         lanes: committedLanes,
-        rooms: props.rooms,
         frame: ledgerFrame,
         // ⚖ ROUND 2 — THE DOOR IS HANDED IN, NOT IMPORTED. Round 1 had the
         // wrapper import this function from here, so the two files imported
@@ -1534,7 +1545,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, props.rooms, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
@@ -1612,7 +1623,6 @@ export function TodayScreen(props: TodayProps) {
         // p-06's スキマ枠 both on ベッド2) was invisible to it.
         reconcile: {
           claims: gapClaims,
-          rooms: props.rooms,
           cleanupMinutesByBed: props.bedCleanupMinutes,
           onDrop: (d) => sellDrops.push(d),
         },
@@ -1632,7 +1642,6 @@ export function TodayScreen(props: TodayProps) {
       dialogs.pricing.hqMin,
       depth,
       gapClaims,
-      props.rooms,
       props.bedCleanupMinutes,
       heldCommitted,
     ],
@@ -1686,7 +1695,6 @@ export function TodayScreen(props: TodayProps) {
       survivors: sell.cells,
       claims: gapClaims,
       cleanupMinutesByBed: props.bedCleanupMinutes,
-      rooms: props.rooms,
       held: heldCommitted,
       // ⚖ Greptile #815 — the same locked-lane list `gap` above already took, so
       // this pass can shield the walk with `sellStaffLanes` exactly as
@@ -1700,7 +1708,7 @@ export function TodayScreen(props: TodayProps) {
       minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, locked, props.guard.minSellableMin, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, locked, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -1777,8 +1785,8 @@ export function TodayScreen(props: TodayProps) {
    *  strip asks this thousands of times per frame, and a book built inside the
    *  asking is a book per ask. */
   const ledger = useMemo(
-    () => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),
-    [boardLanes, props.rooms, ledgerFrame, handId],
+    () => bedViewsFor(boardLanes, ledgerFrame, handId),
+    [boardLanes, ledgerFrame, handId],
   )
   /** ⚖ 39 — the same escape hatch the verdict has: a caller may ask about a board
    *  it has already taken something OUT of (the block advisor's drop), and the
@@ -1788,8 +1796,8 @@ export function TodayScreen(props: TodayProps) {
    *  and reads the frame's book. */
   const bedDoorFor = useCallback(
     (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
-      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),
-    [boardLanes, props.rooms, ledger, ledgerFrame, handId],
+      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),
+    [boardLanes, ledger, ledgerFrame, handId],
   )
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
@@ -1891,7 +1899,7 @@ export function TodayScreen(props: TodayProps) {
         bedLane: live.bedLane,
         solveRoom: true,
         id: live.id,
-        vip: item?.category === 'vip',
+        requiresPrivate: item?.requiresPrivateRoom === true,
         foreignRefusal: null,
         hasPrice: hasPriceFor(live.id),
         span: { x: live.x, w: live.w },
@@ -1908,7 +1916,7 @@ export function TodayScreen(props: TodayProps) {
         bedLane: chipBed?.key ?? null,
         solveRoom: true,
         id: chip.id,
-        vip: chip.item.category === 'vip',
+        requiresPrivate: chip.item.requiresPrivateRoom === true,
         foreignRefusal: foreignStoreRefusal(chip.home, props.store),
         hasPrice: hasPriceFor(chip.id),
         span: { x: 0, w: chip.home.w },
@@ -1939,7 +1947,6 @@ export function TodayScreen(props: TodayProps) {
       explainRails(rails, boardLanes, {
         dur: railDur,
         handId,
-        rooms: props.rooms,
         // ⚖ R3 one world — the operator's own staged card is named as theirs
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
@@ -1980,7 +1987,7 @@ export function TodayScreen(props: TodayProps) {
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
       }),
-    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
+    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -2162,7 +2169,6 @@ export function TodayScreen(props: TodayProps) {
           start: minuteOf(q.span.x, hours),
           end: minuteOf(q.span.x + q.span.w, hours),
           locked,
-          rooms: props.rooms,
           minutesOf: (x) => minuteOf(x, hours),
           // ⚖ R3 one world — the one thing the sentence cannot read off the
           // board: which of these cards is the operator's own 仮押さえ.
@@ -2177,7 +2183,7 @@ export function TodayScreen(props: TodayProps) {
         },
         cell,
       ),
-    [boardLanes, hours, locked, props.rooms, pending?.id, props.overrideLevel],
+    [boardLanes, hours, locked, pending?.id, props.overrideLevel],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
@@ -2471,7 +2477,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
       solveRoom: true,
       id: pending.id,
-      vip: item?.category === 'vip',
+      requiresPrivate: item?.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span: { x: at.x, w: at.w },
@@ -2544,21 +2550,19 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
     }
-    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
-    // re-verdicts each candidate start through `verdictRef`, which reads the room
-    // policy, and that ref's own identity is stable — so a rooms change alone left
-    // a stale offer on the card's biggest control.
+    // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
+    // The gate re-verdicts each candidate start through `verdictRef`, and the
+    // store policy it used to read no longer exists: the room need is a field on
+    // the card, which arrives through `boardLanes` — already a dep.
     // ⚖ 9/1 ruling 1/2 — and `props.overrideLevel` LEAVES the list with the arm
     // that read it (⚖ 92 fix round 3 T1's, deleted above). Nothing in this memo
     // asks the dial any more, so keeping it here would be a dep that only ever
     // re-runs the gate for an answer it cannot change.
     // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
-    // during render, so the rule cannot see through the ref to the room policy
-    // it touches: this list is hand-maintained against `verdictAt`'s transitive
-    // reads, `props.rooms` among them (micro-fix M7/delta-verify D4 above), and
-    // the rule's advice here would delete the dep that keeps the offer fresh.
+    // during render, so the rule cannot see through the ref to what it touches:
+    // this list is hand-maintained against `verdictAt`'s transitive reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2568,7 +2572,7 @@ export function TodayScreen(props: TodayProps) {
   // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
   // to be produced by matching `pending.override` against a check LABEL,
   // and `computeChecks` (FROZEN) emits no row for a room, no row for the
-  // VIP floor and no row for a foreign store — so an escalation over any
+  // 個室のみ floor and no row for a foreign store — so an escalation over any
   // of those staged four green ticks and no trace at all. Liam's 8/22
   // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
   // the same sentence from the same field, for the classes the engine has
@@ -2692,7 +2696,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ LIAM flag 73/74 (T2) — AND IT IS NEVER INVISIBLE AGAIN. The △ used
         // to be produced by matching `pending.override` against a check LABEL,
         // and `computeChecks` (FROZEN) emits no row for a room, no row for the
-        // VIP floor and no row for a foreign store — so an escalation over any
+        // 個室のみ floor and no row for a foreign store — so an escalation over any
         // of those staged four green ticks and no trace at all. Liam's 8/22
         // shot is exactly that: 満室 overridden, ✓✓✓✓, 担当 X / —. The append is
         // the same sentence from the same field, for the classes the engine has
@@ -2888,21 +2892,20 @@ export function TodayScreen(props: TodayProps) {
   //  ROOM. ⚖ 50(d) let 「注意して配置」 pass `allowBusy` here, so a manager could
   //  place into a full house and the board named a room somebody else was in.
   //  73 rules that a full house is a FACT, not a judgement: it keeps no override
-  //  to thread, and a policy override (勤務/ロック/VIP) may not buy a room
+  //  to thread, and a policy override (勤務/ロック) may not buy a room
   //  either — TEST:4030's own law, 満室 outranks the guard, generalised. The
   //  allocator answers exactly one question now, and a refusal is final on every
   //  path (⚖ 47: it speaks, and the caller changes nothing).
-  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
+  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): string | null {
     const start = minuteOf(span.x, hours)
     const board = boardLanesRef.current
     const solved = allocateBed(board, {
       id,
       currentBed,
       stores: board.find((l) => l.key === staffLaneKey)?.stores ?? null,
-      vip,
+      requiresPrivate,
       start,
       end: minuteOf(span.x + span.w, hours),
-      policy: props.rooms,
       // ⚖ R3 one world — THE SAME SENTENCE, ON THIS LEG TOO. This refusal is
       // SAID (`refuse` below), so it is one of the two places 満室 reaches the
       // operator, and with a staged card real for every reader it can name the
@@ -2923,7 +2926,7 @@ export function TodayScreen(props: TodayProps) {
       // during a gesture at all — `onCardPointerDown` refuses to start one on
       // any other card while something is staged, and every `setPending` site
       // fires at a landing or on the hold popover's own answer, never between a
-      // pointerdown and its drop. Same reason `props.rooms` and `hours` are read
+      // pointerdown and its drop. Same reason `hours` is read
       // here the same way.
       stagedId: pending?.id ?? null,
     })
@@ -3111,10 +3114,10 @@ export function TodayScreen(props: TodayProps) {
     if (!at) return
     const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)
     const span = place(start, start + dur, hours)
-    // ⚖ 92 fix round F11 (blind L2#6) — THE VIP FLOOR IS READ OFF THE PERSON'S
+    // ⚖ 92 fix round F11 (blind L2#6) — THE ROOM FLOOR IS READ OFF THE PERSON'S
     // OWN LANE. `moves` is the STAFF side, so the lane this asks for is a staff
     // lane; `find` by key alone would answer with a bed lane that happens to
-    // share the key and hand the verdict a `vip: false` it never checked. Every
+    // share the key and hand the verdict a room need it never checked. Every
     // sibling derivation on this board scopes by group first (`checksFor`'s
     // staff lookup, `holdSummary`'s) — this one now does too.
     const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
@@ -3130,7 +3133,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
       solveRoom: true,
       id: pending.id,
-      vip: item?.category === 'vip',
+      requiresPrivate: item?.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span,
@@ -3574,7 +3577,7 @@ export function TodayScreen(props: TodayProps) {
       // release will, or it is telling the operator about a different board.
       solveRoom: ctx.group !== 'beds',
       id: ctx.id,
-      vip: ctx.item.category === 'vip',
+      requiresPrivate: ctx.item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
@@ -3774,7 +3777,7 @@ export function TodayScreen(props: TodayProps) {
         // button that cannot perform what it names does not exist).
         const off: LandingAsk = {
           staffLane: null, bedLane: null, solveRoom: ctx.group !== 'beds',
-          id: ctx.id, vip: item.category === 'vip', foreignRefusal: null, span,
+          id: ctx.id, requiresPrivate: item.requiresPrivateRoom === true, foreignRefusal: null, span,
           hasPrice: hasPriceFor(ctx.id),
         }
         explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
@@ -3827,7 +3830,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: sides.bedLane,
       solveRoom: ctx.group !== 'beds',
       id: ctx.id,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
@@ -3861,7 +3864,7 @@ export function TodayScreen(props: TodayProps) {
       // board; `seedBed` prefers the room the operator chose by hand, then the
       // origin this very change snapped, then that staged board.
       if (ctx.group !== 'beds') {
-        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)
+        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -3941,10 +3944,15 @@ export function TodayScreen(props: TodayProps) {
     // is explanation only.
     const escalate = run.override
     adviceOpenedAt.current = at.t
-    // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION. Only a POLICY landing can
-    // be staged from here, so only a policy landing describes one: on a hard
-    // floor these would be the details of a placement that is never going to
-    // happen. Everything is the verdict's own — the room it solved and the rows
+    // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION, and the split is ROWS vs
+    // AUTHORITY. The strip renders wherever the landing actually read rows,
+    // because a refusal the operator can act on earns the same detail a staged
+    // one does; its summary names whatever the board can state, and its CHECK
+    // ROWS AND THE GUARD ROW stand down together on a room refusal alone
+    // (⚖ FIX ROUND 3, `factsRowsShown`; ⚖ FIX ROUND 4, delta3 lens 4 E2).
+    // 注意して配置 is the half that stayed POLICY-only (the mint below): that is
+    // a question about who may overrule, never about rows.
+    // Everything is the verdict's own — the room it solved and the rows
     // it read, against the ATTEMPTED landing rather than the lanes the card is
     // still standing on (which is what `checksFor` would have answered).
     // ⚖ AMENDMENT 1, lens-1 F3+F4+F10 — BUILT FROM THE QUESTION, not from the
@@ -3980,19 +3988,65 @@ export function TodayScreen(props: TodayProps) {
     // 配置モード can never put its customer's name on another booking's box —
     // and `holdSummary` asks the board first regardless.
     const heldName = parkChips.find((c) => c.id === ask.id)?.item.title ?? (ask.id == null ? placing?.name : undefined)
+    // ⚖ FIX ROUND 1 (blind lens 4 F1) — GATED ON THE ROWS, NEVER ON THE FLOOR.
+    // ⚖ 74 exists so a bed-row stop carries its check rows onto the screen, and
+    // the room rule's floor change from `policy` to `hard` silently took them
+    // back: the 個室のみ box drew its sentence and NOTHING under it. The rows are
+    // a fact about what was checked, so the only honest question is whether
+    // there are any. (The override mint below stays `policy`-only — that is
+    // Liam's ruling and it is a question about AUTHORITY, not about rows.)
+    //
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M1 · lens 4 D1/D2 · lens 2 F1) — AND THE SPLIT
+    // IS INSIDE THE STRIP, NOT OVER IT. Fix round 2 answered the 「/ —」 by taking
+    // the whole strip off a room refusal, which took the SUMMARY with it: the
+    // 満室 box kept two buttons that COMMIT a placement over a sentence that no
+    // longer named the customer, the window or the staff member — ⚖ AMENDMENT 3's
+    // own defect, back on the boxes that have nothing drawn to read. Three
+    // separate questions now:
+    //   summary — identity, always composed. `holdSummary` leaves out the room it
+    //             cannot name, so the em-dash is gone at the source.
+    //   rows    — `factsRowsShown`, an exported rule with a unit pin on all four
+    //             landing scenes, because four copies of this expression's own
+    //             source text proved three different gates green (lens 2 F1).
+    //             Hidden exactly on a room refusal, where every row is ✓ — or
+    //             nearly: 満室 outranks the policy stop, so a landing that is also
+    //             勤務時間外 carries a real × — about a room never checked.
+    //   注意して配置 — AUTHORITY, policy-only, the mint below. Never about rows.
+    //
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2 · lens 2 §c) — CHECK ROWS AND THE GUARD ROW
+    // STAND DOWN TOGETHER. `guardRow` was composed independently, so a 満室 on a
+    // lane whose rail cell is not `safe` drew the guard's LOSS row alone under a
+    // room sentence — 「ここに置くと新規（90分）が入らなくなります」, wearing the
+    // same `span.ck` a check row wears, about a start that is refused for a reason
+    // that has nothing to do with loss. That is ⚖ 73's own rider (a full house is
+    // about ROOMS, so it may not borrow the guard's vocabulary) arriving one line
+    // below the offer line where the rider already closed it. One answer, asked
+    // once, decides both. And the rule now takes the ASK rather than a loose
+    // boolean, so this argument cannot be inverted at a call site no test renders.
+    //
+    // TWO callers pass no room at all, and the rows rule is for neither.
+    // 新規予約を作成 (the `askGuard` below the 配置モード branch) opens a FORM and
+    // solves nothing, so `solveRoom` is false and its rows come straight back —
+    // its 「担当 ◯◯」 line is an absence, not a refusal, and it has carried rows
+    // since ⚖ 74 shipped. The release over no lane (`off`, in the drop handler)
+    // also asks with `bedLane: null` and `solveRoom: false` on a bed-row drag,
+    // but it reaches neither rule: its `staffLane: null` takes `landingVerdict`'s
+    // `!staff` stop, which returns ABOVE the checks assignment, so `checks` is
+    // empty and the gate on this line closes the box first.
+    const rows = factsRowsShown(v, ask)
     const facts =
-      v.floor === 'policy'
+      v.checks.length > 0
         ? {
             summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
               staffLane: ask.staffLane,
               bedLane: v.bedLane,
               title: heldName,
             }),
-            checks: v.checks,
+            checks: rows ? v.checks : [],
             // ⚖ FIX-6 — this box has an OFFER LINE under it; the hold popover
             // does not. See `guardCheckRowBesideOffer` for why the second clause
             // may not be stacked above 「より損の少ない開始はありません」.
-            guardRow: guardCheckRowBesideOffer(v.cell),
+            guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,
           }
         : null
     setAdvice({
@@ -4007,7 +4061,7 @@ export function TodayScreen(props: TodayProps) {
       kind: 'blocked',
       // ⚖ 73 — carried, never re-derived. The box reads its own class off this.
       floor: v.floor,
-      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
       facts,
       reason: v.reason ?? '配置できません',
       anchor: at,
@@ -4573,7 +4627,7 @@ export function TodayScreen(props: TodayProps) {
       // A caution is nothing's floor — it PLACES. ⚖ 73 has no opinion here and
       // ⚖ 74's facts belong to the confirm this landing is about to raise.
       floor: null,
-      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
       facts: null,
       reason: v.reason ?? '',
       anchor: at,
@@ -4632,7 +4686,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: sides.bedLane,
       solveRoom: lane.group !== 'beds',
       id,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(id),
       span: next,
@@ -4649,7 +4703,7 @@ export function TodayScreen(props: TodayProps) {
       // the operator's own room ahead of both, which is why these keys pass no
       // `bedChosen` of their own: an edge nudge is a time, not a room.
       if (lane.group !== 'beds') {
-        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)
+        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -4855,7 +4909,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: onBed ? laneKey : (chipBed?.key ?? null),
       solveRoom: !onBed,
       id: chip.id,
-      vip: chip.item.category === 'vip',
+      requiresPrivate: chip.item.requiresPrivateRoom === true,
       foreignRefusal: foreignStoreRefusal(chip.home, props.store),
       hasPrice: hasPriceFor(chip.id),
       span,
@@ -5004,14 +5058,9 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID. The landing
-    // above now reads the intent's category — the NEXT visit's, turned over by
-    // `nextVisitCategory` at the arming. If this line kept its hardcoded `false`
-    // the two would disagree by construction — the word would solve the 個室 and
-    // the release would put the VIP in whatever bed `privateIsLastResort` reaches
-    // first. ⚖ 50's law is that the word and what the release DOES are one
-    // answer, so they read one field.
-    const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))
+    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID: both legs read
+    // `NEXT_VISIT_REQUIRES_PRIVATE`, so they cannot disagree by construction.
+    const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -5033,10 +5082,14 @@ export function TodayScreen(props: TodayProps) {
       kind: 'booking' as const,
       state: 'hold' as const,
       // ⚖ 51 — AND THE MINTED CARD CARRIES IT. Every later gesture asks the
-      // CARD, not the intent (`item?.category === 'vip'` at the verdict asks,
-      // `placePendingAt`, both `solveBed` releases, `bedDoor`'s subject path),
-      // so a hardcoded 'repeat' here made the VIP fix last exactly one press.
+      // CARD, not the intent (`placePendingAt`, both `solveBed` releases,
+      // `bedDoor`'s subject path), so a hardcoded 'repeat' here made the
+      // category fix last exactly one press.
       category: p.category,
+      // ⚖ ROOM RULE — and the room need, which is now a separate fact from the
+      // category. A 次回予約 has no menu yet, so the minted card carries no tag
+      // and every later gesture reads it off the card like any other booking.
+      requiresPrivateRoom: NEXT_VISIT_REQUIRES_PRIVATE,
       ...span,
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
@@ -5147,7 +5200,7 @@ export function TodayScreen(props: TodayProps) {
         ? dropped
         : (() => {
             const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)
+            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
             return key == null ? null : boardLanes.find((l) => l.key === key)
           })()
     // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
@@ -5434,7 +5487,7 @@ export function TodayScreen(props: TodayProps) {
                 // exactly when this lane has a 定価 and `null` when it has none
                 // (⚖ R6 D2, the `ticketCore:` line in that function). Same
                 // predicate, so the landing's rows and the card it produces agree.
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },
                 at,
                 // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
                 // sentence the operator walked past, and this callback dropped
@@ -5457,7 +5510,7 @@ export function TodayScreen(props: TodayProps) {
               // ⚖ R8 T1 — nothing has been agreed yet: the dialog this opens is
               // where the menu and its price are chosen, so there is no 予約時価格
               // for a 保持 row to be about.
-              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },
+              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },
               at,
               (s) => openCreateAt({ staffId: lane.key, start: s }),
             )
@@ -5943,8 +5996,25 @@ export function TodayScreen(props: TodayProps) {
         </strong>
         <small className="e-time">{timeLabel}</small>
         <small className="e-tkt">
+          {/* ⚖ ROOM RULE — the category badge, unchanged. `.tg` above is the
+              PARTNER's name and is left alone — a card wearing 【ベッド3】 while
+              its twin stands on ベッド2 is the impossible state ⚖ 51 exists to
+              stop. */}
           {item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
+          {/* ⚖ FIX ROUND 1 (blind lens 3 F3/F4) — 個室のみ IS ITS OWN NOTE, and it
+              is 個室のみ rather than 個室.
+
+              It used to REPLACE the category word, and which word it ate
+              depended on the category: 「個室 月額」 reads as a room fee this
+              salon does not charge, and 「個室 残り8回」 loses 回数券 — the word
+              that decides whether the receptionist burns a ticket or takes
+              money (⚖ 8/25, a number says what it counts). And 「個室」 beside
+              the card's own 【ベッド3】 reads as a description of where the
+              booking IS, not a rule about the room it NEEDS; on a card sitting
+              in a standard bed it reads as simply wrong. 個室のみ is the exact
+              phrase both refusals use, so badge and sentence are one vocabulary. */}
+          {item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}
           {item.held && <span className="tkt-note">保持</span>}
         </small>
       </>
@@ -7017,11 +7087,20 @@ export function TodayScreen(props: TodayProps) {
           <div className="gp-reason">{advice.reason}</div>
           {/* ⚖ LIAM flag 74 — THE ONE BOX. The confirm's own facts, in the
               surface that is asking: what time, on whom, in which room, and the
-              rows this landing earns. Only a POLICY floor gets them, because
-              only a policy floor has a 注意して配置 to press — describing a
-              placement that cannot happen is the wrong-question defect in
-              another costume. The rows wear ⚖ 52's glyphs from the confirm's own
-              stylesheet, so × and △ mean one thing on both surfaces. */}
+              rows this landing earns. ROWS, not floor: a refusal that read rows
+              describes itself too, and 注意して配置 is the half that stayed
+              policy-only, because that is a question about AUTHORITY. A landing
+              that asked for a room and got NONE keeps its IDENTITY line — the
+              summary simply leaves the room out, so 「/ —」 goes and the sentence
+              stays — and its CHECK ROWS AND THE GUARD ROW stand down together,
+              because the checks are all ✓ or nearly so about a room nothing ever
+              checked, and the guard's row is about LOSS at a start this box
+              refused for a different reason (fix round 3, delta2 lens 3 M1; fix
+              round 4, delta3 lens 4 E2). So the strip is genuinely empty there,
+              and the F5 gate below closes the container rather than drawing a
+              lone caution that reads as 「one check ran」. The rows wear ⚖ 52's
+              glyphs from the confirm's own stylesheet, so × and △ mean one thing
+              on both surfaces. */}
           {advice.facts && (
             <div className="gp-facts">
               <strong>{advice.facts.summary}</strong>

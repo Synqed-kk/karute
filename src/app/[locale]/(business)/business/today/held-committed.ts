@@ -65,7 +65,6 @@
 import type { BoardLane } from '@/business/lib/today-board'
 import type { BedTruth, DayFrame } from './capacity-ledger'
 import { reservedMaskFor, type ReservedLaneMask, type ReservedMaskInput } from './reserved-mask'
-import type { RoomPolicy } from './today-interactions'
 
 /** THE ONE DOOR INTO THE CAPACITY BOOK, as a parameter. The exact shape of the
  *  screen's `bedViewsFor` (TodayScreen.tsx :168) narrowed at the hand: this
@@ -80,7 +79,7 @@ import type { RoomPolicy } from './today-interactions'
  *  the door's own richer return type (`BedViews`, which also carries
  *  `worldMinusHand` and `handId`) satisfies it without this file naming a type
  *  that lives on the screen. */
-export type BookDoor = (lanes: BoardLane[], rooms: RoomPolicy, frame: DayFrame, inHand: null) => { world: BedTruth }
+export type BookDoor = (lanes: BoardLane[], frame: DayFrame, inHand: null) => { world: BedTruth }
 
 /** The committed world's inputs: `reservedMaskFor`'s own dials, plus the round
  *  gate and the three things the book is built out of. Every difference from
@@ -91,7 +90,7 @@ export type BookDoor = (lanes: BoardLane[], rooms: RoomPolicy, frame: DayFrame, 
  *  input nothing could test. The gate now arrives as the bare boolean the
  *  screen reads at its boundary, and the branch is taken down here.
  *
- *  `lanes`, `rooms` and `frame` are what the book is built FROM, so the caller
+ *  `lanes` and `frame` are what the book is built FROM, so the caller
  *  hands over the world rather than a world it already narrowed. `bookOf` is
  *  the door it is built THROUGH — handed in rather than imported, so this file
  *  has no way to reach the book on its own and no edge back to the screen.
@@ -108,17 +107,16 @@ export type BookDoor = (lanes: BoardLane[], rooms: RoomPolicy, frame: DayFrame, 
 export type HeldCommittedInput = Omit<ReservedMaskInput, 'book' | 'excludeId' | 'lanes'> & {
   readonly gateOn: boolean
   readonly lanes: BoardLane[]
-  readonly rooms: RoomPolicy
   readonly frame: DayFrame
   readonly bookOf: BookDoor
 }
 
 /** The committed world's held set, or `undefined` when the round gate is off. */
 export function heldCommittedFor(input: HeldCommittedInput): readonly ReservedLaneMask[] | undefined {
-  const { gateOn, rooms, frame, bookOf, ...mask } = input
+  const { gateOn, frame, bookOf, ...mask } = input
   // ponytail: one spread and one added key. Every dial the caller handed over
   // reaches `reservedMaskFor` unread and unrenamed, so none can be dropped or
   // hardcoded on the way through, and the book is the only thing this function
   // puts on the table.
-  return gateOn ? reservedMaskFor({ ...mask, book: bookOf(mask.lanes, rooms, frame, null).world }) : undefined
+  return gateOn ? reservedMaskFor({ ...mask, book: bookOf(mask.lanes, frame, null).world }) : undefined
 }

@@ -16,6 +16,7 @@
 // for who the caller is.
 
 import type { Recording } from '@synqed-kk/client'
+import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 
 /** Core's HTTP status, duck-typed — the same structural check the rest of this
  *  family uses rather than an instanceof across module instances. */
@@ -77,6 +78,83 @@ export function storageMessageKind(error: unknown): 'bucket_not_found' | 'object
  *  not go back to UPLOADING and re-enter 要対応. */
 export function isJobOwnedStatus(status: string): boolean {
   return status === 'PROCESSING' || status === 'COMPLETED' || status === 'FAILED'
+}
+
+/**
+ * Has this take already been finalized once?
+ *
+ * The MINT leaves the row pointing at the key with no duration (it cannot know
+ * one), so the pointer alone can no longer mean "finalized". The duration IS
+ * the finalize's own mark — plus a status the recorder has left behind, so a
+ * row still sitting at RECORDING is never mistaken for a finished one.
+ *
+ * Lifted out of finalize-take.ts (player fix round 1) so the READ side can ask
+ * the same question the WRITE side asks, in the same words. That is this
+ * module's whole job: a second spelling of a binding check on one side is how
+ * the two doors drift apart.
+ */
+export function finalizedBefore(row: {
+  duration_seconds: number | null
+  status: string
+}): boolean {
+  return row.duration_seconds !== null && row.status !== 'RECORDING'
+}
+
+/** The three fields the question needs. `status` is a plain `string`, not core's
+ *  RecordingStatus union: the READ side carries it degraded on purpose (a baked
+ *  shell must render a status it has never heard of), and a real `Recording`
+ *  satisfies this shape anyway. */
+export interface HeldTakeRow {
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+}
+
+/**
+ * DOES THE SERVER ACTUALLY HOLD THIS TAKE'S AUDIO? (player fix round 1.)
+ *
+ * A key on the row is NOT an answer, and reading it as one is the bug this
+ * exists to close. Sessions are BORN RESERVED — session-mint.ts writes
+ * `{ audio_storage_path, status: 'UPLOADING' }` when the row is created, and
+ * mint-take-url.ts writes the same on a legacy row, both BEFORE a single byte
+ * exists. The object lands later (secure-at-stop, or a drain days later), and
+ * on a device that walked out of signal it may never land at all.
+ *
+ * So the pointer means "this row has claimed this key", and two things make it
+ * LIKELY the bytes are really there:
+ *   · `finalizedBefore` — finalize-take.ts proves the object (storage.info)
+ *     before it stamps a duration; or
+ *   · `isJobOwnedStatus` — the legacy worker path, whose rows have an object
+ *     because the job read it.
+ *
+ * ⚠ THIS IS A HEURISTIC, NOT A PROOF, AND THE REPO SAYS SO (fix round 2). An
+ * earlier version of this doc claimed finalize was the ONLY writer of
+ * `duration_seconds`. It is not: `discard.ts`'s stampRecordingDuration writes
+ * the CLIENT-REPORTED duration on every reasoned discard with no object proof
+ * at all. And the premise that a discarded take moves to a `stg/` key is the
+ * EXCEPTION, not the rule — recording-discard-transcript.ts says it plainly
+ * ("the ordinary discard sends the finalized key itself"), so an ordinary
+ * discard leaves the row on its TAKE key, stamped, out of RECORDING: true here.
+ *
+ * THE CEILING, NAMED. A discard-stamped row paired with a karute record can
+ * therefore paint a player whose tap answers no_audio. That is visible and
+ * honest, never silent, and it is bounded by the MINT, which probes storage
+ * before it signs anything (playback-url.ts). One storage call per LISTEN is
+ * affordable; one per VIEW is not, which is why the card keeps this heuristic
+ * and the door keeps the proof.
+ *
+ * The key fence stays inside, and stays TAKE-only: a `stg/` staged copy, a
+ * segment fragment and another tenant's key are all false however the duration
+ * and status read.
+ */
+export function serverHoldsTakeRow<T extends HeldTakeRow>(
+  row: T,
+  businessId: string,
+): row is T & { audio_storage_path: string } {
+  return (
+    isOwnRecordingKey(row.audio_storage_path, businessId) &&
+    (finalizedBefore(row) || isJobOwnedStatus(row.status))
+  )
 }
 
 /**

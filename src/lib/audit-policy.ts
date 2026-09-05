@@ -74,6 +74,7 @@ export const AUDIT_ACTIONS = [
   'recording.capture_finalized',
   'recording.capture_unlinked',
   'recording.discard',
+  'recording.play',
   'recording.session_cleanup',
   'recording.take_named',
   'recording.transcribe',
@@ -164,6 +165,11 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The play-button mint (build 23 slice ①) — its ONE success return is
+  // dominated by the recording.play emit; every refusal is an { error } literal
+  // that returns before it. It performs no SDK/storage WRITE at all
+  // (createSignedUrl is a read), so it needs no SDK_WRITE_ALLOWLIST row.
+  { file: 'src/lib/recording/playback-url.ts', symbols: ['mintPlaybackUrlWithClient'] },
   // The take-URL mint (capture pipeline PR2 fix round 2, widened in fix round
   // 4, re-split in fix round 6). auditTakeNamed is a private helper emitting
   // unconditionally on its one path; mintTakeUploadUrl conditions the CALL (a

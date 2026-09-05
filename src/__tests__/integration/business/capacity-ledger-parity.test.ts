@@ -88,7 +88,6 @@ import {
   gapLayerFor,
   guardRailsFor,
   sellLayerFor,
-  type RoomPolicy,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
 import TodayPage from '@/app/[locale]/(business)/business/today/page'
@@ -164,12 +163,12 @@ const frameOf = (hours: { open: number; close: number }, nowMin: number): DayFra
 })
 
 /** THE HAND, bound exactly as `bedFeasibility` binds it (today-interactions
- *  :1555-1558): the booking's own card anywhere on the board for the VIP fact,
- *  and the BED lane it is standing on for the room it carries in. */
+ *  :1555-1558): the booking's own card anywhere on the board for its 個室のみ
+ *  tag, and the BED lane it is standing on for the room it carries in. */
 function handBinding(lanes: BoardLane[], handId: string) {
   const held = lanes.flatMap((l) => l.items).find((i) => i.caseId === handId)
   const currentBed = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === handId))?.key ?? null
-  return { held, currentBed, vip: held?.category === 'vip' }
+  return { held, currentBed, requiresPrivate: held?.requiresPrivateRoom === true }
 }
 
 /** ONE comparison, run on every board this file touches. Returns the number of
@@ -177,22 +176,22 @@ function handBinding(lanes: BoardLane[], handId: string) {
  *  than a boolean, so a battery that silently stopped asking cannot pass. */
 function parityRun(
   lanes: BoardLane[],
-  policy: RoomPolicy,
   hours: { open: number; close: number },
   nowMin: number,
   durs: number[],
   handId: string | null = null,
 ): { asked: number; diverged: string[]; truth: BedTruth } {
-  const views = bedTruthViews(lanes, policy, frameOf(hours, nowMin), handId === null ? null : { id: handId })
+  const views = bedTruthViews(lanes, frameOf(hours, nowMin), handId === null ? null : { id: handId })
   const truth = views.worldMinusHand ?? views.world
-  const { currentBed, vip } = handId === null ? { currentBed: null, vip: false } : handBinding(lanes, handId)
-  const legacy = bedFeasibility(lanes, handId, policy)!
+  const { currentBed, requiresPrivate } =
+    handId === null ? { currentBed: null, requiresPrivate: false } : handBinding(lanes, handId)
+  const legacy = bedFeasibility(lanes, handId)!
   const starts = latticeOf(hours)
   const diverged: string[] = []
   let asked = 0
   for (const lane of staffLanesOf(lanes)) {
     const asker = (): Asker =>
-      handId === null ? { stores: lane.stores } : { id: handId, currentBed, vip, stores: lane.stores }
+      handId === null ? { stores: lane.stores } : { id: handId, currentBed, requiresPrivate, stores: lane.stores }
     for (const dur of durs) {
       for (const start of starts) {
         asked += 1
@@ -360,7 +359,7 @@ const EVIDENCE = process.env.CAPACITY_R2_EVIDENCE ?? ''
 describe('P1 — the book’s hypothetical answer IS the rail’s, on the real board', () => {
   it('every staff lane, every lattice start, two lengths: zero disagreements', () => {
     const durs = [REAL.guard.standardSessionMin, REAL.guard.protectedDurationMin]
-    const run = parityRun(REAL.lanes, REAL.rooms, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, durs)
+    const run = parityRun(REAL.lanes, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, durs)
     // Guard of the guard: a run that asked nothing would "agree" vacuously.
     expect(run.asked).toBe(staffLanesOf(REAL.lanes).length * durs.length * latticeOf(REAL.hours).length)
     // …and the literal, so the number this round reports is the number the
@@ -373,7 +372,7 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
     // Without this, a book that returned `true` everywhere would pass P1 on a
     // board whose rail also happened to say true everywhere.
     const dur = REAL.guard.standardSessionMin
-    const truth = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), null).world
     const lane = staffLanesOf(REAL.lanes)[0]
     const answers = new Set(
       latticeOf(REAL.hours).map((s) => truth.bedFor(s, s + dur, { stores: lane.stores }).laneKey !== null),
@@ -383,7 +382,7 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
 
   it('the store binding is part of the question — a foreign store gets a different answer', () => {
     const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const truth = bedTruthViews(lanes, REAL.rooms, frameOf(SYNTH_HOURS, SYNTH_NOW), null).world
+    const truth = bedTruthViews(lanes, frameOf(SYNTH_HOURS, SYNTH_NOW), null).world
     const a = latticeOf(SYNTH_HOURS).map((s) => truth.bedFor(s, s + 60, { stores: ['store-a'] }).laneKey)
     const b = latticeOf(SYNTH_HOURS).map((s) => truth.bedFor(s, s + 60, { stores: ['store-b'] }).laneKey)
     expect(a).not.toEqual(b)
@@ -397,44 +396,45 @@ describe('P1 — the book’s hypothetical answer IS the rail’s, on the real b
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded world', () => {
-  /** Real bookings off the real board, one of each category the ⚖ 51 floor
-   *  cares about. `caseId` is the booking; the staff card carries the category
-   *  the legacy binding reads. */
+  /** Real bookings off the real board, one of each kind the room floor cares
+   *  about. ⚖ ROOM RULE — that is the booking's own 個室のみ tag now, not the
+   *  customer's VIP badge, so the two hands are TAGGED and UNTAGGED. */
   const handsOn = (lanes: BoardLane[]) => {
     const cards = staffLanesOf(lanes).flatMap((l) => l.items).filter((i) => i.caseId)
     return {
-      vip: cards.find((i) => i.category === 'vip')?.caseId ?? null,
-      plain: cards.find((i) => i.category !== 'vip')?.caseId ?? null,
+      tagged: cards.find((i) => i.requiresPrivateRoom === true)?.caseId ?? null,
+      plain: cards.find((i) => i.requiresPrivateRoom !== true)?.caseId ?? null,
     }
   }
 
   it('the fixture board actually carries both kinds of hand', () => {
     const hands = handsOn(REAL.lanes)
-    expect(typeof hands.vip).toBe('string')
+    expect(typeof hands.tagged).toBe('string')
     expect(typeof hands.plain).toBe('string')
   })
 
-  it('a NON-VIP hand: zero disagreements across the lattice', () => {
+  it('an UNTAGGED hand: zero disagreements across the lattice', () => {
     const hand = handsOn(REAL.lanes).plain!
-    const run = parityRun(REAL.lanes, REAL.rooms, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, [REAL.guard.standardSessionMin], hand)
+    const run = parityRun(REAL.lanes, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, [REAL.guard.standardSessionMin], hand)
     expect(run.asked).toBe(648) // 6 staff lanes × 108 lattice starts
     expect(run.diverged).toEqual([])
   })
 
-  it('a VIP hand: zero disagreements, and the 個室 floor is what makes it a different question', () => {
-    const hand = handsOn(REAL.lanes).vip!
+  it('a 個室のみ hand: zero disagreements, and the tag is what makes it a different question', () => {
+    const hand = handsOn(REAL.lanes).tagged!
     const bound = handBinding(REAL.lanes, hand)
-    expect(bound.vip).toBe(true)
-    const run = parityRun(REAL.lanes, REAL.rooms, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, [REAL.guard.standardSessionMin], hand)
+    expect(bound.requiresPrivate).toBe(true)
+    const run = parityRun(REAL.lanes, REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open, [REAL.guard.standardSessionMin], hand)
     expect(run.asked).toBe(648)
     expect(run.diverged).toEqual([])
-    // …and the VIP binding is LOAD-BEARING: the same hand asked as a non-VIP
-    // gets a different set of rooms, so `vip: false` is not a harmless mutation.
-    const views = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), { id: hand })
+    // …and the tag binding is LOAD-BEARING: the same hand asked untagged gets a
+    // different set of rooms, so `requiresPrivate: false` is not a harmless
+    // mutation.
+    const views = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.sell.nowMinute ?? REAL.hours.open), { id: hand })
     const lane = staffLanesOf(REAL.lanes)[0]
-    const asVip = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, vip: true, stores: lane.stores }).laneKey)
-    const asPlain = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, vip: false, stores: lane.stores }).laneKey)
-    expect(asVip).not.toEqual(asPlain)
+    const asTagged = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, requiresPrivate: true, stores: lane.stores }).laneKey)
+    const asPlain = latticeOf(REAL.hours).map((s) => views.worldMinusHand!.bedFor(s, s + 60, { id: hand, currentBed: bound.currentBed, requiresPrivate: false, stores: lane.stores }).laneKey)
+    expect(asTagged).not.toEqual(asPlain)
   })
 
   /** ONE VARIABLE PER ASSERTION. The earlier version of this pin changed TWO
@@ -449,8 +449,8 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
   it('the LIFT is load-bearing for a hypothetical asker — same question, two worlds, different answers', () => {
     const hand = handsOn(REAL.lanes).plain!
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const withCard = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), null).world
-    const lifted = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
+    const withCard = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
+    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
     let boolDiff = 0
     let keyDiff = 0
     let asked = 0
@@ -500,10 +500,10 @@ describe('P2 — with a card in hand, worldMinusHand IS the rail’s excluded wo
     const hand = handsOn(REAL.lanes).plain!
     const now = REAL.sell.nowMinute ?? REAL.hours.open
     const bound = handBinding(REAL.lanes, hand)
-    const lifted = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
-    const unlifted = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), null).world
+    const lifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), { id: hand }).worldMinusHand!
+    const unlifted = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
     const ask = (t: BedTruth, lane: BoardLane, start: number, currentBed: string | null) =>
-      t.bedFor(start, start + 60, { id: hand, currentBed, vip: bound.vip, stores: lane.stores })
+      t.bedFor(start, start + 60, { id: hand, currentBed, requiresPrivate: bound.requiresPrivate, stores: lane.stores })
     let asked = 0
     const lift = { bool: 0, key: 0 }
     const kept = { bool: 0, key: 0 }
@@ -540,7 +540,7 @@ function railsFor(lanes: BoardLane[], hours: { open: number; close: number }, ex
     locked: [],
     guard: REAL.guard.config,
     excludeId,
-    placementFeasible: bedFeasibility(lanes, excludeId, REAL.rooms),
+    placementFeasible: bedFeasibility(lanes, excludeId),
   })
 }
 
@@ -565,7 +565,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
   it('per store binding, run coverage ≡ the refused starts (clip contract honoured)', () => {
     const dur = REAL.guard.standardSessionMin
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const truth = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
     let checked = 0
     for (const stores of bindingsOf(REAL.lanes)) {
       const runs = truth.fullRuns(dur, stores)
@@ -582,7 +582,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
 
   it('a start past the last possible one is in NO run — neither full nor bookable', () => {
     const dur = REAL.guard.standardSessionMin
-    const truth = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, REAL.hours.open), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, REAL.hours.open), null).world
     const stores = bindingsOf(REAL.lanes)[0]
     const runs = truth.fullRuns(dur, stores)
     const tail = latticeOf(REAL.hours).filter((s) => s + dur > REAL.hours.close)
@@ -638,7 +638,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
   it('spot-check — every ベッド refusal the rail paints sits inside a 満室 run (fixture board)', () => {
     const dur = REAL.guard.standardSessionMin
     const now = REAL.sell.nowMinute ?? REAL.hours.open
-    const truth = bedTruthViews(REAL.lanes, REAL.rooms, frameOf(REAL.hours, now), null).world
+    const truth = bedTruthViews(REAL.lanes, frameOf(REAL.hours, now), null).world
     const byKey = new Map(REAL.lanes.map((l) => [l.key, l]))
     let cells = 0
     for (const rail of railsOn(REAL, null)) {
@@ -669,7 +669,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
     const lanes = roomStarvedBoard()
     const hours = { open: 600, close: 1140 }
     const dur = 60
-    const truth = bedTruthViews(lanes, REAL.rooms, frameOf(hours, 600), null).world
+    const truth = bedTruthViews(lanes, frameOf(hours, 600), null).world
     const runs = truth.fullRuns(dur, ['store-a'])
     // The one free lane's rail: the pocket is the whole day, so the only thing
     // left that can refuse is the room — and it refuses everywhere.
@@ -677,7 +677,7 @@ describe('P3 — fullRuns is the book’s own bedFor walk, and the rail agrees w
       open: hours.open, close: hours.close, stepMin: 30, dur,
       protectedDur: REAL.guard.protectedDurationMin, nowMinute: null, locked: [],
       guard: REAL.guard.config, excludeId: null,
-      placementFeasible: bedFeasibility(lanes, null, REAL.rooms),
+      placementFeasible: bedFeasibility(lanes, null),
     }).find((r) => r.laneKey === 'p-free')!
     const refused = rail.cells.filter((c) => NO_ROOM(dur).test(c.sentence) && c.start + dur <= hours.close)
     expect(refused.length).toBeGreaterThan(0)
@@ -751,7 +751,7 @@ describe('P4 — no dial combination annihilates a layer, and the book agrees at
             depth,
             guard: REAL.guard.config,
           })
-          const run = parityRun(lanes, REAL.rooms, SYNTH_HOURS, SYNTH_NOW, [sessionMin])
+          const run = parityRun(lanes, SYNTH_HOURS, SYNTH_NOW, [sessionMin])
           expect(run.asked).toBe(864) // 8 staff lanes × 108 lattice starts, every combination
           expect(run.diverged).toEqual([])
           rows.push(
@@ -820,7 +820,7 @@ describe('P5 — parity survives a 25-staff roster, and the shared cache is what
     it(`${name}: zero disagreements over the whole lattice`, () => {
       const lanes = synthBoard(spec, SYNTH_HOURS)
       expect(staffLanesOf(lanes).length).toBe(25)
-      const run = parityRun(lanes, REAL.rooms, SYNTH_HOURS, SYNTH_NOW, [60])
+      const run = parityRun(lanes, SYNTH_HOURS, SYNTH_NOW, [60])
       expect(run.asked).toBe(25 * latticeOf(SYNTH_HOURS).length)
       expect(run.asked).toBe(2700)
       expect(run.diverged).toEqual([])
@@ -834,7 +834,7 @@ describe('P5 — parity survives a 25-staff roster, and the shared cache is what
 
   it('two store bindings cost two rows, never one shared wrong one', () => {
     const lanes = synthBoard(TWO_STORE, SYNTH_HOURS)
-    const run = parityRun(lanes, REAL.rooms, SYNTH_HOURS, SYNTH_NOW, [60])
+    const run = parityRun(lanes, SYNTH_HOURS, SYNTH_NOW, [60])
     expect(run.asked).toBe(864)
     expect(run.diverged).toEqual([])
     expect(run.truth.stats.storeBindings).toBe(2)

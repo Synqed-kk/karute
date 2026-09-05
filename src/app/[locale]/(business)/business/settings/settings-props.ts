@@ -878,7 +878,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       }),
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
-          seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室・VIP']]), r.room_class),
+          seg(`people.class-${r.id}`, `${r.name}の種類`, opts([['standard', '施術室'], ['private', '個室']]), r.room_class),
           num(`people.cleanup-${r.id}`, `${r.name}の清掃時間`, r.cleanup_minutes, 0, 60, 5, '分'),
         ])), {
         facts: [
@@ -886,27 +886,16 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
           '清掃時間を0分にすると、予約と予約のあいだに何も確保しません。',
         ],
       }),
-      block('people.room-policy', '部屋の自動割り当て', '予約に部屋を自動で決めるときの決まりです。人は選ばれるもの、部屋は解かれるもの — この2つの判断だけで決まります。', [
-        row('people.row-vip', '個室の予約は個室から出さない', '個室・VIPの予約は、個室が埋まっていればその予約にとって満室として扱います。', [
-          sw('people.vip-stays', '個室の予約は個室から出さない', '出さない', '空きがあれば施術室へ', opsConfig.roomPolicy.vipStaysPrivate),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 出さない',
-            guardrail: 'オフにすると、個室でお迎えするはずのお客様が施術室に入ることがあります。',
-          },
-        }),
-        row('people.row-last-resort', '個室は最後の手段', '通常の予約が個室を取れるのは、施術室に空きがないときだけにします。', [
-          sw('people.private-last', '個室は最後の手段', '施術室が満室のときだけ', 'いつでも使える', opsConfig.roomPolicy.privateIsLastResort),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 施術室が満室のときだけ',
-            guardrail: 'オフにすると、個室が早い時間で埋まり、あとから来る個室のご予約を受けられなくなります。',
-          },
-        }),
-      ], {
-        preview: { template: '個室の予約は{people.vip-stays}、通常の予約にとって個室は{people.private-last}という決まりで割り当てます。' },
+      /* ⚖ #843（Liam 2026-09-05）— この2つはもう「設定」ではありません。
+       * 「VIPは個室から出さない」はルールとして廃止され、「個室は最後」はすべての
+       * 店舗で常に有効になりました。回せないつまみは死んだレバーなので、スイッチは
+       * 置かず、今日の運営が実際に使っている決まりを事実として書きます。 */
+      block('people.room-policy', '部屋の自動割り当て', '予約の部屋は、次の決まりのとおりに自動で決まります。ここで変える設定はありません。', [], {
+        facts: [
+          '部屋は自動で決まります。施術室から順に埋め、個室は最後に使います。',
+          '「個室のみ」の指定がある予約だけが個室に限定されます。指定は予約ごとに付きます。',
+          '個室しか空いていないときは、指定のない予約も個室に入ります。入れ替えは自動では行いません。',
+        ],
       }),
       block('people.shifts', 'シフト', '誰がいつ働くかは、別の画面で管理します。', [], {
         facts: ['シフトの管理は「スタッフ・シフト」で行います。ここには同じ機能を重ねていません。'],
@@ -917,7 +906,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
       lines: [
         { label: '名簿', value: 'スタッフ・シフトが使っている名簿' },
         { label: '設備', value: '今日の運営のベッド割り当てが使っている一覧' },
-        { label: '部屋の決まり', value: '今日の運営の自動割り当てが実際に読んでいる値' },
+        { label: '部屋の決まり', value: '今日の運営の自動割り当てが使っている決まり' },
       ],
       note: '稼働・設備の数を変えると、Reserveの空き枠は翌日の再計算から変わります。',
     },

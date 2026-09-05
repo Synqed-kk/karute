@@ -239,6 +239,14 @@ export interface BoardItem {
   kind: 'booking' | 'break' | 'absence' | 'block' | 'cleanup'
   state: 'confirmed' | 'attention' | 'hold' | 'noshow' | null
   category: BookingCategory | null
+  /** ⚖ ROOM RULE (Liam 2026-09-05) — THIS BOOKING NEEDS THE PRIVATE ROOM, and
+   *  it is a fact about the BOOKING, never about the customer. Every room reader
+   *  asks this one field; `customer.vip` keeps the card colour, the chip and the
+   *  保護対象 count and reaches no bed search at all. ABSENT on the items that
+   *  are not bookings — a turnaround, a break or an absence has no room to need,
+   *  the same reason `state` and `category` are null there — so every reader
+   *  asks `=== true`. */
+  requiresPrivateRoom?: boolean
   x: number
   w: number
   /** The same span in minutes. The board paints in percent, but the sell-layer
@@ -304,6 +312,11 @@ export interface BoardBooking {
   timeRange: string
   price: number | null
   category: BookingCategory
+  /** ⚖ ROOM RULE — the private-room requirement, straight off the appointment
+   *  row. Core stamps it at CREATE from the menu's own room class and never
+   *  re-derives it, so a staff member clearing it sticks and a menu edited later
+   *  never retro-tags what is already booked. */
+  requiresPrivateRoom: boolean
   state: 'confirmed' | 'attention' | 'hold' | 'noshow'
   settlement: 'settled' | 'awaiting' | null
   source: string
@@ -388,6 +401,7 @@ export function dayBookings(input: BuildInput): BoardBooking[] {
         category: customer
           ? bookingCategory(customer, priorVisits.get(a.customer_id) ?? 0)
           : 'repeat',
+        requiresPrivateRoom: a.requires_private_room === true,
         state: a.board_state!,
         settlement: a.settlement,
         source: a.source,
@@ -420,6 +434,7 @@ function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: stri
     kind: 'booking',
     state: b.state,
     category: b.category,
+    requiresPrivateRoom: b.requiresPrivateRoom,
     ...place(b.startMinute, b.endMinute, hours),
     title: b.customerName,
     tag: `【${tag}】`,
@@ -429,7 +444,13 @@ function bookingItem(b: BoardBooking, hours: Hours, tag: string, keySuffix: stri
     held: b.reassignedFromName != null,
     micro: false,
     caseId: b.id,
-    label: `${b.timeRange} ${b.customerName}様 / ${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
+    // ⚖ FIX ROUND 1 (blind lens 3 F5) — THE TAG JOINS THE ACCESSIBLE NAME. The
+    // badge was the only surface carrying it and it is the one surface a
+    // keyboard or screen-reader operator never gets: they were refused by a fact
+    // the board had never told them. It rides INSIDE the category segment, so
+    // the five-segment skeleton `today-interactions`' room re-label depends on
+    // (`parts.length === 5`) is untouched.
+    label: `${b.timeRange} ${b.customerName}様 / ${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_LABEL[b.category]} / ${b.staffName} / ${b.resourceName} / ${STATE_LABEL[b.state]}`,
   }
 }
 

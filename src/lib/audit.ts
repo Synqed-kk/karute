@@ -295,6 +295,7 @@ export type FacadeEndpointKey =
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
   | 'recordings.job.status'
+  | 'recordings.playbackUrl'
   | 'recordings.session.delete'
   | 'recordings.session.mint'
   | 'recordings.uploadUrl'
@@ -767,6 +768,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The play button's mint (build 23 slice ①). Same doctrine as finalize above:
+  // the ONE emit lives at the shared choke point, which alone knows whether a
+  // url was actually minted — the generic hook would emit on every 2xx, and a
+  // refusal here leaves as an error status, so a live row would over-count
+  // listens by exactly the refusals.
+  'recordings.playbackUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient' },
   // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
   // EITHER downstream pipeline (verified at source: thin's
   // viteRecordingPort.mintTakeUrl and prepareTranscription's un-finalized

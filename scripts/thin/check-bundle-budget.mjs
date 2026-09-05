@@ -369,10 +369,36 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // fire at all (round 4): en 129,868 · index 972,501 · vendor 937,082 =
 // 2,039,451 B → 549 B of headroom.
 //
+// RAISED 2026-09-06 for THE PLAY BUTTON (build 23 slice ①) — one entry for the
+// whole slice, ⚖ 8/25 + 9/4: 2,040,000 → 2,049,700. The method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist). Base 75ac94083 measured 2,039,663 B; this tip measures
+// en 130,244 · index 981,158 · vendor 937,743 = 2,049,145 B, so the play button
+// costs the phone +9,482 B in total — the feature plus six review rounds, three
+// of which were correctness fixes rather than new surface. What the bytes
+// bought: a staffer hears a session again from inside the same 文字起こし card
+// the words live in (play/pause, ±15 s, 標準/1.5/2/3倍, a scrub bar) over a
+// signed url the server mints on the FIRST tap and only after proving, by the
+// same rule that governs the words, that this viewer may hear this take and
+// that the bytes are really in the bucket; recording always wins, across the
+// mint and the re-mint; one tap is one mint and one audit row; the element's own
+// events drive the button so an outside pause cannot leave it lying; the chip
+// states the rate the engine is actually running; the controls carry 44 pt hit
+// areas without changing the look; the scrub commits on release, keeps the thumb
+// under the finger while the audio plays, leaves vertical panning to the page,
+// and an assistive adjust moves the audio too; an unknown total says –:––
+// rather than claiming 0:00.
+//
+// The new ceiling leaves 555 B of headroom — the same margin the slice-five
+// entry above left, and left for the same reason: the next thing to land here
+// should have to come back and say what it is. The previous number for this
+// slice left 55 B, which is not headroom, and correcting that is this entry's
+// other job.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_040_000
+const BUDGET_BYTES = 2_049_700
 
 let dir
 try {

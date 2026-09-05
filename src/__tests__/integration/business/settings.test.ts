@@ -182,8 +182,37 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
     expect(controlOf(props, 'reserve.gapfill').value).toBe(String(opsConfig.gapFillMinMin))
     expect(controlOf(props, 'reserve.gapdisc').value).toBe(String(opsConfig.gapFillDiscountPct))
     expect(controlOf(props, 'reserve.lead').value).toBe(String(opsConfig.leadTimeMin))
-    expect(controlOf(props, 'people.vip-stays').value).toBe(opsConfig.roomPolicy.vipStaysPrivate)
-    expect(controlOf(props, 'people.private-last').value).toBe(opsConfig.roomPolicy.privateIsLastResort)
+  })
+
+  // ⚖ S17 fix round 6 · #843 (Liam 2026-09-05) — THE ROOM RULE IS NOT A DIAL ANY
+  // MORE, SO THIS ROOM STOPS OFFERING ONE. 「VIPは個室から出さない」 was abolished
+  // as a rule and 「個室は最後」 is law for every store, so `opsConfig.roomPolicy`
+  // left the world with #843. A switch this room could not turn would be the
+  // dead lever its own star law hunts — the block states the rule instead.
+  it('⚖ S17 fix round 6 · #843 — 部屋の決まりは今日の運営が持ち、この部屋は事実だけを言う', async () => {
+    const props = await room({ store: STORE_A, role: 'オーナー' })
+    // Derived over EVERY section, not looked for where it used to be: a dial
+    // that moved to another block would still be a dial.
+    for (const gone of ['people.vip-stays', 'people.private-last']) {
+      expect({ id: gone, stillHere: controlsOf(props).some((c) => c.id === gone) }).toEqual({ id: gone, stillHere: false })
+    }
+    for (const gone of ['people.row-vip', 'people.row-last-resort']) {
+      expect({ id: gone, stillHere: rowsOf(props).some((r) => r.id === gone) }).toEqual({ id: gone, stillHere: false })
+    }
+    // …and the block did not go with them: the rule the board ships is stated,
+    // in the board's own words, with no lever beside it.
+    const policy = sectionOf(props, 'people-equipment').blocks.find((b) => b.id === 'people.room-policy')!
+    expect(policy.rows).toEqual([])
+    expect(policy.preview).toBeNull()
+    expect(policy.facts.join(' ')).toContain('施術室から順に埋め、個室は最後に使います')
+    expect(policy.facts.join(' ')).toContain('「個室のみ」の指定がある予約だけが個室に限定されます')
+    // ⚖ VIP IS UNRELATED TO ROOMS NOW. The room class is a place, and the word
+    // that tied it to a customer tier is gone from the whole page — the option
+    // label the census would otherwise keep showing included.
+    expect(JSON.stringify(props)).not.toContain('個室・VIP')
+    expect(PROPS_CODE).not.toContain('個室・VIP')
+    const cls = controlOf(props, `people.class-${resources.find((r) => r.store_id === STORE_A && r.room_class === 'private')!.id}`)
+    expect(cls.control.kind === 'segment' && cls.control.options.map((o) => o.label)).toEqual(['施術室', '個室'])
   })
 
   it('the money values equal レジ’s and 分析’s own planes, and name their ceilings', async () => {
@@ -268,7 +297,11 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
     for (const source of [
       'opsConfig.blockStepMin',
       'opsConfig.reserveStartGridMin',
-      'opsConfig.roomPolicy',
+      // ⚖ S17 fix round 6 · #843 — `opsConfig.roomPolicy` WAS on this list and
+      // came off it because the value left the world, not because this room
+      // stopped reading it. Its replacement pin is 「部屋の決まりは今日の運営が
+      // 持ち、この部屋は事実だけを言う」 above; the forbidden-name entry in the
+      // ADD-ONLY plane's fence stays, so no round may bring the name back here.
       'operatingHours.open',
       'closedWeekday',
       'cashTolerance',
@@ -1706,7 +1739,10 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // written rather than true in a later round.
     expect(SCREEN_CODE).toContain('「休憩」と入れると、その言葉を持つページが残ります。')
     // …every row label of every section is in its own row's index — not a
-    // sample, the whole page (339 controls' worth of names).
+    // sample, the whole page — 117 row labels across every section this reader
+    // opens (⚖ S17 fix round 6 · D-46: the number is DERIVED and was re-taken
+    // on this tip; 「339 controls」 stood here from a round before the fold and
+    // was already wrong, because nothing checks a number written in a comment).
     for (const sec of props.sections) {
       const text = searchTextOf(rowOf(sec.id), sec)
       for (const b of sec.blocks) for (const r of b.rows) {

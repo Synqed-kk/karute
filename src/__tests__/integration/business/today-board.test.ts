@@ -36,7 +36,7 @@ import { join } from 'node:path'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { jstDayKey, jstMinuteOfDay } from '@/business/lib/clock'
-import { appointments, operator, reserveSync, STORE_A, STORE_B } from '@/business/lib/fixtures'
+import { appointments, operator, reserveSync, STORE_A, STORE_B, type FixtureAppointment } from '@/business/lib/fixtures'
 import {
   absence,
   bedSecuredProof,
@@ -441,6 +441,144 @@ describe('今日の運営 screen', () => {
   it('gates itself: a denied session 404s the page, not just the layout', async () => {
     supabase.mockResolvedValue({ auth: { getUser: async () => ({ data: { user: null }, error: null }) } })
     await expect(board()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+
+  /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.
+   *
+   *  The whole round's claim is that the room need is a fact about the BOOKING
+   *  and the VIP badge is a fact about the CUSTOMER. While the sample's one
+   *  tagged row was also its one VIP customer the two coincided, so a model that
+   *  went back to reading `customer.vip` produced a byte-identical board — the
+   *  mutation lens's M10 died to a source-text pin and to nothing else.
+   *
+   *  The demo separates them now, so this asks the built board rather than the
+   *  source: テスト なぎ (apt-29) carries the tag and wears her own category word,
+   *  テスト えいた (apt-25) is the VIP and carries no tag, and both facts reach the
+   *  accessible name a keyboard operator is refused by. */
+  it('⚖ ROOM RULE — the inspector says 個室のみ about the BOOKING, never about the room', async () => {
+    // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c · L2 S2). A parenthetical
+    // after a room name describes THAT ROOM — 「ベッド3（個室のみ）」 reads as
+    // 「bed 3 is private-room-only」, and on any row the allocator did not choose
+    // it is a flat lie about a standard bed. 予約種別 is the row that is about the
+    // booking, and 「個室のみ・単発」 is the shape the accessible name ships.
+    //
+    // Fix round 1 shipped this surface with no cover of either kind: dropping the
+    // clause left the whole battery green.
+    const p = await board(STORE_A)
+    const factOf = (id: string, key: string) => p.cases[id].facts.find(([k]) => k === key)!
+    expect(factOf('apt-29', '担当・設備')).toEqual(['担当・設備', '見本 あずさ / ベッド3'])
+    expect(factOf('apt-29', '予約種別')).toEqual(['予約種別', '個室のみ・単発 / 店頭受付'])
+    // The untagged VIP's two rows carry no trace of the rule.
+    expect(factOf('apt-25', '担当・設備')[1]).not.toContain('個室のみ')
+    expect(factOf('apt-25', '予約種別')[1]).not.toContain('個室のみ')
+    // …and the tag reaches the row through the booking's own field, in the shape
+    // the accessible name uses. (No 「not.toContain('（個室のみ）')」 pin: the
+    // comment explaining WHY the parenthetical was wrong quotes it, which is the
+    // decoy a naive source ban would trip over — the two rows above are the
+    // claim, and they are behavioural.)
+    // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE CATEGORY WORD
+    // COMES FROM THE TABLE. The open-coded ternary collapsed everything that was
+    // not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking (apt-26, the
+    // fixture's own honest carrier of the category) read 新規 on its card and in
+    // its accessible name and 単発 in this row — one screen contradicting itself,
+    // and it was fix round 2's new shape that put the two side by side. Asked of
+    // the built board: the row and the accessible name now agree.
+    expect(factOf('apt-26', '予約種別')).toEqual(['予約種別', '新規 / Reserve'])
+    const newCard = p.lanes.flatMap((l) => l.items).find((i) => i.caseId === 'apt-26')!
+    expect(newCard.category).toBe('new')
+    expect(newCard.label).toContain('新規')
+    // ⚠ NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+    // `CATEGORY_LABEL.repeat` is 再来, so apt-29 still reads 単発 here and 再来 in
+    // its accessible name. That is a ruled rider (one word, one home) and this
+    // round deliberately does not answer it — pinned so the divergence is a
+    // known one rather than an accident.
+    expect(factOf('apt-29', '予約種別')[1]).toContain('単発')
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
+  })
+
+  it('⚖ ROOM RULE — the sample board separates the 個室のみ tag from the VIP badge', async () => {
+    const p = await board(STORE_A)
+    const cardFor = (id: string) => p.lanes.flatMap((l) => l.items).find((i) => i.caseId === id)!
+    const tagged = cardFor('apt-29')
+    const vip = cardFor('apt-25')
+    // the tagged row: the tag is TRUE and the category word is its own, untouched
+    expect(tagged.requiresPrivateRoom).toBe(true)
+    expect([tagged.category, tagged.ticketCat]).toEqual(['repeat', '単発'])
+    expect(tagged.label).toContain('個室のみ・再来')
+    // the VIP row: the badge is intact and the tag is absent — a VIP places
+    // anywhere, which is the rule Liam ruled.
+    expect(vip.requiresPrivateRoom).toBe(false)
+    expect([vip.category, vip.ticketCat]).toEqual(['vip', 'VIP'])
+    expect(vip.label).not.toContain('個室のみ')
+    // …and the accessible name still has exactly five segments, so the room
+    // re-label (today-interactions `parts.length === 5`) still reads it.
+    expect(tagged.label.split(' / ')).toHaveLength(5)
+    expect(vip.label.split(' / ')).toHaveLength(5)
+    // The pair, stated as the round's claim: tagged ≠ VIP, on the shipped demo.
+    expect(tagged.requiresPrivateRoom === vip.requiresPrivateRoom).toBe(false)
+    expect((tagged.category === 'vip') === (vip.category === 'vip')).toBe(false)
+  })
+
+  /** ⚖ BLANK-SAFE (Liam 2026-09-06 02:2x) — is the blank-safe claim actually
+   *  stress-tested, or only READ and implicitly exercised? Every row above,
+   *  tagged or not, carries an EXPLICIT `requires_private_room` (`slot()`
+   *  writes `false` on every row that omits it, apt-29 writes `true`) — no
+   *  fixture row has ever had the key absent, `undefined` or `null`. This pins
+   *  §1 claim 1 on those three shapes directly, and claim 3's board half (no
+   *  「個室のみ」 in the accessible name for a blank row). */
+  describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged booking', () => {
+    const apt12 = appointments().find((a) => a.id === 'apt-12')!
+    const dayKey = jstDayKey(apt12.starts_at)
+
+    /** The suite's own async BuildInput assembly (`mergedLanes`/`lanesAt`
+     *  above), reused with the appointment set swapped for the row under
+     *  test — no new harness. */
+    async function boardFor(appts: FixtureAppointment[]) {
+      const lens = STORE_A
+      const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+        data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+        data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+        data.listStoreOptions(), data.readStaffStores(lens),
+      ])
+      const input: BuildInput = {
+        appointments: appts, customers: custs, menus, staff: staffList, resources: beds,
+        shifts: planes.shifts, qualifications: planes.staffQualifications,
+        staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+        blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+        hours: planes.operatingHours, dayKey,
+        operatorStaffId: shell.operator.staff_id,
+        storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+        crossStore: false,
+      }
+      const bookings = dayBookings(input)
+      return { bookings, lanes: buildLanes(input, bookings) }
+    }
+
+    const keyAbsent: FixtureAppointment = { ...apt12, id: 'apt-blank-a' }
+    delete keyAbsent.requires_private_room
+    const isUndefined: FixtureAppointment = { ...apt12, id: 'apt-blank-b', requires_private_room: undefined }
+    // `null` is not in the field's own type (`boolean | undefined`), so ONLY
+    // this row needs the cast — the product type is never widened for it.
+    const isNull = { ...apt12, id: 'apt-blank-c', requires_private_room: null } as unknown as FixtureAppointment
+
+    it.each([
+      ['key absent', keyAbsent],
+      ['undefined', isUndefined],
+      ['null', isNull],
+    ])('claim 1 — %s reads as requiresPrivateRoom === false, on the booking and on the board item', async (_label: string, row: FixtureAppointment) => {
+      const { bookings, lanes } = await boardFor([row])
+      expect(bookings[0].requiresPrivateRoom).toBe(false)
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === row.id)!
+      expect(item.requiresPrivateRoom).toBe(false)
+    })
+
+    it('claim 3 — the accessible name carries no 個室のみ for a blank row', async () => {
+      const { lanes } = await boardFor([keyAbsent])
+      const item = lanes.flatMap((l) => l.items).find((i) => i.caseId === keyAbsent.id)!
+      expect(item.label).not.toContain('個室のみ')
+    })
   })
 
   // ── band by band ────────────────────────────────────────────────────────
@@ -1011,20 +1149,19 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // allocateBed's own-tail exclusion: apt-12 owns ベッド1 10:00–11:00 and its
     // turnaround stands 11:00–11:30. Nudged 30 minutes later it lands ON its own
     // tail, and the allocator must still hand it the room it is already in.
-    const policy = opsConfig.roomPolicy
     const stores = [STORE_A]
     expect(
       allocateBed(cleaning, {
-        id: 'apt-12', currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: 'apt-12', currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }),
     ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
     // …and someone ELSE'S tail is a genuine wall: the same span, without the
     // exclusion, is refused the room.
     expect(
       allocateBed(cleaning, {
-        id: null, currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: null, currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }).laneKey,
     ).not.toBe('bed-01')
   })
