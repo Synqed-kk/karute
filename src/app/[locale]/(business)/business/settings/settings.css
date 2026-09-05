@@ -167,17 +167,24 @@
    verdict. ⚠ …but a ring the room CLIPS is not a ring (the room-3 F2 lesson), so
    no container here uses `overflow: hidden` around a focusable.
 
-   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): the PAGE is what scrolls. The panel
-   sits in normal flow and grows down the page exactly as it always has.
-   ⚠ TWO NAMED EXCEPTIONS, AND THEY ARE THE SAME EXCEPTION TWICE: `.st-rail` and
-   `.st-side` are PINNED TO THE VIEWPORT at ③, and a box pinned to the viewport
-   that is taller than the viewport can never show its own last row — the page
-   scroll cannot reach it, because the box is not moving with the page. So each
-   is capped at the viewport's own height and scrolls INSIDE itself. Both caps
-   exist ONLY inside the ③ query, where the stickiness that makes them necessary
-   also lives; at ① and ② neither is sticky and neither owns an axis. This is the
-   ② room's `.rv-sheet` precedent — one named exception, stated where it is made.
-   (The mock's answer was the same one: ⚖ mock review v2-2.) */
+   ⚖ PAGE-SCROLL (Liam 8/22, ruled twice): the PAGE is what scrolls. The reading
+   column sits in normal flow and grows down the page exactly as it always has.
+   ⚠ TWO NAMED EXCEPTIONS, AND THEY ARE THE SAME EXCEPTION TWICE: `.st-rail-list`
+   and `.st-side` own a vertical axis at ③, because the boxes they belong to are
+   PINNED TO THE VIEWPORT there — and a box pinned to the viewport that is taller
+   than the viewport can never show its own last row, since the page scroll no
+   longer moves it. Both caps exist ONLY inside the ③ query, where the stickiness
+   that makes them necessary also lives; at ① and ② nothing here is sticky and
+   nothing owns an axis. ⚠ AND IT IS THE RAIL'S *LIST*, NOT THE RAIL: the search
+   field and the count belong to that column whatever is scrolled to, because
+   changing what you are looking for is the one thing a reader is doing there.
+   This is the ② room's `.rv-sheet` precedent — one named exception, stated where
+   it is made. (The mock's answer was the same one: ⚖ mock review v2-2.)
+
+   ⚖ AND THE COMPOSITIONS ARE WRITTEN LAST — see the banner above them. A
+   container query adds NO specificity, so a composition written above a base
+   rule of the same selector is dead code, and this round shipped that defect
+   twice before the order became structural. */
 
 /* ── the fence: the three shared names this room states ────────────────────── */
 .biz .page.pg-settings { padding: 24px 28px 40px; }
