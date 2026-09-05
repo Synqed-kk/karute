@@ -621,18 +621,71 @@
 .biz .pg-coaching .cg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cg-stat-min), 1fr)); gap: var(--cg-stat-gap); margin-top: 12px; }
 /* ⑥ — 2 on a phone, 3+2 in the supporting column, 5 across on a wide card.
    Queried on the CARD, because the page's width is two layout decisions away
-   from how many facts fit inside it. */
-@container cg-spine (min-width: 332px) {
-  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@container cg-spine (min-width: 560px) {
-  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
+   from how many facts fit inside it.
+
+   ⚖ B2-4-1 / B2-4-3 (S16F) — AND THE LEAD TILE TAKES TWO TRACKS, WHICH IS WHAT
+   MAKES THE STRIP ONE HEIGHT. 成約率 is the only fact that carries a picture (a
+   step, four bars and the months either end of them). Stacked under its number
+   the tile ran ~97px taller than the other four, and a plain grid stretched
+   them all to it — 53–61% of every short tile was dead wash at 16 of 17 self
+   renders. Given two tracks the picture sits BESIDE the number and the tile's
+   own height is a label and a value, exactly like its neighbours'.
+   THE COUNTS THEN COME OUT EVEN AT EVERY STEP, which is the same finding's
+   other half (the 5th tile used to orphan at 393/440):
+       2 tracks · 5 tiles, lead spans 2 → 6 units → 3 full rows
+       3 tracks · 5 tiles, lead spans 2 → 6 units → 2 full rows
+       6 tracks · 5 tiles, lead spans 2 → 6 units → 1 full row
+   THRESHOLD ⑫ — WHERE EACH STEP FIRST FITS:
+       232  two 104px tracks and their gap.
+       332  three of them (unchanged — this step was already here).
+       880  SIX, with the lead still able to hold its picture BESIDE its number
+            on one line, which is the only thing that keeps the strip one height:
+              125  the figure — 「52%」 and 「先月より +8pt」 on one baseline
+            +  14  the gap
+            + 105  the four bars and 「6月 38% → 9月 52%」 unwrapped
+            ─────
+              244  the lead's content box, so 270 with its padding, so
+                   (c − 50) / 3 ≥ 260  →  c ≥ 830 first fit · 880 ships.
+            560 and 640 were both tried and both fail it: at 640 the lead is a
+            213px box, the caption wraps to three lines and the four short tiles
+            are stretched to it again — the defect this whole item is about,
+            re-created one step lower. Between 332 and 880 the strip is TWO ROWS
+            (lead + one, then three), which is a real composition rather than a
+            row with a hole in it. */
 /* ⚠ THE TILE IS ITS OWN CONTAINER (threshold ⑦). The value's size follows the
    TILE, because that is what it has to fit inside — 3-up and 5-up produce very
    different tiles out of the same card, and a step keyed on the card got one of
    them wrong every time. */
-.biz .pg-coaching .cg-stat { container: cg-stat / inline-size; padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
+/* ⚖ B2-4-1 — THE FACT AND ITS PICTURE ARE TWO BLOCKS. They stack only in the
+   one-column band, where the strip has no row to stretch and every tile is
+   already its own height. */
+.biz .pg-coaching .cg-stat { container: cg-stat / inline-size; display: flex; flex-direction: column; gap: 7px; padding: 11px 13px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-stat-main { min-width: 0; }
+/* ⚖ B2-4-1 — THE STEP RIDES THE NUMBER'S OWN BASELINE. Stacked under the value
+   it added a line the other four tiles do not have, and one line is all it takes
+   to stretch them. */
+.biz .pg-coaching .cg-stat-figure { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+/* ⚠ EVERY STEP IS QUERIED ON THE STRIP, NOT ON THE TILE, and all three are
+   declared AFTER the tile's own rule: a container query carries no extra
+   specificity, so ordered the other way round the base wins and the tile never
+   turns. A `@container cg-stat` rule could not turn it at all — the tile IS
+   that container, and a container cannot query itself. */
+@container cg-spine (min-width: 232px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-stat:first-child { grid-column: span 2; }
+  /* the lead is two of the strip's tracks at every step from here up, which
+     is ≥200px at all three of them — so 「wide enough for the picture beside
+     the number」 and 「the lead spans two tracks」 are ONE condition, asked once. */
+  .biz .pg-coaching .cg-stat { flex-direction: row; align-items: flex-end; gap: 14px; }
+  .biz .pg-coaching .cg-stat-main { flex: 0 0 auto; }
+  .biz .pg-coaching .cg-spark { flex: 1 1 0; min-width: 0; }
+}
+@container cg-spine (min-width: 332px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container cg-spine (min-width: 880px) {
+  .biz .pg-coaching .cg-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 .biz .pg-coaching .cg-stat-label { color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; }
 .biz .pg-coaching .cg-stat-value { margin-top: 3px; color: var(--ink); font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 @container cg-stat (min-width: 128px) {
@@ -881,8 +934,8 @@
 /* ⚖ I-11 — THE STEP, beside the number it is a step in. Neutral: a movement is
    a fact, and the room spends its one accent on the last BAR (the month you are
    in) rather than on a word. */
-.biz .pg-coaching .cg-stat-delta { display: inline-block; margin-top: 4px; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
-.biz .pg-coaching .cg-spark { display: block; margin-top: 7px; }
+.biz .pg-coaching .cg-stat-delta { display: inline-block; color: var(--ink-3); font-size: 11px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-spark { display: block; }
 .biz .pg-coaching .cg-bars { display: flex; align-items: flex-end; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .biz .pg-coaching .cg-bar { display: flex; flex-direction: column; justify-content: flex-end; flex: 1 1 0; min-width: 0; }
 .biz .pg-coaching .cg-bar-track { display: flex; align-items: flex-end; width: 100%; height: 26px; border-radius: 4px; background: #fff; }

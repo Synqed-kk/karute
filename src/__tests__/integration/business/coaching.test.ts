@@ -1103,23 +1103,39 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // 5 across on a wide card. `auto-fit` alone gave 4+1 at the desk's 5fr
     // column, which is the same half-empty row the supporting column's orphan
     // rule exists to prevent one level down.
+    // ⚖ B2-4-1 (S16F) — RE-SPELLED ON THE NEW COMPOSITION. The strip has THREE
+    // steps now, and the lead tile spans two tracks at every one of them, so the
+    // counts come out even (6 units over 2 · 3 · 6 tracks = 3 · 2 · 1 full rows)
+    // and the tile that carries the picture is wide enough to put it BESIDE its
+    // number instead of under it.
     const spineThresholds = [...CSS_CODE.matchAll(/@container cg-spine \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
-    expect(spineThresholds).toEqual([332, 560])
-    // ⚠ THE ONE THRESHOLD SHIPPED AT ITS EXACT FIT, and the reason is stated in
-    // the sheet: `auto-fit` already takes three tiles at 332, so a rule shipped
-    // higher would leave a band taking three tiles at the WIDE value size — and
-    // the money value breaks mid-number there. The slack lives in the tile
-    // FLOOR; this rule stops `auto-fit` choosing four, and carries the size step.
+    expect(spineThresholds).toEqual([232, 332, 880])
+    // ⚠ EACH ONE IS ITS OWN ARITHMETIC, stated in the sheet:
+    expect(statMin * 2 + statGap).toBe(218)
+    expect(spineThresholds[0]).toBeGreaterThanOrEqual(statMin * 2 + statGap)
     expect(statMin * 3 + statGap * 2).toBe(332)
-    expect(spineThresholds[0]).toBe(statMin * 3 + statGap * 2)
-    expect(statTight * 5 + statGap * 4).toBe(560)
-    expect(spineThresholds[1]).toBeGreaterThanOrEqual(statTight * 5 + statGap * 4)
-    expect(spineThresholds[1] - (statTight * 5 + statGap * 4)).toBeLessThanOrEqual(24)
+    expect(spineThresholds[1]).toBe(statMin * 3 + statGap * 2)
+    // the six-track step is derived from the LEAD's own first fit, not from the
+    // tile floor: 125 (the figure) + 14 (the gap) + 105 (four bars and the
+    // caption unwrapped) = 244 of content, 270 with its padding, so
+    // (c − 5·gap) / 3 + gap ≥ 270 → c ≥ 830 first fit, 880 ships.
+    expect((880 - statGap * 5) / 3 + statGap).toBeGreaterThanOrEqual(270)
+    expect(spineThresholds[2]).toBeGreaterThanOrEqual(830)
     expect(CSS_CODE).toContain('.cg-spine { container: cg-spine / inline-size; }')
+    const two = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 232px)'))
+    expect(two.slice(0, 700)).toContain('.cg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    expect(two.slice(0, 700)).toContain('.cg-stat:first-child { grid-column: span 2; }')
+    // …and the SAME step turns the tile into a row, because the lead being two
+    // tracks wide is exactly the condition that lets the picture sit beside the
+    // number. It is declared after the tile's own rule: a container query
+    // carries no specificity of its own.
+    expect(two.slice(0, 700)).toContain('.cg-stat { flex-direction: row; align-items: flex-end; gap: 14px; }')
+    expect(CSS_CODE.indexOf('.cg-stat { container: cg-stat / inline-size;'))
+      .toBeLessThan(CSS_CODE.indexOf('@container cg-spine (min-width: 232px)'))
     const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 332px)'))
     expect(three.slice(0, 200)).toContain('.cg-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }')
-    const five = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 560px)'))
-    expect(five.slice(0, 400)).toContain('.cg-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }')
+    const six = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-spine (min-width: 880px)'))
+    expect(six.slice(0, 400)).toContain('.cg-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }')
     // ⚖ R2-27 — AND THE FOURTH PAGE THRESHOLD HAS A SECOND CONDITION: a `cg-page`
     // threshold may not open a NARROWER box for a child than the child's own
     // threshold needs, or crossing INTO the desk costs a composition that comes
@@ -1132,11 +1148,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const sideAtThreshold = (row940 * 5) / 12
     // the findings min must NOT bind at the threshold, or it takes the share back
     expect(main).toBeLessThan(mainAtThreshold)
-    // the STRIP clears ⑥'s five-across threshold at the desk threshold and above
+    // the STRIP clears ⑥'s three-across threshold at the desk threshold and above
     expect(distinct[2] - 42).toBeGreaterThanOrEqual(spineThresholds[1])
-    // …and every one of those five tiles still clears the tile's own tight floor,
-    // so no value breaks in half at the desk's narrowest band
-    expect((distinct[2] - 42 - statGap * 4) / 5).toBeGreaterThanOrEqual(statTight)
+    // …and every one of those tiles still clears the tile's own tight floor, so
+    // no value breaks in half at the desk's narrowest band. ⚖ B2-4-1: THREE
+    // tracks there now, not five — the six-track row waits for 880, where the
+    // lead can hold its picture beside its number.
+    expect((distinct[2] - 42 - statGap * 2) / 3).toBeGreaterThanOrEqual(statTight)
     // the supporting column clears its own minimum without the min binding
     expect(sideAtThreshold).toBeGreaterThanOrEqual(side)
     // …and the fr-driven findings column is still wide enough for the receipt
@@ -1163,20 +1181,21 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // FOURTEEN blocks on EIGHT containers: the page (700 · 880 · 940), the
+    // FIFTEEN blocks on EIGHT containers: the page (700 · 880 · 940), the
     // PRACTICE SHEET (580 · 880 — ⚖ I-1 / V2-2), the PATTERNS card (520 — ⚖ I-5), the
     // MODULES card (580 · 880 — ⚖ I-6), the LIFTS card (400 · 810 — ⚖ I-10), the
-    // finding CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
+    // finding CARD (480), the 成績 card (232 · 332 · 880 — ⚖ B2-4-1) and a single
+    // TILE (128). Each is stated ONCE, and every card-level
     // container exists because what decides that composition is the box it is in
     // — the page's width is one, two or three layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(14)
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(15)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-sheet/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-shelves/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-modules/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-lifts/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
-    expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
+    expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
     expect(CSS_CODE).toContain('container: cg-page / inline-size')
     // …and NO media band ever restates a composition, so a viewport rule cannot
@@ -4996,5 +5015,39 @@ describe('⚖ B2-1-2 (S16F) — every month the sparkline draws is also a month 
     expect(self.trendSeriesLabel).toBe('')
     expect(self.trendCaption).toBe('')
     expect(SCREEN_CODE).toContain('ready.trend.length > 1 && (')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-4-1 / B2-4-3 (S16F) — the 成績 strip is ONE height, by composition', () => {
+  it('the tile is a FACT block and a PICTURE block, never four stacked lines', () => {
+    const strip = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-stats"'), SCREEN_CODE.indexOf('className="cg-basis"'))
+    // the fact: label, then the value and its step on ONE baseline
+    expect(strip).toContain('<div className="cg-stat-main">')
+    expect(strip).toContain('<div className="cg-stat-figure">')
+    expect(strip.indexOf('cg-stat-value')).toBeLessThan(strip.indexOf('cg-stat-delta'))
+    expect(strip.indexOf('cg-stat-figure')).toBeLessThan(strip.indexOf('cg-stat-delta'))
+    // the picture is the tile's SECOND child, outside the fact block
+    expect(strip.indexOf('</div>')).toBeLessThan(strip.indexOf('className="cg-spark"'))
+    expect(CSS_CODE).toContain('.cg-stat-figure { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }')
+    // ⚠ NOT `align-items` ON THE GRID. A ragged row of washed tiles is the same
+    // defect in the opposite direction, which is why the fix is the composition.
+    const stats = CSS_CODE.slice(CSS_CODE.indexOf('.cg-stats { display: grid'))
+    expect(stats.slice(0, 200)).not.toContain('align-items')
+  })
+
+  it('the lead tile takes TWO tracks at every step, so the counts come out even', () => {
+    expect(CSS_CODE).toContain('.cg-stat:first-child { grid-column: span 2; }')
+    // 5 tiles + the lead's extra track = 6 units, and 6 divides by every track
+    // count the strip uses — which is what closes the 393/440 orphan row.
+    for (const tracks of [2, 3, 6]) expect(6 % tracks).toBe(0)
+    const spine = [...CSS_CODE.matchAll(/@container cg-spine \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
+    const counts = spine.map((w) => {
+      const blk = CSS_CODE.slice(CSS_CODE.indexOf(`@container cg-spine (min-width: ${w}px)`))
+      return Number(/\.cg-stats \{ grid-template-columns: repeat\((\d+),/.exec(blk.slice(0, 700))![1])
+    })
+    expect(counts).toEqual([2, 3, 6])
+    // …and the span is declared ONCE, in the first of them
+    expect([...CSS_CODE.matchAll(/\.cg-stat:first-child \{ grid-column: span 2/g)].length).toBe(1)
   })
 })

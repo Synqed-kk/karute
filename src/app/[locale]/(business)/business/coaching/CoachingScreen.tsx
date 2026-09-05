@@ -1373,15 +1373,34 @@ export function CoachingScreen(props: CoachingProps) {
                     </div>
                     <div className="cg-stats">
                       {ready.stats.map((s) => (
+                        /* ⚖ B2-4-1 (S16F) — THE TILE IS TWO PARTS, NOT FOUR STACKED
+                           LINES. The 成約率 tile carried a delta, four bars and a
+                           caption UNDER its number while the other four carried a
+                           label and a number, so a plain grid stretched the short
+                           four to the tall one's height: 97px of a 160px tile was
+                           dead wash, at 16 of 17 self renders, on the staff
+                           member's own screen. The fix is composition rather than
+                           `align-items` — a ragged row of washed tiles is the same
+                           defect wearing the opposite hat. The FACT (label · value ·
+                           its step) is one block; the PICTURE of that fact sits
+                           BESIDE it, and the tile that carries a picture takes two
+                           of the strip's tracks so there is room for it. */
                         <div className="cg-stat" key={s.key}>
-                          <div className="cg-stat-label">{s.label}</div>
-                          <div className="cg-stat-value">{s.value}</div>
-                          {/* ⚖ I-11 — THE STEP THE READER TOOK, beside the number
-                              it is a step in. A page a stylist wants to open daily
-                              is built from real movement, not from a badge. */}
-                          {s.key === 'closingRate' && ready.trendDelta && (
-                            <span className="cg-stat-delta">{ready.trendDelta}</span>
-                          )}
+                          <div className="cg-stat-main">
+                            <div className="cg-stat-label">{s.label}</div>
+                            <div className="cg-stat-figure">
+                              <div className="cg-stat-value">{s.value}</div>
+                              {/* ⚖ I-11 — THE STEP THE READER TOOK, beside the number
+                                  it is a step in. A page a stylist wants to open daily
+                                  is built from real movement, not from a badge.
+                                  ⚖ B2-4-1 — ON THE NUMBER'S OWN LINE, not under it:
+                                  a line the other four tiles do not have is a line
+                                  they all get stretched by. */}
+                              {s.key === 'closingRate' && ready.trendDelta && (
+                                <span className="cg-stat-delta">{ready.trendDelta}</span>
+                              )}
+                            </div>
+                          </div>
                           {/* ⚠ THE PICTURE IS A PICTURE, and it says so: the bars
                               are one `role="img"` whose name is the retired card's
                               own title plus the sentence beside it, so a screen
