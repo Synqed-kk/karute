@@ -3053,6 +3053,30 @@ describe('⚖ Q6 — the per-business VISIBILITY dial (Liam 9/2), default manage
     // the two ids the room does state are the two it conditionally renders
     expect(SCREEN_CODE).toContain('id="cgTour"')
     expect(SCREEN_CODE).toContain('id="cgNotice"')
+    // ⚠ V2-3 — THE THIRD DISCLOSURE JOINS THE CENSUS. The shelf expander carried
+    // `aria-expanded` and named nothing at all; it names the shelf's own list,
+    // and only while open — the `<ul>` a closed shelf shows is its first two
+    // entries, which this button did not open. The id is the shelf's KEY (the
+    // production taxonomy), so it is unique without an index to renumber.
+    expect(SCREEN_CODE).toContain('aria-expanded={openShelves.has(shelf.key)}')
+    expect(SCREEN_CODE).toContain('aria-controls={openShelves.has(shelf.key) ? `cgShelf-${shelf.key}` : undefined}')
+    expect(SCREEN_CODE).toContain('<ul className="cg-pattern-list" id={`cgShelf-${shelf.key}`}>')
+    // THE CENSUS IS CLOSED: every `aria-controls` in the room is one of these
+    // four, and every one of them is either conditional on its target being what
+    // the control opened, or names a panel that is mounted whenever the row is.
+    // ⚠ READ TO THE END OF THE LINE, not to the first `}` — one of these values
+    // is a template literal and holds a `}` of its own, which a lazy brace match
+    // would cut in half and then compare against a string nobody wrote.
+    const controls = [...SCREEN_CODE.matchAll(/aria-controls=(\S.*?)\s*$/gm)].map((m) => m[1])
+    expect(controls).toEqual([
+      "{tourOpen ? 'cgTour' : undefined}",
+      '"cgPanelSelf"',
+      '"cgPanelTeam"',
+      '"cgPanelRoi"',
+      '{openShelves.has(shelf.key) ? `cgShelf-${shelf.key}` : undefined}',
+      '{summaryOpen ? \'cgSummary\' : undefined}',
+      "{noticeOpen ? 'cgNotice' : undefined}",
+    ])
     // the tab row's own aria-controls are NOT conditional and must not be —
     // every panel it names is mounted whenever the row is.
     expect(SCREEN_CODE).toContain('aria-controls="cgPanelSelf"')

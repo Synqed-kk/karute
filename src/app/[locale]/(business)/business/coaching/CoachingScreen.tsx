@@ -1655,7 +1655,13 @@ export function CoachingScreen(props: CoachingProps) {
                               <h3 className="cg-shelf-title">{shelf.title}</h3>
                               <p className="cg-shelf-desc">{shelf.description}</p>
                               {shelf.entries.length > 0 ? (
-                                <ul className="cg-pattern-list">
+                                /* ⚠ V2-3 — THE LIST IS NAMEABLE, so the expander
+                                   below can say what it opens. The id is the
+                                   shelf's own key, which is `pattern-categories
+                                   .ts`'s taxonomy and is unique by construction —
+                                   never an index, which would renumber the day a
+                                   shelf is added. */
+                                <ul className="cg-pattern-list" id={`cgShelf-${shelf.key}`}>
                                   {/* ⚖ I-5 — TWO ENTRIES, THEN AN EXPANDER. A shelf
                                       that printed everything made the section the
                                       tallest thing on the page and buried the two
@@ -1686,6 +1692,16 @@ export function CoachingScreen(props: CoachingProps) {
                                   type="button"
                                   className="cg-shelf-more"
                                   aria-expanded={openShelves.has(shelf.key)}
+                                  /* ⚠ V2-3 / R1-2 — AND IT NAMES WHAT IT OPENS,
+                                     while it is open. The room's own disclosure
+                                     grammar, third instance: `aria-expanded` is
+                                     true of the button at all times, and
+                                     `aria-controls` points at the list only in
+                                     the state where that list really is what the
+                                     button opened. Closed, the `<ul>` on screen
+                                     is the shelf's first two entries — which the
+                                     button did not open and does not own. */
+                                  aria-controls={openShelves.has(shelf.key) ? `cgShelf-${shelf.key}` : undefined}
                                   data-press
                                   /* ⚠ NO `Set.delete(` HERE, AND THAT IS NOT A STYLE
                                      CHOICE. The business data-access guard reads
