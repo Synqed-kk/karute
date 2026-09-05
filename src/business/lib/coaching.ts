@@ -647,8 +647,8 @@ function nameNeedles(names: string[]): string[] {
  *  「トップ層との差 28%」 to an owner) cannot be repeated here, because there is
  *  no field for the number to travel in.
  *
- *  `focusAreas` is staff-focus.ts:191's `layer2_summary.focus_areas` — the ONE
- *  per-staff sentence an owner may read, written so 「a stranger could read it
+ *  `focusAreas` is staff-focus.ts:191's `layer2_summary.focus_areas`, CAPPED AT
+ *  ONE (⚖ B2-2-6) — the ONE per-staff sentence an owner may read, written so 「a stranger could read it
  *  aloud in the break room and this staff member would still feel fairly
  *  treated: zero embarrassment, zero number, zero name」 (:90-92). It is also
  *  what COACHING_VISIBILITY_MODEL:22 lists as L2 content (「one focus-area label,
@@ -661,6 +661,9 @@ export interface TriageRow {
    *  Not a band, and not a bad band. */
   band: PerformanceBand | null
   maturity: Maturity
+  /** ⚖ B2-2-6 — LENGTH 0 OR 1. An array rather than an optional because the
+   *  guard can empty it, and 「omitted」 and 「never had one」 are the same shape
+   *  on this board by construction (the anti-coercion rule again). */
   focusAreas: Array<{ category: string; label: string; band: PerformanceBand; priority: 'high' | 'medium' | 'low'; maturity: Maturity; summaryText: string }>
   /** ⚠ FALSE = at least one focus area was OMITTED by the L2 leak guard above.
    *  The omission is the module's own remedy; SAYING it is this room's rule
@@ -774,10 +777,22 @@ export function buildTriage(input: {
     // ⚠ THE FOCUS AREAS RIDE ONLY WHEN A BAND DOES. A summary_text under a
     // 「まだ判断できません」 row would be the board saying something specific
     // about a person it just said it could not judge.
+    // ⚖ B2-2-6 (S16F) — AND THERE IS EXACTLY ONE OF THEM. L2 is 「one focus-area
+    // label, priority chip」 (COACHING_VISIBILITY_MODEL.md:22) and this file's own
+    // words for it are 「the ONE per-staff sentence an owner may read」. The plane
+    // allows up to three (staff-focus.ts:199) and the board was rendering all of
+    // them — up to three category chips and three generator sentences per person,
+    // which is three times the exposure the model licensed. The cap is HERE, not
+    // in the screen, so the payload matches the doctrine rather than being
+    // trimmed on the way out.
+    // ⚠ AND IT IS CUT BEFORE THE LEAK GUARD, so a leaking top area is OMITTED
+    // rather than quietly replaced by the second one: the reader of this row is
+    // told a sentence was withheld, never handed a different person's priority
+    // wearing the first one's place.
     const areas =
       band === null
         ? []
-        : row!.focus.focus_areas.map((f) => ({
+        : row!.focus.focus_areas.slice(0, 1).map((f) => ({
             category: f.category,
             label: categoryLabel(f.category),
             band: f.trajectory_band,

@@ -2001,15 +2001,18 @@ export function CoachingScreen(props: CoachingProps) {
                                 </span>
                                 {/* the ONE per-staff sentence an owner may read, and
                                     it is the generator's own. It rides UNDER the
-                                    line, quiet; a second or third area brings its
-                                    own chip, because only the first one's is on the
-                                    line above. */}
-                                {r.focusAreas.map((f, i) => (
-                                  <span className="cg-row-focus" key={f.label}>
-                                    {i > 0 && <span className="cg-cat">{f.label}</span>}
-                                    <span>{f.summaryText}</span>
+                                    line, quiet, under the chip that names it.
+                                    ⚖ B2-2-6 (S16F) — ONE, AND THE CAP IS IN THE
+                                    DERIVATION. `buildTriage` slices `focus_areas`
+                                    to the first entry, so this renders the whole
+                                    array rather than a slice of it: the payload is
+                                    what L2 licenses, not a longer payload the
+                                    screen is trimming on the way past. */}
+                                {r.focusAreas[0] && (
+                                  <span className="cg-row-focus">
+                                    <span>{r.focusAreas[0].summaryText}</span>
                                   </span>
-                                ))}
+                                )}
                                 {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
                                     the L2 leak guard's own honesty half. */}
                                 {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}

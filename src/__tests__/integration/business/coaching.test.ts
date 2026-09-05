@@ -4352,9 +4352,13 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // beside how they are moving
     expect(board).toContain('{r.focusAreas[0] && <span className="cg-cat">{r.focusAreas[0].label}</span>}')
     expect(board).toContain('<span className="cg-row-traj">{r.trajectoryLine}</span>')
-    // the sentence rides UNDER it, quiet, and a second area brings its own chip
-    // because only the first one's is on the line above
-    expect(board).toContain('{i > 0 && <span className="cg-cat">{f.label}</span>}')
+    // the sentence rides UNDER it, quiet.
+    // ⚖ B2-2-6 (S16F) — RE-SPELLED. This asserted the SECOND area's own chip; L2
+    // licenses one focus area per person and `buildTriage` now caps at one, so
+    // there is no second area to chip and the row renders `focusAreas[0]` flat.
+    expect(board).toContain('{r.focusAreas[0] && (')
+    expect(board).toContain('<span>{r.focusAreas[0].summaryText}</span>')
+    expect(board).not.toContain('r.focusAreas.map(')
     // the action is INSIDE the body, so every row's body cell is the same width
     const body = board.slice(board.indexOf('className="cg-row-body"'), board.indexOf('</li>'))
     expect(body).toContain('cg-row-act')
@@ -4706,5 +4710,68 @@ describe('⚖ B2-2-2 (S16F) — the L2 leak guard has all THREE of its name list
     // …and both new lists are really wired at the seam, from the room's own door
     expect(PROPS_CODE).toContain('...(await listCustomers(lens)).map((c) => c.name)')
     expect(PROPS_CODE).toContain("...(await listStaff({ viewAll: true })).map((s) => s.full_name)")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-2-6 (S16F) — L2 is ONE focus area, and the cap is in the derivation', () => {
+  const threeAreas = (r: (typeof coachingStaff)[number]) => ({
+    ...r,
+    focus: {
+      ...r.focus,
+      focus_areas: [
+        { ...r.focus.focus_areas[0], category: 'next_step' as const, summary_text: '一つめの文です。' },
+        { ...r.focus.focus_areas[0], category: 'acknowledgment' as const, summary_text: '二つめの文です。' },
+        { ...r.focus.focus_areas[0], category: 'questioning_depth' as const, summary_text: '三つめの文です。' },
+      ],
+    },
+  })
+
+  it('a plane row carrying THREE areas reaches the payload as ONE', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: { rows: coachingStaff.map((r) => (r.staffId === 'p-04' ? threeAreas(r) : r)) },
+    })
+    unpinClock()
+    const row = props.team!.rows.find((r) => r.staffLabel === '見本 しろう')!
+    expect(row.focusAreas.length).toBe(1)
+    expect(row.focusAreas[0].summaryText).toBe('一つめの文です。')
+    // the other two are not anywhere in the payload either — capped, not hidden
+    const blob = JSON.stringify(props)
+    expect(blob).not.toContain('二つめの文です。')
+    expect(blob).not.toContain('三つめの文です。')
+  })
+
+  it('a LEAKING first area is omitted, never replaced by the second', async () => {
+    pinClock(MID_MONTH)
+    const leaky = (r: (typeof coachingStaff)[number]) => {
+      const t = threeAreas(r)
+      return { ...t, focus: { ...t.focus, focus_areas: [{ ...t.focus.focus_areas[0], summary_text: 'しろうさんの型です。' }, ...t.focus.focus_areas.slice(1)] } }
+    }
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: { rows: coachingStaff.map((r) => (r.staffId === 'p-04' ? leaky(r) : r)) },
+    })
+    unpinClock()
+    const row = props.team!.rows.find((r) => r.staffLabel === '見本 しろう')!
+    // ⚠ THE SUBSTITUTION IS THE DEFECT THIS GUARDS. A board that quietly showed
+    // 「二つめの文です。」 in the top area's place would be presenting a lower
+    // priority as this person's priority, with nothing on screen saying so.
+    expect(row.focusAreas).toEqual([])
+    expect(row.summaryWarning).not.toBeNull()
+    expect(JSON.stringify(props)).not.toContain('二つめの文です。')
+  })
+
+  it('the STORE RANKING counts people, not areas — one person, one count', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: { rows: coachingStaff.map((r) => (r.staffId === 'p-04' ? threeAreas(r) : r)) },
+    })
+    unpinClock()
+    const total = props.team!.focusRanking.rows.reduce((n, r) => n + Number(r.value.replace('名', '')), 0)
+    const banded = props.team!.rows.filter((r) => r.focusAreas.length > 0).length
+    expect({ total, banded }).toEqual({ total: banded, banded })
   })
 })
