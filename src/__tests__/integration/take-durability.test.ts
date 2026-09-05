@@ -2121,6 +2121,79 @@ describe('secure at stop', () => {
     expect(metaOf(takeId).secureError).toBeUndefined()
   })
 
+  // ── ⚖ THE MINT SAYS THE OBJECT IS ALREADY THERE (hotfix 2026-09-05) ──────
+  // The PUT landed on an earlier attempt and only the finalize was lost, so the
+  // door signs nothing and answers the object's size instead. There is no `url`
+  // to PUT to — this leg used to send the blob at `undefined` and strand the
+  // take for ever. Nothing is sent; finalize re-proves the size server-side.
+  /** The door's other success arm, as the real mint composes it. */
+  const alreadyThere = (takeId: string, mimeType: string, recordingSessionId: string) => {
+    const { path, contentType } = mintedFor(takeId, mimeType, recordingSessionId)
+    return { path, contentType, recordingSessionId, existingSize: 682_520 }
+  }
+  const mintAnswersAlreadyThere = () =>
+    mintTakeUrl.mockImplementation(
+      async (takeId: string, mimeType: string, recordingSessionId: string | null) => {
+        order.push('mint')
+        if (!recordingSessionId) return { error: 'bad_input' }
+        return alreadyThere(takeId, mimeType, recordingSessionId)
+      },
+    )
+
+  /** The bytes this take has on disk — what a PUT would have carried, and what
+   *  finalize must be told on the arm where nothing is sent. */
+  const diskBytesOf = (takeId: string) => {
+    let bytes = 0
+    for (const seg of segments().values()) {
+      const s = seg as { takeId: string; blob: Blob }
+      if (s.takeId === takeId) bytes += s.blob.size
+    }
+    return bytes
+  }
+
+  it('an already-there mint sends NOTHING and finalizes the take anyway', async () => {
+    mintAnswersAlreadyThere()
+    const takeId = await stoppedOwedTake()
+    order.length = 0
+    const timersArmed = jest.getTimerCount()
+
+    await secureTake(port(), takeId)
+    // No 'put' between the mint and the finalize — and no fetch at all, which
+    // is the assertion a missing `url` would otherwise pass by sending to it.
+    expect(order).toEqual(['session', 'mint', 'finalize'])
+    expect(putMock).not.toHaveBeenCalled()
+    // The PUT's abort timer is declared INSIDE the branch it belongs to, so
+    // this path arms none — a dangling one would fire into a later take's leg.
+    expect(jest.getTimerCount()).toBe(timersArmed)
+    // Finalize is told this device's OWN byte length and the take's row; the
+    // server compares that against the object it already holds.
+    expect(diskBytesOf(takeId)).toBeGreaterThan(0)
+    expect(finalizeTake).toHaveBeenCalledWith(
+      expect.objectContaining({
+        takeId,
+        byteLength: diskBytesOf(takeId),
+        recordingSessionId: MINTED_SESSION,
+      }),
+    )
+    // …and the KEY the mark carries is the SERVER's composed one, off the arm
+    // that has no url — the client never assembles a tenant key of its own.
+    expect(metaOf(takeId).finalizedPath).toBe(`app_biz-1_${takeId}.webm`)
+    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(metaOf(takeId).secureError).toBeUndefined()
+  })
+
+  it('…and the SIGNED arm still PUTs, to the url the mint handed back', async () => {
+    const takeId = await stoppedOwedTake()
+    order.length = 0
+
+    await secureTake(port(), takeId)
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    expect(putMock.mock.calls[0][0]).toBe(
+      `https://proj.supabase.co/upload/app_biz-1_${takeId}.webm?token=up`,
+    )
+    expect(putMock.mock.calls[0][1]?.method).toBe('PUT')
+  })
+
   it('a stop and a mount retry racing the same take PUT it ONCE', async () => {
     const takeId = await stoppedOwedTake()
 

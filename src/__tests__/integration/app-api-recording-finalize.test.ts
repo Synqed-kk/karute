@@ -5,6 +5,7 @@
 // the audit-map registration — never the shared body's logic, which is proved
 // in recording-finalize-take.test.ts.
 import { createHmac } from 'node:crypto'
+import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
@@ -31,10 +32,11 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
-const createSignedUploadUrl = jest.fn(async (p: string) => ({
-  data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
-  error: null as { message: string } | null,
-}))
+/** What the fake bucket HOLDS — a non-upsert sign is a CREATE and storage
+ *  refuses one for a key already there (helpers/storage-fakes.ts). */
+const held = new Set<string>()
+const uploadUrl = (p: string) => `https://proj.supabase.co/upload/${p}`
+const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, uploadUrl))
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
   error: null as { message: string; status?: number; statusCode?: string } | null,
@@ -116,10 +118,8 @@ beforeEach(() => {
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   info.mockResolvedValue({ data: { size: 1024 }, error: null })
   recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
-  createSignedUploadUrl.mockImplementation(async (p: string) => ({
-    data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
-    error: null,
-  }))
+  held.clear()
+  createSignedUploadUrl.mockImplementation(fakeCreateSignedUploadUrl(held, uploadUrl))
 })
 
 describe('POST recordings/upload-url — the fenced mint', () => {

@@ -300,6 +300,43 @@ describe('thin recording port — mintTakeUrl', () => {
     expect(JSON.parse(seen?.body as string).recordingSessionId).toBeNull()
   })
 
+  // ⚖ THE OTHER SUCCESS ARM, REBUILT WITHOUT A `url` KEY (hotfix 2026-09-05).
+  // The mint answers "the object is already there, here is its size" when this
+  // take's own row reserved the key and storage holds it. This port rebuilds
+  // the answer field by field, and it used to write `url` unconditionally — so
+  // that arm arrived carrying `url: undefined`, which a shape check in
+  // secureTake would pass and hand straight to fetch.
+  it('the already-there arm comes back with NO url key at all', async () => {
+    port(async () =>
+      new Response(
+        JSON.stringify({
+          path: 'app_biz-1_11111111-2222-4333-8444-555555555555.mp4',
+          contentType: 'audio/mp4',
+          recordingSessionId: FINALIZE.recordingSessionId,
+          existingSize: 682520,
+        }),
+        { status: 200 },
+      ),
+    )
+
+    const minted = await viteRecordingPort.mintTakeUrl(
+      FINALIZE.takeId,
+      'audio/mp4',
+      FINALIZE.recordingSessionId,
+    )
+    expect(minted).toEqual({
+      path: 'app_biz-1_11111111-2222-4333-8444-555555555555.mp4',
+      contentType: 'audio/mp4',
+      recordingSessionId: FINALIZE.recordingSessionId,
+      existingSize: 682520,
+    })
+    // toEqual alone would pass on `url: undefined` — the key itself must be gone.
+    expect('url' in minted).toBe(false)
+    // The signed arm keeping its url is the first case in this describe, which
+    // is what makes this one the port telling two arms apart rather than a port
+    // that lost a field.
+  })
+
   // WHICH refusal is the whole question: `exists` and `reserved_elsewhere` are
   // TERMINAL (this take is spoken for — re-uploading it forever changes
   // nothing), while a 502 is the moment passing. The STATUS alone cannot tell

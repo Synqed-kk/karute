@@ -10,6 +10,7 @@
 // injection runs for real on every assertion below; the double only stands in
 // for the network hop core itself would answer.
 import { createHmac } from 'node:crypto'
+import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
@@ -51,10 +52,12 @@ jest.mock('@/lib/auth/require-permission', () => ({
   }),
 }))
 
-const createSignedUploadUrl = jest.fn(async (p: string) => ({
-  data: { path: p, signedUrl: `https://proj.supabase.co/upload/${p}`, token: 'tok-1' },
-  error: null as { message: string } | null,
-}))
+/** What the fake bucket HOLDS — a non-upsert sign is a CREATE and storage
+ *  refuses one for a key already there (helpers/storage-fakes.ts). */
+const held = new Set<string>()
+const createSignedUploadUrl = jest.fn(
+  fakeCreateSignedUploadUrl(held, (p) => `https://proj.supabase.co/upload/${p}`),
+)
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
   error: null as { message: string; status?: number; statusCode?: string } | null,

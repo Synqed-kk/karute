@@ -4,6 +4,7 @@
 // fail-closed staff posture + policy_version SERVER-pinning + the tenant-prefixed
 // storage path. All network mocked; the Bearer verifier runs for real.
 import { createHmac } from 'node:crypto'
+import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
@@ -45,7 +46,10 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
 
 // Service-role storage (upload-url). `info` is the session mint's own exists
 // fence too (fix round 11) — default not-found, the key is free.
-const createSignedUploadUrl = jest.fn(async (path: string) => ({ data: { signedUrl: 'https://x/upload', token: 'tok-1', path }, error: null }))
+/** What the fake bucket HOLDS — a non-upsert sign is a CREATE and storage
+ *  refuses one for a key already there (helpers/storage-fakes.ts). */
+const held = new Set<string>()
+const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, () => 'https://x/upload'))
 const info = jest.fn(async (_key: string) => ({ data: null as { size?: number } | null, error: { message: 'Object not found', status: 404 } as { message: string; status?: number } | null }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUploadUrl, info }) } }) }))
 
@@ -74,6 +78,7 @@ const jreq = (headers: Record<string, string>, body?: unknown) =>
 
 beforeEach(() => {
   jest.clearAllMocks() // reset call counts (keeps the jest.fn implementations)
+  held.clear()
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
