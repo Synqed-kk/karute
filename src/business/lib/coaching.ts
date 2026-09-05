@@ -615,20 +615,25 @@ export const STATUS_BODY: Record<SelfView['status'], string | null> = {
  *  COUNTER follows it, which is what this pattern asks for. */
 const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千]\s*[割分回件名人倍点％%]|半[分数]/
 
-/** True when `text` must NOT be printed to an owner. `names` is the roster this
- *  board is being built for — the ONLY name list this room has, and the one the
- *  module names first. */
+/** True when `text` must NOT be printed to an owner. `names` is every name this
+ *  room can check against — see `nameNeedles` for which lists that is.
+ *  ⚖ B2-2-2 (S16F) — THE COMMENT THAT USED TO STAND HERE WAS FALSE. It said the
+ *  board's roster was 「the ONLY name list this room has, and the one the module
+ *  names first」. It was neither: `listCustomers` sits in the room's own data
+ *  door beside `listStaff`, customer names are the list staff-focus.ts:17-22
+ *  names FIRST, and the roster the board is built from is one STORE's — so a
+ *  colleague at another branch was a name this guard did not know. */
 export function summaryLeaks(text: string, names: string[]): boolean {
   if (L2_QUANTITY.test(text)) return true
   return names.some((n) => text.includes(n))
 }
 
-/** Every form of every roster name this room can check against: the full name
- *  as stated, and each of its parts, because a leak is far likelier to say
+/** Every form of every name this room can check against: the full name as
+ *  stated, and each of its parts, because a leak is far likelier to say
  *  「あずさ さんは」 than to print a full name. One character is not a name. */
-function rosterNeedles(roster: Array<{ name: string }>): string[] {
+function nameNeedles(names: string[]): string[] {
   const out = new Set<string>()
-  for (const m of roster) for (const part of [m.name, ...m.name.split(/\s+/)]) if (part.length >= 2) out.add(part)
+  for (const n of names) for (const part of [n, ...n.split(/\s+/)]) if (part.length >= 2) out.add(part)
   return [...out]
 }
 
@@ -737,10 +742,22 @@ export function buildTriage(input: {
    *  that could say WHO — because all this board needs to know is whether the
    *  third help action has anybody behind it. */
   patternCategories?: string[]
+  /** ⚖ B2-2-2 (S16F) — THE OTHER TWO NEEDLE SETS THE MODULE DEMANDS, handed in
+   *  because they come from the DATA DOOR and this file reads nothing.
+   *  `staff-focus.ts:17-22`: the guard must diff `summary_text` against 「this
+   *  staff's actual customer names for the window」 AND 「the FULL staff roster」.
+   *  The board's own `roster` is one STORE's, so a colleague at another branch
+   *  was a name this guard did not know; customer names it did not know at all.
+   *  ⚠ THEY ARE NEEDLES, NEVER CONTENT. Nothing here is rendered, counted or
+   *  returned — the only thing a name in this list can do is REMOVE a sentence,
+   *  which is why crossing the store boundary to collect it is safe: the store
+   *  isolation law is about what a reader can see, and this list makes a reader
+   *  see strictly less. */
+  extraNames?: string[]
 }): TriageView {
-  const { roster, rows, floor, consent = {}, patternCategories = [] } = input
+  const { roster, rows, floor, consent = {}, patternCategories = [], extraNames = [] } = input
   const byStaff = new Map(rows.map((r) => [r.staffId, r]))
-  const needles = rosterNeedles(roster)
+  const needles = nameNeedles([...roster.map((m) => m.name), ...extraNames])
   const out: TriageRow[] = roster.map((member) => {
     const row = byStaff.get(member.id)
     // ⚖ R2-17 — CONSENT FIRST, and it is asked of the plane rather than of the
@@ -1105,7 +1122,7 @@ export function buildPatternLibrary(
   }>,
   roster: Array<{ name: string }> = [],
 ): PatternShelf[] {
-  const needles = rosterNeedles(roster)
+  const needles = nameNeedles(roster.map((m) => m.name))
   const safe = (p: (typeof patterns)[number]) =>
     ![p.title, p.behaviorDescription, p.anonymizedExample, p.transferability].some((s) => summaryLeaks(s, needles))
   return PATTERN_CATEGORIES.map((key) => ({

@@ -4580,9 +4580,9 @@ describe('⚖ BLIND ROUND 2 (S16F) — what the fresh eyes found on 9ae46276f', 
    *  RICHEST run in the plane (p-06: three findings, three verbatim quotes,
    *  five metrics, a practice sheet). Before this round every one of them
    *  serialized the whole L1 view and gated it in the markup. */
-  const NOT_GRANTED = [
-    { name: 'declined', consent: { 'p-06': { status: 'declined' as const, decidedAt: null, policyVersion: 'v2' } } },
-    { name: 'unset (a record that says so)', consent: { 'p-06': { status: 'unset' as const, decidedAt: null, policyVersion: null } } },
+  const NOT_GRANTED: Array<{ name: string; consent: Record<string, { status: 'unset' | 'granted' | 'declined'; decidedAt: null; policyVersion: string | null }> }> = [
+    { name: 'declined', consent: { 'p-06': { status: 'declined', decidedAt: null, policyVersion: 'v2' } } },
+    { name: 'unset (a record that says so)', consent: { 'p-06': { status: 'unset', decidedAt: null, policyVersion: null } } },
     { name: 'unset (never asked — no record at all)', consent: {} },
   ]
 
@@ -4643,5 +4643,68 @@ describe('⚖ BLIND ROUND 2 (S16F) — what the fresh eyes found on 9ae46276f', 
     expect(props.self.findings.length).toBe(3)
     expect(props.self.stats.length).toBe(5)
     expect(props.self.sheet).not.toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-2-2 (S16F) — the L2 leak guard has all THREE of its name lists', () => {
+  /** A summary sentence carrying exactly one planted name, run through the REAL
+   *  assembly (the props file's own data-door reads included) on the plane's
+   *  needs-support row. ⚠ NO QUANTITY IN ANY OF THEM: the quantity half of the
+   *  guard would catch a number and the pin would prove nothing about names. */
+  const plant = async (text: string) => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: {
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-04'
+            ? { ...r, focus: { ...r.focus, focus_areas: r.focus.focus_areas.map((f) => ({ ...f, summary_text: text })) } }
+            : r,
+        ),
+      },
+    })
+    unpinClock()
+    const row = props.team!.rows.find((r) => r.staffLabel === '見本 しろう')!
+    return { printed: row.focusAreas.some((f) => f.summaryText === text), warning: row.summaryWarning }
+  }
+
+  it('a CUSTOMER name in a summary sentence is omitted, and the omission is said out loud', async () => {
+    // 見本 さくら is a customer in the room's own data door (listCustomers). The
+    // DISTINCTIVE part is what proves the list is new: 「見本」 was already a
+    // needle from the staff roster, so a full customer name would have been
+    // caught by the old guard and told us nothing.
+    const r = await plant('さくらさんの場面で、受けとめが薄くなっています。')
+    expect(r.printed).toBe(false)
+    expect(r.warning).toBe('重点項目の文に数字か名前が入っていたため、この行では表示していません。')
+  })
+
+  it('a staff name from ANOTHER STORE is omitted — the roster the guard knows is the FULL one', async () => {
+    // 見本 たろう works only in 代官山, so the 銀座 board's own roster never held
+    // his name and the guard could not see him. He is not in the payload either
+    // (the store isolation pin above proves that) — only in the needle list.
+    const r = await plant('たろうさんと同じ型が出ています。')
+    expect(r.printed).toBe(false)
+    expect(r.warning).not.toBeNull()
+  })
+
+  it('the CONTROLS still print — the guard removes leaks, not sentences', async () => {
+    const r = await plant('会話の締めくくり方を一緒に整えると、変化が出やすい時期です。')
+    expect(r.printed).toBe(true)
+    expect(r.warning).toBeNull()
+    // and this store's OWN roster is still caught, as it always was
+    const own = await plant('しろうさんの型です。')
+    expect(own.printed).toBe(false)
+  })
+
+  it('the comment that called the roster 「the ONLY name list this room has」 is gone', () => {
+    // the CLAIM is gone; the phrase survives only inside the sentence that
+    // records it as having been false, which is the room's own way of keeping
+    // a correction readable next to the code it corrected.
+    expect(LIB_SRC).not.toContain('board is being built for — the ONLY name list this room has')
+    expect(LIB_SRC).toContain('THE COMMENT THAT USED TO STAND HERE WAS FALSE')
+    // …and both new lists are really wired at the seam, from the room's own door
+    expect(PROPS_CODE).toContain('...(await listCustomers(lens)).map((c) => c.name)')
+    expect(PROPS_CODE).toContain("...(await listStaff({ viewAll: true })).map((s) => s.full_name)")
   })
 })

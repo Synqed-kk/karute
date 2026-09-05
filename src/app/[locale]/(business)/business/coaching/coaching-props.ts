@@ -51,7 +51,7 @@ import {
   type SelfState,
   type TriageView,
 } from '@/business/lib/coaching'
-import { defaultStoreId, listStaff, listStoreOptions, renderNow, type StoreLens } from '@/business/lib/data'
+import { defaultStoreId, listCustomers, listStaff, listStoreOptions, renderNow, type StoreLens } from '@/business/lib/data'
 import { operator } from '@/business/lib/fixtures'
 import {
   coachingConsent,
@@ -361,9 +361,27 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // Consent to be coached gates whether any L1 artifact exists at all, so a
   // member who has not granted it has no band to show a manager — and the
   // derivation, not the screen, is where that is decided.
+  // ⚖ B2-2-2 (S16F) — THE L2 LEAK GUARD'S OTHER TWO NEEDLE SETS, READ HERE
+  // because the door lives here and `coaching.ts` reads nothing.
+  // `staff-focus.ts:17-22` names three lists and the room implemented one: the
+  // store's own roster. These are the other two — the business's customer names
+  // (the list the module names FIRST) and the FULL roster across stores, so a
+  // sentence naming a colleague at another branch is omitted like any other.
+  // ⚠ READ ONLY WHEN THE BOARD IS BUILT, and never rendered: they exist to
+  // DELETE a sentence, so nothing crosses a wall by being on this list.
   const team: TriageView | null =
     on && access.viewTeam
-      ? buildTriage({ roster, rows, floor, consent: consentPlane, patternCategories: teamPatterns.map((p) => p.categoryKey) })
+      ? buildTriage({
+          roster,
+          rows,
+          floor,
+          consent: consentPlane,
+          patternCategories: teamPatterns.map((p) => p.categoryKey),
+          extraNames: [
+            ...(await listCustomers(lens)).map((c) => c.name),
+            ...(await listStaff({ viewAll: true })).map((s) => s.full_name),
+          ],
+        })
       : null
 
   // ⚖ (3) THE ROI SCREEN IS ONLY BUILT FOR A READER WHO HOLDS ITS OWN
