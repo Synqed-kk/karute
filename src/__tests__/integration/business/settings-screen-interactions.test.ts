@@ -436,13 +436,26 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // …then the disclosure layer, scoped to the row the reader is standing in…
     expect(body).toContain("here.closest('.st-dial')")
     expect(body).toContain("btn.getAttribute('aria-expanded') !== 'true'")
-    expect(body).toContain('setOpenRows((prev) => ({ ...prev, [rowId]: false }))')
+    // …by PRESSING the row's own button rather than by reaching for state
+    // (⚖ F24): the first cut set `openRows`, which is the shell room's store, so
+    // it worked for the twenty-two sections and did nothing at all for
+    // 予約と確保's eight — their disclosure state lives inside that section.
+    // `.st-det-btn`'s own `onClick` is the one place that knows which store owns
+    // it, whichever file rendered it.
+    expect(body).toContain('btn.click()')
+    // …and NOTHING stands between the test and the press. A guard here that
+    // exempted one half of the page would be exactly the defect F24 fixed, and
+    // it would be invisible — the key is not refused, it just has no effect.
+    const guardLine = "      if (!(btn instanceof HTMLElement) || btn.getAttribute('aria-expanded') !== 'true') return\n"
+    expect(body).toContain(guardLine)
+    const toClick = body.slice(body.indexOf(guardLine) + guardLine.length, body.indexOf('btn.click()'))
+    expect(toClick).not.toMatch(/\breturn\b/)
+    expect(toClick).not.toMatch(/\bif\s*\(/)
+    expect(body).not.toContain('setOpenRows')
+    expect(body).not.toContain('dataset.rowId')
+    expect(SRC_CODE).not.toContain('data-row-id')
     // …and focus goes back to the button that opened it.
     expect(body).toContain('btn.focus()')
-    // …the row is asked for its own id rather than having it parsed out of
-    // `aria-controls`, so the id FORMAT is nobody's contract.
-    expect(body).toContain('const rowId = dial.dataset.rowId')
-    expect(SRC_CODE).toContain('data-row-id={row.id}')
     expect(body).not.toMatch(/aria-controls'\)\??\.replace/)
     // …and there is exactly ONE keydown listener in the room…
     expect((SRC_CODE.match(/addEventListener\('keydown'/g) ?? []).length).toBe(1)

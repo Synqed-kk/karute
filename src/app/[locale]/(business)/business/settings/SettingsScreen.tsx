@@ -531,9 +531,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  `onKeyDown` would beat the tour to it. Written here, the priority is a
    *  `return` a reader can see.
    *
-   *  ⚠ THE ROW IS ASKED FOR ITS OWN ID (`data-row-id`), never parsed out of the
-   *  `aria-controls` string: the id FORMAT is not a contract this room wants to
-   *  owe anybody. */
+   *  ⚠ IT PRESSES THE ROW'S OWN BUTTON, and does not reach for any state.
+   *  The first cut set `openRows` directly, which is the shell room's own store
+   *  — so it closed the twenty-two sections' disclosures and silently did
+   *  NOTHING for 予約と確保's eight, whose state lives inside that section.
+   *  `.st-det-btn`'s own `onClick` is the one place that knows which store owns
+   *  it, whichever file rendered it, so the key does what a press does. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (tourOpen) {
@@ -548,9 +551,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
       if (!(dial instanceof HTMLElement)) return
       const btn = dial.querySelector('.st-det-btn')
       if (!(btn instanceof HTMLElement) || btn.getAttribute('aria-expanded') !== 'true') return
-      const rowId = dial.dataset.rowId
-      if (rowId === undefined) return
-      setOpenRows((prev) => ({ ...prev, [rowId]: false }))
+      btn.click()
       btn.focus()
     }
     document.addEventListener('keydown', onKey)
@@ -1673,9 +1674,6 @@ function Row({
   return (
     <section
       className={`st-dial${row.link ? ' is-door' : ''}`}
-      /* ⚖ S17 · F12 — the row names itself, so Escape can close THIS row's
-         詳しく without anybody parsing an id back out of `aria-controls`. */
-      data-row-id={row.id}
       data-guide-title={row.label}
       data-guide={`${row.description || row.label + 'の設定です。'} ${row.trio?.guardrail ?? ''}${detail.length > 0 ? ' 初期値や決まりは「詳しく」で開けます。' : ''}`.trim()}
     >
