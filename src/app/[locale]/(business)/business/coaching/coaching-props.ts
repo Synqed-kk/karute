@@ -779,7 +779,16 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             // is exactly what separates the person who declined from the person
             // who is simply new. The word must not appear here (source pin).
             trajectoryLine: r.band ? TRAJECTORY_LINE[r.band] : 'まだ判断できる材料がありません。',
-            action: r.suggestedAction ? { kind: r.suggestedAction.kind, label: r.suggestedAction.label } : null,
+            // ⚖ I-9 (S16C) — THE LEVER NAMES ITS MODULE. 「学習モジュールを割り当て
+            // る」 is the same sentence on every flagged row, so a manager reading
+            // the board could not tell what any of them would actually send —
+            // and the module is already resolved right here, by the same lookup
+            // the finding's 練習するもの chip uses. Resolved in the PROPS file,
+            // like every other string on this page; the other two kinds keep
+            // their own labels, because neither points at a module.
+            action: r.suggestedAction
+              ? { kind: r.suggestedAction.kind, label: actionLabel(r.suggestedAction, moduleTitle) }
+              : null,
           })),
           // ⚖ サポートエリア頻度ランキング (audit #24) — the ONE owner-facing
           // 「what does the whole store need」 answer, and the only surface on
@@ -968,6 +977,19 @@ const labelOf = (cats: Array<{ key: string; label: string }>, key: string) =>
   cats.find((c) => c.key === key)?.label ?? key
 
 const SEVERITY_LABEL = { priority: '重点', watch: '注目', strength: '強み' } as const
+
+/** ⚖ I-9 — the help action's label, with the module it targets NAMED. The id is
+ *  never printed: an unresolved reference falls back to the generic sentence
+ *  `helpActionFor` already wrote, which is the same rule the 練習するもの chip
+ *  follows one screen over (a title without a rendered card carries no link). */
+const actionLabel = (
+  action: { kind: 'assign-module' | 'manager-coaching' | 'peer-pairing'; label: string; moduleId: string | null },
+  titles: Map<string, string>,
+): string => {
+  if (action.kind !== 'assign-module' || !action.moduleId) return action.label
+  const title = titles.get(action.moduleId)
+  return title ? `『${title}』を割り当てる` : action.label
+}
 
 /** The band's tone, resolved here so the screen carries neither a map nor a
  *  judgement — the same reason the pill tones arrive as props in every other

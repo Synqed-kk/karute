@@ -4069,6 +4069,43 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(team.summaryLessLabel).toBe('閉じる')
   })
 
+  it('⚖ I-9 · the help lever NAMES the module it would send, and never an id', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const flagged = props.team!.rows.filter((r) => r.action !== null)
+    expect(flagged.length).toBeGreaterThan(0)
+    const titles = new Map(props.modules!.cards.map((c) => [c.moduleId, c.title]))
+    for (const r of flagged) {
+      if (r.action!.kind !== 'assign-module') continue
+      // the label names a module the catalog really renders…
+      const named = [...titles.values()].filter((t) => r.action!.label.includes(t))
+      expect({ staff: r.staffLabel, named: named.length }).toEqual({ staff: r.staffLabel, named: 1 })
+      expect(r.action!.label).toBe(`『${named[0]}』を割り当てる`)
+      // …and never an id, and never a number a wall forbids
+      expect(r.action!.label).not.toMatch(/mod-|tp-|\d/)
+    }
+    // the OTHER two kinds keep their own labels — neither points at a module
+    expect(helpActionFor('needs-support', null, true)!.label).toBe('ペアを組んで学ぶ')
+    expect(helpActionFor('needs-support', null, false)!.label).toBe('1対1の時間をつくる')
+    // an UNRESOLVED reference falls back to the generic sentence rather than
+    // printing an id — the same rule the 練習するもの chip follows
+    const dangling = await coachingProps({
+      ...GINZA,
+      world: {
+        rows: coachingStaff.map((r) =>
+          r.staffId === 'p-04'
+            ? { ...r, focus: { ...r.focus, focus_recommendations: [{ ...r.focus.focus_recommendations[0], module_id: 'mod-nope' }] } }
+            : r,
+        ),
+      },
+    })
+    const fell = dangling.props.team!.rows.find((r) => r.action?.kind === 'assign-module')!
+    expect(fell.action!.label).toBe('学習モジュールを割り当てる')
+    // …and it is still never punitive
+    for (const r of props.team!.rows) if (r.action) expect(r.action.label).not.toMatch(/警告|注意|指導|評価|減点/)
+  })
+
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
     // The fixed lead used to restate what every state's own `body` already
     // says — 「断ったことは誰にも表示されません」 came out twice in one utterance
