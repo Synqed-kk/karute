@@ -1362,8 +1362,14 @@ describe('the shell one-liners', () => {
     // …and the default is still the default: 録音 and カルテ sit in that same rail
     // group and keep falling through to 店舗フロア. That is another room's pin to
     // move, named in the report rather than fixed inside this room's diff.
-    expect(TOPBAR).toContain("{GROUP[segment] ?? '店舗フロア'}")
-    const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string> = {'))
+    // ⚖ S17 FOLD (A4) — RE-PINNED, with its reason: the 設定 room folded #812's
+    // 予約と確保 in as ONE section, and its crumb reads 「銀座店 / 設定」 — no group
+    // word, because 「設定 / 銀座店 / 設定」 is the same word twice. So the ONE map
+    // gained a `null` value and the expression asks for it explicitly before it
+    // falls through. THIS ROOM'S HALF IS UNCHANGED: `'ask-ai'` still prints
+    // 記録・AI, and 録音 and カルテ still fall through to the default.
+    expect(TOPBAR).toContain("{GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}")
+    const groupBody = TOPBAR.slice(TOPBAR.indexOf('const GROUP: Record<string, string | null> = {'))
     const groupKeys = groupBody.slice(0, groupBody.indexOf('}')).match(/^\s*'?([\w-]+)'?:/gm)!
       .map((k) => k.trim().replace(/'|:/g, ''))
     expect(groupKeys.sort()).toEqual(['ask-ai', 'settings'])

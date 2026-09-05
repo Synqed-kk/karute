@@ -1256,12 +1256,22 @@ describe('閉店できるか is ONE call, rendered wherever the page asks it', (
     expect(props.close!.cash.denominations).toBeNull()
   })
 
-  it('⑥ しきい値 names its settings home, refused with the reason', async () => {
+  it('⑥ しきい値 names its settings home, and REACHES it', async () => {
     const props = await room({ store: STORE_A })
     expect(props.close!.cash.toleranceLinkLabel).toBe('店舗設定で変更')
-    expect(props.close!.cash.toleranceLinkRefusal).toContain('店舗設定')
-    expect(props.close!.cash.toleranceLinkRefusal).toContain('準備中')
-    // The DIAL itself stays registry ④ — the room reads it, never hardcodes it.
+    // ⚠ THE ROOM SHIPPED AND THE LINK FOLLOWED IT (room 9 look-fix, 2026-09-01).
+    // This was a REFUSED link while the 設定 room was not live; it now points at
+    // the 決済 section, which the settings page opens on through `?section=`. A
+    // signpost that names a destination it could reach and does not is a sentence
+    // asking the reader to do the walking.
+    // ⚖ S17 fix round 5 · G2 (D-43) — AND IT REACHES THE RIGHT STORE'S 決済.
+    // The literal this pin held dropped the locale segment this file spells in
+    // every other href AND the resolved store, so on 代官山 the link opened the
+    // operator's DEFAULT store's settings (⚖ 8/17). Same destination section,
+    // built by the one link home every room that points at 設定 uses.
+    expect(props.close!.cash.toleranceLinkHref).toBe(`/ja/business/settings?section=payments&store=${STORE_A}`)
+    expect(props.close!.cash.tolerance).not.toContain('準備中')
+    // The DIAL itself is still READ from レジ's own plane, never hardcoded.
     expect(props.close!.cash.tolerance).toContain(yen(cashTolerance))
   })
 

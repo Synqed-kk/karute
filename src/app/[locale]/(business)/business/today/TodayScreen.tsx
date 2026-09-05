@@ -58,6 +58,7 @@ import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'
 // board was written against moved to one shared home. Same functions, same
 // behaviour, new address; nothing about this room's tour changed with it.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { settingsHref } from '@/business/lib/settings-link'
 import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'
 import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
@@ -6377,7 +6378,19 @@ export function TodayScreen(props: TodayProps) {
                           the 設定 room. Naming the room turns a broken-looking
                           badge into a signpost. */}
                       <span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>
-                      <span className="chip">変更は「設定」ルームで（準備中）</span>
+                      {/* ⚖ LINKED UP (2026-09-01). The signpost used to NAME the
+                          destination and leave the reader to find it; the 設定
+                          room now reads `?section=`, so the sentence is the way
+                          there.
+                          ⚖ S17 FOLD (2026-09-05) — AND IT NAMES THE DIAL'S REAL
+                          HOME NOW. 予約と確保 is where the guard's strength is
+                          decided since #812's room folded into the rail; a chip
+                          pointing at 店舗情報・営業時間 would open a section that
+                          no longer holds this control (⚖ label truth). */}
+                      {/* ⚖ S17 fix round 5 · G2 — THROUGH THE ONE LINK HOME.
+                          The literal dropped the locale and the store, so on
+                          代官山 this chip opened 銀座's 予約と確保 (⚖ 8/17). */}
+                      <Link className="chip" href={settingsHref(props.locale, props.store, 'booking-guard')}>変更は「設定」＞予約と確保で</Link>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

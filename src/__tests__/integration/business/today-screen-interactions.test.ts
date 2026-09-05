@@ -7227,8 +7227,30 @@ describe('BATCH-10b X4 — the two copy items', () => {
     // settings on this page. It shouldn't be 準備中」. The guard IS live on this
     // profile; what is unbuilt is the per-store control, and by the one-home law
     // it belongs in the 設定 room. The badge says so instead of saying nothing.
-    expect(SRC).toContain('<span className="chip">変更は「設定」ルームで（準備中）</span>')
+    // ⚠ AND THE 準備中 CAME OFF WHEN THE ROOM SHIPPED (room 9, 2026-09-01). The
+    // chip now names the SECTION the dial is on, because it is there to be read:
+    // a signpost that still says 準備中 after the destination opened is the
+    // 「checks lying about state」 class, not a stale word.
+    // ⚠ AND IT BECAME A LINK IN THE LOOK-FIX ROUND (⚖ LINKED UP, 2026-09-01):
+    // the 設定 room reads `?section=`, so the chip is now the way there rather
+    // than the name of a place the reader has to find.
+    // ⚠ AND THE DESTINATION MOVED IN THE S17 FOLD (2026-09-05). #812's 予約と確保
+    // room folded into the 設定 rail as one section, and the guard's strength is
+    // decided THERE — so the chip names that section, and the OLD one is
+    // forbidden: a link that opens a page which no longer holds the control is
+    // the label-truth break this pin exists to catch.
+    // ⚠ AND IT CARRIES THE STORE SINCE FIX ROUND 5 · G2 (D-44). The literal
+    // dropped the locale segment this file spells in its own `dayHref` AND the
+    // resolved store, so on 代官山 the chip opened 銀座's 予約と確保 — the same
+    // label-truth break one lens over. Every link into 設定 is built by one
+    // helper now; the section it points at is unchanged.
+    expect(SRC).toContain(
+      '<Link className="chip" href={settingsHref(props.locale, props.store, \'booking-guard\')}>変更は「設定」＞予約と確保で</Link>',
+    )
+    expect(SRC).not.toContain('href="/business/settings?section=booking-guard"')
+    expect(SRC).not.toContain('変更は「設定」＞店舗情報・営業時間で')
     expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
+    expect(SRC).not.toContain('変更は「設定」ルームで（準備中）')
     // The policy word itself is still the STORE's, read-only, unchanged.
     expect(SRC).toContain('<span>保護ルール: {POLICY_WORD[props.guard.mode]}</span>')
   })
@@ -10958,6 +10980,11 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "} from '@/business/lib/canon-logic/pricing'",
     "import type { GuardConfig } from '@/business/lib/canon-logic/gap-guard'",
     "import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'",
+    // ⚖ S17 fix round 5 · G2 (D-44) — the ONE home every link into 設定 is built
+    // by. Pure, no imports of its own, reached for the 保護ルール chip and nothing
+    // else, and named in `foundation.test.ts`'s sealed inventory with the same
+    // reason.
+    "import { settingsHref } from '@/business/lib/settings-link'",
     "import { hhmm, minuteOf, place, yen, type BoardItem, type BoardLane, type BookingCategory } from '@/business/lib/today-board'",
     // ⚖ two entries below are split with `+` at the SAME runtime value —
     // business-isolation.test.ts (phone-safety lock 3) scans raw TEXT for

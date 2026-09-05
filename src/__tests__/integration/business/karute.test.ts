@@ -1294,7 +1294,10 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
     // joined ahead of this room, in main's order, and the literal moved with it.
     // AND AGAIN on the 2026-09-05 fold of 顧客 (#834): `.page.page-customers`
     // joined ahead of it too — main's own name for that room, main's own order.
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai) { min-width: 0; }')
+    // AND AGAIN on the 2026-09-05 fold of 設定 (S17, #812's 予約と確保 folded in
+    // as one section): `.page.pg-settings` joined LAST, main's order kept ahead
+    // of it, and the literal moved with it.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai, .page.pg-settings) { min-width: 0; }')
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 })

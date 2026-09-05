@@ -287,7 +287,17 @@ describe('the fixture data door', () => {
     const FORMS = [
       /from\s*'([^'\n]+)'/g,
       /from\s*"([^"\n]+)"/g,
-      /import\s*['"]([^'"\n]+)['"]/g,
+      // ⚠ THE LOOKBEHIND. Without it this pattern once read
+      //   `block('io.import', '取り込み', …)`
+      // as a side-effect import of 「, 」 — a string that happens to end in the
+      // word `import` followed by a quoted argument. That id is now `io.intake`
+      // (2026-09-05: the trigger was removed from OUR side so the shared lock
+      // outside Business territory could go back to main's bytes), so nothing
+      // in the tree needs the lookbehind today. It stays because a real
+      // side-effect import is never preceded by a word character or a dot, and
+      // the next `…import '…'` string in a Japanese label should not be able to
+      // plant a phantom specifier in this inventory.
+      /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g,
       /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
       /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
     ]
@@ -471,6 +481,11 @@ describe('the fixture data door', () => {
         // The tour engine's new address (⚖ Liam 8/23). The board's own tour is
         // unchanged; only where the four functions live moved.
         '@/business/lib/guide',
+        // ⚖ S17 fix round 5 · G2 (D-41) — the ONE link home, reached for the
+        // 保護ルール chip and nothing else. It is a string builder with no
+        // imports of its own, so this arrow adds no module to the graph below
+        // it.
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
         'next/link',
         'react',
@@ -555,6 +570,12 @@ describe('the fixture data door', () => {
         // number is read from there, so a tile, a column head, a provenance row
         // and a tour sentence cannot call one figure two things.
         '@/business/lib/dictionary',
+        // ⚖ S17 fix round 5 · G2 (D-41) — THE ONE LINK HOME. A hand-written
+        // `/business/settings?section=…` here dropped the locale and the store,
+        // so the link opened another store's settings (⚖ 8/17). Pure, no
+        // imports of its own, and this is the honest accounting: one new arrow
+        // per room that points at 設定.
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/analytics/AnalyticsScreen.tsx': [
@@ -664,6 +685,7 @@ describe('the fixture data door', () => {
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-register',
         '@/business/lib/register',
+        '@/business/lib/settings-link',
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/register/RegisterScreen.tsx': [
@@ -709,6 +731,112 @@ describe('the fixture data door', () => {
         'react',
       ],
       'src/app/[locale]/(business)/business/karute/loading.tsx': ['@/business/i18n'],
+      // 設定 (room 9). ⚠ THE PROPS FILE'S INVENTORY IS THE ROOM'S OWN ONE-TRUTH
+      // PIN, and it is meant to be long: every plane listed there is a dial value
+      // this room READS from the room that ships it, instead of keeping a second
+      // copy. `fixtures-settings` is the ADD-only plane for the dials no room
+      // owns a value for — its own inventory is `./fixtures` and nothing else,
+      // because a plane that imported a derivation could restate a fact.
+      'src/business/lib/fixtures-settings.ts': ['./fixtures'],
+      // The rules are PURE, and the empty inventory is the pin on that: the gate,
+      // the clamps and the refusal table decide things about values they are
+      // handed, never values they fetch.
+      'src/business/lib/settings.ts': [],
+      // ⚖ S17 fix round 5 · G2 — every link into 設定, built in one place. The
+      // empty inventory is the PIN on what it is: a string out of three values
+      // its caller already resolved. An import here would mean the link builder
+      // started knowing about a room.
+      'src/business/lib/settings-link.ts': [],
+      'src/app/[locale]/(business)/business/settings/page.tsx': [
+        './SettingsScreen',
+        './settings-props',
+        './settings.css',
+        '@/business/lib/admission',
+      ],
+      'src/app/[locale]/(business)/business/settings/settings-props.ts': [
+        // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
+        // section's own props file and handed through this one, so the route and
+        // the evidence harness render the same assembly.
+        './store-policy-props',
+        '@/business/lib/data',
+        '@/business/lib/fixtures',
+        '@/business/lib/fixtures-analytics',
+        '@/business/lib/fixtures-register',
+        '@/business/lib/fixtures-settings',
+        '@/business/lib/fixtures-shifts',
+        '@/business/lib/fixtures-today',
+        '@/business/lib/settings',
+      ],
+      // ⚖ S17 fix round 1 · F15 (D-20) — THE ROOM'S ONE 詳しく DISCLOSURE, in its
+      // own file. Both the shell room and 予約と確保 need it, and the section may
+      // not import the screen (the screen already imports the section, so that
+      // would be a cycle). Its own inventory is the spring and react — the same
+      // one integrator every moving thing in this room runs on.
+      'src/app/[locale]/(business)/business/settings/Collapse.tsx': [
+        '@/business/lib/spring',
+        'react',
+      ],
+      'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
+        './Collapse',
+        // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
+        './StorePolicySection',
+        '@/business/lib/guide',
+        '@/business/lib/settings',
+        // ⚖ S17 STEP 1 — the room's ONE integrator. Every moving thing on the
+        // page (the segment's thumb, the switch's thumb, the 詳しく panel's
+        // height, the save card's rise) is driven by `makeSpring`; a second
+        // easing written by hand beside it would be a second motion language on
+        // one page, which is the thing the Studio standard exists to prevent.
+        '@/business/lib/spring',
+        'react',
+      ],
+      // ⚖ S17 FOLD — 予約と確保, #812's room re-homed as ONE section of 設定.
+      // ⚠ DERIVED FROM DISK, never remembered. The SECTION reaches the board's own
+      // composer (`warnFaceFor` / `overrideLevelFor`) and canon's pricing frame,
+      // because the preview IS the shipped warn card rather than a drawing of one;
+      // it holds NO data door and NO tour engine — 設定 owns both (A2), and the
+      // absence of `@/business/lib/guide` here is the pin on that.
+      'src/app/[locale]/(business)/business/settings/StorePolicySection.tsx': [
+        '../today/today-interactions',
+        // ⚖ S17 fix round 1 · F15 — the room's row grammar includes the room's
+        // 詳しく, so the eight dials fold their caveat lines the same way the
+        // twenty-two sections do rather than stacking them at every width.
+        './Collapse',
+        './store-policy-seam',
+        '@/business/lib/canon-logic/pricing',
+        // ⚠ D-36 (⚖ S17 fix round 4 · M4) — THE ROOM'S OWN RULES FILE, for the
+        // one rule this section shares with the other twenty-two: what a number
+        // field does with an empty box. Both used to answer the guardrail's LOW
+        // end silently (予約の刻み 30 → clear → 5分), and the honest fallback —
+        // the previous value, said out loud — is one decision, so it is one
+        // function. A copy of it here would be the second home the room's own
+        // architecture rules forbid, and the two would drift the first time one
+        // was edited. `settings.ts` is PURE (empty import inventory, pinned
+        // above), so nothing follows it in.
+        '@/business/lib/settings',
+        'react',
+      ],
+      // …and the ASSEMBLY is #812's own page body: the same doors, the same
+      // engines, the same seam. `./StorePolicySection` is its props TYPE, which
+      // lives with the component exactly as it did in #812 (`page.tsx` imported
+      // `SettingsProps` from `SettingsScreen`); `./settings.css` and the admission
+      // gate are gone because the 設定 route already does both, once, for every
+      // section.
+      'src/app/[locale]/(business)/business/settings/store-policy-props.ts': [
+        '../today/today-interactions',
+        './StorePolicySection',
+        './store-policy-seam',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
+        '@/business/lib/canon-logic/pricing',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/today-board',
+      ],
+      // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
+      // file core's reconnect lands in reaches nothing at all today.
+      'src/app/[locale]/(business)/business/settings/store-policy-seam.ts': [],
+      'src/app/[locale]/(business)/business/settings/loading.tsx': ['@/business/i18n'],
       // AI相談. The room's own CONSULTATION plane plus the derivations that
       // BORROW every other fact it shows: the booking's customer / staff / menu
       // and its 予約番号, the record's own カルテ番号, the thread's subject and

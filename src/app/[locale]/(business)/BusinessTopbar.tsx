@@ -70,7 +70,10 @@ const CRUMB: Record<string, string> = {
   shifts: 'スタッフ・シフト',
   karute: 'カルテ',
   recording: '録音',
-  settings: '予約と確保',
+  // ⚖ S17 FOLD — the leaf is 設定 again. #812's room is no longer a route of its
+  // own: 予約と確保 is ONE section inside the 設定 rail, so the crumb's last word
+  // is the page the reader is on and the section names itself in the panel.
+  settings: '設定',
   'ask-ai': 'AI相談',
 }
 
@@ -85,9 +88,17 @@ const CRUMB: Record<string, string> = {
  *  記録・AI, so without an entry here its crumb claimed 店舗フロア — the topbar
  *  disagreeing with the navigation the reader just used. 録音 and カルテ are in
  *  that same rail group and still fall through to the default; they are two
- *  other rooms' pins, so they ride a follow-up rather than this room's diff. */
-const GROUP: Record<string, string> = {
-  settings: '設定',
+ *  other rooms' pins, so they ride a follow-up rather than this room's diff.
+ *
+ *  ⚖ S17 FOLD (A4) — `null` DROPS the group entirely, and 設定 is why: the room
+ *  is ONE route with its own category rail inside it, so its leaf IS 設定 and
+ *  「設定 / 店 / 設定」 would be the same word twice with a store between them.
+ *  ONE map, main's name, with the branch's null semantics: a segment with no
+ *  entry keeps 店舗フロア, so no other room's crumb moves a byte. (⚠ カルテ and
+ *  コーチング belong under 記録・AI by canon and still read 店舗フロア here; that
+ *  changes a MERGED room's visible crumb, so it rides the family sweep.) */
+const GROUP: Record<string, string | null> = {
+  settings: null,
   'ask-ai': '記録・AI',
 }
 
@@ -105,7 +116,8 @@ export function BusinessTopbar({ stores, syncLabel }: { stores: ShellStore[]; sy
   return (
     <header className="topbar">
       <div className="crumb">
-        {GROUP[segment] ?? '店舗フロア'} / {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
+        {GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}
+        {store ? store.name : 'すべての店舗'} / <b>{leaf}</b>
       </div>
       <div className="top-actions">
         <span className="honesty" role="note" aria-label="サンプルデータ — 実データではありません">
