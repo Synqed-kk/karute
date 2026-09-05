@@ -135,6 +135,41 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('data-guide={block.note || `${block.title}の設定です。`}')
   })
 
+  it('⚖ KEYBOARD REACH — every control this round added is a real button or a real field', () => {
+    // ⚠ THE 詳しく DISCLOSURE IS THE ONE THAT MATTERS MOST, because the 初期値 ·
+    // guardrail · 業種 · 出どころ lines are BEHIND it: a reader who cannot press
+    // it cannot read the guardrail on the dial they are changing. A `span` with
+    // an onClick renders identically to a mouse and does not exist to a keyboard.
+    expect(SRC_CODE).toMatch(
+      /<button\s+type="button"\s+className="st-det-btn"\s+aria-expanded=\{open\}\s+aria-controls=\{detailId\}\s+onClick=\{onToggle\}/,
+    )
+    // …and the same for the four other new controls, each by its own shape.
+    expect(SRC_CODE).toMatch(/<input\s+className="st-search-field"\s+type="search"/)
+    expect(SRC_CODE).toContain('aria-label="設定を検索"')
+    expect(SRC_CODE).toMatch(/<button\s+className="st-search-clear"\s+type="button"\s+aria-label="検索をクリア"/)
+    expect(SRC_CODE).toMatch(/type="button"\s+className=\{`st-jump-item/)
+    expect(SRC_CODE).toMatch(/<button\s+className="st-back"\s+type="button"/)
+    expect(SRC_CODE).toMatch(/type="button"\s+className="st-coll-del"/)
+    // ⚠ AND NOT ONE OF THEM IS A `div`/`span` WEARING AN onClick. The scan is
+    // over the whole screen rather than over a list of names, so the next one
+    // added the wrong way is caught by the same line. ONE named exception: the
+    // tour's dismiss backdrop is a surface rather than a control — there is
+    // nothing for a keyboard to land ON, and Escape is what closes the walk
+    // (the keydown effect above), so making it focusable would put a tab stop
+    // in front of the page for no gain.
+    const clickers = [...SRC_CODE.matchAll(/<(div|span)\s+className="([a-z-]+)"[^>]*\sonClick=/g)].map((m) => m[2])
+    expect(clickers).toEqual(['st-spot-catch'])
+    expect(SRC_CODE).toContain("if (e.key === 'Escape') setTourIdx(-1)")
+    // …a disclosure states what it controls and whether it is open, or a screen
+    // reader is told there is a button and nothing about what it does.
+    expect(SRC_CODE).toContain('aria-expanded={open}')
+    expect(SRC_CODE).toContain('aria-controls={detailId}')
+    // …and the jump list moves the CARET as well as the page: a control that
+    // only scrolls leaves a keyboard reader standing in the list.
+    expect(SRC_CODE).toContain("head?.focus({ preventScroll: true })")
+    expect(SRC_CODE).toContain('<h3 id={`st-blkh-${block.id}`} tabIndex={-1}>')
+  })
+
   it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
     // The room-5 F5 defect: a target taller than the viewport forces the engine's
     // last resort, which puts the card on top of the thing it is explaining. This

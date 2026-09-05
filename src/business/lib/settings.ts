@@ -658,6 +658,38 @@ export function blockDirty(
   return controlIdsOfBlock(block).some((id) => !sameValue(values[id], saved[id]))
 }
 
+// ── ⚖ S17 · C2 — ADDING TO A COLLECTION, AS A RULE RATHER THAN AS A HANDLER ──
+//
+// ⚠ THE REFUSAL IS THE POINT, so it lives where it can be run without a browser.
+// `addClosedDay` answers 409 when the date is already closed; the room refuses
+// it FIRST, in the same words, so the operator never reaches a state the store
+// cannot save (⚖ mistake-proofing at the moment of the mistake). A rule that
+// only exists inside a React handler can only be checked by mounting React —
+// and this suite cannot mount React at all — so the decision is a pure function
+// and the handler is the two lines that call it.
+
+export interface CollectionAdd {
+  /** The rows after the attempt — UNCHANGED when it was refused. */
+  rows: Array<{ id: string; title: string; note: string }>
+  /** The sentence to show, or `null` when the row went in. */
+  error: string | null
+}
+
+export function addToCollection(
+  coll: SettingsCollection,
+  rows: ReadonlyArray<{ id: string; title: string; note: string }>,
+  rawDate: string,
+  rawReason: string,
+): CollectionAdd {
+  const date = rawDate.trim()
+  const reason = rawReason.trim()
+  if (date === '') return { rows: [...rows], error: coll.emptyDateError }
+  // ⚠ THE DATE IS THE IDENTITY, which is the wire's own rule: one row per store
+  // per date (`StoreClosedDay`, and the 409 that enforces it).
+  if (rows.some((r) => r.id === date)) return { rows: [...rows], error: coll.duplicateError }
+  return { rows: [...rows, { id: date, title: date, note: reason }], error: null }
+}
+
 /** ⚠ 変更 n件 COUNTS CONTROLS, AND THE LABEL SAYS SO (⚖ numbers explain
  *  themselves). Counting blocks would make one changed dial and eight changed
  *  dials both read 「1件」; counting controls is the number a reader can check

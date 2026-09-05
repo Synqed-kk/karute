@@ -43,8 +43,13 @@ import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import {
   accessFor,
+  addToCollection,
+  blockDirty,
+  blockHitOf,
   blockingError,
+  changedCount,
   clampCoachingFloor,
+  controlIdsOfBlock,
   clampCoachingRetention,
   clampWinBackDays,
   COACHING_FLOOR_MAX,
@@ -61,9 +66,13 @@ import {
   readPrefs,
   RETENTION_MAX_MONTHS,
   RETENTION_MIN_MONTHS,
+  matchesQuery,
   sameValue,
+  searchTextOf,
   sectionById,
   sectionDirty,
+  weekDaysOf,
+  weeklyHoursPayload,
   WIN_BACK_MAX,
   WIN_BACK_MIN,
   withCurrent,
@@ -1136,6 +1145,190 @@ describe('the rail — canon’s IA, and never an option wall', () => {
     // one assertion: there is no third state left for a row to be in.
     expect(SCREEN_CODE).not.toContain('準備中')
     expect(props.rail.every((r) => r.state === 'open' || r.state === 'no-rights')).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ S17 STEP 1 — THE FIVE NEW TRUTHS, EACH WITH A KILLER OF ITS OWN.
+// Every one of these is a rule this round introduced, lifted into a pure
+// function on purpose so it can be RUN here rather than only read: this suite
+// cannot mount React (no react-dom in the module map), and a rule that only
+// exists inside a handler can only be checked by mounting one.
+describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shapes', () => {
+  it('the search index is the ROW, its GROUP, its SECTION and every BLOCK TITLE inside it', async () => {
+    const props = await room({ store: STORE_A })
+    const byId = Object.fromEntries(props.sections.map((sec) => [sec.id, sec]))
+    const rowOf = (id: string) => props.rail.find((r) => r.id === id)!
+
+    // ⚠ THE BLOCK TITLES ARE THE HALF THAT MATTERS. A rail that matched only its
+    // own 22 labels would be a filter over the page's table of contents; what a
+    // manager types is the name of the THING they want (「休憩」, 「臨時休業」),
+    // which is a block inside a section whose label says none of it.
+    const hours = searchTextOf(rowOf('store-hours'), byId['store-hours'])
+    expect(hours).toContain('店舗情報・営業時間')
+    expect(hours).toContain('店舗運営')
+    expect(hours).toContain('予約ボードの操作')
+    expect(hours).toContain('臨時休業')
+    // …and a query that matches ONLY a block title still finds the row, and the
+    // rail says WHICH block explained it rather than looking like a mismatch.
+    expect(matchesQuery(hours, '臨時休業')).toBe(true)
+    expect(blockHitOf(rowOf('store-hours'), byId['store-hours'], '臨時休業')).toBe('臨時休業')
+    // …and a query the row's OWN label carries needs no explanation.
+    expect(blockHitOf(rowOf('store-hours'), byId['store-hours'], '営業時間')).toBeNull()
+    // An empty query is not a filter; a query nothing matches is honest silence.
+    expect(matchesQuery(hours, '')).toBe(true)
+    expect(matchesQuery(hours, '   ')).toBe(true)
+    expect(props.rail.filter((r) => matchesQuery(searchTextOf(r, byId[r.id] ?? null), 'ぜったいにない語')))
+      .toEqual([])
+    // ⚠ CASE-FOLDED, for the Latin in a Japanese page: 「Reserve 受付」 and
+    // 「AI設定」 are the two rows a reader types in lowercase.
+    expect(matchesQuery(searchTextOf(rowOf('reserve-acceptance'), byId['reserve-acceptance']), 'reserve')).toBe(true)
+    expect(matchesQuery(searchTextOf(rowOf('ai'), byId['ai']), 'ai')).toBe(true)
+    // …and the footer's count is DERIVED, so a 23rd section cannot ship beside a
+    // rail still claiming 22.
+    expect(props.rail).toHaveLength(22)
+    expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
+  })
+
+  it('a block is dirty when one of ITS OWN controls moved, and 変更 n件 counts controls', async () => {
+    const props = await room({ store: STORE_A })
+    const sec = sectionOf(props, 'store-hours')
+    const seed = seedOf(props)
+    const first = sec.blocks[0]
+    const second = sec.blocks[1]
+
+    expect(blockDirty(first, seed, seed)).toBe(false)
+    expect(changedCount(sec, seed, seed)).toBe(0)
+
+    const moved = { ...seed, [controlIdsOfBlock(first)[0]]: '__moved__' }
+    // ⚠ THE DOT IS PER BLOCK, and that is the whole point of it: 色・テーマ has 67
+    // controls, so 「something on this page is unsaved」 is not an answer — WHICH
+    // group is.
+    expect(blockDirty(first, moved, seed)).toBe(true)
+    expect(blockDirty(second, moved, seed)).toBe(false)
+    // …and the COUNT counts controls, not blocks: one changed dial and eight
+    // changed dials would both read 「1件」 otherwise.
+    expect(changedCount(sec, moved, seed)).toBe(1)
+    const two = { ...moved, [controlIdsOfBlock(second)[0]]: '__moved__' }
+    expect(changedCount(sec, two, seed)).toBe(2)
+    expect(blockDirty(second, two, seed)).toBe(true)
+  })
+
+  it('⚖ C1 — a day switched OFF sends `null` for THAT DAY, and never a null object', async () => {
+    const props = await room({ store: STORE_A })
+    const hours = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.hours')!
+    expect(hours.layout).toBe('week')
+    expect(hours.rows).toHaveLength(7)
+    // Every row carries its own weekday, which is how the payload is read back
+    // off what was rendered rather than off an id format.
+    expect(hours.rows.map((r) => r.weekday)).toEqual([1, 2, 3, 4, 5, 6, 0])
+
+    const seed = seedOf(props)
+    const days = weekDaysOf(hours, seed)
+    const payload = weeklyHoursPayload(days)
+    // 月曜 is this world's 定休日, so it is `null` — 定休日, not 「unconfigured」.
+    expect(payload.mon).toBeNull()
+    expect(payload.tue).toEqual({ open: '10:00', close: '19:00' })
+    expect(Object.keys(payload).sort()).toEqual(['fri', 'mon', 'sat', 'sun', 'thu', 'tue', 'wed'])
+    // …and the row really renders as 定休日 for the reader, not only in the payload.
+    const monSwitch = hours.rows[0].controls.find((c) => c.control.kind === 'switch')!
+    expect(seed[monSwitch.id]).toBe(false)
+    expect(labelOfValue(monSwitch.control, false)).toBe('定休日')
+
+    // ⚠ TURN A SECOND DAY OFF AND ONLY THAT DAY GOES NULL. The whole-object null
+    // means 「this store has never configured hours」, which switches the hours
+    // filter off entirely — a screen that answered 「closed on Thursdays」 with it
+    // would open the store's booking window to every hour of every day.
+    const thu = hours.rows[3].controls.find((c) => c.control.kind === 'switch')!
+    const off = weeklyHoursPayload(weekDaysOf(hours, { ...seed, [thu.id]: false }))
+    expect(off.thu).toBeNull()
+    expect(off.tue).toEqual({ open: '10:00', close: '19:00' })
+    // …and switching every day off is still SEVEN nulls, never one.
+    const allIds = hours.rows.map((r) => r.controls.find((c) => c.control.kind === 'switch')!.id)
+    const allOff = weeklyHoursPayload(weekDaysOf(hours, { ...seed, ...Object.fromEntries(allIds.map((id) => [id, false])) }))
+    expect(Object.values(allOff).every((v) => v === null)).toBe(true)
+    expect(Object.keys(allOff)).toHaveLength(7)
+  })
+
+  it('⚖ C2 — 臨時休業 adds, removes, and refuses a duplicate date in the wire’s own words', async () => {
+    const props = await room({ store: STORE_A })
+    const block = sectionOf(props, 'store-hours').blocks.find((b) => b.id === 'store-hours.closures')!
+    const coll = block.collection!
+    expect(block.title).toBe('臨時休業')
+    // ⚠ 特別営業 IS GONE FROM THE PAGE. Core has no field for it (registry ⑨
+    // `special_open_days`), and a control that offers a value the store cannot
+    // save is a lie with a picture on it.
+    expect(JSON.stringify(block)).not.toContain('特別営業')
+
+    const rows = coll.items
+    expect(rows.length).toBeGreaterThan(0)
+    const existing = rows[0].id
+    expect(existing).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+    // adding a NEW date puts a row in…
+    const added = addToCollection(coll, rows, '2026-12-24', '設備メンテナンスのため')
+    expect(added.error).toBeNull()
+    expect(added.rows).toHaveLength(rows.length + 1)
+    expect(added.rows[added.rows.length - 1]).toEqual({ id: '2026-12-24', title: '2026-12-24', note: '設備メンテナンスのため' })
+
+    // …the SAME date is refused, in the sentence the server would answer with,
+    // and the list is left exactly as it was.
+    const dup = addToCollection(coll, rows, existing, 'なんでも')
+    expect(dup.error).toBe('その日はすでに臨時休業です')
+    expect(dup.rows).toEqual([...rows])
+
+    // …an empty date is refused too, and says which field.
+    expect(addToCollection(coll, rows, '   ', '理由').error).toBe('日付を選んでください。')
+    expect(addToCollection(coll, rows, '   ', '理由').rows).toEqual([...rows])
+
+    // …and removal is the list minus that one row, which is what the screen does.
+    expect(rows.filter((r) => r.id !== existing)).toHaveLength(rows.length - 1)
+    expect(coll.removeLabel).toBe('取り消す')
+  })
+
+  it('⚖ C6 — the 直前締切 select stores MINUTES and only says hours', async () => {
+    const props = await room({ store: STORE_A })
+    const cutoff = controlOf(props, 'reserve.cutoff')
+    const options = cutoff.control.kind === 'select' ? cutoff.control.options : []
+    // ⚠ THE VALUE IS `cutoff_minutes`. Holding hours here and multiplying at the
+    // seam is exactly where a factor of 60 goes missing between two rounds.
+    expect(options.map((o) => o.value)).toEqual(['60', '120', '180', '360'])
+    expect(options.map((o) => o.label)).toEqual(['1時間前', '2時間前', '3時間前', '6時間前'])
+    for (const o of options) expect(Number(o.value) % 60).toBe(0)
+    // …and the seeded value is a real minute count, not an hour that happens to
+    // be inside the list.
+    expect(Number(cutoff.value)).toBeGreaterThanOrEqual(60)
+    expect(options.some((o) => o.value === String(cutoff.value))).toBe(true)
+    // The other four of the five mirrored fields keep the wire's own units.
+    expect(controlOf(props, 'reserve.days').control.kind).toBe('number')
+    expect(controlOf(props, 'reserve.free').control.kind).toBe('select')
+    expect(controlOf(props, 'reserve.noshow').control.kind).toBe('segment')
+  })
+
+  it('⚖ mock review v2-3 — a DOOR is a wash pill; the solid accent is for COMMITS only', () => {
+    // A door opens a page. A commit changes something. The family gives the
+    // solid accent to the second and the wash to the first, and the mock's own
+    // pixel review caught 予約と確保を開く wearing a solid fill.
+    // ⚠ THE SCAN IS OVER BUTTON SURFACES. A switch's THUMB is a 18px dot inside
+    // a control — the moving part of a selected state, whose track already wears
+    // the wash — not a surface a reader reads as 「press me to commit」. It is
+    // named out rather than silently skipped.
+    const solid = [...CSS_CODE.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((m) => /background: var\(--st-accent\)[;\s]/.test(m[2]))
+      .map((m) => m[1].trim())
+      .filter((sel) => !sel.includes('thumb'))
+    expect(solid).toEqual([
+      '.biz .pg-settings .st-act',
+      '.biz .pg-settings .st-save',
+    ])
+    // …and both of them really are commits, by name.
+    expect(SCREEN_CODE).toMatch(/className="st-act"[^>]*>\{block\.action\.label\}/)
+    expect(SCREEN_CODE).toContain('className="st-save"')
+    expect(SCREEN_CODE).toContain('保存する')
+    // …and the door really is the wash tier, with accent text on an accent line.
+    expect(CSS_CODE).toMatch(/\.st-link \{[^}]*background: var\(--st-accent-wash\)/)
+    expect(CSS_CODE).toMatch(/\.st-link \{[^}]*color: var\(--st-accent\)/)
+    expect(CSS_CODE).not.toMatch(/\.st-link \{[^}]*background: var\(--st-accent\);/)
   })
 })
 

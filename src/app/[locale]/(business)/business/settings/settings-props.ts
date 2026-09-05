@@ -289,6 +289,7 @@ const block = (
   action: extra.action ?? null,
   audit: extra.audit ?? null,
   collection: extra.collection ?? null,
+  ...(extra.layout ? { layout: extra.layout } : {}),
   ...(extra.flag ? { flag: extra.flag } : {}),
   ...(extra.rightsNote ? { rightsNote: extra.rightsNote } : {}),
 })

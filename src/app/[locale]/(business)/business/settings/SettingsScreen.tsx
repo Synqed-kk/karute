@@ -75,6 +75,7 @@ import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '
 import { makeSpring } from '@/business/lib/spring'
 import { StorePolicySection, STORE_POLICY_ANCHORS, type StorePolicyProps } from './StorePolicySection'
 import {
+  addToCollection,
   blockDirty,
   blockHitOf,
   blockingError,
@@ -325,22 +326,16 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  wire would (`addClosedDay` answers 409). The refusal is spoken at the press,
    *  which is the ⚖ mistake-proofing layer this room is built on: the operator
    *  never gets to a state the store cannot save. */
-  const addToCollection = useCallback((block: SettingsBlock) => {
+  const addRow = useCallback((block: SettingsBlock) => {
     const coll = block.collection
     if (!coll) return
-    const date = String(values[coll.dateControlId] ?? '').trim()
-    const reason = String(values[coll.reasonControlId] ?? '').trim()
-    if (date === '') {
-      setListErrors((prev) => ({ ...prev, [block.id]: coll.emptyDateError }))
-      return
-    }
     const rows = listRows[block.id] ?? coll.items
-    if (rows.some((r) => r.id === date)) {
-      setListErrors((prev) => ({ ...prev, [block.id]: coll.duplicateError }))
-      return
-    }
-    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
-    setListRows((prev) => ({ ...prev, [block.id]: [...rows, { id: date, title: date, note: reason }] }))
+    const next = addToCollection(coll, rows, String(values[coll.dateControlId] ?? ''), String(values[coll.reasonControlId] ?? ''))
+    setListErrors((prev) => ({ ...prev, [block.id]: next.error ?? '' }))
+    if (next.error !== null) return
+    setListRows((prev) => ({ ...prev, [block.id]: next.rows }))
+    // The two fields empty on success only — a refused attempt keeps what the
+    // operator typed, so they can correct the date instead of retyping both.
     setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
   }, [values, listRows])
 
@@ -739,7 +734,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                         onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
                         listRows={b.collection ? (listRows[b.id] ?? b.collection.items) : null}
                         listError={listErrors[b.id] ?? null}
-                        onListAdd={() => addToCollection(b)}
+                        onListAdd={() => addRow(b)}
                         onListRemove={(rowId) => removeFromCollection(b, rowId)}
                         reduced={reduced}
                       />
