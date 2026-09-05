@@ -1692,6 +1692,14 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           chips(`staff.caps-${id}`, `${name}ができること`, capOpts, granted, undefined, true),
         ], {
           meta: [s.pin ? '暗証番号 設定済み' : '暗証番号 未設定', s.voice ? '音声登録 済み' : '音声登録 なし'],
+          // ⚖ C7 / F1 — the wire's rulebook defines NINE role keys
+          // (`PermissionRoleKey`, dist/types.d.ts:1186) and Karute has adopted
+          // six of them; the other three carry no preset grants yet. So the row
+          // OFFERS six and NAMES the three by key: a reader who meets them here
+          // does not meet them as a surprise at reconnect, and naming them by key
+          // rather than inventing Japanese labels keeps the page from promising a
+          // role nobody can currently be.
+          source: `カルテと同じ権限の一覧です（役職を選ぶとひな形どおりに入り、そのあと1つずつ足し引きできます）。コアの権限表には役職の種類が${rulebook.roles.length + rulebook.unadoptedRoleKeys.length}あり、うち${rulebook.roles.length}つをカルテが使っています（まだ使っていないもの: ${rulebook.unadoptedRoleKeys.join(' / ')}）`,
         })
       }), {
         facts: [

@@ -697,11 +697,64 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const roles = src.slice(src.indexOf('export const PERMISSION_ROLES = ['), src.indexOf('] as const', src.indexOf('export const PERMISSION_ROLES = [')))
     const roleKeys = [...roles.matchAll(/^\s*'([a-z]+)',/gm)].map((m) => m[1])
     expect(roleKeys).toEqual(rulebook.roles.map((r) => r.key))
-    // ⚠ SIX, NOT NINE. The packet said nine including `custom` and there is no
-    // `PermissionRoleKey` symbol on origin/main at all — the type is
-    // `PermissionRole` over these six (`permissions.ts:51-59`). Read from the
-    // source, which is the only reason a pin is worth anything.
+    // ⚠ SIX ADOPTED. Karute's own `PERMISSION_ROLES` (`permissions.ts:51-58`) is
+    // where a role gets a preset grant behind it, and it names six. The WIRE
+    // names nine — see the pin below, which is the half this one cannot see.
     expect(roleKeys).toHaveLength(6)
+  })
+
+  // ⚖ S17 · C7 / F1 — THE SECOND HALF OF THE SAME CONTRACT, READ FROM THE WIRE.
+  //
+  // ⚠ THE FIRST CUT OF THIS ROUND GOT THIS WRONG, AND THE WAY IT GOT IT WRONG IS
+  // the reason this pin exists: it grepped KARUTE'S TREE for `PermissionRoleKey`,
+  // found nothing, and wrote 「there is no such symbol anywhere on origin/main」.
+  // True of that tree — and false as a statement about the CONTRACT, which lives
+  // in the SDK. A room that mirrors a wire has to read the wire.
+  it('⚖ C7/F1 — the nine role keys still equal the SDK’s own PermissionRoleKey', () => {
+    const dts = readFileSync(join(process.cwd(), 'node_modules/@synqed-kk/client/dist/types.d.ts'), 'utf8')
+    const line = dts.slice(dts.indexOf('export type PermissionRoleKey'))
+    const decl = line.slice(0, line.indexOf(';'))
+    const keys = [...decl.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
+    expect(keys).toEqual([
+      'owner', 'manager', 'senior', 'practitioner', 'frontdesk', 'custom',
+      'area_manager', 'trainee', 'accountant',
+    ])
+    expect(keys).toHaveLength(9)
+    // …and the room's own two lists ADD UP to it, with nothing invented and
+    // nothing dropped: the six it OFFERS plus the three it only NAMES.
+    expect([...rulebook.roles.map((r) => r.key), ...rulebook.unadoptedRoleKeys].sort()).toEqual([...keys].sort())
+    // ⚠ THE THREE CARRY NO JAPANESE LABEL, deliberately. A label is a promise
+    // that the role can be chosen, and none of these can be yet — Karute has no
+    // preset grant for any of them, so a store selecting one would be handing
+    // somebody a role with no capabilities behind it.
+    for (const k of rulebook.unadoptedRoleKeys) {
+      expect({ key: k, offered: rulebook.roles.some((r) => r.key === k) }).toEqual({ key: k, offered: false })
+      expect({ key: k, granted: rulebook.grants[k] !== undefined }).toEqual({ key: k, granted: false })
+    }
+    // …and the rulebook the reconnect will call for is the one named here, so
+    // the swap is a call rather than a re-read of this file.
+    expect(dts).toContain('export interface PermissionRulebook')
+    expect(dts).toContain('roles: PermissionRoleKey[];')
+    expect(dts).toContain('presets: Record<PermissionRoleKey, string[]>;')
+  })
+
+  it('⚖ C7/F1 — and the page SAYS so, by key, where the roles are chosen', async () => {
+    const props = await room({ store: STORE_A })
+    const roster = rowsOf(props).find((r) => r.id.startsWith('staff.row-') && r.controls.some((c) => c.id.startsWith('staff.preset-')))!
+    // The three are named in the row's own receipt, so a reader meets them on
+    // this page rather than at reconnect…
+    for (const k of rulebook.unadoptedRoleKeys) expect(roster.source ?? '').toContain(k)
+    // …and the counts in that sentence are DERIVED, so a tenth role on the wire
+    // cannot ship beside a page still saying nine.
+    expect(roster.source ?? '').toContain('9')
+    expect(roster.source ?? '').toContain('6')
+    // …while the CONTROL still offers only the six that have grants behind them.
+    const preset = roster.controls.find((c) => c.id.startsWith('staff.preset-'))!
+    const options = preset.control.kind === 'select' ? preset.control.options : []
+    expect(options.map((o) => o.value)).toEqual(rulebook.roles.map((r) => r.key))
+    for (const k of rulebook.unadoptedRoleKeys) {
+      expect({ key: k, offered: options.some((o) => o.value === k) }).toEqual({ key: k, offered: false })
+    }
   })
 
   // ⚖ S17 · C4 — the same proof for the 26 business types.

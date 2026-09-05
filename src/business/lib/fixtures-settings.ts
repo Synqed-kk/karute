@@ -558,12 +558,31 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
 // It is in the grid now, and the 事業構成 boundary sentence says how it is
 // handed out.
 
-/** ⚠ D-NUMBERED: THE PACKET SAID NINE ROLES INCLUDING `custom`; THERE ARE SIX,
- *  and there is no `PermissionRoleKey` symbol anywhere on `origin/main`. The
- *  type is `PermissionRole` (`src/lib/auth/permissions.ts:59`) over
- *  `PERMISSION_ROLES` (`:51-58`). Verified by reading the file, not by trusting
- *  the brief — the whole point of pinning a contract is that the pin is read
- *  from the source. */
+/** ⚠ NINE ON THE WIRE, SIX ADOPTED — AND THE ROOM OFFERS THE SIX.
+ *
+ *  The first cut of this note said 「there is no `PermissionRoleKey` symbol
+ *  anywhere on origin/main」. That is true of KARUTE'S TREE and false as a
+ *  statement about the CONTRACT, which is the thing this file exists to mirror:
+ *
+ *    @synqed-kk/client@1.34.0 dist/types.d.ts:1186
+ *      export type PermissionRoleKey = 'owner' | 'manager' | 'senior'
+ *        | 'practitioner' | 'frontdesk' | 'custom'
+ *        | 'area_manager' | 'trainee' | 'accountant'
+ *    …:1187-1193
+ *      export interface PermissionRulebook {
+ *        rulebook_version: number; capabilities: string[];
+ *        roles: PermissionRoleKey[]; presets: Record<PermissionRoleKey, string[]>;
+ *        coarse_labels: Record<PermissionRoleKey, 'OWNER'|'ADMIN'|'STYLIST'|'ASSISTANT'>
+ *      }
+ *
+ *  Karute's own `PERMISSION_ROLES` (`src/lib/auth/permissions.ts:51-58`) adopts
+ *  SIX of the nine, and those six are the only ones with real preset grants
+ *  behind them. So the room OFFERS six — inventing a Japanese label and an empty
+ *  grant for `area_manager` / `trainee` / `accountant` would be the room making
+ *  up three roles nobody can currently be — and the 役職 row's own 詳しく says
+ *  the other three exist, by key, so the reader learns it from the page rather
+ *  than from a surprise at reconnect. Two disk-read pins hold both halves: the
+ *  six against Karute's file, the nine against the SDK's. */
 export interface Rulebook {
   /** All 18, in Karute's own source order, each with what it DOES in plain
    *  Japanese (⚖ 「plain names, never codes」 — the reader never sees a token). */
@@ -575,6 +594,11 @@ export interface Rulebook {
   /** This demo world's role WORDS → the preset they map to. An unknown role
    *  holds NOTHING, never a default grant. */
   roleKeyOf: Readonly<Record<string, string>>
+  /** ⚠ THE THREE THE WIRE HAS AND KARUTE HAS NOT ADOPTED. Listed BY KEY, with no
+   *  Japanese label invented for them: a label is a promise that the role can be
+   *  chosen, and none of these can be yet. They are named on the page so the
+   *  reader meets them here rather than at reconnect. */
+  unadoptedRoleKeys: readonly string[]
 }
 
 /** `src/lib/auth/permissions.ts:14-46` (CAPABILITIES) · `:51-58`
@@ -638,6 +662,8 @@ export const rulebook: Rulebook = {
     店舗管理者: 'manager',
     スタッフ: 'practitioner',
   },
+  // `PermissionRoleKey` minus the six Karute adopted (dist/types.d.ts:1186).
+  unadoptedRoleKeys: ['area_manager', 'trainee', 'accountant'],
 }
 
 /** ⚖ S17 · C11 — THE ENTITLEMENT IS THE BUSINESS'S, AND IT IS READ-ONLY HERE.
