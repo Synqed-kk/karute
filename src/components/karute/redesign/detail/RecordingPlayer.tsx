@@ -71,6 +71,9 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
    *  (F5). Cleared in the same `finally` that clears `busy`. */
   const pending = useRef<Promise<string | null> | null>(null)
   const noticeTimer = useRef<number | null>(null)
+  /** A finger (or an arrow key) is on the scrub right now — so the element's own
+   *  `timeupdate` must not move the thumb out from under it (fix round 3). */
+  const scrubbing = useRef(false)
 
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -223,14 +226,30 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
     setEffectiveRate(audio.playbackRate)
   }, [speedIndex])
 
-  /** Commit the scrub's position to the element (F9). Called on RELEASE only —
+  /** Commit the scrub's position to the element. Called on RELEASE only —
    *  pointer up, touch end, key up — never per pixel of the drag: against a
    *  signed remote url every write is a seek and every seek is a byte-range
-   *  request, which on LTE with a 90-minute take is a stutter, not a scrub. */
-  const commitSeek = useCallback(() => {
+   *  request, which on LTE with a 90-minute take is a stutter, not a scrub.
+   *
+   *  ⚠ IT READS THE RANGE, NOT `elapsed` (fix round 3). A PLAYING element fires
+   *  `timeupdate` ~4×/s, and each one used to overwrite `elapsed` — so if the
+   *  last event before the finger lifted was a tick rather than a change (the
+   *  common case: the finger stops before it rises), the release seeked to the
+   *  PLAYHEAD and the staffer's scrub vanished silently. The input's own value
+   *  is the one thing a tick cannot move. */
+  const commitSeek = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
+    // ONE RELEASE, ONE SEEK. iOS fires `pointerup` AND `touchend` for a single
+    // finger lift, so this ran twice — two byte-range requests against the
+    // signed url, which is the exact thing commit-on-release exists to avoid.
+    // The same ref that owns the drag makes the commit idempotent for free.
+    if (!scrubbing.current) return
+    scrubbing.current = false
+    const next = Number(e.currentTarget.value)
+    if (!Number.isFinite(next)) return
     const audio = audioRef.current
-    if (audio) audio.currentTime = elapsed
-  }, [elapsed])
+    if (audio) audio.currentTime = next
+    setElapsed(next)
+  }, [])
 
   const pct = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0
   const press = 'transition-transform duration-(--duration-press) ease-(--ease-out) motion-safe:active:scale-[0.97]'
@@ -240,7 +259,12 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
       <audio
         ref={audioRef}
         preload="none"
-        onTimeUpdate={(e) => setElapsed(e.currentTarget.currentTime)}
+        onTimeUpdate={(e) => {
+          // The drag owns the thumb while it lasts; the playhead gets it back on
+          // release. Without this a playing take fought the finger ~4×/s.
+          if (scrubbing.current) return
+          setElapsed(e.currentTarget.currentTime)
+        }}
         onLoadedMetadata={(e) => {
           if (durationSeconds === null && Number.isFinite(e.currentTarget.duration)) {
             setTotal(e.currentTarget.duration)
@@ -341,13 +365,34 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
           value={Math.min(elapsed, total || 0)}
           disabled={total <= 0}
           // The drag moves the DISPLAY only; the element is seeked on release.
-          onChange={(e) => setElapsed(Number(e.target.value))}
+          onPointerDown={() => void (scrubbing.current = true)}
+          onTouchStart={() => void (scrubbing.current = true)}
+          onKeyDown={() => void (scrubbing.current = true)}
+          // Belt: a synthetic change with no pointer/key phase (a test, an
+          // assistive tool) still claims the thumb for the duration of the drag.
+          onChange={(e) => {
+            scrubbing.current = true
+            setElapsed(Number(e.target.value))
+          }}
           onPointerUp={commitSeek}
+          // An interrupted drag (the finger leaves the surface, a call arrives)
+          // must release the thumb too — otherwise the display freezes for good.
+          onPointerCancel={commitSeek}
           onTouchEnd={commitSeek}
           onKeyUp={commitSeek}
           aria-label={t('transcript.seek')}
           className={cn(
-            'h-11 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-default',
+            // ⚠ `touch-pan-y` is load-bearing (fix round 3). F8 made this a
+            // 44 px × full-width band across a page the staffer scrolls, and
+            // WebKit's slider claims the touch on `touchstart` without
+            // releasing it for a vertical pan — so a thumb-swipe that happened
+            // to start on the scrub would scrub, or do nothing, instead of
+            // scrolling the karute. `touch-action: pan-y` gives the browser the
+            // vertical gesture back and leaves the horizontal drag to the
+            // slider: the standard recipe for a horizontal control inside a
+            // vertical scroller, and the one place F8's "the target grew, the
+            // look did not" was not free.
+            'h-11 w-full cursor-pointer touch-pan-y appearance-none bg-transparent disabled:cursor-default',
             '[&::-webkit-slider-thumb]:size-[15px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[1.5px] [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-card [&::-webkit-slider-thumb]:shadow-sm',
             '[&::-moz-range-thumb]:size-[15px] [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-[1.5px] [&::-moz-range-thumb]:border-primary [&::-moz-range-thumb]:bg-card',
           )}

@@ -272,6 +272,70 @@ describe('the controls', () => {
     expect(seeks).toEqual([300])
   })
 
+  // ⚠ THE DEFECT F9 INTRODUCED (fix round 3 — found independently by the
+  // construction and phone lenses). A PLAYING element fires `timeupdate` ~4×/s,
+  // and each tick used to overwrite the drag: the thumb was yanked back to the
+  // playhead mid-drag, and because the finger stops moving before it lifts, the
+  // release commonly seeked to the PLAYHEAD and threw the scrub away silently.
+  // This is the ordinary gesture on this card — listening to a 90-minute take
+  // and dragging to a point of interest.
+  it('a scrub WHILE PLAYING survives timeupdate and lands where the finger left it', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    fireEvent.change(range, { target: { value: '400' } })
+    expect(range.value).toBe('400')
+    audio.currentTime = 12
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('400')
+    fireEvent.pointerUp(range)
+    expect(audio.currentTime).toBe(400)
+  })
+
+  it('the playhead gets the thumb back once the finger lifts', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const audio = audioEl()
+    fireEvent.change(range, { target: { value: '400' } })
+    fireEvent.pointerUp(range)
+    // The drag is over — a tick may move the display again.
+    audio.currentTime = 405
+    await act(async () => {
+      fireEvent.timeUpdate(audio)
+    })
+    expect(range.value).toBe('405')
+  })
+
+  // L4 NEW-3: iOS fires pointerup AND touchend for ONE finger lift.
+  it('one release is ONE seek, even when iOS sends pointerUp and touchEnd', () => {
+    card()
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    const seeks: number[] = []
+    Object.defineProperty(audioEl(), 'currentTime', {
+      configurable: true,
+      get: () => seeks[seeks.length - 1] ?? 0,
+      set: (v: number) => void seeks.push(v),
+    })
+    fireEvent.change(range, { target: { value: '250' } })
+    fireEvent.pointerUp(range)
+    fireEvent.touchEnd(range)
+    expect(seeks).toEqual([250])
+  })
+
+  // L4 NEW-2: the 44 px band must not swallow the page's vertical scroll.
+  it('the scrub leaves vertical panning to the page', () => {
+    card()
+    expect(screen.getByLabelText('再生位置').className).toContain('touch-pan-y')
+  })
+
   it('a keyboard user’s seek commits on key up', () => {
     card()
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
