@@ -131,7 +131,20 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
 
   it('every declared TITLE is unique — two steps cannot wear one name', () => {
     const titles = DECLARATIONS.map((d) => d.title)
-    expect(titles.length).toBe(new Set(titles).size)
+    // ⚠ R2-28 — ONE PAIR IS DELIBERATELY MUTUALLY EXCLUSIVE, and it is the only
+    // one. 費用との比較 is declared TWICE in the source — once by the money card
+    // and once by the withheld card, which is the same question answered two
+    // ways — and exactly one of them can ever render, because `pitchSub` and
+    // `pitchWithheld` are set from the same null test in the props file. The
+    // census a reader WALKS is therefore still unique.
+    const dupes = titles.filter((t, i) => titles.indexOf(t) !== i)
+    expect(dupes).toEqual(['費用との比較'])
+    expect(new Set(titles).size).toBe(titles.length - 1)
+    // …and the exclusion is a FACT of the assembly, not a promise: the two
+    // strings are the two arms of one conditional on `monthlyValueEstimate`.
+    const props = readFileSync(join(process.cwd(), `${ROOM_DIR}/coaching-props.ts`), 'utf8')
+    expect(props).toContain('pitchSub: roi.monthlyValueEstimate')
+    expect(props).toContain('roi.monthlyValueEstimate === null')
   })
 
   it('the room declares the sections it actually has, on BOTH tabs and when dormant', () => {
@@ -162,8 +175,11 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // ⚠ THE COUNT IS PINNED AS WELL AS THE MEMBERSHIP, so a section added
     // without a declaration cannot hide behind `arrayContaining`. S16 moved
     // panels and folded copy but added and removed NO section: the count is the
-    // look-fix round's own 27, re-derived on the new shape.
-    expect(titles.length).toBe(27)
+    // look-fix round's own 27, re-derived on the new shape. ⚠ R2-28 makes it 28
+    // DECLARATIONS for 27 STEPS: the withheld money card is the second arm of
+    // 費用との比較 and never renders beside the first.
+    expect(titles.length).toBe(28)
+    expect(new Set(titles).size).toBe(27)
     // …and the two COMPOSED declarations are really in the census rather than
     // dropped by a parser that could not read them (the room-6 lesson: a census
     // that only counts what it can parse is self-referential).

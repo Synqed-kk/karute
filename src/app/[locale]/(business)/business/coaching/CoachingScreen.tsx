@@ -388,11 +388,26 @@ function useTabLine(
     const sx = makeSpring((v) => { state.current.x = v; paint() }, { response: 0.3, reduced })
     const sw = makeSpring((v) => { state.current.w = v; paint() }, { response: 0.3, reduced })
     springs.current = { x: sx, w: sw }
+    /** ⚠ R2-29 — RECTS, NOT OFFSETS, AND IN BOTH PATHS. `offsetLeft` and
+     *  `offsetWidth` are INTEGERS; the tabs have fractional rects, so the line
+     *  landed 1.48px out in x and 0.75px out in w after a switch — about three
+     *  device pixels on a 2px rule at dSF 2 — and the click path and the resize
+     *  path disagreed with each other, which is the tell that the instrument was
+     *  wrong rather than the spring. The x is measured against the TRACK's own
+     *  rect, because that is the box the line is positioned inside. */
+    const target = (btn: HTMLElement) => {
+      const track = trackRef.current
+      if (!track) return null
+      const t = track.getBoundingClientRect()
+      const b = btn.getBoundingClientRect()
+      return { x: b.left - t.left, w: b.width }
+    }
     const place = () => {
       const btn = trackRef.current?.querySelector<HTMLElement>('.cg-tab.is-on')
-      if (!btn) return
-      sx.jump(btn.offsetLeft)
-      sw.jump(btn.offsetWidth)
+      const at = btn ? target(btn) : null
+      if (!at) return
+      sx.jump(at.x)
+      sw.jump(at.w)
     }
     place()
     window.addEventListener('resize', place)
@@ -406,10 +421,13 @@ function useTabLine(
   }, [trackRef, markRef, reduced])
   return useCallback((btn: HTMLElement) => {
     const s = springs.current
-    if (!s) return
-    s.x.set(btn.offsetLeft)
-    s.w.set(btn.offsetWidth)
-  }, [])
+    const track = trackRef.current
+    if (!s || !track) return
+    const t = track.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    s.x.set(b.left - t.left)
+    s.w.set(b.width)
+  }, [trackRef])
 }
 
 /** ⚖ THE TREATED-VS-CONTROL CHART (audit #18) — the picture that makes the
@@ -1721,8 +1739,20 @@ export function CoachingScreen(props: CoachingProps) {
                   )}
                   {/* ⚠ THE WITHHELD MONEY LINE IS SAID OUT LOUD, like every other
                       short receipt in this room. Silence would read as 「there is
-                      no value」 rather than 「we will not claim one yet」. */}
-                  {props.roi.pitchWithheld && <p className="cg-roi-withheld">{props.roi.pitchWithheld}</p>}
+                      no value」 rather than 「we will not claim one yet」.
+                      ⚠ R2-28 — AND IT IS A CARD, not a stranded sentence. As a
+                      bare <p> in the desk's `pitch` area it sat alone in a
+                      392×187 void beside a full-height chart — the only unboxed
+                      element on a desk made of cards, so a deliberate refusal
+                      read as a rendering accident. Same shape as the shown
+                      state, same grid area, same declared title: only the
+                      wording says which of the two a reader is looking at. */}
+                  {props.roi.pitchWithheld && (
+                    <section className="cg-roi-withheld" data-guide-title="費用との比較" data-guide="押し上がった分を金額に置き換えた目安です。確からしさが「確立」になるまでは表示しません。">
+                      <h2 className="cg-sec-title">金額の目安はまだ表示しません</h2>
+                      <p>{props.roi.pitchWithheld}</p>
+                    </section>
+                  )}
                 </div>
               </div>
             )
@@ -1763,14 +1793,18 @@ export function CoachingScreen(props: CoachingProps) {
           onClick={() => setNoticeOpen((o) => !o)}
         >
           <span className="cg-notice-bar-text">
+            {/* ⚠ R2-30 — THE CHEVRON SITS WITH THE TITLE IT BELONGS TO. At the
+                1416 cap it was 870px away from its own words, which is the whole
+                column to cross to find the one 「this opens」 affordance. The bar
+                is still the button and the hit area is unchanged. */}
             <span className="cg-notice-bar-title">
               {props.transparency.title} ・ {props.transparency.barLead}
+              <span className="cg-notice-chevron" aria-hidden="true">▾</span>
             </span>
             {props.noticeLines.map((line) => (
               <span className="cg-notice-line" key={line}>{line}</span>
             ))}
           </span>
-          <span className="cg-notice-chevron" aria-hidden="true">▾</span>
         </button>
 
         {noticeOpen && (

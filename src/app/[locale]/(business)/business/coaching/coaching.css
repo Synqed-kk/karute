@@ -201,13 +201,17 @@
      of the line, so the product rendered ONE column where the mock renders two.
      Every `cg-page` desk threshold is therefore ≤ 940, and the MINS were
      re-derived to fit rather than the threshold raised to fit the mins:
-         560  the findings column — the mock's own ~560, and wide enough for the
-              receipt grid to be OPEN inside it (560 − 40 of panel padding − 30
-              of card padding = 490 of article, against a 480 threshold).
+         512  the findings column. ⚠ R2-27 RE-DERIVED IT FROM 560: the number's
+              JOB is 「the receipt grid is open inside a finding card at the desk」
+              and nothing else, so it is the receipt threshold plus the card's
+              own box — 480 + 30 of card padding + 2 of card border = 512. It
+              stopped being 560 when R2-9 took the findings PANEL's chrome away
+              (20px of padding and a border on each side), which is 42px the
+              article gets back.
        + 300  the supporting column beside it
        +  24  the gap between them
        ─────
-         884  the width at which the decision desk first fits.
+         836  the width at which the decision desk first fits.
      The TEAM grid is the BINDING one, from its own terms:
          608  the board card, and the sum is the WHOLE box rather than the
               tracks alone — the first cut of this number left the row's own
@@ -222,8 +226,29 @@
        +  24  the gap
        ─────
          932  the width at which the board and its rail first fit
-         940  ships — 932 plus 8, and 36px clear of the 976 the reference width
+         940  ships — 932 plus 8, and 20px clear of the 960 the reference width
               really hands this room.
+
+     THRESHOLD ④'s SECOND CONDITION (R2-27 — the one the first cut missed):
+     ⚠ A THRESHOLD IS NOT CROSSED CLEANLY IF THE COMPOSITION IT OPENS MAKES ONE
+     OF ITS OWN CHILDREN NARROWER THAN THE CHILD'S OWN THRESHOLD. At 940 the
+     desk hands the supporting column 5/12 of the row, which is NARROWER than
+     the fold's two-across pair gave it — so the 成績 card lost a tile column at
+     940 and won it back 18px later, in both rail states. The fix is arithmetic,
+     not taste: `--cg-main-min` must stay BELOW the fr share so the split at the
+     threshold is fr-driven rather than clamped, and the fr share must then be
+     wide enough for the 成績 card's own ⑥.
+         916  the row at container 940 (940 − 24 of gap)
+       × 7/12
+       ─────
+      534.33  the findings column, fr-driven — and `--cg-main-min` (512) is
+              BELOW it, so the min does not bind and does not steal the width
+         381.67  the supporting column, 5/12 of the same row
+       −  42  the 成績 card's own padding (40) and borders (2)
+       ─────
+      339.67  the card's container at the desk threshold, against ⑥'s 332 —
+              7.67px of slack, and 3-up tiles of 106.6 against a 104 floor.
+              Measured at 939 / 940 / 958, both rail states: 3-up at all six.
      ⚠ THE ROW'S TWO FIXED TRACKS SHRANK FROM V2-1's 168/148 TO 112/140, and the
      column gap from 14 to 10. V2-1's floor is the SENTENCE (260px) and that is
      untouched; what gave way is the name and the band, which hold a wrapping
@@ -246,7 +271,8 @@
      THRESHOLD ⑥ (the SPINE's five tiles, inside the 成績 CARD — its own
      container, for the same reason the receipt has one: what decides how many
      facts fit is the card's width, not the page's):
-         104  a tile, at the floor a phone needs to fit TWO of them
+         104  a tile, at the floor a phone needs to fit TWO of them (and,
+              measured below, the floor 「4.3 / 5.0」 needs at 17px)
        ×  3
        +  20  two gaps
        ─────
@@ -261,33 +287,42 @@
               carry the value's size step down with the tile.
               At the reference width the supporting column is 376, so the card
               is 336 and takes 3+2. A 390px phone (card ≈244) keeps its two.
-         101  the tile's TIGHT floor. ⚠ MEASURED, AND THE WIDEST VALUE IS NOT
-       ×  5   THE MONEY: 「4.3 / 5.0」 is 97px at 22px and 75px at 17px, against
-       +  40  「￥9,800」's 86 and 66. 75 + 26 of tile padding = 101.
-       ─────
-         545  all five across
-         560  ships — 545 plus 15, and the composition the desk is for.
+         104  the tile's TIGHT floor. ⚠ RE-MEASURED AT R2-27, in the shell's own
+       ×  5   face at the room's own size, and the widest value is NOT the money:
+       +  40  「4.3 / 5.0」 is 100.5px at 22px and 77.66px at 17px, against
+       ─────  「￥9,800」's 90.9 and 70.2. 77.66 + 26 of tile padding = 103.66,
+         560  which is 104 — the same number as the phone's two-across floor, so
+              one token answers both questions. (R1 recorded 75/97 for the same
+              two strings; the arithmetic below is re-derived from the measured
+              values, and both SHIPPED thresholds are unchanged by it.)
+         560  all five across, and 560 ships — the composition the desk is for.
+              ⚠ 5-up is a STACKED-band composition: at the desk the supporting
+              column caps at 5/12 of 1392, so the 成績 card never exceeds 538 of
+              container and reads 3+2 at every desk width. Measured, not assumed.
 
      THRESHOLD ⑦ (the VALUE's own size, inside a TILE — the smallest container
      in the room, and the right one: what decides whether a number fits is the
      TILE, not the card and not the page. The first cut of this stepped the size
      inside the CARD's bands and left 「4.3 / 5.0」 breaking in half at two of
      them, because 3-up and 5-up produce tiles of very different widths):
-          97  the widest value at 22px 「4.3 / 5.0」, measured
+       100.5  the widest value at 22px 「4.3 / 5.0」, measured
        +  26  the tile's own left+right padding
        ─────
-         123  the tile at which the full size fits
-         128  ships — 123 plus 5. Below it the value is 17px (75 + 26 = 101,
-              which is the tile floor above), so a number NEVER breaks in half
-              at any band — the one thing a value may not do.
+       126.5  the tile at which the full size fits
+         128  ships — 126.5 plus 1.5. Below it the value is 17px (77.66 + 26 =
+              103.66, which is the tile floor above), so a number NEVER breaks in
+              half at any band — the one thing a value may not do.
      Between them the card takes 3+2 rather than `auto-fit`'s 4+1: four tiles
      and an orphan is the same half-empty row the supporting column's own
      `:last-child:nth-child(odd)` rule exists to prevent, one level down.
 
-     ALL SIX ARE CONTAINER QUERIES, and container width is monotonic in page
-     width, so each threshold is crossed EXACTLY ONCE across a sweep — the room
-     never gains a column, loses it and gains it again. */
-  --cg-main-min: 560px;
+     ALL SEVEN ARE CONTAINER QUERIES, and each is crossed EXACTLY ONCE IN ITS
+     OWN CONTAINER'S WIDTH — the room never gains a column, loses it and gains it
+     again as its own box grows. ⚠ AND THE PAGE'S THRESHOLDS ARE THE ONES THAT
+     HAVE TO AGREE WITH EACH OTHER: a `cg-page` threshold that opens a narrower
+     box for a child re-crosses the CHILD's threshold, which is the defect
+     ④'s second condition above exists to prevent. */
+  --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
   --cg-board-min: 608px;
@@ -295,7 +330,7 @@
   --cg-receipt-min: 232px;
   --cg-receipt-gap: 16px;
   --cg-stat-min: 104px;
-  --cg-stat-tight: 101px;
+  --cg-stat-tight: 104px;
   --cg-stat-gap: 10px;
   --cg-value-wide: 128px;
   --cg-cols-gap: 24px;
@@ -451,6 +486,7 @@
 .biz .pg-coaching .cg-roi-trend,
 .biz .pg-coaching .cg-roi-lifts,
 .biz .pg-coaching .cg-pitch,
+.biz .pg-coaching .cg-roi-withheld,
 .biz .pg-coaching .cg-notice,
 .biz .pg-coaching .cg-dormant {
   padding: 18px 20px;
@@ -500,7 +536,11 @@
 /* ── the dormant state ─────────────────────────────────────────────────────── */
 .biz .pg-coaching .cg-dormant { background: var(--cg-soft); }
 .biz .pg-coaching .cg-dormant h2 { margin: 8px 0; font-size: 17px; font-weight: 700; line-height: 1.4; letter-spacing: -.01em; color: var(--ink); }
-.biz .pg-coaching .cg-dormant p { margin: 0; max-width: 66ch; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
+/* ⚠ R2-30 — THE CARD KEEPS THE PAGE COLUMN, THE PROSE DOES NOT. At 2560 the
+   dormant world is a 1352px card holding one paragraph; the line-length cap was
+   right and the paragraph still ran ~840px because `ch` grows with nothing. A
+   flat 760px stops it at a readable measure at every width. */
+.biz .pg-coaching .cg-dormant p { margin: 0; max-width: 760px; color: var(--ink-2); font-size: 13.5px; line-height: 1.85; }
 
 /* ── コーチングを受けることへの同意 (⚖-ADJ B: two compositions, one section) ── */
 /* Three states, three tones, ALL NEUTRAL-TO-WARM and none of them red: a person
@@ -898,7 +938,13 @@
 .biz .pg-coaching .cg-pitch { border-color: var(--cg-strength-soft); background: #f8fdfa; }
 .biz .pg-coaching .cg-pitch .cg-sec-title { color: var(--cg-strength); font-size: 16px; letter-spacing: -.012em; }
 .biz .pg-coaching .cg-pitch p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.85; font-variant-numeric: tabular-nums; }
-.biz .pg-coaching .cg-roi-withheld { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
+/* ⚖ R2-28 — THE WITHHELD STATE IS A CARD IN THE PITCH'S OWN SHAPE. Neutral
+   wash rather than the shown state's green, because it is a refusal and not a
+   claim; everything else about it — the grid area, the box, the declared title
+   — is the same, so the two states read as two answers to one question. */
+.biz .pg-coaching .cg-roi-withheld { background: var(--cg-soft); }
+.biz .pg-coaching .cg-roi-withheld .cg-sec-title { font-size: 16px; letter-spacing: -.012em; }
+.biz .pg-coaching .cg-roi-withheld p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
 
 /* ── whose eyes: the role preview (dev only; absent from the DOM in prod) ──── */
 /* ⚠ IT LOOKS LIKE A TOOL, NOT LIKE THE PRODUCT. A dashed hairline and a 開発用
@@ -953,7 +999,10 @@
 .biz .pg-coaching .cg-notice-bar-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .biz .pg-coaching .cg-notice-bar-title { color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.6; }
 .biz .pg-coaching .cg-notice-line { color: var(--ink-3); font-size: 12px; line-height: 1.75; }
-.biz .pg-coaching .cg-notice-chevron { margin-left: auto; align-self: center; color: var(--muted); font-size: 12px; transition: transform 200ms cubic-bezier(.22, .9, .24, 1); }
+/* ⚠ R2-30 — BESIDE THE TITLE, not at the card's far edge: the affordance and
+   the words it belongs to have to be readable in one glance, and at the 1416
+   cap they were 870px apart. `inline-block` so the rotation has a box to turn. */
+.biz .pg-coaching .cg-notice-chevron { display: inline-block; margin-left: 8px; color: var(--muted); font-size: 12px; transition: transform 200ms cubic-bezier(.22, .9, .24, 1); }
 .biz .pg-coaching .cg-notice-bar[aria-expanded="true"] .cg-notice-chevron { transform: rotate(180deg); }
 /* ⚠ THE BODY IS RENDERED OR IT IS NOT. There is no rule here that hides it —
    `is-enter` is the 180ms arrival, nothing more. */
@@ -1114,7 +1163,6 @@
   .biz .pg-coaching .cg-find-fix,
   .biz .pg-coaching .cg-quote-text,
   .biz .pg-coaching .cg-row-line,
-  .biz .pg-coaching .cg-dormant p,
   .biz .pg-coaching .cg-state p,
   .biz .pg-coaching .cg-honesty p,
   .biz .pg-coaching .cg-consent-body,
@@ -1183,6 +1231,7 @@
   .biz .pg-coaching .cg-roi-trend,
   .biz .pg-coaching .cg-roi-lifts,
   .biz .pg-coaching .cg-pitch,
+  .biz .pg-coaching .cg-roi-withheld,
   .biz .pg-coaching .cg-dormant { padding: 15px 14px; }
   .biz .pg-coaching .cg-notice-bar { padding: 13px 14px; }
   .biz .pg-coaching .cg-notice-body { padding: 0 14px 14px; }
