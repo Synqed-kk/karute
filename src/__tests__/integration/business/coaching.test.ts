@@ -4313,9 +4313,24 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // BAND rather than the whole sheet.
     const foldBand = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
     expect(foldBand.slice(0, foldBand.indexOf('\n}'))).not.toContain('grid-template-columns: repeat(2')
+    // ⚠ S16F-D1 (B2-4-2) — `.cg-module-list` LEFT THIS LIST TOO, and it is the
+    // third instance of the same finding: a single ROW of independent catalog
+    // cards has no shared answer to end together on, so stretching them put
+    // 169px of a 521px card (32.5% at 1280) inside the shortest one while the
+    // column-bottom ratio read 0.0%. Unlike the shelves and the fold band it
+    // cannot become BALANCED COLUMNS — a catalog has an order and multicol would
+    // re-flow it — so it is the RAGGED-BOTTOM CATALOG class the header note names
+    // as the law's ONE exemption: `align-items: start`, every card its own
+    // height, the row's bottom edge ragged on purpose, the ratio not asked and
+    // the max card-height difference REPORTED by the probe instead. The last-row
+    // rule stays, because a lone third card in a two-column row is still a
+    // half-empty row.
+    expect(CSS_CODE).toContain('.cg-module-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start;')
+    expect(CSS_CODE).toContain('.cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    expect(CSS_SRC).toContain('RAGGED-BOTTOM CATALOG (⚖ S16F-D1, from L4\'s B2-4-2)')
+    expect(CSS_SRC).toContain('It is the ONLY exemption')
     const ROW_REGIONS = [
       { region: '.cg-sheet-cols', can: 'three columns paired two-up', rule: '.cg-sheet-move { grid-column: 1 / -1; }' },
-      { region: '.cg-module-list', can: 'three modules in two columns', rule: '.cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
     ]
     for (const r of ROW_REGIONS) {
       expect({ region: r.region, fills: CSS_CODE.includes(r.rule) }).toEqual({ region: r.region, fills: true })
@@ -4330,6 +4345,13 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // …and the count the module rule exists for is the count the room really
     // has: THREE modules, odd against two columns.
     expect(learningModules.length % 2).toBe(1)
+    // ⚠ THE EXEMPTION IS A CLOSED LIST OF ONE. Any other region that stops
+    // stretching has to earn its own line here first.
+    for (const region of ['.cg-sheet-cols', '.cg-stats', '.cg-receipt']) {
+      const at = CSS_CODE.indexOf(`${region} {`)
+      const block = CSS_CODE.slice(at, CSS_CODE.indexOf('}', at))
+      expect({ region, exempted: /align-items:\s*(start|flex-start)/.test(block) }).toEqual({ region, exempted: false })
+    }
     // …and the sheet is the ONE row-stretch region that also has to answer for
     // what is INSIDE its cells (V2-2), because its row is one answer in three
     // parts rather than a list.

@@ -70,6 +70,21 @@
            So it is balanced by ASSIGNMENT — 気づき alone on the left, the four
            supporting cards on the right — and never by stretching a card, which
            would trade a hole for a slab.
+         · RAGGED-BOTTOM CATALOG (⚖ S16F-D1, from L4's B2-4-2) — a SINGLE ROW of
+           independent cards with nothing to balance them by. The 学習モジュール
+           row is the one region of this class: three catalog cards of naturally
+           different length, in one row, with no shared answer to end together
+           on and no content anybody may invent to fill the short ones. Stretched
+           they carried 20–32% blank (169px of a 521px card at 1280); balanced
+           columns would re-order a CATALOG, which is a different lie. So each
+           card is exactly as tall as its own content and the row's bottom edge
+           is RAGGED ON PURPOSE. The column-bottom ratio is not asked of this
+           class — a ragged bottom is the whole point of it — and what IS asked
+           is the interior slack of each card (≤20%, which `align-items: start`
+           makes ~0) plus a REPORTED max card-height difference, so a row that
+           starts to look broken is visible in the transcript rather than
+           silent. It is the ONLY exemption, and it is named here so a later
+           round cannot quietly add a second one.
        The assignment is pinned in the suite; the RATIO is measured by the probe,
        every region, at every ladder width, in both rail states — and the sheet's
        three cells carry the INTERIOR SLACK verdict on top of it (V2-2).
@@ -1180,10 +1195,19 @@
    And the PAIR, for the fold and the iPad:
        280 + 280 + 14 = 574 first fit · 580 ships.
    THREE cards in TWO columns leaves the third alone on the last row — the same
-   half-empty row the supporting column, the shelves and the 成績 tiles each
-   already have a rule against — so the odd last card takes the whole row. */
+   half-empty row the supporting column, the shelves and the 成績 tiles each have
+   their own answer to (multicol · multicol · ⚖ B2-4-1's two-track lead) — so the
+   odd last card takes the whole row.
+   ⚖ S16F-D1 (B2-4-2) — AND THE CARDS ARE NOT STRETCHED. Three catalog entries of
+   naturally different length in one row: stretched, the shortest carried 169px
+   of a 521px box as blank at 1280 and was over the bar at 11 of 17 self renders.
+   There is nothing to balance them BY — a catalog has an order, so multicol is
+   not available the way it was to the shelves, and no content may be invented to
+   fill a card. `align-items: start` gives every card its own height and leaves
+   the row's bottom edge ragged, which is the honest shape for a list of
+   independent things. Header note (e) carries the class and the exemption. */
 .biz .pg-coaching .cg-modules { container: cg-modules / inline-size; }
-.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-module-list { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; margin: 0; padding: 0; list-style: none; }
 @container cg-modules (min-width: 580px) {
   .biz .pg-coaching .cg-module-list { grid-template-columns: repeat(2, minmax(var(--cg-module-min), 1fr)); }
   .biz .pg-coaching .cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }
