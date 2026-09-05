@@ -353,7 +353,7 @@
   --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
-  --cg-board-min: 608px;
+  --cg-board-min: 856px;
   --cg-claim-min: 232px;
   --cg-receipt-min: 232px;
   --cg-receipt-gap: 16px;
@@ -503,12 +503,10 @@
 .biz .pg-coaching .cg-state,
 .biz .pg-coaching .cg-framing,
 .biz .pg-coaching .cg-board,
-.biz .pg-coaching .cg-adoption,
 .biz .pg-coaching .cg-consent,
 .biz .pg-coaching .cg-strengths,
 .biz .pg-coaching .cg-patterns,
 .biz .pg-coaching .cg-modules,
-.biz .pg-coaching .cg-ranking,
 .biz .pg-coaching .cg-roi-hero,
 .biz .pg-coaching .cg-roi-trend,
 .biz .pg-coaching .cg-roi-lifts,
@@ -711,13 +709,9 @@
 
 /* ── ① STACKED is the base — one column, no query needed ───────────────────── */
 .biz .pg-coaching .cg-cols,
-.biz .pg-coaching .cg-teamgrid,
 .biz .pg-coaching .cg-roigrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-cols-gap); align-items: start; }
-.biz .pg-coaching .cg-main,
-.biz .pg-coaching .cg-teammain,
-.biz .pg-coaching .cg-rail { display: flex; flex-direction: column; gap: var(--cg-card-gap); min-width: 0; }
+.biz .pg-coaching .cg-main { display: flex; flex-direction: column; gap: var(--cg-card-gap); min-width: 0; }
 .biz .pg-coaching .cg-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-card-gap); align-content: start; }
-.biz .pg-coaching .cg-teamgrid,
 .biz .pg-coaching .cg-roigrid { gap: var(--cg-card-gap); }
 
 /* ── the findings, with their receipts ─────────────────────────────────────── */
@@ -927,11 +921,28 @@
 
 /* ⚖ R2-18 — the board's empty branch, in the rail's own quiet register. */
 .biz .pg-coaching .cg-board-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
-.biz .pg-coaching .cg-adoption-line { margin: 0; color: var(--ink); font-size: 14px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
-.biz .pg-coaching .cg-adoption-note { margin: 6px 0 12px; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
-.biz .pg-coaching .cg-limit { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
-.biz .pg-coaching .cg-ranking-note { margin: 0 0 11px; color: var(--ink-2); font-size: 12.5px; line-height: 1.8; }
-.biz .pg-coaching .cg-ranking-empty { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* ── ⚖ I-8 · THE DECISION SUMMARY (S16C) ───────────────────────────────────── */
+/* TWO LINES, NOT A COLUMN. The rail it replaces was 4/12 of the page holding two
+   short cards beside a board that runs the length of the roster, and it ended
+   ~380px above it. A summary is a strip: a wrapping row of chips, and a
+   disclosure for the three notes and the one refused lever that qualify them. */
+.biz .pg-coaching .cg-summary { margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--section); }
+.biz .pg-coaching .cg-summary-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-summary-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-chip-label { color: var(--ink-2); font-size: 11.5px; line-height: 1.6; }
+.biz .pg-coaching .cg-summary-chip-value { color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.biz .pg-coaching .cg-summary-empty { color: var(--muted); font-size: 11.5px; line-height: 1.7; }
+.biz .pg-coaching .cg-summary-adopt { margin-left: auto; color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-summary-more {
+  display: inline-flex; align-items: center; min-height: 30px; padding: 4px 11px;
+  border: 1px solid var(--control); border-radius: 999px;
+  background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.6;
+  transition: background 140ms ease-out, transform 100ms ease-out;
+}
+.biz .pg-coaching .cg-summary-more:hover { background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 11px; padding: 12px 14px; border-radius: 10px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-summary-note { margin: 0; max-width: 78ch; color: var(--ink-2); font-size: 12px; line-height: 1.85; }
 
 /* ── the pattern library: five shelves ─────────────────────────────────────── */
 .biz .pg-coaching .cg-patterns-sub,
@@ -1304,10 +1315,6 @@
   .biz .pg-coaching .cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .biz .pg-coaching .cg-teamgrid {
-    grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr);
-    gap: var(--cg-cols-gap);
-  }
   /* ⚖ I-7 — ONE LINE PER PERSON. The body becomes the `minmax(0,1fr) auto` pair
      the action lives in, so the lever sits at the row's right edge ON the
      sentence's line rather than under it.
@@ -1366,6 +1373,7 @@
   .biz .pg-coaching .cg-boundary-link { min-height: 44px; }
   .biz .pg-coaching .cg-tile { min-height: 44px; }
   .biz .pg-coaching .cg-shelf-more { min-height: 44px; }
+  .biz .pg-coaching .cg-summary-more { min-height: 44px; }
   .biz .pg-coaching .cg-notice-bar { min-height: 44px; }
 }
 
@@ -1392,13 +1400,11 @@
   .biz .pg-coaching .cg-state,
   .biz .pg-coaching .cg-framing,
   .biz .pg-coaching .cg-board,
-  .biz .pg-coaching .cg-adoption,
-  .biz .pg-coaching .cg-consent,
+    .biz .pg-coaching .cg-consent,
   .biz .pg-coaching .cg-strengths,
   .biz .pg-coaching .cg-patterns,
   .biz .pg-coaching .cg-modules,
-  .biz .pg-coaching .cg-ranking,
-  .biz .pg-coaching .cg-roi-hero,
+    .biz .pg-coaching .cg-roi-hero,
   .biz .pg-coaching .cg-roi-trend,
   .biz .pg-coaching .cg-roi-lifts,
   .biz .pg-coaching .cg-pitch,

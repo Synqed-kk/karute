@@ -975,7 +975,7 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const colsGap = num('cg-cols-gap')
     const cardGap = num('cg-card-gap')
     expect({ main, side, chart, board, claim, receipt, receiptGap, statMin, statTight, statGap, colsGap, cardGap })
-      .toEqual({ main: 512, side: 300, chart: 520, board: 608, claim: 232, receipt: 232, receiptGap: 16, statMin: 104, statTight: 104, statGap: 10, colsGap: 24, cardGap: 18 })
+      .toEqual({ main: 512, side: 300, chart: 520, board: 856, claim: 232, receipt: 232, receiptGap: 16, statMin: 104, statTight: 104, statGap: 10, colsGap: 24, cardGap: 18 })
     expect(valueWide).toBe(128)
     const thresholds = [...CSS_CODE.matchAll(/@container cg-page \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     const distinct = [...new Set(thresholds)].sort((a, b) => a - b)
@@ -993,7 +993,13 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr)')
     expect(desk.slice(0, 900)).toContain('.cg-side { grid-template-columns: minmax(0, 1fr); }')
-    expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr)')
+    // ⚖ I-8 — the board has no rail to sit beside; what the desk band opens for
+    // it is the ONE-LINE row (⚖ I-7), and that is what is read here instead.
+    expect(desk.slice(0, 1400)).toContain('.cg-row-body { display: grid; grid-template-columns: minmax(260px, 1fr) auto;')
+    expect(CSS_CODE).not.toContain('cg-teamgrid')
+    expect(CSS_CODE).not.toContain('cg-rail')
+    expect(SCREEN_CODE).not.toContain('cg-teamgrid')
+    expect(SCREEN_CODE).not.toContain('cg-rail')
 
     // ① → ② : two supporting cards side by side.
     // ⚠ R1 LEFT THIS THRESHOLD WHERE IT IS TOO. Its fit dropped to 618 with the
@@ -1017,24 +1023,29 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     const deskFits = main + side + colsGap
     expect(deskFits).toBe(836)
     expect(distinct[2]).toBeGreaterThanOrEqual(deskFits)
-    const boardFits = board + side + colsGap
-    expect(boardFits).toBe(932)
-    expect(distinct[2]).toBeGreaterThanOrEqual(boardFits)
-    expect(distinct[2] - boardFits).toBeLessThanOrEqual(24)
-    // …and the board ROW really fits inside the board card's own minimum, or
-    // the sentence is pinned at exactly its floor and the grid bleeds over the
-    // card's right edge. ⚠ THE SUM IS THE WHOLE BOX: the tracks, the row's own
-    // 28px of padding and 2px of border, and the card's own 40px. The first cut
-    // of this arithmetic counted the tracks and the card only, and the probe
-    // measured every sentence at exactly 260 — the floor holding, not fitting.
+    // ⚖ I-8 — THE BOARD RUNS THE FULL PAGE WIDTH. The rail is gone, so the board
+    // card's own minimum is no longer one half of a two-column sum; it is the
+    // whole box a ONE-LINE row needs (⚖ I-7), and the desk threshold — where that
+    // row opens — has to clear it.
+    // ⚠ THE SUM IS THE WHOLE BOX: the two fixed tracks, the pair the action sits
+    // in, the row's own 28px of padding and 2px of border, and the card's own
+    // 40px. The first cut of this arithmetic counted the tracks and the card
+    // only, and the probe measured every sentence at exactly 260 — the floor
+    // holding, not fitting.
     const row = CSS_CODE.match(/grid-template-columns: (\d+)px (\d+)px minmax\((\d+)px, 1fr\);/)!
     const [nameT, bandT, bodyT] = [Number(row[1]), Number(row[2]), Number(row[3])]
     const rowGap = Number(CSS_CODE.match(/align-items: start;\n    gap: 10px (\d+)px;/)![1])
     expect({ nameT, bandT, bodyT, rowGap }).toEqual({ nameT: 112, bandT: 140, bodyT: 260, rowGap: 10 })
-    const rowBox = nameT + bandT + bodyT + rowGap * 2 + 28 + 2 + 40
-    expect(rowBox).toBe(602)
+    // ⚖ I-7's pair, read from the sheet rather than remembered: the sentence's
+    // own floor, the pair's gap, and the lever's cap.
+    const pair = CSS_CODE.match(/\.cg-row-body \{ display: grid; grid-template-columns: minmax\((\d+)px, 1fr\) auto; gap: 10px (\d+)px;/)!
+    const actCap = Number(CSS_CODE.match(/\.cg-row-act \{ justify-self: end; align-self: start; max-width: (\d+)px;/)![1])
+    expect({ floor: Number(pair[1]), gap: Number(pair[2]), actCap }).toEqual({ floor: 260, gap: 12, actCap: 240 })
+    const rowBox = nameT + bandT + bodyT + Number(pair[2]) + actCap + rowGap * 2 + 28 + 2 + 40
+    expect(rowBox).toBe(854)
     expect(board).toBeGreaterThanOrEqual(rowBox)
     expect(board - rowBox).toBeLessThanOrEqual(16)
+    expect(distinct[2]).toBeGreaterThanOrEqual(board)
     // ⑤ : the receipt, inside a finding CARD — a different container entirely.
     const cardThresholds = [...CSS_CODE.matchAll(/@container cg-find \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
     expect(cardThresholds).toEqual([480])
@@ -2838,7 +2849,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
     expect([...SCREEN_CODE.matchAll(/\{lock\}/g)].length).toBeGreaterThanOrEqual(6)
     expect([...SCREEN_CODE.matchAll(/className="cg-lock"/g)].length).toBe(1)
     // …and it is NOT on the anonymous team content or the shared library.
-    for (const marker of ['cg-learn', 'cg-patterns', 'cg-modules', 'cg-board', 'cg-adoption', 'cg-ranking']) {
+    for (const marker of ['cg-learn', 'cg-patterns', 'cg-modules', 'cg-board', 'cg-summary']) {
       const at = SCREEN_CODE.indexOf(`className="${marker}"`)
       expect({ marker, found: at > 0 }).toEqual({ marker, found: true })
       const head = SCREEN_CODE.slice(at, at + 900)
@@ -3517,9 +3528,10 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(framing.indexOf('<h2 className="cg-sec-title">スタッフの状況</h2>')).toBeGreaterThan(-1)
     expect(framing.indexOf('スタッフの状況')).toBeLessThan(framing.indexOf('cg-framing-line'))
     // the board keeps its own declaration and simply loses the duplicate heading
-    const board = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-board"'), SCREEN_CODE.indexOf('className="cg-rail"'))
+    // ⚠ THE BOUNDARY IS THE PANEL'S FOOT, not the rail: ⚖ I-8 retired the rail.
+    const board = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-board"'), SCREEN_CODE.indexOf('className="cg-foot"'))
     expect(board).toContain('data-guide-title="スタッフの状況"')
-    expect(board).not.toContain('<h2')
+    expect(board.slice(0, board.indexOf('</section>'))).not.toContain('<h2')
     // …and the title is stated exactly ONCE on that tab
     expect([...SCREEN_CODE.matchAll(/>スタッフの状況</g)].length).toBe(1)
   })
@@ -4021,6 +4033,40 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect([...CSS_CODE.matchAll(/\.cg-row \{\s*\n?\s*grid-template-columns/g)].length).toBeLessThanOrEqual(1)
     // the pair's arithmetic is stated where it can be read rather than remembered
     expect(CSS_SRC).toContain('− 112 (name) − 140 (band) − 20 (two row gaps)   =  598')
+  })
+
+  it('⚖ I-8 · the rail is a TWO-LINE SUMMARY, and every string it carried has a new home', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    const team = props.team!
+    const panel = SCREEN_CODE.slice(SCREEN_CODE.indexOf('id="cgPanelTeam"'), SCREEN_CODE.indexOf('className="cg-foot"'))
+    // line 1 is the filter; line 2 is the store's own shape and how many opened up
+    expect(panel.indexOf('className="cg-tiles"')).toBeLessThan(panel.indexOf('className="cg-summary"'))
+    const strip = panel.slice(panel.indexOf('className="cg-summary"'), panel.indexOf('className="cg-board"'))
+    expect(strip).toContain('{team.focusRanking.title}')
+    expect(strip).toContain('{team.focusRanking.rows.length > 0 ? (')
+    expect(strip).toContain('{team.focusRanking.emptyLine}')
+    expect(strip).toContain('{team.adoptionLine}')
+    // the three notes and the ONE refused lever they belong to are behind a
+    // disclosure that ADDS and REMOVES its body — never `hidden`
+    expect(strip).toContain('{summaryOpen && (')
+    expect(strip).toContain('{team.focusRanking.note}')
+    expect(strip).toContain('{team.adoptionNote}')
+    expect(strip).toContain('{team.limitNote}')
+    expect(strip).toContain("refused('共有された内容を見る', props.refusals.depth, 'cg-depth')")
+    expect(strip).toContain('aria-expanded={summaryOpen}')
+    expect(strip).toContain("aria-controls={summaryOpen ? 'cgSummary' : undefined}")
+    // …and the two retired cards are gone, wrappers and all
+    expect(SCREEN_CODE).not.toContain('className="cg-ranking"')
+    expect(SCREEN_CODE).not.toContain('className="cg-adoption"')
+    expect(CSS_CODE).not.toContain('.cg-ranking')
+    expect(CSS_CODE).not.toContain('.cg-adoption')
+    // the payload is unchanged — this is a COMPOSITION change, not a data one
+    expect(team.focusRanking.rows.length).toBeGreaterThan(0)
+    expect(team.adoptionLine).toMatch(/^深い共有を許可しているスタッフ \d+名 \/ 在籍 \d+名$/)
+    expect(team.summaryMoreLabel).toBe('くわしく')
+    expect(team.summaryLessLabel).toBe('閉じる')
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

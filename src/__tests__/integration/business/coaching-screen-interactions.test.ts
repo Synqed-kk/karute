@@ -172,8 +172,12 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       'コーチングを受けることへの同意', 'あなたの強み',
       '上位層のやり方', '学習モジュール',
       // 全スタッフ表示
-      '表示の切り替え', '全スタッフ表示の見かた', 'スタッフの状況', '共有の状況',
-      '店舗全体のサポートエリア',
+      // ⚖ I-8 — 「店舗全体のサポートエリア」 and 「共有の状況」 were two cards in a
+      // rail; they are TWO LINES under the filter now, inside the framing card's
+      // own declaration, and the notes they carried are behind that strip's
+      // disclosure. Both keep a home: the first labels the chip row, the second's
+      // facts are the adoption line and the disclosure's notes.
+      '表示の切り替え', '全スタッフ表示の見かた', 'スタッフの状況',
       // 経営への効果 (the owner's own third screen)
       'コーチングの効果', '他店舗との比較', '指標ごとの押し上げ', 'この数字の出し方', '費用との比較',
       // and the boundary a staff member gets instead of the tabs — S16 makes it a
@@ -188,9 +192,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // 費用との比較 and never renders beside the first.
     // ⚖ I-3 (S16C) — ONE declaration retired with its card (成約率の推移 → the
     // sparkline inside the 成約率 tile), so 27 for 26 steps.
-    // ⚖ I-5 merges two declarations into one, so 26 for 25 steps.
-    expect(titles.length).toBe(26)
-    expect(new Set(titles).size).toBe(25)
+    // ⚖ I-5 merges two declarations into one and ⚖ I-8 folds two rail cards into
+    // one strip inside the framing card, so 24 for 23 steps.
+    expect(titles.length).toBe(24)
+    expect(new Set(titles).size).toBe(23)
     // …and the two COMPOSED declarations are really in the census rather than
     // dropped by a parser that could not read them (the room-6 lesson: a census
     // that only counts what it can parse is self-referential).

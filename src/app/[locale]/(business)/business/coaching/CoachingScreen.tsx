@@ -297,6 +297,9 @@ export interface CoachingTeam {
   adoptionLine: string
   adoptionNote: string
   limitNote: string
+  /** ⚖ I-8 (S16C) — the summary strip's disclosure, its two words. */
+  summaryMoreLabel: string
+  summaryLessLabel: string
 }
 
 /** contract.ts:281-296 StoreCoachingRoi, resolved. STORE AGGREGATE ONLY — there
@@ -569,6 +572,9 @@ export function CoachingScreen(props: CoachingProps) {
    *  be open at once, and closing one may not close the other. Browsing state,
    *  like the three above it. */
   const [openShelves, setOpenShelves] = useState<ReadonlySet<string>>(() => new Set())
+  /** ⚖ I-8 — WHETHER THE BOARD'S SUMMARY DISCLOSURE IS OPEN. Same grammar as the
+   *  data notice: the body is ADDED and REMOVED, never hidden. */
+  const [summaryOpen, setSummaryOpen] = useState(false)
   /** Whether the reader asked for less motion. Read ONCE into state so every
    *  spring is constructed with the same answer and the server render (which has
    *  no `matchMedia` at all) never disagrees with the first client frame. */
@@ -1751,16 +1757,23 @@ export function CoachingScreen(props: CoachingProps) {
           ) : activeTab === 'team' ? (
             team && (
               <div id="cgPanelTeam" role="tabpanel" aria-labelledby="cgTabTeam" className="cg-panel">
-                {/* ⚖ THE TRIAGE BOARD AND ITS RAIL (S16 §2.6). The board is the
-                    work; the rail is what the whole store needs and who has
-                    opened up. Below the derived threshold the rail stacks under
-                    the board, which is the reading order anyway. */}
-                <div className="cg-teamgrid">
-                  <div className="cg-teammain">
+                {/* ⚖ I-8 (S16C) — THE RAIL IS GONE, AND ITS TWO CARDS ARE ONE
+                    STRIP UNDER THE FILTER. The rail was 4/12 of the page holding
+                    two short cards beside a board that runs the length of the
+                    roster: measured, it ended ~380px above the board, which is
+                    the second hole Liam named. What it carried is not a column's
+                    worth of reading — it is a SUMMARY, so it is two lines: the
+                    four counts (which are the filter), and the store's own shape
+                    beside how many people have opened up. The three notes and the
+                    refused depth lever sit behind a disclosure, because they are
+                    read once and then never again.
+                    ⚠ AND THE BOARD RUNS THE FULL PAGE WIDTH NOW, which is what
+                    lets a row be one line per person (⚖ I-7). */}
+                <>
                     <section
                       className="cg-framing"
                       data-guide-title="全スタッフ表示の見かた"
-                      data-guide="一人ひとりの成約率や回数は表示しません。本人のこれまでと比べてどうかという区分だけを出し、サポートが必要な人には必ずできることを一つ添えています。区分のタイルを押すと、その区分の人だけが下に残ります。もう一度押すと全員に戻ります。"
+                      data-guide="一人ひとりの成約率や回数は表示しません。本人のこれまでと比べてどうかという区分だけを出し、サポートが必要な人には必ずできることを一つ添えています。区分のタイルを押すと、その区分の人だけが下に残ります。もう一度押すと全員に戻ります。その下の行は店舗全体のまとめで、いま支援が必要な場面ごとの人数と、深い共有を許可している人数です。「くわしく」を押すと、その読み方の注意と、許可された内容を開く画面が出ます。"
                     >
                       {/* ⚠ R2-13 — THE BOARD'S TITLE LEADS THE CARD, as the mock
                           has it: 全スタッフ表示 used to open on an untitled panel
@@ -1792,6 +1805,47 @@ export function CoachingScreen(props: CoachingProps) {
                             <span className="cg-tile-value">{c.value}</span>
                           </button>
                         ))}
+                      </div>
+
+                      {/* ⚖ I-8 · LINE 2 — THE STORE'S OWN SHAPE, as chips rather
+                          than a column. 「どの場面に何名」 and 「何名が開いているか」
+                          are two facts, not two cards; the three notes that
+                          qualify them and the ONE refused lever they belong to
+                          are behind a disclosure, ADDED and REMOVED (never
+                          `hidden`) like the data notice at the foot of the page. */}
+                      <div className="cg-summary">
+                        <div className="cg-summary-line">
+                          <span className="cg-tk">{team.focusRanking.title}</span>
+                          {team.focusRanking.rows.length > 0 ? (
+                            team.focusRanking.rows.map((r) => (
+                              <span className="cg-summary-chip" key={r.key}>
+                                <span className="cg-summary-chip-label">{r.label}</span>
+                                <span className="cg-summary-chip-value">{r.value}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="cg-summary-empty">{team.focusRanking.emptyLine}</span>
+                          )}
+                          <span className="cg-summary-adopt">{team.adoptionLine}</span>
+                          <button
+                            type="button"
+                            className="cg-summary-more"
+                            aria-expanded={summaryOpen}
+                            aria-controls={summaryOpen ? 'cgSummary' : undefined}
+                            data-press
+                            onClick={() => setSummaryOpen((o) => !o)}
+                          >
+                            {summaryOpen ? team.summaryLessLabel : team.summaryMoreLabel}
+                          </button>
+                        </div>
+                        {summaryOpen && (
+                          <div className="cg-summary-body" id="cgSummary">
+                            <p className="cg-summary-note">{team.focusRanking.note}</p>
+                            <p className="cg-summary-note">{team.adoptionNote}</p>
+                            <p className="cg-summary-note">{team.limitNote}</p>
+                            <button {...refused('共有された内容を見る', props.refusals.depth, 'cg-depth')}>共有された内容を見る</button>
+                          </div>
+                        )}
                       </div>
                     </section>
 
@@ -1871,49 +1925,7 @@ export function CoachingScreen(props: CoachingProps) {
                       </ul>
                       )}
                     </section>
-                  </div>
-
-                  <div className="cg-rail">
-                    {/* ⚖ サポートエリア頻度 (audit §5 rank 7) — the ONE owner-
-                        facing 「what does the whole store need」 answer, and the
-                        only surface here that aggregates across people.
-                        ⚠ PLAIN LABELLED COUNTS OF STAFF, and the label says what it
-                        counts (⚖ 8/25). No 1位, no medal, no arrow, no rank number:
-                        this is where support is needed, not who is winning. */}
-                    <section
-                      className="cg-ranking"
-                      data-guide-title="店舗全体のサポートエリア"
-                      data-guide="いま支援が必要な場面ごとに、何名がそこに当たっているかを出しています。誰のことかは表示しません。順位ではありません。"
-                    >
-                      <h2 className="cg-sec-title">{team.focusRanking.title}</h2>
-                      <p className="cg-ranking-note">{team.focusRanking.note}</p>
-                      {team.focusRanking.rows.length > 0 ? (
-                        <ul className="cg-reasons">
-                          {team.focusRanking.rows.map((r) => (
-                            <li className="cg-reason" key={r.key}>
-                              <span className="cg-reason-label">{r.label}</span>
-                              <span className="cg-reason-count">{r.value}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="cg-ranking-empty">{team.focusRanking.emptyLine}</p>
-                      )}
-                    </section>
-
-                    <section
-                      className="cg-adoption"
-                      data-guide-title="共有の状況"
-                      data-guide="深い共有を許可しているスタッフの人数だけを表示します。誰が許可していないかは出しません。許可された内容を開く画面は、権限の仕組みができてから使えるようになります。"
-                    >
-                      <h2 className="cg-sec-title">共有の状況</h2>
-                      <p className="cg-adoption-line">{team.adoptionLine}</p>
-                      <p className="cg-adoption-note">{team.adoptionNote}</p>
-                      <button {...refused('共有された内容を見る', props.refusals.depth, 'cg-depth')}>共有された内容を見る</button>
-                      <p className="cg-limit">{team.limitNote}</p>
-                    </section>
-                  </div>
-                </div>
+                </>
               </div>
             )
           ) : (

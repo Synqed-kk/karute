@@ -805,6 +805,12 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
           // ranking rail already uses: an absence is said, never left blank.
           filteredEmptyLine: 'この区分に当てはまるスタッフはいません。',
           adoptionLine: `深い共有を許可しているスタッフ ${team.sharingAdoption.granted}名 / 在籍 ${team.sharingAdoption.total}名`,
+          // ⚖ I-8 — the summary strip's own disclosure, in the room's own two
+          // words. What is behind it is READ ONCE (how to read the counts, that
+          // the decline is invisible, and why a small store is not anonymous) plus
+          // the ONE refused lever those notes belong to.
+          summaryMoreLabel: 'くわしく',
+          summaryLessLabel: '閉じる',
           adoptionNote:
             '誰が許可していないかは表示しません。共有はスタッフ本人が決めるもので、断っても勤務には影響しません。',
           limitNote:
