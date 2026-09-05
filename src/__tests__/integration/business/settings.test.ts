@@ -937,6 +937,29 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   // ⚖ Studio / codex-dashboard-architect §10: use the same grammar on new
   // screens; ⚖ apple-design §16.6: the common path first, the rest one level
   // deeper.
+  it('⚖ S17 fix round 4 · H4 — the jump list’s landing pad is a REAL heading, never an aria-hidden span', () => {
+    // ⚠ THE ONE ANCHOR IN THE ROOM THAT WAS NOT A HEADING. `jumpTo` focuses
+    // `#st-blkh-<id>`; every block renders that id on an `<h3 tabIndex={-1}>`
+    // with text, and 予約と確保's プリセット rendered it on a 0×0
+    // `aria-hidden="true"` span beside the label instead — so pressing プリセット
+    // in このページの中身 moved a keyboard reader's caret onto a node the screen
+    // reader is told does not exist, and said nothing. axe calls that
+    // `aria-hidden-focus`; the fix is that the heading was already there.
+    expect(SECTION_CODE).toContain('<h3 className="st-sec-l" id="st-blkh-bg.presets" tabIndex={-1}>プリセット</h3>')
+    // …and the hidden pad is GONE, from the markup and from the sheet — a class
+    // nothing renders is the next reader's puzzle.
+    expect(SECTION_CODE).not.toContain('st-anchor')
+    expect(CSS_CODE).not.toContain('st-anchor')
+    expect(SECTION_CODE).not.toMatch(/tabIndex=\{-1\}[^>]*aria-hidden/)
+    expect(SECTION_CODE).not.toMatch(/aria-hidden="true"[^>]*tabIndex=\{-1\}/)
+    // …the section is NAMED by that same heading now, so the two jobs are one
+    // element rather than two ids pointing at one word.
+    expect(SECTION_CODE).toContain('aria-labelledby="st-blkh-bg.presets"')
+    expect(SECTION_CODE).not.toContain('stPresetsLabel')
+    // …and the room's own rule for every other block is unchanged.
+    expect(SCREEN_CODE).toContain('<h3 id={`st-blkh-${block.id}`} tabIndex={-1}>{block.title}</h3>')
+  })
+
   it('⚖ F15 — the eight dials are the room’s two-track row, with 詳しく and <h3> sub-headings', () => {
     const rows = [...SECTION_CODE.matchAll(/className="st-row st-dial"/g)]
     expect(rows).toHaveLength(8)

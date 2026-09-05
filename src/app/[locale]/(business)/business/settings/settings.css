@@ -1287,7 +1287,6 @@
    that already carries the section's accessible name through `aria-labelledby`,
    so a second name on it would be read twice. An empty, hidden, zero-size span
    is the smallest thing that can hold the caret without saying anything. */
-.biz .pg-settings .st-anchor { display: inline-block; width: 0; height: 0; }
 
 /* ⚖ S17 · C2 — 臨時休業 as the collection the wire actually is. */
 .biz .pg-settings .st-input.is-date { width: 160px; }

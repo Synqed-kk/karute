@@ -412,13 +412,22 @@ export function StorePolicySection(props: StorePolicySectionProps) {
       <section
         className="st-col-presets"
         id="st-blk-bg.presets"
-        aria-labelledby="stPresetsLabel"
+        aria-labelledby="st-blkh-bg.presets"
         data-guide-title="プリセット"
         data-guide="よくある決め方を3つ用意しています。押すと下の詳細設定がまとめて切り替わります。名指しロックだけは個人ごとの例外なので、プリセットでは変わりません。"
       >
         <div className="st-sec-h">
-          <p className="st-sec-l" id="stPresetsLabel">プリセット</p>
-          <span id="st-blkh-bg.presets" tabIndex={-1} className="st-anchor" aria-hidden="true" />
+          {/* ⚠ THE JUMP LANDS ON THE HEADING ITSELF (⚖ S17 fix round 4 · H4).
+              This anchor used to be a 0×0 `aria-hidden="true"` span beside the
+              label, and `jumpTo` focused it — so pressing プリセット in
+              このページの中身 moved a keyboard reader's caret onto a node the
+              screen reader is told does not exist, and said nothing (axe's
+              `aria-hidden-focus`). Every other block in this room lands on its
+              own `<h3 tabIndex={-1}>` with real text; this one anchor was the
+              exception, and there was no reason for it — the heading was right
+              there. It also NAMES the section (`aria-labelledby`), so the two
+              jobs are one element instead of two. */}
+          <h3 className="st-sec-l" id="st-blkh-bg.presets" tabIndex={-1}>プリセット</h3>
           {activePreset === null && <span className="st-chip custom">カスタム</span>}
         </div>
         <p className="st-sec-d">よくある決め方を3つ用意しました。選ぶと、下の詳細設定がまとめて変わります。</p>
