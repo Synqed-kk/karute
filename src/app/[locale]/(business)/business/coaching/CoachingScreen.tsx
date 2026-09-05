@@ -58,7 +58,7 @@
 // SHELL's and restated here, so those three are fenced in coaching.css at four
 // levels.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
 import { keepCardOffHeading, type PerformanceBand } from '@/business/lib/coaching'
@@ -376,6 +376,7 @@ function useTabLine(
   trackRef: React.RefObject<HTMLElement | null>,
   markRef: React.RefObject<HTMLElement | null>,
   reduced: boolean,
+  selected: string,
 ) {
   const state = useRef({ x: 0, w: 100 })
   const springs = useRef<{ x: ReturnType<typeof makeSpring>; w: ReturnType<typeof makeSpring> } | null>(null)
@@ -419,15 +420,27 @@ function useTabLine(
       springs.current = null
     }
   }, [trackRef, markRef, reduced])
-  return useCallback((btn: HTMLElement) => {
+  /** ⚠ R2-29 — THE LINE IS PLACED AFTER THE RE-RENDER, NOT INSIDE THE CLICK.
+   *  The old code measured the tab the reader had just pressed from inside its
+   *  own `onClick`, which is BEFORE React has painted the new selection — and
+   *  the selected tab is BOLD, so the rect it measured was the tab's unselected
+   *  width. That is where the 1.48px error came from, and it is why the click
+   *  path and the resize path disagreed: only one of them measured a settled
+   *  DOM. A layout effect on the selection reads the tab the room really shows.
+   *  ⚠ ON MOUNT IT DOES NOTHING: the springs are built in a passive effect that
+   *  has not run yet, so the first placement is still the `jump` in there — a
+   *  line that animates in from zero on first paint is a page that looks like it
+   *  is still loading. */
+  useLayoutEffect(() => {
     const s = springs.current
     const track = trackRef.current
-    if (!s || !track) return
+    const btn = track?.querySelector<HTMLElement>('.cg-tab.is-on')
+    if (!s || !track || !btn) return
     const t = track.getBoundingClientRect()
     const b = btn.getBoundingClientRect()
     s.x.set(b.left - t.left)
     s.w.set(b.width)
-  }, [trackRef])
+  }, [selected, trackRef])
 }
 
 /** ⚖ THE TREATED-VS-CONTROL CHART (audit #18) — the picture that makes the
@@ -530,8 +543,6 @@ export function CoachingScreen(props: CoachingProps) {
     mq.addEventListener('change', read)
     return () => mq.removeEventListener('change', read)
   }, [])
-
-  const moveTabLine = useTabLine(tabsRef, tabLineRef, reduced)
 
   /** ⚖ PRESS FEEDBACK ARRIVES ON POINTER-DOWN, and it is ROOM-SCOPED. One
    *  listener on this room's own root — not the document — because a room that
@@ -698,6 +709,13 @@ export function CoachingScreen(props: CoachingProps) {
    *  ⚠ IT READS THE CAPABILITY, NOT THE PAYLOAD'S NULLNESS — `canViewTeam` is
    *  the fact; `team === null` is one of its consequences. */
   const activeTab = tab === 'team' && !props.canViewTeam ? 'self' : tab === 'roi' && !props.canViewRoi ? 'self' : tab
+
+  /** ⚖-ADJ N — THE UNDERLINE FOLLOWS THE TAB THE ROOM REALLY SHOWS, which is
+   *  `activeTab` (the clamped one) rather than `tab`: a reader whose persona
+   *  changed under them is put back on 自分のコーチング, and the rule has to be
+   *  under the tab they are actually on. ⚠ CALLED HERE, after the clamp, so the
+   *  room has ONE answer to 「which tab is open」 rather than two. */
+  useTabLine(tabsRef, tabLineRef, reduced, activeTab)
 
   /** ⚖ THE PRIVACY MARKER, ON EVERY SECTION THAT IS L1 (audit #10). The phone
    *  repeats 「あなただけが見ることができます」 on ten cards; this room said it
@@ -892,7 +910,7 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-controls="cgPanelSelf"
                 className={`cg-tab${activeTab === 'self' ? ' is-on' : ''}`}
                 data-press
-                onClick={(e) => { setTab('self'); moveTabLine(e.currentTarget) }}
+                onClick={() => setTab('self')}
               >
                 {props.selfTabLabel}
               </button>
@@ -904,7 +922,7 @@ export function CoachingScreen(props: CoachingProps) {
                 aria-controls="cgPanelTeam"
                 className={`cg-tab${activeTab === 'team' ? ' is-on' : ''}`}
                 data-press
-                onClick={(e) => { setTab('team'); moveTabLine(e.currentTarget) }}
+                onClick={() => setTab('team')}
               >
                 {props.teamTabLabel}
               </button>
@@ -923,7 +941,7 @@ export function CoachingScreen(props: CoachingProps) {
                   aria-controls="cgPanelRoi"
                   className={`cg-tab${activeTab === 'roi' ? ' is-on' : ''}`}
                   data-press
-                  onClick={(e) => { setTab('roi'); moveTabLine(e.currentTarget) }}
+                  onClick={() => setTab('roi')}
                 >
                   {props.roiTabLabel}
                 </button>

@@ -3467,6 +3467,15 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect([...tabLine.matchAll(/getBoundingClientRect\(\)/g)].length).toBe(4)
     expect(tabLine).not.toContain('offsetLeft')
     expect(tabLine).not.toContain('offsetWidth')
+    // ⚠ AND THE ROOT CAUSE, WHICH WAS NOT THE ROUNDING. The line used to be
+    // placed from inside the tab's own `onClick`, which runs BEFORE React paints
+    // the new selection — and the selected tab is BOLD, so the rect measured was
+    // the tab's UNSELECTED width. The placement is a layout effect on the
+    // resolved tab now, so it reads the DOM the room really shows.
+    expect(SCREEN_CODE).toContain('useTabLine(tabsRef, tabLineRef, reduced, activeTab)')
+    expect(SCREEN_CODE).not.toContain('moveTabLine')
+    expect(SCREEN_CODE).toContain("onClick={() => setTab('team')}")
+    expect(tabLine).toContain('}, [selected, trackRef])')
   })
 
   it('R2-30 · the chevron sits with its title, and the dormant prose stops at 760', () => {
