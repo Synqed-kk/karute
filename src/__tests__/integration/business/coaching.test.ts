@@ -4798,3 +4798,49 @@ describe('⚖ B2-2-5 (S16F) — the never-asked state says what it is withholdin
     }
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-2-3 (S16F) — the quantity class covers the counters it was missing', () => {
+  const NAMES = ['見本 はなこ']
+  it('the three that used to walk through are caught', () => {
+    for (const text of [
+      '三度、提案の前に確認を入れています。',
+      '十数回、同じ場面が出ています。',
+      '二週間ほど間があいています。',
+      '三日おきに同じ場面が出ています。',
+      '一年を通して同じ型が出ています。',
+      '二ヶ月ぶんの記録から見えています。',
+      '二か月ぶんの記録から見えています。',
+    ]) {
+      expect({ text, leaks: summaryLeaks(text, NAMES) }).toEqual({ text, leaks: true })
+    }
+  })
+
+  it('the controls the class already caught still are', () => {
+    for (const text of ['三回、同じ場面が出ています。', '半分ほどで止まっています。', '三割の場面で出ています。', '2件あります。']) {
+      expect({ text, leaks: summaryLeaks(text, NAMES) }).toEqual({ text, leaks: true })
+    }
+  })
+
+  it('a counter with NO numeral in front of it is still prose — nothing real was dropped', () => {
+    for (const text of [
+      '一緒に整えるところから始めると、変化が出やすい時期です。',
+      '今度の場面から試してみてください。',
+      '今週の会話から見えています。',
+      '次の月からもっと具体的に見えるようになります。',
+      '毎日の記録の残し方を整えると、見えることが増えます。',
+      '本人のこれまでと比べて、聞き取りの深さが安定して伸びています。',
+    ]) {
+      expect({ text, leaks: summaryLeaks(text, NAMES) }).toEqual({ text, leaks: false })
+    }
+  })
+
+  it('every sentence the demo plane really carries still prints', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    for (const r of props.team!.rows) {
+      expect({ staff: r.staffLabel, warning: r.summaryWarning }).toEqual({ staff: r.staffLabel, warning: null })
+    }
+  })
+})

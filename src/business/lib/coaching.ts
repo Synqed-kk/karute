@@ -612,8 +612,26 @@ export const STATUS_BODY: Record<SelfView['status'], string | null> = {
  *  ⚠ A QUANTITY, NOT A BARE CHARACTER. 「一緒に」 is not a number, and two of
  *  this plane's own honest sentences carry it — a bare `[一二三…]` class would
  *  drop real rows and call it safety. A kanji numeral is a quantity only when a
- *  COUNTER follows it, which is what this pattern asks for. */
-const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千]\s*[割分回件名人倍点％%]|半[分数]/
+ *  COUNTER follows it, which is what this pattern asks for.
+ *
+ *  ⚖ B2-2-3 (S16F) — AND THE COUNTER CLASS NOW COVERS THE ONES IT MISSED. Three
+ *  quantities walked straight through the old class and printed to an owner:
+ *    · 「三度、提案の前に確認を入れています。」  — 度 is the other counter for 「N
+ *      times」, and the class carried 回 but not it;
+ *    · 「二週間ほど間があいています。」          — the DURATION counters 日 / 週 /
+ *      月 / 年 were absent altogether, and 「how long since」 is a quantity about
+ *      a person exactly as 「how many times」 is;
+ *    · 「十数回、同じ場面が出ています。」        — 数 is a numeral in this
+ *      position (「十数」 = 「a dozen-odd」), so without it in the NUMERAL class
+ *      the 十 was not followed by a counter and the whole phrase read as prose.
+ *  Every addition is a character that only becomes a quantity WITH a numeral in
+ *  front of it, so 「今度」「今週」「次の月」「毎日」 and the plane's own 「一緒に」
+ *  are all still printable — the class widened, the shape did not change.
+ *  ⚠ AND THE JOINER IS PART OF THE COUNTER. 「二ヶ月」 is one quantity written
+ *  with a spacer between the numeral and its counter, and this room's own ROI
+ *  copy says 「Nヶ月」 — a class that read the spacer as prose would let the
+ *  commonest duration in the language through. */
+const L2_QUANTITY = /[0-9０-９]|[一二三四五六七八九十百千数][\sヶヵカか]*[割分回件名人倍点度日週月年％%]|半[分数]/
 
 /** True when `text` must NOT be printed to an owner. `names` is every name this
  *  room can check against — see `nameNeedles` for which lists that is.
