@@ -40,6 +40,11 @@ const MINT_ERROR_CODES = new Set([
   'reserved_elsewhere',
   'forbidden',
   'not_found',
+  // ⚖ THE SEGMENT DOOR'S OWN FENCE (slice five packet C, D6): the row has not
+  // reserved this take's key, so nothing may hang under it. TERMINAL — a
+  // binding does not change because time passed — and the take is not lost by
+  // it: it is still secured WHOLE at stop by the independent take path.
+  'not_reserved',
   'upstream',
 ])
 
@@ -305,6 +310,74 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // fields, same reason, as the web arm (lib/ports/recording-port.ts).
     const { path, url, contentType, recordingSessionId: bound } = body
     return { path, url, contentType, recordingSessionId: bound }
+  },
+  // Slice five packet C (D6) — the segment door, the same upload-url door one
+  // function up with a `seqs` list on the body. It reserves nothing and writes
+  // nothing; see the port contract for the fence that stands in for that, and
+  // for why an object already at a segment key is answered with its SIZE rather
+  // than signed over.
+  //
+  // ⚖ AND THE DOOR'S OWN TIMEOUT ARRIVES AS A CODE, NOT AS A THROW (fix round
+  // 4, Q1). `doorFetch` is an AbortController and a `try/finally` with no catch,
+  // so its 30 s deadline REJECTS out of here — and a rejection is the one shape
+  // this port's caller cannot read. The pump's belt (segment-uploader.ts
+  // `batchAsk`) halves the next catch-up on `upstream` PRECISELY because a
+  // 60-seq batch is what makes that door run out of time; reaching the pump as
+  // a throw instead, it lands in the outer catch, bumps the backoff and halves
+  // nothing — so the phone re-asks for the same impossible sixty for as long as
+  // the latency lasts, which is the offline take that never catches up. This is
+  // the primary platform, so the belt has to work here first. `catch { return
+  // { error: 'upstream' } }` is `startSession`'s own idiom five hundred lines
+  // up (`catch { return null }` there — a named retryable code here, because
+  // this caller reads codes), and 'upstream' is retryable, never terminal.
+  async mintSegmentUrls(
+    takeId: string,
+    mimeType: string,
+    recordingSessionId: string,
+    seqs: number[],
+  ) {
+    try {
+      const res = await doorFetch('/api/app/v1/recordings/upload-url', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ takeId, mimeType, recordingSessionId, seqs }),
+      })
+      const body = (await res.json().catch(() => null)) as {
+        segments?: {
+          seq: number
+          path: string
+          url?: string
+          contentType: string
+          existingSize?: number | null
+        }[]
+      } | null
+      // A refusal comes back NAMED, never thrown (the port contract) — and an
+      // unreadable or shapeless 2xx body is a refusal too, not an assumed
+      // success: the same guard the two doors above carry, for the same reason.
+      if (!res.ok || !body || 'error' in body || !Array.isArray(body.segments))
+        return { error: mintErrorCode(body, res.status) }
+      // ⚖ THE TOKEN IS DROPPED HERE (packet B's rule, on this door too): the
+      // facade echoes the mint's whole result, and `token` already rides inside
+      // `url`. Rebuilt field by field rather than spread, so a credential can
+      // never ride through on a future field addition — and the two arms are
+      // told apart by `url`, which is the field only the signed one has.
+      return {
+        segments: body.segments.map((s) =>
+          s.url
+            ? { seq: s.seq, path: s.path, url: s.url, contentType: s.contentType }
+            : {
+                seq: s.seq,
+                path: s.path,
+                contentType: s.contentType,
+                existingSize: s.existingSize ?? null,
+              },
+        ),
+      }
+    } catch {
+      // The abort above, a dead socket, a WebView that killed the request. All
+      // moments in time and all retryable — and the code the pump's belt reads.
+      return { error: 'upstream' }
+    }
   },
   async finalizeTake(input: FinalizeTakeInput) {
     const res = await doorFetch('/api/app/v1/recordings/finalize', {

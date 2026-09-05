@@ -34,6 +34,23 @@ jest.mock('@/actions/recordings', () => ({
   startRecordingSession: (input: unknown) => mockStartRecordingSession(input),
 }))
 
+/** ⚖ THE SEGMENT PUMP (slice five packet C, D8), mocked wholesale and used as
+ *  the SPY for its two triggers. What belongs here is WHEN the recorder calls
+ *  it — after every flush that wrote, and once more at the stop, before the
+ *  whole-take secure — never what it does inside, which is
+ *  segment-uploader.test.ts's whole file. Mocked rather than let run because
+ *  the real one reaches the port, and the port's web arm dynamically imports an
+ *  action module whose graph jest cannot parse. */
+const mockPumpSegments = jest.fn<Promise<void>, [unknown, string, { fresh?: boolean }?]>(
+  async () => {},
+)
+jest.mock('@/lib/recording/segment-uploader', () => ({
+  // The third argument is forwarded, not dropped: WHICH pump the leg asks for
+  // is part of the trigger contract this file owns (fix round 1, K3).
+  pumpSegments: (port: unknown, takeId: string, opts?: { fresh?: boolean }) =>
+    mockPumpSegments(port, takeId, opts),
+}))
+
 // ── Minimal IndexedDB shim ──────────────────────────────────────────────────
 
 type Row = Record<string, unknown>
@@ -120,6 +137,20 @@ let emptyTailChunk = false
  *  carried the tail. Later puts spread the stamp forward, which is why this
  *  counts the introduction and not the presence. */
 const stampWrites: number[] = []
+/** Every TAKES put that INTRODUCED a `finalizedAt`, by take id — the MARK'S OWN
+ *  WRITE, which is not the same question as whether it still stands on the row
+ *  a moment later. This shim does not serialise transactions the way IndexedDB
+ *  does (`transaction()` ignores its arguments), so a read-modify-write another
+ *  caller began BEFORE the mark can still put its own pre-mark snapshot back on
+ *  top afterwards. In a browser those two readwrite transactions over `takes`
+ *  run one after the other and the mark stands. Used by the hung-leg case,
+ *  which resumes with a backlog of queued heartbeat writes behind it. */
+const finalizeMarks: string[] = []
+/** How many rows each `getAll` on the SEGMENTS store handed back. The cost the
+ *  pump's hot-path read actually pays, in one number per call — a store-wide
+ *  walk and a one-take range read return the same seqs and are not the same
+ *  read (slice five packet C fix round 1, K5). */
+const segmentRowsRead: number[] = []
 
 class FakeObjectStore {
   data = new Map<string, Row>()
@@ -131,6 +162,42 @@ class FakeObjectStore {
         : row[this.keyPath],
     )
   }
+  /** The same key as an ARRAY, which is the shape a range compares against. */
+  keyArray(row: Row): unknown[] {
+    return Array.isArray(this.keyPath) ? this.keyPath.map((p) => row[p]) : [row[this.keyPath]]
+  }
+}
+
+/** ⚖ THE SHIM LEARNS ONE KEY RANGE (fix round 1, K5). `listTakeSegmentsAfter`
+ *  now reads ONE take's tail — `IDBKeyRange.bound([takeId, afterSeq + 1],
+ *  [takeId, []])` on the store's own `['takeId','seq']` key — instead of
+ *  deserialising every segment on the device every ~5 s. Exactly what was added
+ *  for it, and nothing else:
+ *    · an `IDBKeyRange` global with `bound(lower, upper)` alone, returning the
+ *      pair; INCLUSIVE at both ends, which is the real API's own default;
+ *    · `getAll(range?)` filters by that pair and answers IN KEY ORDER (no range
+ *      = every row in insertion order, exactly as before — every other caller
+ *      in the store still reads that way);
+ *    · `cmpKey`, element-wise over the compound key, where an ARRAY ranks above
+ *      every scalar. That one fact is what makes `[]` the "everything under
+ *      this takeId" sentinel, and it is why `10` sorts after `2` here where a
+ *      string compare of the serialized key would not.
+ *  ponytail: no `only`/`lowerOpen`/`upperOpen`, no cursors, no nested-array
+ *  ordering, and mixed types at one position compare by JS's own operators —
+ *  the store composes exactly one range shape, over `[string, number]`. */
+const keyRank = (v: unknown) => (Array.isArray(v) ? 2 : 1)
+const cmpKey = (a: unknown[], b: unknown[]): number => {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const rank = keyRank(a[i]) - keyRank(b[i])
+    if (rank !== 0) return rank
+    if ((a[i] as number) < (b[i] as number)) return -1
+    if ((a[i] as number) > (b[i] as number)) return 1
+  }
+  return a.length - b.length
+}
+type FakeKeyRange = { lower: unknown[]; upper: unknown[] }
+;(globalThis as unknown as { IDBKeyRange: unknown }).IDBKeyRange = {
+  bound: (lower: unknown[], upper: unknown[]): FakeKeyRange => ({ lower, upper }),
 }
 
 class FakeRequest<T> {
@@ -226,6 +293,12 @@ class FakeIDB {
                   (had as { durationMs?: number } | undefined)?.durationMs === undefined
                 )
                   stampWrites.push((row as { lastSeq: number }).lastSeq)
+                if (
+                  n === TAKES_STORE &&
+                  (row as { finalizedAt?: number }).finalizedAt !== undefined &&
+                  (had as { finalizedAt?: number } | undefined)?.finalizedAt === undefined
+                )
+                  finalizeMarks.push((row as { takeId: string }).takeId)
                 undo.push(() => {
                   if (had === undefined) s.data.delete(key)
                   else s.data.set(key, had)
@@ -240,7 +313,22 @@ class FakeIDB {
                 parkCreate(n, row),
             ),
           get: (key: unknown) => new FakeRequest(() => s.data.get(norm(key))),
-          getAll: () => new FakeRequest(() => [...s.data.values()]),
+          getAll: (range?: FakeKeyRange) =>
+            new FakeRequest(() => {
+              const all = [...s.data.values()]
+              const out = range
+                ? all
+                    .map((row) => ({ key: s.keyArray(row), row }))
+                    .filter(
+                      ({ key }) =>
+                        cmpKey(key, range.lower) >= 0 && cmpKey(key, range.upper) <= 0,
+                    )
+                    .sort((x, y) => cmpKey(x.key, y.key))
+                    .map(({ row }) => row)
+                : all
+              if (n === SEGMENTS_STORE) segmentRowsRead.push(out.length)
+              return out
+            }),
           delete: (key: unknown) =>
             new FakeRequest(() => {
               s.data.delete(norm(key))
@@ -319,6 +407,7 @@ import {
   appendTakeSegment,
   clearOwnTakes,
   clearTakeStaged,
+  createTake,
   deleteTake,
   ensureFinalizedPath,
   getRecoverableTake,
@@ -326,8 +415,12 @@ import {
   listOwnTakes,
   listOwnStoppedUnsecuredTakeIds,
   listPendingDiscardTakes,
+  listTakeSegmentsAfter,
   loadTakeBlob,
   markDiscardTranscriptDone,
+  markSegmentError,
+  markSegmentsUploaded,
+  readTakeUploadMeta,
   markTakeFinalized,
   markTakeSecureError,
   markTakeStaged,
@@ -523,6 +616,10 @@ beforeEach(async () => {
     putBodies.push(init?.body as Blob)
     return { ok: true, status: 200 } as unknown as Response
   })
+  // A silent no-op by default: it must not appear in `order`, which every
+  // ordering assertion in this file reads. The one case that cares about its
+  // position puts it there itself.
+  mockPumpSegments.mockImplementation(async () => {})
   mockUid = 'staff-A'
   failWrites = false
   slowSegmentWrites = false
@@ -532,6 +629,8 @@ beforeEach(async () => {
   failNextSegmentWrites = 0
   emptyTailChunk = false
   stampWrites.length = 0
+  finalizeMarks.length = 0
+  segmentRowsRead.length = 0
   delete (window as unknown as { Capacitor?: unknown }).Capacitor
   localStorage.clear()
   globalRecorder.discard()
@@ -3257,7 +3356,17 @@ describe('secure at stop', () => {
     releaseHungWrites()
     await drain(400)
     expect(putBodies.at(-1)!.size).toBe('aaa'.length + 'TAIL'.length)
-    expect(metaOf(takeId).finalizedAt).toEqual(expect.any(Number))
+    expect(order).toEqual(['session', 'mint', 'put', 'finalize'])
+    // …and the take is MARKED finalized. Read from the mark's own write rather
+    // than off the row (fix round 1): five minutes of hang left a backlog of
+    // queued heartbeat writes behind this leg, and this shim does not serialise
+    // transactions the way IndexedDB does — so one of them can put its pre-mark
+    // snapshot back over the mark here, where in a browser the two readwrite
+    // transactions over `takes` run one after the other and it stands. Nothing
+    // about the take is lost either way: the object is on the server and its
+    // row points at it, and a device that re-reads the take un-marked simply
+    // secures it again (finalize is idempotent — 409 is "already there").
+    expect(finalizeMarks).toContain(takeId)
   })
 
   // ── ⚖ AND THE STOP ITSELF IS ON THE ROW (fix round 17, AE1) ─────────────
@@ -4516,5 +4625,419 @@ describe('secure at stop', () => {
     it('a take that is already gone is a no-op, not a throw', async () => {
       await expect(settleTakeAfterSave('take-that-never-existed')).resolves.toBeUndefined()
     })
+  })
+})
+
+// ⚖ THE SEGMENTS REACH THE SERVER WHILE THE RECORDING IS STILL RUNNING (slice
+// five packet C). Two halves live here: the STORE reads and marks the pump
+// stands on (C3), and the two places the RECORDER fires it from (C6). What the
+// pump does between them is segment-uploader.test.ts's.
+describe('segments while recording — the store the pump stands on', () => {
+  const metaRow = (takeId: string) =>
+    takes().get(JSON.stringify(takeId)) as
+      | { uploadedSeq?: number; segmentError?: string; lastSeq: number }
+      | undefined
+
+  /** The seqs a list answered with. Every assertion below compares THESE, never
+   *  the rows: each row carries a Blob, and a deep diff over one is unreadable
+   *  on failure (and big enough to take jest's matcher down with it). */
+  const seqsAfter = (got: { seq: number; blob: Blob }[]) => got.map((s) => s.seq)
+
+  /** A take with segments at exactly these seqs — written straight through the
+   *  store, because a gap is what the contiguity rule is about and no recorder
+   *  produces one on purpose. */
+  async function takeWithSegments(...seqs: number[]): Promise<string> {
+    const takeId = `take-${seqs.join('-')}-${Math.random()}`
+    await createTake({
+      takeId,
+      target: null,
+      recordingSessionId: null,
+      mimeType: 'audio/webm',
+      startedAt: Date.now(),
+    })
+    for (const seq of seqs) await appendTakeSegment(takeId, seq, new Blob(['x'.repeat(seq + 1)]))
+    return takeId
+  }
+
+  it('hands back the seqs after the mark, in order', async () => {
+    const takeId = await takeWithSegments(0, 1, 2)
+    // Compared by SEQ, never by deep-equality on the rows: each carries a Blob,
+    // and a failing deep diff over those is unreadable (and expensive).
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 10))).toEqual([0, 1, 2])
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, 0, 10))).toEqual([1, 2])
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, 2, 10))).toEqual([])
+  })
+
+  // ⚖ IT STOPS AT THE FIRST GAP. `uploadedSeq` is a PREFIX — the only shape an
+  // assembler can build a take out of — so a segment behind a hole advances
+  // nothing and sending it would cost an upload for no progress.
+  it('stops at the first gap — seq 4 is on disk and is NOT offered', async () => {
+    const takeId = await takeWithSegments(0, 1, 2, 4)
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 10))).toEqual([0, 1, 2])
+    // …and it is reachable again the moment the hole is filled, which is what
+    // makes this a pause rather than a loss.
+    await appendTakeSegment(takeId, 3, new Blob(['x']))
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 10))).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it('never hands back more than the limit', async () => {
+    const takeId = await takeWithSegments(0, 1, 2, 3, 4)
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 2))).toEqual([0, 1])
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 0))).toEqual([])
+  })
+
+  // ⚖ AND IT READS ONE TAKE'S TAIL, NOT THE DEVICE (fix round 1, K5). Same
+  // seqs as before — this is not a behaviour change — but not the same READ.
+  // The pump asks this every ~5 s for the length of a session, its input grows
+  // with the take it is serving (one row per flush), and every un-cleared take
+  // on a shared salon iPad is in the same store for ever, because nothing
+  // deletes a segment. It also shares its `[TAKES, SEGMENTS]` scope with the
+  // flush's readwrite transaction, which IndexedDB serialises — so the walk sat
+  // in front of the audio write it exists to follow.
+  it('reads only the asked take’s tail — not every segment on the device', async () => {
+    const mine = await takeWithSegments(0, 1, 2, 3, 4)
+    await takeWithSegments(0, 1, 2, 3, 4)
+    segmentRowsRead.length = 0
+
+    expect(seqsAfter(await listTakeSegmentsAfter(mine, 2, 10))).toEqual([3, 4])
+
+    // TWO rows deserialized to use two. The store-wide walk answered the same
+    // seqs off all TEN — every row of both takes — and grew from there.
+    expect(segmentRowsRead).toEqual([2])
+  })
+
+  // The shim's own range read, pinned: real IndexedDB does this for the store,
+  // so a shim that quietly ignored the range (as it did until this round) would
+  // let the case above pass on a read that never happened.
+  it('the shim’s getAll(range): inclusive both ends, [] above every seq, key order', async () => {
+    const store = fakeDb.stores.get(SEGMENTS_STORE)!
+    for (const [takeId, seq] of [
+      ['a', 2],
+      ['a', 10],
+      ['a', 1],
+      ['b', 0],
+    ] as [string, number][])
+      store.data.set(norm([takeId, seq]), { takeId, seq })
+    const getAll = (range?: IDBKeyRange) =>
+      new Promise<Row[]>((resolve) => {
+        const q = fakeDb
+          .transaction()
+          .objectStore(SEGMENTS_STORE)
+          .getAll(range as unknown as FakeKeyRange | undefined)
+        q.onsuccess = () => resolve(q.result as Row[])
+      })
+    const seqs = (got: Row[]) => got.map((r) => r.seq)
+
+    // `[]` ranks above every number, so it takes this take's whole tail — and
+    // 10 comes after 2, which a compare of the serialized key would not give.
+    expect(seqs(await getAll(IDBKeyRange.bound(['a', 1], ['a', []])))).toEqual([1, 2, 10])
+    // Inclusive at both ends.
+    expect(seqs(await getAll(IDBKeyRange.bound(['a', 2], ['a', 2])))).toEqual([2])
+    // No range = every row, which is what the store's other reads still do.
+    expect((await getAll()).length).toBe(4)
+  })
+
+  it('carries each segment’s own bytes, not the whole take', async () => {
+    const takeId = await takeWithSegments(0, 1)
+    const got = await listTakeSegmentsAfter(takeId, -1, 10)
+    expect(got.map((s) => s.blob.size)).toEqual([1, 2])
+  })
+
+  // The owner gate every read in the store shares: a shared salon device signs
+  // one staffer out and the next one in, and the segment read is its own choke
+  // point.
+  it('another staffer sees NOTHING — not the list, not the meta', async () => {
+    const takeId = await takeWithSegments(0, 1)
+    mockUid = 'staff-B'
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 10))).toEqual([])
+    expect(await readTakeUploadMeta(takeId)).toBeNull()
+    mockUid = 'staff-A'
+    expect(seqsAfter(await listTakeSegmentsAfter(takeId, -1, 10))).toEqual([0, 1])
+  })
+
+  it('nobody signed in, or a take that is gone → empty, never a throw', async () => {
+    mockUid = null
+    expect(seqsAfter(await listTakeSegmentsAfter('take-x', -1, 10))).toEqual([])
+    mockUid = 'staff-A'
+    expect(seqsAfter(await listTakeSegmentsAfter('take-that-never-existed', -1, 10))).toEqual([])
+  })
+
+  // ⚖ MONOTONE BY CONSTRUCTION. A mark that went backwards would make the pump
+  // re-PUT keys storage already holds — every one of them immutable, so every
+  // one of them refused, for ever.
+  it('the mark only ever moves FORWARD', async () => {
+    const takeId = await takeWithSegments(0, 1, 2)
+    await markSegmentsUploaded(takeId, 2)
+    expect(metaRow(takeId)?.uploadedSeq).toBe(2)
+    await markSegmentsUploaded(takeId, 1)
+    expect(metaRow(takeId)?.uploadedSeq).toBe(2)
+    await markSegmentsUploaded(takeId, 2)
+    expect(metaRow(takeId)?.uploadedSeq).toBe(2)
+    await markSegmentsUploaded(takeId, 5)
+    expect(metaRow(takeId)?.uploadedSeq).toBe(5)
+  })
+
+  // ABSENT = NOTHING UPLOADED — design R3's whole upgrade migration. A take
+  // recorded before this field existed reads as "the server has none of it".
+  it('a take from before this round reads as nothing uploaded', async () => {
+    const takeId = await takeWithSegments(0, 1)
+    const meta = (await readTakeUploadMeta(takeId))!
+    expect(meta.uploadedSeq).toBeUndefined()
+    expect(meta.segmentError).toBeUndefined()
+    expect(meta).toMatchObject({ lastSeq: 1, mimeType: 'audio/webm', recordingSessionId: null })
+  })
+
+  // ⚖ THE SEGMENT REFUSAL NEVER TOUCHES THE WHOLE-TAKE PATH. A take whose
+  // segments are refused still secures whole at stop, which is the guarantee
+  // that supersedes them — so this mark costs the head start, never the audio.
+  it('a segment refusal is written, and secureError is untouched', async () => {
+    const takeId = await takeWithSegments(0)
+    await markSegmentError(takeId, 'seg_mismatch')
+    expect((await readTakeUploadMeta(takeId))?.segmentError).toBe('seg_mismatch')
+    expect((await readTakeSecureMeta(takeId))?.secureError).toBeUndefined()
+    // …and it is not a stop condition for any drain: the take is still owed.
+    await stampTakeDuration(takeId, 5_000)
+    expect(await listOwnStoppedUnsecuredTakeIds()).toContain(takeId)
+  })
+})
+
+describe('segments while recording — when the recorder pumps', () => {
+  it('every flush that WROTE pumps this take, and one that wrote nothing does not', async () => {
+    const takeId = await startAndSettle()
+    expect(mockPumpSegments).not.toHaveBeenCalled()
+
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+    expect(mockPumpSegments).toHaveBeenCalledTimes(1)
+    expect(mockPumpSegments.mock.calls[0][1]).toBe(takeId)
+
+    // A tick with nothing captured writes no segment — and pumps nothing, so
+    // an idle recorder never knocks on the door.
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+    expect(mockPumpSegments).toHaveBeenCalledTimes(1)
+
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+    expect(mockPumpSegments).toHaveBeenCalledTimes(2)
+  })
+
+  // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (v2 item 2's own
+  // order: last segment PUT → whole-take PUT → finalize). The stop leg AWAITS
+  // the pump, which is the difference between "the segments are on the way" and
+  // "the segments are there".
+  it('the stop leg awaits the pump BEFORE it secures the take', async () => {
+    mockPumpSegments.mockImplementation(async () => {
+      // A real tick, so "awaited" means something: an un-awaited pump has all
+      // the microtasks it needs to lose this race.
+      await new Promise((r) => setTimeout(r, 10))
+      order.push('pump')
+    })
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(200)
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(200)
+
+    expect(order.indexOf('pump')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('pump')).toBeLessThan(order.indexOf('put'))
+    expect(order.indexOf('pump')).toBeLessThan(order.indexOf('finalize'))
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
+    ).toEqual(expect.any(Number))
+  })
+
+  // ⚖ AND THE LEG ASKS FOR A RUN THAT STARTS AFTER THE TAIL (fix round 1, K3).
+  // "Awaited" is not enough on its own: the tail flush fires a pump of its own
+  // a moment earlier, and a run takes its row list ONCE, at its own start — so
+  // a plain call would JOIN a run that listed the disk before the tail segment
+  // was written to it, and the leg's await would mean "whichever run was
+  // already going has finished" instead of "the tail has been offered".
+  // `fresh` is the difference between those two sentences. The flush-time
+  // triggers ask for no such thing: joining is exactly right when nothing is
+  // waiting on the answer.
+  it('the stop leg asks for a FRESH run; a flush-time pump does not', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+    expect(mockPumpSegments.mock.calls[0]).toEqual([expect.anything(), takeId, undefined])
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(50)
+    await drain(200)
+
+    expect(mockPumpSegments.mock.calls.at(-1)).toEqual([
+      expect.anything(),
+      takeId,
+      { fresh: true },
+    ])
+  })
+
+  // ⚖ AND THE WAIT HAS A BUDGET (fix round 1, K4). Per-PUT deadlines bound a
+  // dead socket; they do not bound a CATCH-UP of sixty owed segments behind a
+  // mint that may take most of its own 30 s door. The whole-take secure is the
+  // guarantee that supersedes every segment, and the two pipeline readers
+  // waiting on it are belted at two minutes — so a best-effort head start must
+  // never be able to spend that. Twenty seconds, then the leg goes on. The pump
+  // is not cancelled by it: single-flight, its own deadlines, and segments are
+  // additive.
+  it('a pump that never settles gives way at the budget — the take still secures', async () => {
+    mockPumpSegments.mockImplementation(() => new Promise<void>(() => {}))
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    // One millisecond short of the budget: the leg is still behind the pump and
+    // nothing has touched the network.
+    await jest.advanceTimersByTimeAsync(19_999)
+    await drain(200)
+    expect(order).not.toContain('put')
+
+    await jest.advanceTimersByTimeAsync(1)
+    await drain(200)
+    expect(order).toContain('put')
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
+    ).toEqual(expect.any(Number))
+  })
+
+  // ⚖ …AND IT WAITS FOR ITS OWN MINT FIRST (rebase round 1, R1). The pump's
+  // FIRST act is to read `recordingSessionId` off the take, and it returns at
+  // once when the start-mint has not stamped one yet (segment-uploader.ts:195)
+  // — the segment door mints against that row, so there is nothing to ask for.
+  // Placed AHEAD of the stop leg's own mint wait, the stop's pump therefore
+  // returned having sent nothing on exactly the slow-start-mint case the wait
+  // exists for, and the TAIL SEGMENT never went up at all: the head start was
+  // lost precisely on the bad link that needed it. The ordinary take is
+  // unaffected — its session is already stamped at the stop instant.
+  it('a stop whose session stamps LATE pumps AFTER the stamp, never before it', async () => {
+    let answerMint!: (v: { id: string } | null) => void
+    mockStartRecordingSession.mockReturnValueOnce(
+      new Promise<{ id: string } | null>((r) => (answerMint = r)),
+    )
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+
+    // From here the only pump that can fire is the stop leg's own.
+    order.length = 0
+    mockPumpSegments.mockClear()
+    /** What the take KNEW at the instant the pump ran — the very field the
+     *  pump's first act reads, so a null here IS the early return. */
+    const sessionAtPump: (string | null | undefined)[] = []
+    mockPumpSegments.mockImplementation(async () => {
+      sessionAtPump.push(
+        (takes().get(JSON.stringify(takeId)) as { recordingSessionId?: string | null })
+          .recordingSessionId,
+      )
+      order.push('pump')
+    })
+
+    globalRecorder.stop()
+    await drain(200)
+    // ONE pump so far, and it is the TAIL FLUSH's own — fire-and-forget, as
+    // every flush-time pump is. It ran on a take with no session, so by the
+    // pump's own first act it sent NOTHING: the tail is on disk and nowhere
+    // else. Which is the whole point — the only pump that can carry that tail
+    // is the leg's, and the leg has not reached it.
+    expect(mockPumpSegments).toHaveBeenCalledTimes(1)
+    expect(sessionAtPump[0]).toBeNull()
+    expect(order).toEqual(['pump'])
+
+    answerMint({ id: 'session-late' })
+    await drain(400)
+
+    // The stamp landed FIRST — the mint wait resolves through the same chain
+    // that writes it — so the LEG's pump had a row to mint segments against,
+    // and the whole take went up behind it in item 2's own order. Pre-change
+    // this second pump did not exist: the leg pumped ahead of the wait, saw the
+    // same null session as the flush above, and the tail segment never went up.
+    expect(mockPumpSegments).toHaveBeenCalledTimes(2)
+    expect(sessionAtPump).toEqual([null, 'session-late'])
+    expect(order).toEqual(['pump', 'pump', 'mint', 'put', 'finalize'])
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { recordingSessionId?: string | null })
+        .recordingSessionId,
+    ).toBe('session-late')
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
+    ).toEqual(expect.any(Number))
+  })
+
+  // ⚖ A SIGNED-OUT LEG SECURES NOTHING — AND PUMPS NOTHING (packet A's D4
+  // return, ahead of this). The web cookie is gone by then, so both doors would
+  // answer the TERMINAL `forbidden`; the next sign-in's drain secures the take
+  // whole, which supersedes its segments anyway.
+  it('an ABANDONED take returns before the pump — the logout leg knocks on no door', async () => {
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain()
+    const flushPumps = mockPumpSegments.mock.calls.length
+
+    globalRecorder.abandon()
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+
+    // EXACTLY ONE more, and it is the TAIL FLUSH's own — every flush that
+    // writes pumps, and the abandoned stop still writes its tail (that is the
+    // whole of D4: the take is kept, whole, on disk). What does NOT happen is
+    // the stop LEG's pump, which sits after the abandoned return — so the
+    // signed-out leg knocks on no door of its own. What the one that DID fire
+    // costs depends on the arm (fix round 1, R3 — the reason stated here used
+    // to claim "the uid is gone" for both, which is false on the web): on thin
+    // the wipe runs after the store's uid is nulled (thin/auth/session.ts), so
+    // the owner gate answers null before the pump reaches the port at all; on
+    // the WEB the wipe runs BEFORE signOut (sidebar.tsx, ProfilePageView.tsx),
+    // so the session is still live and the tail segment really does go up. Both
+    // are harmless — the tail landing is the head start doing its job, and by
+    // the time any refusal could be written back patchTakeMeta's own uid gate
+    // has closed.
+    expect(mockPumpSegments).toHaveBeenCalledTimes(flushPumps + 1)
+    expect(order).not.toContain('put')
+    // …and the take is still whole on disk, plainly un-finalized.
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number } | undefined)?.finalizedAt,
+    ).toBeUndefined()
+    expect(segments().size).toBeGreaterThan(0)
+  })
+
+  // A pump that takes its time does not stop the take being secured — the leg
+  // awaits it, but the whole-take path runs to the end behind it. (That the
+  // pump never THROWS in the first place is its own contract, pinned in
+  // segment-uploader.test.ts: one try/catch around its whole body, exactly like
+  // secureTake's, which is why this leg awaits both bare.)
+  it('a slow pump delays the secure, it never cancels it', async () => {
+    mockPumpSegments.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5_000))
+    })
+    const takeId = await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+
+    globalRecorder.stop()
+    await jest.advanceTimersByTimeAsync(0)
+    await drain(200)
+    // Still waiting on the pump — nothing has touched the network.
+    expect(order).not.toContain('put')
+
+    await jest.advanceTimersByTimeAsync(5_000)
+    await drain(200)
+    expect(order).toContain('put')
+    expect(
+      (takes().get(JSON.stringify(takeId)) as { finalizedAt?: number }).finalizedAt,
+    ).toEqual(expect.any(Number))
   })
 })

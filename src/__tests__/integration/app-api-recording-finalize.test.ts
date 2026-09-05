@@ -234,6 +234,69 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // ⚖ THE THIRD ACT, THROUGH THE REAL ROUTE (slice five packet C). A `seqs`
+  // body asks the SAME door for this take's segment keys — the bytes that reach
+  // the server while the recording is still running.
+  it('a seqs body comes back with one signed key per seq, under the take’s folder', async () => {
+    info.mockResolvedValue(objectFree)
+    // The fence: the row has ALREADY reserved this take's key (which is what a
+    // born-reserved create leaves behind). Without it the door signs nothing.
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.segments.map((s: { path: string }) => s.path)).toEqual([
+      `seg/app_business-1_${TAKE}/000000.mp4`,
+      `seg/app_business-1_${TAKE}/000001.mp4`,
+    ])
+    expect(body.segments.every((s: { url?: string }) => Boolean(s.url))).toBe(true)
+    // It reserves nothing and it writes nothing — the finalize at the end of
+    // the take is the audited act, not this.
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND AN OWNER GETS THE SAME 403 ON THE SEGMENT ARM (fix round 1, K1) —
+  // the staged arm's rule, one act over. A segment key is composable in advance
+  // and both halves are readable off a colleague's row by exactly this
+  // capability, so owner reach here was a pre-fill lever: mint a seq the device
+  // has not reached, PUT anything, and that take's pump meets a length that is
+  // not its own and goes terminally quiet. The pump runs on the recording
+  // device alone, so nothing legitimate is lost by closing it.
+  it('…and an owner with recordings.viewAll gets a 403 on a colleague’s segments', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a row that has not reserved this take’s key → 409 not_reserved', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0] }), noRoute)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error.message).toBe('not_reserved')
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a seqs body with no takeId is a 400, before anything is read', async () => {
+    const res = await mintPOST(jreq(auth, { recordingSessionId: SESSION, seqs: [0] }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a take body with NO seqs still mints the whole take, exactly as before', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue(ROW)
+    const body = await (await mintPOST(jreq(auth, mintBody), noRoute)).json()
+    expect(body.path).toBe(KEY)
+    expect(body.segments).toBeUndefined()
+  })
+
   it('…and a body naming BOTH a take and a staged copy is a 400', async () => {
     const res = await mintPOST(jreq(auth, { ...mintBody, stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(400)

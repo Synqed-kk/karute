@@ -5,6 +5,7 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { pumpSegments } from '@/lib/recording/segment-uploader'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
@@ -81,6 +82,21 @@ const MINT_AWAIT_MS = 1_500
 // the socket's expire together; the web arm is a server action with no signal
 // to give, and this race IS its bound.
 export const SECURE_MINT_AWAIT_MS = 10_000
+
+// ⚖ AND THE STOP LEG'S SEGMENT PUMP HAS A TOTAL BUDGET (slice five packet C fix
+// round 1, K4). Every PUT inside the pump carries its own deadline, and the
+// mint has the door's — but a CATCH-UP has neither: sixty owed segments at
+// three at a time is twenty waves that each succeed honestly, behind a mint
+// that may take most of its 30 s door. Two minutes can pass before secureTake
+// is even called, and `SECURE_SETTLE_BELT_MS` (120 s, just below) is the belt
+// the in-tab readers are already waiting on — so a best-effort HEAD START would
+// spend the whole budget of the guarantee that supersedes it, and the reader
+// past its belt stages a second copy of the same audio onto the same slow link.
+// Twenty seconds buys the tail and the handful behind it, which is what the
+// stop is actually waiting for. Past it the leg goes on and the pump KEEPS
+// RUNNING in the background: it is single-flight, its own deadlines bound it,
+// segments are additive, and nothing downstream reads them yet.
+const STOP_PUMP_BUDGET_MS = 20_000
 
 // The BELT on awaitTakeSecured (fix round 2 of PR4): how long a reader will
 // wait on a stop leg that never exits before it goes on without it. Same figure
@@ -428,6 +444,13 @@ class GlobalRecorder {
         }
         p.seq = seq + 1
         p.count = count
+        // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
+        // forget off the persist queue: the pump has its own single-flight and
+        // its own per-PUT deadlines, so this cannot pile up and the queue never
+        // waits on the network — which is the one rule this whole layer has
+        // (persistence must never affect capture). Every failure inside it is
+        // recorded on the take; nothing it can do reaches back here.
+        void pumpSegments(getRecordingPipelinePort(), takeId)
         return true
       })
       .catch(() => {
@@ -902,6 +925,55 @@ class GlobalRecorder {
               } finally {
                 clearTimeout(belt)
               }
+            }
+            // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (slice five
+            // packet C, D8 — design v2 item 2's own order: last segment PUT →
+            // whole-take PUT → finalize). AWAITED here, unlike every flush-time
+            // pump, because this is the moment the tail exists and the take is
+            // about to be sealed: the segments are what an assembler could
+            // rebuild this recording from if everything below fails, so they are
+            // worth the wait the UI is already past (`recorded` was published
+            // and notify() ran before this leg was even queued).
+            //
+            // ⚖ AND IT WAITS FOR ITS OWN MINT FIRST (rebase round 1, R1). Below
+            // the belt above, not before it: the pump's FIRST act is to read
+            // `recordingSessionId` off the take, and it returns at once when the
+            // start-mint has not stamped one yet (segment-uploader.ts:195, whose
+            // own comment already says "the stop leg waits for the mint on its
+            // own account"). At the stop instant the session is usually already
+            // stamped, so on the ordinary take this changes nothing — but on a
+            // SLOW start-mint, which is the one case this order exists for, the
+            // pump placed ahead of the belt returned having sent nothing and the
+            // TAIL SEGMENT never went up at all. The wait is bounded at 10 s and
+            // the UI is long past it, so the cost is the same nothing it was.
+            //
+            // It cannot fail the stop: pumpSegments NEVER THROWS by its own
+            // contract — one try/catch around its whole body, exactly as
+            // secureTake below carries one, which is why this leg awaits both
+            // bare. It records its own refusals on the take and touches nothing
+            // the whole-take path reads. Every step from here down failing still
+            // leaves the take on disk, plainly un-finalized, for the next drain.
+            //
+            // ⚖ A RUN THAT STARTS AFTER THE TAIL, AND A BUDGET ON WAITING FOR
+            // IT (fix round 1, K3 + K4). `fresh: true` because the tail flush a
+            // moment ago fired a pump of its own: without it this await would
+            // JOIN whatever run was already going — one whose row list was read
+            // before the tail segment existed — and "the segments are up" would
+            // be a claim about a five-second-old snapshot. And the wait is
+            // raced against STOP_PUMP_BUDGET_MS the same way the own-mint belt
+            // above is raced, for the reason named at that constant: the pump
+            // carries on in the background past it, and the whole-take secure —
+            // the guarantee that supersedes every segment — starts on time.
+            let pumpBelt: ReturnType<typeof setTimeout> | undefined
+            try {
+              await Promise.race([
+                pumpSegments(getRecordingPipelinePort(), takeId, { fresh: true }),
+                new Promise<void>((resolve) => {
+                  pumpBelt = setTimeout(() => resolve(), STOP_PUMP_BUDGET_MS)
+                }),
+              ])
+            } finally {
+              clearTimeout(pumpBelt)
             }
             await secureTake(
               getRecordingPipelinePort(),

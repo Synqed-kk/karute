@@ -31,7 +31,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
+import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
 export const runtime = 'nodejs'
@@ -82,17 +82,23 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // the roster identity resolved above. A null staffId can only reach the
   // server-named path, which binds nothing; the shared core still refuses to
   // write anything without one.
-  const minted = await mintTakeUploadUrl(
-    synqed,
-    {
-      staffId,
-      businessId: ctx.identity.businessId,
-      canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
-      source: 'facade',
-      requestId: ctx.meta.requestId,
-    },
-    parsed.data,
-  )
+  const actor = {
+    staffId,
+    businessId: ctx.identity.businessId,
+    canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
+    source: 'facade' as const,
+    requestId: ctx.meta.requestId,
+  }
+  // ⚖ THE THIRD ACT (slice five packet C, D6). A body carrying `seqs` asks for
+  // this take's SEGMENT keys — the bytes that reach the server while the
+  // recording is still running. Branched HERE, before either body runs, because
+  // the two answer different result unions and a caller must never be able to
+  // get one where it asked for the other. The schema already proved a `seqs`
+  // body carries a takeId (so `named` above is true and the roster gate ran)
+  // and never carries `stagedFor`.
+  const minted = parsed.data.seqs
+    ? await mintSegmentUploadUrls(synqed, actor, parsed.data)
+    : await mintTakeUploadUrl(synqed, actor, parsed.data)
   if ('error' in minted) {
     if (minted.error === 'upstream') {
       throw new AppApiError('upstream_unavailable', 'could not mint an upload URL')
@@ -113,7 +119,17 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
     // The take is already SPOKEN FOR — its object exists without this caller's
     // reservation, or this row is bound to a different take. 409 is the client's
     // "start a new take", never a retry of this one.
-    if (minted.error === 'exists' || minted.error === 'reserved_elsewhere') {
+    //
+    // `not_reserved` joins them (slice five packet C): the segment door refuses
+    // to hang anything under a take the row has not reserved — an unbound row
+    // is the whole-take mint's job at stop, and a row bound elsewhere is not
+    // this take's. Same class of answer, same 409: a fact about the binding,
+    // never a moment in time to retry.
+    if (
+      minted.error === 'exists' ||
+      minted.error === 'reserved_elsewhere' ||
+      minted.error === 'not_reserved'
+    ) {
       throw new AppApiError('conflict', minted.error)
     }
     // A take id or container this server will not store is the CLIENT's error,

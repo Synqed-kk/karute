@@ -47,6 +47,30 @@ export type MintTakeUrlPortResult =
   | Omit<Extract<MintTakeUrlResult, { url: string }>, 'token'>
   | { error: string }
 
+/**
+ * What a port answers the SEGMENT mint with (slice five packet C, D6/D7).
+ *
+ * Same two success arms the core answers with, per seq — the signed one and
+ * the "an object is already here, and this is its length" one — because the
+ * pump has to tell them apart before it decides whether to PUT anything at all.
+ * `token` is DROPPED exactly as `mintTakeUrl` drops it: it already rides inside
+ * `url`, and a caller that reached for it would be assembling a signed request
+ * the doors exist to assemble.
+ *
+ * The error arm is a plain string for the same reason MintTakeUrlPortResult's
+ * is: the thin arm also answers `mint_<status>` for a non-2xx whose body named
+ * no code. TERMINAL_SECURE_ERRORS (take-store) is the one place that says which
+ * of them can never turn into a yes.
+ */
+export type MintSegmentUrlsPortResult =
+  | {
+      segments: (
+        | { seq: number; path: string; url: string; contentType: string }
+        | { seq: number; path: string; contentType: string; existingSize: number | null }
+      )[]
+    }
+  | { error: string }
+
 export interface RecordingPipelinePort {
   /** AI route base — web '/api/ai', thin '/api/app/v1/ai'. */
   aiBase: string
@@ -207,6 +231,39 @@ export interface RecordingPipelinePort {
     mimeType: string,
     recordingSessionId: string | null,
   ): Promise<MintTakeUrlPortResult>
+  /**
+   * Mint signed upload URLs for a BATCH of this take's SEGMENTS — the bytes
+   * that reach the server WHILE the recording is still running (slice five
+   * packet C, D6; design v1 §3 R1).
+   *
+   * THE SAME DOOR the take mint knocks on, with the same fences — and it
+   * RESERVES NOTHING: a segment hangs under a take whose key the row has
+   * already reserved, so there is nothing left to bind, nothing written and
+   * nothing audited (the finalize at the end of the take is the audited act).
+   * What stands in for the reservation is the row's own pointer: it must equal
+   * THIS take's key or the door answers `not_reserved`, which is TERMINAL here
+   * — an unbound row is the whole-take mint's job at stop, and a row bound to
+   * another take is not this take's.
+   *
+   * ⚖ AND "ALREADY THERE" IS NEVER ADOPTED ON ITS OWN. A segment key is
+   * composable in advance, so the door probes each seq BEFORE it signs and
+   * answers the object's SIZE instead of a URL when one exists. The pump adopts
+   * such a seq only when that length is its own blob's — the one fact a caller
+   * who never held the recording cannot forge — and a 409 on a freshly signed
+   * PUT is NOT a landing (the same rule the staged path took in packet B's fix
+   * round 2, and for the sharper reason: the assembler will one day build a
+   * take out of these objects).
+   *
+   * NEVER THROWS ON A REFUSAL, exactly like `mintTakeUrl`: the pump has to
+   * branch on WHICH refusal it got, and a throw flattens them into one
+   * unusable failure.
+   */
+  mintSegmentUrls(
+    takeId: string,
+    mimeType: string,
+    recordingSessionId: string,
+    seqs: number[],
+  ): Promise<MintSegmentUrlsPortResult>
   /**
    * "This take is complete" — the finalize door (web action / facade twin),
    * which writes audio_storage_path + duration onto the core row.
@@ -455,6 +512,35 @@ export const webRecordingPort: RecordingPipelinePort = {
     // it never gets is how a second signed-request assembler is born.
     const { path, url, contentType, recordingSessionId: bound } = minted
     return { path, url, contentType, recordingSessionId: bound }
+  },
+  async mintSegmentUrls(takeId, mimeType, recordingSessionId, seqs) {
+    const { mintRecordingSegmentUrls } = await uploadActions()
+    // 'upstream' on the deadline, for the same reason mintTakeUrl answers it:
+    // the one code in this door's closed union that means "the far side did not
+    // answer", and the only one the pump does not judge terminal — a stall is a
+    // moment in time, so it has to leave these seqs askable again.
+    const minted = await withDeadline(
+      mintRecordingSegmentUrls({ takeId, mimeType, recordingSessionId, seqs }),
+      WEB_DOOR_DEADLINE_MS,
+      { error: 'upstream' as const },
+    )
+    if ('error' in minted) return minted
+    // `token` is DROPPED here, not merely absent from the type — the same rule,
+    // for the same reason, as the take mint one function up. The two arms are
+    // rebuilt field by field rather than spread, so a `token` on the signed one
+    // cannot ride through on a future field addition either.
+    return {
+      segments: minted.segments.map((s) =>
+        'url' in s
+          ? { seq: s.seq, path: s.path, url: s.url, contentType: s.contentType }
+          : {
+              seq: s.seq,
+              path: s.path,
+              contentType: s.contentType,
+              existingSize: s.existingSize,
+            },
+      ),
+    }
   },
   async finalizeTake(input) {
     // Lazy, same reason as enqueueJob below — this module's import graph
