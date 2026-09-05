@@ -3808,10 +3808,15 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(self.findings.some((f) => f.category === self.focus[0].category)).toBe(false)
   })
 
-  it('⚖ I-1 · the sheet FALLS BACK to the ranked findings, and is absent when the run named no move', async () => {
+  // ⚖ GREPTILE-2 (S16C) — RE-SPELLED. This pin was 「⚖ I-1 · the sheet FALLS BACK to
+  // the ranked findings…」 and it asserted `sheet.receipt.countLabel === findings[0]
+  // .countLabel` — the very fallback Greptile named as a false claim: 根拠 heads the
+  // evidence FOR THIS MOVE, so an unrelated finding's claim, count and quote under
+  // that heading is a lie about the move. The world is the SAME (p-06's focus pointed
+  // at a module no finding links to); what it proves is inverted.
+  it('⚖ GREPTILE-2 · a move NO finding links to shows the receipt as NOT FOUND — never another finding\'s', async () => {
     pinClock(MID_MONTH)
-    // a focus pointing at a module NO finding links to: the sheet still shows a
-    // receipt, and it is the run's own first-ranked finding.
+    // a focus pointing at a module NO finding links to.
     const rows = coachingStaff.map((r) =>
       r.staffId === 'p-06'
         ? {
@@ -3828,11 +3833,35 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     const quiet = await coachingProps({ ...GINZA, world: { selfId: 'p-01' } })
     unpinClock()
     const self = props.self as Extract<CoachingSelf, { kind: 'ready' }>
+    // the MOVE and its MODULE are unaffected — the join that resolves still resolves
     expect(self.sheet!.module!.title).toBe('金額の前に、変わることを一つ話す')
-    expect(self.sheet!.receipt!.countLabel).toBe(self.findings[0].countLabel)
+    expect(self.sheet!.moduleEmpty).toBeNull()
+    // the world really is the one the pin claims: findings exist, and not one of
+    // them links to the move's module (or the receipt below would be null for the
+    // trivial reason that there was nothing to show).
+    expect(self.findings.length).toBeGreaterThan(0)
+    expect(self.findings.some((f) => f.moduleAnchor === self.focus[0].moduleAnchor)).toBe(false)
+    // THE FIX: no receipt at all, and the absence is SAID in the sheet's own words.
+    expect(self.sheet!.receipt).toBeNull()
+    expect(self.sheet!.receiptEmpty).toBe('この一手のもとになった会話は、まだ記録から見つかっていません。')
     const q = quiet.props.self as Extract<CoachingSelf, { kind: 'ready' }>
     expect(q.focus).toEqual([])
     expect(q.sheet).toBeNull()
+  })
+
+  it('⚖ GREPTILE-2 · the sheet assembly has NO first-finding fallback, read off the source', () => {
+    // the join, whole, in one expression — and nothing after the `??` but null. A
+    // behavioural pin alone would pass again the day somebody re-adds the fallback
+    // behind a different world, so the source says it too.
+    expect(PROPS_CODE).toContain(
+      "self.view.findings.find((f) => f.linkedModuleId !== null && f.linkedModuleId === focusOne?.moduleId) ?? null",
+    )
+    const assembly = PROPS_CODE.slice(
+      PROPS_CODE.indexOf('const sheetFinding ='),
+      PROPS_CODE.indexOf('const windowStart'),
+    )
+    expect(assembly.length).toBeGreaterThan(0)
+    expect(assembly).not.toContain('findings[0]')
   })
 
   it('⚖ I-1 · the sheet is a DECLARED band above the desk, and the quote scope has ONE home', () => {

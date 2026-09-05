@@ -390,15 +390,20 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   //    (personal-findings.ts:235), so the two never compare equal and a category
   //    join would silently always fall through — a dead branch wearing a live
   //    one's clothes (S16C-D1). The module id is the ONE reference the two shapes
-  //    really share. Failing that, the ranked findings' own first item, which is
-  //    the run's 「what is costing you most」.
+  //    really share, and it is the ONLY join: no finding links to this move's
+  //    module → the receipt is NULL and the sheet says so.
+  //    ⚖ GREPTILE-2 (S16C) — THERE IS NO `findings[0]` FALLBACK, and its removal is
+  //    the fix. I-1 (c) originally fell back to the run's first-ranked finding, but
+  //    根拠 heads the evidence FOR THIS MOVE: an unrelated finding's claim, count and
+  //    quote printed under that heading is a false statement about the move, not a
+  //    generous default. The demo plane's join resolves (focus[0].moduleId ===
+  //    findings[0].linkedModuleId), so nothing visible changed — what went away is a
+  //    latent lie, and an absence is SAID here like everywhere else in this room.
   const focusOne = self.kind === 'ready' ? self.view.focus[0] : undefined
   const sheetModule = focusOne?.moduleId ? (modules.find((m) => m.moduleId === focusOne.moduleId) ?? null) : null
   const sheetFinding =
     self.kind === 'ready'
-      ? (self.view.findings.find((f) => f.linkedModuleId !== null && f.linkedModuleId === focusOne?.moduleId) ??
-        self.view.findings[0] ??
-        null)
+      ? (self.view.findings.find((f) => f.linkedModuleId !== null && f.linkedModuleId === focusOne?.moduleId) ?? null)
       : null
 
   const windowStart = new Date(now.getTime() - WINDOW_DAYS * 86_400_000)
