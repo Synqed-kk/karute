@@ -211,6 +211,33 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toMatch(/\(\) => false,\s*\n\s*false,/)
   })
 
+  it('⚖ prefers-reduced-motion reaches the SPRINGS, not only the stylesheet', () => {
+    // ⚠ A SPRING IS JS, SO THE SHEET CANNOT REACH IT. The room's own
+    // `@media (prefers-reduced-motion: reduce)` block sits right there looking
+    // like it covers every moving thing, and it covers none of the four that
+    // matter: the segment's thumb, the switch's thumb, the 詳しく panel's height
+    // and the save card's rise are all driven by `makeSpring`. A reader who
+    // asked the platform for stillness would have got a room that still slid.
+    // `makeSpring`'s own `reduced` lands every `set` instantly — the state still
+    // changes, it simply stops moving, which is this family's rule.
+    expect(SRC_CODE).toContain('const reduced = useReducedMotion()')
+    // …every spring in the room takes it.
+    const springs = [...SRC_CODE.matchAll(/makeSpring\([\s\S]{0,400}?\)\n/g)].map((m) => m[0])
+    expect(springs.length).toBeGreaterThanOrEqual(4)
+    for (const sp of springs) {
+      expect({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: sp.includes('reduced') })
+        .toEqual({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: true })
+    }
+    // …and it is read ONCE and handed down, never re-queried per component: two
+    // components asking `matchMedia` separately can disagree, and a page whose
+    // switch is still while its segment slides is worse than either answer.
+    expect((SRC_CODE.match(/matchMedia/g) ?? [])).toHaveLength(1)
+    // …and the re-seat runs when the answer CHANGES, so a reader who turns the
+    // preference on mid-session is obeyed without a reload.
+    expect(SRC_CODE).toContain('}, [value, options, reduced])')
+    expect(SRC_CODE).toContain('}, [on, reduced])')
+  })
+
   it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
     // The room-5 F5 defect: a target taller than the viewport forces the engine's
     // last resort, which puts the card on top of the thing it is explaining. This

@@ -1113,7 +1113,7 @@ function Block({
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.layout === 'week' ? (
-        <WeekTable block={block} values={values} onChange={onChange} />
+        <WeekTable block={block} values={values} onChange={onChange} reduced={reduced} />
       ) : (
         block.rows.map((r) => (
           <Row
@@ -1362,10 +1362,12 @@ function WeekTable({
   block,
   values,
   onChange,
+  reduced,
 }: {
   block: SettingsBlock
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
+  reduced: boolean
 }) {
   return (
     <div className="st-week" role="table" aria-label={block.title}>
@@ -1383,11 +1385,11 @@ function WeekTable({
           <div className={`st-week-row${on ? '' : ' is-off'}`} role="row" key={r.id}>
             <span className="st-week-day" role="cell">{r.label}</span>
             <span className="st-week-cell" role="cell">
-              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} onChange={onChange} />}
+              {openCtl && <Control row={r} c={openCtl} value={values[openCtl.id]} onChange={onChange} reduced={reduced} />}
             </span>
             {times.map((c) => (
               <span className="st-week-cell" role="cell" key={c.id}>
-                <Control row={r} c={c} value={values[c.id]} onChange={onChange} />
+                <Control row={r} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
               </span>
             ))}
           </div>
@@ -1484,7 +1486,7 @@ function Row({
         )}
         {groupTimes(row.controls).map((group) =>
           group.length === 1 ? (
-            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} />
+            <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} reduced={reduced} />
           ) : (
             // ⚠ A TIME RANGE IS ONE THING, SO IT WRAPS AS ONE THING. Two `time`
             // fields side by side in a narrow column left the switch beside them
@@ -1496,7 +1498,7 @@ function Row({
               {group.map((c, i) => (
                 <span className="st-timepart" key={c.id}>
                   {i > 0 && <span className="st-tilde" aria-hidden="true">〜</span>}
-                  <Control row={row} c={c} value={values[c.id]} onChange={onChange} />
+                  <Control row={row} c={c} value={values[c.id]} onChange={onChange} reduced={reduced} />
                 </span>
               ))}
             </span>
@@ -1609,11 +1611,19 @@ function Control({
   c,
   value,
   onChange,
+  reduced,
 }: {
   row: SettingsRow
   c: RowControl
   value: RowValue
   onChange: (id: string, v: RowValue) => void
+  /** ⚠ THE TWO CONTROLS WHOSE STATE TRAVELS NEED IT. A spring is JS, so the
+   *  sheet's `prefers-reduced-motion` block cannot reach it — the thumbs would
+   *  have gone on sliding for a reader who asked the platform for stillness,
+   *  with the room's own CSS reset sitting right there looking like it covered
+   *  them. `makeSpring`'s `reduced` lands every `set` instantly: the state still
+   *  changes, it simply stops moving, which is this family's own rule. */
+  reduced: boolean
 }) {
   const k = c.control
   const locked = c.locked !== undefined
@@ -1639,6 +1649,7 @@ function Control({
         aria={c.aria}
         value={String(value ?? '')}
         inert={inert}
+        reduced={reduced}
         onPick={locked ? undefined : (v) => onChange(c.id, v)}
       />
     )
@@ -1698,6 +1709,7 @@ function Control({
         onLabel={k.onLabel}
         offLabel={k.offLabel}
         inert={inert}
+        reduced={reduced}
         onToggle={locked ? undefined : () => onChange(c.id, value !== true)}
       />
     )
@@ -1816,12 +1828,14 @@ function Segment({
   aria,
   value,
   inert,
+  reduced,
   onPick,
 }: {
   options: Array<{ value: string; label: string }>
   aria: string
   value: string
   inert: InertProps
+  reduced: boolean
   onPick?: (value: string) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -1840,8 +1854,8 @@ function Segment({
       thumb.style.width = `${Math.max(0, geom.current.w).toFixed(2)}px`
     }
     if (!xRef.current) {
-      xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
-      wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4 })
+      xRef.current = makeSpring((v) => { geom.current.x = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
+      wRef.current = makeSpring((v) => { geom.current.w = v; paint() }, { response: SPRING_THUMB, eps: 0.4, reduced })
     }
     const on = wrap.querySelector<HTMLButtonElement>('.st-opt[aria-pressed="true"]')
     if (!on) { thumb.style.opacity = '0'; return }
@@ -1856,7 +1870,7 @@ function Segment({
     }
     xRef.current!.set(x)
     wRef.current!.set(w)
-  }, [value, options])
+  }, [value, options, reduced])
 
   useEffect(() => () => { xRef.current?.stop(); wRef.current?.stop() }, [])
 
@@ -1888,6 +1902,7 @@ function Switch({
   onLabel,
   offLabel,
   inert,
+  reduced,
   onToggle,
 }: {
   on: boolean
@@ -1895,6 +1910,7 @@ function Switch({
   onLabel: string
   offLabel: string
   inert: InertProps
+  reduced: boolean
   onToggle?: () => void
 }) {
   const thumbRef = useRef<HTMLSpanElement>(null)
@@ -1907,7 +1923,7 @@ function Switch({
     if (!springRef.current) {
       springRef.current = makeSpring(
         (v) => { if (thumbRef.current) thumbRef.current.style.transform = `translateX(${v.toFixed(2)}px)` },
-        { response: SPRING_THUMB, eps: 0.3 },
+        { response: SPRING_THUMB, eps: 0.3, reduced },
       )
     }
     /** The travel is the track's own arithmetic, read from the element rather
@@ -1917,7 +1933,7 @@ function Switch({
     const travel = track ? Math.max(0, track.clientWidth - thumb.offsetWidth - 4) : 18
     if (!seated.current) { seated.current = true; springRef.current.jump(on ? travel : 0); return }
     springRef.current.set(on ? travel : 0)
-  }, [on])
+  }, [on, reduced])
 
   useEffect(() => () => springRef.current?.stop(), [])
 
