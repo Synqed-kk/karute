@@ -69,6 +69,25 @@ const buildSpy = jest.fn((_args: unknown) => ({
 jest.mock('@/lib/karute/detail-screen', () => ({ buildKaruteDetailScreen: (args: unknown) => buildSpy(args) }))
 
 import KaruteDetailPage from '@/app/[locale]/(app)/karute/[id]/page'
+import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
+
+/** Render the page and return the props it handed KaruteDetailView. The page
+ *  is an async server component: it RETURNS an element tree, so the tree is the
+ *  honest place to read the hop from — no DOM, no client runtime. */
+async function viewPropsFromPage(): Promise<Record<string, unknown>> {
+  const tree = await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+  const found: Record<string, unknown>[] = []
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) return void node.forEach(walk)
+    if (!node || typeof node !== 'object') return
+    const el = node as { type?: unknown; props?: Record<string, unknown> }
+    if (el.type === KaruteDetailView && el.props) found.push(el.props)
+    if (el.props) walk(el.props.children)
+  }
+  walk(tree)
+  if (found.length !== 1) throw new Error(`expected ONE KaruteDetailView, found ${found.length}`)
+  return found[0]
+}
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -152,6 +171,41 @@ describe('KaruteDetailPage — playback inputs (businessId · recordingRow)', ()
         recordingRow: expect.objectContaining({ duration_seconds: 90, status: 'COMPLETED' }),
       }),
     )
+  })
+
+  // ⚠ THE HOP (F12). The blind lens deleted this line and 9,706 tests stayed
+  // green — the player would never appear on the web door and nothing noticed.
+  // The page is an async server component, so its OWN OUTPUT is what is read:
+  // the element it hands the view, not a render of it.
+  it('the page hands the builder’s `recording` to the view — the web door’s last hop', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: null,
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      recording: { audioPresent: true, durationSeconds: 742, status: 'COMPLETED' },
+    } as never)
+    const props = await viewPropsFromPage()
+    expect(props.recording).toEqual({
+      audioPresent: true,
+      durationSeconds: 742,
+      status: 'COMPLETED',
+    })
+    // …and the id the mint is called with rides the same hop.
+    expect(props.karuteId).toBe('k-1')
+  })
+
+  it('…and a null recording arrives as null, never dropped to undefined', async () => {
+    buildSpy.mockReturnValue({
+      karuteId: 'k-1',
+      customerId: null,
+      transcript: null,
+      header: { customerName: 'テスト 太郎' },
+      summary: null,
+      recording: null,
+    } as never)
+    expect((await viewPropsFromPage()).recording).toBeNull()
   })
 
   // D-8: an accessory read that blipped must cost the player, never the page.

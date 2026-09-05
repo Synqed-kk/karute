@@ -138,7 +138,13 @@ export function RecordingTranscriptCard({
         >
           <div className="overflow-hidden min-h-0">
             {transcript ? (
-              <div className="border-t border-border p-5 text-sm leading-relaxed text-foreground/85 md:p-6">
+              // The customer's own words, never a UI string — marked so the
+              // catalog law (recording-player-card.test.tsx) can tell the two
+              // apart instead of having to allow arbitrary text.
+              <div
+                data-transcript-body
+                className="border-t border-border p-5 text-sm leading-relaxed text-foreground/85 md:p-6"
+              >
                 {transcript}
               </div>
             ) : (

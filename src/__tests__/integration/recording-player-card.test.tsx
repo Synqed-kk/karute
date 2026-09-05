@@ -441,20 +441,160 @@ describe('recording always wins', () => {
   })
 })
 
+// ⚠ L2 F4/F5 — three deliberate behaviours and the clock had NO test at all:
+// the whole <audio onError> block could be deleted with the suite green, the
+// NotAllowedError branch (one of the two doors) was unproven, and the h:mm:ss
+// branch — the only reason clock() has a branch — had no case.
+describe('the branches nobody would exercise by hand', () => {
+  // D-3: one re-mint on a media error, resuming where the ear was. It fires
+  // after an hour-long listen, so nothing but a test will ever reach it.
+  it('a media error re-mints ONCE and resumes at the same position', async () => {
+    card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const audio = audioEl()
+    audio.currentTime = 321
+    fireEvent.timeUpdate(audio)
+    await act(async () => {
+      fireEvent.error(audio)
+    })
+    expect(mintPlaybackUrl).toHaveBeenCalledTimes(2)
+    expect(audio.currentTime).toBe(321)
+
+    // …and only ONCE. A second error says so instead of looping.
+    await act(async () => {
+      fireEvent.error(audio)
+    })
+    expect(mintPlaybackUrl).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('再生できませんでした')).toBeTruthy()
+  })
+
+  // D-11, the Karute-web-in-mobile-Safari door: play() rejects when the gesture
+  // was lost. The button must stay honest and say nothing — the staffer's own
+  // next tap is the recovery.
+  it('a rejected play() leaves the button on 再生 with no notice', async () => {
+    ;(HTMLMediaElement.prototype.play as jest.Mock).mockImplementationOnce(function (
+      this: HTMLMediaElement,
+    ) {
+      return Promise.reject(new DOMException('NotAllowedError'))
+    })
+    const { container } = card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(screen.getByRole('button', { name: '再生' })).toBeTruthy()
+    expect(container.textContent).not.toContain('再生できませんでした')
+  })
+
+  it('unmount pauses and releases the element', async () => {
+    const view = card()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    const audio = audioEl()
+    ;(HTMLMediaElement.prototype.pause as jest.Mock).mockClear()
+    view.unmount()
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled()
+    expect(audio.getAttribute('src')).toBeNull()
+  })
+
+  it.each([
+    [0, '0:00'],
+    [7, '0:07'],
+    [62, '1:02'],
+    [742, '12:22'],
+    [3599, '59:59'],
+    // The whole reason clock() has a branch — past the hour it grows a field
+    // AND zero-pads the minutes, so 1:02:03 is not 1:2:03.
+    [3723, '1:02:03'],
+    [7325, '2:02:05'],
+  ])('clock(%i) renders %s as the total', (seconds, label) => {
+    card({ recording: { ...REC, durationSeconds: seconds } })
+    // 0 is the unknown case — it says so rather than claiming a zero-length take.
+    expect(screen.getByText(seconds === 0 ? '–:––' : label)).toBeTruthy()
+  })
+})
+
 // ⚖ 9/3: 「あなたとオーナーだけ」-class sentences were rejected — 気持ち悪い.
 // The card states WHAT it is, never WHO may hear it, and Karute has no
-// download anywhere. The two transient lines the player can show are about the
-// current attempt, so they are excluded here by construction (they only appear
-// after an action); the pre-existing `restricted` notice is today's unchanged
-// text and is likewise not one of these states.
+// download anywhere.
+//
+// ⚠ THE OLD SUBSTRING LIST WAS VACUOUS (blind round 1, L2 F2). A hardcoded
+// 「この録音はあなたとオーナーのみ視聴できます。」 dropped onto the player row
+// passed every assertion in this file, passed lint and passed all 9,706 tests:
+// 視聴でき was not on the list, and it is not a key echo either. So the law is
+// now enforced POSITIVELY — every visible text node must come from the
+// catalog — which fails for a hardcoded sentence of ANY wording. The
+// who-can-hear substring check stays as a second belt, widened.
 describe('the absence laws', () => {
-  const FORBIDDEN = ['聞け', '聴け', '再生でき', '閲覧でき', 'ダウンロード']
-  it.each([
+  /** Every string value the ja catalog holds, anywhere in it. A rendered text
+   *  node must be one of these (or a clock/number token) — that is the whole
+   *  law: ⚖ ALL LANGUAGES means nothing visible is written in the component. */
+  const catalogValues = (() => {
+    const ja = jest.requireActual('../../../messages/ja.json') as Record<string, unknown>
+    const out = new Set<string>()
+    const walk = (node: unknown): void => {
+      if (typeof node === 'string') return void out.add(node)
+      if (node && typeof node === 'object') Object.values(node).forEach(walk)
+    }
+    walk(ja)
+    return out
+  })()
+
+  /** Catalog strings carry {placeholders}; a rendered node has them filled in.
+   *  A node matches a template when the template's literal segments appear in
+   *  order — enough to accept 「再生時間 12:22」 while still rejecting a
+   *  sentence that is in no template at all. */
+  const fromTemplate = (text: string) => {
+    for (const v of catalogValues) {
+      if (!v.includes('{')) continue
+      const parts = v.split(/\{\w+\}/).filter(Boolean)
+      let at = 0
+      if (parts.every((part) => (at = text.indexOf(part, at)) !== -1 && (at += part.length) >= 0)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Clocks, counts and the unknown-total dash pair: 0:00, 15, 1:02:03, –:–– */
+  const NUMERIC = /^[\d:–]+$/
+
+  const textNodes = (root: HTMLElement) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    const out: string[] = []
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = (n.textContent ?? '').trim()
+      if (text) out.push(text)
+    }
+    return out
+  }
+
+  const STATES = [
     ['player + transcript', {}],
     ['processing', { transcript: null, recording: { ...REC, status: 'PROCESSING' } }],
     ['completed, no transcript', { transcript: null }],
     ['no audio at all', { recording: null }],
-  ])('%s says nothing about who may hear it, and offers no download', (_name, props) => {
+  ] as const
+
+  it.each(STATES)('%s renders ONLY catalog strings and number tokens', (_name, props) => {
+    const { container } = card(props as Parameters<typeof card>[0])
+    // The transcript body is the customer's own words, not a UI string.
+    const body = container.querySelector('[data-transcript-body]')
+    body?.remove()
+    const strays = textNodes(container).filter(
+      (text) => !catalogValues.has(text) && !NUMERIC.test(text) && !fromTemplate(text),
+    )
+    expect(strays).toEqual([])
+  })
+
+  // Second belt, widened past the wording the repro used.
+  const FORBIDDEN = [
+    '聞け', '聴け', '再生でき', '閲覧でき', 'ダウンロード',
+    '視聴', '聞くこと', '聴くこと', 'オーナー',
+  ]
+  it.each(STATES)('%s says nothing about who may hear it, and offers no download', (_name, props) => {
     const { container } = card(props as Parameters<typeof card>[0])
     for (const word of FORBIDDEN) expect(container.textContent).not.toContain(word)
     expect(container.querySelector('a[download]')).toBeNull()
