@@ -288,6 +288,14 @@
   .biz .pg-settings .st-cols {
     grid-template-columns: minmax(var(--st-main-min), 2.2fr) minmax(var(--st-aside-min), 1fr);
   }
+  /* ⚠ D-2 (S17) — 予約と確保's DESK composition, #812's own `1fr 420px` with its
+     sticky preview column. It rides THIS query rather than opening a second
+     `st-panel` block of its own: one threshold, one home (the ladder pin). The
+     rules it belongs with are in the appended 予約と確保 block below. */
+  .biz .pg-settings .st-wrap { grid-template-columns: minmax(0, 1fr) 420px; }
+  .biz .pg-settings .st-col-presets { grid-column: 1; grid-row: 1; }
+  .biz .pg-settings .st-col-preview { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: 78px; }
+  .biz .pg-settings .st-col-adv { grid-column: 1; grid-row: 2; min-width: 0; }
 }
 
 /* ── a block ───────────────────────────────────────────────────────────────── */
@@ -668,8 +676,9 @@
    a store that retints the shell retints this section with it.
 
    ⚖ flag 69 — THE SIBLING-SHEET FENCE. Every rule below is scoped under
-   `.pg-settings`, INCLUDING the `wc-*` / `hold-pop` / `holdbar-checks` /
-   `status` names the preview card reuses: today.css states those BARE, so the
+   `.pg-settings`, INCLUDING the borrowed names the preview card reuses —
+   `wc-*` / `hold-pop` / `holdbar-checks` / `status`
+   — because today.css states those BARE, so the
    extra class both raises this room's specificity above it and keeps the audit's
    one-owner-per-selector rule true. The class NAMES stay the shipped card's,
    which is what makes the preview the same card rather than a drawing of it.
@@ -694,20 +703,16 @@
 /* ⚠ D-2 (S17) — THE ONE RULE THAT CHANGED SHAPE, and the reason is the room it
    moved into. #812's grid was a FIXED `minmax(0, 1fr) 420px`, correct for a
    route whose only floor was the shell's 1180px; this section now lives inside
-   `.st-panel`, which the shell room takes all the way down to 390 (⚖ 8/23,
-   every Business page adapts). A fixed 420px second column overflows the panel
-   below ~760px and the page grows a horizontal scrollbar — ⚖ PAGE-SCROLL. So the
-   two columns are the DESK case, asked of the panel's own container query (the
-   same `st-panel` container and the same 720px threshold this sheet already
-   uses for its main/aside split); below it the three areas stack in source
-   order, which is presets → preview → 詳細設定. Values are #812's, untouched. */
+   `.st-panel`, which this room takes all the way down to 390 (⚖ 8/23, every
+   Business page adapts). A fixed 420px second column overflows the panel below
+   ~760px and the page grows a horizontal scrollbar — ⚖ PAGE-SCROLL. So the two
+   columns are the DESK case and the STACK is the base, in source order (presets
+   → preview → 詳細設定). Values are #812's, untouched.
+   ⚠ The desk half is NOT stated here: it lives in this sheet's own
+   `@container st-panel (min-width: 720px)` block, above, because the room's
+   ladder is ONE QUERY PER CONTAINER and a second `st-panel` block at the same
+   threshold would be a second place to read the same threshold. */
 .biz .pg-settings .st-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; align-items: start; }
-@container st-panel (min-width: 720px) {
-  .biz .pg-settings .st-wrap { grid-template-columns: minmax(0, 1fr) 420px; }
-  .biz .pg-settings .st-col-presets { grid-column: 1; grid-row: 1; }
-  .biz .pg-settings .st-col-preview { grid-column: 2; grid-row: 1 / span 2; position: sticky; top: 78px; }
-  .biz .pg-settings .st-col-adv { grid-column: 1; grid-row: 2; min-width: 0; }
-}
 
 /* ── section headings ─────────────────────────────────────────────────────── */
 .biz .pg-settings .st-sec-h { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
@@ -780,10 +785,17 @@
 .biz .pg-settings .st-ctrl-d.warn { color: var(--orange); }
 .biz .pg-settings .st-ctrl-d .st-chip { margin-right: 6px; vertical-align: 1px; }
 
+/* ⚠ D-4 (S17) — `overflow: hidden` CAME OFF. It clipped the corners of the
+   selected wash, and it clipped the FOCUS RING of every button inside — a ring
+   the room clips is not a ring (this sheet's own structural law, pinned). The
+   corners are drawn on the end children instead, so the group looks identical
+   and a keyboard reader can see where they are. */
 .biz .pg-settings .sp-seg {
-  display: inline-flex; flex-wrap: wrap; overflow: hidden;
+  display: inline-flex; flex-wrap: wrap;
   border: 1px solid var(--line); border-radius: 8px; background: #f7f8fa;
 }
+.biz .pg-settings .sp-seg button:first-child { border-radius: 7px 0 0 7px; }
+.biz .pg-settings .sp-seg button:last-child { border-radius: 0 7px 7px 0; }
 .biz .pg-settings .sp-seg button {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 32px; padding: 0 14px;
@@ -799,7 +811,10 @@
 
 /* ── the 予約の刻み stepper ────────────────────────────────────────────────── */
 .biz .pg-settings .st-step { display: inline-flex; align-items: center; gap: 8px; }
-.biz .pg-settings .st-step-g { display: inline-flex; overflow: hidden; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+/* ⚠ D-4 (S17) — same reason: the stepper's − and ＋ are real buttons. */
+.biz .pg-settings .st-step-g { display: inline-flex; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.biz .pg-settings .st-step-g > button:first-child { border-radius: 7px 0 0 7px; }
+.biz .pg-settings .st-step-g > button:last-child { border-radius: 0 7px 7px 0; }
 .biz .pg-settings .st-step-g button {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 100%; border: 0; background: #f7f8fa;
