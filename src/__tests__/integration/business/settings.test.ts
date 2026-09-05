@@ -57,7 +57,7 @@ import {
   clampWinBackDays,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
-  commitNumber,
+  commitNumberField,
   controlIdsOf,
   fillTemplate,
   firstOpenSection,
@@ -1223,14 +1223,44 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(clampCoachingFloor(Number.POSITIVE_INFINITY)).toBe(COACHING_FLOOR_MIN)
   })
 
-  it('a number field is corrected ON COMMIT, never while it is being typed', () => {
+  it('a number field is corrected ON COMMIT, never while it is being typed — and an EMPTY box is not a number', () => {
     // ⚠ A CLAMP THAT FIRES PER KEYSTROKE MAKES 「1」 UNREACHABLE on the way to
     // 「14」 — the guardrail would fight the reader instead of protecting them.
-    expect(commitNumber('4000', WIN_BACK_MIN, WIN_BACK_MAX)).toBe(WIN_BACK_MAX)
-    expect(commitNumber('', WIN_BACK_MIN, WIN_BACK_MAX)).toBe(WIN_BACK_MIN)
-    expect(commitNumber('abc', WIN_BACK_MIN, WIN_BACK_MAX)).toBe(WIN_BACK_MIN)
-    expect(commitNumber('61', WIN_BACK_MIN, WIN_BACK_MAX)).toBe(61)
-    expect(SCREEN_CODE).toContain('onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}')
+    // ⚠ D-36 (⚖ S17 fix round 4 · M4) — AND `commitNumber` IS GONE, replaced by
+    // `commitNumberField`, because the old signature could not answer the
+    // question honestly: it took no previous value, so 「this is not a number」
+    // and 「this number is too small」 both came back as the guardrail's floor,
+    // silently. Measured on the parent: 予約の刻み 30 → clear → blur = 5分, the
+    // tightest granularity in the store; コーチング 記録の保存期間 → clear = 3か月.
+    // Against ⚖ 8/21 mistake-proofing that is the dial harming the store
+    // quietly. The clamp itself is unchanged — same floor, same ceiling, same
+    // commit-time firing — and what is new is the fallback and the sentence.
+    const win = (raw: string, prev: number) => commitNumberField(raw, prev, WIN_BACK_MIN, WIN_BACK_MAX, '日')
+    // out of range still CLAMPS, and now says which range it was held to…
+    expect(win('4000', 30).value).toBe(WIN_BACK_MAX)
+    expect(win('4000', 30).message).toBe(`${WIN_BACK_MIN}日から${WIN_BACK_MAX}日のあいだで設定できます。${WIN_BACK_MAX}日にしました`)
+    expect(win('1', 30).value).toBe(WIN_BACK_MIN)
+    // …a number inside the guardrail goes in as typed, and says NOTHING…
+    expect(win('61', 30)).toEqual({ value: 61, message: null })
+    // …and an empty or unreadable box is handed the PREVIOUS value back, out loud.
+    expect(win('', 45)).toEqual({ value: 45, message: '数字を入れてください。前の値の45日に戻しました' })
+    expect(win('   ', 45).value).toBe(45)
+    expect(win('abc', 45)).toEqual({ value: 45, message: '数字を入れてください。前の値の45日に戻しました' })
+    // …the fallback is itself inside the guardrail, so a previous value that has
+    // gone stale cannot smuggle a forbidden number back in.
+    expect(win('', 9999).value).toBe(WIN_BACK_MAX)
+    // THE FIELD REMEMBERS THE LAST ACCEPTED VALUE, not the last saved one: a
+    // reader who moves 30 → 45 and then clears the box gets 45 back, because 45
+    // is what they last told this page.
+    expect(SCREEN_CODE).toContain('const lastGood = useRef<number>(clampInt(Number(text), k.min, k.max))')
+    expect(SCREEN_CODE).toContain('if (text.trim() !== \'\' && Number.isFinite(n) && n >= k.min && n <= k.max) lastGood.current = Math.round(n)')
+    expect(SCREEN_CODE).toContain('const commit = commitNumberField(e.target.value, lastGood.current, k.min, k.max, k.unit ?? \'\')')
+    expect(SCREEN_CODE).toContain('setMessage(commit.message)')
+    expect(SCREEN_CODE).toContain('onChange(c.id, String(commit.value))')
+    // …and the sentence has a home on the face, in a region that stays mounted
+    // so a screen reader hears it CHANGE (⚖ F10's own lesson).
+    expect(SCREEN_CODE).toContain('<span className="st-field-msg" role="status">{message ?? \'\'}</span>')
+    expect(CSS_CODE).toContain('.biz .pg-settings .st-numline .st-field-msg:empty { display: none; }')
   })
 
   it('a required field blocks the save and names itself', async () => {

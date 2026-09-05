@@ -652,7 +652,13 @@
 .biz .pg-settings .st-textline { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; max-width: 320px; }
 .biz .pg-settings .st-textline .st-input { width: 100%; }
 .biz .pg-settings .st-field-msg { color: var(--orange); font-size: 11px; line-height: 1.6; }
-.biz .pg-settings .st-numline { display: inline-flex; align-items: center; gap: 6px; }
+/* ⚖ S17 fix round 4 · M4 — the field's own sentence takes the line under it.
+   The row is `input + 単位`; the message wraps onto its own line rather than
+   squeezing the number, and while there is nothing to say the region is out of
+   the layout entirely (it stays MOUNTED, so a screen reader hears it change). */
+.biz .pg-settings .st-numline { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.biz .pg-settings .st-numline .st-field-msg { flex-basis: 100%; }
+.biz .pg-settings .st-numline .st-field-msg:empty { display: none; }
 .biz .pg-settings .st-unit { color: var(--ink-3); font-size: 11.5px; }
 .biz .pg-settings .st-timepair { display: inline-flex; align-items: center; gap: 6px; }
 .biz .pg-settings .st-timepart { display: inline-flex; align-items: center; gap: 6px; }

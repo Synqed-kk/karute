@@ -40,6 +40,7 @@
 // preview an honest answer to 「what will my staff actually see?」.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { commitNumberField } from '@/business/lib/settings'
 import { overrideLevelFor, warnFaceFor, type OverrideLevel, type RailCell } from '../today/today-interactions'
 import type { PriceFrame } from '@/business/lib/canon-logic/pricing'
 import { Collapse, DetailToggle } from './Collapse'
@@ -274,6 +275,12 @@ export function StorePolicySection(props: StorePolicySectionProps) {
   // committed number is `slotMin` below, and it is what everything else reads.
   const [slotText, setSlotText] = useState(String(policy.bookingStepMin))
   const [slotWarn, setSlotWarn] = useState(false)
+  /** ⚖ S17 fix round 4 · M4 — what this field last held that the guardrail
+   *  accepted, so an EMPTY box on blur can be handed back rather than becoming
+   *  the floor. Tracked from the value, so the ± stepper and a preset that
+   *  rewrites the field are remembered the same way typing is. */
+  const [slotMsg, setSlotMsg] = useState<string | null>(null)
+  const lastGoodSlot = useRef(clampSlot(Number(slotText)))
   const [locks, setLocks] = useState<string[]>(policy.lockedOut)
   const [lockPick, setLockPick] = useState('')
   /** ⚖ S17 fix round 1 · F15 — WHICH DIALS HAVE THEIR 詳しく OPEN.
@@ -323,6 +330,11 @@ export function StorePolicySection(props: StorePolicySectionProps) {
     beforeTour.current = null
     setAdvOpen((now) => (now ? was : now))
   }, [props.tourOpen])
+
+  useEffect(() => {
+    const n = Number(slotText.trim())
+    if (slotText.trim() !== '' && Number.isFinite(n) && n >= SLOT_MIN && n <= SLOT_MAX) lastGoodSlot.current = Math.round(n)
+  }, [slotText])
 
   const dials: Dials = { perm, hold, mode, gaps, minutes, rank, slot: Number(slotText) }
   const activePreset =
@@ -865,6 +877,7 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                     aria-labelledby="stSlotLabel"
                     value={slotText}
                     onChange={(e) => {
+                      setSlotMsg(null)
                       const clean = e.target.value.replace(/[^0-9]/g, '')
                       // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
                       // on rejection. `setSlotWarn(true)` alone cleared only on
@@ -877,7 +890,20 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                       setSlotWarn(clean !== e.target.value)
                       setSlotText(clean)
                     }}
-                    onBlur={() => { setSlotText(String(clampSlot(Number(slotText)))); setSlotWarn(false) }}
+                    /* ⚖ S17 fix round 4 · M4 — AN EMPTY BOX IS NOT A NUMBER, so
+                       it does not become one silently. Clearing 30 and tabbing
+                       away used to commit 5分 — the tightest granularity in the
+                       store — with the live line still reading 「数字以外は保存
+                       されません」, which is about characters. The honest
+                       fallback is the value that was there, and the field says
+                       what it did. Out of range still clamps, and says which
+                       range. */
+                    onBlur={() => {
+                      const commit = commitNumberField(slotText, lastGoodSlot.current, SLOT_MIN, SLOT_MAX, '分')
+                      setSlotText(String(commit.value))
+                      setSlotWarn(false)
+                      setSlotMsg(commit.message)
+                    }}
                   />
                   <button type="button" aria-label="5分増やす" onClick={() => setSlotText(String(clampSlot(dials.slot + SLOT_MIN)))}>＋</button>
                 </div>
@@ -894,8 +920,10 @@ export function StorePolicySection(props: StorePolicySectionProps) {
                 ⚠ AND IT STAYS ON THE FACE (⚖ F15): a live region folded into a
                 closed 詳しく is announced to a screen reader and invisible to
                 everyone else — the two readers would be told different things. */}
-            <p className={`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`} aria-live="polite">
-              {slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}
+            <p className={`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`} aria-live="polite">
+              {slotWarn
+                ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'
+                : (slotMsg ?? '数字以外は保存されません')}
             </p>
             <Collapse open={detOpen['slot'] === true} id="st-det-bg.slot" reduced={props.reduced}>
               <ul className="st-det">

@@ -897,7 +897,12 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
       // the component is handed the raw value and decides `on` itself.
       ['switch', 'onToggle={locked ? undefined : () => onChange(c.id, value !== true)}'],
       ['select', 'onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}'],
-      ['number commit', 'onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}'],
+      // ⚠ D-36 (⚖ S17 fix round 4 · M4) — the number field is its own component
+      // now, because it is the one control in this room that has to REMEMBER
+      // something: the last value the guardrail accepted, so an emptied box can
+      // be handed back instead of silently becoming the floor. Same claim —
+      // this shape reports its change — read at the line that reports it.
+      ['number commit', 'onChange(c.id, String(commit.value))'],
     ] as const) {
       expect({ shape, wired: SRC_CODE.includes(wiring) }).toEqual({ shape, wired: true })
     }

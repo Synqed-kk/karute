@@ -911,7 +911,18 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     // as the sole carrier of information, on the one field in this room an
     // operator actually types into. The sentence itself moves now, inside the
     // region that was already there.
-    expect(SCREEN_CODE).toContain("{slotWarn ? '数字以外は保存されません。いま入力した文字から、数字以外を消しました' : '数字以外は保存されません'}")
+    // ⚠ D-37 (⚖ S17 fix round 4 · M4) — THE REGION GAINED A THIRD SENTENCE, so
+    // the ternary this pin held is now a chain. The F10 CLAIM is unchanged and
+    // is asserted piece by piece: three DIFFERENT strings in one live region, so
+    // whichever state the field is in, the region's text really moves.
+    expect(SCREEN_CODE).toContain("{slotWarn")
+    expect(SCREEN_CODE).toContain("? '数字以外は保存されません。いま入力した文字から、数字以外を消しました'")
+    expect(SCREEN_CODE).toContain(": (slotMsg ?? '数字以外は保存されません')}")
+    // …and the new sentence is the room's ONE rule for an emptied number field,
+    // not a second copy of it written for this section.
+    expect(SCREEN_CODE).toContain('const commit = commitNumberField(slotText, lastGoodSlot.current, SLOT_MIN, SLOT_MAX, \'分\')')
+    expect(SCREEN_CODE).toContain('setSlotMsg(commit.message)')
+    expect(SCREEN_CODE).not.toContain('setSlotText(String(clampSlot(Number(slotText))))')
     // The two states are DIFFERENT text, which is the whole of the fix — a region
     // that re-renders the same string is silent to a screen reader.
     expect(SCREEN_CODE).toContain('aria-live="polite"')
@@ -928,8 +939,10 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
     expect(warns('1a')).toBe(true)
     expect(warns('15')).toBe(false)
     expect(warns('')).toBe(false)
-    // …and the colour still moves with it: the class is the same expression.
-    expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn ? ' warn' : ' dim'}`")
+    // …and the colour still moves with it: the class is the same expression, now
+    // answering the third state too (⚖ D-37 — a restored value is a warning as
+    // much as a stripped character is).
+    expect(SCREEN_CODE).toContain("`st-ctrl-d${slotWarn || slotMsg !== null ? ' warn' : ' dim'}`")
   })
 
   it('and its two siblings in the engine now refuse the same inputs', () => {

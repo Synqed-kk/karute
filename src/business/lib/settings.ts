@@ -881,12 +881,42 @@ export function blockingError(section: SettingsSection, values: Record<string, R
   return null
 }
 
+/** What a number field holds after a blur, and what the room says about it. */
+export interface NumberCommit {
+  value: number
+  /** The sentence to print, or `null` when what the reader typed went in as
+   *  typed — silence is the right answer to a number that was accepted. */
+  message: string | null
+}
+
 /** A number field, corrected on commit rather than while it is being typed: a
  *  clamp that fires per keystroke makes 「1」 unreachable on the way to 「14」.
- *  An empty or unreadable field answers the LOW end for the same reason
- *  `clampInt` does. */
-export function commitNumber(raw: string, min: number, max: number): number {
-  return clampInt(Number(raw), min, max)
+ *
+ *  ⚖ S17 fix round 4 · M4 — AND AN EMPTY FIELD IS NOT A NUMBER, so it may not
+ *  become one silently. `commitNumber` answered `clampInt(Number(''))` = the
+ *  LOW end, so clearing 予約の刻み and tabbing away turned 30分 into 5分 — the
+ *  tightest granularity in the store — with nothing on screen saying so. The
+ *  live line under it read 「数字以外は保存されません」, which is about
+ *  CHARACTERS; nothing told the manager their 30 had become 5. Against ⚖ 8/21
+ *  mistake-proofing that is the dial harming the store quietly, and the honest
+ *  fallback for 「this is not a number」 is the value that was there, not the
+ *  floor.
+ *
+ *  A number that IS a number but outside the guardrail still clamps — the
+ *  guardrail is the code, not the copy — and says which range it was held to.
+ *  `clampInt`'s own low-end answer for a non-finite input stays exactly as it
+ *  is: it is the safe end for every caller that has no previous value to
+ *  return to. */
+export function commitNumberField(raw: string, previous: number, min: number, max: number, unit: string): NumberCommit {
+  const typed = raw.trim()
+  const n = Number(typed)
+  if (typed === '' || !Number.isFinite(n)) {
+    const back = clampInt(previous, min, max)
+    return { value: back, message: `数字を入れてください。前の値の${back}${unit}に戻しました` }
+  }
+  const value = clampInt(n, min, max)
+  if (value === Math.round(n)) return { value, message: null }
+  return { value, message: `${min}${unit}から${max}${unit}のあいだで設定できます。${value}${unit}にしました` }
 }
 
 // ── the tour card's room-local correction ───────────────────────────────────

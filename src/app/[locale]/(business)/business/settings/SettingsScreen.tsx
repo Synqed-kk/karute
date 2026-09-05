@@ -81,7 +81,8 @@ import {
   hitOf,
   blockingError,
   changedCount,
-  commitNumber,
+  clampInt,
+  commitNumberField,
   controlIdsOf,
   fillTemplate,
   keepCardOffHeading,
@@ -1993,27 +1994,7 @@ function Control({
   }
 
   if (k.kind === 'number') {
-    return (
-      <span className="st-numline">
-        <input
-          className="st-input is-num"
-          type="number"
-          inputMode="numeric"
-          min={k.min}
-          max={k.max}
-          step={k.step}
-          aria-label={c.aria}
-          value={String(value ?? '')}
-          {...inert}
-          onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
-          // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
-          // every character makes 「1」 unreachable on the way to 「14」 — the
-          // guardrail would be fighting the reader instead of protecting them.
-          onBlur={locked ? undefined : (e) => onChange(c.id, String(commitNumber(e.target.value, k.min, k.max)))}
-        />
-        {k.unit && <span className="st-unit">{k.unit}</span>}
-      </span>
-    )
+    return <NumberField c={c} k={k} value={value} locked={locked} inert={inert} noop={noop} onChange={onChange} />
   }
 
   if (k.kind === 'time') {
@@ -2067,6 +2048,77 @@ function Control({
       <b>{String(value ?? '')}</b>
       {k.unit && <span>{k.unit}</span>}
     </div>
+  )
+}
+
+/** A number field — and the ONE control in this room that has to remember
+ *  something (⚖ S17 fix round 4 · M4).
+ *
+ *  Clearing 予約の刻み and tabbing away used to commit 5分, the tightest
+ *  granularity in the store, silently: `clampInt` answers the LOW end for
+ *  anything that is not a real number, which is the right answer for a guardrail
+ *  with nothing to fall back to and the wrong one for a field a manager just
+ *  emptied. The honest fallback is the value that was there — so the field keeps
+ *  it, and SAYS what it did.
+ *
+ *  ⚠ THE MEMORY IS THE LAST ACCEPTED VALUE, not the last saved one. A reader who
+ *  moves 30 → 45 and then clears the box gets 45 back: 45 is what they last told
+ *  this page, and restoring the saved 30 would be the room undoing a change they
+ *  made on purpose. It is tracked from the VALUE rather than from the blur, so
+ *  the stepper's ± and a preset that writes the field are remembered too. */
+function NumberField({
+  c,
+  k,
+  value,
+  locked,
+  inert,
+  noop,
+  onChange,
+}: {
+  c: RowControl
+  k: Extract<ControlKind, { kind: 'number' }>
+  value: RowValue
+  locked: boolean
+  inert: Record<string, string | undefined>
+  noop: () => void
+  onChange: (id: string, v: RowValue) => void
+}) {
+  const text = String(value ?? '')
+  const lastGood = useRef<number>(clampInt(Number(text), k.min, k.max))
+  const [message, setMessage] = useState<string | null>(null)
+  useEffect(() => {
+    const n = Number(text.trim())
+    if (text.trim() !== '' && Number.isFinite(n) && n >= k.min && n <= k.max) lastGood.current = Math.round(n)
+  }, [text, k.min, k.max])
+  return (
+    <span className="st-numline">
+      <input
+        className="st-input is-num"
+        type="number"
+        inputMode="numeric"
+        min={k.min}
+        max={k.max}
+        step={k.step}
+        aria-label={c.aria}
+        value={text}
+        {...inert}
+        onChange={locked ? noop : (e) => { setMessage(null); onChange(c.id, e.target.value) }}
+        // ⚠ THE CLAMP FIRES ON COMMIT, NOT PER KEYSTROKE. A clamp that ran on
+        // every character makes 「1」 unreachable on the way to 「14」 — the
+        // guardrail would be fighting the reader instead of protecting them.
+        onBlur={locked ? undefined : (e) => {
+          const commit = commitNumberField(e.target.value, lastGood.current, k.min, k.max, k.unit ?? '')
+          setMessage(commit.message)
+          onChange(c.id, String(commit.value))
+        }}
+      />
+      {k.unit && <span className="st-unit">{k.unit}</span>}
+      {/* ⚠ THE REGION IS ALWAYS MOUNTED and its TEXT is what changes (⚖ F10's
+          own lesson, one section over): a live region that appears and vanishes
+          is announced unevenly, and one whose text never changes is silent. The
+          sheet hides it while it is empty. */}
+      <span className="st-field-msg" role="status">{message ?? ''}</span>
+    </span>
   )
 }
 

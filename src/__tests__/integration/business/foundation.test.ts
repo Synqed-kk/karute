@@ -787,6 +787,16 @@ describe('the fixture data door', () => {
         './Collapse',
         './store-policy-seam',
         '@/business/lib/canon-logic/pricing',
+        // ⚠ D-36 (⚖ S17 fix round 4 · M4) — THE ROOM'S OWN RULES FILE, for the
+        // one rule this section shares with the other twenty-two: what a number
+        // field does with an empty box. Both used to answer the guardrail's LOW
+        // end silently (予約の刻み 30 → clear → 5分), and the honest fallback —
+        // the previous value, said out loud — is one decision, so it is one
+        // function. A copy of it here would be the second home the room's own
+        // architecture rules forbid, and the two would drift the first time one
+        // was edited. `settings.ts` is PURE (empty import inventory, pinned
+        // above), so nothing follows it in.
+        '@/business/lib/settings',
         'react',
       ],
       // …and the ASSEMBLY is #812's own page body: the same doors, the same
