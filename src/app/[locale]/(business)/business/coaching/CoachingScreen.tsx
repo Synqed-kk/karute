@@ -1673,12 +1673,20 @@ export function CoachingScreen(props: CoachingProps) {
                                   className="cg-shelf-more"
                                   aria-expanded={openShelves.has(shelf.key)}
                                   data-press
+                                  /* ⚠ NO `Set.delete(` HERE, AND THAT IS NOT A STYLE
+                                     CHOICE. The business data-access guard reads
+                                     write-call TEXT (`scripts/business/check-
+                                     business-data-access.mjs`), so `.delete(` on a
+                                     local Set is flagged as a write on a page whose
+                                     whole claim is that it writes nothing. Filtering
+                                     a new Set says the same thing and keeps the
+                                     guard's sentence true by construction. */
                                   onClick={() =>
-                                    setOpenShelves((was) => {
-                                      const next = new Set(was)
-                                      if (!next.delete(shelf.key)) next.add(shelf.key)
-                                      return next
-                                    })
+                                    setOpenShelves((was) =>
+                                      was.has(shelf.key)
+                                        ? new Set([...was].filter((k) => k !== shelf.key))
+                                        : new Set([...was, shelf.key]),
+                                    )
                                   }
                                 >
                                   {openShelves.has(shelf.key) ? props.patterns!.lessLabel : props.patterns!.moreLabel}
