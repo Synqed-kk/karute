@@ -104,7 +104,6 @@ import {
   lossOf,
   bedClassCell,
   nearestFreeStarts,
-  needsPrivateRoom,
   offerableCell,
   nextSpan,
   onlineOffers,
@@ -142,7 +141,6 @@ import {
   type OverrideLevel,
   type PairLanes,
   type RailCell,
-  type RoomPolicy,
   type SellDrop,
   type WarnCardModel,
 } from './today-interactions'
@@ -171,7 +169,6 @@ export interface BedViews {
 
 export function bedViewsFor(
   lanes: BoardLane[],
-  policy: RoomPolicy,
   frame: DayFrame,
   handId: string | null,
 ): BedViews {
@@ -183,7 +180,7 @@ export function bedViewsFor(
   // in the caller, not an empty world), and normalising is what stops that
   // throw reaching a render.
   const hand = handId === null || handId === '' ? null : handId
-  return { handId: hand, ...bedTruthViews(lanes, policy, frame, hand === null ? null : { id: hand }) }
+  return { handId: hand, ...bedTruthViews(lanes, frame, hand === null ? null : { id: hand }) }
 }
 
 /** ⚖ LIAM flag 76 (2026-08-23) + ⚖ R3 ONE WORLD (2026-08-25) — THE ROOMS,
@@ -258,7 +255,10 @@ export function bedDoor(
   // two reads `bedFeasibility` made (:1555-1558).
   const held = lanes.flatMap((l) => l.items).find((i) => i.caseId === askerId)
   const currentBed = lanes.find((l) => l.group === 'beds' && l.items.some((i) => i.caseId === askerId))?.key ?? null
-  const vip = held?.category === 'vip'
+  // ⚖ ROOM RULE — the BOOKING's own 個室のみ tag, not the customer's badge. This
+  // door and the allocator now read ONE field, so the 4-of-24 disagreement the
+  // matrix found (the ask's VIP-ness vs the drawn card's category) is unsayable.
+  const requiresPrivate = held?.requiresPrivateRoom === true
   const truth = askerId === views.handId && views.worldMinusHand ? views.worldMinusHand : views.world
   const seen = new Map<string, boolean>()
   return (lane, start, dur) => {
@@ -266,7 +266,7 @@ export function bedDoor(
     const hit = seen.get(key)
     if (hit !== undefined) return hit
     const free =
-      truth.bedFor(start, start + dur, { id: askerId, currentBed, vip, stores: lane.stores }).laneKey !== null
+      truth.bedFor(start, start + dur, { id: askerId, currentBed, requiresPrivate, stores: lane.stores }).laneKey !== null
     seen.set(key, free)
     return free
   }
@@ -285,6 +285,20 @@ export function bedDoor(
  *  Exported for the reason everything on this board's answer path is: an answer
  *  the operator acts on has to be provable without a renderer. */
 export const nextVisitCategory = (today: BookingCategory): BookingCategory => (today === 'new' ? 'repeat' : today)
+
+/** ⚖ ROOM RULE (Liam 2026-09-05) — A 次回予約 CARRIES NO 個室のみ TAG.
+ *
+ *  配置モード is armed before a menu is chosen, so there is no booking yet and
+ *  nothing that could require the private room — the same reason every other
+ *  hypothetical on this board asks with `false` (`queryOf`, the rail probe, the
+ *  offer re-bedding). Named ONCE because two legs read it — the landing's
+ *  `askGuard` and the release's `solveBed` — and ⚖ 50's law is that the word and
+ *  what the release DOES are one answer. When the intent one day carries the
+ *  next visit's menu, this is the single line that learns it.
+ *
+ *  The customer's VIP badge is NOT this: it still colours the minted card and
+ *  counts toward 保護対象, and it reaches no room decision. */
+const NEXT_VISIT_REQUIRES_PRIVATE = false
 
 /** ⚖ Liam flag 47 — how long the board's own voice stays on screen. The shipped
  *  3.2s is right for a message that CONFIRMS something the operator can already
@@ -382,9 +396,6 @@ export interface TodayProps {
     bookingStepMin: number
     config: GuardConfig
   }
-  /** ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The store's room-allocation policy, the
-   *  only judgement in the bed solve. A store dial, never a component's opinion. */
-  rooms: RoomPolicy
   /** ⚠SETTINGS-BATCH — ⚖ Liam flag 77 (2026-08-24). Does this store reserve
    *  turnover time between customers? OFF by default, and the ベッド・設備 group's
    *  own note is the one piece of copy that describes the CONVENTION rather than
@@ -742,7 +753,7 @@ interface HoldPop {
  *  — the store's room policy, the locked lanes, the minute conversion — belongs
  *  to the board and is filled in by `verdictFor`, so no caller can ask the
  *  question under a different policy than the one the release answers under. */
-type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'vip' | 'foreignRefusal' | 'hasPrice'> & {
+type LandingAsk = Pick<LandingQuestion, 'staffLane' | 'bedLane' | 'solveRoom' | 'id' | 'requiresPrivate' | 'foreignRefusal' | 'hasPrice'> & {
   span: { x: number; w: number }
 }
 
@@ -762,8 +773,8 @@ interface GuardAdvice {
    *  exists at all, which sentence the offer line speaks, and whether this box
    *  carries the confirm's facts (only a landing that CAN be staged does). */
   floor: LandingFloor | null
-  /** ⚖ 73 (T5) — ベッド or 個室, from `needsPrivateRoom`, so the offer line and
-   *  the 満室 sentence above it name the same room. */
+  /** ⚖ 73 (T5) — ベッド or 個室, from the ask's own 個室のみ field, so the offer
+   *  line and the 満室 sentence above it name the same room. */
   roomWord: string
   /** ⚖ LIAM flag 74 (2026-08-23) — THE ONE BOX. Liam had to say okay twice: the
    *  red box asked, and pressing 注意して配置 closed it and opened a second
@@ -1514,7 +1525,6 @@ export function TodayScreen(props: TodayProps) {
       heldCommittedFor({
         gateOn: SELLING_ENGINE_LAW,
         lanes: committedLanes,
-        rooms: props.rooms,
         frame: ledgerFrame,
         // ⚖ ROUND 2 — THE DOOR IS HANDED IN, NOT IMPORTED. Round 1 had the
         // wrapper import this function from here, so the two files imported
@@ -1533,7 +1543,7 @@ export function TodayScreen(props: TodayProps) {
         // ⚖ FIX ROUND F2 — and it is the BOARD-SCOPED list, at both doors.
         released: releasedHere,
       }),
-    [committedLanes, props.rooms, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
+    [committedLanes, ledgerFrame, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, releasedHere],
   )
 
   /** THE PACKING DIALS, ONE SPELLING (⚖ spec §5). `gapLayerFor` derives the
@@ -1611,7 +1621,6 @@ export function TodayScreen(props: TodayProps) {
         // p-06's スキマ枠 both on ベッド2) was invisible to it.
         reconcile: {
           claims: gapClaims,
-          rooms: props.rooms,
           cleanupMinutesByBed: props.bedCleanupMinutes,
           onDrop: (d) => sellDrops.push(d),
         },
@@ -1631,7 +1640,6 @@ export function TodayScreen(props: TodayProps) {
       dialogs.pricing.hqMin,
       depth,
       gapClaims,
-      props.rooms,
       props.bedCleanupMinutes,
       heldCommitted,
     ],
@@ -1685,7 +1693,6 @@ export function TodayScreen(props: TodayProps) {
       survivors: sell.cells,
       claims: gapClaims,
       cleanupMinutesByBed: props.bedCleanupMinutes,
-      rooms: props.rooms,
       held: heldCommitted,
       // ⚖ Greptile #815 — the same locked-lane list `gap` above already took, so
       // this pass can shield the walk with `sellStaffLanes` exactly as
@@ -1699,7 +1706,7 @@ export function TodayScreen(props: TodayProps) {
       minSellableMin: props.guard.minSellableMin,
       dials: gapPackingDials(committedLanes, gapDials),
     })
-  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, props.rooms, locked, props.guard.minSellableMin, gapDials])
+  }, [heldCommitted, committedLanes, hours.close, sellDrops, sell, gapClaims, props.bedCleanupMinutes, locked, props.guard.minSellableMin, gapDials])
 
   /** WHAT THE BOARD DRAWS, and what the explanation layer reads as promised:
    *  the gap layer plus the fallback's additions. Gate off ⇒ the same objects,
@@ -1776,8 +1783,8 @@ export function TodayScreen(props: TodayProps) {
    *  strip asks this thousands of times per frame, and a book built inside the
    *  asking is a book per ask. */
   const ledger = useMemo(
-    () => bedViewsFor(boardLanes, props.rooms, ledgerFrame, handId),
-    [boardLanes, props.rooms, ledgerFrame, handId],
+    () => bedViewsFor(boardLanes, ledgerFrame, handId),
+    [boardLanes, ledgerFrame, handId],
   )
   /** ⚖ 39 — the same escape hatch the verdict has: a caller may ask about a board
    *  it has already taken something OUT of (the block advisor's drop), and the
@@ -1787,8 +1794,8 @@ export function TodayScreen(props: TodayProps) {
    *  and reads the frame's book. */
   const bedDoorFor = useCallback(
     (askerId: string | null, lanes: BoardLane[] = boardLanes) =>
-      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, props.rooms, ledgerFrame, handId), lanes, askerId),
-    [boardLanes, props.rooms, ledger, ledgerFrame, handId],
+      bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),
+    [boardLanes, ledger, ledgerFrame, handId],
   )
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
@@ -1890,7 +1897,7 @@ export function TodayScreen(props: TodayProps) {
         bedLane: live.bedLane,
         solveRoom: true,
         id: live.id,
-        vip: item?.category === 'vip',
+        requiresPrivate: item?.requiresPrivateRoom === true,
         foreignRefusal: null,
         hasPrice: hasPriceFor(live.id),
         span: { x: live.x, w: live.w },
@@ -1907,7 +1914,7 @@ export function TodayScreen(props: TodayProps) {
         bedLane: chipBed?.key ?? null,
         solveRoom: true,
         id: chip.id,
-        vip: chip.item.category === 'vip',
+        requiresPrivate: chip.item.requiresPrivateRoom === true,
         foreignRefusal: foreignStoreRefusal(chip.home, props.store),
         hasPrice: hasPriceFor(chip.id),
         span: { x: 0, w: chip.home.w },
@@ -1938,7 +1945,6 @@ export function TodayScreen(props: TodayProps) {
       explainRails(rails, boardLanes, {
         dur: railDur,
         handId,
-        rooms: props.rooms,
         // ⚖ R3 one world — the operator's own staged card is named as theirs
         // rather than as a stranger's.
         stagedId: pending?.id ?? null,
@@ -1979,7 +1985,7 @@ export function TodayScreen(props: TodayProps) {
         // a committed slot, bounded by one slot either way, and no number moves.
         withheld: sell.cells.filter(isHeldBound),
       }),
-    [rails, boardLanes, railDur, handId, props.rooms, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
+    [rails, boardLanes, railDur, handId, pending?.id, sell, sellDrawn, drawnClaims, sellDrops, inHand, sellMode, heldBoard],
   )
 
   const openCards = props.cards.filter((c) => c.state === 'open' && !resolved.includes(c.id))
@@ -2161,7 +2167,6 @@ export function TodayScreen(props: TodayProps) {
           start: minuteOf(q.span.x, hours),
           end: minuteOf(q.span.x + q.span.w, hours),
           locked,
-          rooms: props.rooms,
           minutesOf: (x) => minuteOf(x, hours),
           // ⚖ R3 one world — the one thing the sentence cannot read off the
           // board: which of these cards is the operator's own 仮押さえ.
@@ -2176,7 +2181,7 @@ export function TodayScreen(props: TodayProps) {
         },
         cell,
       ),
-    [boardLanes, hours, locked, props.rooms, pending?.id, props.overrideLevel],
+    [boardLanes, hours, locked, pending?.id, props.overrideLevel],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
@@ -2470,7 +2475,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
       solveRoom: true,
       id: pending.id,
-      vip: item?.category === 'vip',
+      requiresPrivate: item?.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span: { x: at.x, w: at.w },
@@ -2543,21 +2548,19 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
     }
-    // ⚖ 92 micro-fix M7, delta-verify D4 — `props.rooms` is a real dep: the gate
-    // re-verdicts each candidate start through `verdictRef`, which reads the room
-    // policy, and that ref's own identity is stable — so a rooms change alone left
-    // a stale offer on the card's biggest control.
+    // ⚖ ROOM RULE — `props.rooms` LEAVES this list with the dials it named. The
+    // gate re-verdicts each candidate start through `verdictRef`, and the room
+    // policy it used to read no longer exists: the room need is a field on the
+    // card, which arrives through `boardLanes` — already a dep.
     // ⚖ 9/1 ruling 1/2 — and `props.overrideLevel` LEAVES the list with the arm
     // that read it (⚖ 92 fix round 3 T1's, deleted above). Nothing in this memo
     // asks the dial any more, so keeping it here would be a dep that only ever
     // re-runs the gate for an answer it cannot change.
     // ⚖ 92 final hygiene (breaker #6 F4) — the gate reads `verdictRef.current`
-    // during render, so the rule cannot see through the ref to the room policy
-    // it touches: this list is hand-maintained against `verdictAt`'s transitive
-    // reads, `props.rooms` among them (micro-fix M7/delta-verify D4 above), and
-    // the rule's advice here would delete the dep that keeps the offer fresh.
+    // during render, so the rule cannot see through the ref to what it touches:
+    // this list is hand-maintained against `verdictAt`'s transitive reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin, props.rooms])
+  }, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin])
 
   // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
   // stops wearing ×. The operator did not make the reason go away, they
@@ -2891,17 +2894,16 @@ export function TodayScreen(props: TodayProps) {
   //  either — TEST:4030's own law, 満室 outranks the guard, generalised. The
   //  allocator answers exactly one question now, and a refusal is final on every
   //  path (⚖ 47: it speaks, and the caller changes nothing).
-  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, vip: boolean, span: { x: number; w: number }): string | null {
+  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): string | null {
     const start = minuteOf(span.x, hours)
     const board = boardLanesRef.current
     const solved = allocateBed(board, {
       id,
       currentBed,
       stores: board.find((l) => l.key === staffLaneKey)?.stores ?? null,
-      vip,
+      requiresPrivate,
       start,
       end: minuteOf(span.x + span.w, hours),
-      policy: props.rooms,
       // ⚖ R3 one world — THE SAME SENTENCE, ON THIS LEG TOO. This refusal is
       // SAID (`refuse` below), so it is one of the two places 満室 reaches the
       // operator, and with a staged card real for every reader it can name the
@@ -2922,7 +2924,7 @@ export function TodayScreen(props: TodayProps) {
       // during a gesture at all — `onCardPointerDown` refuses to start one on
       // any other card while something is staged, and every `setPending` site
       // fires at a landing or on the hold popover's own answer, never between a
-      // pointerdown and its drop. Same reason `props.rooms` and `hours` are read
+      // pointerdown and its drop. Same reason `hours` is read
       // here the same way.
       stagedId: pending?.id ?? null,
     })
@@ -3110,10 +3112,10 @@ export function TodayScreen(props: TodayProps) {
     if (!at) return
     const dur = minuteOf(at.x + at.w, hours) - minuteOf(at.x, hours)
     const span = place(start, start + dur, hours)
-    // ⚖ 92 fix round F11 (blind L2#6) — THE VIP FLOOR IS READ OFF THE PERSON'S
+    // ⚖ 92 fix round F11 (blind L2#6) — THE ROOM FLOOR IS READ OFF THE PERSON'S
     // OWN LANE. `moves` is the STAFF side, so the lane this asks for is a staff
     // lane; `find` by key alone would answer with a bed lane that happens to
-    // share the key and hand the verdict a `vip: false` it never checked. Every
+    // share the key and hand the verdict a room need it never checked. Every
     // sibling derivation on this board scopes by group first (`checksFor`'s
     // staff lookup, `holdSummary`'s) — this one now does too.
     const item = boardLanes.find((l) => l.group === 'staff' && l.key === at.laneKey)?.items.find((i) => i.caseId === pending.id)
@@ -3129,7 +3131,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
       solveRoom: true,
       id: pending.id,
-      vip: item?.category === 'vip',
+      requiresPrivate: item?.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span,
@@ -3573,7 +3575,7 @@ export function TodayScreen(props: TodayProps) {
       // release will, or it is telling the operator about a different board.
       solveRoom: ctx.group !== 'beds',
       id: ctx.id,
-      vip: ctx.item.category === 'vip',
+      requiresPrivate: ctx.item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
@@ -3773,7 +3775,7 @@ export function TodayScreen(props: TodayProps) {
         // button that cannot perform what it names does not exist).
         const off: LandingAsk = {
           staffLane: null, bedLane: null, solveRoom: ctx.group !== 'beds',
-          id: ctx.id, vip: item.category === 'vip', foreignRefusal: null, span,
+          id: ctx.id, requiresPrivate: item.requiresPrivateRoom === true, foreignRefusal: null, span,
           hasPrice: hasPriceFor(ctx.id),
         }
         explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
@@ -3826,7 +3828,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: sides.bedLane,
       solveRoom: ctx.group !== 'beds',
       id: ctx.id,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
@@ -3860,7 +3862,7 @@ export function TodayScreen(props: TodayProps) {
       // board; `seedBed` prefers the room the operator chose by hand, then the
       // origin this very change snapped, then that staged board.
       if (ctx.group !== 'beds') {
-        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)
+        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -4006,7 +4008,7 @@ export function TodayScreen(props: TodayProps) {
       kind: 'blocked',
       // ⚖ 73 — carried, never re-derived. The box reads its own class off this.
       floor: v.floor,
-      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
       facts,
       reason: v.reason ?? '配置できません',
       anchor: at,
@@ -4572,7 +4574,7 @@ export function TodayScreen(props: TodayProps) {
       // A caution is nothing's floor — it PLACES. ⚖ 73 has no opinion here and
       // ⚖ 74's facts belong to the confirm this landing is about to raise.
       floor: null,
-      roomWord: needsPrivateRoom(ask.vip, props.rooms) ? '個室' : 'ベッド',
+      roomWord: ask.requiresPrivate ? '個室' : 'ベッド',
       facts: null,
       reason: v.reason ?? '',
       anchor: at,
@@ -4631,7 +4633,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: sides.bedLane,
       solveRoom: lane.group !== 'beds',
       id,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       foreignRefusal: null,
       hasPrice: hasPriceFor(id),
       span: next,
@@ -4648,7 +4650,7 @@ export function TodayScreen(props: TodayProps) {
       // the operator's own room ahead of both, which is why these keys pass no
       // `bedChosen` of their own: an edge nudge is a time, not a room.
       if (lane.group !== 'beds') {
-        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)
+        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)
         if (bed == null) return
         on.bedLane = bed
       }
@@ -4854,7 +4856,7 @@ export function TodayScreen(props: TodayProps) {
       bedLane: onBed ? laneKey : (chipBed?.key ?? null),
       solveRoom: !onBed,
       id: chip.id,
-      vip: chip.item.category === 'vip',
+      requiresPrivate: chip.item.requiresPrivateRoom === true,
       foreignRefusal: foreignStoreRefusal(chip.home, props.store),
       hasPrice: hasPriceFor(chip.id),
       span,
@@ -5003,14 +5005,9 @@ export function TodayScreen(props: TodayProps) {
     // compatible one; when there is none the refusal NAMES the rooms that are
     // busy instead of the old 「空いているベッドがいません」, which told the
     // operator nothing they could act on.
-    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID. The landing
-    // above now reads the intent's category — the NEXT visit's, turned over by
-    // `nextVisitCategory` at the arming. If this line kept its hardcoded `false`
-    // the two would disagree by construction — the word would solve the 個室 and
-    // the release would put the VIP in whatever bed `privateIsLastResort` reaches
-    // first. ⚖ 50's law is that the word and what the release DOES are one
-    // answer, so they read one field.
-    const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))
+    // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID: both legs read
+    // `NEXT_VISIT_REQUIRES_PRIVATE`, so they cannot disagree by construction.
+    const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))
     const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
     if (!partner) return
     setPlacing(null)
@@ -5032,10 +5029,14 @@ export function TodayScreen(props: TodayProps) {
       kind: 'booking' as const,
       state: 'hold' as const,
       // ⚖ 51 — AND THE MINTED CARD CARRIES IT. Every later gesture asks the
-      // CARD, not the intent (`item?.category === 'vip'` at the verdict asks,
-      // `placePendingAt`, both `solveBed` releases, `bedDoor`'s subject path),
-      // so a hardcoded 'repeat' here made the VIP fix last exactly one press.
+      // CARD, not the intent (`placePendingAt`, both `solveBed` releases,
+      // `bedDoor`'s subject path), so a hardcoded 'repeat' here made the
+      // category fix last exactly one press.
       category: p.category,
+      // ⚖ ROOM RULE — and the room need, which is now a separate fact from the
+      // category. A 次回予約 has no menu yet, so the minted card carries no tag
+      // and every later gesture reads it off the card like any other booking.
+      requiresPrivateRoom: NEXT_VISIT_REQUIRES_PRIVATE,
       ...span,
       title: p.name,
       time: `${hhmm(start)}〜${hhmm(end)}`,
@@ -5146,7 +5147,7 @@ export function TodayScreen(props: TodayProps) {
         ? dropped
         : (() => {
             const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)
+            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
             return key == null ? null : boardLanes.find((l) => l.key === key)
           })()
     // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
@@ -5433,7 +5434,7 @@ export function TodayScreen(props: TodayProps) {
                 // exactly when this lane has a 定価 and `null` when it has none
                 // (⚖ R6 D2, the `ticketCore:` line in that function). Same
                 // predicate, so the landing's rows and the card it produces agree.
-                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, vip: placing.category === 'vip', foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },
+                { staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },
                 at,
                 // ⚖ 31c, LIVE BREACH (batch-11) — `askGuard` hands its `run` the
                 // sentence the operator walked past, and this callback dropped
@@ -5456,7 +5457,7 @@ export function TodayScreen(props: TodayProps) {
               // ⚖ R8 T1 — nothing has been agreed yet: the dialog this opens is
               // where the menu and its price are chosen, so there is no 予約時価格
               // for a 保持 row to be about.
-              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, vip: false, foreignRefusal: null, hasPrice: false, span: slot },
+              { staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },
               at,
               (s) => openCreateAt({ staffId: lane.key, start: s }),
             )
@@ -5942,7 +5943,15 @@ export function TodayScreen(props: TodayProps) {
         </strong>
         <small className="e-time">{timeLabel}</small>
         <small className="e-tkt">
-          {item.ticketCat && <span className="tkt-cat">{item.ticketCat} </span>}
+          {/* ⚖ ROOM RULE — 個室のみ WEARS THE CATEGORY BADGE. It is the fact that
+              changes what the board DOES, so it wins the slot from 'VIP' (the
+              fixture's one tagged booking is both). `.tg` above is the PARTNER's
+              name and is left alone — a card wearing 【ベッド3】 while its twin
+              stands on ベッド2 is the impossible state ⚖ 51 exists to stop — and
+              the label skeleton's five segments are untouched. */}
+          {(item.requiresPrivateRoom === true || item.ticketCat) && (
+            <span className="tkt-cat">{item.requiresPrivateRoom === true ? '個室' : item.ticketCat} </span>
+          )}
           <span className="tkt-core">{settledHere ? '精算済' : item.ticketCore}</span>
           {item.held && <span className="tkt-note">保持</span>}
         </small>

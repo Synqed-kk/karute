@@ -797,8 +797,13 @@ export function sellStaffLanes(lanes: readonly BoardLane[], locked: string[]): S
  *  canon's own emission needs `SellResourceLane` to carry the list, and that is
  *  an edit to a frozen file — recorded as a spec/ask, not done here. */
 export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
-  return lanes
-    .filter((l) => l.group === 'beds')
+  // ⚖ ROOM RULE clause 1, AT THE SEAM. `SellResourceLane` carries no room class
+  // and canon's `bedLedger` (availability.ts :345-358) takes the first free lane
+  // in ARRAY order, so 個室-last survived on the money surface only because
+  // bed-03 happens to sit third in the fixture. A store whose 個室 was created
+  // first would sell it to online traffic with 施術室 standing empty. One
+  // ordering, applied before the hand-off; canon stays byte-frozen.
+  return orderRooms(lanes.filter((l) => l.group === 'beds'))
     .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
 }
 
@@ -846,9 +851,6 @@ export function keepsTheRoom(): 'sell' | 'gap' {
  *  the derivation byte-identical to R3's. */
 export interface SellReconcile {
   claims: readonly GapCell[]
-  /** The store's two room-allocation judgements — the re-bedding is a real
-   *  `allocateBed` search and it obeys them. */
-  rooms: RoomPolicy
   /** Per-room turnaround, ⚖ flag 77's dial. A room MISSING from the map is a
    *  bare room (0 minutes) — the same decision, and the same reason, as
    *  `ClaimsBook.violations`. */
@@ -1043,12 +1045,12 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         id: null,
         currentBed: null,
         stores,
-        // A window is an advertisement, not a booking: nobody is VIP yet, so
-        // the 個室 floor asks its ordinary question and 個室-last still holds.
-        vip: false,
+        // ⚖ ROOM RULE — a hypothetical never needs the private room. A window is
+        // an advertisement, not a booking: there is no booking to carry a
+        // 個室のみ tag, so the offer takes 施術室 first like anyone else.
+        requiresPrivate: false,
         start: c.h,
         end: c.h + SELL_SLOT_MIN,
-        policy: input.rooms,
       })
       if (found.laneKey === null) {
         decisions.set(offerKey(c), null)
@@ -2234,7 +2236,6 @@ export function explainRails(
     dur: number
     /** The card in hand, lifted out of the board for the room question. */
     handId: string | null
-    rooms: RoomPolicy
     /** ⚖ R3 one world — the operator's own staged card, named as theirs. */
     stagedId: string | null
     /** The advertised layer and the promises, as the board draws them.
@@ -2379,13 +2380,13 @@ export function explainRails(
                   id: opts.handId,
                   currentBed: null,
                   stores: staff.stores,
-                  // A rail cell asks about a placement nobody has made yet, so
-                  // nobody is VIP and nobody holds a room — the same
+                  // ⚖ ROOM RULE — a hypothetical never needs the private room. A
+                  // rail cell asks about a placement nobody has made yet, so
+                  // there is no booking to carry a 個室のみ tag — the same
                   // hypothetical `bedDoor` binds for the marks themselves.
-                  vip: false,
+                  requiresPrivate: false,
                   start: c.start,
                   end,
-                  policy: opts.rooms,
                   stagedId: opts.stagedId,
                 })
               : null,
@@ -2594,11 +2595,6 @@ export function bedClassCell(v: LandingVerdict, starts: () => number[]): RailCel
   if (v.floor !== 'hard-room' || !v.cell) return v.cell
   return { ...v.cell, alternatives: starts(), alternativeKind: null }
 }
-
-/** ⚖ 51 — DOES THIS BOOKING NEED THE 個室, one spelling. The solve asks it to
- *  pick the room and the refusal asks it to pick the WORD it says out loud; two
- *  copies of the predicate is how a box comes to say ベッド over a 個室 hunt. */
-export const needsPrivateRoom = (vip: boolean, policy: RoomPolicy) => vip && policy.vipStaysPrivate
 
 /** One drag step: origin + pointer travel → the card's new span, on canon's
  *  dual lattice. Separated from the event so the test can drive it directly. */
@@ -2901,27 +2897,34 @@ export function sharesStore(a: string[] | null, b: string[] | null): boolean {
   return a === null || b === null || a.some((s) => b.includes(s))
 }
 
-/** ⚠SETTINGS-BATCH — the store's two room-allocation judgements, as data. They
- *  arrive from `opsConfig.roomPolicy`; nothing in this file or in the board
- *  decides them, so a store that runs its 個室 differently changes a setting
- *  rather than a component. */
-export interface RoomPolicy {
-  vipStaysPrivate: boolean
-  privateIsLastResort: boolean
-}
-
-/** ⚖ 51 — A VIP NEVER SILENTLY LEAVES THE 個室, spelled ONCE.
+/** ⚖ ROOM RULE (Liam 2026-09-05) — CAN THIS BOOKING USE THIS ROOM, spelled ONCE.
  *
  *  The same two-sided shape as `sharesStore`, for the same reason: `allocateBed`
- *  uses it as a FILTER when the board is choosing a room, and `landingVerdict`
- *  uses it as a TEST when the operator named the room out loud on a bed row.
- *  That gesture never reaches the allocator (⚖ 51's exemption), so while the
- *  rule lived only inside `allocateBed` a 個室クラス booking could be hand-placed
- *  onto a same-store standard bed with no verdict at all — the auto path
- *  enforced the floor and the explicit path walked straight past it
- *  (Greptile #744 P1). A rule with two spellings is a rule with two answers. */
-export function roomFitsClass(lane: BoardLane, vip: boolean, policy: RoomPolicy): boolean {
-  return !(vip && policy.vipStaysPrivate) || lane.roomClass === 'private'
+ *  uses it when the board is CHOOSING a room, `landingVerdict` uses it as a TEST
+ *  when the operator named the room out loud on a bed row, and `capacity-ledger`
+ *  uses it to say which rooms exist for an asker at all. A rule with two
+ *  spellings is a rule with two answers (Greptile #744 P1).
+ *
+ *  AND IT IS ONE-SIDED NOW. The room class is an ORDER, never a filter: a plain
+ *  booking may use ANY room in its store, the 個室 included, so the only thing
+ *  that can narrow the candidates is the booking's own 個室のみ tag. That is why
+ *  a store with no private room can no longer refuse a plain booking for a room
+ *  reason — the case the shipped board got wrong on its own fixture (STORE_B has
+ *  one standard bed and answered 「使える個室がありません」 to a VIP all day). */
+export function roomFitsNeed(lane: BoardLane, requiresPrivate: boolean): boolean {
+  return !requiresPrivate || lane.roomClass === 'private'
+}
+
+/** ⚖ ROOM RULE clause 1 — 施術室 FIRST, 個室 LAST, and it is LAW rather than a
+ *  dial: no store has asked to spend its private room first, and a lever with
+ *  one legal setting is the dead lever this board keeps removing.
+ *
+ *  ONE HOME, because two layers order rooms: `allocateBed` when it hands a
+ *  booking a room, and `fallback-cells` when it walks the rooms a lost offer
+ *  could fall into. They used to be two copies of the same three lines. Stable
+ *  within each class, so board order still decides between two 施術室. */
+export function orderRooms(rooms: readonly BoardLane[]): BoardLane[] {
+  return [...rooms.filter((l) => l.roomClass !== 'private'), ...rooms.filter((l) => l.roomClass === 'private')]
 }
 
 /** ⚖ LIAM 2026-08-21 (flag 51, LOCKED) — THE BED IS AN ALLOCATION, NOT A
@@ -2966,18 +2969,19 @@ export function allocateBed(
      *  construction. An optional field defaulting to "every store" would be
      *  fail-open, which is the one thing this must not be. */
     stores: string[] | null
-    /** A VIP/個室クラス booking never silently leaves the 個室. */
-    vip: boolean
+    /** ⚖ ROOM RULE — 個室のみ, read off the BOOKING's own tag and never off the
+     *  customer. Sitting in the 個室 grants nothing: an untagged booking in it
+     *  moves to any free room with no verdict and no manager. */
+    requiresPrivate: boolean
     start: number
     end: number
-    policy: RoomPolicy
     /** ⚖ Liam flag 50(d) (2026-08-22) — 「注意して配置」. An operator the store
      *  has given the authority has already been told this landing is 置けない
      *  and has said it happens anyway, so the search stops asking whether the
      *  room is free and names the one it would otherwise have chosen. The
      *  COMPATIBILITY rules are untouched — an escalation over a busy room is not
-     *  permission to walk a VIP out of the 個室 (⚖ 51's floor is a rule about
-     *  what the treatment needs, not about who is in the way).
+     *  permission to put a 個室のみ booking on a standard bed (the tag is a rule
+     *  about what the treatment needs, not about who is in the way).
      *
      *  ⚖ LIAM flag 73 (2026-08-23) — UNREACHABLE FROM THE BOOKING SURFACES, and
      *  left standing rather than removed. 満室 is now a `hard-room` floor, so no
@@ -3007,7 +3011,7 @@ export function allocateBed(
   // READ (classified into the chip's word), never to be sorted or spliced by the
   // display that borrowed it.
 ): { laneKey: string | null; refusal: string | null; blockers: readonly BoardItem[] } {
-  const { id, start, end, policy } = opts
+  const { id, start, end } = opts
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
       (i) =>
@@ -3020,18 +3024,15 @@ export function allocateBed(
   // same predicate is applied to that landing as a confirm-blocking check row;
   // see `sharesStore` for why there is only one spelling of the rule.
   const beds = lanes.filter((l) => l.group === 'beds' && sharesStore(opts.stores, l.stores))
-  const needsPrivate = needsPrivateRoom(opts.vip, policy)
-  const compatible = (l: BoardLane) => roomFitsClass(l, opts.vip, policy)
+  const compatible = (l: BoardLane) => roomFitsNeed(l, opts.requiresPrivate)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
   if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [] }
   const candidates = beds.filter(compatible)
-  // 個室 last for a regular booking: it is the room the VIP work needs, so it is
-  // spent only when the treatment rooms are gone.
-  const ordered =
-    needsPrivate || !policy.privateIsLastResort
-      ? candidates
-      : [...candidates.filter((l) => l.roomClass !== 'private'), ...candidates.filter((l) => l.roomClass === 'private')]
+  // ⚖ ROOM RULE clause 1 — 施術室 first, 個室 last, ALWAYS. `orderRooms` is the
+  // one home for that; a tagged booking's candidates are private-only anyway, so
+  // the same call is correct on both branches and there is nothing to switch on.
+  const ordered = orderRooms(candidates)
   const taken = ordered.find(free)
   if (taken) return { laneKey: taken.key, refusal: null, blockers: [] }
   // ⚖ 44 — THE SAME WALK, HANDED OUT ONCE. The refusal SENTENCE names the
@@ -3044,7 +3045,7 @@ export function allocateBed(
   const rows = candidates.map((l) => [l, blockersOn(l)] as const)
   return {
     laneKey: null,
-    refusal: fullRoomsRefusal(rows, start, end, needsPrivate, opts.stagedId ?? null),
+    refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null),
     blockers: rows.flatMap(([, blockers]) => blockers),
   }
 }
@@ -3086,7 +3087,6 @@ export function allocateBed(
 export function bedFeasibility(
   lanes: BoardLane[],
   excludeId: string | null,
-  policy: RoomPolicy,
 ): ((lane: BoardLane, start: number, dur: number) => boolean) | undefined {
   if (!lanes.some((l) => l.group === 'beds')) return undefined
   const held = excludeId ? lanes.flatMap((l) => l.items).find((i) => i.caseId === excludeId) : undefined
@@ -3107,10 +3107,10 @@ export function bedFeasibility(
         id: excludeId,
         currentBed,
         stores: lane.stores,
-        vip: held?.category === 'vip',
+        // ⚖ ROOM RULE — the BOOKING's own tag, never the customer's badge.
+        requiresPrivate: held?.requiresPrivateRoom === true,
         start,
         end: start + dur,
-        policy,
       }).laneKey !== null
     seen.set(key, free)
     return free
@@ -3223,13 +3223,26 @@ function fullRoomsRefusal(
 ): string {
   const window = `${clockOf(start)}〜${clockOf(end)}`
   const room = needsPrivate ? '個室' : 'ベッド'
-  if (rows.length === 0) return `${window}に使える${room}がありません`
+  // ⚖ ROOM RULE clause 5 — A DEAD END GETS THE WAY OUT. `rows.length === 0` can
+  // now only mean a TAGGED booking at a store with no private room (a plain
+  // booking's candidates are every bed the store has), and 「使える個室があり
+  // ません」 told the operator a true thing they could do nothing with. The two
+  // things they can actually do are named instead.
+  if (rows.length === 0) {
+    return needsPrivate
+      ? 'この店舗には個室がありません。個室のみの指定を外すか、個室のある店舗で予約してください'
+      : `${window}に使える${room}がありません`
+  }
+  // ⚖ ROOM RULE clause 5 — AND UNTIL WHEN. The name alone left the operator to
+  // go hunting the card for the one fact that lets them rearrange by hand, and
+  // the blockers are already in this walk's hand. One composer, so the toast,
+  // the rail chip, 配置モード and the guard strip all inherit the clock.
   const who = (i: BoardItem) =>
     i.kind !== 'booking'
       ? i.title
       : stagedId != null && i.caseId === stagedId
-        ? `仮押さえ中：${i.title}様`
-        : `${i.title}様`
+        ? `仮押さえ中：${i.title}様 ${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
+        : `${i.title}様 ${clockOf(i.startMin)}〜${clockOf(i.endMin)}`
   const named = rows.map(([lane, blockers]) => `${lane.label}が使用中（${[...new Set(blockers.map(who))].join('・')}）`)
   return `${window}は${room}に空きがありません。${named.join('、')}`
 }
@@ -3245,7 +3258,7 @@ export type LandingClass = 'blocked' | 'caution' | 'clean'
  *  His ruling: a TRUE 満室 board has no room in it, and 「注意して配置」 over
  *  that is a button offering to do a thing the world cannot do — ⚖ 31c at the
  *  level of physics. So the escalation belongs to the floors that are a
- *  JUDGEMENT (the VIP rule, 勤務時間外, シフトロック — the mistake-proofing
+ *  JUDGEMENT (勤務時間外, シフトロック — the mistake-proofing
  *  law's manager-judgement class, whose advise-vs-block level is the settings
  *  batch's own dial) and never to the floors that are a FACT (a person already
  *  in the room, a room that is full, a placement the engine calls impossible,
@@ -3438,7 +3451,8 @@ export interface LandingQuestion {
   solveRoom: boolean
   /** The booking being landed; `null` for one that does not exist yet. */
   id: string | null
-  vip: boolean
+  /** ⚖ ROOM RULE — 個室のみ, off the booking's own tag. */
+  requiresPrivate: boolean
   start: number
   end: number
   /** The same span in canon's percent units — `computeChecks` speaks percent. */
@@ -3452,7 +3466,6 @@ export interface LandingQuestion {
    *  caller that simply forgot to say. The screen answers it per gesture. */
   hasPrice: boolean
   locked: string[]
-  rooms: RoomPolicy
   minutesOf: (x: number) => number
   /** ⚖ R3 ONE WORLD — the session's own unconfirmed move, for the one sentence
    *  that can end up naming it (`allocateBed`'s 満室 refusal). Absent is the
@@ -3517,10 +3530,9 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         id: q.id,
         currentBed: q.bedLane,
         stores: staff.stores,
-        vip: q.vip,
+        requiresPrivate: q.requiresPrivate,
         start: q.start,
         end: q.end,
-        policy: q.rooms,
         stagedId: q.stagedId ?? null,
       })
     // ⚖ 44 FIX ROUND (blind lens 1, F6) — ONE SHAPE ON BOTH SIDES. A bed-row
@@ -3564,19 +3576,20 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   if (!q.solveRoom && bed && !sharesStore(staff.stores, bed.stores)) {
     return stop(`担当と店舗が異なります: ${staff.label} / ${bed.label}`, 'hard')
   }
-  // ⚖ 51 on the explicit room choice — the store rule is not the only floor the
-  // allocator applies, so it may not be the only one this path re-tests: a 個室
-  // クラス booking dropped straight onto a standard bed was landing silently.
-  // 置けない like every other floor, which means it inherits ⚖ 50(d) whole — the
-  // explanation names the policy, and the 「注意して配置」 escalation appears only
-  // where the store's overridePolicy put it. The VIP leaves the 個室 out loud,
-  // with a manager's name on it, or not at all.
-  // ⚖ 73 — POLICY. Liam named the VIP rules himself: this is the store's own
-  // judgement about what the treatment is owed, and the override is the manager
-  // walking the VIP out of the 個室 OUT LOUD, with their name on it, which is
-  // the un-silent path ⚖ 51 was written to protect.
-  if (!q.solveRoom && bed && !roomFitsClass(bed, q.vip, q.rooms)) {
-    return stop(`VIP・個室クラスのご予約です: ${bed.label}は個室ではありません`, 'policy')
+  // ⚖ ROOM RULE on the explicit room choice — the store rule is not the only
+  // floor the allocator applies, so it may not be the only one this path
+  // re-tests: a 個室のみ booking dropped straight onto a standard bed was
+  // landing silently (Greptile #744 P1).
+  //
+  // AND ITS FLOOR IS `hard`, NOT `policy`. It used to mint a 「注意して配置」 —
+  // a manager walking a VIP out of the 個室 out loud. Liam has overturned the
+  // rule underneath it: sitting in the 個室 means nothing, so there is no VIP to
+  // walk out, and the only thing left that can refuse is the booking's own tag.
+  // A tag is a FACT about what the treatment needs, and ⚖ 73 already says a fact
+  // gets no escalation button — the way past it is clearing the tag on the
+  // booking, never an override. An UNTAGGED booking gets no room stop at all.
+  if (!q.solveRoom && bed && q.requiresPrivate && bed.roomClass !== 'private') {
+    return stop(`個室のみのご予約です: ${bed.label}は個室ではありません`, 'hard')
   }
 
   const failed = checks.find((c) => !c.ok)
@@ -3634,7 +3647,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // confirm surface because the release never staged.
   //
   // 「注意して配置」 stays exactly where it is, for the floors that ARE illegal:
-  // 店舗 / 重複 / 勤務 / ロック / 満室 / VIP・個室 — all of which are `stop`s
+  // 店舗 / 重複 / 勤務 / ロック / 満室 / 個室のみ — all of which are `stop`s
   // above this line — plus `R-UNAVAILABLE` here.
   // ⚖ 73 — `ackAllowed: false` is the engine's own word for physically
   // impossible (gap-guard :371, `R-UNAVAILABLE`). A floor the engine calls

@@ -125,6 +125,12 @@ export interface FixtureAppointment {
   settlement: 'settled' | 'awaiting' | null
   /** Today F10 / F20–F22 (ask T-04). `null` renders 【未定】, never a guess. */
   resource_id: string | null
+  /** ⚖ ROOM RULE (Liam 2026-09-05) — 個室のみ. The one thing that says 「this
+   *  booking needs the private room」, on the BOOKING and nowhere else. Core's
+   *  own column (`Appointment.requires_private_room`, Anthony ask 2) is stamped
+   *  at CREATE from the menu's room class; absent here means the same as false,
+   *  which is what all but one of these rows are. */
+  requires_private_room?: boolean
   /** Inspector G5 予約経路. */
   source: string
   /** Today G6 / J2 (ask T-14). The staff this booking was taken for, when the
@@ -375,6 +381,7 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
         | 'board_state'
         | 'settlement'
         | 'resource_id'
+        | 'requires_private_room'
         | 'source'
         | 'reassigned_from'
         | 'taken_days_ago'
@@ -400,6 +407,7 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     board_state: 'board_state' in board ? (board.board_state ?? null) : status === 'cancelled' ? null : 'confirmed',
     settlement: board.settlement ?? null,
     resource_id: board.resource_id ?? null,
+    requires_private_room: board.requires_private_room ?? false,
     source: board.source ?? '店頭受付',
     reassigned_from: board.reassigned_from ?? null,
     taken_days_ago: board.taken_days_ago ?? 3,
@@ -436,8 +444,13 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-01', source: '店頭受付 #357498', taken_days_ago: 6, updated_minute: 11 * 60 + 5 }),
     slot('apt-22', 'cus-08', STORE_A, 'p-01', 'menu-01', 0, 10, 30, 60, 6600, 'done',
       { board_state: 'confirmed', settlement: 'settled', resource_id: 'bed-02', source: 'Reserve #357501', taken_days_ago: 11, updated_minute: 11 * 60 + 38 }),
+    // ⚖ ROOM RULE — THE ONE 個室のみ BOOKING IN THE SAMPLE. A board where no row
+    // carries the tag cannot show the rule at all (⚖ 8/9 demo data = product
+    // truth), and this row is also the only `vip: true` customer — so it proves
+    // the two facts are now separate: the tag decides the ROOM, the VIP flag
+    // decides the colour and the 保護対象 count.
     slot('apt-25', 'cus-04', STORE_A, 'p-05', 'menu-01', 0, 11, 0, 60, 6600, 'done',
-      { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
+      { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', requires_private_room: true, source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
     slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-04', source: '電話予約 #357540' }),
     // 代官山 gets the same treatment on 見本 ごろう, who works both stores

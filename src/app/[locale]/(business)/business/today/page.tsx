@@ -480,11 +480,6 @@ export default async function TodayPage({
         mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
       },
     },
-    // ⚠SETTINGS-BATCH — ⚖ Liam flag 51. The bed the board hands a landing is an
-    // allocation, and these two dials are the whole of its judgement. They come
-    // from the store's own config for the same reason the guard's do: one place,
-    // read by everything, changed in 設定 rather than in code.
-    rooms: planes.opsConfig.roomPolicy,
     // ⚖ flag 77 — the dial itself, not what today happens to have on it.
     bedCleanupOn: resources.some((r) => r.cleanup_minutes > 0),
     // ⚖ R4 (2026-08-25) — THE SAME DIAL, PER ROOM. `bedCleanupOn` is a sentence

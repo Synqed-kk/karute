@@ -62,7 +62,7 @@ import type { BoardLane } from '@/business/lib/today-board'
 // file (also type-only) and `laneSpans` from today-interactions as a value; a
 // value import in either direction here would be a real module cycle.
 import type { ReservedLaneMask } from './reserved-mask'
-import { allocateBed, roomFitsClass, sharesStore, type RoomPolicy } from './today-interactions'
+import { allocateBed, roomFitsNeed, sharesStore } from './today-interactions'
 
 /** The day lattice every capacity question is asked on, in minutes. Same step
  *  as the frozen guard engine's own probe lattice (canon-logic/gap-guard.ts:28,
@@ -132,16 +132,17 @@ export interface DayFrame {
  *
  *  Every bed question is asked on behalf of somebody, and the four facts that
  *  change the answer travel together: a booking that already holds a room keeps
- *  it when it is free, a VIP may not leave the 個室, and a person may only be
- *  given a room their own store has. Passing these as four positional arguments
- *  is how the screen ended up asking about the held card's VIP-ness when the
- *  question was about a hypothetical new client. */
+ *  it when it is free, a 個室のみ booking may only be given a private room, and
+ *  a person may only be given a room their own store has. Passing these as four
+ *  positional arguments is how the screen ended up asking about the held card's
+ *  room need when the question was about a hypothetical new client. */
 export interface Subject {
   /** The booking's own id — its card and its own trailing 清掃 travel WITH it
    *  rather than blocking it (`allocateBed`'s two self-exclusions). */
   id: string
   currentBed: string | null
-  vip: boolean
+  /** ⚖ ROOM RULE — the BOOKING's own 個室のみ tag. */
+  requiresPrivate: boolean
   /** The stores this booking's staff lane belongs to; `null` = floating. */
   stores: string[] | null
 }
@@ -151,7 +152,7 @@ export interface Subject {
  *  It still has to name its stores. `null` means a genuinely floating asker
  *  (canon's own "pairs with any room"), and it is spelled rather than defaulted
  *  because the difference between "this store's rooms" and "every room on the
- *  board" is the store-isolation law. A hypothetical is never VIP and holds no
+ *  board" is the store-isolation law. A hypothetical needs no 個室 and holds no
  *  room: those are facts about a booking, and there is no booking here. */
 export interface NewClient {
   stores: string[] | null
@@ -167,10 +168,12 @@ export type Asker = Subject | NewClient
  *  as a Subject is the dangerous direction — `allocateBed` would exclude that
  *  booking's own card and offer the room it is standing in (the
  *  advertise-an-occupied-room defect this module exists to close), and a
- *  half-object's missing `vip` would arrive `undefined` and walk a VIP past the
- *  ⚖ 51 個室 floor. A half-object is therefore a hypothetical: it lifts no
- *  card, grants no VIP exemption, and stays on the memoised path. */
-const isSubject = (asker: Asker): asker is Subject => 'id' in asker && 'currentBed' in asker && 'vip' in asker
+ *  half-object's missing `requiresPrivate` would arrive `undefined` and walk a
+ *  個室のみ booking onto a standard bed. A half-object is therefore a
+ *  hypothetical: it lifts no card, needs no 個室, and stays on the memoised
+ *  path. */
+const isSubject = (asker: Asker): asker is Subject =>
+  'id' in asker && 'currentBed' in asker && 'requiresPrivate' in asker
 
 /** THE WHOLE ANSWER, so no caller has to derive half of it a second way.
  *
@@ -248,12 +251,16 @@ export interface Hand {
 interface Query {
   id: string | null
   currentBed: string | null
-  vip: boolean
+  requiresPrivate: boolean
   stores: string[] | null
 }
 
+// ⚖ ROOM RULE — A HYPOTHETICAL NEVER NEEDS THE PRIVATE ROOM, and that is what
+// keeps the flat-array cache key complete (see `buildBedTruth`). An offer, a
+// rail probe, `newClientMask` and an unarmed 次回予約 are all advertisements for
+// a booking that does not exist, and only a booking can carry a 個室のみ tag.
 const queryOf = (asker: Asker): Query =>
-  isSubject(asker) ? asker : { id: null, currentBed: null, vip: false, stores: asker.stores }
+  isSubject(asker) ? asker : { id: null, currentBed: null, requiresPrivate: false, stores: asker.stores }
 
 /** PHASE 1 — build the bed truth for ONE world.
  *
@@ -262,7 +269,7 @@ const queryOf = (asker: Asker): Query =>
  *  INTERNALS (the perf contract): the hypothetical caches are integer-indexed
  *  flat arrays over the day lattice, keyed by the WHOLE question — duration,
  *  store binding, and lattice slot. Nothing else can vary on that path (a
- *  hypothetical is never VIP and holds no room), so the key is complete, and
+ *  hypothetical needs no 個室 and holds no room), so the key is complete, and
  *  two lanes in the same store share one row rather than paying for the same
  *  108 searches twice. Bound: O(|durs| × |store bindings| × slots) per world,
  *  and there are exactly two worlds. At the 25-staff proof board, one store and
@@ -278,7 +285,6 @@ const queryOf = (asker: Asker): Query =>
  *  single-lift throw below). */
 function buildBedTruth(
   lanes: BoardLane[],
-  policy: RoomPolicy,
   frame: DayFrame,
   liftedId: string | null,
 ): BedTruth {
@@ -316,7 +322,7 @@ function buildBedTruth(
 
   /** Rooms this asker could use AT ALL — the store rule and the 個室 floor,
    *  read exactly as `allocateBed` reads them, with freeness left out. */
-  const usable = (q: Query) => (l: BoardLane) => sharesStore(q.stores, l.stores) && roomFitsClass(l, q.vip, policy)
+  const usable = (q: Query) => (l: BoardLane) => sharesStore(q.stores, l.stores) && roomFitsNeed(l, q.requiresPrivate)
 
   /** THE ONE SEARCH. Every answer in this file comes from here; the book never
    *  walks the beds itself. */
@@ -326,10 +332,9 @@ function buildBedTruth(
       id: q.id,
       currentBed: q.currentBed,
       stores: q.stores,
-      vip: q.vip,
+      requiresPrivate: q.requiresPrivate,
       start,
       end,
-      policy,
     })
   }
 
@@ -547,7 +552,7 @@ function buildBedTruth(
  *  allocator's semantics inherited faithfully — the alternative is a second bed
  *  reader, which is the disease. If a round ever needs the re-derived answer,
  *  it rebuilds the lanes through today-board and hands them in as a world. */
-function excludedWorld(lanes: BoardLane[], policy: RoomPolicy, frame: DayFrame, hand: Hand | null): BedTruth {
+function excludedWorld(lanes: BoardLane[], frame: DayFrame, hand: Hand | null): BedTruth {
   if (hand == null || typeof hand.id !== 'string' || hand.id === '') {
     throw new Error('capacity-ledger: worldMinusHand needs the live gesture id — a staged booking is real for every reader')
   }
@@ -555,7 +560,7 @@ function excludedWorld(lanes: BoardLane[], policy: RoomPolicy, frame: DayFrame, 
     ...l,
     items: l.items.filter((i) => i.caseId !== hand.id && i.key !== `${hand.id}-cleanup`),
   }))
-  return buildBedTruth(lifted, policy, frame, hand.id)
+  return buildBedTruth(lifted, frame, hand.id)
 }
 
 /** EXACTLY TWO WORLDS PER FRAME, both eager.
@@ -567,13 +572,12 @@ function excludedWorld(lanes: BoardLane[], policy: RoomPolicy, frame: DayFrame, 
  *  distinct exclusion is not discouraged here, it is unsayable. */
 export function bedTruthViews(
   lanes: BoardLane[],
-  policy: RoomPolicy,
   frame: DayFrame,
   hand: Hand | null,
 ): { world: BedTruth; worldMinusHand: BedTruth | null } {
   return Object.freeze({
-    world: buildBedTruth(lanes, policy, frame, null),
-    worldMinusHand: hand === null ? null : excludedWorld(lanes, policy, frame, hand),
+    world: buildBedTruth(lanes, frame, null),
+    worldMinusHand: hand === null ? null : excludedWorld(lanes, frame, hand),
   })
 }
 
