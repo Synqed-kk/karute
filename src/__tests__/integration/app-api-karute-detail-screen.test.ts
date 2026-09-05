@@ -81,7 +81,7 @@ const REC = {
   current: {
     id: 'sess-1',
     audio_storage_path: TAKE_KEY as string | null,
-    duration_seconds: 742,
+    duration_seconds: 742 as number | null,
     status: 'COMPLETED',
   },
 }

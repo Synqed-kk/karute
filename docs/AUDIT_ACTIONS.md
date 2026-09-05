@@ -59,6 +59,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `recording.capture_finalized` | recording | live | `settings.auditLog.actions.recording.capture_finalized` |
 | `recording.capture_unlinked` | recording | live | `settings.auditLog.actions.recording.capture_unlinked` |
 | `recording.discard` | recording | live | `settings.auditLog.actions.recording.discard` |
+| `recording.play` | ? | live | `settings.auditLog.actions.recording.play` |
 | `recording.session_cleanup` | recording | live | `settings.auditLog.actions.recording.session_cleanup` |
 | `recording.take_named` | recording | live | `settings.auditLog.actions.recording.take_named` |
 | `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
