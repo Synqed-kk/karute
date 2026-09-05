@@ -1801,9 +1801,42 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
       '.st-opt', '.st-pick', '.st-help', '.st-switch', '.st-swatch', '.st-select', '.st-input',
       '.st-back', '.st-link', '.st-save', '.st-jump-item', '.st-rail-item', '.st-det-btn',
       '.st-search-field', '.st-coll-del', '.st-spot-foot button',
+      // ⚖ S17 fix round 1 · F14 — AND #812'S OWN CONTROL VOCABULARY. This list
+      // was written from the room's `st-` names, so the twenty-four controls of
+      // 予約と確保 — a whole section that arrived with its own class names —
+      // measured 30–38px at 1023 · 899 · 768 · 744 · 440 · 390 while the other
+      // five sections measured zero under 44. The list is now derived from what
+      // the sheet DRAWS rather than from what this room happens to have named.
+      '.sp-seg button', '.st-step-g button', '.st-step-g input', '.st-btn-add',
+      '.st-lockadd select', '.btn.primary', '.st-lockchip button',
+      '.st-pcard', '.st-adv > summary',
     ]) {
       expect({ sel, sized: touch.includes(sel) }).toEqual({ sel, sized: true })
     }
+    // …and the list COVERS THE SHEET. Derived from every rule that declares
+    // `cursor: pointer`, so a control class added next round fails HERE rather
+    // than measuring 32px on somebody's phone — which is exactly how the
+    // twenty-four controls of 予約と確保 shipped: the list was written from the
+    // names this room happened to have, and a whole section arrived with its
+    // own.
+    const EXEMPT = new Set([
+      // sized by their own rules inside the band, a few lines above:
+      '.st-help', '.st-search-field', '.st-switch', '.st-swatch', '.st-step-g',
+      '.st-lockchip',
+      // not controls: the search ✕ sits INSIDE the 44px field, and the spot
+      // layer is the tour's own scrim.
+      '.st-search-clear', '.st-spot-catch',
+    ])
+    const pressables = new Set<string>()
+    for (const rule of CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/cursor:\s*pointer/.test(rule[2])) continue
+      for (const one of rule[1].split(',')) {
+        const cls = one.match(/\.[a-z][a-z0-9-]*/g)
+        if (cls) pressables.add(cls[cls.length - 1])
+      }
+    }
+    expect(pressables.size).toBeGreaterThan(15)
+    expect([...pressables].filter((c) => !EXEMPT.has(c) && !touch.includes(c))).toEqual([])
     // ⚠ RE-PINNED AS A GROUPED SELECTOR. The rail's rows used to carry their own
     // `min-height: 44px` at every width; the room's rows are 34px on a desk now
     // (the compact head's own scale) and grow to 44 in the touch band with every

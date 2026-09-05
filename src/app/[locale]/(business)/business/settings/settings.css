@@ -1418,7 +1418,34 @@
      controls」 — which is exactly why an enumerated touch list needs a machine
      measuring every pressable rather than a person remembering them. */
   .biz .pg-settings .st-coll-del,
+  /* ⚠ AND #812's OWN CONTROL VOCABULARY, WHICH THIS LIST DID NOT NAME (⚖ F14).
+     予約と確保 came into this room as a whole section with its own class names,
+     and the touch list was written from the room's `st-` names — so twenty-four
+     controls in the densest section of the page measured 30–38px at 1023, 899,
+     768, 744, 440 and 390 while the other five sections measured zero under 44.
+     The probe's own G1 was green for the wrong reason: at those widths its sweep
+     did not have this section's panel rendered. Same class of miss as 取り消す
+     above, one band wider. */
+  .biz .pg-settings .sp-seg button,
+  .biz .pg-settings .st-step-g button,
+  .biz .pg-settings .st-step-g input,
+  .biz .pg-settings .st-btn-add,
+  .biz .pg-settings .st-lockadd select,
+  .biz .pg-settings .btn.primary,
+  /* …and the two that already clear 44 by their own padding, named anyway so the
+     list is the WHOLE set of pressables rather than the set somebody remembered
+     (⚖ F14's own lesson). A floor costs nothing on a control that is taller. */
+  .biz .pg-settings .st-pcard,
+  .biz .pg-settings .st-adv > summary,
   .biz .pg-settings .st-spot-foot button { min-height: 44px; }
+  /* the stepper is a bordered group, so the group has to grow with its buttons */
+  .biz .pg-settings .st-step-g { height: 44px; }
+  /* ⚠ AND THE LOCK CHIP'S ✕, which no width sweep can see until a store has a
+     lock: `lockedOut` is empty in the sample world, so an enumerated list of
+     pressables never meets it. The chip becomes the touch row and its ✕ a real
+     target inside it. */
+  .biz .pg-settings .st-lockchip { min-height: 44px; padding: 3px 5px 3px 13px; }
+  .biz .pg-settings .st-lockchip button { width: 34px; height: 34px; font-size: 13px; }
   .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .pg-settings .st-search-field { min-height: 44px; }
   .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
