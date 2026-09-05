@@ -611,15 +611,15 @@ export function StorePolicySection(props: StorePolicySectionProps) {
               <DetailToggle open={detOpen['lock'] === true} controls="st-det-bg.lock" onToggle={() => toggleDet('lock')} />
             </div>
             <div className="st-dial-ctl st-dial-ctl-stack">
-            <div className="st-locks">
-              {shownLocks.length === 0
-                ? <span className="st-locks-empty">まだ誰も指定していません</span>
-                : shownLocks.map((id) => (
-                    <span className="st-lockchip" key={id}>
-                      {nameOf(id)}
-                      <button type="button" aria-label={`${nameOf(id)} を名指しロックから外す`} onClick={() => setLocks((was) => was.filter((x) => x !== id))}>×</button>
-                    </span>
-                  ))}
+              <div className="st-locks">
+                {shownLocks.length === 0
+                  ? <span className="st-locks-empty">まだ誰も指定していません</span>
+                  : shownLocks.map((id) => (
+                      <span className="st-lockchip" key={id}>
+                        {nameOf(id)}
+                        <button type="button" aria-label={`${nameOf(id)} を名指しロックから外す`} onClick={() => setLocks((was) => was.filter((x) => x !== id))}>×</button>
+                      </span>
+                    ))}
             </div>
             <div className="st-lockadd">
               {/* ⚖ MOCK DEVIATION, and the reason is the data: `lockedOut` is
@@ -809,33 +809,33 @@ export function StorePolicySection(props: StorePolicySectionProps) {
               <DetailToggle open={detOpen['slot'] === true} controls="st-det-bg.slot" onToggle={() => toggleDet('slot')} />
             </div>
             <div className="st-dial-ctl">
-            <div className="st-step">
-              <div className="st-step-g">
-                <button type="button" aria-label="5分減らす" onClick={() => setSlotText(String(clampSlot(dials.slot - SLOT_MIN)))}>−</button>
-                <input
-                  id="stSlot"
-                  type="text"
-                  inputMode="numeric"
-                  aria-labelledby="stSlotLabel"
-                  value={slotText}
-                  onChange={(e) => {
-                    const clean = e.target.value.replace(/[^0-9]/g, '')
-                    // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
-                    // on rejection. `setSlotWarn(true)` alone cleared only on
-                    // blur, so 「…消しました」 stood over the NEXT, clean
-                    // keystroke — a sentence about something that just did not
-                    // happen, which is worse than the colour-only state F10
-                    // replaced. (ponytail: two identical rejections in a row
-                    // still cannot re-announce — aria-live fires on change, and
-                    // the text is unchanged. Known ceiling, accepted.)
-                    setSlotWarn(clean !== e.target.value)
-                    setSlotText(clean)
-                  }}
-                  onBlur={() => { setSlotText(String(clampSlot(Number(slotText)))); setSlotWarn(false) }}
-                />
-                <button type="button" aria-label="5分増やす" onClick={() => setSlotText(String(clampSlot(dials.slot + SLOT_MIN)))}>＋</button>
-              </div>
-              <span className="st-step-u">分</span>
+              <div className="st-step">
+                <div className="st-step-g">
+                  <button type="button" aria-label="5分減らす" onClick={() => setSlotText(String(clampSlot(dials.slot - SLOT_MIN)))}>−</button>
+                  <input
+                    id="stSlot"
+                    type="text"
+                    inputMode="numeric"
+                    aria-labelledby="stSlotLabel"
+                    value={slotText}
+                    onChange={(e) => {
+                      const clean = e.target.value.replace(/[^0-9]/g, '')
+                      // ⚖ 9/1 (fix round 2 D3) — SET EVERY KEYSTROKE, never only
+                      // on rejection. `setSlotWarn(true)` alone cleared only on
+                      // blur, so 「…消しました」 stood over the NEXT, clean
+                      // keystroke — a sentence about something that just did not
+                      // happen, which is worse than the colour-only state F10
+                      // replaced. (ponytail: two identical rejections in a row
+                      // still cannot re-announce — aria-live fires on change, and
+                      // the text is unchanged. Known ceiling, accepted.)
+                      setSlotWarn(clean !== e.target.value)
+                      setSlotText(clean)
+                    }}
+                    onBlur={() => { setSlotText(String(clampSlot(Number(slotText)))); setSlotWarn(false) }}
+                  />
+                  <button type="button" aria-label="5分増やす" onClick={() => setSlotText(String(clampSlot(dials.slot + SLOT_MIN)))}>＋</button>
+                </div>
+                <span className="st-step-u">分</span>
             </div>
             </div>
             {/* ⚖ 9/1 (fix round 1 F10) — THE REJECTION IS SAID, NOT ONLY
