@@ -5,6 +5,7 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { secureTake } from '@/lib/recording/secure-take'
+import { pumpSegments } from '@/lib/recording/segment-uploader'
 import {
   appendTakeSegment,
   clearTakeHeartbeat,
@@ -82,6 +83,21 @@ const MINT_AWAIT_MS = 1_500
 // to give, and this race IS its bound.
 export const SECURE_MINT_AWAIT_MS = 10_000
 
+// ⚖ AND THE STOP LEG'S SEGMENT PUMP HAS A TOTAL BUDGET (slice five packet C fix
+// round 1, K4). Every PUT inside the pump carries its own deadline, and the
+// mint has the door's — but a CATCH-UP has neither: sixty owed segments at
+// three at a time is twenty waves that each succeed honestly, behind a mint
+// that may take most of its 30 s door. Two minutes can pass before secureTake
+// is even called, and `SECURE_SETTLE_BELT_MS` (120 s, just below) is the belt
+// the in-tab readers are already waiting on — so a best-effort HEAD START would
+// spend the whole budget of the guarantee that supersedes it, and the reader
+// past its belt stages a second copy of the same audio onto the same slow link.
+// Twenty seconds buys the tail and the handful behind it, which is what the
+// stop is actually waiting for. Past it the leg goes on and the pump KEEPS
+// RUNNING in the background: it is single-flight, its own deadlines bound it,
+// segments are additive, and nothing downstream reads them yet.
+const STOP_PUMP_BUDGET_MS = 20_000
+
 // The BELT on awaitTakeSecured (fix round 2 of PR4): how long a reader will
 // wait on a stop leg that never exits before it goes on without it. Same figure
 // as take-store's HEARTBEAT_STALE_MS (120 s) and read the same way — a leg
@@ -107,7 +123,19 @@ function getSupportedMimeType(): string {
  *  reads about the recording it belongs to, in one object the NEXT take cannot
  *  reach: start() and discard() replace `this.persist` rather than resetting
  *  fields under tasks that are already in the queue. */
-type TakePersist = { chunks: Blob[]; seq: number; count: number; disabled: boolean }
+type TakePersist = {
+  chunks: Blob[]
+  seq: number
+  count: number
+  disabled: boolean
+  /** ⚖ THE SIGN-OUT SET THIS TAKE DOWN, IT DID NOT THROW IT AWAY (slice five,
+   *  D4). Read at the two moments the stop leg publishes something: the
+   *  `recorded` handoff (which must not happen — the next staffer is signing
+   *  in) and the secure call (which cannot happen — the web cookie is already
+   *  gone). On the take's own object, like everything else here, so a start()
+   *  landing behind a logout cannot reach into the abandoned take's leg. */
+  abandoned: boolean
+}
 
 class GlobalRecorder {
   state: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
@@ -148,7 +176,7 @@ class GlobalRecorder {
    *  exactly this). start() and discard() REPLACE this object; the old take's
    *  tasks keep the old one, and nothing they read can be changed by anything
    *  but their own writes. */
-  private persist: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false }
+  private persist: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
   private persistTimer: ReturnType<typeof setInterval> | null = null
   private persistQueue: Promise<void> = Promise.resolve()
   /** Takes this recorder STOPPED but has not finished securing (fix round 14,
@@ -416,6 +444,13 @@ class GlobalRecorder {
         }
         p.seq = seq + 1
         p.count = count
+        // ⚖ AND THE SERVER GETS IT NOW (slice five packet C, D8). Fire-and-
+        // forget off the persist queue: the pump has its own single-flight and
+        // its own per-PUT deadlines, so this cannot pile up and the queue never
+        // waits on the network — which is the one rule this whole layer has
+        // (persistence must never affect capture). Every failure inside it is
+        // recorded on the take; nothing it can do reaches back here.
+        void pumpSegments(getRecordingPipelinePort(), takeId)
         return true
       })
       .catch(() => {
@@ -709,7 +744,7 @@ class GlobalRecorder {
     // therefore behind us, and cannot leave the callbacks writing into an
     // object the recorder no longer publishes) and synchronous from here to
     // `armTakePersistence`, so nothing can flush against a half-named take.
-    const p: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false }
+    const p: TakePersist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
     this.persist = p
 
     recorder.ondataavailable = (e) => {
@@ -720,9 +755,18 @@ class GlobalRecorder {
       this.clearRunawayGuard()
       const totalElapsed = Date.now() - this.startTime
       const durationMs = totalElapsed - this.pausedDuration
-      const blob = new Blob(p.chunks, { type: mimeType || recorder.mimeType })
-      this.result = { blob, mimeType: mimeType || recorder.mimeType, durationMs }
-      this.state = 'recorded'
+      // ⚖ AN ABANDONED TAKE IS NEVER PUBLISHED (slice five, D4). The stop
+      // itself is real — everything below runs exactly as it always did, so
+      // the tail lands, the stamp lands, and the take is whole on disk — but a
+      // logout must not hand the NEXT staffer a `recorded` card holding the
+      // last one's customer audio. That is the shared-device hygiene the old
+      // `discard()` provided by deleting the recording; the reset at the end of
+      // this handler provides it without the delete.
+      if (!p.abandoned) {
+        const blob = new Blob(p.chunks, { type: mimeType || recorder.mimeType })
+        this.result = { blob, mimeType: mimeType || recorder.mimeType, durationMs }
+        this.state = 'recorded'
+      }
       this.startedAt = null
       micStream.getTracks().forEach(t => t.stop())
       this.stream = null
@@ -731,6 +775,15 @@ class GlobalRecorder {
       // until the karute record is saved / discarded / TTL / logout.
       this.clearTakePersistence()
       const takeId = this.takeId
+      // ⚖ THE LEG WAITS ON ITS OWN MINT, NOT THE SINGLETON'S (slice five, D5;
+      // §17 carry-forward 2). Both captured SYNCHRONOUSLY, here, because the
+      // wait below happens after `flushed` resolves — an IndexedDB write long
+      // enough for a staffer to stop and start the next recording inside it.
+      // The old call read `this.recordingSessionPromise` at RUN time, so take
+      // A's leg then waited the full ten seconds on take B's mint before
+      // securing A against a row that had nothing to do with B.
+      const sessionSettled = this.recordingSessionId !== null
+      const ownMint = this.recordingSessionPromise
       if (takeId) {
         // ⚖ ONE FRESH BEAT, NOT A CLEAR (fix round 15), AND IT KEEPS BEATING
         // (round 16). Round 14 removed the liveness signal here, at the TOP of
@@ -835,6 +888,17 @@ class GlobalRecorder {
             // takes it WHOLE; `inFlight` inside secureTake keeps the two from
             // overlapping in this runtime.
             this.releaseTakeSecuringHold(takeId)
+            // ⚖ A SIGNED-OUT LEG SECURES NOTHING — AND KEEPS EVERYTHING (slice
+            // five, D4). The tail is on disk and the row is stamped: the take is
+            // whole, plainly un-finalized, and the never-delete guard holds it.
+            // What must not happen is the upload: by the time this runs the web
+            // cookie is gone, so the mint would answer the TERMINAL `forbidden`
+            // and mark the take unretryable for good. The NEXT sign-in's drain
+            // secures it — the record page's mount on the web, the launch drain
+            // on the phone. The `finally` below still runs (the hold released
+            // again harmlessly, the beat cleared, the notify, stopLegs dropped),
+            // so nothing waiting on this leg is left hanging.
+            if (p.abandoned) return
             // ⚖ THE MINT GETS ITS MOMENT, AND ONLY A MOMENT (fix round 10, P1).
             // The belt in front of the first-write-wins braces above: wait for
             // the start-mint to settle (it stamps the take before it resolves),
@@ -844,7 +908,73 @@ class GlobalRecorder {
             // whole leg was even queued, un-awaited — so nothing on screen waits
             // for it. A mint still out after that is one secureTake mints past:
             // it takes the session door itself, and the late reply adopts.
-            await this.awaitRecordingSessionId(SECURE_MINT_AWAIT_MS)
+            //
+            // THIS TAKE'S mint (D5): already settled, or never issued, and there
+            // is nothing to wait for. The belt is cleared in a `finally` the way
+            // awaitTakeSecured's is, so a settled mint leaves no ten-second
+            // timer holding the test clock — or the phone's — open.
+            if (!sessionSettled && ownMint) {
+              let belt: ReturnType<typeof setTimeout> | undefined
+              try {
+                await Promise.race([
+                  ownMint,
+                  new Promise<null>((resolve) => {
+                    belt = setTimeout(() => resolve(null), SECURE_MINT_AWAIT_MS)
+                  }),
+                ])
+              } finally {
+                clearTimeout(belt)
+              }
+            }
+            // ⚖ THE LAST SEGMENT GOES UP BEFORE THE WHOLE TAKE DOES (slice five
+            // packet C, D8 — design v2 item 2's own order: last segment PUT →
+            // whole-take PUT → finalize). AWAITED here, unlike every flush-time
+            // pump, because this is the moment the tail exists and the take is
+            // about to be sealed: the segments are what an assembler could
+            // rebuild this recording from if everything below fails, so they are
+            // worth the wait the UI is already past (`recorded` was published
+            // and notify() ran before this leg was even queued).
+            //
+            // ⚖ AND IT WAITS FOR ITS OWN MINT FIRST (rebase round 1, R1). Below
+            // the belt above, not before it: the pump's FIRST act is to read
+            // `recordingSessionId` off the take, and it returns at once when the
+            // start-mint has not stamped one yet (segment-uploader.ts:195, whose
+            // own comment already says "the stop leg waits for the mint on its
+            // own account"). At the stop instant the session is usually already
+            // stamped, so on the ordinary take this changes nothing — but on a
+            // SLOW start-mint, which is the one case this order exists for, the
+            // pump placed ahead of the belt returned having sent nothing and the
+            // TAIL SEGMENT never went up at all. The wait is bounded at 10 s and
+            // the UI is long past it, so the cost is the same nothing it was.
+            //
+            // It cannot fail the stop: pumpSegments NEVER THROWS by its own
+            // contract — one try/catch around its whole body, exactly as
+            // secureTake below carries one, which is why this leg awaits both
+            // bare. It records its own refusals on the take and touches nothing
+            // the whole-take path reads. Every step from here down failing still
+            // leaves the take on disk, plainly un-finalized, for the next drain.
+            //
+            // ⚖ A RUN THAT STARTS AFTER THE TAIL, AND A BUDGET ON WAITING FOR
+            // IT (fix round 1, K3 + K4). `fresh: true` because the tail flush a
+            // moment ago fired a pump of its own: without it this await would
+            // JOIN whatever run was already going — one whose row list was read
+            // before the tail segment existed — and "the segments are up" would
+            // be a claim about a five-second-old snapshot. And the wait is
+            // raced against STOP_PUMP_BUDGET_MS the same way the own-mint belt
+            // above is raced, for the reason named at that constant: the pump
+            // carries on in the background past it, and the whole-take secure —
+            // the guarantee that supersedes every segment — starts on time.
+            let pumpBelt: ReturnType<typeof setTimeout> | undefined
+            try {
+              await Promise.race([
+                pumpSegments(getRecordingPipelinePort(), takeId, { fresh: true }),
+                new Promise<void>((resolve) => {
+                  pumpBelt = setTimeout(() => resolve(), STOP_PUMP_BUDGET_MS)
+                }),
+              ])
+            } finally {
+              clearTimeout(pumpBelt)
+            }
             await secureTake(
               getRecordingPipelinePort(),
               takeId,
@@ -886,6 +1016,22 @@ class GlobalRecorder {
           leg.catch(() => {}),
         )
       }
+      // ⚖ …AND THE SINGLETON GOES BACK TO IDLE, WITH THE TAKE LEFT ON DISK
+      // (slice five, D4). LAST, so every local the leg captured — `p`, `takeId`,
+      // `sessionSettled`/`ownMint` — was taken before this ran: the reset nulls
+      // the singleton's copies of exactly those, and a leg reading them live
+      // would find the take it is securing had no id. Same reset `discard()`
+      // does, minus the delete.
+      //
+      // …and it resets THIS take's singleton state, never the next one's (fix
+      // round 1). onstop is a queued task: a start() landing between `abandon()`
+      // and this line would otherwise have its fresh take id, persist object and
+      // state nulled by the previous take's reset. A BELT, not a defect —
+      // nothing today can put a start() in that gap, because no user action fits
+      // between a sign-out and the recorder's own stop event — and
+      // `this.persist === p` is the same identity test every other queued task
+      // in this file already uses to stay inside its own take.
+      if (p.abandoned && this.persist === p) this.resetPublicState()
     }
 
     this.recorder = recorder
@@ -1232,14 +1378,23 @@ class GlobalRecorder {
     // (fix round 14) — the same removal the stop path does.
     if (this.takeId) this.queueClearHeartbeat(this.takeId)
     if (this.takeId && !opts?.keepTake) void deleteTake(this.takeId)
+    this.resetPublicState()
+  }
+
+  /** Everything `discard()` does AFTER it decides about the take's rows —
+   *  extracted (slice five, D4) because the abandoned stop needs the identical
+   *  reset at the END of onstop and two spellings of "back to idle" would drift
+   *  the moment one of them gained a field. */
+  private resetPublicState() {
     this.takeId = null
-    // The next recording's state, and the discarded take's own object left to
+    // The next recording's state, and the previous take's own object left to
     // whatever it already queued (fix round 20) — a timer flush queued before
-    // this discard still writes ITS chunks under ITS id, rather than finding
+    // this reset still writes ITS chunks under ITS id, rather than finding
     // the array emptied and reporting a tail it never wrote.
-    this.persist = { chunks: [], seq: 0, count: 0, disabled: false }
+    this.persist = { chunks: [], seq: 0, count: 0, disabled: false, abandoned: false }
     if (this.recorder && this.recorder.state !== 'inactive') {
-      // Stop without triggering onstop result
+      // Stop without triggering onstop result. (A no-op from onstop's own tail:
+      // the recorder is already inactive by the time it fires.)
       this.recorder.ondataavailable = null
       this.recorder.onstop = null
       try { this.recorder.stop() } catch {}
@@ -1257,6 +1412,78 @@ class GlobalRecorder {
     this.startedAt = null
     this.recorder = null
     this.notify()
+  }
+
+  /**
+   * ⚖ LOGOUT KEEPS THE AUDIO (capture pipeline slice five, D4).
+   *
+   * The sign-out wipe used to call `discard()`, which is the right hygiene and
+   * the wrong doctrine: it killed the MediaRecorder without running onstop, so
+   * a take live at the moment somebody signed out was left unstamped, up to a
+   * flush interval short of what the mic captured, and carrying no
+   * `tailIncomplete` — nothing said it was truncated. On the native shell that
+   * shape now reads as a FINISHED recording (fix round 13's quiet-and-whole
+   * rule), so the next drain would seal the committed prefix under the
+   * immutable finalized key and the rest of the session could never land. And
+   * the row itself went with `deleteTake` when the take had never reached the
+   * server at all.
+   *
+   * So a logout is a STOP, not a discard. The real `stop()` runs — the stop
+   * fact goes on the row first, the tail flush lands, the duration stamps, the
+   * hold/beat/notify/stopLegs behave exactly as they do for a 停止 tap. Only two
+   * things differ, and both are in onstop: nothing is PUBLISHED (no `recorded`
+   * card for the staffer signing in next — the hygiene `discard()` provided),
+   * and the leg does not secure (the cookie is gone; the next sign-in's drain
+   * does it).
+   *
+   * ⚖ AND EVERY LIVE RECORDER GETS THAT STOP, PERSISTENCE DISABLED INCLUDED
+   * (fix round 1). The first spelling of this excused a take whose persistence
+   * had LATCHED DISABLED mid-recording — a segment write that lost after
+   * earlier flushes had landed — on the reasoning that there is nothing on
+   * disk to keep. That reasoning is false for exactly that take: its earlier
+   * segments ARE on disk, so skipping onstop left a row with bytes, no stamp,
+   * no `stopPendingAt` and no `tailIncomplete` — quiet and whole-looking,
+   * which is the shape the native rule reads as FINISHED and the drains seal
+   * under the immutable key. The ordinary 停止 already answers this
+   * correctly, and it answers it INSIDE onstop: the first act's ternary falls
+   * to `markTakeStopPending`, `flushTake` answers false, and the leg marks
+   * `tailIncomplete` — unsecurable, 要対応, never auto-sealed.
+   * There is no persistence state for which the real stop writes something
+   * less true than skipping it, so there is no condition left but "is a
+   * recorder running".
+   *
+   * ⚖ AND ON THE PHONE THOSE MARKS LAND BECAUSE THEY NO LONGER ASK FOR A UID
+   * (slice five fix round 3, F1). The paragraph above was true only on the web.
+   * Every thin sign-out path NULLS the session store BEFORE the wipe runs —
+   * src/lib/auth/mobile/session-lifecycle.ts:71-77 flips to signed-out then
+   * calls the wipe, thin/auth/session.ts:155 does the same, and both thread an
+   * explicit uid precisely because `currentUserId()` answers null from there
+   * on. So `markTakeStopPending`, `stampTakeDuration` and
+   * `markTakeTailIncomplete` were all guaranteed no-ops on the one arm that has
+   * a launch drain, and the row this stop left was the quiet, bytes-on-disk,
+   * unflagged shape the native rule reads as FINISHED. Those three writes take
+   * `patchTakeMeta`'s `gate: 'compare'` now (take-store.ts) — the uid is
+   * compared when it resolves and never required, exactly as `appendTakeSegment`
+   * has treated the flush beside them since PR3 fix round 3. That is what makes
+   * the real stop safe here, not the ordering.
+   *
+   * With no live recorder at all (idle, or already `recorded` with its leg in
+   * flight) this is today's discard-and-reset with the take kept:
+   * `wipeSessionVault`'s own `clearOwnTakes` runs after it, and the
+   * never-delete guard is what decides whether an unfinalized take goes.
+   */
+  abandon() {
+    const p = this.persist
+    p.abandoned = true
+    // `this.takeId` is deliberately NOT asked here: start() sets the recorder
+    // and the take id in the same synchronous run, so a live recorder always
+    // has one — and a clause that can only ever be true is a clause that can
+    // only ever be got wrong.
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      this.stop()
+      return
+    }
+    this.discard({ keepTake: true })
   }
 }
 

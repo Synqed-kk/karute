@@ -32,6 +32,12 @@
 // COLLEAGUE'S finished take and have its words written onto an unrelated
 // discard. The session id is the identity a row-less object otherwise lacks.
 //
+// ⚖ …AND THE UUID SLOT IS THE TAKE (slice five packet B). The grammar is
+// unchanged — the slot was always "a uuid" and still parses as one — but the
+// value in it is now the take's own id rather than a fresh server uuid, which
+// makes the whole staged key composable from the core row alone. See
+// composeStagedKey below for why that identity matters and what it costs.
+//
 // A take is flat — no directory segment — because /api/cleanup lists the bucket
 // root non-recursively and would never see a nested orphan. Segments nest on
 // purpose (a 90-minute take is ~1,000 objects) so the root listing stays as
@@ -210,26 +216,112 @@ export function composeTakeKey(
 }
 
 /**
+ * Compose ONE SEGMENT key under a take's own folder (slice five packet C, D6).
+ *
+ * A segment is a ~5 s slice of a take that is STILL BEING RECORDED — the bytes
+ * that reach the server before the whole take can (design v1 §3 R1). It hangs
+ * under a take the core row has ALREADY reserved, so this composition reserves
+ * nothing, writes nothing and audits nothing; the fence that makes it safe is
+ * the mint's (`row.audio_storage_path` must be this take's own key), not the
+ * grammar's.
+ *
+ * SAME SELF-CHECK CONTRACT as composeTakeKey and composeStagedKey: the three
+ * inputs are validated first, then the composed key is parsed with the SAME
+ * parser every fence uses, and the values it reads back are compared field by
+ * field. Reaching the throw therefore means this composer and the grammar have
+ * drifted apart — a bug here, never caller input, and a 500 rather than a 400.
+ *
+ * LEXICAL ORDER IS NUMERIC ORDER. The seq is zero-padded to six digits, so a
+ * plain storage listing of the folder comes back in capture order — which is
+ * what the assembler (a later slice) will read it in. Six digits is ~83 hours
+ * at one segment per 5 s, and the range is closed at 999999 so the pad can
+ * never silently widen and re-order everything before it.
+ *
+ * ONE FOLDER PER TAKE, and that is the whole reason the segment shape nests
+ * (design v1 §5): a 90-minute take is ~1,000 objects, and /api/cleanup lists
+ * the bucket ROOT non-recursively — so a flat segment name would put a thousand
+ * objects per take in front of a sweep that walks the root every time it runs.
+ * Nested, the root stays exactly as sparse as it is today.
+ *
+ * `takeId`, `seq` and `mimeType` are typed `unknown` for the same reason the
+ * parser's `key` is: they arrive from a request body, so a `string`/`number`
+ * annotation proves nothing at runtime and every guard below runs before any
+ * method or arithmetic touches them.
+ *
+ * `businessId` is the caller's OWN verified tenant — never a request field.
+ */
+export function composeSegmentKey(
+  businessId: string,
+  takeId: unknown,
+  seq: unknown,
+  mimeType: unknown,
+): { key: string; ext: string; contentType: string; seq: number } | null {
+  if (typeof takeId !== 'string' || !TAKE_UUID.test(takeId)) return null
+  // `Number.isInteger` refuses NaN, Infinity and every fractional value in one
+  // go — and a string-shaped number never reaches it, because typeof runs first
+  // inside that predicate. The range is the pad's: SEQ is `^[0-9]{6}$`, so
+  // anything at or past 1e6 would compose a seven-digit stem the parser refuses.
+  if (!Number.isInteger(seq) || (seq as number) < 0 || (seq as number) > 999_999) return null
+  const contentType = normalizeAudioMime(mimeType)
+  if (contentType === null) return null
+  const ext = MIME_TO_EXT[contentType]
+  const seqNum = seq as number
+  const key = `${SEGMENT_PREFIX}${TAKE_PREFIX}${businessId}_${takeId}/${String(seqNum).padStart(6, '0')}.${ext}`
+  const parsed = parseRecordingKey(key, businessId)
+  if (
+    parsed?.kind !== 'segment' ||
+    parsed.takeId !== takeId ||
+    parsed.seq !== seqNum ||
+    parsed.ext !== ext
+  ) {
+    throw new Error('composed segment key failed its own grammar')
+  }
+  return { key, ext, contentType, seq: seqNum }
+}
+
+/**
  * Compose the STAGED-copy key for the session a discard's words are owed to.
  *
- * The uuid is the server's own (a fresh one per staging), so the key is unique
- * without the client naming anything; the SESSION is the whole point — it is
- * the binding isStagedKeyFor checks later, and the reason this shape exists.
- * `businessId` is the caller's OWN verified tenant, and the session id is
- * validated before it is interpolated, exactly as composeTakeKey validates its
- * take id — same self-check on the way out, same "reaching the throw is a bug
- * here, never caller input" contract.
+ * The SESSION is what isStagedKeyFor checks later, and the reason this shape
+ * exists at all. `businessId` is the caller's OWN verified tenant, and the
+ * session id is validated before it is interpolated, exactly as composeTakeKey
+ * validates its take id — same self-check on the way out, same "reaching the
+ * throw is a bug here, never caller input" contract.
+ *
+ * ⚖ AND THE UUID SLOT IS THE TAKE (slice five packet B, D10). The slot used to
+ * be a fresh server uuid per staging, which made the copy unique and NAMELESS:
+ * nothing outside the device that PUT it could ever say which object was a
+ * given take's staged copy, so the row-less object was unfindable from the core
+ * row that owed it. With the take in the slot the whole key is composable FROM
+ * THE ROW ALONE — session = the row's own id, take id + ext = the row's own
+ * reserved pointer `app_<biz>_<take>.<ext>` — so `stg/<biz>_<session>_<take>.<ext>`
+ * is a pointer core can find with one storage probe and no new registry.
+ *
+ * That is also why the slot must never carry anything a device could VARY: a
+ * second staging of the same take composes the SAME key, storage refuses it
+ * (409 = already there, ⚖ V2.1) and the first copy stands, immutable, exactly
+ * as a finalized take's object does. A varying slot would mint a second copy
+ * per attempt instead.
+ *
+ * `slot` is typed `unknown` for the same reason `key` is on the parser: it
+ * arrives from a request body. Anything that is not a lowercase take uuid falls
+ * back to the server's own — the no_uuid cohort (a browser with no
+ * `crypto.randomUUID` on the DEVICE, which cannot name its take at all) is the
+ * named ceiling here, and its copies stay unfindable exactly as every copy was
+ * before this round.
  */
 export function composeStagedKey(
   businessId: string,
   recordingSessionId: unknown,
   mimeType: unknown,
+  slot?: unknown,
 ): { key: string; ext: string; contentType: string } | null {
   if (typeof recordingSessionId !== 'string' || !TAKE_UUID.test(recordingSessionId)) return null
   const contentType = normalizeAudioMime(mimeType)
   if (contentType === null) return null
   const ext = MIME_TO_EXT[contentType]
-  const key = `${STAGED_PREFIX}${businessId}_${recordingSessionId}_${crypto.randomUUID()}.${ext}`
+  const uuid = typeof slot === 'string' && TAKE_UUID.test(slot) ? slot : crypto.randomUUID()
+  const key = `${STAGED_PREFIX}${businessId}_${recordingSessionId}_${uuid}.${ext}`
   if (parseRecordingKey(key, businessId)?.kind !== 'staged') {
     throw new Error('composed staged key failed its own grammar')
   }

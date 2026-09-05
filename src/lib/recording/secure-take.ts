@@ -56,6 +56,14 @@
 // exit leaves the take either finalized or plainly un-finalized.
 
 import type { RecordingPipelinePort } from '@/lib/ports/recording-port'
+// MOVED OUT, NOT CHANGED (slice five packet B). The PUT deadline and the
+// "already there" reader live in storage-put.ts now. `putDeadlineMs` is shared:
+// both PORTS stage a discard's copy through the same storage door and neither
+// carried a deadline (fix round 3, F7), so all three PUTs in the app take the
+// same size-derived one. `putSaysAlreadyThere` is NOT shared — a 409 is a
+// success only here, where finalize re-proves size and ownership afterwards;
+// see storage-put.ts's header.
+import { putDeadlineMs, putSaysAlreadyThere } from '@/lib/recording/storage-put'
 import {
   isStoppedTake,
   loadTakeBlob,
@@ -81,58 +89,12 @@ const DEFAULT_MIME = 'audio/webm'
  *  A second browser tab has its own module instance and its own set, so two
  *  tabs CAN both PUT the same take at once. That is survivable, by
  *  construction rather than by luck: the key is immutable and per-take, so the
- *  loser's PUT is refused as a duplicate (putSaysAlreadyThere below reads both
+ *  loser's PUT is refused as a duplicate (putSaysAlreadyThere in storage-put.ts reads both
  *  shapes of that refusal), and finalize is idempotent against the same object
  *  — an exact retry answers `already`, which rides the ok arm. The cost of the
  *  race is one wasted upload, never a lost or truncated take. The single-
  *  WebView shell, which is where staff actually record, cannot have two. */
 const inFlight = new Set<string>()
-
-/** The PUT's deadline, in ms: this take's own bytes at ~10 KB/s, never under a
- *  minute. A FLAT timeout cannot work here — a take is the whole recording, so
- *  the same number that mercy-kills a stalled 2 MB upload would cut a 90-minute
- *  one off mid-flight on salon wifi. Generous by design: this exists to release
- *  a socket that will never answer, not to police slow ones. */
-const PUT_FLOOR_MS = 60_000
-// ≈10 KB/s — an 80 kbps floor, not a target (fix round 10, P2). 50 assumed
-// 400 kbps upstream, which a phone on salon wifi or a weak cell does not have:
-// a take that could not sustain it was aborted, marked retryable, and re-PUT
-// FROM ZERO on the next mount, forever. The ceiling this buys is the largest
-// take the recorder can produce — 2 h at 48 kbps ≈ 43 MB — finishing in ~72
-// min; the 60 s floor still mercy-kills a stalled small one.
-const PUT_BYTES_PER_MS = 10
-const putDeadlineMs = (bytes: number) =>
-  Math.max(PUT_FLOOR_MS, Math.ceil(bytes / PUT_BYTES_PER_MS))
-
-/** "The object is ALREADY there" — the storage answer that is a SUCCESS for us
- *  (see the long note at the call site), in both shapes it arrives in.
- *
- *  Supabase's signed-upload endpoint does not always give the conflict its own
- *  status: it has answered HTTP **400** with `{"statusCode":"409","error":
- *  "Duplicate", …}` — the real code demoted into the body. Read as a plain 400
- *  that was a retryable `upload_400`, so a take whose object LANDED and whose
- *  finalize was merely lost re-PUT its whole self on every cooldown, forever,
- *  and never finalized.
- *
- *  Defensive by construction: a `clone()` so nothing downstream loses the body,
- *  and one catch for every way a body can refuse to be JSON (an HTML proxy
- *  page, an already-consumed stream, a Response-shaped test double with no
- *  clone at all). Unreadable → not a duplicate, which keeps the take retryable
- *  — the safe side. */
-async function putSaysAlreadyThere(put: Response): Promise<boolean> {
-  if (put.status === 409) return true
-  if (put.status !== 400) return false
-  try {
-    const body = (await put.clone().json()) as
-      | { statusCode?: unknown; error?: unknown }
-      | null
-    return (
-      String(body?.statusCode ?? '') === '409' || /duplicate/i.test(String(body?.error ?? ''))
-    )
-  } catch {
-    return false
-  }
-}
 
 /**
  * Upload the whole take to its finalized key and tell the server it is complete.
@@ -349,7 +311,7 @@ export async function secureTake(
     // the take surfaces as 要対応 (R10) for a human to resolve.
     //
     // And the refusal does not always carry 409 as its STATUS (fix round 12,
-    // P2) — putSaysAlreadyThere above reads the body for the shape that hides
+    // P2) — putSaysAlreadyThere (storage-put.ts) reads the body for the shape that hides
     // it in a 400.
     if (!put.ok && !(await putSaysAlreadyThere(put))) {
       // Nothing is finalized against an object storage refused to take.

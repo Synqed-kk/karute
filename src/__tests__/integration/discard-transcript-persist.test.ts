@@ -28,9 +28,14 @@ jest.mock('@/actions/recording-discard-transcript', () => ({
  *  has to ASK before it reads the row. Mocked for the reason the lazy import
  *  itself names: the recorder's graph reaches next/cache. */
 const mockAwaitTakeSecured = jest.fn(async (_takeId: string) => {})
+/** …and the hold that wait can OUTLIVE (slice five fix round 3, F5). The belt
+ *  gives up at 120 s; the leg holding the take does not, and while it holds,
+ *  the tail is still on its way to disk. */
+const mockIsActiveTake = jest.fn((_takeId: string) => false)
 jest.mock('@/lib/global-recorder', () => ({
   globalRecorder: {
     awaitTakeSecured: (takeId: string) => mockAwaitTakeSecured(takeId),
+    isActiveTake: (takeId: string) => mockIsActiveTake(takeId),
   },
 }))
 
@@ -79,6 +84,10 @@ jest.mock('@/lib/karute/take-store', () => ({
   // can EVER be sealed is the whole question the staging branch asks, and a
   // copy of it here would go green while take-store's own answer drifted.
   isUnsecurableTake: jest.requireActual('@/lib/karute/take-store').isUnsecurableTake,
+  // ⚖ …AND THE RELEASE RULE ITSELF (fix round 2). Whether the device may let go
+  // of a take is the consequence a failed staging must NOT reach, so the
+  // assertion below reads take-store's own answer rather than restating it.
+  serverHoldsTake: jest.requireActual('@/lib/karute/take-store').serverHoldsTake,
 }))
 
 let mockSupported = true
@@ -90,7 +99,11 @@ const STAGED = 'stg/business-1_sess-1_staged-1.webm'
  *  transitional cohort below is exactly the takes still carrying one. */
 const OLD_STAGED = 'app_biz-1_staged-1.webm'
 const mockPrepareTranscription = jest.fn(
-  async (_blob: Blob, _finalizedPath: string | null, _opts?: { stagedFor?: string | null }) => ({
+  async (
+    _blob: Blob,
+    _finalizedPath: string | null,
+    _opts?: { stagedFor?: string | null; stagedTake?: string | null },
+  ) => ({
     body: { path: STAGED },
     path: STAGED,
   }),
@@ -106,12 +119,13 @@ jest.mock('@/lib/ports/recording-port', () => ({
     prepareTranscription: (
       blob: Blob,
       finalizedPath: string | null,
-      opts?: { stagedFor?: string | null },
+      opts?: { stagedFor?: string | null; stagedTake?: string | null },
     ) => mockPrepareTranscription(blob, finalizedPath, opts),
     finalizedKey: (takeId: string, mimeType: string) => mockFinalizedKey(takeId, mimeType),
   }),
 }))
 
+import { serverHoldsTake } from '@/lib/karute/take-store'
 import {
   discardTranscriptSupported,
   persistReviewDiscardTranscript,
@@ -130,6 +144,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockSupported = true
   mockAwaitTakeSecured.mockImplementation(async () => {})
+  mockIsActiveTake.mockImplementation(() => false)
   mockPersistDiscardTranscript.mockImplementation(async () => ({ ok: true }))
   mockTranscribeAndPersistDiscard.mockImplementation(async () => ({ ok: true }))
   mockReadSecureMeta.mockImplementation(async () => ({
@@ -367,6 +382,44 @@ describe('the audio path', () => {
       })
     }
 
+    // ⚖ …BUT NOT WHILE THE RECORDER STILL HOLDS IT (slice five fix round 3,
+    // F5). `awaitTakeSecured` is belted at 120 s and the HOLD has no deadline
+    // (fix round 16 took it away on purpose), so a slow stop leg — a 43 MB PUT
+    // on salon wifi, a queued IndexedDB tail — is still holding the take when
+    // that belt expires. Its row reads unsecurable (stopPendingAt, no stamp),
+    // so the sweep would stage segments 0..N with N+1 still on its way to disk:
+    // a SHORT copy. D11 then reads `stagedPath` + the done mark as proof the
+    // server holds this take and releases the device's own, longer one — the
+    // tail lost for good, on a take that was only ever discarded.
+    it('a take the stop leg still HOLDS is not staged — its tail is still landing', async () => {
+      mockIsActiveTake.mockImplementation(() => true)
+      mockReadSecureMeta.mockImplementationOnce(async () => ({
+        stopPendingAt: 1_756_000_000_000,
+      }))
+
+      await runDiscardTranscript('take-1', PENDING)
+
+      expect(mockIsActiveTake).toHaveBeenCalledWith('take-1')
+      // Nothing staged, nothing claimed, nothing released…
+      expect(mockLoadTakeBlob).not.toHaveBeenCalled()
+      expect(mockPrepareTranscription).not.toHaveBeenCalled()
+      expect(mockMarkTakeStaged).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      // …and the stamp STAYS, so the next sweep collects the words once the leg
+      // has let go.
+      expect(mockMarkDone).not.toHaveBeenCalled()
+    })
+
+    it('…and once the leg lets go, the same take stages normally', async () => {
+      mockReadSecureMeta.mockImplementationOnce(async () => ({
+        stopPendingAt: 1_756_000_000_000,
+      }))
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).toHaveBeenCalledTimes(1)
+      expect(mockMarkTakeStaged).toHaveBeenCalledWith('take-1', STAGED)
+      expect(mockMarkDone).toHaveBeenCalledWith('take-1')
+    })
+
     it('a RETRYABLE refusal is still merely "not yet" — left for the next sweep', async () => {
       // 'session' is a moment in time (a dead socket, a core 5xx), so the drain
       // will ask again and this take gets a finalized key after all.
@@ -464,11 +517,44 @@ describe('the audio path', () => {
     // session in its KEY the transcribe door had nothing to check a claim
     // against: any records.write holder could name a COLLEAGUE'S finished take
     // and have its words written onto an unrelated discarded session.
-    it('the staging names the session it is staged FOR', async () => {
+    // ⚖ A STAGING THAT COULD NOT PROVE ITSELF SETTLES NOTHING (fix round 2). The
+    // port throws `staged copy mismatch` when the object already at the key is
+    // not this take's own byte length — an object a records.write holder could
+    // have put there first, since the key is composable in advance. What must
+    // follow is that NOTHING is written: no staged pointer, no done stamp, so
+    // serverHoldsTake stays false and D11 never releases the real recording.
+    // The next sweep asks the mint again.
+    it('a staged copy that is NOT ours settles nothing — the take is never released', async () => {
+      mockReadSecureMeta.mockImplementation(async () => ({ tailIncomplete: true }))
+      mockPrepareTranscription.mockImplementationOnce(async () => {
+        throw new Error('staged copy mismatch')
+      })
+
+      await runDiscardTranscript('take-1', PENDING)
+
+      expect(mockMarkTakeStaged).not.toHaveBeenCalled()
+      expect(mockMarkDone).not.toHaveBeenCalled()
+      expect(mockTranscribeAndPersistDiscard).not.toHaveBeenCalled()
+      // …and the take the store still holds is one serverHoldsTake refuses:
+      // no finalized key, no staged pointer, so the never-delete guard and the
+      // TTL prune both keep it. This is the rule the throw exists to protect.
+      expect(
+        serverHoldsTake({ tailIncomplete: true, stagedPath: undefined, finalizedAt: undefined }),
+      ).toBe(false)
+      // The second sweep tries again — one JSON call per mount, no upload.
+      await runDiscardTranscript('take-1', PENDING)
+      expect(mockPrepareTranscription).toHaveBeenCalledTimes(2)
+    })
+
+    // ⚖ …AND FOR ITS TAKE (slice five packet B, D10). The take fills the key's
+    // uuid slot, so the copy is composable from the core row alone — and a take
+    // staged twice lands on the SAME object rather than minting a second one.
+    it('the staging names the session it is staged FOR, and the take it is OF', async () => {
       mockReadSecureMeta.mockImplementationOnce(async () => ({ tailIncomplete: true }))
       await runDiscardTranscript('take-1', PENDING)
       expect(mockPrepareTranscription).toHaveBeenCalledWith(expect.any(Blob), null, {
         stagedFor: 'sess-1',
+        stagedTake: 'take-1',
       })
     })
 

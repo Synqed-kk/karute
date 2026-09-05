@@ -23,6 +23,11 @@ const MAX_STORAGE_PATH_CHARS = 300
 // upload-url mint, finalize) — it only BOUNDS the string; the real validation is
 // the closed MIME map in key-grammar.ts.
 const MAX_MIME_CHARS = 100
+// The staged key's uuid SLOT, as sent by the client — bounded rather than
+// shaped, because the shape is decided server-side (see UploadUrlMintSchema's
+// stagedTake note). A uuid is 36; this leaves room for the composed fallback id
+// a browser without crypto.randomUUID gives its take.
+const MAX_STAGED_SLOT_CHARS = 64
 
 // ── Consent grant (§Smaller pre-rulings) ────────────────────────────────────
 // method is a CLOSED enum; policy_version is SERVER-pinned (never accepted here).
@@ -97,25 +102,94 @@ export const SessionMintSchema = z
 // A uuid for the same reason recordingSessionId is — it rides into a core URL
 // PATH unencoded — and NEVER together with a takeId: a staged copy is not a
 // take, so a body carrying both is one act pretending to be two.
+//
+// ⚖ AND A STAGED COPY NAMES ITS TAKE TOO (slice five packet B, D10). stagedTake
+// is the take whose bytes are being staged — the value that goes in the key's
+// uuid slot, which is what makes the copy composable from the core row alone
+// (key-grammar.ts#composeStagedKey). It REQUIRES stagedFor: on its own it names
+// a take nobody asked to stage, and this door has exactly two acts.
+//
+// ⚖ AND IT IS A BOUNDED STRING, NOT A UUID (slice five fix round 3, F3). Typing
+// it `.uuid()` refused the ONE cohort composeStagedKey's random-slot fallback
+// was written for: a browser with no `crypto.randomUUID` names its take
+// `${Date.now()}-…` (global-recorder.ts), so the whole mint 400d before the
+// server could fall back — that take was born `no_uuid` (TERMINAL), i.e.
+// exactly the unsecurable cohort the discard sweep stages, and its words were
+// never collectable at all. `composeStagedKey` already TESTS the slot against
+// TAKE_UUID and mints its own when it fails; the schema's job here is only the
+// length ceiling this file's own law asks of every free string.
+//
+// mimeType JOINS THE STAGED SHAPE with it. Until this round every staged copy
+// was composed with the server's DEFAULT_MIME, so an iOS take's mp4 bytes were
+// named `.webm` and PUT as audio/webm — the same live mislabelling the take
+// shape was fixed for. The pair rule below therefore widens by exactly one
+// clause: mimeType requires a takeId OR a stagedFor. A takeId still requires
+// mimeType (the take shape is unchanged in both directions), and a bare
+// mimeType that names neither act is still refused.
+//
+// ⚖ AND THE THIRD ACT: SEGMENTS (slice five packet C, D6). `seqs` asks this one
+// door for a BATCH of segment keys under a take that is still being recorded —
+// the bytes that reach the server before the whole take can (design v1 §3 R1).
+// It is the take shape plus a list, never a shape of its own: a segment hangs
+// under a take the row has already reserved, so `seqs` REQUIRES `takeId` (and
+// through the pair rules above, therefore mimeType and recordingSessionId too),
+// and it is NEVER sent with `stagedFor` — a staged copy is not a take and has
+// no segments. Both halves are refused here rather than in the mint, because
+// this schema is the one parse both doors run.
+//
+// The three numbers on the list are each a ceiling this file's .max() law asks
+// for. 0..999999 is the key grammar's own six-digit seq range (key-grammar.ts
+// #composeSegmentKey), so a value outside it is bad_input one fence earlier
+// than the composition. 60 is the batch cap — five minutes of capture at one
+// segment per 5 s, which is what a phone that has been offline for a while owes
+// — and it bounds the storage probes the mint makes per call. At least one,
+// because an empty list is a request that asks for nothing. DUPLICATES are
+// refused for the same reason a take is minted once: two entries for one seq
+// would probe and sign the same immutable key twice in one answer, and the
+// caller could only PUT one of them.
+export const MAX_SEGMENT_SEQ = 999_999
+export const MAX_SEGMENT_BATCH = 60
 export const UploadUrlMintSchema = z
   .object({
     takeId: z.string().uuid().nullish(),
     mimeType: z.string().max(MAX_MIME_CHARS).nullish(),
     recordingSessionId: z.string().uuid().nullish(),
     stagedFor: z.string().uuid().nullish(),
+    stagedTake: z.string().max(MAX_STAGED_SLOT_CHARS).nullish(),
+    seqs: z
+      .array(z.number().int().min(0).max(MAX_SEGMENT_SEQ))
+      .min(1)
+      .max(MAX_SEGMENT_BATCH)
+      .nullish(),
   })
   .strict()
   .refine((v) => !(v.takeId && v.stagedFor), {
     message: 'stagedFor names a staged copy, never a take',
     path: ['stagedFor'],
   })
+  .refine((v) => !(v.stagedTake && !v.stagedFor), {
+    message: 'stagedTake names the take of a staged copy — it needs stagedFor',
+    path: ['stagedTake'],
+  })
   .refine((v) => Boolean(v.takeId) === Boolean(v.recordingSessionId), {
     message: 'takeId and recordingSessionId must be sent together',
     path: ['recordingSessionId'],
   })
-  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType), {
-    message: 'takeId and mimeType must be sent together',
+  .refine((v) => Boolean(v.takeId) === Boolean(v.mimeType) || Boolean(v.mimeType && v.stagedFor), {
+    message: 'mimeType belongs to a takeId or a stagedFor, and a takeId needs one',
     path: ['mimeType'],
+  })
+  .refine((v) => !(v.seqs && !v.takeId), {
+    message: 'seqs name the segments of a take — they need takeId',
+    path: ['seqs'],
+  })
+  .refine((v) => !(v.seqs && v.stagedFor), {
+    message: 'a staged copy is not a take, and has no segments',
+    path: ['seqs'],
+  })
+  .refine((v) => !v.seqs || new Set(v.seqs).size === v.seqs.length, {
+    message: 'each seq may appear once — a segment key is minted once',
+    path: ['seqs'],
   })
 
 // ── Take finalize (capture pipeline PR2) — "this take is complete on storage".

@@ -37,7 +37,7 @@ const createSignedUploadUrl = jest.fn(async (p: string) => ({
 }))
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
-  error: null as { message: string; status?: number } | null,
+  error: null as { message: string; status?: number; statusCode?: string } | null,
 }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
@@ -175,6 +175,9 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   // staff rule decides it. Nothing is reserved and nothing is written.
   it('a stagedFor body signs a session-named key, and binds nothing', async () => {
     recordingsGet.mockResolvedValue(ROW)
+    // The key is FREE — this suite's default `info` answers "an object is
+    // there", which since fix round 2 is a different, un-signed answer.
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
     const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -182,10 +185,30 @@ describe('POST recordings/upload-url — the fenced mint', () => {
       new RegExp(`^stg/business-1_${SESSION}_[0-9a-f-]{36}\\.webm$`),
     )
     expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.url).toBeTruthy()
     expect(recordingsUpdate).not.toHaveBeenCalled()
     expect(recordingsCreate).not.toHaveBeenCalled()
-    // No reservation to probe for: the key is a fresh uuid nobody can hold.
-    expect(info).not.toHaveBeenCalled()
+    // ⚖ …BUT THE KEY IS PROBED FIRST (fix round 2). "A fresh uuid nobody can
+    // hold" stopped being true when the slot became the TAKE: the key is
+    // composable in advance, so the door looks before it signs, and an object
+    // already there is answered with its SIZE instead of a signed URL. One
+    // `info()` read, the shared one — and here it says the key is free, so this
+    // body is signed exactly as it always was.
+    expect(info).toHaveBeenCalledWith(body.path)
+  })
+
+  // …and when the object IS already there the door signs NOTHING and hands back
+  // the size, which is the only thing the device can check its own blob against.
+  it('…and an object already at that key comes back as a SIZE, never a URL', async () => {
+    recordingsGet.mockResolvedValue(ROW)
+    info.mockResolvedValue({ data: { size: 4096 }, error: null })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.existingSize).toBe(4096)
+    expect(body.url).toBeUndefined()
+    expect(body.token).toBeUndefined()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
   it('…on ANOTHER staffer’s session → 403, and nothing is signed', async () => {
@@ -193,6 +216,85 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(403)
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ …AND recordings.viewAll DOES NOT LIFT IT (slice five fix round 4, G2).
+  // The take mint lets an owner reserve a colleague's take by design; a staged
+  // copy is never anyone's but the recorder's — the discard word-collection
+  // runs on the recorder's own device against the owner-gated take store. With
+  // a deterministic, immutable key, owner reach here was a pre-fill lever: mint
+  // the colleague's key first, PUT anything, and their device meets a size
+  // mismatch for ever. The route's existing `forbidden` mapping carries it.
+  it('…and an owner with recordings.viewAll gets the SAME 403 on this door', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
+    const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE THIRD ACT, THROUGH THE REAL ROUTE (slice five packet C). A `seqs`
+  // body asks the SAME door for this take's segment keys — the bytes that reach
+  // the server while the recording is still running.
+  it('a seqs body comes back with one signed key per seq, under the take’s folder', async () => {
+    info.mockResolvedValue(objectFree)
+    // The fence: the row has ALREADY reserved this take's key (which is what a
+    // born-reserved create leaves behind). Without it the door signs nothing.
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.recordingSessionId).toBe(SESSION)
+    expect(body.segments.map((s: { path: string }) => s.path)).toEqual([
+      `seg/app_business-1_${TAKE}/000000.mp4`,
+      `seg/app_business-1_${TAKE}/000001.mp4`,
+    ])
+    expect(body.segments.every((s: { url?: string }) => Boolean(s.url))).toBe(true)
+    // It reserves nothing and it writes nothing — the finalize at the end of
+    // the take is the audited act, not this.
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND AN OWNER GETS THE SAME 403 ON THE SEGMENT ARM (fix round 1, K1) —
+  // the staged arm's rule, one act over. A segment key is composable in advance
+  // and both halves are readable off a colleague's row by exactly this
+  // capability, so owner reach here was a pre-fill lever: mint a seq the device
+  // has not reached, PUT anything, and that take's pump meets a length that is
+  // not its own and goes terminally quiet. The pump runs on the recording
+  // device alone, so nothing legitimate is lost by closing it.
+  it('…and an owner with recordings.viewAll gets a 403 on a colleague’s segments', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(403)
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a row that has not reserved this take’s key → 409 not_reserved', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0] }), noRoute)
+    expect(res.status).toBe(409)
+    expect((await res.json()).error.message).toBe('not_reserved')
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a seqs body with no takeId is a 400, before anything is read', async () => {
+    const res = await mintPOST(jreq(auth, { recordingSessionId: SESSION, seqs: [0] }), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…and a take body with NO seqs still mints the whole take, exactly as before', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue(ROW)
+    const body = await (await mintPOST(jreq(auth, mintBody), noRoute)).json()
+    expect(body.path).toBe(KEY)
+    expect(body.segments).toBeUndefined()
   })
 
   it('…and a body naming BOTH a take and a staged copy is a 400', async () => {
@@ -368,7 +470,13 @@ describe('POST recordings/finalize', () => {
   })
 
   it('a missing object rides out in the 2xx body — the drain retries it', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
+    // The production shape (hotfix 9/5): storage-api answers a missing
+    // object on /object/info/… with HTTP 400 and body statusCode '404',
+    // message 'Object not found' — never a plain 404 alone.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 400, statusCode: '404' },
+    })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ error: 'object_missing' })

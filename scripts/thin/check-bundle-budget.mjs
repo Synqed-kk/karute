@@ -350,6 +350,24 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // vendor 937,082 = 2,032,102 B — 102 B over the 2,032,000 ceiling, which is the
 // breach this raise answers. The whole PR4 stack costs the phone +7,037 B over
 // the 2,025,065 B PR3 tip above. The new ceiling leaves 7,898 B of headroom.
+// Measured again at the merged tip dc907339 (PR4 round 7 added the bound
+// staging): en 129,868 · index 965,870 · vendor 937,082 = 2,032,820 B → 7,180 B
+// of headroom.
+//
+// SLICE FIVE spends most of what that left, and the numbers belong here rather
+// than only in a report: at 5a's final tip 8c3d57c4b (launch drain, staged
+// identity, the release rule) 2,035,437 B → 4,563 B of headroom; at 5b's fix
+// round 1 tip — the segment pump live, with this round's fresh run, its stop
+// budget and the keyed segment read — en 129,868 · index 972,276 ·
+// vendor 937,082 = 2,039,226 B → 774 B. Under the ceiling, and the next
+// thin-side slice has almost nothing left: the number below is untouched, and
+// a raise is Fable's call with Liam told afterwards. Fix rounds 2–4 add 225 B
+// on top of that — the stop's backoff bypass and the catch-up's adaptive batch
+// (round 2), the fresh follow-up that WAITS for everything in flight and then
+// runs one attempt of its own rather than joining (round 3), and the phone's
+// segment mint answering its own door timeout as `upstream` so that belt can
+// fire at all (round 4): en 129,868 · index 972,501 · vendor 937,082 =
+// 2,039,451 B → 549 B of headroom.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits

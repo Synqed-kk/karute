@@ -16,6 +16,10 @@ import type {
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
 import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
+// The staged PUT's deadline, from the module that holds the whole-take one
+// (slice five fix round 3, F7). It imports nothing app-side, so a port may
+// reach it without a cycle.
+import { putDeadlineMs } from '@/lib/recording/storage-put'
 
 /**
  * What a port answers a mint with. The SUCCESS arm is the shared core's own
@@ -31,9 +35,40 @@ import type { MintTakeUrlResult } from '@/lib/recording/mint-take-url'
  * `token` is dropped on the way through, as it always was: it already rides
  * inside `url`, and a port caller that reached for it would be assembling a
  * signed request the doors are there to assemble.
+ *
+ * EXTRACTED BY `url`, NOT BY `path` (fix round 2). The core's success side is
+ * two arms now — the signed one and the "already there, here is its size" one
+ * the STAGED branch answers — and this door never sends `stagedFor`, so it can
+ * only ever see the signed arm. Naming `url` says that in the type: extracting
+ * by `path` would match both and `Omit` over a union collapses to their shared
+ * keys, quietly deleting `url` from this contract.
  */
 export type MintTakeUrlPortResult =
-  | Omit<Extract<MintTakeUrlResult, { path: string }>, 'token'>
+  | Omit<Extract<MintTakeUrlResult, { url: string }>, 'token'>
+  | { error: string }
+
+/**
+ * What a port answers the SEGMENT mint with (slice five packet C, D6/D7).
+ *
+ * Same two success arms the core answers with, per seq — the signed one and
+ * the "an object is already here, and this is its length" one — because the
+ * pump has to tell them apart before it decides whether to PUT anything at all.
+ * `token` is DROPPED exactly as `mintTakeUrl` drops it: it already rides inside
+ * `url`, and a caller that reached for it would be assembling a signed request
+ * the doors exist to assemble.
+ *
+ * The error arm is a plain string for the same reason MintTakeUrlPortResult's
+ * is: the thin arm also answers `mint_<status>` for a non-2xx whose body named
+ * no code. TERMINAL_SECURE_ERRORS (take-store) is the one place that says which
+ * of them can never turn into a yes.
+ */
+export type MintSegmentUrlsPortResult =
+  | {
+      segments: (
+        | { seq: number; path: string; url: string; contentType: string }
+        | { seq: number; path: string; contentType: string; existingSize: number | null }
+      )[]
+    }
   | { error: string }
 
 export interface RecordingPipelinePort {
@@ -88,11 +123,27 @@ export interface RecordingPipelinePort {
    * verify the claim instead of accepting any same-tenant key as that discard's
    * audio. Passed by the discard's word-collection alone; the in-tab fallback
    * above stays unbound, because nothing ever claims ITS path to a discard.
+   *
+   * ⚖ …AND IT NAMES ITS TAKE (slice five packet B, D10). `stagedTake` is the
+   * take whose bytes these are, and it fills the key's uuid slot — which is what
+   * turns a row-less object into one the CORE ROW can find: session = the row's
+   * id, take + ext = the row's own reserved pointer. Two consequences both arms
+   * carry: the container travels with it (`blob.type` is the take's own, so an
+   * iOS copy is `.mp4` at last instead of the `.webm` every staged copy wore),
+   * and the key is DETERMINISTIC, so a second staging of the same take meets its
+   * own copy.
+   *
+   * ⚖ …AND A KEY THAT IS COMPOSABLE IN ADVANCE MAKES "SOMETHING IS THERE" WORTH
+   * NOTHING (fix round 2). The door answers existence BEFORE it signs anything,
+   * with the object's SIZE, and this leg adopts that object only when the size
+   * is its own blob's — the one fact a caller who never held the recording
+   * cannot produce. Any other answer throws and the take stays unstaged, which
+   * is what keeps ⚖ 9/3 true: no staffer action can erase a recording.
    */
   prepareTranscription(
     blob: Blob,
     finalizedPath: string | null,
-    opts?: { stagedFor?: string | null },
+    opts?: { stagedFor?: string | null; stagedTake?: string | null },
   ): Promise<{ body: Record<string, unknown>; path: string }>
   /**
    * The finalized KEY this take's audio was sealed under — composed, never
@@ -181,6 +232,39 @@ export interface RecordingPipelinePort {
     recordingSessionId: string | null,
   ): Promise<MintTakeUrlPortResult>
   /**
+   * Mint signed upload URLs for a BATCH of this take's SEGMENTS — the bytes
+   * that reach the server WHILE the recording is still running (slice five
+   * packet C, D6; design v1 §3 R1).
+   *
+   * THE SAME DOOR the take mint knocks on, with the same fences — and it
+   * RESERVES NOTHING: a segment hangs under a take whose key the row has
+   * already reserved, so there is nothing left to bind, nothing written and
+   * nothing audited (the finalize at the end of the take is the audited act).
+   * What stands in for the reservation is the row's own pointer: it must equal
+   * THIS take's key or the door answers `not_reserved`, which is TERMINAL here
+   * — an unbound row is the whole-take mint's job at stop, and a row bound to
+   * another take is not this take's.
+   *
+   * ⚖ AND "ALREADY THERE" IS NEVER ADOPTED ON ITS OWN. A segment key is
+   * composable in advance, so the door probes each seq BEFORE it signs and
+   * answers the object's SIZE instead of a URL when one exists. The pump adopts
+   * such a seq only when that length is its own blob's — the one fact a caller
+   * who never held the recording cannot forge — and a 409 on a freshly signed
+   * PUT is NOT a landing (the same rule the staged path took in packet B's fix
+   * round 2, and for the sharper reason: the assembler will one day build a
+   * take out of these objects).
+   *
+   * NEVER THROWS ON A REFUSAL, exactly like `mintTakeUrl`: the pump has to
+   * branch on WHICH refusal it got, and a throw flattens them into one
+   * unusable failure.
+   */
+  mintSegmentUrls(
+    takeId: string,
+    mimeType: string,
+    recordingSessionId: string,
+    seqs: number[],
+  ): Promise<MintSegmentUrlsPortResult>
+  /**
    * "This take is complete" — the finalize door (web action / facade twin),
    * which writes audio_storage_path + duration onto the core row.
    *
@@ -218,13 +302,46 @@ function uploadActions() {
 }
 
 /** PUT the take at a service-minted signed upload URL — the token rides in the
- *  URL. Identical request shape to the thin arm's (thin/ports/recording.vite.ts). */
-async function putTake(url: string, blob: Blob): Promise<void> {
-  const put = await fetch(url, {
-    method: 'PUT',
-    headers: { 'content-type': 'audio/webm' },
-    body: blob,
-  })
+ *  URL. Identical request shape to the thin arm's (thin/ports/recording.vite.ts).
+ *
+ *  `contentType` is the MINT's answer, never a guess of ours: the key's
+ *  extension and this header are composed from the same closed map server-side
+ *  (key-grammar.ts), so sending anything else labels the object as something the
+ *  key says it is not. Until this round it was a hardcoded 'audio/webm' — the
+ *  live mislabelling bug, on iOS mp4 bytes.
+ *
+ *  ⚖ AND EVERY REFUSAL IS A FAILURE HERE, THE 409 INCLUDED (fix round 2). On
+ *  the WHOLE-TAKE path "already there" is a success, because finalize then
+ *  re-proves the object's size and its row's ownership before anything acts on
+ *  it. This path has no finalize: a staged copy is row-less, and its key is
+ *  composable in advance — so an object meeting our PUT is not evidence it is
+ *  ours. The mint answers existence BEFORE signing now, with the object's
+ *  size, and only a size match adopts it (see prepareTranscription). A 409
+ *  reaching here is a race the mint did not see a moment earlier; it throws,
+ *  the take stays unstaged, and the next sweep's mint answers it with a size.
+ *
+ *  ⚖ AND IT CARRIES A DEADLINE (slice five fix round 3, F7). This is a real
+ *  network call, not a server action, so it takes a signal — and the law is
+ *  that every one of them has a deadline. A stalled staged PUT holds its take
+ *  inside runDiscardTranscript's module-level `inFlight` set, and the sweep is
+ *  sequential, so one of them withheld the discard words of every take behind
+ *  it. Same number as the whole-take PUT: the blob's own size at ~10 KB/s
+ *  (storage-put.ts). AbortController plus a clearable timer rather than
+ *  AbortSignal.timeout, the same reason the thin arm's doors give. */
+async function putTake(url: string, blob: Blob, contentType: string): Promise<void> {
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(), putDeadlineMs(blob.size))
+  let put: Response
+  try {
+    put = await fetch(url, {
+      method: 'PUT',
+      headers: { 'content-type': contentType },
+      body: blob,
+      signal: deadline.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
   if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 }
 
@@ -283,13 +400,50 @@ export const webRecordingPort: RecordingPipelinePort = {
       // except that a copy staged FOR A DISCARD names its session, so the
       // transcribe door can tell this session's own staged audio from any other
       // key the caller could have typed.
+      // ⚖ …and a copy staged FOR a discard names its take and its container too
+      // (slice five packet B). `blob.type` IS the take's own: loadTakeBlob sets
+      // it from the stored meta, and an empty one is simply omitted so the mint
+      // applies its own default, exactly as the un-named fallback does.
       const minted = await mintRecordingUploadUrl(
-        opts?.stagedFor ? { stagedFor: opts.stagedFor } : undefined,
+        opts?.stagedFor
+          ? {
+              stagedFor: opts.stagedFor,
+              stagedTake: opts.stagedTake ?? null,
+              mimeType: blob.type || undefined,
+            }
+          : undefined,
       )
       if ('error' in minted) throw new Error('could not mint an upload URL')
-      await putTake(minted.url, blob)
-      path = minted.path
+      // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
+      // nothing because the object is already there; the ONLY reading of that
+      // which is safe is "this is the copy we PUT, whose markTakeStaged was
+      // lost" — and the one thing a caller who never held the recording cannot
+      // forge is its size. Anything else (a different length, or a storage
+      // answer carrying no length at all) throws: the take stays unstaged, its
+      // discard stamp stands, and the next sweep asks the mint again — one
+      // small JSON call per mount, no upload, and nothing released.
+      if ('existingSize' in minted) {
+        if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
+        path = minted.path
+      } else {
+        // The MINT's contentType — the server's own answer for the key it just
+        // composed, and for the unbound fallback that answer is the
+        // 'audio/webm' this line used to hardcode.
+        await putTake(minted.url, blob, minted.contentType)
+        path = minted.path
+      }
     }
+    // ⚖ A DISCARD'S STAGED COPY NEEDS NO READ URL (slice five fix round 3, F9;
+    // the defect predates this slice — PR4 fix round 7). `mintRecordingReadUrl`
+    // is fenced at `kind === 'take'` (key-grammar's grammar, read by
+    // requireOwnPath), so a `stg/` key is refused there by construction: this
+    // line THREW on every web discard staging, after the copy had been PUT, so
+    // the words were never collected on that arm at all. Nothing needs the URL
+    // anyway — the only caller with `stagedFor` is runDiscardTranscript, which
+    // reads `path` and lets the discard action sign its own URL from it. So the
+    // body is empty here, deliberately: there is no audio URL a staged copy can
+    // honestly carry through this door.
+    if (opts?.stagedFor) return { body: {}, path }
     // The transcribe leg takes a URL on this project's Supabase host (its SSRF
     // guard); mint it server-side from the path we just proved we own.
     const { url: audioUrl } = await mintRecordingReadUrl(path)
@@ -346,11 +500,47 @@ export const webRecordingPort: RecordingPipelinePort = {
       { error: 'upstream' as const },
     )
     if ('error' in minted) return minted
+    // The door's OTHER success arm — "the object is already there, here is its
+    // size" — belongs to the STAGED branch alone, and this call sends no
+    // `stagedFor`, so it is unreachable from here. Narrowed rather than cast
+    // (fix round 2): the compiler proving it stays unreachable is the point,
+    // and if the door ever did answer it, `upstream` leaves the take retryable
+    // instead of putting `undefined` on the wire as a URL.
+    if (!('url' in minted)) return { error: 'upstream' }
     // `token` is DROPPED here, not merely dropped from the type: it already
     // rides inside `url`, and handing a caller a credential the contract says
     // it never gets is how a second signed-request assembler is born.
     const { path, url, contentType, recordingSessionId: bound } = minted
     return { path, url, contentType, recordingSessionId: bound }
+  },
+  async mintSegmentUrls(takeId, mimeType, recordingSessionId, seqs) {
+    const { mintRecordingSegmentUrls } = await uploadActions()
+    // 'upstream' on the deadline, for the same reason mintTakeUrl answers it:
+    // the one code in this door's closed union that means "the far side did not
+    // answer", and the only one the pump does not judge terminal — a stall is a
+    // moment in time, so it has to leave these seqs askable again.
+    const minted = await withDeadline(
+      mintRecordingSegmentUrls({ takeId, mimeType, recordingSessionId, seqs }),
+      WEB_DOOR_DEADLINE_MS,
+      { error: 'upstream' as const },
+    )
+    if ('error' in minted) return minted
+    // `token` is DROPPED here, not merely absent from the type — the same rule,
+    // for the same reason, as the take mint one function up. The two arms are
+    // rebuilt field by field rather than spread, so a `token` on the signed one
+    // cannot ride through on a future field addition either.
+    return {
+      segments: minted.segments.map((s) =>
+        'url' in s
+          ? { seq: s.seq, path: s.path, url: s.url, contentType: s.contentType }
+          : {
+              seq: s.seq,
+              path: s.path,
+              contentType: s.contentType,
+              existingSize: s.existingSize,
+            },
+      ),
+    }
   },
   async finalizeTake(input) {
     // Lazy, same reason as enqueueJob below — this module's import graph

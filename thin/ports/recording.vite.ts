@@ -10,6 +10,10 @@ import type {
   RecordingPipelinePort,
 } from '@/lib/ports/recording-port'
 import { getDataPort } from '@/lib/ports/data-port'
+// The staged PUT's deadline, from the module that already holds the whole-take
+// one (slice five fix round 3, F7). It imports nothing app-side, which is why
+// a port may reach it.
+import { putDeadlineMs } from '@/lib/recording/storage-put'
 import type {
   EnqueueRecordingJobInput,
   RecordingJobStatusView,
@@ -36,6 +40,11 @@ const MINT_ERROR_CODES = new Set([
   'reserved_elsewhere',
   'forbidden',
   'not_found',
+  // ⚖ THE SEGMENT DOOR'S OWN FENCE (slice five packet C, D6): the row has not
+  // reserved this take's key, so nothing may hang under it. TERMINAL — a
+  // binding does not change because time passed — and the take is not lost by
+  // it: it is still secured WHOLE at stop by the independent take path.
+  'not_reserved',
   'upstream',
 ])
 
@@ -119,24 +128,96 @@ export const viteRecordingPort: RecordingPipelinePort = {
     //    the session a DISCARD's staged copy is named for, and null — the
     //    in-tab fallback's shape — is the server-named take this leg has always
     //    minted.
-    const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {
+    //    ⚖ …AND IT NAMES ITS TAKE AND ITS CONTAINER (slice five packet B, D10).
+    //    `stagedTake` fills the key's uuid slot, which is what lets the core row
+    //    find this row-less object; `mimeType` is `blob.type`, the take's OWN
+    //    container from the store's meta — until this round every phone copy was
+    //    composed and PUT as webm, so iOS mp4 bytes were mislabelled twice over.
+    //    An empty type is omitted and the server's default stands.
+    //    ⚖ …AND THE UNBOUND FALLBACK SENDS NEITHER (slice five fix round 3, F2).
+    //    Both fields used to ride ONE body for both branches, and the door's
+    //    pair rule (record-schemas.ts) refuses a bare `mimeType` that names
+    //    neither a takeId nor a stagedFor — which is exactly the in-tab
+    //    fallback's shape, and the blob it carries always has a type
+    //    (loadTakeBlob sets it from the take's meta). So every phone take whose
+    //    stop-time upload had failed died at 録音を使用 with a 400. The web arm
+    //    never had it (recording-port.ts puts both inside the stagedFor branch);
+    //    this now mirrors it, and the unbound body is byte-identical to the one
+    //    this leg sent before packet B — which also spares it a `.strict()`
+    //    refusal from a server that predates `stagedTake`.
+    const res = await doorFetch('/api/app/v1/recordings/upload-url', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ stagedFor: opts?.stagedFor ?? null }),
+      body: JSON.stringify(
+        opts?.stagedFor
+          ? {
+              stagedFor: opts.stagedFor,
+              stagedTake: opts.stagedTake ?? null,
+              ...(blob.type ? { mimeType: blob.type } : {}),
+            }
+          : { stagedFor: null },
+      ),
     })
     if (!res.ok) throw new Error(`Upload URL failed (${res.status})`)
-    const { path, url } = (await res.json()) as { path: string; url: string }
+    // The facade echoes the mint's WHOLE result (…/upload-url/route.ts's
+    // `ok(ctx, minted)`), so contentType is the same closed-map answer that
+    // decided the key's extension — never this arm's own guess. `url` is absent
+    // and `existingSize` present on the door's OTHER success arm (fix round 2),
+    // which is why neither is destructured as a bare string.
+    const minted = (await res.json()) as {
+      path: string
+      url?: string
+      contentType: string
+      existingSize?: number | null
+    }
+
+    // ⚖ ADOPT ONLY WHAT IS OUR OWN BYTE LENGTH (fix round 2). The door signed
+    // nothing because the object is ALREADY at this key — and since packet B
+    // that key is composable in advance, so its mere existence says nothing
+    // about who wrote it. The only safe reading is "this is the copy we PUT,
+    // whose markTakeStaged was lost", and the one thing a caller who never held
+    // the recording cannot forge is its size. Anything else throws: the take
+    // stays unstaged, its discard stamp stands, and the next sweep asks the
+    // mint again — one small JSON call per mount, no upload, nothing released.
+    if ('existingSize' in minted && minted.existingSize !== undefined) {
+      if (minted.existingSize !== blob.size) throw new Error('staged copy mismatch')
+      return { body: { path: minted.path }, path: minted.path }
+    }
+    if (!minted.url) throw new Error('Upload URL failed (no url)')
 
     // 2. PUT the blob directly to storage (the signed URL carries the token).
-    const put = await fetch(url, {
-      method: 'PUT',
-      headers: { 'content-type': 'audio/webm' },
-      body: blob,
-    })
+    //    ⚖ UNDER A DEADLINE, LIKE EVERY OTHER CALL ON THIS ARM (slice five fix
+    //    round 3, F7). A phone that walks out of signal STALLS its sockets
+    //    rather than failing them, and this one is held by `runDiscardTranscript`
+    //    inside its module-level `inFlight` set while `sweepDiscardTranscripts`
+    //    waits on it sequentially — so one hung staged PUT withheld the discard
+    //    words of every take behind it for the rest of the app run. The deadline
+    //    is the take's own size at ~10 KB/s (storage-put.ts, the same one the
+    //    whole-take PUT carries), and an AbortController with a clearable timer
+    //    rather than `AbortSignal.timeout` for the reason DOOR_TIMEOUT_MS names.
+    const putDeadline = new AbortController()
+    const putTimer = setTimeout(() => putDeadline.abort(), putDeadlineMs(blob.size))
+    let put: Response
+    try {
+      put = await fetch(minted.url, {
+        method: 'PUT',
+        headers: { 'content-type': minted.contentType },
+        body: blob,
+        signal: putDeadline.signal,
+      })
+    } finally {
+      clearTimeout(putTimer)
+    }
+    // EVERY refusal is a failure here, the 409 included (fix round 2). On the
+    // WHOLE-TAKE path "already there" is a success because finalize re-proves
+    // the object's size and its row's ownership afterwards; a staged copy is
+    // row-less and has no finalize, so the size match at the MINT is the only
+    // proof there is. A 409 reaching here is a race the mint did not see a
+    // moment ago — the next mount's mint answers it with a size.
     if (!put.ok) throw new Error(`Upload failed (${put.status})`)
 
     // 3. Transcribe by PATH.
-    return { body: { path }, path }
+    return { body: { path: minted.path }, path: minted.path }
   },
   // ⚖ NULL, AND THE COHORT IS EMPTY BY CONSTRUCTION (PR4 fix round 7). The
   // backfill this answers exists for takes finalized by slice THREE's code and
@@ -229,6 +310,74 @@ export const viteRecordingPort: RecordingPipelinePort = {
     // fields, same reason, as the web arm (lib/ports/recording-port.ts).
     const { path, url, contentType, recordingSessionId: bound } = body
     return { path, url, contentType, recordingSessionId: bound }
+  },
+  // Slice five packet C (D6) — the segment door, the same upload-url door one
+  // function up with a `seqs` list on the body. It reserves nothing and writes
+  // nothing; see the port contract for the fence that stands in for that, and
+  // for why an object already at a segment key is answered with its SIZE rather
+  // than signed over.
+  //
+  // ⚖ AND THE DOOR'S OWN TIMEOUT ARRIVES AS A CODE, NOT AS A THROW (fix round
+  // 4, Q1). `doorFetch` is an AbortController and a `try/finally` with no catch,
+  // so its 30 s deadline REJECTS out of here — and a rejection is the one shape
+  // this port's caller cannot read. The pump's belt (segment-uploader.ts
+  // `batchAsk`) halves the next catch-up on `upstream` PRECISELY because a
+  // 60-seq batch is what makes that door run out of time; reaching the pump as
+  // a throw instead, it lands in the outer catch, bumps the backoff and halves
+  // nothing — so the phone re-asks for the same impossible sixty for as long as
+  // the latency lasts, which is the offline take that never catches up. This is
+  // the primary platform, so the belt has to work here first. `catch { return
+  // { error: 'upstream' } }` is `startSession`'s own idiom five hundred lines
+  // up (`catch { return null }` there — a named retryable code here, because
+  // this caller reads codes), and 'upstream' is retryable, never terminal.
+  async mintSegmentUrls(
+    takeId: string,
+    mimeType: string,
+    recordingSessionId: string,
+    seqs: number[],
+  ) {
+    try {
+      const res = await doorFetch('/api/app/v1/recordings/upload-url', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ takeId, mimeType, recordingSessionId, seqs }),
+      })
+      const body = (await res.json().catch(() => null)) as {
+        segments?: {
+          seq: number
+          path: string
+          url?: string
+          contentType: string
+          existingSize?: number | null
+        }[]
+      } | null
+      // A refusal comes back NAMED, never thrown (the port contract) — and an
+      // unreadable or shapeless 2xx body is a refusal too, not an assumed
+      // success: the same guard the two doors above carry, for the same reason.
+      if (!res.ok || !body || 'error' in body || !Array.isArray(body.segments))
+        return { error: mintErrorCode(body, res.status) }
+      // ⚖ THE TOKEN IS DROPPED HERE (packet B's rule, on this door too): the
+      // facade echoes the mint's whole result, and `token` already rides inside
+      // `url`. Rebuilt field by field rather than spread, so a credential can
+      // never ride through on a future field addition — and the two arms are
+      // told apart by `url`, which is the field only the signed one has.
+      return {
+        segments: body.segments.map((s) =>
+          s.url
+            ? { seq: s.seq, path: s.path, url: s.url, contentType: s.contentType }
+            : {
+                seq: s.seq,
+                path: s.path,
+                contentType: s.contentType,
+                existingSize: s.existingSize ?? null,
+              },
+        ),
+      }
+    } catch {
+      // The abort above, a dead socket, a WebView that killed the request. All
+      // moments in time and all retryable — and the code the pump's belt reads.
+      return { error: 'upstream' }
+    }
   },
   async finalizeTake(input: FinalizeTakeInput) {
     const res = await doorFetch('/api/app/v1/recordings/finalize', {

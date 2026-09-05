@@ -98,7 +98,11 @@ jest.mock('@/lib/supabase/service', () => ({
   }),
 }))
 
-import { mintRecordingUploadUrl, mintRecordingReadUrl } from '@/actions/recording-upload'
+import {
+  mintRecordingUploadUrl,
+  mintRecordingReadUrl,
+  mintRecordingSegmentUrls,
+} from '@/actions/recording-upload'
 import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
@@ -106,20 +110,39 @@ import {
   isStagedKeyFor,
   looksLikeRecordingKey,
   composeTakeKey,
+  composeSegmentKey,
   composeStagedKey,
   extFromMime,
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
 
-type MintedUrl = Extract<MintTakeUrlResult, { path: string }>
+/** The SIGNED success arm. The door's success side is two arms since fix round
+ *  2 — the other is "the object is already there, here is its size", which
+ *  signs nothing — so this extracts by `url`, the field only the signed one
+ *  has. (`{ path: string }` would match both, and every `.url` read below would
+ *  stop compiling for the right reason.) */
+type MintedUrl = Extract<MintTakeUrlResult, { url: string }>
+/** …and its twin: the arm that says the key is already taken. */
+type MintedExisting = Extract<MintTakeUrlResult, { existingSize: number | null }>
 
 /** The mint answers with a result UNION now (fix round 4). Every test that is
  *  about a SUCCESSFUL mint says so here, so a refusal can never read as a pass
- *  with undefined fields. */
+ *  with undefined fields — and since fix round 2 that includes the OTHER
+ *  success arm: a caller expecting a signed url must not silently pass on the
+ *  answer that signs nothing. */
 async function mintOk(input?: MintTakeUrlInput): Promise<MintedUrl> {
   const res = await mintRecordingUploadUrl(input)
   if ('error' in res) throw new Error(`expected a minted url, got ${res.error}`)
+  if (!('url' in res)) throw new Error('expected a SIGNED url, got the already-there answer')
+  return res
+}
+
+/** …and its twin, for the tests that are about the already-there answer. */
+async function mintExisting(input?: MintTakeUrlInput): Promise<MintedExisting> {
+  const res = await mintRecordingUploadUrl(input)
+  if ('error' in res) throw new Error(`expected an existing-copy answer, got ${res.error}`)
+  if (!('existingSize' in res)) throw new Error('expected the already-there answer, got a signed url')
   return res
 }
 
@@ -800,11 +823,14 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(create).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(auditFn).not.toHaveBeenCalled()
-    // …and no existence probe: a staged key is a fresh uuid nobody can have.
-    expect(info).not.toHaveBeenCalled()
+    // ⚖ …BUT THE KEY IS PROBED (fix round 2). "A staged key is a fresh uuid
+    // nobody can have" stopped being true the moment packet B made the slot the
+    // TAKE: the key is composable in advance, so the door has to look before it
+    // signs. One `info()` read, the same probe the take mint's own fence uses.
+    expect(info).toHaveBeenCalledWith(res.path)
   })
 
-  it('refuses a COLLEAGUE’s session — the same staff rule the take mint applies', async () => {
+  it('refuses a COLLEAGUE’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
     await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
       error: 'forbidden',
@@ -812,11 +838,34 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
-  it('…and an owner with recordings.viewAll may stage on one, exactly as they may reserve', async () => {
+  // ⚖ AND VIEW-ALL DOES NOT REACH THIS DOOR (slice five fix round 4, G2). This
+  // case used to assert the OPPOSITE — "an owner may stage on one, exactly as
+  // they may reserve" — on the symmetry with the take mint. The symmetry is
+  // false: reserving a colleague's take is a designed owner act, but STAGING is
+  // something the recorder's own device does (the discard word-collection reads
+  // the owner-gated take store; nothing else in the app stages at all). So
+  // view-all bought no legitimate reach and did buy a lever: the staged key is
+  // deterministic and immutable, so an owner could mint a colleague's key
+  // first, PUT anything, and that colleague's device would meet a size mismatch
+  // for ever — its discard's words never landing, its device copy never
+  // releasable.
+  it('…and NOT even with recordings.viewAll — staging is the recorder’s alone', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
     getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
-    const res = await mintOk({ stagedFor: SESSION })
-    expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    // Nothing probed and nothing signed: the refusal lands before the key is
+    // even composed, so the door is not an existence oracle over it either.
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('…while the take mint KEEPS its owner reach — the two doors differ on purpose', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: null }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await mintOk(NAMED)
+    expect(res.path).toBe(OWN)
   })
 
   it('a session core does not know is not_found — nothing is signed for it', async () => {
@@ -860,10 +909,476 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
       error: 'upstream',
     })
   })
+
+  // ⚖ AND IT NAMES ITS TAKE (slice five packet B, D10). A staged copy is the
+  // only object in this bucket with no row of its own, and until this round its
+  // uuid slot was a fresh SERVER uuid — unique, and nameless: nothing outside
+  // the device that PUT it could say which object was a given take's copy. With
+  // the take in the slot the whole key is composable from the core row alone
+  // (session = the row id, take + ext = the row's own reserved pointer), which
+  // is the identity D10 buys with no new registry, message key or audit action.
+  describe('…and the uuid slot is the TAKE', () => {
+    it('the slot IS the take id — and the copy is still a well-formed staged key', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      expect(parseRecordingKey(res.path, 'biz-1')).toEqual({
+        kind: 'staged',
+        recordingSessionId: SESSION,
+        ext: 'webm',
+      })
+      expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+    })
+
+    // The WHOLE point: two stagings of one take compose ONE key, so the second
+    // PUT meets the first copy and storage refuses it (409 = already there,
+    // ⚖ V2.1) instead of minting a second object nothing can find.
+    it('twice for the same take is the SAME key — the copy is immutable, like a take', async () => {
+      const a = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      const b = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(a.path).toBe(b.path)
+    })
+
+    // The no_uuid cohort — a device whose browser has no crypto.randomUUID, so
+    // it never named its take. The server names the slot exactly as it did
+    // before this round, and that copy stays unfindable: the named ceiling.
+    it('no stagedTake keeps the server’s own random slot — two mints differ', async () => {
+      const a = await mintOk({ stagedFor: SESSION })
+      const b = await mintOk({ stagedFor: SESSION })
+      expect(a.path).not.toBe(b.path)
+      expect(isStagedKeyFor(a.path, 'biz-1', SESSION)).toBe(true)
+    })
+
+    it('the container is the TAKE’s — an iOS copy is .mp4, PUT as audio/mp4', async () => {
+      const res = await mintOk({
+        stagedFor: SESSION,
+        stagedTake: UUID,
+        mimeType: 'audio/mp4',
+      })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.mp4`)
+      expect(res.contentType).toBe('audio/mp4')
+    })
+
+    // ⚖ THE no_uuid COHORT CAN STAGE AGAIN (slice five fix round 3, F3). Typing
+    // the field `.uuid()` refused the ONE cohort composeStagedKey's random-slot
+    // fallback exists for: a browser with no crypto.randomUUID names its take
+    // `${Date.now()}-…`, so the mint 400'd before the server could fall back.
+    // Such a take is born `no_uuid` — TERMINAL, so unsecurable from birth,
+    // which is EXACTLY the cohort the discard sweep stages — and its words were
+    // therefore never collectable at all, on every mount, for its seven days.
+    // The field is a bounded string now; the server decides the shape.
+    it('a stagedTake that is not a uuid still stages — the server names the slot', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: `${Date.now()}-k3n9x` })
+      expect(isStagedKeyFor(res.path, 'biz-1', SESSION)).toBe(true)
+      // A FRESH uuid, not the composed id — the copy is unfindable, which is
+      // D10's named ceiling for this cohort, and unfindable beats uncollected.
+      expect(res.path).toMatch(
+        new RegExp(`^stg/biz-1_${SESSION}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.webm$`),
+      )
+    })
+
+    // ⚖ THE ROW NAMES THE SLOT, NOT THE CALLER (slice five fix round 3, F4).
+    // The staged branch fenced the SESSION and nothing else, so `stagedTake`
+    // went into the key on a shape check alone: a recordings.viewAll holder
+    // could read a colleague's row, learn both halves of the identity D10 made
+    // composable, and PUT bytes at that take's staged key before the device
+    // ever staged it. No audio is lost (the size fence refuses those bytes) —
+    // but the key is immutable, so the take could never be staged, its
+    // discard's words never collected, and it never became releasable. The row
+    // already knows the answer: its own reserved pointer.
+    describe('…and when the ROW already names a take, that take is the slot', () => {
+      /** A second take id that is a uuid by BOTH readings — zod's strict
+       *  version/variant check and the key grammar's plain hex. `OTHER_UUID`
+       *  above is only the latter (its version nibble is `c`), so using it here
+       *  would have made these cases pass on the base for the wrong reason. */
+      const SECOND_TAKE = '1b2c3d4e-5f60-4a71-8b9c-0d1e2f3a4b5c'
+
+      it('a stagedTake disagreeing with the row’s own pointer is bad_input', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        await expect(
+          mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: SECOND_TAKE }),
+        ).resolves.toEqual({ error: 'bad_input' })
+        expect(createSignedUploadUrl).not.toHaveBeenCalled()
+      })
+
+      it('a stagedTake that AGREES with it composes that take’s key', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      })
+
+      it('…and so does sending no stagedTake at all — the reservation is the truth', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: OWN }))
+        const res = await mintOk({ stagedFor: SESSION })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      })
+
+      // A row whose pointer is not a TAKE has nothing to outrank the caller
+      // with — a legacy unbound row, or the row of a no_uuid take that could
+      // never reserve one. The client's slot stands, exactly as it did before
+      // this round (green on the base too: this half is a pin, not a fix).
+      it('a row with no take pointer leaves the caller’s uuid slot standing', async () => {
+        get.mockResolvedValue(row({ audio_storage_path: null }))
+        const res = await mintOk({ stagedFor: SESSION, stagedTake: SECOND_TAKE })
+        expect(res.path).toBe(`stg/biz-1_${SESSION}_${SECOND_TAKE}.webm`)
+      })
+    })
+
+    it('a stagedTake with NO stagedFor names an act this door does not have', async () => {
+      await expect(mintRecordingUploadUrl({ stagedTake: UUID })).resolves.toEqual({
+        error: 'bad_input',
+      })
+      expect(get).not.toHaveBeenCalled()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    // The pair rule widened by exactly one clause, so the shapes either side of
+    // it have to stay where they were: a bare mimeType still names nothing.
+    it('a bare mimeType is still refused — it belongs to a takeId or a stagedFor', async () => {
+      await expect(mintRecordingUploadUrl({ mimeType: 'audio/mp4' })).resolves.toEqual({
+        error: 'bad_input',
+      })
+    })
+
+    it('…and stagedFor + takeId is still one act pretending to be two', async () => {
+      await expect(
+        mintRecordingUploadUrl({ ...NAMED, stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'bad_input' })
+      expect(get).not.toHaveBeenCalled()
+    })
+  })
+
+  // ⚖ THE DOOR ANSWERS EXISTENCE, AND SIGNS NOTHING OVER IT (fix round 2). The
+  // three pieces packet B shipped made one hole together: the key is composable
+  // in advance, a PUT meeting an object was read as SUCCESS, and D11 then let
+  // the device release its own audio. So a records.write holder could put any
+  // bytes at their OWN discarded session's staged key first and have the device
+  // adopt them — erasing a recording through a staffer action, which ⚖ 9/3
+  // forbids outright. The fix is here: the object is looked up BEFORE the sign,
+  // and the caller is told its SIZE instead of being handed a way to write.
+  describe('…and an object already at that key is answered, never signed over', () => {
+    it('an existing object: NO signing call, and the size comes back', async () => {
+      info.mockResolvedValue({ data: { size: 4096 }, error: null })
+      const res = await mintExisting({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.path).toBe(`stg/biz-1_${SESSION}_${UUID}.webm`)
+      expect(res.existingSize).toBe(4096)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(res.contentType).toBe('audio/webm')
+      // Nothing to write with — not an empty string, ABSENT.
+      expect('url' in res).toBe(false)
+      expect('token' in res).toBe(false)
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+      expectNoBinding()
+    })
+
+    it('storage answering without a size says so — null, never a guess', async () => {
+      info.mockResolvedValue({ data: {}, error: null })
+      const res = await mintExisting({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.existingSize).toBeNull()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    it('an absent object is signed exactly as before', async () => {
+      const res = await mintOk({ stagedFor: SESSION, stagedTake: UUID })
+      expect(res.url).toBeTruthy()
+      expect(createSignedUploadUrl).toHaveBeenCalledWith(res.path)
+    })
+
+    // Storage failing to ANSWER is not "the key is free": signing over it is
+    // exactly the act that could hand a caller somebody else's key.
+    it('storage that does not answer is upstream — retryable, and nothing signed', async () => {
+      info.mockResolvedValue({ data: null, error: { message: 'boom', status: 500 } })
+      await expect(
+        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'upstream' })
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+
+    // The fences still come FIRST: an unauthorized caller never learns whether
+    // a key exists, exactly as the take mint's own ordering guarantees.
+    it('a COLLEAGUE’s session is refused before the bucket is touched', async () => {
+      get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+      info.mockResolvedValue({ data: { size: 4096 }, error: null })
+      await expect(
+        mintRecordingUploadUrl({ stagedFor: SESSION, stagedTake: UUID }),
+      ).resolves.toEqual({ error: 'forbidden' })
+      expect(info).not.toHaveBeenCalled()
+      expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    })
+  })
 })
 
 // The composed key for a take that was finalized before the key was stamped —
 // a pure composition, and the ONE door that answers it (fix round 7, J2).
+// ⚖ THE THIRD ACT (slice five packet C, C2). Segments are the bytes that reach
+// the server WHILE the recording is running. This door signs keys under a take's
+// own folder and does nothing else: no reservation, no core write, no audit row
+// — and the fence that stands in for the reservation it does not make is the
+// row's OWN pointer, which must already be this take's key.
+describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fences on the pointer', () => {
+  const SEGS = { ...NAMED, seqs: [0, 1, 2] }
+  const segKey = (seq: number, ext = 'webm') =>
+    `seg/app_biz-1_${UUID}/${String(seq).padStart(6, '0')}.${ext}`
+
+  /** The state the segment door needs: the row has ALREADY reserved this take's
+   *  key (which is what startRecordingSession's born-reserved create does, and
+   *  what the whole-take mint meets as "already ours"). */
+  const reserved = () => get.mockResolvedValue(row({ audio_storage_path: OWN }))
+
+  async function segmentsOk(input: MintTakeUrlInput = SEGS) {
+    const res = await mintRecordingSegmentUrls(input)
+    if ('error' in res) throw new Error(`expected minted segments, got ${res.error}`)
+    return res
+  }
+
+  it('signs one key per seq, under this take’s folder, in the order asked', async () => {
+    reserved()
+    const res = await segmentsOk()
+    expect(res.recordingSessionId).toBe(SESSION)
+    expect(res.segments.map((s) => s.seq)).toEqual([0, 1, 2])
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0), segKey(1), segKey(2)])
+    for (const s of res.segments) {
+      expect(s.contentType).toBe('audio/webm')
+      expect('url' in s && s.url).toBe(`https://proj.supabase.co/upload/${s.path}?token=t`)
+    }
+    // Signed with NO options, exactly as the take mint signs (fix round 3): a
+    // segment key is immutable evidence too, so upsert here would let one
+    // caller overwrite a fragment somebody else recorded.
+    expect(createSignedUploadUrl.mock.calls).toEqual([[segKey(0)], [segKey(1)], [segKey(2)]])
+  })
+
+  // The whole shape of this door in one assertion: it can only ADD objects.
+  it('reserves nothing, writes nothing, audits nothing', async () => {
+    reserved()
+    await segmentsOk()
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(auditFn).not.toHaveBeenCalled()
+    expect(removeObj).not.toHaveBeenCalled()
+  })
+
+  it('the container decides the extension AND the content type, on every seq', async () => {
+    // The fence compares against the key composed from THIS body's container,
+    // so an mp4 take is fenced on its own `.mp4` pointer — which is exactly the
+    // key startRecordingSession reserved for it.
+    get.mockResolvedValue(row({ audio_storage_path: `app_biz-1_${UUID}.mp4` }))
+    const res = await segmentsOk({ ...SEGS, mimeType: 'audio/mp4;codecs=mp4a.40.2' })
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0, 'mp4'), segKey(1, 'mp4'), segKey(2, 'mp4')])
+    expect(res.segments.every((s) => s.contentType === 'audio/mp4')).toBe(true)
+  })
+
+  // ⚖ THE FENCE. A row bound to ANOTHER take is not this take's row, and
+  // signing segments under this take's folder against it would put one take's
+  // fragments where another's belong.
+  it('a row pointing at ANOTHER take → not_reserved, and nothing is signed', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: OTHER_KEY }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_reserved' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(info).not.toHaveBeenCalled()
+  })
+
+  // …and an UNBOUND row is the whole-take mint's job at stop, never this one's:
+  // this door must not be the thing that binds a take.
+  it('a row that has reserved NOTHING → not_reserved too', async () => {
+    get.mockResolvedValue(row({ audio_storage_path: null }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_reserved' })
+    expectNoBinding()
+  })
+
+  it('another staffer’s session → forbidden, before the pointer is even read', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
+  })
+
+  // ⚖ AND NOT EVEN WITH recordings.viewAll — SENDING SEGMENTS IS THE RECORDER'S
+  // ALONE (fix round 1, K1: the staged door's own line, for the staged door's
+  // own reason). Owner reach is right on the TAKE mint — reserving a
+  // colleague's take is a designed act there, and finalize re-proves ownership
+  // and byte length behind it — and buys this door nothing: the pump runs on
+  // the recording device, off the owner-gated take store, and is the only
+  // caller. What it bought instead was a lever. A segment key is composable in
+  // advance, and both halves of it (the take id, the container) are readable
+  // off the colleague's own row by exactly this capability, so an owner could
+  // mint a seq the device had not reached yet and PUT anything into it: the key
+  // is immutable, so the real device could never write that seq; its next pump
+  // would meet a length that is not its own and go terminally quiet for the
+  // rest of the take; and the folder an assembler will one day build from would
+  // hold bytes nobody recorded. The take is never lost by it — the whole-take
+  // secure at stop is independent — but the new guarantee is.
+  it('…and NOT even with recordings.viewAll — the segments are the recorder’s alone', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    // Nothing probed and nothing signed: the refusal lands before a single key
+    // is asked about, so the door is not an existence oracle over the folder
+    // either. (The take mint KEEPS its owner reach — pinned by its own case,
+    // "…while the take mint KEEPS its owner reach", above.)
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it('…while the recorder themselves is unchanged — same capability, own row', async () => {
+    reserved()
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    const res = await segmentsOk()
+    expect(res.segments.map((s) => s.path)).toEqual([segKey(0), segKey(1), segKey(2)])
+  })
+
+  it('no acting staff identity → forbidden, and core is never read', async () => {
+    getCurrentUserStaffId.mockResolvedValue(null)
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(get).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it('a session id core does not know → not_found', async () => {
+    get.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'not_found' })
+    expectNoBinding()
+  })
+
+  it('core failing to answer → upstream, retryable, nothing signed', async () => {
+    get.mockRejectedValue(new Error('socket'))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('gates on records.write before anything — a denial settles, never throws', async () => {
+    can.mockResolvedValue(false)
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['61 seqs — past the batch cap', { ...NAMED, seqs: Array.from({ length: 61 }, (_, i) => i) }],
+    ['a duplicate seq', { ...NAMED, seqs: [0, 1, 1] }],
+    ['an empty list', { ...NAMED, seqs: [] }],
+    ['a seq past the six-digit pad', { ...NAMED, seqs: [1_000_000] }],
+    ['a negative seq', { ...NAMED, seqs: [-1] }],
+    ['a fractional seq', { ...NAMED, seqs: [1.5] }],
+    ['seqs with no takeId', { recordingSessionId: SESSION, seqs: [0] }],
+    ['seqs beside a stagedFor', { stagedFor: SESSION, seqs: [0] }],
+    ['seqs with no session to fence against', { takeId: UUID, mimeType: 'audio/webm', seqs: [0] }],
+    ['no seqs at all — this is not this act', NAMED],
+  ])('refuses %s — bad_input, and core is never read', async (_label, input) => {
+    await expect(mintRecordingSegmentUrls(input as MintTakeUrlInput)).resolves.toEqual({
+      error: 'bad_input',
+    })
+    expect(get).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  it.each([
+    ['a container this server will not store', { ...SEGS, mimeType: 'audio/mpeg' }, 'bad_mime'],
+    ['an uppercase take uuid', { ...SEGS, takeId: UUID.toUpperCase() }, 'bad_take_id'],
+  ])('%s → %s, split exactly as the take mint splits them', async (_l, input, code) => {
+    reserved()
+    await expect(mintRecordingSegmentUrls(input as MintTakeUrlInput)).resolves.toEqual({
+      error: code,
+    })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('a signing failure answers upstream, never a half-made batch', async () => {
+    reserved()
+    createSignedUploadUrl.mockResolvedValue({ data: null as never, error: { message: 'boom' } })
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+  })
+
+  // ⚖ AND A KEY THAT IS COMPOSABLE IN ADVANCE IS NEVER SIGNED OVER (the R2 rule
+  // packet B's fix round 2 gave the staged path, on this path too — and here it
+  // matters more, because the assembler will one day build a take out of these
+  // objects).
+  it('an object already at a seq comes back as a SIZE, never a URL', async () => {
+    reserved()
+    info.mockImplementation(async (key: string) =>
+      key === segKey(1)
+        ? { data: { size: 4096 }, error: null }
+        : { data: null, error: notFoundError },
+    )
+    const res = await segmentsOk()
+    expect(res.segments[1]).toEqual({
+      seq: 1,
+      path: segKey(1),
+      contentType: 'audio/webm',
+      existingSize: 4096,
+    })
+    expect('url' in res.segments[1]).toBe(false)
+    // Nothing was signed for THAT key — the answer hands out no way to write it.
+    expect(createSignedUploadUrl.mock.calls).toEqual([[segKey(0)], [segKey(2)]])
+    // …and the other two are ordinary signed arms, so one occupied key never
+    // costs the batch.
+    expect('url' in res.segments[0]).toBe(true)
+    expect('url' in res.segments[2]).toBe(true)
+  })
+
+  it('storage answering without a size says so — null, never a guess', async () => {
+    reserved()
+    info.mockResolvedValue({ data: {}, error: null })
+    const res = await segmentsOk()
+    expect(res.segments.every((s) => 'existingSize' in s && s.existingSize === null)).toBe(true)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  it('storage that does not ANSWER is upstream — retryable, and nothing signed', async () => {
+    reserved()
+    info.mockResolvedValue({ data: null, error: { message: 'gateway', status: 500 } })
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE BATCH HAS TO FIT THE DOOR (fix round 2, M2). One seq is two
+  // storage calls; sixty of them one after another is up to 120 round trips,
+  // which at ordinary latency outlives the CALLER's 30 s door — so the answer
+  // is thrown away, no prefix advances, and the pump asks for the same sixty
+  // again for as long as the latency lasts. In waves the same work is ~8 waves
+  // of two calls. The wave size is what this pins: more than one at a time, and
+  // never so many that one client's catch-up opens sixty sockets to storage.
+  it('probes and signs in BOUNDED PARALLEL, and the answer stays in seq order', async () => {
+    reserved()
+    const all = Array.from({ length: 60 }, (_, i) => i)
+    let live = 0
+    let peak = 0
+    info.mockImplementation(async () => {
+      live++
+      peak = Math.max(peak, live)
+      // A real tick, so overlap is observable at all: an instantly-resolved
+      // probe never has two in flight, whatever the door does.
+      await new Promise((r) => setTimeout(r, 0))
+      live--
+      return { data: null, error: notFoundError }
+    })
+
+    const res = await segmentsOk({ ...NAMED, seqs: all })
+
+    expect(res.segments.map((s) => s.seq)).toEqual(all)
+    expect(res.segments.map((s) => s.path)).toEqual(all.map((seq) => segKey(seq)))
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(8)
+  })
+
+  // …and a wave that runs beside a refusal changes nothing about the refusal:
+  // the first seq IN ORDER that could not be probed ends the whole call, and
+  // the others only ever read and signed — this door writes nothing.
+  it('one probe that does not answer ends the batch — upstream, never a half-made one', async () => {
+    reserved()
+    info.mockImplementation(async (key: string) =>
+      key === segKey(2)
+        ? { data: null, error: { message: 'gateway', status: 500 } }
+        : { data: null, error: notFoundError },
+    )
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'upstream' })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('the probe is asked for the composed key itself, once per seq', async () => {
+    reserved()
+    await segmentsOk()
+    expect(info.mock.calls).toEqual([[segKey(0)], [segKey(1)], [segKey(2)]])
+  })
+})
+
 describe('recordingFinalizedKey — the backfill door', () => {
   it('composes the SAME key the mint reserved, with no DB and no storage', async () => {
     const { recordingFinalizedKey } = await import('@/actions/recording-upload')
@@ -931,6 +1446,94 @@ describe('composeTakeKey — the self-check, as a table', () => {
   })
 })
 
+// ⚖ THE THIRD COMPOSER (slice five packet C, C1). A segment is a ~5 s slice of a
+// take that is still being recorded, and its key hangs under that take's own
+// folder — so the pad, the bounds and the self-parse are what keep a thousand
+// of them ordered, tenant-scoped, and refused by every fence that means a WHOLE
+// take.
+describe('composeSegmentKey — the segment shape, as a table', () => {
+  const MIMES = [
+    ['audio/webm', 'webm'],
+    ['audio/webm;codecs=opus', 'webm'],
+    ['audio/mp4', 'mp4'],
+    ['audio/ogg', 'ogg'],
+    ['audio/wav', 'wav'],
+  ] as const
+
+  it.each(MIMES)('%s composes a key that parses as kind segment', (mimeType, ext) => {
+    const composed = composeSegmentKey('biz-1', UUID, 7, mimeType)!
+    expect(composed).toMatchObject({ ext, contentType: mimeType.split(';')[0], seq: 7 })
+    expect(composed.key).toBe(`seg/app_biz-1_${UUID}/000007.${ext}`)
+    expect(parseRecordingKey(composed.key, 'biz-1')).toEqual({
+      kind: 'segment',
+      takeId: UUID,
+      seq: 7,
+      ext,
+    })
+  })
+
+  // LEXICAL ORDER IS NUMERIC ORDER — the property a storage listing of the
+  // folder rests on, and the only thing the six-digit pad exists for.
+  it.each([
+    [0, '000000'],
+    [7, '000007'],
+    [42, '000042'],
+    [999, '000999'],
+    [1_000, '001000'],
+    [999_999, '999999'],
+  ])('pads seq %i to %s, and parses back to the same number', (seq, stem) => {
+    const composed = composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!
+    expect(composed.key).toBe(`seg/app_biz-1_${UUID}/${stem}.webm`)
+    expect(parseRecordingKey(composed.key, 'biz-1')).toMatchObject({ seq })
+  })
+
+  it('a sorted listing of composed keys IS capture order', () => {
+    const keys = [3, 11, 2, 1_000, 0].map(
+      (seq) => composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!.key,
+    )
+    expect([...keys].sort()).toEqual(
+      [0, 2, 3, 11, 1_000].map((seq) => composeSegmentKey('biz-1', UUID, seq, 'audio/webm')!.key),
+    )
+  })
+
+  it.each([
+    ['a non-uuid take', 'take-1', 0, 'audio/webm'],
+    ['an uppercase uuid take', UUID.toUpperCase(), 0, 'audio/webm'],
+    ['a string-shaped non-string take', IMPOSTOR, 0, 'audio/webm'],
+    ['a negative seq', UUID, -1, 'audio/webm'],
+    ['a seq past the six-digit pad', UUID, 1_000_000, 'audio/webm'],
+    ['a fractional seq', UUID, 1.5, 'audio/webm'],
+    ['NaN', UUID, Number.NaN, 'audio/webm'],
+    ['Infinity', UUID, Number.POSITIVE_INFINITY, 'audio/webm'],
+    ['a string-shaped seq', UUID, '7', 'audio/webm'],
+    ['a container outside the closed map', UUID, 0, 'audio/mpeg'],
+    ['a prototype member as the container', UUID, 0, 'constructor'],
+    ['no container at all', UUID, 0, null],
+  ])('refuses %s — null, never a composed key', (_label, takeId, seq, mimeType) => {
+    expect(composeSegmentKey('biz-1', takeId, seq, mimeType)).toBeNull()
+  })
+
+  it('a composed segment key belongs to NOBODY else, and is not a take anywhere', () => {
+    const composed = composeSegmentKey('biz-1', UUID, 3, 'audio/mp4')!
+    expect(parseRecordingKey(composed.key, 'other-biz')).toBeNull()
+    // ⚖ EVERY TAKE FENCE REFUSES A SEGMENT. Widening the grammar must not widen
+    // a single fence: these keys are this tenant's, they parse, and no door
+    // that means a whole take may accept one.
+    expect(isOwnRecordingKey(composed.key, 'biz-1')).toBe(false)
+    expect(isOwnRecordingKey(composed.key, 'other-biz')).toBe(false)
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(false)
+  })
+
+  it('the folder is exactly the take key’s stem — one folder per take', () => {
+    const take = composeTakeKey('biz-1', UUID, 'audio/mp4')!
+    const seg = composeSegmentKey('biz-1', UUID, 0, 'audio/mp4')!
+    expect(seg.key).toBe(`seg/${take.key.slice(0, -'.mp4'.length)}/000000.mp4`)
+    // Nested on purpose: /api/cleanup lists the bucket ROOT non-recursively, so
+    // a thousand flat segment names per take would land in front of every sweep.
+    expect(seg.key.split('/')).toHaveLength(3)
+  })
+})
+
 describe('mintRecordingReadUrl — the tenant fence', () => {
   it('signs a path under the caller’s own prefix', async () => {
     await expect(mintRecordingReadUrl(OWN)).resolves.toEqual({
@@ -971,6 +1574,10 @@ describe('removeRecordingObject is REMOVED', () => {
     const mod = (await import('@/actions/recording-upload')) as Record<string, unknown>
     expect(Object.keys(mod).sort()).toEqual([
       'mintRecordingReadUrl',
+      // Slice five packet C: the SEGMENT mint. It reserves nothing, writes
+      // nothing and audits nothing — and like every door in this file it can
+      // only ADD an object to the bucket, never take one away.
+      'mintRecordingSegmentUrls',
       'mintRecordingUploadUrl',
       // Fix round 7: a PURE composition (no DB, no storage) for a take
       // finalized before the key was stamped. It reads nothing and writes
@@ -1080,8 +1687,41 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     expect(isOwnRecordingKey(composed!.key, 'biz-1')).toBe(false)
     // …and a take is not a staged copy either.
     expect(isStagedKeyFor(`app_biz-1_${UUID}.webm`, 'biz-1', SESSION_UUID)).toBe(false)
-    // Every staging gets its own object — the uuid is the server's.
+    // With no slot named, every staging gets its own object — the uuid is the
+    // server's. That is the no_uuid cohort's behaviour, and D10's ceiling.
     expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key).not.toBe(composed!.key)
+  })
+
+  // ⚖ THE SLOT IS THE TAKE (slice five packet B, D10).
+  it('composeStagedKey puts the TAKE in the slot when it is given one', () => {
+    const composed = composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', UUID)!
+    expect(composed.key).toBe(`stg/biz-1_${SESSION_UUID}_${UUID}.webm`)
+    // Composable from the core row ALONE: session = the row id, take + ext =
+    // the row's own reserved pointer `app_<biz>_<take>.<ext>`.
+    expect(composed.key).toBe(
+      `stg/biz-1_${SESSION_UUID}_${composeTakeKey('biz-1', UUID, 'audio/webm')!.key.slice(
+        'app_biz-1_'.length,
+      )}`,
+    )
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(true)
+    // …and it is STABLE, which is the property the 409-is-success rule needs.
+    expect(composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', UUID)!.key).toBe(composed.key)
+  })
+
+  it.each([
+    ['a non-uuid slot', 'take-1'],
+    ['an uppercase uuid', UUID.toUpperCase()],
+    ['a path-shaped slot', `../${UUID}`],
+    ['a non-string slot', 42],
+    ['null', null],
+  ])('falls back to the server’s own uuid on %s — never into the key', (_label, slot) => {
+    const composed = composeStagedKey('biz-1', SESSION_UUID, 'audio/webm', slot)!
+    // The slot the key actually carries: everything after the session id, minus
+    // the extension. It is a fresh server uuid, and NOT what the caller sent.
+    const carried = composed.key.slice(`stg/biz-1_${SESSION_UUID}_`.length, -'.webm'.length)
+    expect(carried).not.toBe(String(slot))
+    expect(carried).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    expect(isStagedKeyFor(composed.key, 'biz-1', SESSION_UUID)).toBe(true)
   })
 
   it('composeStagedKey refuses a session id that is not a uuid, and a container it cannot store', () => {
