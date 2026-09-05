@@ -50,6 +50,9 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
   const result = await mintPlaybackUrlWithClient(
     newSynqedClient(businessId),
     {
+      // WHO is asking (the confirmed auth user) vs WHICH roster identity the
+      // ACL compares — always both, never one standing in for the other.
+      actorId: ctx.identity.authUserId,
       staffId,
       businessId,
       canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),

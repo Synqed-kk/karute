@@ -29,6 +29,7 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
+  resolveUserId: jest.fn(async () => 'auth-user-1'),
   staffListByBusinessOrThrow: jest.fn(async () => {
     if (rosterThrows.current) throw new Error('roster read failed')
     return roster.current
@@ -50,8 +51,14 @@ const createSignedUrl = jest.fn(async (path: string, _ttl: number) => ({
   data: { signedUrl: `https://proj.supabase.co/read/${path}?token=t` } as { signedUrl: string } | null,
   error: null as { message: string } | null,
 }))
+/** The object probe (fix round 2) — the shared `objectExists` spelling reads
+ *  `storage.from(...).info(key)`. Default: the take is really there. */
+const info = jest.fn(async (_key: string) => ({
+  data: { size: 1024 } as { size?: number } | null,
+  error: null as { message: string; status?: number; statusCode?: string } | null,
+}))
 jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUrl }) } }),
+  createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUrl, info }) } }),
 }))
 
 const KARUTE_ID = '00000000-0000-4000-8000-000000000008'
@@ -88,6 +95,7 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
 import { GET, OPTIONS } from '@/app/api/app/v1/recordings/playback-url/route'
 import { mintRecordingPlaybackUrl } from '@/actions/recording-playback'
 import { mintPlaybackUrlWithClient, PLAYBACK_URL_TTL_S } from '@/lib/recording/playback-url'
+import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
 import { AUDIT_ACTIONS, AUDITED_CORES } from '@/lib/audit-policy'
 import { auditLines } from './helpers/audit-lines'
@@ -114,7 +122,7 @@ const req = (karuteId?: string) =>
 const mint = (actor: Partial<Parameters<typeof mintPlaybackUrlWithClient>[1]> = {}) =>
   mintPlaybackUrlWithClient(
     fakeClient as unknown as Parameters<typeof mintPlaybackUrlWithClient>[0],
-    { staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, source: 'web', ...actor },
+    { actorId: 'auth-user-1', staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, source: 'web', ...actor },
     { karuteId: KARUTE_ID },
   )
 
@@ -131,6 +139,7 @@ beforeEach(() => {
     data: { signedUrl: `https://proj.supabase.co/read/${TAKE_KEY}?token=t` },
     error: null,
   })
+  info.mockResolvedValue({ data: { size: 1024 }, error: null })
   // clearAllMocks wipes CALLS, not implementations — a mockRejectedValue from
   // an earlier case would otherwise leak into every test after it.
   karuteGet.mockImplementation(async (id: string) => {
@@ -193,15 +202,18 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
     expect(await mint()).toEqual({ error: 'no_audio' })
   })
 
-  // A discarded take's audio sits at a stg/ key the row is deliberately NOT
-  // re-pointed to (DESIGN-SLICE5 D10). The fence is take-only and must stay so.
-  it('a stg/ staged discard copy → no_audio (the fence is TAKE-only)', async () => {
+  // ⚠ RE-WORDED (fix round 2): this pins THE FENCE — a staged key is refused —
+  // and makes no claim about where discarded audio lives. The ORDINARY discard
+  // keeps the row on its TAKE key (recording-discard-transcript.ts says so
+  // plainly); the stg/ shape is the unsecurable-take exception. What is true
+  // either way is that a staged key never reaches the signer.
+  it('a stg/ staged key is refused by the fence → no_audio', async () => {
     ROW.current = { ...ROW.current, audio_storage_path: `stg/business-1_${SESSION}_${TAKE}.mp4` }
     expect(await mint()).toEqual({ error: 'no_audio' })
     expect(createSignedUrl).not.toHaveBeenCalled()
   })
 
-  it('another tenant’s app_ key → no_audio (nothing is signed)', async () => {
+  it('another tenant’s app_ key is refused by the fence → no_audio, nothing signed', async () => {
     ROW.current = { ...ROW.current, audio_storage_path: `app_other-biz_${TAKE}.mp4` }
     expect(await mint()).toEqual({ error: 'no_audio' })
     expect(createSignedUrl).not.toHaveBeenCalled()
@@ -233,6 +245,41 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
     ROW.current = { ...ROW.current, status: 'RECORDING', duration_seconds: null }
     expect(await mint()).toEqual({ error: 'no_audio' })
     expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚠ FIX ROUND 2 — THE CEILING THE PROBE CLOSES. `discard.ts` stamps the
+  // CLIENT-REPORTED duration on a reasoned discard with no object proof, and
+  // the ordinary discard leaves the row on its TAKE key. Such a row passes
+  // serverHoldsTakeRow — so the row is a heuristic and storage is the only
+  // honest fact about whether the bytes exist.
+  it('a discard-stamped row whose object is GONE → no_audio, nothing signed, no audit row', async () => {
+    ROW.current = { ...ROW.current, status: 'UPLOADING', duration_seconds: 47 }
+    // The helper still says yes — that is the point of the probe.
+    expect(serverHoldsTakeRow(ROW.current, 'business-1')).toBe(true)
+    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    const lines = await auditLines(async () => {
+      expect(await mint()).toEqual({ error: 'no_audio' })
+    })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(lines.filter((l) => l.action === 'recording.play')).toHaveLength(0)
+  })
+
+  it('the probe runs on the row’s OWN key, before anything is signed', async () => {
+    await mint()
+    expect(info).toHaveBeenCalledWith(TAKE_KEY)
+    expect(info.mock.invocationCallOrder[0]).toBeLessThan(
+      createSignedUrl.mock.invocationCallOrder[0],
+    )
+  })
+
+  // A probe that could not ANSWER is not a miss. Saying "no audio" when storage
+  // merely blipped is the one wrong thing to say here.
+  it('a storage probe that cannot answer → upstream, never no_audio', async () => {
+    info.mockResolvedValue({ data: null, error: { message: 'Internal error', status: 500 } })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await mint()).toEqual({ error: 'upstream' })
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('a 404 recording row → no_audio (a swept session), never not_found', async () => {
@@ -302,6 +349,15 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 3)', () => {
     KAR.current = { ...KAR.current, staff_id: null }
     const lines = await auditLines(() => mint({ staffId: 'anyone' }))
     expect(plays(lines)[0].break_glass).toBe(false)
+  })
+
+  // FIX ROUND 2 — a caller who is not on this roster has a null staffId, and an
+  // OWNERLESS karute (D-14) says yes to them. The row used to be
+  // actorType:'staff' with actorId:null — an unattributable listen.
+  it('a roster-less caller on an ownerless karute still files an ATTRIBUTED row', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    const lines = await auditLines(() => mint({ actorId: 'auth-user-9', staffId: null }))
+    expect(plays(lines)[0].actor_id).toBe('auth-user-9')
   })
 
   it.each([

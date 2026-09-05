@@ -14,7 +14,7 @@
 
 import { newSynqedClient } from '@/lib/synqed/client'
 import { can } from '@/lib/auth/require-permission'
-import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId, resolveUserId } from '@/lib/staff'
 import { mintPlaybackUrlWithClient } from '@/lib/recording/playback-url'
 
 export type MintRecordingPlaybackUrlResult =
@@ -26,13 +26,19 @@ export async function mintRecordingPlaybackUrl(
 ): Promise<MintRecordingPlaybackUrlResult> {
   try {
     if (!(await can('customers.view'))) return { ok: false, error: 'forbidden' }
-  } catch {
-    return { ok: false, error: 'forbidden' }
+  } catch (err) {
+    // A capability read that THREW did not answer the permission question — a
+    // transient auth/DB blip is not a refusal (D-8). `upstream`, like the outer
+    // catch below; the two must not disagree about the same failure.
+    console.warn('[recording-playback] capability read failed:', err)
+    return { ok: false, error: 'upstream' }
   }
 
   try {
-    const [businessId, staffId, canViewAll] = await Promise.all([
+    const [businessId, actorId, staffId, canViewAll] = await Promise.all([
       getBusinessId(),
+      // WHO is asking, vs WHICH roster identity the ACL compares — always both.
+      resolveUserId(),
       getCurrentUserStaffId(),
       // The whole owner floor: `recordings.viewAll` is stripped to owner-only
       // at the resolve chokepoint, so it IS the owner (fix round 2).
@@ -42,7 +48,7 @@ export async function mintRecordingPlaybackUrl(
 
     const result = await mintPlaybackUrlWithClient(
       newSynqedClient(businessId),
-      { staffId, businessId, canViewAll, source: 'web' },
+      { actorId, staffId, businessId, canViewAll, source: 'web' },
       { karuteId },
     )
     return 'error' in result ? { ok: false, error: result.error } : { ok: true, ...result }

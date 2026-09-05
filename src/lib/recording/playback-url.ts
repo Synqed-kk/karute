@@ -3,15 +3,16 @@
 // the play button inside the 文字起こし card).
 //
 // THE FALSIFIABLE CLAIMS THIS FILE MAKES, in the order it checks them:
-//   1. THE FENCE. The object it signs is a FINALIZED TAKE of the caller's own
-//      tenant — `serverHoldsTakeRow` (take-binding.ts), which is the shared
-//      TAKE-only grammar AND the server's own receipt that the bytes landed.
-//      The pointer alone would not do: the row is BORN RESERVED, so a take
-//      still on the device carries a key with no object behind it. A null
-//      pointer, an unlanded take, a discard's `stg/` staged copy and another
-//      tenant's key are one answer: no_audio. Widening this to reach a
-//      discarded take is a different surface (manager discard review), not a
-//      loosened fence here.
+//   1. THE FENCE, AND THEN THE OBJECT. The key must be a TAKE of the caller's
+//      own tenant with the row's own receipt on it (`serverHoldsTakeRow`,
+//      take-binding.ts) — and then storage is ASKED, because that helper is a
+//      heuristic and its own header says so: a reasoned discard stamps a
+//      client-reported duration on the row with no object proof, and the
+//      ordinary discard leaves the row on its TAKE key. A null pointer, an
+//      unlanded take, a `stg/` staged copy, another tenant's key and a row
+//      whose object is simply not there are ONE answer: no_audio. One storage
+//      probe per LISTEN is the price; per VIEW it would not be, which is why
+//      the card keeps the heuristic and this door keeps the proof.
 //   2. THE ACL. Whoever may read the RAW TRANSCRIPT of this karute may hear its
 //      audio — canViewTranscript, on the SAME input the words use
 //      (`recordings.viewAll`, which this repo hard-strips to the owner). One
@@ -49,6 +50,7 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { objectExists } from '@/lib/recording/mint-take-url'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -61,8 +63,15 @@ type Core = Pick<SynqedClient, 'karuteRecords' | 'recordings'>
 export const PLAYBACK_URL_TTL_S = 3600
 
 export interface PlaybackActor {
-  /** The AUTHENTICATED staff identity, resolved by the caller and NEVER read
-   *  from a request body. Same id space the detail screen's ACL compares in. */
+  /** WHO IS ASKING — the authenticated auth-user id, always present. Separate
+   *  from `staffId` since fix round 2: a caller who is not on this business's
+   *  roster has a null staffId, and for an OWNERLESS karute (D-14) the ACL says
+   *  yes to them — which used to file `actorType:'staff'` with `actorId:null`,
+   *  an unattributable listen. The row now always names someone. */
+  actorId: string
+  /** The ROSTER-PROVEN staff identity used for the ACL compare, resolved by the
+   *  caller and NEVER read from a request body. Null = not on this roster, which
+   *  the ACL reads as "not the recorder". Same id space the detail screen uses. */
   staffId: string | null
   /** The caller's verified tenant — the prefix the take key must carry. */
   businessId: string
@@ -127,12 +136,27 @@ export async function mintPlaybackUrlWithClient(
     return { error: upstreamStatus(err) === 404 ? 'no_audio' : 'upstream' }
   }
 
-  // 3. THE FENCE (claim 1). Take-only, by the shared grammar, AND the server's
-  //    own receipt that the object is really there — the same predicate the
-  //    card's presence uses, so a player never appears for audio this door
-  //    would refuse to sign (defence in depth, one truth).
+  // 3. THE FENCE (claim 1), first half: take-only by the shared grammar, plus
+  //    the row's own receipt — the same predicate the card's presence uses, so
+  //    a player never appears for audio this door would not even consider.
   if (!serverHoldsTakeRow(row, actor.businessId)) return { error: 'no_audio' }
   const audioPath = row.audio_storage_path
+
+  //    Second half: ASK STORAGE. The row is a heuristic (see the helper's own
+  //    header — a reasoned discard stamps an unproven duration, and the
+  //    ordinary discard keeps the take key), so the only honest fact about
+  //    whether these bytes exist is the bucket's. The repo's ONE existence
+  //    spelling, shared with the upload mint and the session mint — never a
+  //    third.
+  //
+  //    A proven MISS is `no_audio`: there is genuinely nothing to hear. A probe
+  //    that could not ANSWER ('unknown') is `upstream`, never a miss — telling
+  //    a staffer her recording has no audio when storage merely blipped is the
+  //    one wrong thing to say here, and it is the same fail-closed reading the
+  //    mint and the discard door already take.
+  const exists = await objectExists(audioPath)
+  if (exists === false) return { error: 'no_audio' }
+  if (exists === 'unknown') return { error: 'upstream' }
 
   // 4. THE ACL (claim 2). Recorder-lock fix (⚖ Liam 8/22): the karute's staff
   //    id sometimes carries a synqed-core staff CARD id rather than a profile
@@ -173,7 +197,7 @@ export async function mintPlaybackUrlWithClient(
   audit({
     category: 'recording',
     action: 'recording.play',
-    actorId: actor.staffId,
+    actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
     storeId: row.store_id ?? undefined,

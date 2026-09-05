@@ -120,17 +120,32 @@ export interface HeldTakeRow {
  * exists. The object lands later (secure-at-stop, or a drain days later), and
  * on a device that walked out of signal it may never land at all.
  *
- * So the pointer means "this row has claimed this key", and only two things
- * mean the bytes are really there:
- *   · `finalizedBefore` — finalize-take.ts is the ONLY writer that proves the
- *     object (storage.info) before it stamps a duration, so that stamp is the
- *     server's own receipt; or
- *   · `isJobOwnedStatus` — the legacy worker path, whose rows always have an
- *     object because the job read it.
+ * So the pointer means "this row has claimed this key", and two things make it
+ * LIKELY the bytes are really there:
+ *   · `finalizedBefore` — finalize-take.ts proves the object (storage.info)
+ *     before it stamps a duration; or
+ *   · `isJobOwnedStatus` — the legacy worker path, whose rows have an object
+ *     because the job read it.
  *
- * The key fence stays inside, and stays TAKE-only: a `stg/` staged discard
- * copy, a segment fragment and another tenant's key are all false however the
- * duration and status read.
+ * ⚠ THIS IS A HEURISTIC, NOT A PROOF, AND THE REPO SAYS SO (fix round 2). An
+ * earlier version of this doc claimed finalize was the ONLY writer of
+ * `duration_seconds`. It is not: `discard.ts`'s stampRecordingDuration writes
+ * the CLIENT-REPORTED duration on every reasoned discard with no object proof
+ * at all. And the premise that a discarded take moves to a `stg/` key is the
+ * EXCEPTION, not the rule — recording-discard-transcript.ts says it plainly
+ * ("the ordinary discard sends the finalized key itself"), so an ordinary
+ * discard leaves the row on its TAKE key, stamped, out of RECORDING: true here.
+ *
+ * THE CEILING, NAMED. A discard-stamped row paired with a karute record can
+ * therefore paint a player whose tap answers no_audio. That is visible and
+ * honest, never silent, and it is bounded by the MINT, which probes storage
+ * before it signs anything (playback-url.ts). One storage call per LISTEN is
+ * affordable; one per VIEW is not, which is why the card keeps this heuristic
+ * and the door keeps the proof.
+ *
+ * The key fence stays inside, and stays TAKE-only: a `stg/` staged copy, a
+ * segment fragment and another tenant's key are all false however the duration
+ * and status read.
  */
 export function serverHoldsTakeRow<T extends HeldTakeRow>(
   row: T,

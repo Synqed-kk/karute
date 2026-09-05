@@ -58,9 +58,12 @@ describe('serverHoldsTakeRow — the receipt half', () => {
 })
 
 describe('serverHoldsTakeRow — the fence half stays TAKE-only', () => {
+  // ⚠ RE-WORDED (fix round 2): these pin THE FENCE — a non-take key is refused
+  // — and make no claim about where a DISCARDED take's audio lives. The
+  // ordinary discard keeps the row on its take key; stg/ is the exception.
   it.each([
     ['a null pointer', null],
-    ['a stg/ staged discard copy', `stg/${BIZ}_${TAKE}_${TAKE}.mp4`],
+    ['a stg/ staged key', `stg/${BIZ}_${TAKE}_${TAKE}.mp4`],
     ['a segment fragment of this tenant’s own take', `seg/app_${BIZ}_${TAKE}/000001.mp4`],
     ['another tenant’s take key', `app_other-biz_${TAKE}.mp4`],
   ])('%s is not held, however the duration and status read', (_name, path) => {
@@ -71,6 +74,18 @@ describe('serverHoldsTakeRow — the fence half stays TAKE-only', () => {
 
 // One spelling, both sides: finalize-take.ts imports this rather than keeping
 // its own copy, so the READ side can never drift from the WRITE side's mark.
+// ⚠ FIX ROUND 2 — the helper is a HEURISTIC and its header now says so. This
+// pins the honest limit rather than a claim the repo refutes: a reasoned
+// discard stamps the CLIENT-reported duration with no object proof
+// (discard.ts#stampRecordingDuration), and the ORDINARY discard leaves the row
+// on its take key. Such a row is true here — and the MINT's storage probe is
+// what stops it becoming a signature.
+describe('serverHoldsTakeRow — the named ceiling', () => {
+  it('a discard-stamped row (take key, client duration, out of RECORDING) is TRUE here', () => {
+    expect(serverHoldsTakeRow(row({ status: 'UPLOADING', duration_seconds: 47 }), BIZ)).toBe(true)
+  })
+})
+
 describe('finalizedBefore is the shared mark, not a second spelling', () => {
   it('is exactly duration !== null AND status !== RECORDING', () => {
     expect(finalizedBefore({ duration_seconds: 1, status: 'UPLOADING' })).toBe(true)
