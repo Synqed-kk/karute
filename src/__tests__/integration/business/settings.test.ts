@@ -766,6 +766,37 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  // ⚖ S17 · F8 — ONE DIAL, TWO CONSEQUENCES, AND THE ROOM SAYS BOTH.
+  // 確保枠を早めに売りに戻せる役職 edits `opsConfig.releaseHeldRoles`, and THAT
+  // list is 予約と確保's save gate (`store-policy-props.ts:265` →
+  // `saveRefusal`). Neither end said so, so a manager narrowing this row to
+  // オーナー would have taken away their own ability to save that section from a
+  // row that talked only about held slots. This pin holds the coupling itself —
+  // if the save gate ever stops reading this list, or this row stops naming the
+  // second consequence, it goes red.
+  it('⚖ F8 — the release row IS 予約と確保’s save gate, says so, and refuses to lock the reader out', async () => {
+    const { props, storePolicy } = await assemble({ store: STORE_A })
+    const release = rowsOf(props).find((r) => r.id === 'store-hours.row-release')!
+    const chips = release.controls.find((c) => c.id === 'store-hours.release')!
+    // ONE LIST, read by both ends — not two lists that happen to agree today.
+    expect(chips.value).toEqual(storePolicy.save.roles)
+    expect(storePolicy.save.roles).toEqual([...opsConfig.releaseHeldRoles])
+    // …and the row's own description names the second consequence, in the words
+    // 予約と確保 uses for itself.
+    expect(release.description).toContain('通常の販売へ戻せる')
+    expect(release.description).toContain('「予約と確保」の設定を保存できる')
+    // …and the reader's own 役職 cannot be taken off the list — the mistake-
+    // proofing guardrail, on the chip, with its reason said out loud.
+    const keep = chips.control.kind === 'chips' ? chips.control.keep : undefined
+    expect(keep?.value).toBe(operator.role)
+    expect(keep?.reason ?? '').toContain('自分の役職は外せません')
+    // …and it names a chip that is really on screen.
+    const options = chips.control.kind === 'chips' ? chips.control.options.map((o) => o.value) : []
+    expect(options).toContain(operator.role)
+    // …while the EMPTY-LIST guardrail it stands beside is untouched.
+    expect(release.trio?.guardrail ?? '').toContain('誰も戻せない状態にはできません')
+  })
+
   // ⚖ S17 · F7 — 契約・請求 NAMES ONE DESTINATION, ONCE.
   // The section used to send the reader two ways for one errand: its lead said
   // 「このWeb画面」 and the block's own fact line said 「Webのお支払い画面」, six

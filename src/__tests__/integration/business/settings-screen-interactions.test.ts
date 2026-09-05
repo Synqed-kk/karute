@@ -175,7 +175,13 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // law is 「the reason is VISIBLE, never a tooltip」, and the whole point of it
     // is that a manager reads it BEFORE they press something that will not move.
     // Everything else behind 詳しく is context they open WHILE changing a dial.
-    expect(SRC_CODE).toContain("const lockReasons = row.controls.map((c) => c.locked).filter((r): r is string => r !== undefined)")
+    // ⚠ D-18 RE-PIN (⚖ S17 fix round 1, F8): the list gained a second source —
+    // a chips option the reader may not take away (`keep.reason`). It is the
+    // same KIND of sentence — 「why can I not change this」 — so it is the same
+    // line, and the CLAIM this pin makes (that reason does not fold) is
+    // unchanged. Both sources are read here so neither can quietly leave.
+    expect(SRC_CODE).toContain('...row.controls.map((c) => c.locked),')
+    expect(SRC_CODE).toContain("...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),")
     expect(SRC_CODE).toMatch(/\{lockReasons\.map\(\(r\) => \(\s*<p className="st-why" key=\{r\}>\{r\}<\/p>/)
     // …and it is rendered OUTSIDE the disclosure: the reason appears before the
     // `<Collapse>` in the row's own markup.
@@ -261,6 +267,26 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // preference on mid-session is obeyed without a reload.
     expect(SRC_CODE).toContain('}, [value, options, reduced])')
     expect(SRC_CODE).toContain('}, [on, reduced])')
+  })
+
+  // ⚖ S17 · F8 — THE KEPT CHIP REFUSES THE REMOVE DIRECTION, AND ONLY THAT ONE.
+  // A chip the reader may not take away has to stay reachable (`aria-disabled`,
+  // never `disabled` — the room's own law for a refusal), has to say why on the
+  // page rather than in a tooltip alone, and must not refuse the ADD direction
+  // as well: a manager whose 役職 is currently out of the list is locked out
+  // from the other side otherwise.
+  it('⚖ F8 — the own-role chip cannot be unticked, stays focusable, and says why', () => {
+    const chips = SRC_CODE.slice(SRC_CODE.indexOf("if (k.kind === 'chips')"))
+    const body = chips.slice(0, chips.indexOf("if (k.kind === 'swatch')"))
+    // the guard is bound to the ON state AND to the named option — never to the
+    // control as a whole.
+    expect(body).toContain('const held = on && k.keep !== undefined && k.keep.value === opt.value')
+    expect(body).toContain('onClick={locked || held ? undefined : ()')
+    // a refusal this room can reach with a keyboard…
+    expect(body).toContain("'aria-disabled': 'true' as const")
+    expect(body).not.toMatch(/disabled=\{held\}/)
+    // …and the reason is rendered as its own visible line, beside a lock's.
+    expect(SRC_CODE).toContain("...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),")
   })
 
   it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
@@ -562,7 +588,13 @@ describe('⚖ EVERYTHING MOVES — the demo-interaction machinery, run for real'
       // …and the segment's, for the same reason: `Segment` owns the thumb, and
       // takes the choice back as `onPick`.
       ['segment', 'onPick={locked ? undefined : (v) => onChange(c.id, v)}'],
-      ['chips', 'onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}'],
+      // ⚠ D-17 RE-PIN (⚖ S17 fix round 1, F8): the chips wiring gained `|| held`.
+      // `held` is TRUE only for the reader's own 役職 while it is ON, on the one
+      // list that is also 予約と確保's save gate — the remove direction is the
+      // self-lockout, and it is the only direction refused. The WIRING is the
+      // claim and it is unchanged; the guard is the new truth beside it, held by
+      // its own pin below.
+      ['chips', 'onClick={locked || held ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}'],
       ['swatch', 'onClick={locked ? undefined : () => onChange(c.id, opt.value)}'],
       // ⚖ S17 STEP 1 — the switch's thumb travels on the room's spring now, so
       // its markup lives in a `Switch` of its own; the WIRING is the same fact,

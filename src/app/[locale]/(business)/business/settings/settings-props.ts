@@ -241,8 +241,16 @@ const txt = (
 const num = (id: string, aria: string, value: number, min: number, max: number, step: number, unit: string): RowControl =>
   ({ id, aria, control: { kind: 'number', min, max, step, unit }, value: String(value) })
 const tim = (id: string, aria: string, value: string): RowControl => ({ id, aria, control: { kind: 'time' }, value })
-const chips = (id: string, aria: string, options: ControlOption[], value: string[], locked?: string, grid?: boolean): RowControl =>
-  ({ id, aria, control: { kind: 'chips', options, ...(grid ? { grid } : {}) }, value, ...(locked ? { locked } : {}) })
+const chips = (
+  id: string,
+  aria: string,
+  options: ControlOption[],
+  value: string[],
+  locked?: string,
+  grid?: boolean,
+  keep?: { value: string; reason: string },
+): RowControl =>
+  ({ id, aria, control: { kind: 'chips', options, ...(grid ? { grid } : {}), ...(keep ? { keep } : {}) }, value, ...(locked ? { locked } : {}) })
 const swatch = (id: string, aria: string, options: ControlOption[], value: string): RowControl =>
   ({ id, aria, control: { kind: 'swatch', options }, value })
 const ro = (id: string, aria: string, text: string, unit = '', numeric = false): RowControl =>
@@ -598,8 +606,30 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             guardrail: '既にある予定ブロックは、いまの位置のまま刻みだけが変わります。近い刻みへ勝手に丸めることはしません。',
           },
         }),
-        row('store-hours.row-release', '確保枠を早めに売りに戻せる役職', '新規のお客様のために確保した枠を、まだ埋まらないうちに通常の販売へ戻せる人です。', [
-          chips('store-hours.release', '確保枠を売りに戻せる役職', roleOptions(), [...p.releaseHeldRoles]),
+        // ⚖ S17 · F8 — ONE DIAL, TWO CONSEQUENCES, AND BOTH ARE SAID.
+        // This list is also 予約と確保's SAVE GATE: `store-policy-props.ts:265`
+        // reads `opsConfig.releaseHeldRoles` as `managerRoles` and hands it to
+        // `saveRefusal` (`store-policy-seam.ts:136-137`), which is the sentence
+        // 「保存できるのは…です」 that section prints
+        // (`StorePolicySection.tsx:792`). Narrowing this row to オーナー would
+        // therefore take a 店舗管理者's own save right away, from a row that used
+        // to talk only about held slots. The description names both; the chip
+        // for the reader's OWN 役職 refuses the remove direction.
+        row('store-hours.row-release', '確保枠を早めに売りに戻せる役職', '新規のお客様のために確保した枠を、まだ埋まらないうちに通常の販売へ戻せる人で、「予約と確保」の設定を保存できる人でもあります。', [
+          chips(
+            'store-hours.release',
+            '確保枠を売りに戻せる役職',
+            roleOptions(),
+            [...p.releaseHeldRoles],
+            undefined,
+            undefined,
+            // …and only when the reader's own 役職 is a choice this row offers —
+            // a guard naming a chip that is not on screen is a promise about
+            // nothing.
+            roleOptions().some((o) => o.value === operator.role)
+              ? { value: operator.role, reason: '自分の役職は外せません。外すと、この人が「予約と確保」を保存できなくなります' }
+              : undefined,
+          ),
         ], {
           scopeLabel: BUSINESS_SCOPE,
           trio: {

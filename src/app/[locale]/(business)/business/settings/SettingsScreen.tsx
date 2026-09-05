@@ -1445,7 +1445,14 @@ function Row({
    *  reason is the answer to 「why can I not change this at all」, which they need
    *  before they press it. It rode into the disclosure with the trio on the first
    *  cut of this round and comes back out here. */
-  const lockReasons = row.controls.map((c) => c.locked).filter((r): r is string => r !== undefined)
+  /** ⚖ S17 · F8 — and a chip a reader may not take AWAY is the same kind of
+   *  answer as a locked control's, so it is said in the same place and folds
+   *  the same way (which is to say: it does not fold). 「why can I not change
+   *  this」 is read before the press, not after it. */
+  const lockReasons = [
+    ...row.controls.map((c) => c.locked),
+    ...row.controls.map((c) => (c.control.kind === 'chips' ? c.control.keep?.reason : undefined)),
+  ].filter((r): r is string => r !== undefined)
   const detailId = `st-det-${row.id}`
 
   return (
@@ -1676,6 +1683,17 @@ function Control({
       <div className={`st-chips${k.grid ? ' is-grid' : ''}`} role="group" aria-label={c.aria}>
         {k.options.map((opt) => {
           const on = picked.includes(opt.value)
+          /** ⚖ S17 · F8 — THE ONE CHIP A READER MAY ADD BUT NOT TAKE AWAY.
+           *  `keep` is the reader's own 役職 on a list that is also 予約と確保's
+           *  save gate: unticking it is a manager removing their own ability to
+           *  save that section. Only the REMOVE direction is refused, so a
+           *  manager whose role is out of the list can still put it back, and
+           *  the chip stays focusable with `aria-disabled` (never `disabled`)
+           *  like every other refusal in this room. */
+          const held = on && k.keep !== undefined && k.keep.value === opt.value
+          const guard = held
+            ? { 'aria-disabled': 'true' as const, title: k.keep!.reason, 'aria-label': `${opt.label} — ${k.keep!.reason}` }
+            : {}
           return (
             <button
               key={opt.value}
@@ -1683,7 +1701,8 @@ function Control({
               className={`st-pick${on ? ' is-on' : ''}`}
               aria-pressed={on}
               {...inert}
-              onClick={locked ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}
+              {...guard}
+              onClick={locked || held ? undefined : () => onChange(c.id, on ? picked.filter((v) => v !== opt.value) : [...picked, opt.value])}
             >
               {opt.label}
             </button>

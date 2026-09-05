@@ -335,7 +335,19 @@ export type ControlKind =
    *  rather than ragging across the column. It is a property of the DATA — the
    *  set is closed and the same for every person — which is why it is declared
    *  here and not guessed from the control's id. */
-  | { kind: 'chips'; options: ControlOption[]; grid?: boolean }
+  /** ⚖ S17 · F8 — MISTAKE-PROOFING: ONE OPTION A READER MAY ADD BUT NOT TAKE
+   *  AWAY, with the reason said out loud. `store-hours.release` is not only the
+   *  release right: the same list is 予約と確保's SAVE GATE
+   *  (`store-policy-props.ts:265` → `saveRefusal(managerRoles, …)`), so a
+   *  manager who unticks their own 役職 removes their own ability to save that
+   *  section — self-harm the manager cannot see coming from this row. The chip
+   *  stays FOCUSABLE and `aria-disabled` (never `disabled`) exactly as
+   *  `RowControl.locked` does, and `reason` is rendered as a visible line, never
+   *  a tooltip.
+   *  ⚠ Only the REMOVE direction is refused. Locking the chip outright would
+   *  stop a manager whose role is currently OUT of the list from putting it
+   *  back, which is the same lockout from the other side. */
+  | { kind: 'chips'; options: ControlOption[]; grid?: boolean; keep?: { value: string; reason: string } }
   | { kind: 'swatch'; options: ControlOption[] }
   /** ⚠ `numeric` IS A LAYOUT FACT, NOT A TYPE HINT. A readout carries either a
    *  MEASURE (¥0, 61日, 12か月, 20回) — which wants the big tabular figure a

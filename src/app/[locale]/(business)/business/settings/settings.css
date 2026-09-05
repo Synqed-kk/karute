@@ -570,6 +570,12 @@
 .biz .pg-settings .st-pick:hover { background: var(--st-soft); }
 .biz .pg-settings .st-pick.is-on { border-color: var(--st-accent); background: var(--st-accent-wash); color: var(--st-accent); font-weight: 700; }
 .biz .pg-settings .st-pick[aria-disabled="true"] { cursor: default; color: var(--muted); }
+/* ⚖ S17 · F8 — a chip that is ON and may not be taken away still reads as ON.
+   The muted rule above is for a chip a reader cannot press at all; this one is
+   selected AND held, and greying a selected state would say the opposite of
+   what it is. Same anatomy as the segment's own held option (`.st-opt` above):
+   the selected paint stays, only the pointer says it will not move. */
+.biz .pg-settings .st-pick.is-on[aria-disabled="true"] { color: var(--st-accent); }
 
 /* colour swatches */
 .biz .pg-settings .st-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
