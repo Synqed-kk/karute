@@ -551,6 +551,32 @@ describe('the controls', () => {
     expect(range.value).toBe('400')
   })
 
+  // ⚠ ONE KARUTE'S AUDIO NEVER REACHES ANOTHER (reviewer P1). Web same-route
+  // navigation reuses this component in the same tree position, so without a
+  // key the minted URL and the loaded element stayed the PREVIOUS karute's — a
+  // play tap on B played A, with no mint and no audit row for the record on
+  // screen. That is a privacy defect, not just a stale-state one.
+  it('navigating A→B in the same tree position does not carry A’s recording', async () => {
+    const view = render(
+      <RecordingTranscriptCard karuteId="kar-A" transcript="A" consentOnFile recording={REC} />,
+    )
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(mintPlaybackUrl).toHaveBeenCalledWith('kar-A')
+    expect(audioEl().src).toBe('https://proj/read/take.mp4?token=t')
+    // Web same-route navigation: same component, same slot, different karute.
+    view.rerender(
+      <RecordingTranscriptCard karuteId="kar-B" transcript="B" consentOnFile recording={REC} />,
+    )
+    expect(audioEl().getAttribute('src')).toBeNull()
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(mintPlaybackUrl).toHaveBeenCalledTimes(2)
+    expect(mintPlaybackUrl).toHaveBeenLastCalledWith('kar-B')
+  })
+
   it('a keyboard user’s seek commits on key up', () => {
     card()
     const range = screen.getByLabelText('再生位置') as HTMLInputElement
@@ -885,6 +911,30 @@ describe('the absence laws', () => {
       (text) => !catalogValues.has(text) && !NUMERIC.test(text) && !fromTemplate(text),
     )
     expect(strays).toEqual([])
+  })
+
+  // ⚠ THE ONE-WAY ACCENT LAW (reviewer P2, repo CLAUDE.md). Saturated accent is
+  // reserved for things a staffer can PRESS. A static label wearing the
+  // pressable idiom invites a tap that does nothing — which is exactly what the
+  // 処理中 chip did until this round. The play button and the speed chip are the
+  // only elements in this card allowed to carry it.
+  //
+  // The emerald 同意確認済 chip is NOT accent — it is a semantic status colour,
+  // the precedent this fix follows — so it is untouched and out of scope here.
+  /** What a staffer can PRESS. The range is one — a slider is a control, and its
+   *  accent lives on the thumb pseudo-element, i.e. on the draggable part — so
+   *  the law's "the selected/active state OF pressable controls" covers it.
+   *  Judge the ELEMENT, not the file. */
+  const PRESSABLE = 'button, input[type="range"]'
+  it.each(STATES)('%s carries the accent only on pressables', (_name, props) => {
+    const { container } = card(props as Parameters<typeof card>[0])
+    const accented = [
+      ...container.querySelectorAll(
+        '[class*="text-primary"],[class*="bg-primary"],[class*="border-primary"]',
+      ),
+    ]
+    const stray = accented.filter((el) => el.closest(PRESSABLE) === null)
+    expect(stray.map((el) => el.className)).toEqual([])
   })
 
   // Second belt, widened past the wording the repro used.

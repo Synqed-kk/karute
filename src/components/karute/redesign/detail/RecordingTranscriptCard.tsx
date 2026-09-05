@@ -118,7 +118,15 @@ export function RecordingTranscriptCard({
         )}
       </header>
       {hasPlayer && (
+        // ⚠ KEYED BY THE KARUTE (reviewer P1). Web same-route navigation from one
+        // karute to another reuses this component in the same tree position, so
+        // without the key the minted URL and the loaded <audio> element stayed
+        // the PREVIOUS karute's: a play tap on B played A's recording, with no
+        // mint and no `recording.play` row for the karute actually on screen.
+        // The key forces a remount, and the unmount effect already pauses and
+        // releases the element.
         <RecordingPlayer
+          key={karuteId}
           karuteId={karuteId}
           durationSeconds={recording?.durationSeconds ?? null}
         />
@@ -149,8 +157,14 @@ export function RecordingTranscriptCard({
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2 border-t border-border p-4">
-                <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full bg-primary/8 px-2.5 text-[11px] font-semibold text-primary">
-                  <span className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse" />
+                {/* ⚠ NEUTRAL, NOT ACCENT (reviewer P2). This chip is a STATUS
+                 *  indicator, not a control — the one-way accent law reserves
+                 *  saturated accent for things a staffer can press, and a static
+                 *  label wearing the pressable idiom invites a tap that does
+                 *  nothing. The 同意確認済 chip beside it keeps emerald because
+                 *  that is a semantic status colour, not the accent. */}
+                <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full bg-muted px-2.5 text-[11px] font-semibold text-muted-foreground">
+                  <span className="size-1.5 rounded-full bg-muted-foreground/60 motion-safe:animate-pulse" />
                   <span>{t('transcript.processing')}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">
