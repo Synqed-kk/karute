@@ -94,18 +94,28 @@ const CSS_CODE = stripComments(CSS_SRC)
  *  scanned the lib for a tag would read the note about the tag as the tag. */
 const LIB_CODE = stripLine(stripComments(LIB_SRC))
 const PROPS_CODE = stripLine(stripComments(PROPS_SRC))
+/** ⚖ S17 FOLD — 予約と確保's server assembly, #812's own page body re-homed. */
+const SECTION_PROPS_CODE = stripLine(stripComments(read(`${ROOM_DIR}/store-policy-props.ts`)))
+const SECTION_CODE = stripLine(stripComments(read(`${ROOM_DIR}/StorePolicySection.tsx`)))
 const SCREEN_CODE = stripLine(stripComments(SCREEN_SRC))
 const PLANE_CODE = stripLine(stripComments(PLANE_SRC))
 
+const assemble = async (input?: { store?: string; role?: string; section?: string; dials?: null }) =>
+  settingsProps({
+    locale: 'ja',
+    store: input?.store,
+    section: input?.section,
+    world: input?.role !== undefined || input?.dials !== undefined ? { role: input?.role, dials: input?.dials } : undefined,
+  })
+
 const room = async (input?: { store?: string; role?: string; section?: string; dials?: null }) =>
-  (
-    await settingsProps({
-      locale: 'ja',
-      store: input?.store,
-      section: input?.section,
-      world: input?.role !== undefined || input?.dials !== undefined ? { role: input?.role, dials: input?.dials } : undefined,
-    })
-  ).props
+  (await assemble(input)).props
+
+/** ⚖ S17 FOLD — 予約と確保's own payload. Its five dials are not in the rail's
+ *  block vocabulary (they are #812's, rendered by `StorePolicySection`), so the
+ *  ONE-TRUTH pins below read them where they now live rather than being
+ *  deleted. */
+const policyOf = async (input?: { store?: string; role?: string }) => (await assemble(input)).storePolicy
 
 const sectionOf = (props: SettingsProps, id: string): SettingsSection => {
   const s = props.sections.find((x) => x.id === id)
@@ -131,13 +141,24 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
     // ⚠ EQUALITIES AGAINST THE WORLD, not literals. A props file that spelled
     // 「30分」 would pass a literal check for ever; it cannot pass this one the
     // moment the board's own number moves, which is the mutant the battery runs.
-    expect(controlOf(props, 'store-hours.guard').value).toBe(storeBookingPolicy.gapGuardMode)
-    expect(controlOf(props, 'store-hours.booking-step').value).toBe(String(opsConfig.bookingStepMin))
     expect(controlOf(props, 'store-hours.block-step').value).toBe(String(opsConfig.blockStepMin))
-    expect(controlOf(props, 'store-hours.min-sellable').value).toBe(String(opsConfig.minSellableMin))
-    expect(controlOf(props, 'store-hours.rank').value).toBe(storeBookingPolicy.heldRankAccess)
     expect(controlOf(props, 'store-hours.release').value).toEqual([...storeBookingPolicy.releaseHeldRoles])
-    expect(controlOf(props, 'services.new-client').value).toBe(String(storeBookingPolicy.newClientSessionMinutes))
+    // ⚖ S17 FOLD — RE-DERIVED, NOT DROPPED. スキマガード・予約の移動単位・販売可能
+    // な最小の長さ・確保枠の会員ランク開放・新規のお客様の所要時間 had a second
+    // control in this vocabulary and their ONE home is 予約と確保 now, so the
+    // equality against the world is asked of the payload that section actually
+    // renders. Same plane, same values, one reader.
+    const policy = (await policyOf({ store: STORE_A })).policy
+    expect(policy.mode).toBe(storeBookingPolicy.gapGuardMode.toUpperCase())
+    expect(policy.bookingStepMin).toBe(opsConfig.bookingStepMin)
+    expect(policy.gapSelling).toBe(opsConfig.minSellableMin > 0)
+    expect(policy.heldRankAccess).toBe(storeBookingPolicy.heldRankAccess)
+    expect(policy.newClientMinutes).toBe(storeBookingPolicy.newClientSessionMinutes)
+    // …and NOT ONE of them is still offered by the rail's own vocabulary: a
+    // second control on one rule is exactly what the fold ended.
+    for (const gone of ['store-hours.guard', 'store-hours.booking-step', 'store-hours.min-sellable', 'store-hours.rank', 'services.new-client']) {
+      expect({ id: gone, stillHere: controlsOf(props).some((c) => c.id === gone) }).toEqual({ id: gone, stillHere: false })
+    }
     expect(controlOf(props, 'reserve.grid').value).toBe(String(opsConfig.reserveStartGridMin))
     expect(controlOf(props, 'reserve.session').value).toBe(String(opsConfig.standardSessionMin))
     expect(controlOf(props, 'reserve.gapfill').value).toBe(String(opsConfig.gapFillMinMin))
@@ -219,11 +240,15 @@ describe('⚖ ONE TRUTH — every value this room shows is READ from the room th
   })
 
   it('the props file reads the planes, and spells no world value of its own', () => {
+    // ⚖ S17 FOLD — RE-DERIVED. `storeBookingPolicy.gapGuardMode`,
+    // `opsConfig.bookingStepMin` and `opsConfig.minSellableMin` left this file
+    // with the controls they fed; they are read by 予約と確保's own assembly now,
+    // and the pin follows them there rather than being dropped.
+    for (const source of ['gapGuardMode', 'bookingStepMin', 'minSellableMin', 'heldRankAccess', 'newClientSessionMin']) {
+      expect({ source, read: SECTION_PROPS_CODE.includes(source) }).toEqual({ source, read: true })
+    }
     for (const source of [
-      'storeBookingPolicy.gapGuardMode',
-      'opsConfig.bookingStepMin',
       'opsConfig.blockStepMin',
-      'opsConfig.minSellableMin',
       'opsConfig.reserveStartGridMin',
       'opsConfig.roomPolicy',
       'operatingHours.open',
@@ -384,9 +409,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     for (const page of CANON_PAGES) {
       expect({ page, onRail: labels.includes(page) }).toEqual({ page, onRail: true })
     }
-    // …plus the two this room adds, and nothing else.
-    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['顧客・連絡', '自分の表示設定'])
-    expect(RAIL).toHaveLength(21)
+    // …plus the three this room adds, and nothing else. ⚖ S17 FOLD — 予約と確保
+    // is the third: canon has no page for it because it is #812's room, which
+    // arrived as ONE section of this rail rather than as a second 設定 route at
+    // the same path. It sits SECOND, right after 店舗情報・営業時間.
+    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', '自分の表示設定'])
+    expect(labels[1]).toBe('予約と確保')
+    expect(RAIL).toHaveLength(22)
   })
 
   it('NOT ONE SECTION IS A STUB — every open section carries real content', async () => {
@@ -394,6 +423,13 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       const props = await room({ store: STORE_A, role })
       for (const s of props.sections) {
         if (s.gate !== 'open') continue
+        // ⚖ S17 FOLD — THE ONE SECTION THAT IS NOT BUILT FROM THIS VOCABULARY,
+        // and it is the opposite of a stub: 予約と確保 is #812's whole room, and
+        // `StorePolicySection` renders its presets, its live card and its eight
+        // dials from `storePolicyProps()`'s payload. Its substance is asserted
+        // directly below, against that payload, rather than against blocks it
+        // deliberately does not have.
+        if (s.id === 'booking-guard') continue
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
@@ -408,6 +444,22 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const props = await room({ store: STORE_A })
     for (const s of props.sections) {
       expect({ id: s.id, stub: `${s.kicker} ${s.title} ${s.lead}`.includes('準備中') }).toEqual({ id: s.id, stub: false })
+    }
+    // ⚖ S17 FOLD — AND 予約と確保 IS THE OPPOSITE OF A STUB, proven where its
+    // substance actually lives. Its section head carries a real kicker, title,
+    // lead and tour declaration; its payload carries the store's own eight dial
+    // values, its roster and its save answer; and its screen renders eight dial
+    // rows plus the presets, the live card and 保存.
+    const head = sectionOf(props, 'booking-guard')
+    expect(head.title).toBe('予約と確保')
+    expect(head.kicker).toBe('店舗運営')
+    expect(head.lead.length).toBeGreaterThan(20)
+    expect((head.guide ?? '').length).toBeGreaterThan(20)
+    const section = await policyOf({ store: STORE_A })
+    expect(Object.keys(section.policy)).toHaveLength(9)
+    expect(section.save.roles.length).toBeGreaterThan(0)
+    for (const dial of ['上書きの権限', '名指しロック', '長押しで確定', '店長のみでも警告を止める', 'すき間の販売', '新規のお客様の確保', '確保枠の会員ランク開放', '予約の刻み', '保存']) {
+      expect({ dial, declared: SECTION_CODE.includes(`data-guide-title="${dial}"`) }).toEqual({ dial, declared: true })
     }
   })
 
@@ -436,6 +488,11 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     const seed = seedOf(props)
     for (const s of props.sections) {
       if (s.gate !== 'open' || s.persist === 'local') continue
+      // ⚖ S17 FOLD / A3 — 予約と確保 DOES NOT USE THIS SAVE BAR, and that is a
+      // ruling rather than an omission: its 保存 is #812's own, gated by the
+      // seam's `saveRefusal` answer. The rail's demo-local dirty/保存 grammar
+      // beside it would be a second, contradicting save story on one section.
+      if (s.id === 'booking-guard') continue
       const ids = controlIdsOf(s)
       expect({ id: s.id, controls: ids.length > 0 }).toEqual({ id: s.id, controls: true })
       // Clean at rest…
@@ -772,15 +829,20 @@ describe('⚠ NO INTERNAL CODE EVER REACHES THE READER (the N8-1 class, kept kil
         for (const [shape, sample] of [
           ['a trace-card value', 'ひとつだけ（二か所には持ちません）'],
           ['a row scope label', '事業全体'],
-          ['a control’s accessible name', '予約の移動単位'],
+          // ⚖ S17 FOLD — the old sample (予約の移動単位) was a control that moved
+          // to 予約と確保. The shape is what matters, so the sample is another
+          // accessible name from the same block that stayed.
+          ['a control’s accessible name', '予定ブロックの移動単位'],
           ['a block fact', '記録は削除できません。すべての変更は自動で記録され、いつでも確認できます。'],
           ['a switch label', '有給（休憩も含めて計算）'],
           ['a list item', 'まとめての書き出しはできません。'],
         ] as const) {
           expect({ shape, seen: strings.includes(sample) }).toEqual({ shape, seen: true })
         }
-        // …and a FILLED preview sentence really arrives in the scan.
-        expect(strings.some((s) => s.startsWith('予約は30分きざみ'))).toBe(true)
+        // …and a FILLED preview sentence really arrives in the scan. ⚖ S17 FOLD —
+        // the 予約ボードの操作 preview names only the dials that block still holds,
+        // so the sentence it fills starts with the one that stayed.
+        expect(strings.some((s) => s.startsWith('予定ブロックは15分きざみ'))).toBe(true)
       }
       for (const s of strings) {
         for (const [what, re] of FORBIDDEN) {
@@ -824,8 +886,15 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
       expect({ id, same: JSON.stringify(controlOf(ginza, id).value) === JSON.stringify(controlOf(daikanyama, id).value) })
         .toEqual({ id, same: false })
     }
-    for (const id of ['store-hours.guard', 'store-hours.booking-step', 'store-hours.block-step', 'store-hours.min-sellable', 'payments.tolerance']) {
+    for (const id of ['store-hours.block-step', 'payments.tolerance']) {
       expect({ id, same: controlOf(ginza, id).value === controlOf(daikanyama, id).value }).toEqual({ id, same: true })
+    }
+    // ⚖ S17 FOLD — RE-DERIVED, NOT DROPPED. スキマガード・予約の移動単位・販売可能
+    // な最小の長さ are business-scoped still; they are just read through
+    // 予約と確保's own payload now, so the same equality is asked there.
+    const [gz, dk] = [await policyOf({ store: STORE_A }), await policyOf({ store: STORE_B })]
+    for (const key of ['mode', 'bookingStepMin', 'gapSelling'] as const) {
+      expect({ key, same: gz.policy[key] === dk.policy[key] }).toEqual({ key, same: true })
     }
   })
 
@@ -850,7 +919,9 @@ describe('⚖ 8/17 STORE ISOLATION — the clamp is the read', () => {
         .toEqual({ id: r.id, scope: true })
     }
     const rowOf = (id: string) => rowsOf(props).find((r) => r.id === id)!
-    expect(rowOf('store-hours.row-booking-step').scopeLabel).toBe('事業全体')
+    // ⚖ S17 FOLD — 予約の移動単位 moved to 予約と確保; 予定ブロックの移動単位 is
+    // the row in the same block that stayed, and it carries the same scope.
+    expect(rowOf('store-hours.row-block-step').scopeLabel).toBe('事業全体')
     expect(rowOf('coaching.row-enabled').scopeLabel).toBe('この店舗')
   })
 
@@ -985,7 +1056,11 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     // reading: 所要時間 and 無料キャンセル期限 measured 261px — the widest segment
     // anywhere in the room — and wrapped at main 416 and 448. A geometry claim is
     // a fact about rects, and the browser is the only place it can be settled.
-    for (const id of ['store-hours.rank', 'pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'services.new-client', 'reserve.free']) {
+    // ⚖ S17 FOLD — `store-hours.rank` and `services.new-client` left this
+    // vocabulary with the fold (their ONE home is 予約と確保, where #812 renders
+    // them as segments sized by its own sheet). The geometry law still holds for
+    // every over-wide choice this room still states.
+    for (const id of ['pricing.framing', 'reserve.cutoff', 'reserve.gapfill', 'reserve.gapdisc', 'reserve.lead', 'reserve.free']) {
       expect({ id, shape: controlOf(props, id).control.kind }).toEqual({ id, shape: 'select' })
     }
     // …and the segments that REMAIN are the short ones: no single-choice segment
@@ -1132,18 +1207,47 @@ describe('⚖ PAGE-SCROLL + the ring — the sheet’s own structural pins', () 
 
   it('NO container holding a focusable clips — a ring the room clips is not a ring', () => {
     const clippers = [...CSS_CODE.matchAll(/([^{}]+)\{[^}]*overflow\s*:\s*hidden[^}]*\}/g)].map((m) => m[1].trim())
-    expect(clippers).toEqual([])
+    // ⚖ S17 FOLD — RE-DERIVED, AND THE LAW KEPT ITS TEETH. #812's sheet brought
+    // three clippers. Two of them — its joined segmented control and its 刻み
+    // stepper — really do hold `<button>`s, so `overflow: hidden` came OFF both
+    // and the corners are drawn on their end children instead (D-4). The third
+    // is the ONE allowed here, named rather than waved through: `.wc-hold-clip`
+    // is the long-press fill's mask INSIDE the inert preview card, whose own
+    // rule sets `pointer-events: none` and whose only child is a `<span>`. It
+    // can clip no ring because no ring can exist inside it — and this pin says
+    // so by name, so a fourth clipper still goes red.
+    expect(clippers).toEqual(['.biz .pg-settings .st-pv-card .wc-hold-clip'])
+    // …proven, not asserted: the card that holds it is inert, and the mask's
+    // only child is not focusable.
+    expect(CSS_CODE).toMatch(/\.biz \.pg-settings \.st-pv-card \{[^}]*pointer-events: none/)
+    expect(SECTION_CODE).toContain('<span className="wc-hold-clip" aria-hidden="true"><span className="wc-hold-fill" /></span>')
   })
 
   it('the room states no width floor of its own — the shell owns that', () => {
     const declarations = CSS_CODE.replace(/@media[^{]*\{/g, '{').replace(/@container[^{]*\{/g, '{')
-    expect(declarations).not.toMatch(/min-width\s*:\s*\d{3,}px/)
+    // ⚖ S17 FOLD — THE COPIED CARD IS EXEMPT, AND ONLY IT. `.st-pv-card`'s rules
+    // are today.css's own warn-card rules carried byte for byte (⚖ flag 69), and
+    // two of them state a `min-width` on a `width: fit-content` button. That is
+    // not a PAGE floor: every one of them is capped by `max-width: 100%` in the
+    // same rule, so the card can never be wider than the column it sits in —
+    // which is what this law is actually about. Excised by SELECTOR, so a floor
+    // anywhere else in the room still goes red.
+    const noCard = declarations.replace(/[^{}]*\.st-pv-card[^{}]*\{[^}]*\}/g, '')
+    expect(noCard).not.toMatch(/min-width\s*:\s*\d{3,}px/)
+    for (const rule of [...CSS_CODE.matchAll(/([^{}]*\.st-pv-card[^{}]*)\{([^}]*min-width\s*:\s*\d{3,}px[^}]*)\}/g)]) {
+      expect({ sel: rule[1].trim(), capped: /max-width\s*:\s*100%/.test(rule[2]) })
+        .toEqual({ sel: rule[1].trim(), capped: true })
+    }
     expect(CSS_CODE).not.toContain('.biz .app')
   })
 
   it('the room joins the shell’s 1180px floor opt-in list, and only the SHELL states it', () => {
     const shell = read('src/app/[locale]/(business)/business-shell.css')
-    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-settings) { min-width: 0; }')
+    // ⚖ S17 FOLD (A5) — RE-DERIVED. ONE line, the UNION, main's order kept and
+    // `.page.pg-settings` appended LAST: 録音・売上分析・予約一覧・顧客・AI相談 all
+    // joined the shell's floor exemption on main while this room was building,
+    // and the literal moves with them — which is the pin working, not failing.
+    expect(shell).toContain('.biz .app:has(.page.pg-inbox, .page.pg-register, .page.pg-karute, .page.pg-recording, .page.pg-analytics, .page.pg-reservations, .page.page-customers, .page.pg-ask-ai, .page.pg-settings) { min-width: 0; }')
   })
 })
 
@@ -1189,8 +1293,13 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
     expect(selectorsOf(planted)).toContain('.biz .stray')
   })
 
-  it('the neighbours are all here — EIGHT sheets, read from disk, never restated', () => {
-    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today'])
+  it('the neighbours are all here — TEN sheets, read from disk, never restated', () => {
+    // ⚖ S17 FOLD — RE-DERIVED, NOT EXTENDED BY HABIT: `recording` (room 6) and
+    // `ask-ai` (room 7) arrived on main between this room's build and its fold.
+    // The list is READ from disk and this line is the pin on what was read — a
+    // new neighbour is MEANT to fail here once, so the round that folds it
+    // re-derives the collision list below in the same pass.
+    expect(SIBLING_DIRS.sort()).toEqual(['analytics', 'ask-ai', 'customers', 'inbox', 'karute', 'recording', 'register', 'reservations', 'shifts', 'today'])
   })
 
   it('every rule is scoped — nothing here can reach a neighbour', () => {
@@ -1211,11 +1320,64 @@ describe('⚖ THE SIBLING-SHEET FENCE, derived FRESH from today’s sheets', () 
         if (names.length && names.every((n) => mine.has(n))) collisions.push(`${dir}::${sel}`)
       }
     }
+    // ⚖ S17 FOLD — RE-DERIVED FROM DISK, and the list grew for TWO reasons at
+    // once. (1) customers.css and reservations.css tightened their own `.btn`
+    // rules on main while this room was building, so the three that used to be
+    // here are gone. (2) 予約と確保 renders today.css's SHIPPED warn card, by its
+    // own class names — that is what makes the preview the card rather than a
+    // drawing of it — so every bare `wc-*` / `hold-pop` / `holdbar-checks` /
+    // `status` rule today.css states can now reach this room. Every one of them
+    // IS fenced, and the loop below proves it name by name rather than trusting
+    // this list to mean it.
     expect(collisions.sort()).toEqual([
-      'customers::.biz .page .btn',
-      'reservations::.biz .btn',
-      'reservations::.biz .btn.primary',
+      'today::.biz .holdbar-checks',
+      'today::.biz .holdbar-checks .ck',
+      'today::.biz .holdbar-checks .ck.bad',
+      'today::.biz .holdbar-checks .ck.bad::before',
+      'today::.biz .holdbar-checks .ck.warn',
+      'today::.biz .holdbar-checks .ck.warn::before',
+      'today::.biz .holdbar-checks .ck::before',
+      'today::.biz .holdbar-checks.wc-rows',
+      'today::.biz .hp-actions',
+      'today::.biz .hp-actions .btn',
+      'today::.biz .hp-actions.wc-foot',
+      'today::.biz .hp-actions.wc-foot .btn',
+      'today::.biz .hp-head',
+      'today::.biz .hp-head strong',
+      'today::.biz .status',
+      'today::.biz .status.waiting',
+      'today::.biz .wc-approve',
+      'today::.biz .wc-approve:hover:not(:disabled)',
+      'today::.biz .wc-greens',
+      'today::.biz .wc-hold',
+      'today::.biz .wc-hold',
+      'today::.biz .wc-hold-clip',
+      'today::.biz .wc-hold-fill',
+      'today::.biz .wc-hold-text',
+      'today::.biz .wc-hold::after',
+      'today::.biz .wc-hold:disabled',
+      'today::.biz .wc-impact',
+      'today::.biz .wc-impact .wc-yen',
+      'today::.biz .wc-lock',
+      'today::.biz .wc-lock svg',
+      'today::.biz .wc-note',
+      'today::.biz .wc-prov',
+      'today::.biz .wc-prov svg',
+      'today::.biz .wc-safe',
+      'today::.biz .wc-safe .wc-safe-main',
+      'today::.biz .wc-safe .wc-safe-sub',
+      'today::.biz .wc-warn-btn',
+      'today::.biz .wc-warn-btn:hover:not(:disabled)',
     ])
+    // THE FENCE ITSELF, per colliding name: this room states the same name at
+    // FOUR levels or more, so it wins the tie in either visit order (⚖ flag 69).
+    const roomSelectors = selectorsOf(CSS_SRC).filter((sel) => sel.includes('pg-settings'))
+    for (const name of [...new Set(collisions.flatMap((c) => classesIn(c.split('::')[1])))].sort()) {
+      const fenced = roomSelectors.some(
+        (sel) => classesIn(sel).includes(name) && (sel.match(/\./g) ?? []).length >= 4,
+      )
+      expect({ name, fenced }).toEqual({ name, fenced: true })
+    }
     expect(CSS_CODE).toContain('.biz .page.pg-settings .btn { font-weight: 500; }')
     expect(CSS_CODE).toContain('.biz .page.pg-settings .btn.primary { font-weight: 600; }')
   })
@@ -1263,8 +1425,16 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     expect(topbar).toContain("settings: '設定',")
     // 「設定 / 店 / 設定」 is the same word twice with a store between them, so the
     // group drops for this room only. Every other screen keeps 店舗フロア.
-    expect(topbar).toContain('const CRUMB_GROUP: Record<string, string | null> = { settings: null }')
-    expect(topbar).toContain("const DEFAULT_GROUP = '店舗フロア'")
+    // ⚖ S17 FOLD (A4) — RE-PINNED, with its reason: main shipped a `GROUP` map
+    // for AI相談's crumb while this room shipped `CRUMB_GROUP` for its own null.
+    // Two maps answering one question is the disease; the fold keeps main's NAME
+    // with this room's null semantics, so there is ONE table and no default to
+    // disagree with.
+    expect(topbar).toContain("const GROUP: Record<string, string | null> = {")
+    expect(topbar).toContain('  settings: null,')
+    expect(topbar).toContain("{GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}")
+    expect(topbar).not.toContain('CRUMB_GROUP')
+    expect(topbar).not.toContain('DEFAULT_GROUP')
     expect(read('src/business/i18n/ja.json')).toContain('"settings"')
   })
 
@@ -1273,7 +1443,13 @@ describe('the shell one-liners, and the signposts that now really navigate', () 
     // asking the reader to do the navigating. Both now carry `?section=`, which
     // the settings page reads and opens on.
     const today = read('src/app/[locale]/(business)/business/today/TodayScreen.tsx')
-    expect(today).toContain('/business/settings?section=store-hours')
+    // ⚖ S17 FOLD — RE-PINNED, with its reason: the board's 保護ルール signpost used
+    // to open 店舗情報・営業時間, which held スキマガード. After the fold that dial
+    // has ONE home — 予約と確保 — so a link to the old section would open a page
+    // that cannot do what the chip promises (⚖ label truth). The old target is
+    // forbidden, not merely replaced.
+    expect(today).toContain('/business/settings?section=booking-guard')
+    expect(today).not.toContain('/business/settings?section=store-hours')
     expect(today).not.toContain('変更は「設定」ルームで（準備中）')
     const register = read('src/app/[locale]/(business)/business/register/register-props.ts')
     expect(register).toContain('/business/settings?section=payments')

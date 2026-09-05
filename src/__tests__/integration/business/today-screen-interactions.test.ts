@@ -6896,7 +6896,13 @@ describe('BATCH-10b X4 — the two copy items', () => {
     // ⚠ AND IT BECAME A LINK IN THE LOOK-FIX ROUND (⚖ LINKED UP, 2026-09-01):
     // the 設定 room reads `?section=`, so the chip is now the way there rather
     // than the name of a place the reader has to find.
-    expect(SRC).toContain('<Link className="chip" href="/business/settings?section=store-hours">変更は「設定」＞店舗情報・営業時間で</Link>')
+    // ⚠ AND THE DESTINATION MOVED IN THE S17 FOLD (2026-09-05). #812's 予約と確保
+    // room folded into the 設定 rail as one section, and the guard's strength is
+    // decided THERE — so the chip names that section, and the OLD one is
+    // forbidden: a link that opens a page which no longer holds the control is
+    // the label-truth break this pin exists to catch.
+    expect(SRC).toContain('<Link className="chip" href="/business/settings?section=booking-guard">変更は「設定」＞予約と確保で</Link>')
+    expect(SRC).not.toContain('変更は「設定」＞店舗情報・営業時間で')
     expect(SRC).not.toContain('<span className="chip">店舗設定は準備中</span>')
     expect(SRC).not.toContain('変更は「設定」ルームで（準備中）')
     // The policy word itself is still the STORE's, read-only, unchanged.

@@ -30,8 +30,22 @@ import { liveFieldsFrom, MINUTE_CHOICES, nearestChoice, saveRefusal, sceneKeyFor
 
 const ROOM_DIR = 'src/app/[locale]/(business)/business/settings'
 const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8')
-const SCREEN = read(`${ROOM_DIR}/SettingsScreen.tsx`)
-const PAGE = read(`${ROOM_DIR}/page.tsx`)
+/** ⚖ S17 FOLD (A11) — THE SUITE IS RE-POINTED, NEVER DELETED. #812's room is now
+ *  ONE SECTION of 設定, so its screen is `StorePolicySection.tsx` and its server
+ *  assembly is `store-policy-props.ts`. Everything below still asks the same
+ *  questions of the same code; only the two file names moved. The pins that
+ *  belonged to the PAGE half of #812 — the ?-button, the shared tour engine, the
+ *  crumb — now ask the shell room's own `SettingsScreen.tsx`, which owns them
+ *  for every section (A2). Every literal that could NOT be re-pointed is retired
+ *  with its reason, in the fold report and beside the pin. */
+const SCREEN = read(`${ROOM_DIR}/StorePolicySection.tsx`)
+const PAGE = read(`${ROOM_DIR}/store-policy-props.ts`)
+/** The SHELL's screen — it owns the ?, the walk and the section head this
+ *  section's own declaration rides on. */
+const SHELL_SCREEN = read(`${ROOM_DIR}/SettingsScreen.tsx`)
+/** …and the rail's props file, where the section head's kicker/title/lead and
+ *  its ONE tour declaration are stated. */
+const SHELL_PROPS = read(`${ROOM_DIR}/settings-props.ts`)
 const SEAM = read(`${ROOM_DIR}/store-policy-seam.ts`)
 const CSS = read(`${ROOM_DIR}/settings.css`)
 const SIDEBAR = read('src/app/[locale]/(business)/BusinessSidebar.tsx')
@@ -57,6 +71,8 @@ const importOf = (spec: string) => `${KEYWORD} '${spec}'`
 const SDK = `${'@synqed'}-kk/client`
 const SCREEN_CODE = stripComments(SCREEN)
 const PAGE_CODE = stripComments(PAGE)
+const SHELL_SCREEN_CODE = stripComments(SHELL_SCREEN)
+const SHELL_PROPS_CODE = stripComments(SHELL_PROPS)
 const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /** Every OPENING TAG of `<tag …>` in the source, whole — the 売上・レジ scanner,
@@ -122,9 +138,19 @@ function darkFills(css: string): string[] {
 }
 
 type Declaration = { title: string; text: string }
+/** ⚖ A2 — THE SECTION HEAD'S OWN PAIR, read out of the props file where it now
+ *  lives. #812 declared 予約と確保 on its page `<header>`; the fold removed that
+ *  header (the rail owns the page head) and re-homed the declaration onto the
+ *  section head, which `SettingsScreen` renders as `data-guide-title={title}` +
+ *  `data-guide={guide ?? lead}`. Read, never restated: a fold that dropped the
+ *  declaration would shorten this census by one and go red here. */
+const HEAD_TITLE = /title: '(予約と確保)',/.exec(SHELL_PROPS_CODE)?.[1] ?? ''
+const HEAD_GUIDE = /const BOOKING_GUARD_GUIDE =\s*\n?\s*'([^']*)'/.exec(SHELL_PROPS_CODE)?.[1] ?? ''
 const DECLARATIONS: Declaration[] = [
-  ...SCREEN_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g),
-].map((m) => ({ title: m[1], text: m[2] }))
+  { title: HEAD_TITLE, text: HEAD_GUIDE },
+  ...[...SCREEN_CODE.matchAll(/data-guide-title="([^"]*)"\s*\n\s*data-guide="([^"]*)"/g)]
+    .map((m) => ({ title: m[1], text: m[2] })),
+]
 
 // ── ⚖ Liam 8/23 — the room declares every section it renders ────────────────
 
@@ -136,9 +162,18 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
       .filter((tag) => !(tag.includes('data-guide-title=') && tag.includes('data-guide=')))
       .map((tag) => /aria-labelledby="([^"]*)"/.exec(tag)?.[1] ?? /className="([^"]*)"/.exec(tag)?.[1] ?? tag.slice(0, 70))
     expect(missing).toEqual([])
-    // …and the page head declares itself too, so the walk opens on what the page
-    // is FOR before it points at parts of it (the 受信トレイ precedent).
-    expect(openingTags(SCREEN_CODE, 'header')[0]).toContain('data-guide-title="予約と確保"')
+    // …and the SECTION HEAD declares itself too, so the walk opens on what this
+    // section is FOR before it points at parts of it (the 受信トレイ precedent).
+    // ⚖ S17 (A11) — RETIRED LITERAL, with its reason: the old pin read
+    // `openingTags(SCREEN_CODE, 'header')[0]` for `data-guide-title="予約と確保"`,
+    // and #812's page `<header>` no longer exists — 設定 owns the page head for
+    // every section. The declaration moved to the section head, so the pin
+    // follows it: the TITLE and the GUIDE are both stated in the props file and
+    // both are read, and the shell's screen really renders them as the pair.
+    expect(HEAD_TITLE).toBe('予約と確保')
+    expect(HEAD_GUIDE.length).toBeGreaterThan(20)
+    expect(SHELL_SCREEN_CODE).toContain('data-guide-title={section.title}')
+    expect(SHELL_SCREEN_CODE).toContain('data-guide={section.guide || section.lead ||')
   })
 
   it('every declaration is a complete, distinct sentence — never a label repeated', () => {
@@ -166,14 +201,24 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
   })
 
   it('the ? is wired to the SHARED engine, and the room adds no engine of its own', () => {
-    expect(SCREEN_CODE).toContain(importOf('@/business/lib/guide'))
+    // ⚖ S17 (A2) — ONE TOUR ENGINE, AND IT IS THE SHELL'S. #812 carried its own
+    // copy; the fold deleted that copy rather than leaving two walks on one
+    // page, so these pins ask 設定's screen. Same engine, same four functions,
+    // same scoping rule — one owner.
+    expect(SHELL_SCREEN_CODE).toContain(importOf('@/business/lib/guide'))
     for (const fn of ['spotTargets(rootRef.current)', 'spotCardAt(', 'spotHitIndex(', 'wrapStep(']) {
-      expect(SCREEN_CODE).toContain(fn)
+      expect(SHELL_SCREEN_CODE).toContain(fn)
     }
-    expect(SCREEN_CODE).toContain('aria-label="画面の説明"')
+    expect(SHELL_SCREEN_CODE).toContain('aria-label="画面の説明"')
     // The walk is scoped to the ROOM's root, never the document: the shell's rail
     // and topbar are not this page.
-    expect(SCREEN_CODE).not.toContain('spotTargets(document')
+    expect(SHELL_SCREEN_CODE).not.toContain('spotTargets(document')
+    // …and the section really has NO engine left: not the import, not a step
+    // index, not a spot layer. A second walk on one page is the defect this
+    // deletion prevents.
+    expect(SCREEN_CODE).not.toContain(importOf('@/business/lib/guide'))
+    expect(SCREEN_CODE).not.toContain('setTourIdx')
+    expect(SCREEN_CODE).not.toContain('st-spot-')
   })
 
   it('the ENGINE really walks this room’s own declarations — registry, ring, hit-test', () => {
@@ -231,7 +276,19 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     // is controlled, and launching the walk opens it before anything is measured.
     expect(SCREEN_CODE).toContain('const [advOpen, setAdvOpen] = useState(true)')
     expect(SCREEN_CODE).toContain('<details className="st-adv" open={advOpen} onToggle={(e) => setAdvOpen(e.currentTarget.open)}>')
-    expect(SCREEN_CODE).toContain('onClick={() => { setAdvOpen(true); setTourIdx(0) }}')
+    // ⚖ S17 (A2/A11) — RETIRED LITERAL, with its reason: the guarantee used to
+    // ride #812's OWN ? handler (`onClick={() => { setAdvOpen(true);
+    // setTourIdx(0) }}`), and that button no longer exists — the ? belongs to
+    // 設定, which opens the walk for every section. So the section ANSWERS the
+    // walk instead of launching it, and the same invariant holds through one
+    // effect. The shell really passes the flag, and the section really acts on
+    // it; a fold that dropped either half goes red here.
+    expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection tourOpen={tourOpen} {...props.storePolicy} />')
+    expect(SCREEN_CODE).toContain('if (props.tourOpen) setAdvOpen(true)')
+    expect(SCREEN_CODE).toContain('}, [props.tourOpen])')
+    // …and the shell's own ? is what sets `tourOpen`, so the chain is closed.
+    expect(SHELL_SCREEN_CODE).toContain('onClick={() => setTourIdx(0)}')
+    expect(SHELL_SCREEN_CODE).toContain('const tourOpen = tourIdx >= 0')
   })
 })
 
@@ -816,12 +873,25 @@ describe('⛔ the 予約の刻み field is what makes a non-number reachable', (
 describe('the room is wired into the door like its siblings', () => {
   it('the rail’s 設定 item is live, and the crumb names its own group', () => {
     expect(SIDEBAR).toContain("{ key: 'settings', segment: 'settings', label: '設定', mini: '設定', live: true }")
-    expect(TOPBAR).toContain("settings: '予約と確保'")
+    // ⚖ S17 (A4) — RETIRED LITERAL, with its reason: the crumb leaf was
+    // 「予約と確保」 while #812 was a route of its own. It is a SECTION now, so the
+    // leaf is the page the reader is on — 設定 — and the section names itself in
+    // the panel. 「設定 / 銀座店 / 設定」 would be the same word twice with a store
+    // between them, which is why the group is `null` for this segment rather
+    // than a second word.
+    expect(TOPBAR).toContain("settings: '設定',")
+    expect(TOPBAR).not.toContain("settings: '予約と確保'")
     // Every room built so far lives under 店舗フロア, which is why that word was a
-    // literal; this is the first that does not, and the default keeps every
-    // existing crumb byte-identical.
-    expect(TOPBAR).toContain("const GROUP: Record<string, string> = {")
-    expect(TOPBAR).toContain("{GROUP[segment] ?? '店舗フロア'}")
+    // literal; 設定 is the first that does not, and the default keeps every
+    // existing crumb byte-identical. ONE map does both jobs — main's name, the
+    // rail room's null semantics (A4) — so there is no second group table to
+    // disagree with it.
+    expect(TOPBAR).toContain("const GROUP: Record<string, string | null> = {")
+    expect(TOPBAR).toContain("  settings: null,")
+    expect(TOPBAR).toContain("  'ask-ai': '記録・AI',")
+    expect(TOPBAR).toContain("{GROUP[segment] === null ? '' : `${GROUP[segment] ?? '店舗フロア'} / `}")
+    expect(TOPBAR).not.toContain('CRUMB_GROUP')
+    expect(TOPBAR).not.toContain('DEFAULT_GROUP')
     expect(JA.settings.loading).toBe('読み込み中…')
   })
 
@@ -866,7 +936,7 @@ describe('the room is wired into the door like its siblings', () => {
   })
 
   it('the room’s own class names exist nowhere else in the family', () => {
-    const own = [...new Set([...CSS_CODE.matchAll(/\.(st-[\w-]+)/g)].map((m) => m[1]))]
+    const own = [...new Set([...CSS_CODE.matchAll(/\.((?:st|sp)-[\w-]+)/g)].map((m) => m[1]))]
     expect(own.length).toBeGreaterThan(20)
     const BIZ = 'src/app/[locale]/(business)'
     for (const dir of ['analytics', 'customers', 'inbox', 'karute', 'register', 'reservations', 'shifts', 'today']) {
@@ -882,7 +952,13 @@ describe('the room is wired into the door like its siblings', () => {
     // on the page is `.btn.primary`'s own commit recipe. (`npm run
     // audit:dark-interactive` is the family's machine for the Tailwind spelling;
     // this room writes plain CSS, so its own recipe is pinned here.)
-    expect(CSS_CODE).toContain('.biz .pg-settings .st-seg button.on { background: var(--select-bg); color: var(--select-ink); }')
+    // ⚖ S17 (A9) — RE-PINNED, with its reason: `.st-seg` and `.st-save` were the
+    // only two of the fifteen colliding names still on LIVE markup after the
+    // fold (the other thirteen belonged to the page head and the tour layer this
+    // section no longer renders). Main's side is renamed `.sp-seg` / `.sp-save`
+    // because the pins on them were 1 + 0 against the rail room's 1 + 4 — the
+    // fewest pins move.
+    expect(CSS_CODE).toContain('.biz .pg-settings .sp-seg button.on { background: var(--select-bg); color: var(--select-ink); }')
     expect(CSS_CODE).toContain('.biz .pg-settings .st-pcard.on { border-color: var(--select-line); background: var(--select-bg);')
     // ⚖ 9/1 (fix round 1 F6) — AND THE GUARD READS EVERY SPELLING OF A FILL.
     // The first cut was `/background:\s*(#[0-3][0-9a-f]{5}|black)/`, which is
@@ -919,7 +995,7 @@ describe('the room is wired into the door like its siblings', () => {
     // …and territory really does reach no core: the room imports the SDK nowhere.
     // The comment-stripped source, so the fence's own EXPLANATION — which has to
     // name the package it is fencing out — is not read as the reach it forbids.
-    expect({ file: 'SettingsScreen.tsx', reachesCore: SCREEN_CODE.includes(SDK) }).toEqual({ file: 'SettingsScreen.tsx', reachesCore: false })
-    expect({ file: 'page.tsx', reachesCore: PAGE_CODE.includes(SDK) }).toEqual({ file: 'page.tsx', reachesCore: false })
+    expect({ file: 'StorePolicySection.tsx', reachesCore: SCREEN_CODE.includes(SDK) }).toEqual({ file: 'StorePolicySection.tsx', reachesCore: false })
+    expect({ file: 'store-policy-props.ts', reachesCore: PAGE_CODE.includes(SDK) }).toEqual({ file: 'store-policy-props.ts', reachesCore: false })
   })
 })

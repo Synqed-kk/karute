@@ -732,6 +732,10 @@ describe('the fixture data door', () => {
         '@/business/lib/admission',
       ],
       'src/app/[locale]/(business)/business/settings/settings-props.ts': [
+        // ⚖ S17 FOLD (A1) — ONE ASSEMBLY. 予約と確保's payload is built by the
+        // section's own props file and handed through this one, so the route and
+        // the evidence harness render the same assembly.
+        './store-policy-props',
         '@/business/lib/data',
         '@/business/lib/fixtures',
         '@/business/lib/fixtures-analytics',
@@ -742,10 +746,44 @@ describe('the fixture data door', () => {
         '@/business/lib/settings',
       ],
       'src/app/[locale]/(business)/business/settings/SettingsScreen.tsx': [
+        // ⚖ S17 FOLD (A1) — the rail renders #812's room for its 予約と確保 row.
+        './StorePolicySection',
         '@/business/lib/guide',
         '@/business/lib/settings',
         'react',
       ],
+      // ⚖ S17 FOLD — 予約と確保, #812's room re-homed as ONE section of 設定.
+      // ⚠ DERIVED FROM DISK, never remembered. The SECTION reaches the board's own
+      // composer (`warnFaceFor` / `overrideLevelFor`) and canon's pricing frame,
+      // because the preview IS the shipped warn card rather than a drawing of one;
+      // it holds NO data door and NO tour engine — 設定 owns both (A2), and the
+      // absence of `@/business/lib/guide` here is the pin on that.
+      'src/app/[locale]/(business)/business/settings/StorePolicySection.tsx': [
+        '../today/today-interactions',
+        './store-policy-seam',
+        '@/business/lib/canon-logic/pricing',
+        'react',
+      ],
+      // …and the ASSEMBLY is #812's own page body: the same doors, the same
+      // engines, the same seam. `./StorePolicySection` is its props TYPE, which
+      // lives with the component exactly as it did in #812 (`page.tsx` imported
+      // `SettingsProps` from `SettingsScreen`); `./settings.css` and the admission
+      // gate are gone because the 設定 route already does both, once, for every
+      // section.
+      'src/app/[locale]/(business)/business/settings/store-policy-props.ts': [
+        '../today/today-interactions',
+        './StorePolicySection',
+        './store-policy-seam',
+        '@/business/lib/canon-logic/drag-rules',
+        '@/business/lib/canon-logic/gap-guard',
+        '@/business/lib/canon-logic/pricing',
+        '@/business/lib/clock',
+        '@/business/lib/data',
+        '@/business/lib/today-board',
+      ],
+      // ⚠ THE SEAM'S EMPTY INVENTORY IS THE FENCE, MADE MACHINE-READABLE: the one
+      // file core's reconnect lands in reaches nothing at all today.
+      'src/app/[locale]/(business)/business/settings/store-policy-seam.ts': [],
       'src/app/[locale]/(business)/business/settings/loading.tsx': ['@/business/i18n'],
       // AI相談. The room's own CONSULTATION plane plus the derivations that
       // BORROW every other fact it shows: the booking's customer / staff / menu
