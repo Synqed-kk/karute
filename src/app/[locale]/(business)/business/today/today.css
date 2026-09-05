@@ -636,10 +636,23 @@
    the two money nodes go; the leading dot goes with the words it labelled (the
    category still reads off the card's own left stripe), which leaves the line
    VISUALLY EMPTY — no content, no line box, and it has no border — on a card
-   carrying neither note. */
+   carrying neither note. It does keep `margin-top: 2px` from `.biz .event
+   small`, which `display: none` used to take: immaterial, because `.biz .event`
+   is absolutely positioned top/bottom with `overflow: hidden`, so a card's
+   height never followed its content in the first place (delta2 lens 4 D7).
+
+   ⚖ FIX ROUND 3 (delta2 lens 3 M4) — AND THE SURVIVING NOTE STARTS AT THE LEFT.
+   `.tkt-note`'s 5px is the gap AFTER the money it used to follow; with the money
+   hidden rather than removed the note is not `:first-child`, so 個室のみ sat 5px
+   right of the name above it. The gap is kept only where it still separates two
+   notes (個室のみ・保持 on one card). Both dials, one rule — see 密度 below. */
 .biz .timeline.hide-tkt .e-tkt::before,
 .biz .timeline.hide-tkt .e-tkt .tkt-cat,
 .biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note,
+.biz.board-compact .event small.e-tkt .tkt-note { margin-left: 0; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note,
+.biz.board-compact .event small.e-tkt .tkt-note + .tkt-note { margin-left: 5px; }
 .biz.drawer-open .event .tg { display: none; }
 
 /* 販売可能枠 tint (E9b), canon :586–598. The wash's alpha SCALES WITH THE
@@ -1049,9 +1062,18 @@
   transform: translate(-1px, -100%);
 }
 
-/* R21 密度 — compact packs the rows and drops the card's third line. */
+/* R21 密度 — compact packs the rows and drops the card's third line.
+
+   ⚖ FIX ROUND 3 (delta2 lens 4 D3 · lens 3 M3) — THE MONEY, NOT THE PLACEMENT
+   RULE, on this dial too. コンパクト took the whole `.e-tkt` line, 個室のみ and
+   保持 with it — and the dense afternoon is exactly the shift where the fact
+   that decides where a card may go matters most. 「Drops the third line」 now
+   means the third line OF MONEY; the same three nodes hide-tkt hides go here,
+   so one operator cannot lose the rule by reaching for the other dial. */
 .biz.board-compact .lane { min-height: 52px; }
-.biz.board-compact .event small.e-tkt { display: none; }
+.biz.board-compact .event small.e-tkt::before,
+.biz.board-compact .event small.e-tkt .tkt-cat,
+.biz.board-compact .event small.e-tkt .tkt-core { display: none; }
 .biz.board-compact .timeline-scroll { max-height: 62vh; overflow-y: auto; }
 .biz.board-compact .group-label { position: sticky; top: 0; z-index: 6; }
 

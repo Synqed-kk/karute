@@ -336,8 +336,20 @@ export default async function TodayPage({
         // not choose (an imported booking carrying a standard bed, or none yet) it
         // was 「ベッド1（個室のみ）」, flatly false. 予約種別 is about the booking, and
         // 「個室のみ・単発」 is the shape the accessible name already ships.
+        //
+        // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE WORD
+        // COMES FROM THE TABLE. The open-coded ternary collapsed everything that
+        // was not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking read
+        // 新規 on its card and in its accessible name and 単発 here — a
+        // contradiction between two rows of one screen, and the shape fix round 2
+        // gave this line is what made it visible. `CATEGORY_WORD` is this file's
+        // own 予約種別 vocabulary and already feeds the 精算 dialog's sub-line.
+        // ⚠ It is NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+        // `CATEGORY_LABEL.repeat` is 再来, and which of the two a 予約種別 row
+        // should say is a ruled rider (one word, one home). This change only
+        // stops 新規 from reading as 単発.
         ['担当・設備', `${b.staffName} / ${b.resourceName}`],
-        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],
+        ['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],
         [b.settlement === 'awaiting' ? '請求額' : '予約時価格', b.price == null ? '記録なし' : `${yen(b.price)}（税込）`],
         ['連絡状態', b.state === 'hold' ? '未送信' : '送信済み'],
         ['カルテ', b.settlement === null ? '施術後に作成' : '施術記録あり'],

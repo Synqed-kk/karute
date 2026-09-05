@@ -2399,7 +2399,12 @@ export function explainRails(
                   // so there is no booking to carry a 個室のみ tag — the same
                   // hypothetical `bedDoor` binds for the marks themselves. With
                   // a card in hand there IS one, and the strip has to answer the
-                  // question the drop will ask (fix round 1, lens 1 F3).
+                  // question the drop will ask (fix round 1, lens 1 F3) — on the
+                  // gestures that reach this lookup at all: a BED-LANE drag, a
+                  // RESIZE and a drag OVER THE SHELF. The ordinary staff-row move
+                  // returns above it on `opts.inHand`, so it never gets here
+                  // (fix round 3, delta2 lens 4 D8; the reachability truth is
+                  // spelled once, at the lookup).
                   requiresPrivate: handItem?.requiresPrivateRoom === true,
                   start: c.start,
                   end,
@@ -3205,8 +3210,42 @@ export function holdSummary(
   // is a sentence about nobody, so the name is omitted rather than faked. With
   // ⚖ A3 the only landing that reaches this is a plain 新規予約, which stages
   // nothing and has no customer yet by definition.
-  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`
+  //
+  // ⚖ FIX ROUND 3 (delta2 lens 3 M1) — AND THE ROOM SEGMENT OBEYS THE SAME LAW.
+  // 「/ —」 is the shape Liam rejected on 8/22, and fix round 2 removed it by
+  // deleting the whole SENTENCE on the boxes that produce it — which took the
+  // customer, the window and the staff member with it, on the two landings that
+  // have no card drawn to read them off (an armed 配置モード and a shelf chip),
+  // under two buttons that COMMIT a placement. Omit what cannot be stated, never
+  // the rest of the sentence: no room in hand, no room segment, and the em-dash
+  // is gone here — at the source — for every caller at once.
+  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'}${bedLane ? ` / ${moved}${bedLane.label}` : ''}`
 }
+
+/** ⚖ FIX ROUND 3 (delta2 lens 2 F1 · lens 4 D6) — WHICH ROWS THE REFUSAL BOX
+ *  EARNS, AS A RULE THAT CAN BE ASKED.
+ *
+ *  It lived inside `explainBlocked`, inside the component, and this suite never
+ *  renders the screen — so the only armour available was four byte-exact copies
+ *  of the expression's own source text, and lens 2 walked three DIFFERENT gates
+ *  through the whole battery green once those four strings were edited to match.
+ *  A rule with no seam has no proof. This is the seam.
+ *
+ *  The rule: rows render when the landing read them, EXCEPT where it asked for a
+ *  room and got none (満室, or a CLASH whose room also failed). There every row
+ *  is ✓ — or nearly, since 満室 outranks the policy stop and a landing that is
+ *  also 勤務時間外 carries a real × — about a room nothing ever checked, under a
+ *  sentence that already said the room is the problem. The SUMMARY is not part
+ *  of this question: it is the box's identity line and it is always composed,
+ *  because `holdSummary` now leaves out the room it cannot name.
+ *
+ *  `solveRoom` is the whole condition on the ask side. The two landings that
+ *  carry no room AND solve none never asked, so nothing about a room is being
+ *  suppressed for them: 新規予約を作成 opens a FORM (the bed is chosen in the
+ *  dialog) and keeps its rows, and the release over no lane never reaches here
+ *  at all — its `staffLane: null` returns above the rows in `landingVerdict`. */
+export const factsRowsShown = (v: Pick<LandingVerdict, 'bedLane' | 'checks'>, solveRoom: boolean): boolean =>
+  v.checks.length > 0 && !(v.bedLane === null && solveRoom)
 
 /** ⚖ flags 44 + 51 — a full house, said the way the board says every other
  *  refusal: the exact window it judged, then WHY, naming the room and who is in
@@ -3314,7 +3353,15 @@ function fullRoomsRefusal(
   // SAID ONCE. 「◯◯が使用中」 repeated per room made the reader stop three times
   // and left the sentence ending on a closing bracket with no predicate at all —
   // a 言いさし. Japanese puts the list first and the verb last, and one verb after
-  // a list governs every item in it, so nothing is lost and ~8 characters go.
+  // a list governs every item in it, so nothing is lost.
+  //
+  // ⚖ FIX ROUND 3 (delta2 lens 4 D4) — AND THE LENGTH CLAIM, MEASURED RATHER
+  // THAN ASSERTED. It said 「~8 characters go」; the arithmetic is 6 − 4n, one
+  // predicate added and one 「が使用中」 removed per room, so the sentence GROWS
+  // by 2 at a single room (55 vs 53 on the tagged pin), breaks even between one
+  // and two, and shrinks by 6 at three. The single room is the room rule's own
+  // headline scene. The grammar is the reason this shape shipped — list first,
+  // one predicate last, no 言いさし — and it stands on its own.
   const named = rows.map(([lane, blockers]) => `${lane.label}（${[...new Set(blockers.map(who))].join('・')}）`)
   return `${window}は${room}に空きがありません。${named.join('、')}が使用中です`
 }
@@ -3685,9 +3732,12 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   //
   // ⚖ FIX ROUND 2 (JP native pass 1) — AND IT STOPS TWICE, NOT THREE TIMES. The
   // board's own grammar is 「◯◯の予約です。→ 次にやること」 (`foreignStoreRefusal`
-  // is the sibling), and three 。 in a 7-second toast is one beat too many for a
-  // sentence that said 「個室」 four times in 35 characters. 「〜ので」 joins the
-  // reason to the action so they read in one breath.
+  // is the sibling), and three stops in a 7-second toast is one beat too many
+  // for a sentence that said 「個室」 three times in 39 characters. ⚖ FIX ROUND 3
+  // (delta2 lens 3 M6) — those two counts read 「four times in 35」 until now, and
+  // both were wrong: the repetition is the rule's own vocabulary and it did not
+  // change (three times in 36 now). What went is the third stop — 「〜ので」 joins
+  // the reason to the action so they read in one breath.
   if (!q.solveRoom && bed && !roomFitsNeed(bed, q.requiresPrivate)) {
     return stop(`個室のみの予約です。${bed.label}は個室ではないので、個室の行に置いてください`, 'hard', null)
   }

@@ -87,6 +87,7 @@ import {
   gapKindOf,
   gapLayerFor,
   gapPackingDials,
+  factsRowsShown,
   guardCheckRow,
   guardCheckRowBesideOffer,
   guardRailsFor,
@@ -3943,11 +3944,12 @@ export function TodayScreen(props: TodayProps) {
     const escalate = run.override
     adviceOpenedAt.current = at.t
     // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION, and the split is ROWS vs
-    // AUTHORITY. The strip renders wherever the landing actually read rows AND a
-    // room is in hand — named by the operator or solved by the allocator —
+    // AUTHORITY. The strip renders wherever the landing actually read rows,
     // because a refusal the operator can act on earns the same detail a staged
-    // one does. 注意して配置 is the half that stayed POLICY-only (the mint below):
-    // that is a question about who may overrule, never about rows.
+    // one does; its summary names whatever the board can state, and its ROWS
+    // stand down on a room refusal alone (⚖ FIX ROUND 3, `factsRowsShown`).
+    // 注意して配置 is the half that stayed POLICY-only (the mint below): that is
+    // a question about who may overrule, never about rows.
     // Everything is the verdict's own — the room it solved and the rows
     // it read, against the ATTEMPTED landing rather than the lanes the card is
     // still standing on (which is what `checksFor` would have answered).
@@ -3992,27 +3994,41 @@ export function TodayScreen(props: TodayProps) {
     // there are any. (The override mint below stays `policy`-only — that is
     // Liam's ruling and it is a question about AUTHORITY, not about rows.)
     //
-    // ⚖ FIX ROUND 2 (delta lens 4 N1) — AND A ROOM HAS TO BE IN HAND. Rows alone
-    // was one class too wide. A 満室 asked for a room and got none, so `bedLane`
-    // is null, no check row is ever ABOUT a room, and the box drew an all-✓ strip
-    // over a summary ending 「/ 担当 ◯◯ / —」 — the exact shape Liam rejected on
-    // 8/22, arriving on the refusal box instead of the staged row. A CLASH that
-    // also failed its room reads the same. `v.bedLane` is non-null on every class
-    // this gate exists to serve and null on exactly those two.
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M1 · lens 4 D1/D2 · lens 2 F1) — AND THE SPLIT
+    // IS INSIDE THE STRIP, NOT OVER IT. Fix round 2 answered the 「/ —」 by taking
+    // the whole strip off a room refusal, which took the SUMMARY with it: the
+    // 満室 box kept two buttons that COMMIT a placement over a sentence that no
+    // longer named the customer, the window or the staff member — ⚖ AMENDMENT 3's
+    // own defect, back on the boxes that have nothing drawn to read. Three
+    // separate questions now:
+    //   summary — identity, always composed. `holdSummary` leaves out the room it
+    //             cannot name, so the em-dash is gone at the source.
+    //   rows    — `factsRowsShown`, an exported rule with a unit pin on all four
+    //             landing scenes, because four copies of this expression's own
+    //             source text proved three different gates green (lens 2 F1).
+    //             Hidden exactly on a room refusal, where every row is ✓ — or
+    //             nearly: 満室 outranks the policy stop, so a landing that is also
+    //             勤務時間外 carries a real × — about a room never checked.
+    //   注意して配置 — AUTHORITY, policy-only, the mint below. Never about rows.
     //
-    // `!ask.solveRoom` keeps the plain 新規予約を作成 landing whole (the only
-    // caller that asks with no room and solves none — see the `askGuard` below
-    // the 配置モード branch): no room was ever part of that question, so its 「—」
-    // is honest and its policy box has carried rows since ⚖ 74 shipped.
+    // TWO callers pass no room at all, and the rows rule is for neither.
+    // 新規予約を作成 (the `askGuard` below the 配置モード branch) opens a FORM and
+    // solves nothing, so `solveRoom` is false and its rows come straight back —
+    // its 「担当 ◯◯」 line is an absence, not a refusal, and it has carried rows
+    // since ⚖ 74 shipped. The release over no lane (`off`, in the drop handler)
+    // also asks with `bedLane: null` and `solveRoom: false` on a bed-row drag,
+    // but it reaches neither rule: its `staffLane: null` takes `landingVerdict`'s
+    // `!staff` stop, which returns ABOVE the checks assignment, so `checks` is
+    // empty and the gate on this line closes the box first.
     const facts =
-      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)
+      v.checks.length > 0
         ? {
             summary: holdSummary(boardLanes, ask.id ?? '', { laneKey, ...span }, hours, ask.bedLane, {
               staffLane: ask.staffLane,
               bedLane: v.bedLane,
               title: heldName,
             }),
-            checks: v.checks,
+            checks: factsRowsShown(v, ask.solveRoom) ? v.checks : [],
             // ⚖ FIX-6 — this box has an OFFER LINE under it; the hold popover
             // does not. See `guardCheckRowBesideOffer` for why the second clause
             // may not be stacked above 「より損の少ない開始はありません」.
@@ -7046,13 +7062,14 @@ export function TodayScreen(props: TodayProps) {
           {/* ⚖ LIAM flag 74 — THE ONE BOX. The confirm's own facts, in the
               surface that is asking: what time, on whom, in which room, and the
               rows this landing earns. ROWS, not floor: a refusal that read rows
-              and has a room to name describes itself too, and 注意して配置 is the
-              half that stayed policy-only, because that is a question about
-              AUTHORITY. A landing that asked for a room and got NONE has no room
-              to put in the summary, so it gets no strip at all rather than an
-              all-✓ one over 「/ 担当 ◯◯ / —」 (fix round 2, delta lens 4 N1). The
-              rows wear ⚖ 52's glyphs from the confirm's own stylesheet, so × and
-              △ mean one thing on both surfaces. */}
+              describes itself too, and 注意して配置 is the half that stayed
+              policy-only, because that is a question about AUTHORITY. A landing
+              that asked for a room and got NONE keeps its IDENTITY line — the
+              summary simply leaves the room out, so 「/ —」 goes and the sentence
+              stays — and stands its ROWS down, because they are all ✓ or nearly
+              so about a room nothing ever checked (fix round 3, delta2 lens 3
+              M1). The rows wear ⚖ 52's glyphs from the confirm's own stylesheet,
+              so × and △ mean one thing on both surfaces. */}
           {advice.facts && (
             <div className="gp-facts">
               <strong>{advice.facts.summary}</strong>
