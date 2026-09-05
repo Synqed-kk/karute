@@ -203,6 +203,35 @@ describe('the controls', () => {
     }
   })
 
+  // ⚠ L2 R2 — the THIRD playbackRate write, the one that matters on a real
+  // engine and that jsdom cannot see on its own. The HTML media load algorithm
+  // resets `playbackRate` to `defaultPlaybackRate` when a new resource loads, so
+  // `start()`'s assignment is what keeps a 2× choice made BEFORE the first tap.
+  // jsdom does not implement that reset, so the browser's behaviour is stubbed
+  // onto the `src` setter here — without it, deleting that line is invisible.
+  it('a speed chosen BEFORE the first play survives the element loading its source', async () => {
+    card()
+    const audio = audioEl()
+    let stored = ''
+    Object.defineProperty(audio, 'src', {
+      configurable: true,
+      get: () => stored,
+      set: (v: string) => {
+        stored = v
+        // What a real browser does on a new resource: back to the default.
+        audio.playbackRate = audio.defaultPlaybackRate
+      },
+    })
+    const chip = screen.getByRole('button', { name: '再生速度' })
+    fireEvent.click(chip)
+    fireEvent.click(chip)
+    expect(chip.textContent).toBe('2倍')
+    await act(async () => {
+      fireEvent.click(playButton())
+    })
+    expect(audio.playbackRate).toBe(2)
+  })
+
   // ⚠ L4-3 (F7). WebKit may clamp above ~2×. The chip must state what the
   // engine is RUNNING, not what we asked for.
   it('a clamping engine makes the chip state the EFFECTIVE rate', () => {
@@ -609,15 +638,32 @@ describe('the absence laws', () => {
   /** Catalog strings carry {placeholders}; a rendered node has them filled in.
    *  A node matches a template when the template's literal segments appear in
    *  order — enough to accept 「再生時間 12:22」 while still rejecting a
-   *  sentence that is in no template at all. */
+   *  sentence that is in no template at all.
+   *
+   *  ⚠ SHORT TEMPLATES ARE FENCED (fix round 4, L2 R1). 93 of the 354 templates
+   *  in ja.json have ≤3 literal characters and several have exactly one —
+   *  `{n}分` `{n}件` `{rate}倍` `{n}回` `{n}枚` `{age}歳` `{name}担当`. Matching
+   *  "the literals appear in order" let ANY sentence containing one of those
+   *  fragments through: 「この録音は担当者と店長だけが確認できます。」 escaped on
+   *  the single literal 担当 from `{name}担当`. So a short template only counts
+   *  when what surrounds it IS the value it templates — a number/rate token —
+   *  and never when it is prose. */
+  const SHORT_TEMPLATE_LITERALS = 3
   const fromTemplate = (text: string) => {
     for (const v of catalogValues) {
       if (!v.includes('{')) continue
       const parts = v.split(/\{\w+\}/).filter(Boolean)
       let at = 0
-      if (parts.every((part) => (at = text.indexOf(part, at)) !== -1 && (at += part.length) >= 0)) {
-        return true
-      }
+      const inOrder = parts.every(
+        (part) => (at = text.indexOf(part, at)) !== -1 && (at += part.length) >= 0,
+      )
+      if (!inOrder) continue
+      // Everything the template did NOT contribute must be the filled-in value.
+      const literals = parts.join('')
+      if (literals.length > SHORT_TEMPLATE_LITERALS) return true
+      let rest = text
+      for (const part of parts) rest = rest.replace(part, '')
+      if (/^[\d.:×倍–\s]*$/.test(rest)) return true
     }
     return false
   }

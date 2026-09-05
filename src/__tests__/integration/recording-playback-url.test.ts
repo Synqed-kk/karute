@@ -25,11 +25,20 @@ const capabilities = { current: new Set<string>(['customers.view']) }
 const roster = { current: [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }] }
 const rosterThrows = { current: false }
 const webCaps = { current: new Set<string>(['customers.view']) }
+/** The web door's TWO identities, deliberately different by default so a test
+ *  that confuses them cannot pass: `resolveUserId()` is WHO is asking (the
+ *  audit row's actor), `getCurrentUserStaffId()` is the roster-proven id the
+ *  ACL compares. See N2 below. */
+const webAuthUserId = { current: 'auth-user-1' }
+const webStaffId = { current: 'auth-user-1' as string | null }
+/** Makes `can()` THROW rather than answer — a transient auth/DB blip, which is
+ *  not a permission answer (D-8). See N3 below. */
+const canThrows = { current: false }
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   getBusinessId: jest.fn(async () => 'business-1'),
-  getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
-  resolveUserId: jest.fn(async () => 'auth-user-1'),
+  getCurrentUserStaffId: jest.fn(async () => webStaffId.current),
+  resolveUserId: jest.fn(async () => webAuthUserId.current),
   staffListByBusinessOrThrow: jest.fn(async () => {
     if (rosterThrows.current) throw new Error('roster read failed')
     return roster.current
@@ -38,7 +47,10 @@ jest.mock('@/lib/staff', () => ({
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
-  can: jest.fn(async (cap: string) => webCaps.current.has(cap)),
+  can: jest.fn(async (cap: string) => {
+    if (canThrows.current) throw new Error('capability read failed')
+    return webCaps.current.has(cap)
+  }),
 }))
 // The card→profile translation. Default null: the fixtures stamp profile ids,
 // which the `?? original` fallback keeps unchanged.
@@ -130,6 +142,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
   webCaps.current = new Set(['customers.view'])
+  webAuthUserId.current = 'auth-user-1'
+  webStaffId.current = 'auth-user-1'
+  canThrows.current = false
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   rosterThrows.current = false
   cardLookup.current = null
@@ -466,6 +481,26 @@ describe('GET /api/app/v1/recordings/playback-url — the door', () => {
     expect((await GET(req(KARUTE_ID), route)).status).toBe(403)
   })
 
+  // ⚠ N2 — the round-2 actorId/staffId split lives in the CALLERS, and neither
+  // was pinned: both doors could be reverted to `actorId: staffId ?? 'unknown'`
+  // with 9,742 tests green. An audit row naming a placeholder for a listen is a
+  // legal-hygiene failure that fails silently, which is the worst kind.
+  //
+  // A caller who is NOT on this roster has staffId null, and an OWNERLESS
+  // karute (D-14) says yes to them — so this is the case where the two ids
+  // genuinely differ and the row can only be right one way.
+  it('the row names the AUTH USER, not the roster id — facade door', async () => {
+    roster.current = []
+    KAR.current = { ...KAR.current, staff_id: null }
+    const lines = await auditLines(async () => {
+      expect((await GET(req(KARUTE_ID), route)).status).toBe(200)
+    })
+    const play = lines.filter((l) => l.action === 'recording.play')
+    expect(play).toHaveLength(1)
+    // `bearer()`'s sub. Reverting to staffId would make this null.
+    expect(play[0].actor_id).toBe('auth-user-1')
+  })
+
   it('OPTIONS preflight short-circuits before auth', async () => {
     const res = await OPTIONS(
       new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }),
@@ -494,6 +529,30 @@ describe('mintRecordingPlaybackUrl — the web door', () => {
   it('carries the body’s refusal verbatim', async () => {
     ROW.current = { ...ROW.current, audio_storage_path: null }
     expect(await mintRecordingPlaybackUrl(KARUTE_ID)).toEqual({ ok: false, error: 'no_audio' })
+  })
+
+  // ⚠ N2, web half. `resolveUserId()` is the actor; `getCurrentUserStaffId()` is
+  // the ACL id. Given DIFFERENT values here, only one wiring can pass.
+  it('the row names resolveUserId’s value, not the roster id — web door', async () => {
+    webAuthUserId.current = 'auth-user-77'
+    webStaffId.current = 'roster-staff-9'
+    KAR.current = { ...KAR.current, staff_id: null } // ownerless → the ACL says yes
+    const lines = await auditLines(async () => {
+      expect((await mintRecordingPlaybackUrl(KARUTE_ID)).ok).toBe(true)
+    })
+    const play = lines.filter((l) => l.action === 'recording.play')
+    expect(play).toHaveLength(1)
+    expect(play[0].actor_id).toBe('auth-user-77')
+  })
+
+  // ⚠ N3 — a capability read that THREW is not a permission answer (D-8). The
+  // existing 'unexpected throw' case drives the OUTER catch; this one drives the
+  // gate's own. The file's comment states the rule; nothing checked it.
+  it('a capability read that THREW is upstream, never forbidden', async () => {
+    canThrows.current = true
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await mintRecordingPlaybackUrl(KARUTE_ID)).toEqual({ ok: false, error: 'upstream' })
+    warn.mockRestore()
   })
 
   it('an unexpected throw becomes upstream, never an unhandled rejection', async () => {
