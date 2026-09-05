@@ -449,7 +449,7 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // tag sat on HER the board could not show that the two facts are separate:
     // one row where both are true is exactly the row that cannot separate them.
     // She is a plain booking now, so 「a VIP places anywhere」 — the rule Liam
-    // ruled — is visible on the board he looks at. The tag moved to apt-28.
+    // ruled — is visible on the board he looks at. The tag moved to apt-29 (テスト なぎ).
     slot('apt-25', 'cus-04', STORE_A, 'p-05', 'menu-01', 0, 11, 0, 60, 6600, 'done',
       { board_state: 'confirmed', settlement: 'awaiting', resource_id: 'bed-03', source: '店頭受付 #357509', taken_days_ago: 2, updated_minute: 12 * 60 }),
     slot('apt-13', 'cus-03', STORE_B, 'p-02', 'menu-05', 0, 11, 0, 45, 5500, 'booked',
@@ -478,18 +478,21 @@ export function appointments(now: Date = new Date()): FixtureAppointment[] {
     // can, so canon's PACK MODE fires and the run is advertised as TWO merged
     // 60-minute sessions crossing the 16:00 and 17:00 lines. On a board of tidy
     // 30/60/90 starts that layer is unreachable — the demo was hiding a feature.
+    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE SAMPLE'S ONE 個室のみ
+    // BOOKING. テスト なぎ (thin-02) is not a VIP and holds no 回数券, so her
+    // card wears 単発 in the category badge AND 個室のみ in the note beside it —
+    // two facts, two words, on two different rows of the board (⚖ 8/9 demo
+    // data = product truth). She is already seated in the 個室 (bed-03), so
+    // the sample day is legal as it stands and the rule is visible rather
+    // than merely obeyed. apt-28 (見本 あかり) is deliberately left untouched:
+    // today-explains §9 (flag 87) depends on that card being bumped between
+    // rooms.
     slot('apt-29', 'thin-02', STORE_A, 'p-06', 'menu-01', 0, 14, 5, 60, 6600, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-03', requires_private_room: true, source: '店頭受付 #357544' }),
     // The far wall of that run, and odd on its own account (canon's fixture day
     // runs on 17:12 / 12:27 / 10:25 starts for exactly this reason).
     slot('apt-33', 'cus-06', STORE_A, 'p-06', 'menu-01', 0, 17, 12, 60, 6600, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-02', source: '電話予約 #357548', taken_days_ago: 8, updated_minute: 12 * 60 + 40 }),
-    // ⚖ ROOM RULE, FIX ROUND 1 (blind lens 3 F11) — THE SAMPLE'S ONE 個室のみ
-    // BOOKING. 見本 あかり is not a VIP and holds no 回数券, so her card wears 単発
-    // in the category badge AND 個室のみ in the note beside it — two facts, two
-    // words, on two different rows of the board (⚖ 8/9 demo data = product
-    // truth). She is already seated in the 個室 (bed-03), so the sample day is
-    // legal as it stands and the rule is visible rather than merely obeyed.
     slot('apt-28', 'cus-09', STORE_A, 'c-03', 'menu-03', 0, 16, 0, 30, 4400, 'booked',
       { board_state: 'confirmed', resource_id: 'bed-03', source: 'Reserve #357533' }),
     // 要対応 — and the one booking with NO lane card: it belongs to the absent
