@@ -645,14 +645,14 @@
    `.tkt-note`'s 5px is the gap AFTER the money it used to follow; with the money
    hidden rather than removed the note is not `:first-child`, so 個室のみ sat 5px
    right of the name above it. The gap is kept only where it still separates two
-   notes (個室のみ・保持 on one card). Both dials, one rule — see 密度 below. */
+   notes (個室のみ・保持 on one card). THIS DIAL ONLY — 密度→コンパクト takes the
+   whole line back (⚖ FIX ROUND 4, see 密度 below), so down there no note
+   survives to start at the left. */
 .biz .timeline.hide-tkt .e-tkt::before,
 .biz .timeline.hide-tkt .e-tkt .tkt-cat,
 .biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }
-.biz .timeline.hide-tkt .e-tkt .tkt-note,
-.biz.board-compact .event small.e-tkt .tkt-note { margin-left: 0; }
-.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note,
-.biz.board-compact .event small.e-tkt .tkt-note + .tkt-note { margin-left: 5px; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note { margin-left: 0; }
+.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note { margin-left: 5px; }
 .biz.drawer-open .event .tg { display: none; }
 
 /* 販売可能枠 tint (E9b), canon :586–598. The wash's alpha SCALES WITH THE
@@ -1064,16 +1064,23 @@
 
 /* R21 密度 — compact packs the rows and drops the card's third line.
 
-   ⚖ FIX ROUND 3 (delta2 lens 4 D3 · lens 3 M3) — THE MONEY, NOT THE PLACEMENT
-   RULE, on this dial too. コンパクト took the whole `.e-tkt` line, 個室のみ and
-   保持 with it — and the dense afternoon is exactly the shift where the fact
-   that decides where a card may go matters most. 「Drops the third line」 now
-   means the third line OF MONEY; the same three nodes hide-tkt hides go here,
-   so one operator cannot lose the rule by reaching for the other dial. */
+   ⚖ FIX ROUND 4 (delta3 lens 3 X1) — AND IT DROPS THE WHOLE LINE, ON PURPOSE.
+   Fix round 3 hid only the money here, so 個室のみ and 保持 would survive
+   コンパクト the way they survive 「チケット・価格」. THE LANE CANNOT HOLD
+   THEM. This dial's 52px lane leaves a 37px content box (48px card after the
+   2px top/bottom offsets, minus 2px of borders and 9px of padding), and three
+   lines need 15.0 + 16.4 + 16.4 = 47.8px. `.biz .event` is absolutely
+   positioned with `overflow: hidden`, so the extra 10.8px is neither scrolled
+   nor grown — it is SLICED, and the operator reads the top fifth of a run of
+   kanji. A chopped fact is worse than an absent one. 標準's 72px lane leaves
+   57px, which is why the same three lines fit up there.
+
+   コンパクト drops the third line; the tag survives on the accessible name, the
+   inspector, the shelf chip and every refusal — so nobody has to read 個室のみ
+   off a 52px card. 「チケット・価格」 is the dial that keeps the note, because
+   it hides nodes without shrinking the lane. */
 .biz.board-compact .lane { min-height: 52px; }
-.biz.board-compact .event small.e-tkt::before,
-.biz.board-compact .event small.e-tkt .tkt-cat,
-.biz.board-compact .event small.e-tkt .tkt-core { display: none; }
+.biz.board-compact .event small.e-tkt { display: none; }
 .biz.board-compact .timeline-scroll { max-height: 62vh; overflow-y: auto; }
 .biz.board-compact .group-label { position: sticky; top: 0; z-index: 6; }
 

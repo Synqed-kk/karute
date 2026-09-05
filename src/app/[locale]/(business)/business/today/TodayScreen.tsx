@@ -3946,8 +3946,9 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ LIAM flag 74 — THE FACTS COME TO THE QUESTION, and the split is ROWS vs
     // AUTHORITY. The strip renders wherever the landing actually read rows,
     // because a refusal the operator can act on earns the same detail a staged
-    // one does; its summary names whatever the board can state, and its ROWS
-    // stand down on a room refusal alone (⚖ FIX ROUND 3, `factsRowsShown`).
+    // one does; its summary names whatever the board can state, and its CHECK
+    // ROWS AND THE GUARD ROW stand down together on a room refusal alone
+    // (⚖ FIX ROUND 3, `factsRowsShown`; ⚖ FIX ROUND 4, delta3 lens 4 E2).
     // 注意して配置 is the half that stayed POLICY-only (the mint below): that is
     // a question about who may overrule, never about rows.
     // Everything is the verdict's own — the room it solved and the rows
@@ -4011,6 +4012,17 @@ export function TodayScreen(props: TodayProps) {
     //             勤務時間外 carries a real × — about a room never checked.
     //   注意して配置 — AUTHORITY, policy-only, the mint below. Never about rows.
     //
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2 · lens 2 §c) — CHECK ROWS AND THE GUARD ROW
+    // STAND DOWN TOGETHER. `guardRow` was composed independently, so a 満室 on a
+    // lane whose rail cell is not `safe` drew the guard's LOSS row alone under a
+    // room sentence — 「ここに置くと新規（90分）が入らなくなります」, wearing the
+    // same `span.ck` a check row wears, about a start that is refused for a reason
+    // that has nothing to do with loss. That is ⚖ 73's own rider (a full house is
+    // about ROOMS, so it may not borrow the guard's vocabulary) arriving one line
+    // below the offer line where the rider already closed it. One answer, asked
+    // once, decides both. And the rule now takes the ASK rather than a loose
+    // boolean, so this argument cannot be inverted at a call site no test renders.
+    //
     // TWO callers pass no room at all, and the rows rule is for neither.
     // 新規予約を作成 (the `askGuard` below the 配置モード branch) opens a FORM and
     // solves nothing, so `solveRoom` is false and its rows come straight back —
@@ -4020,6 +4032,7 @@ export function TodayScreen(props: TodayProps) {
     // but it reaches neither rule: its `staffLane: null` takes `landingVerdict`'s
     // `!staff` stop, which returns ABOVE the checks assignment, so `checks` is
     // empty and the gate on this line closes the box first.
+    const rows = factsRowsShown(v, ask)
     const facts =
       v.checks.length > 0
         ? {
@@ -4028,11 +4041,11 @@ export function TodayScreen(props: TodayProps) {
               bedLane: v.bedLane,
               title: heldName,
             }),
-            checks: factsRowsShown(v, ask.solveRoom) ? v.checks : [],
+            checks: rows ? v.checks : [],
             // ⚖ FIX-6 — this box has an OFFER LINE under it; the hold popover
             // does not. See `guardCheckRowBesideOffer` for why the second clause
             // may not be stacked above 「より損の少ない開始はありません」.
-            guardRow: guardCheckRowBesideOffer(v.cell),
+            guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,
           }
         : null
     setAdvice({
@@ -7066,10 +7079,15 @@ export function TodayScreen(props: TodayProps) {
               policy-only, because that is a question about AUTHORITY. A landing
               that asked for a room and got NONE keeps its IDENTITY line — the
               summary simply leaves the room out, so 「/ —」 goes and the sentence
-              stays — and stands its ROWS down, because they are all ✓ or nearly
-              so about a room nothing ever checked (fix round 3, delta2 lens 3
-              M1). The rows wear ⚖ 52's glyphs from the confirm's own stylesheet,
-              so × and △ mean one thing on both surfaces. */}
+              stays — and its CHECK ROWS AND THE GUARD ROW stand down together,
+              because the checks are all ✓ or nearly so about a room nothing ever
+              checked, and the guard's row is about LOSS at a start this box
+              refused for a different reason (fix round 3, delta2 lens 3 M1; fix
+              round 4, delta3 lens 4 E2). So the strip is genuinely empty there,
+              and the F5 gate below closes the container rather than drawing a
+              lone caution that reads as 「one check ran」. The rows wear ⚖ 52's
+              glyphs from the confirm's own stylesheet, so × and △ mean one thing
+              on both surfaces. */}
           {advice.facts && (
             <div className="gp-facts">
               <strong>{advice.facts.summary}</strong>

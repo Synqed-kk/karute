@@ -3232,20 +3232,39 @@ export function holdSummary(
  *  A rule with no seam has no proof. This is the seam.
  *
  *  The rule: rows render when the landing read them, EXCEPT where it asked for a
- *  room and got none (満室, or a CLASH whose room also failed). There every row
- *  is ✓ — or nearly, since 満室 outranks the policy stop and a landing that is
- *  also 勤務時間外 carries a real × — about a room nothing ever checked, under a
- *  sentence that already said the room is the problem. The SUMMARY is not part
- *  of this question: it is the box's identity line and it is always composed,
- *  because `holdSummary` now leaves out the room it cannot name.
+ *  room and got none. On the 満室 box every row is ✓ — or nearly, since 満室
+ *  outranks the policy stop and a landing that is also 勤務時間外 carries a real
+ *  × — about a room nothing ever checked, under a sentence that already said the
+ *  room is the problem. The SUMMARY is not part of this question: it is the box's
+ *  identity line and it is always composed, because `holdSummary` now leaves out
+ *  the room it cannot name.
  *
- *  `solveRoom` is the whole condition on the ask side. The two landings that
- *  carry no room AND solve none never asked, so nothing about a room is being
- *  suppressed for them: 新規予約を作成 opens a FORM (the bed is chosen in the
- *  dialog) and keeps its rows, and the release over no lane never reaches here
- *  at all — its `staffLane: null` returns above the rows in `landingVerdict`. */
-export const factsRowsShown = (v: Pick<LandingVerdict, 'bedLane' | 'checks'>, solveRoom: boolean): boolean =>
-  v.checks.length > 0 && !(v.bedLane === null && solveRoom)
+ *  ⚖ FIX ROUND 4 (delta3 lens 3 X3) — AND THE GATE IS PRICED HONESTLY. It asks
+ *  「did a room come back?」, and that is WIDER than 満室: a CLASH whose room also
+ *  failed returns first with `bedLane` already null, so it is hidden when no room
+ *  came back, which includes a CLASH that also failed its room. That box's
+ *  sentence names a PERSON (「時間帯が重複: ◯◯」) and the rows it loses include
+ *  the very × the sentence names, so the 「every row is ✓」 argument does not
+ *  describe it — what it loses is the ✓ context, and the blocking fact is already
+ *  in the sentence. Recorded rather than believed narrower than it is; the
+ *  narrower gate, if it is ever wanted, is 「hide when the FLOOR is hard-room」.
+ *
+ *  ⚖ FIX ROUND 4 (delta3 lens 4 E2) — the CALLER stands the guard row down on the
+ *  same answer. A room refusal that also loses its lane would otherwise draw the
+ *  guard's loss row ALONE under a room sentence — ⚖ 73's rider, one surface over.
+ *
+ *  It takes the ASK, not a bare boolean (delta3 lens 2 §c): the call site sits
+ *  inside a component this suite never renders, so a loose `boolean` argument
+ *  could be inverted there and nothing behavioural would notice. `solveRoom` is
+ *  the whole condition. The two landings that carry no room AND solve none never
+ *  asked, so nothing about a room is being suppressed for them: 新規予約を作成
+ *  opens a FORM (the bed is chosen in the dialog) and keeps its rows, and the
+ *  release over no lane never reaches here at all — its `staffLane: null` returns
+ *  above the rows in `landingVerdict`. */
+export const factsRowsShown = (
+  v: Pick<LandingVerdict, 'bedLane' | 'checks'>,
+  ask: { solveRoom: boolean },
+): boolean => v.checks.length > 0 && !(v.bedLane === null && ask.solveRoom)
 
 /** ⚖ flags 44 + 51 — a full house, said the way the board says every other
  *  refusal: the exact window it judged, then WHY, naming the room and who is in
