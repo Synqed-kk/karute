@@ -1543,6 +1543,14 @@
   .biz .pg-settings .st-jump-head .st-det-caret { display: inline-block; }
   .biz .pg-settings .st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
   .biz .pg-settings .st-jump-head:active { transform: scale(.97); }
+  /* ⚖ S17 fix round 3 · R3-3 — CLOSED, THE BOX HUGS ITS HEAD. `.st-jump` keeps
+     the padding of an OPEN list (10 over, 11 under) whatever its disclosure is
+     doing, so at ① a closed このページの中身 stood 67px tall: a 44px head with
+     ~21px of empty card under it, reading as a box that had lost its contents
+     rather than as a heading a reader may press. The padding follows the state
+     the head declares — one rule, on the box, from the head's own
+     `aria-expanded`, so there is no second source of truth to keep in step. */
+  .biz .pg-settings .st-jump:has(.st-jump-head[aria-expanded="false"]) { padding-top: 3px; padding-bottom: 3px; }
   /* ⚖ S17 fix round 1 · F25 — AND NO FLASH ON THE WAY IN. The server cannot
      know the width, so it renders the OPEN wrapper (a plain `<div>`); the client
      learns it in an effect and swaps in the disclosure, which mounts closed. On

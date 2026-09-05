@@ -2130,6 +2130,21 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     expect(sideBlock.slice(0, sideBlock.indexOf('changed > 0,'))).not.toContain('st-foot')
     expect(CSS_CODE).not.toMatch(/\.st-save-card \.st-foot \{/)
   })
+
+  it('⚖ S17 fix round 3 · R3-3 — closed, このページの中身 hugs its head instead of standing as an empty card', () => {
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
+    /* ⚠ THE NUMBERS, NOT THE NAME (⚖ fix round 2 · P3's lesson, one layer in).
+       `.st-jump` was NAMED in this band and still measured 67px, because what it
+       is named for is its head's 44px touch height — nothing held the box's own
+       padding. The head is 44 and the box's borders are 1 each way, so 3px of
+       padding puts the closed box at 52 against the bar's 56. */
+    expect(phone).toMatch(/\.st-jump-head \{[\s\S]*?min-height: 44px/)
+    expect(phone).toContain('.biz .pg-settings .st-jump:has(.st-jump-head[aria-expanded="false"]) { padding-top: 3px; padding-bottom: 3px; }')
+    // …and only when it is CLOSED: an open list keeps the box it needs.
+    expect(phone).not.toMatch(/\.st-jump:has\(\.st-jump-head\[aria-expanded="true"\]\)/)
+    // …and the state the rule reads is the one the head really publishes.
+    expect(SCREEN_CODE).toContain('aria-expanded={jumpOpen}')
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
