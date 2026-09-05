@@ -37,7 +37,7 @@ const createSignedUploadUrl = jest.fn(async (p: string) => ({
 }))
 const info = jest.fn(async (_key: string) => ({
   data: { size: 1024 } as { size?: number } | null,
-  error: null as { message: string; status?: number } | null,
+  error: null as { message: string; status?: number; statusCode?: string } | null,
 }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ storage: { from: (_b: string) => ({ createSignedUploadUrl, info }) } }),
@@ -470,7 +470,13 @@ describe('POST recordings/finalize', () => {
   })
 
   it('a missing object rides out in the 2xx body — the drain retries it', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
+    // The production shape (hotfix 9/5): storage-api answers a missing
+    // object on /object/info/… with HTTP 400 and body statusCode '404',
+    // message 'Object not found' — never a plain 404 alone.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 400, statusCode: '404' },
+    })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ error: 'object_missing' })
