@@ -287,11 +287,16 @@ describe('the fixture data door', () => {
     const FORMS = [
       /from\s*'([^'\n]+)'/g,
       /from\s*"([^"\n]+)"/g,
-      // ⚠ THE LOOKBEHIND IS LOAD-BEARING. Without it this pattern reads
+      // ⚠ THE LOOKBEHIND. Without it this pattern once read
       //   `block('io.import', '取り込み', …)`
       // as a side-effect import of 「, 」 — a string that happens to end in the
-      // word `import` followed by a quoted argument. A real side-effect import
-      // is never preceded by a word character or a dot.
+      // word `import` followed by a quoted argument. That id is now `io.intake`
+      // (2026-09-05: the trigger was removed from OUR side so the shared lock
+      // outside Business territory could go back to main's bytes), so nothing
+      // in the tree needs the lookbehind today. It stays because a real
+      // side-effect import is never preceded by a word character or a dot, and
+      // the next `…import '…'` string in a Japanese label should not be able to
+      // plant a phantom specifier in this inventory.
       /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g,
       /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g,
       /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g,

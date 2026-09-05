@@ -1652,7 +1652,7 @@ function dataIo(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           : null,
         facts: [`最後の書き出し: ${d.lastExport}`, '書き出しの操作は記録に残ります。'],
       }),
-      block('io.import', '取り込み', 'ファイルを選んで、内容を確認してから取り込みます。', [], {
+      block('io.intake', '取り込み', 'ファイルを選んで、内容を確認してから取り込みます。', [], {
         flag: '準備中',
         rightsNote: '取り込みはこれから用意します。用意ができるまで、ファイルの選択と取り込みは行えません。',
         table: {

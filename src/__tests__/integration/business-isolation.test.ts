@@ -48,12 +48,7 @@ const inTerritory = (p: string) => territory.some((t) => p === t.slice(0, -1) ||
 const IMPORT_FORMS: Array<[string, RegExp]> = [
   ['static from, single-quote', /from\s*'([^'\n]+)'/g],
   ['static from, double-quote', /from\s*"([^"\n]+)"/g],
-  // ⚠ THE LOOKBEHIND IS LOAD-BEARING. Without it this pattern reads
-  //   `block('io.import', '取り込み', …)`
-  // as a side-effect import of 「, 」 — a string that happens to end in the word
-  // `import` followed by a quoted argument. A real side-effect import is never
-  // preceded by a word character or a dot. (Found by the 設定 room, 2026-09-01.)
-  ['side-effect import', /(?<![\w.$])import\s*['"]([^'"\n]+)['"]/g],
+  ['side-effect import', /import\s*['"]([^'"\n]+)['"]/g],
   ['dynamic import()', /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
   ['require()', /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
 ]
