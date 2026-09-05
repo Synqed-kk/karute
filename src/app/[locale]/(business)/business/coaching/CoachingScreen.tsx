@@ -310,6 +310,9 @@ export interface CoachingTeam {
   filteredEmptyLine: string
   /** ⚖ PLAIN LABELLED COUNTS OF STAFF, no rank grammar anywhere. */
   focusRanking: { title: string; note: string; rows: CoachingStat[]; emptyLine: string }
+  /** ⚖ B2-1-1 (S16F) — the retired 共有の状況 card's own NAME, on the line that
+   *  inherited its facts. */
+  adoptionTitle: string
   adoptionLine: string
   adoptionNote: string
   limitNote: string
@@ -1924,6 +1927,7 @@ export function CoachingScreen(props: CoachingProps) {
                           ) : (
                             <span className="cg-summary-empty">{team.focusRanking.emptyLine}</span>
                           )}
+                          <span className="cg-tk cg-summary-adopt-title">{team.adoptionTitle}</span>
                           <span className="cg-summary-adopt">{team.adoptionLine}</span>
                           <button
                             type="button"

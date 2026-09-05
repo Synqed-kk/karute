@@ -4938,3 +4938,22 @@ describe('⚖ B2-L5-3 (S16F) — the gap spells its direction, never a bare hyph
     expect(self.categories[0].gapLabel).toBeNull()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-1-1 (S16F) — 「共有の状況」 has a home again (⚖-ADJ K)', () => {
+  it('the string really renders in the team world, beside the count it names', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps(GINZA)
+    unpinClock()
+    expect(props.team!.adoptionTitle).toBe('共有の状況')
+    // it is the LABEL of the adoption half of the summary line, exactly as
+    // 店舗全体のサポートエリア is the label of the other half
+    expect(SCREEN_CODE).toContain('<span className="cg-tk cg-summary-adopt-title">{team.adoptionTitle}</span>')
+    const line = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-summary-line"'))
+    expect(line.indexOf('cg-summary-adopt-title')).toBeLessThan(line.indexOf('{team.adoptionLine}'))
+    // …and the string is in the props file, never in the screen (this room's
+    // copy rule), so a reader who knew the retired card still finds its name.
+    expect(PROPS_CODE).toContain("adoptionTitle: '共有の状況'")
+    expect(SCREEN_CODE).not.toContain('共有の状況')
+  })
+})

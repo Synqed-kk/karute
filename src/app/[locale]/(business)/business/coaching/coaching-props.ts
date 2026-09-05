@@ -906,6 +906,14 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
           // words. What is behind it is READ ONCE (how to read the counts, that
           // the decline is invisible, and why a small store is not anonymous) plus
           // the ONE refused lever those notes belong to.
+          // ⚖ B2-1-1 (S16F) — 「共有の状況」 GETS ITS NAME BACK. I-8 retired the
+          // rail's 共有の状況 card and re-homed its FACTS onto this line, but the
+          // NAME went nowhere: the string existed in no room file at all, which
+          // is ⚖-ADJ K's one rule (every removed string keeps a home). Its
+          // sibling half of the same line — 店舗全体のサポートエリア — has
+          // carried its own label all along, so the line was also asymmetric:
+          // one fact named, one fact bare.
+          adoptionTitle: '共有の状況',
           summaryMoreLabel: 'くわしく',
           summaryLessLabel: '閉じる',
           adoptionNote:

@@ -1015,7 +1015,11 @@
 .biz .pg-coaching .cg-summary-chip-label { color: var(--ink-2); font-size: 11.5px; line-height: 1.6; }
 .biz .pg-coaching .cg-summary-chip-value { color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .biz .pg-coaching .cg-summary-empty { color: var(--muted); font-size: 11.5px; line-height: 1.7; }
-.biz .pg-coaching .cg-summary-adopt { margin-left: auto; color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
+/* ⚖ B2-1-1 — the label carries the push to the right, so the NAME and the
+   COUNT travel as one pair when the line wraps rather than ending up on
+   opposite sides of the row. */
+.biz .pg-coaching .cg-summary-adopt-title { margin-left: auto; }
+.biz .pg-coaching .cg-summary-adopt { color: var(--ink); font-size: 12px; font-weight: 700; line-height: 1.6; font-variant-numeric: tabular-nums; }
 .biz .pg-coaching .cg-summary-more {
   display: inline-flex; align-items: center; min-height: 30px; padding: 4px 11px;
   border: 1px solid var(--control); border-radius: 999px;
