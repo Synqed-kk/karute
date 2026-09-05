@@ -29,8 +29,9 @@ import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { recorderIsLive, useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { cn } from '@/lib/utils'
 
-/** ⚖ Liam 9/3: "X2 or X3". */
-const SPEEDS = [1, 1.5, 2, 3] as const
+/** ⚖ Liam 9/6, his ear on the device: 3倍 is not speech any more, 2倍 still is →
+ *  the chip tops out at 2倍. Supersedes the 9/3 "X2 or X3" ask. */
+const SPEEDS = [1, 1.5, 2] as const
 const SKIP_S = 15
 /** How long an inline notice stays before the row goes quiet again. */
 const NOTICE_MS = 3000
