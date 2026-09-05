@@ -2548,10 +2548,10 @@ export function TodayScreen(props: TodayProps) {
        *  readers; re-deriving it there would be two answers to one question. */
       engineStarts: cell?.alternatives ?? [],
     }
-    // ⚖ ROOM RULE — `props.rooms` LEAVES this list with the dials it named. The
-    // gate re-verdicts each candidate start through `verdictRef`, and the room
-    // policy it used to read no longer exists: the room need is a field on the
-    // card, which arrives through `boardLanes` — already a dep.
+    // ⚖ ROOM RULE — the room-policy dep LEAVES this list with the dials it named.
+    // The gate re-verdicts each candidate start through `verdictRef`, and the
+    // store policy it used to read no longer exists: the room need is a field on
+    // the card, which arrives through `boardLanes` — already a dep.
     // ⚖ 9/1 ruling 1/2 — and `props.overrideLevel` LEAVES the list with the arm
     // that read it (⚖ 92 fix round 3 T1's, deleted above). Nothing in this memo
     // asks the dial any more, so keeping it here would be a dep that only ever
@@ -5944,8 +5944,8 @@ export function TodayScreen(props: TodayProps) {
         <small className="e-time">{timeLabel}</small>
         <small className="e-tkt">
           {/* ⚖ ROOM RULE — 個室のみ WEARS THE CATEGORY BADGE. It is the fact that
-              changes what the board DOES, so it wins the slot from 'VIP' (the
-              fixture's one tagged booking is both). `.tg` above is the PARTNER's
+              changes what the board DOES, so it takes the slot ahead of the VIP
+              word (the fixture's one tagged booking is both). `.tg` above is the PARTNER's
               name and is left alone — a card wearing 【ベッド3】 while its twin
               stands on ベッド2 is the impossible state ⚖ 51 exists to stop — and
               the label skeleton's five segments are untouched. */}

@@ -68,7 +68,6 @@ import {
   type Move,
   type Moves,
   type RailCell,
-  type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { TodayScreen, type TodayProps } from '@/app/[locale]/(business)/business/today/TodayScreen'
@@ -259,7 +258,6 @@ afterAll(() => jest.useRealTimers())
 // ── the hand-built scenes ───────────────────────────────────────────────────
 
 const HOURS = { open: 600, close: 1140 } // 10:00–19:00
-const POLICY: RoomPolicy = { vipStaysPrivate: true, privateIsLastResort: true }
 const GUARD = {
   services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
   newClientSessionMin: 90,
@@ -299,7 +297,7 @@ function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): Boar
 /** The rail exactly as the screen builds it, rooms included — flag 76's
  *  callback is what makes a bed refusal reachable here at all. */
 function railOn(lanes: BoardLane[], dur = 60): GuardRail {
-  const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+  const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
   return guardRailsFor(lanes, {
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
     nowMinute: null, locked: [], guard: GUARD,
@@ -328,8 +326,8 @@ const explainOn = (lanes: BoardLane[], cell: RailCell, dur = 60) =>
     room:
       cell.reason === 'bed'
         ? allocateBed(lanes, {
-            id: null, currentBed: null, stores: null, vip: false,
-            start: cell.start, end: cell.start + dur, policy: POLICY,
+            id: null, currentBed: null, stores: null, requiresPrivate: false,
+            start: cell.start, end: cell.start + dur,
           })
         : null,
   })
@@ -421,7 +419,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const cell = at(railOn(busy), 780)
     expect(cell.reason).toBe('bed')
     const lifted = allocateBed(busy, {
-      id: 'x1', currentBed: null, stores: null, vip: false, start: 780, end: 840, policy: POLICY,
+      id: 'x1', currentBed: null, stores: null, requiresPrivate: false, start: 780, end: 840,
     })
     expect([lifted.laneKey, lifted.refusal]).toEqual(['bed-01', null])
     // 満室 over a room that is standing empty is the lie. Bare 「—」 instead.
@@ -437,7 +435,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
       lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', stores: ['store-a'] }),
     ]
     const empty = allocateBed(split, {
-      id: null, currentBed: null, stores: ['store-b'], vip: false, start: 780, end: 840, policy: POLICY,
+      id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
     expect(empty.refusal).toBe('13:00〜14:00に使えるベッドがありません')
     expect(empty.blockers).toEqual([])
@@ -455,7 +453,7 @@ describe('§3 — every sentence names the window it judged', () => {
   it('a bed refusal is `fullRoomsRefusal`’s sentence, whole and unedited', () => {
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     const said = explainOn(busy, at(railOn(busy), 780)).sentence
-    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）')
+    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様 13:00〜15:00）')
     // ⛔ THE RETIRED VOCABULARY, pinned dead. The 8/25 native pass ruled
     // 「…に空きがありません」; 満室 survives as the CHIP's word and nowhere else,
     // and 「空きベッドなし」 was never vocabulary at all.
@@ -523,7 +521,7 @@ describe('§4 — ⚖ 75(i): the collector observes, and the clause never invent
     return sellLayerFor(oneRoom(), REAL.hours, {
       gridMin: 60, nowMinute: null, locked: [], showPrice: true,
       hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
-      reconcile: { claims, rooms: POLICY, cleanupMinutesByBed: {}, onDrop },
+      reconcile: { claims, cleanupMinutesByBed: {}, onDrop },
     })
   }
 
@@ -589,7 +587,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
     const frame = { hi: price.hi, lo: price.lo, hqMin: REAL.dialogs.pricing.hqMin, hqMax: REAL.dialogs.pricing.hqMax }
     const truth = bedTruthViews(
       REAL.lanes,
-      REAL.rooms,
       { openMin: REAL.hours.open, closeMin: REAL.hours.close, nowMin: REAL.sell.nowMinute ?? REAL.hours.open },
       null,
     ).world
@@ -625,7 +622,7 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
             gridMin, nowMinute: REAL.sell.nowMinute, locked: [], showPrice: true,
             hi: price.hi, hqMin: REAL.dialogs.pricing.hqMin, depth,
             reconcile: {
-              claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes,
+              claims, cleanupMinutesByBed: REAL.bedCleanupMinutes,
               onDrop: (d) => drops.push(d),
             },
           })
@@ -639,7 +636,6 @@ describe('§5 — DIAL HONESTY: the board explains itself on empty boards too', 
           const explained = explainRails(rails, REAL.lanes, {
             dur: sessionMin,
             handId: null,
-            rooms: REAL.rooms,
             stagedId: null,
             sellCells: sell.cells,
             claims,
@@ -726,7 +722,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     lane({ key: 'bed-01', group: 'beds', label: 'ベッド1' }),
   ]
   const railsOn = (lanes: BoardLane[], dur = 60): GuardRail[] => {
-    const truth = bedTruthViews(lanes, POLICY, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
+    const truth = bedTruthViews(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: HOURS.open }, null).world
     return guardRailsFor(lanes, {
       open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
       nowMinute: null, locked: [], guard: GUARD,
@@ -735,7 +731,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
   }
   const ask = (lanes: BoardLane[], over: Partial<Parameters<typeof explainRails>[2]> = {}) =>
     explainRails(railsOn(lanes), lanes, {
-      dur: 60, handId: null, rooms: POLICY, stagedId: null,
+      dur: 60, handId: null, stagedId: null,
       sellCells: [], claims: [], drops: [], inHand: false, sellDisplayed: true,
       ...over,
     })
@@ -782,7 +778,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const per = ask(busy).get('p-01')!
     // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
     // `allocateBed` answer for this chip's own window.
-    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様）' })
+    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様 13:00〜15:00）' })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
     for (const [start, said] of per) {
@@ -1355,10 +1351,9 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       id,
       currentBed: carried,
       stores: board.find((l) => l.key === sides.staffLane)?.stores ?? null,
-      vip: item.category === 'vip',
+      requiresPrivate: item.requiresPrivateRoom === true,
       start: minuteOf(at.x, REAL.hours),
       end: minuteOf(at.x + at.w, REAL.hours),
-      policy: REAL.rooms,
       stagedId: s.pending?.id ?? null,
     })
     // ⚖ 47 — a refusal changes nothing, so a scene that produces one is a scene
@@ -1426,7 +1421,7 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
       hi: price.hi,
       hqMin: REAL.dialogs.pricing.hqMin,
       depth,
-      reconcile: { claims, rooms: REAL.rooms, cleanupMinutesByBed: REAL.bedCleanupMinutes },
+      reconcile: { claims, cleanupMinutesByBed: REAL.bedCleanupMinutes },
     })
     const yen = (p: number | null) => (p == null ? '—' : money(p))
     return [
@@ -1622,8 +1617,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // than the substring they pinned before, and the smallest change that
     // anchors them.
     for (const line of [
-      "const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.category === 'vip', at)",
-      "const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.category === 'vip', next)",
+      'const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1638,8 +1633,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // bed came first. The category rides `PlacingIntent` now. The seed is still
     // `null, null` — which is what this test is actually about.
     for (const line of [
-      "const partnerKey = solveBed(lane.key, null, null, p.category === 'vip', place(start, end, hours))",
-      "const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.category === 'vip', span)",
+      'const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      'const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }

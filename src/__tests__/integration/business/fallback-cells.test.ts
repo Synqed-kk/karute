@@ -70,7 +70,6 @@ import {
   gapLayerFor,
   laneSpans,
   sellLayerFor,
-  type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import {
@@ -150,7 +149,6 @@ interface World {
   lanes: BoardLane[]
   hours: Hours
   now: number | null
-  rooms: RoomPolicy
   cleanup: Record<string, number>
   guard: GuardConfig
   /** The store's own display floor, for the gap layer above this pass. */
@@ -204,7 +202,6 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = [], locked:
     depth,
     reconcile: {
       claims,
-      rooms: w.rooms,
       cleanupMinutesByBed: w.cleanup,
       onDrop: (x) => dropped.push(x),
     },
@@ -221,7 +218,6 @@ function run(w: World, d: Dials, held: readonly ReservedLaneMask[] = [], locked:
       survivors,
       claims,
       cleanupMinutesByBed: w.cleanup,
-      rooms: w.rooms,
       held,
       // ⚖ Greptile #815 — the same list handed to `gap`/`sell` above, so this
       // composer's fallback shields the same lanes the screen's does.
@@ -258,7 +254,6 @@ const fixtureWorld = (): World => ({
   lanes: REAL.lanes,
   hours: REAL.hours,
   now: REAL.sell.nowMinute,
-  rooms: REAL.rooms,
   cleanup: REAL.bedCleanupMinutes,
   guard: REAL.guard.config,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
@@ -388,7 +383,6 @@ const syntheticWorld = (): World => ({
   lanes: board(SYNTH_SPEC),
   hours: SYNTH_HOURS,
   now: null,
-  rooms: REAL.rooms,
   cleanup: SYNTH_CLEANUP,
   guard: REAL.guard.config,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
@@ -496,7 +490,6 @@ describe('1 — the ごろう pin: the shipped engine emits the real fragments',
       survivors: [],
       claims: [],
       cleanupMinutesByBed: w.cleanup,
-      rooms: w.rooms,
       held: [],
       locked: [],
       dials: dialsOf(w, shipped()),
@@ -673,7 +666,6 @@ function sceneRun(withStandardRoom: boolean): FallbackResult {
     survivors: [],
     claims: [],
     cleanupMinutesByBed: {},
-    rooms: { vipStaysPrivate: true, privateIsLastResort: true },
     held: [],
     locked: [],
     dials: dialsOf({ ...w, now: null }, shipped()),
@@ -699,44 +691,24 @@ describe('3 — class-aware rooms: the 個室 is spent last, both directions', (
 
   it('the order the pass walks IS the allocator’s own answer, not a second one', () => {
     // The anti-drift pin. `allocateBed` is the search that dropped the offer in
-    // the first place; asked the same question over the same rooms with the
-    // reconcile's own `vip: false`, it names the room the pass reached for.
+    // the first place; asked the same question over the same rooms for a
+    // hypothetical (which carries no 個室のみ tag), it names the room the pass
+    // reached for.
+    //
+    // ⚖ ROOM RULE — ONE ANSWER, NOT A LOOP OVER A DIAL. This used to run twice,
+    // once per `privateIsLastResort` setting, and a sibling test pinned the OFF
+    // setting's own order. Both go with the dial: 個室-last is law for every
+    // store now, so there is exactly one order and exactly one answer.
     const scene = privateScene(true)
-    for (const policy of [
-      { vipStaysPrivate: true, privateIsLastResort: true },
-      { vipStaysPrivate: true, privateIsLastResort: false },
-    ] as RoomPolicy[]) {
-      const chosen = allocateBed(scene.lanes, {
-        id: null,
-        currentBed: null,
-        stores: ['store-a'],
-        vip: false,
-        start: 930,
-        end: 960,
-        policy,
-      })
-      expect({ policy, room: chosen.laneKey }).toEqual({ policy, room: 'bed-01' })
-    }
-  })
-
-  it('privateIsLastResort OFF is the store’s call, and the order follows it', () => {
-    const w = fixtureWorld()
-    const scene = privateScene(true)
-    const r = fallbackCellsFor({
-      lanes: scene.lanes,
-      closeMin: 1080,
-      dropped: scene.dropped,
-      survivors: [],
-      claims: [],
-      cleanupMinutesByBed: {},
-      rooms: { vipStaysPrivate: true, privateIsLastResort: false },
-      held: [],
-      locked: [],
-      dials: dialsOf({ ...w, now: null }, shipped()),
+    const chosen = allocateBed(scene.lanes, {
+      id: null,
+      currentBed: null,
+      stores: ['store-a'],
+      requiresPrivate: false,
+      start: 930,
+      end: 960,
     })
-    // Board order now, so the 個室's longer run wins — the store said 個室 is
-    // an ordinary room, and the pass does not overrule a setting.
-    expect(boxes(r).map((c) => `${span(c.s, c.e)}@${c.resourceKey}`)).toEqual(['15:30-16:00@bed-01'])
+    expect(chosen.laneKey).toBe('bed-01')
   })
 })
 
@@ -749,7 +721,7 @@ const maskFor = (w: World, guard: GuardConfig, mode: 'off' | 'standard' | 'stric
     nowMin: w.now,
     guard,
     gapGuardMode: mode,
-    book: bedTruthViews(w.lanes, w.rooms, { openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open }, null)
+    book: bedTruthViews(w.lanes, { openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open }, null)
       .world,
   })
 
@@ -831,7 +803,6 @@ describe('5 — the pass is pure', () => {
       survivors: r.survivors,
       claims: r.claims,
       cleanupMinutesByBed: w.cleanup,
-      rooms: w.rooms,
       held: maskFor(w, w.guard, 'standard'),
       locked: [],
       minSellableMin: w.minSellableMin,
@@ -1532,7 +1503,6 @@ describe('9 — merge, then floor, then kind: the fallback finishes as the nativ
     lanes: pocketPairLanes(s, e),
     hours: SYNTH_HOURS,
     now: null,
-    rooms: REAL.rooms,
     cleanup: {},
     guard: REAL.guard.config,
     minSellableMin,
@@ -1549,7 +1519,6 @@ describe('9 — merge, then floor, then kind: the fallback finishes as the nativ
       survivors: [],
       claims: [],
       cleanupMinutesByBed: w.cleanup,
-      rooms: w.rooms,
       held: [],
       locked: [],
       minSellableMin: w.minSellableMin,

@@ -801,7 +801,7 @@ export function sellResourceLanes(lanes: BoardLane[]): SellResourceLane[] {
   // and canon's `bedLedger` (availability.ts :345-358) takes the first free lane
   // in ARRAY order, so 個室-last survived on the money surface only because
   // bed-03 happens to sit third in the fixture. A store whose 個室 was created
-  // first would sell it to online traffic with 施術室 standing empty. One
+  // first would sell it to online traffic with standard rooms standing empty. One
   // ordering, applied before the hand-off; canon stays byte-frozen.
   return orderRooms(lanes.filter((l) => l.group === 'beds'))
     .map((l) => ({ key: l.key, name: l.label, occupied: laneSpans(l), storeId: l.stores?.[0] ?? '' }))
@@ -1047,7 +1047,7 @@ function reconcileSellCells(cells: SellCell[], lanes: BoardLane[], input: SellRe
         stores,
         // ⚖ ROOM RULE — a hypothetical never needs the private room. A window is
         // an advertisement, not a booking: there is no booking to carry a
-        // 個室のみ tag, so the offer takes 施術室 first like anyone else.
+        // 個室のみ tag, so the offer takes a standard room first like anyone else.
         requiresPrivate: false,
         start: c.h,
         end: c.h + SELL_SLOT_MIN,
@@ -2915,14 +2915,14 @@ export function roomFitsNeed(lane: BoardLane, requiresPrivate: boolean): boolean
   return !requiresPrivate || lane.roomClass === 'private'
 }
 
-/** ⚖ ROOM RULE clause 1 — 施術室 FIRST, 個室 LAST, and it is LAW rather than a
+/** ⚖ ROOM RULE clause 1 — STANDARD ROOMS FIRST, 個室 LAST, and it is LAW rather than a
  *  dial: no store has asked to spend its private room first, and a lever with
  *  one legal setting is the dead lever this board keeps removing.
  *
  *  ONE HOME, because two layers order rooms: `allocateBed` when it hands a
  *  booking a room, and `fallback-cells` when it walks the rooms a lost offer
  *  could fall into. They used to be two copies of the same three lines. Stable
- *  within each class, so board order still decides between two 施術室. */
+ *  within each class, so board order still decides between two standard rooms. */
 export function orderRooms(rooms: readonly BoardLane[]): BoardLane[] {
   return [...rooms.filter((l) => l.roomClass !== 'private'), ...rooms.filter((l) => l.roomClass === 'private')]
 }
@@ -3029,7 +3029,7 @@ export function allocateBed(
   const current = beds.find((l) => l.key === opts.currentBed)
   if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [] }
   const candidates = beds.filter(compatible)
-  // ⚖ ROOM RULE clause 1 — 施術室 first, 個室 last, ALWAYS. `orderRooms` is the
+  // ⚖ ROOM RULE clause 1 — standard rooms first, 個室 last, ALWAYS. `orderRooms` is the
   // one home for that; a tagged booking's candidates are private-only anyway, so
   // the same call is correct on both branches and there is nothing to switch on.
   const ordered = orderRooms(candidates)

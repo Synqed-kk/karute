@@ -132,7 +132,7 @@ beforeAll(async () => {
   // (`bedViewsFor`) with the same `null` hand the committed world has always
   // passed, and it is what §3 and §4 compare the wrapper's answer against. If
   // the wrapper ever answered out of a different world, the two would part.
-  BOOK = bedViewsFor(REAL.lanes, REAL.rooms, FRAME, null).world
+  BOOK = bedViewsFor(REAL.lanes, FRAME, null).world
 })
 
 afterAll(() => jest.useRealTimers())
@@ -148,7 +148,6 @@ const inputFor = (
 ): HeldCommittedInput => ({
   gateOn,
   lanes: REAL.lanes,
-  rooms: REAL.rooms,
   frame: FRAME,
   // ⚖ ROUND 2 — THE DOOR IS AN INPUT NOW. The wrapper used to import
   // `bedViewsFor` out of TodayScreen, which made the two files import each
@@ -272,7 +271,7 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     // book's door; it uses the one it is handed, so hand it a different one.
     // An EMPTY world is the cleanest different one available — the real door,
     // asked about zero lanes — and it is a real book rather than a stub shape.
-    const emptyWorld = bedViewsFor([], REAL.rooms, FRAME, null)
+    const emptyWorld = bedViewsFor([], FRAME, null)
     // ⚖ ROUND 3 — AND WHAT THE DOOR IS HANDED IS RECORDED, not only what it
     // gives back. The stub took no arguments, so this test proved the door's
     // RETURN was load-bearing and said nothing about the world the wrapper
@@ -289,14 +288,13 @@ describe('3 — in every live mode the answer is `reservedMaskFor`’s, byte for
     })
     expect(asked).toHaveLength(1)
     const seen = asked[0]
-    expect(seen).toEqual([REAL.lanes, REAL.rooms, FRAME, null])
+    expect(seen).toEqual([REAL.lanes, FRAME, null])
     // …and the SAME objects, not equal copies of them: `toEqual` above would
     // forgive a re-boxed lane list, which is exactly what a wrapper quietly
     // narrowing the world would hand over.
     expect(seen[0]).toBe(REAL.lanes)
-    expect(seen[1]).toBe(REAL.rooms)
-    expect(seen[2]).toBe(FRAME)
-    expect(seen[3]).toBeNull()
+    expect(seen[1]).toBe(FRAME)
+    expect(seen[2]).toBeNull()
     // What comes back is exactly what the mask function gives for THAT book,
     // with every other dial untouched — so the door is forwarded, not read.
     const straight = reservedMaskFor({

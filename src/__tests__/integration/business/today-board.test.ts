@@ -1011,20 +1011,19 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
     // allocateBed's own-tail exclusion: apt-12 owns ベッド1 10:00–11:00 and its
     // turnaround stands 11:00–11:30. Nudged 30 minutes later it lands ON its own
     // tail, and the allocator must still hand it the room it is already in.
-    const policy = opsConfig.roomPolicy
     const stores = [STORE_A]
     expect(
       allocateBed(cleaning, {
-        id: 'apt-12', currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: 'apt-12', currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }),
     ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
     // …and someone ELSE'S tail is a genuine wall: the same span, without the
     // exclusion, is refused the room.
     expect(
       allocateBed(cleaning, {
-        id: null, currentBed: 'bed-01', stores, vip: false,
-        start: 10 * 60 + 30, end: 11 * 60 + 30, policy,
+        id: null, currentBed: 'bed-01', stores, requiresPrivate: false,
+        start: 10 * 60 + 30, end: 11 * 60 + 30,
       }).laneKey,
     ).not.toBe('bed-01')
   })

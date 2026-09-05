@@ -239,12 +239,13 @@ export interface BoardItem {
   kind: 'booking' | 'break' | 'absence' | 'block' | 'cleanup'
   state: 'confirmed' | 'attention' | 'hold' | 'noshow' | null
   category: BookingCategory | null
-  /** ⚖ ROOM RULE (Liam 2026-09-05) — 個室のみ, and it is a fact about the
-   *  BOOKING, never about the customer. Every room reader asks this one field;
-   *  `customer.vip` keeps the card colour, the chip and the 保護対象 count and
-   *  reaches no bed search at all. ABSENT on the items that are not bookings —
-   *  a 清掃, a 休憩 or a 欠勤 has no room to need, the same reason `state` and
-   *  `category` are null there — so every reader asks `=== true`. */
+  /** ⚖ ROOM RULE (Liam 2026-09-05) — THIS BOOKING NEEDS THE PRIVATE ROOM, and
+   *  it is a fact about the BOOKING, never about the customer. Every room reader
+   *  asks this one field; `customer.vip` keeps the card colour, the chip and the
+   *  保護対象 count and reaches no bed search at all. ABSENT on the items that
+   *  are not bookings — a turnaround, a break or an absence has no room to need,
+   *  the same reason `state` and `category` are null there — so every reader
+   *  asks `=== true`. */
   requiresPrivateRoom?: boolean
   x: number
   w: number
@@ -311,10 +312,10 @@ export interface BoardBooking {
   timeRange: string
   price: number | null
   category: BookingCategory
-  /** ⚖ ROOM RULE — 個室のみ, straight off the appointment row. Core stamps it at
-   *  CREATE from the menu's own room class and never re-derives it, so a staff
-   *  member clearing it sticks and a menu edited later never retro-tags what is
-   *  already booked. */
+  /** ⚖ ROOM RULE — the private-room requirement, straight off the appointment
+   *  row. Core stamps it at CREATE from the menu's own room class and never
+   *  re-derives it, so a staff member clearing it sticks and a menu edited later
+   *  never retro-tags what is already booked. */
   requiresPrivateRoom: boolean
   state: 'confirmed' | 'attention' | 'hold' | 'noshow'
   settlement: 'settled' | 'awaiting' | null

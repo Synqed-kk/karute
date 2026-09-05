@@ -68,7 +68,6 @@ import {
   sellLayerFor,
   sellStaffLanes,
   type GuardRail,
-  type RoomPolicy,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 import { type GapCell } from '@/business/lib/canon-logic/availability'
@@ -245,7 +244,6 @@ interface World {
   lanes: BoardLane[]
   hours: Hours
   now: number | null
-  rooms: RoomPolicy
   cleanup: Record<string, number>
   minSellableMin: number
 }
@@ -264,7 +262,6 @@ const fixtureWorld = (): World => ({
   lanes: REAL.lanes,
   hours: REAL.hours,
   now: REAL.sell.nowMinute,
-  rooms: REAL.rooms,
   cleanup: REAL.bedCleanupMinutes,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -274,7 +271,6 @@ const syntheticWorld = (): World => ({
   lanes: board({ staff: 8, beds: 3, seed: 4242, perLane: 3 }),
   hours: SYNTH_HOURS,
   now: null,
-  rooms: REAL.rooms,
   cleanup: SYNTH_CLEANUP,
   minSellableMin: REAL.guard.minSellableMin ?? 0,
 })
@@ -348,7 +344,7 @@ function priceOf() {
 }
 
 const frameOf = (w: World) => ({ openMin: w.hours.open, closeMin: w.hours.close, nowMin: w.now ?? w.hours.open })
-const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, w.rooms, frameOf(w), null).world
+const bookOf = (w: World): BedTruth => bedViewsFor(w.lanes, frameOf(w), null).world
 
 const maskOf = (
   w: World,
@@ -400,7 +396,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
     hi: price.hi,
     hqMin: REAL.dialogs.pricing.hqMin,
     depth,
-    reconcile: { claims, rooms: w.rooms, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
+    reconcile: { claims, cleanupMinutesByBed: w.cleanup, onDrop: (d) => drops.push(d) },
     held,
   })
   const fallback: FallbackResult | null = held
@@ -411,7 +407,6 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
         survivors: sell.cells,
         claims,
         cleanupMinutesByBed: w.cleanup,
-        rooms: w.rooms,
         held,
         // ⚖ Greptile #815 — the same `locked: []` this composer already hands
         // `gap`/`sell` above (this file's worlds model no locked lanes).
@@ -461,7 +456,7 @@ function door(w: World, c: Combo, held?: readonly ReservedLaneMask[]) {
 type Door = ReturnType<typeof door>
 
 function railsOf(w: World, c: Combo, book: BedTruth = bookOf(w)): GuardRail[] {
-  const views = bedViewsFor(w.lanes, w.rooms, frameOf(w), null)
+  const views = bedViewsFor(w.lanes, frameOf(w), null)
   return guardRailsFor(w.lanes, {
     open: w.hours.open,
     close: w.hours.close,
@@ -1080,7 +1075,6 @@ describe('5 — a 確保 window answers with the law', () => {
     const map = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sell.cells,
       claims: on.drawnClaims,
@@ -1129,7 +1123,6 @@ describe('5 — a 確保 window answers with the law', () => {
     const map = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sell.cells,
       claims: on.drawnClaims,
@@ -1415,7 +1408,6 @@ describe('7 — the fix round: the publication boundary', () => {
     ],
     hours: SYNTH_HOURS,
     now: null,
-    rooms: REAL.rooms,
     cleanup: { [BED]: 0 },
     minSellableMin: 90,
   })
@@ -1457,7 +1449,6 @@ describe('7 — the fix round: the publication boundary', () => {
       explainRails(rs, w.lanes, {
         dur: REAL.guard.standardSessionMin,
         handId: null,
-        rooms: w.rooms,
         stagedId: null,
         sellCells,
         claims: on.drawnClaims,
@@ -1494,7 +1485,6 @@ describe('7 — the fix round: the publication boundary', () => {
     const whole = explainRails(rs, w.lanes, {
       dur: REAL.guard.standardSessionMin,
       handId: null,
-      rooms: w.rooms,
       stagedId: null,
       sellCells: on.sellDrawn.cells,
       claims: on.drawnClaims,
@@ -2212,10 +2202,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  COMPUTED key, `[dialKey]: forcedMode,`, whose `dialKey` const is typed
    *  `string` (which dodges TS1117) and written with backticks (which dodges
    *  the quote ban). It carries no banned character and `^\s+\w+: ` cannot see
-   *  it, so the count still read ten with eleven keys in the literal. What
+   *  it, so the count still read nine with ten keys in the literal. What
    *  closes it is the BRACKET ban below, on the forwarding literal: nothing in
-   *  a ten-key pass-through needs a `[`. The count and the bracket ban hold the
-   *  no-eleventh-key claim TOGETHER; neither of them holds it alone.
+   *  a nine-key pass-through needs a `[`. The count and the bracket ban hold the
+   *  no-tenth-key claim TOGETHER; neither of them holds it alone.
    *
    *  ⚖ ONE KEY ADDED AT ROUND 2, WITH the decision, and the decision is that
    *  THE DOOR INTO THE BOOK IS NOW HANDED OVER RATHER THAN IMPORTED. Round 1
@@ -2224,8 +2214,8 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *  other — it ran, but a cycle on a law-bearing seam is a trap for the next
    *  edit. The screen passes the door as `bookOf` instead. So the literal is
    *  TEN lines rather than nine and the count moves with it; the claim this
-   *  test makes is untouched, because the tenth line is a bare forwarded
-   *  identifier like the other nine — a value, not a call, and the ban list
+   *  test makes is untouched, because that line is a bare forwarded
+   *  identifier like the rest — a value, not a call, and the ban list
    *  still forbids any decision being spelled around it. A mutant that hands
    *  over a DIFFERENT door has to change this line to do it, which is red here;
    *  a wrapper that ignores the door it was handed and reaches for the screen
@@ -2240,7 +2230,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
    *
    *  WHAT IS LEFT HERE IS A TRIPWIRE, NOT A PROOF, and it only has to hold one
    *  much smaller claim: no decision is spelled INSIDE the slice. It forwards
-   *  ten named inputs and contains no conditional and no literal of any kind —
+   *  nine named inputs and contains no conditional and no literal of any kind —
    *  no `?`, no `undefined`, no `null`, no quote character, no spread — so a
    *  mutant cannot express a guard-off branch inside the slice, and expressing
    *  one outside it means changing the tested function, where the unit test is
@@ -2299,10 +2289,10 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect(memo.length).toBeLessThan(2500)
 
     // It calls the tested function, and the literal it hands over is EXACTLY
-    // these ten lines: the round gate, the world the book is built from, the
+    // these nine lines: the round gate, the world the book is built from, the
     // door it is built through, and the dials. Each one is a bare forwarded
     // expression, not a value this memo chose — and the count below, TOGETHER
-    // with the bracket ban further down, is what means an eleventh key cannot
+    // with the bracket ban further down, is what means a tenth key cannot
     // be smuggled in beside them: the count reads `\w+:`-spelled keys only, so
     // a computed key slips it, and the bracket is what stops one being written
     // at all (⚖ lens B B1).
@@ -2310,7 +2300,6 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     const FORWARDED = [
       'gateOn: SELLING_ENGINE_LAW,',
       'lanes: committedLanes,',
-      'rooms: props.rooms,',
       'frame: ledgerFrame,',
       // ⚖ ROUND 2 — the one door into the capacity book, handed over as a
       // VALUE. Passed, never called: `bedViewsFor,` with no parenthesis, so
@@ -2340,7 +2329,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     expect((memo.match(/^\s+\w+: /gm) ?? []).length).toBe(FORWARDED.length)
 
     // …and it decides NOTHING. No conditional and no literal of any kind, no
-    // spread that could override one of the ten, no loose comparison: any
+    // spread that could override one of the nine, no loose comparison: any
     // branch a mutant wants has to be written in `heldCommittedFor`, where
     // held-committed.test.ts calls it. This is the shape the old regex
     // negatives were reaching for and could not hold.
@@ -2349,9 +2338,9 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     }
 
     // ⚖ LENS B B1 — AND NO COMPUTED KEY. The count above reads `\w+:` keys, so
-    // `[dialKey]: forcedMode,` is an ELEVENTH forwarded key that the count
+    // `[dialKey]: forcedMode,` is a TENTH forwarded key that the count
     // cannot see and none of the eight bans above catches. The BRACKET is what
-    // stops it: nothing in a ten-key pass-through literal needs one. It is
+    // stops it: nothing in a nine-key pass-through literal needs one. It is
     // banned on the LITERAL rather than on the whole slice because the memo's
     // dependency array below is brackets by construction — bounding it here is
     // exactly what lets the eight bans above keep the WHOLE memo, the `() =>`
