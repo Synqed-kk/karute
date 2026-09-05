@@ -4775,3 +4775,26 @@ describe('⚖ B2-2-6 (S16F) — L2 is ONE focus area, and the cap is in the deri
     expect({ total, banded }).toEqual({ total: banded, banded })
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-2-5 (S16F) — the never-asked state says what it is withholding', () => {
+  it('the unset card names the absence, exactly as the declined card does', async () => {
+    expect(CONSENT_STATE.unset.body).toContain('この画面の成績と気づきは表示されません')
+    expect(CONSENT_STATE.declined.body).toContain('この画面の成績と気づきは表示されません')
+    // …and it stays a DECISION rather than a verdict: the decline is still free
+    expect(CONSENT_STATE.unset.body).toContain('同意しなくても仕事には影響しません')
+    // it reaches the reader's own payload, in both unset worlds — the one with a
+    // run behind it (the state the gate exists for) and the never-asked one
+    for (const selfId of ['p-06', 'c-03']) {
+      pinClock(MID_MONTH)
+      const { props } = await coachingProps({
+        ...GINZA,
+        world: { role: 'スタッフ', selfId, consent: { [selfId]: { status: 'unset', decidedAt: null, policyVersion: null } } },
+      })
+      unpinClock()
+      expect({ selfId, kind: props.self.kind }).toEqual({ selfId, kind: 'withheld' })
+      expect({ selfId, said: props.self.consent.body.includes('この画面の成績と気づきは表示されません') })
+        .toEqual({ selfId, said: true })
+    }
+  })
+})

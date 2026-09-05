@@ -1256,7 +1256,15 @@ export function buildModuleLibrary(
 export const CONSENT_STATE: Record<'unset' | 'granted' | 'declined', { title: string; body: string; cta: string; strip?: string }> = {
   unset: {
     title: 'コーチング機能の同意が必要です',
-    body: 'あなたのセッションを分析して成長をサポートします。何が記録され、店長に何が見えて何が見えないかを確認したうえで、受けるかどうかを選んでください。同意しなくても仕事には影響しません。',
+    // ⚖ B2-2-5 (S16F) — AND IT SAYS WHAT IS NOT THERE. The declined state has
+    // carried 「この画面の成績と気づきは表示されません」 since the day it was
+    // written; the unset state said nothing about the page below it, so a reader
+    // who had never been asked met a screen that was simply empty with no
+    // sentence anywhere saying why. An absence is SAID in this room —
+    // `countWarning`, `summaryWarning`, `filteredEmptyLine`, `pitchWithheld`,
+    // `receiptEmpty`, `moduleEmpty` are all the same rule — and this was the one
+    // state that closed quietly.
+    body: 'あなたのセッションを分析して成長をサポートします。同意するまで、この画面の成績と気づきは表示されません。何が記録され、店長に何が見えて何が見えないかを確認したうえで、受けるかどうかを選んでください。同意しなくても仕事には影響しません。',
     cta: '確認する',
   },
   granted: {
