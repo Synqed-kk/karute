@@ -63,6 +63,7 @@ import {
   storeRoi,
   teamPatterns,
   type FixtureCoachingStaff,
+  type FixtureConsentRecord,
 } from '@/business/lib/fixtures-coaching'
 import type { CoachingProps } from './CoachingScreen'
 
@@ -235,6 +236,13 @@ export interface CoachingPropsInput {
      *  fail-closed parse. `unknown` on purpose: the plane is a settings row
      *  nobody validates yet, so the room must survive whatever is in it. */
     policy?: { evaluationVisibility?: unknown }
+    /** ⚖ GREPTILE-1 — the CONSENT PLANE, replaced whole. The demo plane cannot
+     *  hold an 「unset consent over an analysed run」 world, because that state is
+     *  impossible in the product (the analysis is what the consent authorises) —
+     *  and yet it is exactly the state the self gate has to refuse. The only
+     *  honest way to picture the refusal is to run the REAL derivations against a
+     *  consent plane the harness supplies, the same seam `rows` and `floor` are. */
+    consent?: Record<string, FixtureConsentRecord>
   }
 }
 
@@ -304,13 +312,18 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // is hiding.
   const on = moduleOn(storeId, world?.enabledStores ?? coachingStores)
   const rows = on ? (world?.rows ?? coachingStaff) : []
+  // ⚖ GREPTILE-1 — ONE CONSENT PLANE, READ ONCE, by BOTH derivations. The self
+  // gate and the board's own consent filter must never be able to disagree about
+  // what a person decided, so they read the same object rather than the same
+  // import twice — and the harness seam replaces it in exactly one place.
+  const consentPlane = world?.consent ?? coachingConsent
 
   // ⚠ MODULE OFF = THE PLANE IS NEVER READ, consent included. The dormant page
   // renders no self panel at all, so the value below is the consent type's own
   // default-pre-prompt state rather than a claim about this reader — reading
   // their real record here would be the module gate leaking one row.
   const self: SelfState = on
-    ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: coachingConsent })
+    ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: consentPlane })
     : { kind: 'none', consent: { status: 'unset', policyVersion: null } }
 
   // ⚖ (2) THE TEAM BOARD IS ONLY BUILT FOR A READER WHO HOLDS THE CAPABILITY.
@@ -322,7 +335,7 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // derivation, not the screen, is where that is decided.
   const team: TriageView | null =
     on && access.viewTeam
-      ? buildTriage({ roster, rows, floor, consent: coachingConsent, patternCategories: teamPatterns.map((p) => p.categoryKey) })
+      ? buildTriage({ roster, rows, floor, consent: consentPlane, patternCategories: teamPatterns.map((p) => p.categoryKey) })
       : null
 
   // ⚖ (3) THE ROI SCREEN IS ONLY BUILT FOR A READER WHO HOLDS ITS OWN

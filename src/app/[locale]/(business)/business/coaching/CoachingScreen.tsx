@@ -1028,18 +1028,28 @@ export function CoachingScreen(props: CoachingProps) {
 
               {ready ? (
                 <>
-                  {/* ⚖ VL-1 — THE CARD'S OWN WORDS ARE THE GATE.
-                      `CONSENT_STATE.declined.body` tells the reader 「この画面の
-                      成績と気づきは表示されません」; `COACHING_VISIBILITY_MODEL.md:32`
-                      says the same thing structurally — consent to be coached
-                      「gates whether ANY L1 artifact is generated at all. If off,
-                      there is nothing to share」. Everything below this point is
-                      generated FROM this viewer's own analysed sessions, so a
-                      decline stops it here rather than rendering it under a card
-                      that just said it wouldn't.
+                  {/* ⚖ VL-1 — THE CARD'S OWN WORDS ARE THE GATE, AND THEY GATE
+                      BOTH NON-GRANTED STATES. `COACHING_VISIBILITY_MODEL.md:32`
+                      says consent to be coached 「gates whether ANY L1 artifact is
+                      generated at all. If off, there is nothing to share」 — so the
+                      question this gate asks is 「did this reader AGREE?」, never
+                      the weaker 「did this reader refuse?」.
+                        · DECLINED is a decision, and `CONSENT_STATE.declined.body`
+                          says so on this exact card: 「この画面の成績と気づきは表示
+                          されません」.
+                        · UNSET is nobody having asked yet — so nothing may have
+                          been generated from this reader's sessions at all, and
+                          what may not exist may certainly not render. A screen
+                          that showed metrics, findings and conversation excerpts
+                          above an unanswered consent question would be collecting
+                          the consent AFTER the analysis it authorises.
+                      Everything below this point is generated FROM this viewer's
+                      own analysed sessions, so only `granted` opens it; the consent
+                      card itself sits ABOVE the gate, so the question always
+                      renders.
                       ⚠ THE ORDER IS THE PIN: consent → gate → the decision desk
                       → the library row → gate-close. */}
-                  {ready.consent.status !== 'declined' && (
+                  {ready.consent.status === 'granted' && (
                   <>
                   {/* ⚖ THE DECISION DESK (S16 §2.3/§2.4, mock D5 — ONE grid, two
                       packed stacks). LEFT: the one move to make next, then the

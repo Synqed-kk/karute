@@ -1008,11 +1008,17 @@ export interface FixtureConsentRecord {
 }
 
 /** ⚠ ALL THREE STATES ARE REACHABLE FROM THE STORE SWITCHER AND THE ROLE
- *  SWITCHER, not just from a test: p-06 (the operator's own screen), p-01, p-04
- *  and p-05 have granted, p-09 みらい has DECLINED, and c-03 さぶろう was never
- *  asked (absent = 'unset'). A staff member reading their own screen therefore
- *  meets a real decision, and the role-preview walk still crosses granted /
- *  declined / unset. */
+ *  SWITCHER, not just from a test: p-06 (the operator's own screen), p-01, p-02,
+ *  p-04 and p-05 have granted, p-09 みらい has DECLINED, and c-03 さぶろう was
+ *  never asked (absent = 'unset'). A staff member reading their own screen
+ *  therefore meets a real decision, and the role-preview walk still crosses
+ *  granted / declined / unset.
+ *
+ *  ⚖ GREPTILE-1 / S16-D15 — AND EVERY ANALYSED ROW HAS A RECORD HERE, because
+ *  「analysed but never asked」 is not a state this product can reach: the
+ *  analysis is what the consent authorises, so it cannot precede it. (The
+ *  reverse IS legal and stays pictured — p-09 declined AFTER a run, which is a
+ *  withdrawal.) `coaching.test.ts`'s ⚖ GREPTILE-1 block pins the pairing. */
 export const coachingConsent: Record<string, FixtureConsentRecord> = {
   'p-06': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
   'p-01': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
@@ -1025,7 +1031,11 @@ export const coachingConsent: Record<string, FixtureConsentRecord> = {
   'p-04': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
   'p-05': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
   'p-09': { status: 'declined', decidedAt: null, policyVersion: 'v2' },
-  // c-03 さぶろう and p-02 たろう are ABSENT on purpose: absent = 'unset', the
-  // consent type's own default-pre-prompt value, and さぶろう is the demo's
-  // never-asked reader.
+  // p-02 たろう's store has coaching switched OFF, so he demonstrates the DORMANT
+  // page rather than a consent state — but he carries an analysed row, and a row
+  // is something only a granted record could have produced.
+  'p-02': { status: 'granted', decidedAt: null, policyVersion: 'v2' },
+  // c-03 さぶろう is ABSENT on purpose: absent = 'unset', the consent type's own
+  // default-pre-prompt value, and he is the demo's never-asked reader — with no
+  // analysed row either, which is what makes 「never asked」 a coherent state.
 }

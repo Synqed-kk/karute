@@ -2456,15 +2456,20 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     expect(worldStaff.some((m) => !Object.hasOwn(coachingConsent, m.id))).toBe(true)
   })
 
-  it('⚖ VL-1 — the declined-consent state does what its own card SAYS: nothing generated renders below it', () => {
+  it('⚖ VL-1 — the non-granted states do what their own card SAYS: nothing generated renders below them', () => {
     // COACHING_VISIBILITY_MODEL.md:32 — consent to be coached 「gates whether
     // ANY L1 artifact is generated at all. If off, there is nothing to share」.
-    // `CONSENT_STATE.declined.body` already tells the reader so on this exact
-    // screen; this pin is the source fact that keeps that sentence true —
-    // everything from the metric spine through the module catalog sits behind
-    // it, and the consent card itself sits ABOVE the gate so it always renders.
+    // ⚖ GREPTILE-1: the gate therefore asks 「did this reader AGREE?」, not the
+    // weaker 「did this reader refuse?」 — an UNSET reader was never asked, so
+    // nothing may have been generated from their sessions at all, and rendering
+    // metrics under an unanswered question would collect the consent after the
+    // analysis it authorises. `CONSENT_STATE.declined.body` already tells the
+    // declined reader so on this exact screen; this pin is the source fact that
+    // keeps both sentences true — everything from the metric spine through the
+    // module catalog sits behind the gate, and the consent card itself sits
+    // ABOVE it so the question always renders.
     const consentAt = SCREEN_CODE.indexOf('className={`cg-consent')
-    const gate = "ready.consent.status !== 'declined' && ("
+    const gate = "ready.consent.status === 'granted' && ("
     const gateAt = SCREEN_CODE.indexOf(gate)
     const spineAt = SCREEN_CODE.indexOf('className="cg-spine"')
     const modulesAt = SCREEN_CODE.indexOf('className="cg-modules"')
@@ -2474,6 +2479,25 @@ describe('⚖ SHAPE FIDELITY — the look-fix round’s new shapes, parsed not r
     expect(gateAt).toBeLessThan(spineAt)
     expect(spineAt).toBeLessThan(modulesAt)
     expect(modulesAt).toBeLessThan(gateCloseAt)
+  })
+
+  it('⚖ GREPTILE-1 / S16-D15 — every ANALYSED row has a consent record, and the never-asked reader has no run', () => {
+    // ⚖ demo data = product truth. 「analysed but never asked」 is a state this
+    // product cannot reach: the analysis is what the consent authorises, so it
+    // cannot precede it. p-02 carried a run and no record, which is the exact
+    // impossible plane the widened gate would otherwise have to picture.
+    for (const row of coachingStaff) {
+      expect({ id: row.staffId, hasRecord: Object.hasOwn(coachingConsent, row.staffId) })
+        .toEqual({ id: row.staffId, hasRecord: true })
+    }
+    // ⚠ THE REVERSE IS LEGAL AND STAYS PICTURED — a DECLINE may follow analysis
+    // (a withdrawal), which is p-09 みらい: a real run under a declined record.
+    expect(coachingConsent['p-09'].status).toBe('declined')
+    expect(coachingStaff.some((r) => r.staffId === 'p-09')).toBe(true)
+    // …and c-03 さぶろう, the never-asked reader, has NO run either — which is
+    // what makes 'unset' (absent) a coherent state rather than an impossible one.
+    expect(Object.hasOwn(coachingConsent, 'c-03')).toBe(false)
+    expect(coachingStaff.some((r) => r.staffId === 'c-03')).toBe(false)
   })
 
   it('every new mirrored shape CITES the file it mirrors', () => {
@@ -3278,7 +3302,7 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // ⚠ THE SOURCE ORDER PIN, RE-SPELLED ON THE NEW SHAPE (VL-1's own gate is
     // unmoved): consent → the gate → the decision desk → the library row →
     // gate-close. The consent card is ABOVE the gate, so it always renders.
-    const order = ['cg-consent', "ready.consent.status !== 'declined'", 'cg-cols', 'cg-main', 'cg-focus', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
+    const order = ['cg-consent', "ready.consent.status === 'granted'", 'cg-cols', 'cg-main', 'cg-focus', 'cg-findings', 'cg-side', 'cg-spine', 'cg-strengths', 'cg-library', 'cg-patterns', 'cg-modules']
     const at = order.map((c) => panel.indexOf(c))
     expect({ order, ascending: at.every((v, i) => v > 0 && (i === 0 || v > at[i - 1])) }).toEqual({ order, ascending: true })
     // 強み LEADS the supporting column now, right under the numbers it explains
