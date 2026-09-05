@@ -224,6 +224,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  than one-at-a-time: a manager comparing two guardrails should not have the
    *  first one close under them. */
   const [openRows, setOpenRows] = useState<Record<string, boolean>>({})
+  /** ⚖ S17 · C2 — the rows of every block that is a COLLECTION, keyed by block
+   *  id. Seeded from the payload on first touch and edited in this browser, like
+   *  every other value on this page; what the reconnect PR will send is
+   *  `addClosedDay` / `removeClosedDay` per difference. */
+  const [listRows, setListRows] = useState<Record<string, Array<{ id: string; title: string; note: string }>>>({})
+  const [listErrors, setListErrors] = useState<Record<string, string>>({})
   /** ⚖ IMPROVEMENT 3 — which block the jump list highlights. `null` = follow the
    *  scroll; a string = the reader ASKED for that one, and the list says so even
    *  when the page has run out of scroll and cannot put it at the top. */
@@ -314,6 +320,37 @@ export function SettingsScreen(props: SettingsScreenProps) {
     },
     [kinds, values],
   )
+
+  /** ⚖ C2 — ADD, and refuse a duplicate date in the wire's own words BEFORE the
+   *  wire would (`addClosedDay` answers 409). The refusal is spoken at the press,
+   *  which is the ⚖ mistake-proofing layer this room is built on: the operator
+   *  never gets to a state the store cannot save. */
+  const addToCollection = useCallback((block: SettingsBlock) => {
+    const coll = block.collection
+    if (!coll) return
+    const date = String(values[coll.dateControlId] ?? '').trim()
+    const reason = String(values[coll.reasonControlId] ?? '').trim()
+    if (date === '') {
+      setListErrors((prev) => ({ ...prev, [block.id]: coll.emptyDateError }))
+      return
+    }
+    const rows = listRows[block.id] ?? coll.items
+    if (rows.some((r) => r.id === date)) {
+      setListErrors((prev) => ({ ...prev, [block.id]: coll.duplicateError }))
+      return
+    }
+    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
+    setListRows((prev) => ({ ...prev, [block.id]: [...rows, { id: date, title: date, note: reason }] }))
+    setValues((prev) => ({ ...prev, [coll.dateControlId]: '', [coll.reasonControlId]: '' }))
+  }, [values, listRows])
+
+  const removeFromCollection = useCallback((block: SettingsBlock, rowId: string) => {
+    const coll = block.collection
+    if (!coll) return
+    const rows = listRows[block.id] ?? coll.items
+    setListErrors((prev) => ({ ...prev, [block.id]: '' }))
+    setListRows((prev) => ({ ...prev, [block.id]: rows.filter((r) => r.id !== rowId) }))
+  }, [listRows])
 
   const commitSection = useCallback((target: SettingsSection) => {
     const ids = controlIdsOf(target)
@@ -700,6 +737,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
                         onLink={(id) => openSection(id, false)}
                         openRows={openRows}
                         onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
+                        listRows={b.collection ? (listRows[b.id] ?? b.collection.items) : null}
+                        listError={listErrors[b.id] ?? null}
+                        onListAdd={() => addToCollection(b)}
+                        onListRemove={(rowId) => removeFromCollection(b, rowId)}
                         reduced={reduced}
                       />
                     ))}
@@ -953,6 +994,10 @@ function Block({
   onLink,
   openRows,
   onToggleRow,
+  listRows,
+  listError,
+  onListAdd,
+  onListRemove,
   reduced,
 }: {
   block: SettingsBlock
@@ -965,6 +1010,12 @@ function Block({
   onLink: (sectionId: string) => void
   openRows: Record<string, boolean>
   onToggleRow: (rowId: string) => void
+  /** ⚖ C2 — the live rows of a block that is a collection, `null` for every
+   *  other block. */
+  listRows: Array<{ id: string; title: string; note: string }> | null
+  listError: string | null
+  onListAdd: () => void
+  onListRemove: (rowId: string) => void
   reduced: boolean
 }) {
   const rows = block.table === null ? block.table : filterTable(block, values)
@@ -1000,6 +1051,19 @@ function Block({
             reduced={reduced}
           />
         ))
+      )}
+
+      {block.collection && listRows !== null && (
+        <Collection
+          block={block}
+          coll={block.collection}
+          rows={listRows}
+          error={listError}
+          values={values}
+          onChange={onChange}
+          onAdd={onListAdd}
+          onRemove={onListRemove}
+        />
       )}
 
       {block.list && (
@@ -1088,6 +1152,88 @@ function Block({
 
       {block.audit && <p className="st-audit">{block.audit}</p>}
     </section>
+  )
+}
+
+/** ⚖ S17 · C2 — a block that ADDS AND REMOVES ROWS, because its wire does.
+ *
+ *  Every control here is real and reachable by keyboard: the two fields are
+ *  labelled `<input>`s, 追加 and 取り消す are real `<button>`s, and the refusal is
+ *  a live region so a screen reader hears it at the press rather than finding it
+ *  later. The empty state is a sentence, never a blank box. */
+function Collection({
+  block,
+  coll,
+  rows,
+  error,
+  values,
+  onChange,
+  onAdd,
+  onRemove,
+}: {
+  block: SettingsBlock
+  coll: NonNullable<SettingsBlock['collection']>
+  rows: Array<{ id: string; title: string; note: string }>
+  error: string | null
+  values: Record<string, RowValue>
+  onChange: (id: string, v: RowValue) => void
+  onAdd: () => void
+  onRemove: (rowId: string) => void
+}) {
+  const dateId = `${block.id}-date`
+  const reasonId = `${block.id}-reason`
+  return (
+    <div className="st-coll">
+      {rows.length === 0 ? (
+        <p className="st-coll-empty">{coll.emptyLine}</p>
+      ) : (
+        rows.map((r) => (
+          <div className="st-coll-row" key={r.id}>
+            <div className="st-coll-what">
+              <div className="st-coll-title">{r.title}</div>
+              {r.note && <div className="st-coll-note">{r.note}</div>}
+            </div>
+            <button
+              type="button"
+              className="st-coll-del"
+              /* ⚠ THE ROW'S SUBJECT RIDES THE BUTTON'S OWN NAME. A column of
+                 buttons all called 「取り消す」 is a screen reader hearing the
+                 same word six times with no way to tell which day it removes. */
+              aria-label={`${r.title}の臨時休業を${coll.removeLabel}`}
+              onClick={() => onRemove(r.id)}
+            >
+              {coll.removeLabel}
+            </button>
+          </div>
+        ))
+      )}
+      <div className="st-coll-add">
+        <label className="st-coll-field" htmlFor={dateId}>
+          <span>日付</span>
+          <input
+            id={dateId}
+            className="st-input is-date"
+            type="date"
+            value={String(values[coll.dateControlId] ?? '')}
+            onChange={(e) => onChange(coll.dateControlId, e.target.value)}
+          />
+        </label>
+        <label className="st-coll-field" htmlFor={reasonId}>
+          <span>理由</span>
+          <input
+            id={reasonId}
+            className="st-input"
+            type="text"
+            maxLength={40}
+            placeholder="設備メンテナンスのため"
+            value={String(values[coll.reasonControlId] ?? '')}
+            onChange={(e) => onChange(coll.reasonControlId, e.target.value)}
+          />
+        </label>
+        <button type="button" className="st-act" onClick={onAdd}>{coll.addLabel}</button>
+        {error && <p className="st-coll-error" role="status">{error}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -1508,6 +1654,20 @@ function Control({
       <input
         className="st-input is-time"
         type="time"
+        aria-label={c.aria}
+        value={String(value ?? '')}
+        {...inert}
+        onChange={locked ? noop : (e) => onChange(c.id, e.target.value)}
+      />
+    )
+  }
+
+  if (k.kind === 'date') {
+    return (
+      <input
+        className="st-input is-date"
+        type="date"
+        min={k.min}
         aria-label={c.aria}
         value={String(value ?? '')}
         {...inert}

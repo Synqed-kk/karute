@@ -66,6 +66,8 @@ import {
   RETENTION_MAX_MONTHS,
   RETENTION_MIN_MONTHS,
   sectionById,
+  WEEKDAY_OF,
+  weeklyHoursFrom,
   WIN_BACK_MAX,
   WIN_BACK_MIN,
   withCurrent,
@@ -283,6 +285,7 @@ const block = (
   preview: extra.preview ?? null,
   action: extra.action ?? null,
   audit: extra.audit ?? null,
+  collection: extra.collection ?? null,
   ...(extra.flag ? { flag: extra.flag } : {}),
   ...(extra.rightsNote ? { rightsNote: extra.rightsNote } : {}),
 })
@@ -492,6 +495,10 @@ const WEEKDAYS: Array<[number, string]> = [
 
 function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
   const p = storeBookingPolicy
+  // ⚖ C1 — the plane boundary, and the ONE place the seven days come into being.
+  const fallbackWindow = { open: hhmm(operatingHours.open), close: hhmm(operatingHours.close) }
+  const weekly = weeklyHoursFrom(fallbackWindow.open, fallbackWindow.close, closedWeekday)
+  const closedName = `${WEEKDAYS.find(([n]) => n === closedWeekday)?.[1] ?? ''}曜`
   return {
     ...base,
     kicker: '店舗運営',
@@ -514,15 +521,43 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
       ], {
         facts: ['店舗写真の登録はこれから用意します。それまでは未設定のまま表示されます。'],
       }),
-      block('store-hours.hours', '営業時間', '曜日ごとの通常営業です。定休日は「営業する」をオフにします。', WEEKDAYS.map(([dayIndex, name]) =>
-        row(`store-hours.row-day-${dayIndex}`, `${name}曜`, '', [
-          sw(`store-hours.day-${dayIndex}`, `${name}曜に営業する`, '営業', '定休日', dayIndex !== closedWeekday),
-          tim(`store-hours.open-${dayIndex}`, `${name}曜の開始時刻`, hhmm(operatingHours.open)),
-          tim(`store-hours.close-${dayIndex}`, `${name}曜の終了時刻`, hhmm(operatingHours.close)),
-        ])), {
-        facts: [`いまの営業時間は${hhmm(operatingHours.open)}〜${hhmm(operatingHours.close)}、定休日は月曜です。ボードの1日はこの範囲を描きます。`],
+      // ⚖ S17 · C1 — SEVEN DAYS, EACH WITH ITS OWN PAIR, because that is what
+      // core's `weekly_hours` is (`WeeklyHours`, dist/types.d.ts:1047-1050 — one
+      // window per weekday, a null weekday meaning 定休日). The seven are
+      // DERIVED here, once, from the single pair the board and Reserve already
+      // read (`fixtures-today.operatingHours` + `closedWeekday`): the settings
+      // plane states no second copy of them (`fixtures-settings`'s own ADD-ONLY
+      // law). `row.weekday` carries the day number so the payload can be read
+      // back off the rendered rows rather than off an id format.
+      block('store-hours.hours', '営業時間', '曜日ごとの通常営業です。定休日は「営業する」をオフにします。', WEEKDAYS.map(([dayIndex, name]) => {
+        const day = weekly[WEEKDAY_OF[dayIndex]] ?? null
+        return {
+          ...row(`store-hours.row-day-${dayIndex}`, `${name}曜`, '', [
+            sw(`store-hours.day-${dayIndex}`, `${name}曜に営業する`, '営業', '定休日', day !== null),
+            // ⚠ A CLOSED DAY KEEPS ITS OWN WINDOW IN THE FIELDS. The wire sends
+            // `null` for it, and the room could render two empty boxes to match
+            // — but then turning Monday back on would ask the manager to retype
+            // hours the store never actually forgot. The store's window is what
+            // the boxes show; the SWITCH is what decides whether it is sent.
+            tim(`store-hours.open-${dayIndex}`, `${name}曜の開始時刻`, (day ?? fallbackWindow).open),
+            tim(`store-hours.close-${dayIndex}`, `${name}曜の終了時刻`, (day ?? fallbackWindow).close),
+          ]),
+          weekday: dayIndex,
+        }
+      }), {
+        layout: 'week',
+        // ⚖ C1 — THE SENTENCE READS THE SEVEN, and it had to stop being a fact.
+        // 「いまの営業時間は10:00〜19:00、定休日は月曜です」 was true of the ONE pair
+        // the plane used to hold; with seven independent days it goes stale the
+        // moment a manager closes Thursday, and a stale sentence beside a live
+        // control is the dead-lever defect with words. As a preview it is
+        // rewritten from the seven switches on every press.
+        preview: {
+          template: WEEKDAYS.map(([n, name]) => `${name}曜{store-hours.day-${n}}`).join('・')
+            + '。ボードの1日と、Reserveの受付枠は、この範囲を描きます。',
+        },
         links: [{ label: '変更の記録を見る', sectionId: 'audit-log' }],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（月曜を定休日に設定）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（${closedName}を定休日に設定）`,
       }),
       block('store-hours.ops', '予約ボードの操作', '「今日の運営」のボードで、予約や予定ブロックを動かすときの刻みと、空きの守り方です。', [
         // ⚖ S17 — ONE RULE ONE HOME. スキマガード（強さ）・予約の移動単位・販売
@@ -575,13 +610,31 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
         },
         links: [{ label: 'お客様が選べる開始時刻はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
-      block('store-hours.closures', '臨時休業・特別営業', '通常の営業時間を上書きする、その日限りの予定です。', d.closures.map((c, i) =>
-        row(`store-hours.row-closure-${i}`, fmtDayWeek.format(dayFrom(ctx.now, c.dayOffset)), c.note, [
-          seg(`store-hours.closure-${i}`, `${fmtDayWeek.format(dayFrom(ctx.now, c.dayOffset))}の種別`, opts([['off', '臨時休業'], ['extra', '特別営業'], ['none', '通常営業']]), c.kind),
-        ])), {
-        facts: d.closures.length === 0
-          ? ['臨時休業・特別営業の予定はありません。']
-          : ['臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。'],
+      // ⚖ S17 · C2 — 臨時休業 IS AN ADD/REMOVE LIST, and 特別営業 IS GONE.
+      // The wire is `listClosedDays` / `addClosedDay` / `removeClosedDay`
+      // (dist/store-policies.d.ts:20-27) over `StoreClosedDay { date, reason }`
+      // (dist/types.d.ts:1081-1089), with a 409 on a date that is already
+      // closed. The first cut offered a per-date segment of 臨時休業 / 特別営業 /
+      // 通常営業, which could neither add nor remove a day and offered 特別営業 —
+      // a value core has no field for at all (registry ⑨ `special_open_days`;
+      // named in the report and in the Anthony column list, never on screen).
+      block('store-hours.closures', '臨時休業', '通常の営業時間を休みにする、その日限りの予定です。', [], {
+        collection: {
+          items: d.closures.map((c) => ({
+            id: isoDay(dayFrom(ctx.now, c.dayOffset)),
+            title: fmtDayWeek.format(dayFrom(ctx.now, c.dayOffset)),
+            note: c.note,
+          })),
+          dateControlId: 'store-hours.closure-date',
+          reasonControlId: 'store-hours.closure-reason',
+          addLabel: '追加',
+          removeLabel: '取り消す',
+          emptyLine: '臨時休業の予定はありません。',
+          // The wire's own 409, spoken at the press instead of after it.
+          duplicateError: 'その日はすでに臨時休業です',
+          emptyDateError: '日付を選んでください。',
+        },
+        facts: ['臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。'],
         audit: d.closures.length === 0 ? null : `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 1))}（臨時休業を追加）`,
       }),
     ],
@@ -608,6 +661,15 @@ function dayFrom(now: Date, offset: number): Date {
   const d = new Date(now)
   d.setDate(d.getDate() + offset)
   return d
+}
+
+/** ⚖ C2 — `YYYY-MM-DD`, which is `StoreClosedDay.date`'s own spelling and the
+ *  identity a duplicate is refused on. Formatted in JST like every other date
+ *  this file prints, so a store closed on the 10th is the 10th in Tokyo and not
+ *  the 9th somewhere else. */
+const fmtIso = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', ...JST })
+function isoDay(d: Date): string {
+  return fmtIso.format(d)
 }
 
 // ── 提供内容 ────────────────────────────────────────────────────────────────

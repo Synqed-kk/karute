@@ -1333,3 +1333,33 @@
    so a second name on it would be read twice. An empty, hidden, zero-size span
    is the smallest thing that can hold the caret without saying anything. */
 .biz .pg-settings .st-anchor { display: inline-block; width: 0; height: 0; }
+
+/* ⚖ S17 · C2 — 臨時休業 as the collection the wire actually is. */
+.biz .pg-settings .st-input.is-date { width: 160px; }
+.biz .pg-settings .st-coll { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.biz .pg-settings .st-coll-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 11px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--st-soft);
+}
+.biz .pg-settings .st-coll-what { flex: 1 1 200px; min-width: 0; }
+.biz .pg-settings .st-coll-title { font-size: 12.5px; font-weight: 700; color: var(--ink); line-height: 1.5; }
+.biz .pg-settings .st-coll-note { color: var(--ink-3); font-size: 11.5px; line-height: 1.65; }
+.biz .pg-settings .st-coll-empty { margin: 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.7; }
+/* 取り消す removes a row, so it is quiet and outlined — a destructive-shaped
+   control that wore the accent would read as the thing to press. */
+.biz .pg-settings .st-coll-del {
+  flex: none; padding: 4px 12px; min-height: 26px;
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink-2);
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.5; cursor: pointer;
+}
+.biz .pg-settings .st-coll-del:hover { border-color: var(--orange); color: var(--orange); background: var(--orange-soft); }
+.biz .pg-settings .st-coll-add { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.biz .pg-settings .st-coll-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.biz .pg-settings .st-coll-field > span { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
+.biz .pg-settings .st-coll-error { flex: 1 1 100%; color: var(--orange); font-size: 11.5px; font-weight: 600; line-height: 1.6; }
+@media (max-width: 899px) {
+  .biz .pg-settings .st-input.is-date,
+  .biz .pg-settings .st-coll-field { width: 100%; }
+  .biz .pg-settings .st-coll-field .st-input { width: 100%; max-width: none; }
+  .biz .pg-settings .st-coll-add > .st-act { width: 100%; }
+}

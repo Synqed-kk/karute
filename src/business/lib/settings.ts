@@ -360,6 +360,10 @@ export type ControlKind =
   | { kind: 'text'; placeholder?: string; maxLength?: number; required?: boolean }
   | { kind: 'number'; min: number; max: number; step: number; unit: string }
   | { kind: 'time' }
+  /** ⚖ S17 · C2 — a calendar date, `YYYY-MM-DD`, which is the wire's own
+   *  spelling for `StoreClosedDay.date`. The native control, so a phone gets its
+   *  own picker and a keyboard gets its own typing, for no code (ladder rung 4). */
+  | { kind: 'date'; min?: string }
   /** Multi-select. `value` is a string[].
    *  `grid` = these options are a FIXED SET OF FACTS about one subject (the
    *  capability rulebook's eight-per-person switches), so they lay out as a grid
@@ -416,6 +420,11 @@ export interface SettingsRow {
   meta: string[]
   controls: RowControl[]
   trio?: Trio
+  /** ⚖ S17 · C1 — WHICH DAY THIS ROW IS, `Date.getDay()`'s numbering.
+   *  Only the 営業時間 block's seven rows carry it. It exists so the wire
+   *  payload can be read back off the rendered rows (`weekDaysOf`) rather than
+   *  by parsing a control id, which would make the id format a contract. */
+  weekday?: number
   /** ⚖ S17 STEP 1 — THE RECEIPT, BESIDE THE VALUE IT IS A RECEIPT FOR.
    *
    *  The room used to answer 「where did this number come from?」 in ONE trace
@@ -479,6 +488,47 @@ export interface SettingsBlock {
   action: { label: string; template: string; requires?: string; requireError?: string } | null
   /** canon's 変更履歴 line. */
   audit: string | null
+  /** ⚖ S17 · C2 — 臨時休業 IS A COLLECTION, BECAUSE THE WIRE IS A COLLECTION.
+   *
+   *  THE CONTRACT (@synqed-kk/client@1.34.0 dist/store-policies.d.ts:20-27):
+   *    listClosedDays(storeId, range?) → { closed_days: StoreClosedDay[] }
+   *    addClosedDay(storeId, input)    → StoreClosedDay   // HQ-gated; 409 when
+   *                                                       // the date is already closed
+   *    removeClosedDay(storeId, id, actingStaffId) → void
+   *  and dist/types.d.ts:1081-1095:
+   *    StoreClosedDay { id; store_id; date (YYYY-MM-DD); reason: string | null; … }
+   *    AddClosedDayInput { date; reason?: string | null; acting_staff_id; audit? }
+   *
+   *  The first cut rendered this as two SEGMENTED ROWS offering 臨時休業 /
+   *  特別営業 / 通常営業 per pre-existing date — which cannot express the wire at
+   *  all: there is no way to add a date, no way to remove one, and 特別営業 is a
+   *  value core has no field for (⚖ label truth: a control that names a value
+   *  the store cannot save is a lie with a picture on it). It is an add/remove
+   *  list, so it is rendered as one.
+   *
+   *  `null` on every other block. */
+  collection: SettingsCollection | null
+}
+
+/** The list half of a block that adds and removes rows. */
+export interface SettingsCollection {
+  /** The store's rows, newest-first as the wire returns them. */
+  items: Array<{ id: string; title: string; note: string }>
+  /** What the 追加 row's two controls are called, so the screen reads the value
+   *  map rather than guessing an id shape. */
+  dateControlId: string
+  reasonControlId: string
+  addLabel: string
+  removeLabel: string
+  /** canon's own empty state, and it is a sentence rather than a blank box. */
+  emptyLine: string
+  /** ⚠ THE WIRE'S 409, SPOKEN BEFORE IT IS EARNED (⚖ mistake-proofing at the
+   *  moment of the mistake): the room refuses a duplicate date itself, in the
+   *  same words the server would answer with, rather than letting the operator
+   *  press 追加 and find out later. */
+  duplicateError: string
+  /** The one field that must not be empty. */
+  emptyDateError: string
 }
 
 export interface SettingsSection {
@@ -760,4 +810,102 @@ export function hhmm(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+// ══ ⚖ S17 · C1 — 営業時間 IS THE WIRE'S `weekly_hours`, AND IT IS PER DAY ════
+//
+// THE CONTRACT, mirrored BY SHAPE with its cite (⚖ C0 — Business reaches core
+// nowhere in this round; the swap to `StorePolicyClient.set` is the deliberate
+// reconnect PR):
+//
+//   @synqed-kk/client@1.34.0 dist/types.d.ts:1047-1050
+//     export type WeeklyHours = Partial<Record<
+//       'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun',
+//       { open: string; close: string } | null>>
+//     /** One open/close window per weekday ("10:00"–"20:00"); null/absent
+//      *  weekday = 定休日 (regular weekly closed day). */
+//   …:1062  StoreBookingPolicy.weekly_hours: WeeklyHours | null
+//   …:1076  SetStoreBookingPolicyInput.weekly_hours?: WeeklyHours | null
+//           /** undefined = keep; null = clear back to unconfigured; object = set. */
+//
+// ⚠ THE TWO NULLS ARE DIFFERENT NULLS, AND CONFUSING THEM IS A DATA LOSS.
+// `weekly_hours[day] = null` says 「this store is closed on Mondays」.
+// `weekly_hours = null` says 「this store has never configured hours at all」,
+// which switches the whole hours filter off. A screen that answered 「the store
+// is closed every day」 by clearing the object would silently open the store's
+// booking window to every hour of every day. So the payload below can produce
+// a null DAY and can never produce a null OBJECT.
+//
+// ⚠ AND THE ROOM DOES NOT STATE THE SEVEN DAYS ANYWHERE. `fixtures-today` holds
+// this world's ONE open/close pair plus its closed weekday, which is what the
+// board and Reserve read; a second, seven-day copy in the settings plane would
+// be the two-homes defect the room exists to avoid. The seven days are DERIVED
+// from that pair, once, at the plane boundary — `weeklyHoursFrom` below.
+
+/** The wire's own weekday keys, in the order a Japanese week is read. */
+export const WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+export type WeekdayKey = (typeof WEEKDAY_KEYS)[number]
+
+/** One day's window, or `null` for 定休日 — the wire's own shape. */
+export type DayHours = { open: string; close: string } | null
+export type WeeklyHours = Partial<Record<WeekdayKey, DayHours>>
+
+/** ⚠ THE ROOM'S DAY NUMBERS ARE `Date.getDay()`'s (0 = 日), because that is what
+ *  `fixtures-today.closedWeekday` speaks and what every control id in the
+ *  営業時間 block is keyed by. The wire speaks weekday NAMES. One table, so the
+ *  two vocabularies meet in exactly one place. */
+export const WEEKDAY_OF: Record<number, WeekdayKey> = {
+  1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat', 0: 'sun',
+}
+
+/** The seven days this world actually has, derived ONCE from the pair the board
+ *  reads. The closed weekday becomes `null` — 定休日 — and every other day
+ *  carries the store's own window. */
+export function weeklyHoursFrom(open: string, close: string, closedWeekday: number): WeeklyHours {
+  const out: WeeklyHours = {}
+  for (const [num, key] of Object.entries(WEEKDAY_OF)) {
+    out[key] = Number(num) === closedWeekday ? null : { open, close }
+  }
+  return out
+}
+
+/** WHAT THE RECONNECT PR WILL SEND, built from what the reader actually did.
+ *
+ *  `open`/`close` are the two `time` controls of that day's row and `on` is its
+ *  営業する switch: OFF emits `null` for that DAY (定休日) and keeps every other
+ *  day's window untouched. The suite pins both halves — a store with 月曜 OFF
+ *  renders 定休日 and produces `weekly_hours.mon === null` — because the shape
+ *  is the whole of what 「the contract is correct」 means before the reconnect. */
+export function weeklyHoursPayload(
+  days: ReadonlyArray<{ day: number; on: boolean; open: string; close: string }>,
+): WeeklyHours {
+  const out: WeeklyHours = {}
+  for (const d of days) {
+    const key = WEEKDAY_OF[d.day]
+    if (key === undefined) continue
+    out[key] = d.on ? { open: d.open, close: d.close } : null
+  }
+  return out
+}
+
+/** Read one 営業時間 block's live values back into the payload's input shape.
+ *  The control ids are the block's own (`<prefix>.day-3` / `.open-3` / `.close-3`),
+ *  which is why the row carries its day number in `weekday`. */
+export function weekDaysOf(
+  block: SettingsBlock,
+  values: Record<string, RowValue>,
+): Array<{ day: number; on: boolean; open: string; close: string }> {
+  const out: Array<{ day: number; on: boolean; open: string; close: string }> = []
+  for (const row of block.rows) {
+    if (row.weekday === undefined) continue
+    const sw = row.controls.find((c) => c.control.kind === 'switch')
+    const times = row.controls.filter((c) => c.control.kind === 'time')
+    out.push({
+      day: row.weekday,
+      on: sw ? values[sw.id] === true : true,
+      open: String(values[times[0]?.id ?? ''] ?? ''),
+      close: String(values[times[1]?.id ?? ''] ?? ''),
+    })
+  }
+  return out
 }
