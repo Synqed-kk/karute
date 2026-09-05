@@ -211,7 +211,12 @@ describe('⚖ THE VISIBILITY WALL — enforced ABOVE the serializer', () => {
     // A scope that filters can be un-filtered; a scope that never reads cannot.
     expect(LIB_CODE).toContain('rows.find((r) => r.staffId === selfId)')
     expect(LIB_CODE).not.toMatch(/rows\.filter\([^)]*staffId/)
-    const built = buildSelfView({ selfId: 'p-06', rows: coachingStaff, patterns: teamPatterns })
+    // ⚖ B2-2-1 (S16F) — RE-SPELLED: the consent plane is handed in, because a
+    // view now EXISTS only for a reader who agreed. The pin's own subject — that
+    // the read is a lookup by id rather than a filter over the roster — is
+    // unchanged; what changed is that an un-consented reader has no view to look
+    // up at all, which is the stronger form of the same promise.
+    const built = buildSelfView({ selfId: 'p-06', rows: coachingStaff, patterns: teamPatterns, consent: coachingConsent })
     expect(built.kind).toBe('ready')
     if (built.kind !== 'ready') return
     expect(built.view.sessionsReviewed).toBe(34)
@@ -458,7 +463,15 @@ describe('⚖ THE SAMPLE-SIZE FLOOR — a new hire is never mislabelled', () => 
 
   it('the new hire’s screen says the arithmetic instead of showing blanks', async () => {
     pinClock(MID_MONTH)
-    const { props } = await coachingProps({ ...GINZA, world: { selfId: 'p-09' } })
+    // ⚖ B2-2-1 (S16F) — RE-SPELLED. みらい is the plane's DECLINED reader, and a
+    // declined reader now has no view at all — so the insufficient_data run is
+    // read on the same person with a GRANTED record supplied at the consent seam.
+    // The subject is untouched: a thin run says its arithmetic rather than
+    // showing blanks. Seeing your own screen at all is what consent buys.
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: { selfId: 'p-09', consent: { ...coachingConsent, 'p-09': { status: 'granted', decidedAt: null, policyVersion: 'v2' } } },
+    })
     unpinClock()
     expect(props.self.kind).toBe('ready')
     if (props.self.kind !== 'ready') return
@@ -482,7 +495,13 @@ describe('⚖ THE SAMPLE-SIZE FLOOR — a new hire is never mislabelled', () => 
 
   it('a staff member with no coaching row at all gets the empty state, not a zero', async () => {
     pinClock(MID_MONTH)
-    const { props } = await coachingProps({ ...GINZA, world: { selfId: 'p-99-nobody' } })
+    // ⚖ B2-2-1 (S16F) — RE-SPELLED: granted at the seam, so 'none' is really
+    // 「the plane holds no row for this person」 rather than 「they never agreed」.
+    // The two are different facts and the payload now says which.
+    const { props } = await coachingProps({
+      ...GINZA,
+      world: { selfId: 'p-99-nobody', consent: { 'p-99-nobody': { status: 'granted', decidedAt: null, policyVersion: 'v2' } } },
+    })
     unpinClock()
     expect(props.self.kind).toBe('none')
     if (props.self.kind !== 'none') return
@@ -1981,8 +2000,11 @@ describe('⚖ D8-1 — the staff member’s OWN share state is READ, never assum
   })
 
   it('the grant reaches the self view by the same LOOKUP the rest of it uses', () => {
-    const mine = buildSelfView({ selfId: 'p-01', rows: coachingStaff, patterns: teamPatterns })
-    const theirs = buildSelfView({ selfId: 'p-06', rows: coachingStaff, patterns: teamPatterns })
+    // ⚖ B2-2-1 (S16F) — RE-SPELLED with the consent plane: both readers granted
+    // it, so both still have a view, and the DEPTH-SHARE grant this pin is about
+    // is still read by the same lookup. Two different records, two questions.
+    const mine = buildSelfView({ selfId: 'p-01', rows: coachingStaff, patterns: teamPatterns, consent: coachingConsent })
+    const theirs = buildSelfView({ selfId: 'p-06', rows: coachingStaff, patterns: teamPatterns, consent: coachingConsent })
     expect(mine.kind).toBe('ready')
     if (mine.kind !== 'ready' || theirs.kind !== 'ready') return
     expect(mine.view.grant).toBe('granted')
@@ -2862,6 +2884,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
         { category: 'next_step', label: '二番目', description: 'x', confidence: 'established', priority: 'medium', module_id: 'mod-next-01', suggested_new_module_title: null },
       ] } }],
       patterns: teamPatterns,
+      consent: coachingConsent,
     })
     expect(view.kind).toBe('ready')
     expect((view as { kind: 'ready'; view: { focus: unknown[] } }).view.focus.length).toBe(3)
@@ -2898,6 +2921,7 @@ describe('⚖ THE LOOK-FIX SURFACES — each one really reaches the screen', () 
       selfId: 'p-06',
       rows: [{ ...coachingStaff[0], findingsRun: { ...coachingStaff[0].findingsRun, findings: coachingStaff[0].findingsRun.findings.map((f) => ({ ...f, pattern_reference: 'tp-nope' })) } }],
       patterns: teamPatterns,
+      consent: coachingConsent,
     }) as { kind: 'ready'; view: { findings: Array<{ patternBehavior: string | null }> } }
     for (const f of dangling.view.findings) expect(f.patternBehavior).toBeNull()
   })
@@ -4547,5 +4571,77 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
       const sentences = spoken.split('。').filter(Boolean)
       expect({ state, dupes: sentences.length - new Set(sentences).size }).toEqual({ state, dupes: 0 })
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ BLIND ROUND 2 (S16F) — what the fresh eyes found on 9ae46276f', () => {
+  /** The three states a non-granted reader can be in, each carried by the
+   *  RICHEST run in the plane (p-06: three findings, three verbatim quotes,
+   *  five metrics, a practice sheet). Before this round every one of them
+   *  serialized the whole L1 view and gated it in the markup. */
+  const NOT_GRANTED = [
+    { name: 'declined', consent: { 'p-06': { status: 'declined' as const, decidedAt: null, policyVersion: 'v2' } } },
+    { name: 'unset (a record that says so)', consent: { 'p-06': { status: 'unset' as const, decidedAt: null, policyVersion: null } } },
+    { name: 'unset (never asked — no record at all)', consent: {} },
+  ]
+
+  it('B2-2-1 · a non-granted reader’s payload is the QUESTION and nothing else — no quote, no finding, no stat', async () => {
+    const rich = coachingStaff.find((r) => r.staffId === 'p-06')!
+    // every string the L1 view would have shipped, taken from the plane rather
+    // than restated — so a fixture edit cannot quietly empty this pin.
+    const quotes = rich.findingsRun.findings.map((f) => f.evidence.verbatim_moment?.quote).filter(Boolean) as string[]
+    const headlines = rich.findingsRun.findings.map((f) => f.headline)
+    const stats = [`${Math.round(rich.closingRate * 100)}%`, `${Math.round(rich.rebookingRate * 100)}%`, rich.customerSatisfaction.toFixed(1)]
+    expect(quotes.length).toBe(3)
+    expect(headlines.length).toBe(3)
+
+    for (const world of NOT_GRANTED) {
+      pinClock(MID_MONTH)
+      const { props } = await coachingProps({ ...GINZA, world: { role: 'スタッフ', selfId: 'p-06', consent: world.consent } })
+      unpinClock()
+      expect({ world: world.name, kind: props.self.kind }).toEqual({ world: world.name, kind: 'withheld' })
+      // STRUCTURAL, not a byte budget: the payload has exactly two keys, so
+      // there is no field a mis-wired component could read.
+      expect({ world: world.name, keys: Object.keys(props.self).sort() }).toEqual({ world: world.name, keys: ['consent', 'kind'] })
+      // …and the SERIALIZED props — the thing that really crosses to the client
+      // — carry none of the three classes of L1 content.
+      const blob = JSON.stringify(props)
+      for (const needle of [...quotes, ...headlines, ...stats]) {
+        expect({ world: world.name, needle, present: blob.includes(needle) }).toEqual({ world: world.name, needle, present: false })
+      }
+    }
+  })
+
+  it('B2-2-1 · consent is asked ABOVE the row read — the derivation, not the markup', async () => {
+    // the gate is in `buildSelfView`, before `rows` is touched at all: a reader
+    // who did not agree is answered without their row being looked up.
+    expect(LIB_CODE).toMatch(/if \(own\.status !== 'granted'\) return \{ kind: 'withheld', consent: own \}[\s\S]{0,600}rows\.find\(\(r\) => r\.staffId === selfId\)/)
+    // and it really refuses at the model, not only through the props file
+    for (const status of ['declined', 'unset'] as const) {
+      const built = buildSelfView({
+        selfId: 'p-06',
+        rows: coachingStaff,
+        patterns: teamPatterns,
+        consent: { 'p-06': { status, policyVersion: 'v2' } },
+      })
+      expect({ status, kind: built.kind }).toEqual({ status, kind: 'withheld' })
+    }
+    // the screen's own gate STAYS, as the second fence
+    expect(SCREEN_CODE).toContain("{ready.consent.status === 'granted' && (")
+    // …and the withheld reader gets no second 「まだありません」 card naming the
+    // wrong reason: the cg-state panel is the 'none' branch's alone.
+    expect(SCREEN_CODE).toContain("              ) : self.kind === 'none' ? (")
+  })
+
+  it('B2-2-1 · the granted reader is untouched — the whole view still ships', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'スタッフ', selfId: 'p-06' } })
+    unpinClock()
+    expect(props.self.kind).toBe('ready')
+    if (props.self.kind !== 'ready') return
+    expect(props.self.findings.length).toBe(3)
+    expect(props.self.stats.length).toBe(5)
+    expect(props.self.sheet).not.toBeNull()
   })
 })

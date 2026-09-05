@@ -274,9 +274,16 @@ export interface CoachingConsentBlock {
   strip: string | null
 }
 
+/** ⚖ B2-2-1 (S16F) — THREE BRANCHES, AND THE THIRD CARRIES NOTHING BUT THE
+ *  QUESTION. `withheld` is a reader who has not agreed (declined, or never
+ *  asked): `coaching-props.ts` never builds their view at all, so this screen
+ *  is not handed a stat, a finding or a quote to gate. The `granted` check
+ *  inside the ready branch stays as the SECOND fence — the first one is now the
+ *  absence of anything to render. */
 export type CoachingSelf =
   | CoachingSelfReady
   | { kind: 'none'; consent: CoachingConsentBlock; statusTitle: string; statusBody: string }
+  | { kind: 'withheld'; consent: CoachingConsentBlock }
 
 /** contract.ts:236-245 OwnerTriageRow + staff-focus.ts:184-193's layer2_summary. */
 export interface CoachingTriageRowProps {
@@ -1199,7 +1206,13 @@ export function CoachingScreen(props: CoachingProps) {
                       card itself sits ABOVE the gate, so the question always
                       renders.
                       ⚠ THE ORDER IS THE PIN: consent → gate → the decision desk
-                      → the library row → gate-close. */}
+                      → the library row → gate-close.
+                      ⚖ B2-2-1 (S16F) — AND IT IS THE SECOND FENCE NOW. The gate
+                      moved above the serializer: `buildSelfView` returns
+                      `withheld` for a non-granted reader without reading their
+                      row, so `ready` is null here and this condition can only
+                      ever be true. It stays because a fence that costs one
+                      boolean is cheaper than the round that puts it back. */}
                   {ready.consent.status === 'granted' && (
                   <>
                   {/* ⚖ I-1 (S16C, Liam's 9/5 look) — THE PRACTICE SHEET LEADS THE
@@ -1818,7 +1831,7 @@ export function CoachingScreen(props: CoachingProps) {
                   </>
                   )}
                 </>
-              ) : (
+              ) : self.kind === 'none' ? (
                 <section
                   className="cg-state"
                   data-guide-title="まだ表示できないもの"
@@ -1827,6 +1840,16 @@ export function CoachingScreen(props: CoachingProps) {
                   <h2 className="cg-sec-title">{self.statusTitle}</h2>
                   <p>{self.statusBody}</p>
                 </section>
+              ) : (
+                /* ⚖ B2-2-1 (S16F) — THE WITHHELD READER GETS NO SECOND CARD.
+                   Why the page below is empty is a fact about their own consent
+                   decision, and the card standing above this point already says
+                   it in its own words — 「この画面の成績と気づきは表示されません」
+                   on both the declined state and (S16F, B2-2-5) the unset one.
+                   A 「分析されたセッションがまだありません」 panel here would name
+                   the WRONG reason: for a reader who has not agreed, whether
+                   sessions exist is not the question and not ours to answer. */
+                null
               )}
             </div>
           ) : activeTab === 'team' ? (

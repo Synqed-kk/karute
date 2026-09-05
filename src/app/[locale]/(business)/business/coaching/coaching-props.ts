@@ -347,7 +347,9 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
   // ⚠ MODULE OFF = THE PLANE IS NEVER READ, consent included. The dormant page
   // renders no self panel at all, so the value below is the consent type's own
   // default-pre-prompt state rather than a claim about this reader — reading
-  // their real record here would be the module gate leaking one row.
+  // their real record here would be the module gate leaking one row. It stays
+  // `none` rather than `withheld` because the reason really is the MODULE, not
+  // a decision this reader took, and the dormant page renders neither.
   const self: SelfState = on
     ? buildSelfView({ selfId, rows, patterns: teamPatterns, consent: consentPlane })
     : { kind: 'none', consent: { status: 'unset', policyVersion: null } }
@@ -774,12 +776,21 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             // and what its button offers, instead of a hardcoded 「現在オフ」.
             share: SHARE_STATE[self.view.grant === 'granted' ? 'on' : 'off'],
           }
-        : {
-            kind: 'none',
-            consent: consentBlock,
-            statusTitle: '分析されたセッションがまだありません',
-            statusBody: 'セッションの記録がたまると、あなただけが見られる成績と気づきがここに表示されます。',
-          },
+        : // ⚖ B2-2-1 (S16F) — THE NON-GRANTED READER'S PAYLOAD IS THE CONSENT
+          // QUESTION AND NOTHING ELSE. `buildSelfView` returns `withheld`
+          // WITHOUT reading their row, so there is no view here to serialize
+          // down to: this branch cannot leak a stat, a finding or a quote
+          // because it was never handed one. The card the reader answers is the
+          // whole self payload, and the screen's own gate is now the SECOND
+          // fence rather than the only one.
+          self.kind === 'withheld'
+          ? { kind: 'withheld', consent: consentBlock }
+          : {
+              kind: 'none',
+              consent: consentBlock,
+              statusTitle: '分析されたセッションがまだありません',
+              statusBody: 'セッションの記録がたまると、あなただけが見られる成績と気づきがここに表示されます。',
+            },
     team: team
       ? {
           framingLine: 'この画面は評価のためではなく、支援を配るためのものです。順位はつけません。',

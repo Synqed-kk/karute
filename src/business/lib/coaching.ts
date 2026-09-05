@@ -430,9 +430,23 @@ export interface SelfView {
  *  question that comes BEFORE there is anything to analyse, so a person who has
  *  never been asked must be asked on the screen that has nothing on it yet —
  *  not only on the screen that already has their numbers. One lookup, one home:
- *  the branch changes what there is to show, never who was asked. */
+ *  the branch changes what there is to show, never who was asked.
+ *  ⚖ B2-2-1 (S16F) — AND `withheld` IS THE THIRD BRANCH, because consent is not a
+ *  RENDER question. `COACHING_VISIBILITY_MODEL.md:37-39`: consent to be coached
+ *  「gates whether *any* L1 artifact is generated at all」. Before this round the
+ *  whole L1 view was BUILT for a declined or never-asked reader and gated only in
+ *  the markup, so ~4.9 KB carrying three verbatim customer quotes, three finding
+ *  titles and five metric values crossed the client boundary for a reader whose
+ *  own screen said 「あなたのセッションは分析されていません」. Nothing leaked — it is
+ *  the reader's OWN data and no generator ran — but the one gate in this room a
+ *  mis-wired component could walk past was the one gate that was not above the
+ *  serializer, in a file whose header says no such gate exists. `withheld` is a
+ *  state with NO view: there is nothing to walk past. */
 export type SelfConsentRecord = { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }
-export type SelfState = { kind: 'ready'; view: SelfView } | { kind: 'none'; consent: SelfConsentRecord }
+export type SelfState =
+  | { kind: 'ready'; view: SelfView }
+  | { kind: 'none'; consent: SelfConsentRecord }
+  | { kind: 'withheld'; consent: SelfConsentRecord }
 
 export function buildSelfView(input: {
   /** The VIEWER's own staff id. This is a lookup, not a filter. */
@@ -445,10 +459,17 @@ export function buildSelfView(input: {
   consent?: Record<string, { status: 'unset' | 'granted' | 'declined'; policyVersion: string | null }>
 }): SelfState {
   const { selfId, rows, patterns, consent = {} } = input
+  const own: SelfConsentRecord = consent[selfId] ?? { status: 'unset', policyVersion: null }
+  // ⚖ B2-2-1 (S16F) — CONSENT IS ASKED FIRST, BEFORE THE ROW IS EVEN LOOKED UP.
+  // Not 「did this reader refuse?」 but 「did this reader AGREE?」, which is the
+  // same question the screen's own second fence asks: a person who has never
+  // been asked has authorised nothing, so nothing may be generated FROM them —
+  // and `rows` is not read at all for that person, which is what makes the
+  // absence structural rather than a filter somebody could reorder.
+  if (own.status !== 'granted') return { kind: 'withheld', consent: own }
   // ⚖ THE SELF READ IS A LOOKUP BY ID. Nothing else in `rows` is touched, so a
   // colleague's numbers cannot reach this model even by accident.
   const mine = rows.find((r) => r.staffId === selfId)
-  const own: SelfConsentRecord = consent[selfId] ?? { status: 'unset', policyVersion: null }
   if (!mine) return { kind: 'none', consent: own }
 
   const run = mine.findingsRun
