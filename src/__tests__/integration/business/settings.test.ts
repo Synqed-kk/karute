@@ -1481,6 +1481,36 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
     expect(CSS_CODE).toMatch(/\.st-main \{ container: st-main \/ inline-size/)
   })
 
+  it('EVERY composition rule comes after EVERY base rule — the cascade, not the memory', () => {
+    // ⚠ THIS PIN EXISTS BECAUSE THE SAME DEFECT LANDED TWICE IN ONE ROUND, and
+    // both times every other pin stayed green.
+    //   · ③'s sticky column was written above ②'s band, so at 1280 — where both
+    //     match — ②'s strip won and the jump list rendered as a row of chips.
+    //   · the three-across preset rule was written above #812's own
+    //     `.st-presets` base rule (which lives in the APPENDED block, after the
+    //     room's, by A9's ruling), so the presets NEVER went three across at any
+    //     width the room can reach. The probe measured `.st-presets` resolving to
+    //     one column at main 652 / 748 / 686 / 836, all over the 640 threshold.
+    // A container query adds NO specificity, so between it and a bare rule of
+    // the same selector the LATER one wins — which makes 「where the block is
+    // written」 the composition, not a filing preference.
+    const at = [...CSS_CODE.matchAll(/^@(container|media)[^\n]*/gm)]
+    const compositions = at.filter((m) => !/prefers-reduced-motion/.test(m[0]))
+    // every bare rule — a selector at the start of a line, outside any block
+    const bare = [...CSS_CODE.matchAll(/^\.biz [^{\n]*\{/gm)]
+    const lastBare = bare[bare.length - 1].index!
+    const firstComposition = compositions[0].index!
+    expect({ firstComposition: firstComposition > lastBare }).toEqual({ firstComposition: true })
+    // …and the two that decide the same subjects are in ladder order: ② before
+    // ③, so ③ wins where both match.
+    expect(CSS_CODE.indexOf('@container st-body (min-width: 960px)'))
+      .toBeGreaterThan(CSS_CODE.indexOf('@media (min-width: 900px)'))
+    // …and the phone band is ONE band, not two, so 「the rules for a phone」 has
+    // one home rather than a home and a leftover.
+    expect((CSS_CODE.match(/@media \(max-width: 899px\)/g) ?? [])).toHaveLength(1)
+    expect((CSS_CODE.match(/@media \(max-width: 1023px\)/g) ?? [])).toHaveLength(1)
+  })
+
   it('the ladder is crossed once across the sweep, at the shell’s REAL rail widths', () => {
     // ⚠ THE HARNESS-GEOMETRY LAW, ARITHMETICALLY. The composition turns on
     // `.st-body`'s own width — the page minus the SHELL's rail minus this page's

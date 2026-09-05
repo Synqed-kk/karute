@@ -787,265 +787,6 @@
 .biz .pg-settings .st-spot-foot button:disabled { color: var(--quiet); cursor: default; }
 .biz .pg-settings .st-spot-count { margin-left: auto; color: var(--quiet); font-size: 11px; font-variant-numeric: tabular-nums; }
 
-/* ── ⚖ ALL-SCREEN ADAPTIVITY — the three compositions ──────────────────────── */
-
-/* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
-   capability grid is eight facts that read as a grid or not at all. ═══ */
-@container st-main (min-width: 640px) {
-  .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-/* ═══ ② STRIP — ≥900 viewport, `.st-body` under 960. The stack has nowhere to
-   stand, so it becomes a band above the panel. ═══ */
-@media (min-width: 900px) {
-  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
-  /* ⚠ BOTH WRAPPERS DISSOLVE, so the six pieces take their own places. The
-     strip is a TOOLBAR — このページの中身 beside the save state, on one line — and
-     the live card is NOT part of it: it goes UNDER the dials, where ① puts it
-     too. That is label truth rather than taste: the lead says 「下のカード」 at
-     every width below ③, and a card sitting above the dials would make the one
-     sentence pointing at it false. (Found by the probe's T2, which measures the
-     card's own rect against the word in the visible lead.) */
-  .biz .pg-settings .st-col,
-  .biz .pg-settings .st-col,
-  .biz .pg-settings .st-side { display: contents; }
-  .biz .pg-settings .st-panel { grid-template-columns: minmax(0, 1fr) auto; }
-  .biz .pg-settings .st-back { order: 1; grid-column: 1 / -1; }
-  .biz .pg-settings .st-sec-head { order: 2; grid-column: 1 / -1; }
-  .biz .pg-settings .st-jump { order: 3; grid-column: 1; }
-  .biz .pg-settings .st-save-card { order: 3; grid-column: 2; }
-  .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { order: 4; grid-column: 1 / -1; }
-  .biz .pg-settings .st-side-card { order: 5; grid-column: 1 / -1; max-width: 560px; }
-  .biz .pg-settings .st-jump { min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
-  .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
-  .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
-  .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
-  .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
-  .biz .pg-settings .st-jump-note { display: none; }
-  .biz .pg-settings .st-save-card { flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; white-space: nowrap; }
-  .biz .pg-settings .st-save-card .st-foot { display: none; }
-}
-
-/* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header.
-   ⚠ IT MUST COME AFTER ②'s BAND, AND THAT IS NOT A TIDINESS PREFERENCE. A
-   container query and a media query carry the SAME specificity, so at 1280 with
-   the shell's rail open — where BOTH match — the winner is whichever is written
-   last. Written first, ③'s column lost to ②'s strip at the exact width this
-   product is read on, and the shot showed it: the jump list rendered as a row of
-   chips inside the right column. Ordered last, ③ is the composition that wins
-   wherever it applies, which is what a ladder means. ═══ */
-@container st-body (min-width: 960px) {
-  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
-  .biz .pg-settings .st-panel { grid-template-columns: minmax(var(--st-main-min), 1fr) var(--st-side-w); }
-  /* …and here the two wrappers become real boxes again: the reading column is
-     ONE grid item (so the stack never has to span rows — see the note in the
-     screen beside `columnAnd`), and the stack is the other. */
-  .biz .pg-settings .st-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; grid-column: 1; }
-  .biz .pg-settings .st-side { display: flex; grid-column: 2; }
-  .biz .pg-settings .st-back,
-  .biz .pg-settings .st-sec-head,
-  .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { grid-column: auto; }
-  /* ⚠ NAMED EXCEPTION 1 of 2 (see the header): a box pinned to the viewport that
-     is taller than the viewport can never reveal its own last row, because the
-     page scroll no longer moves it. Capped at the viewport and scrolling inside
-     itself is the only shape that keeps it whole. */
-  .biz .pg-settings .st-side {
-    align-self: start;
-    position: sticky; top: calc(var(--st-topbar) + 12px);
-    max-height: calc(100vh - var(--st-topbar) - 24px);
-    overflow-y: auto; overscroll-behavior: contain;
-  }
-  /* ⚠ AND ITS CHILDREN MAY SHRINK. A flex item's `min-width` is `auto`, so a
-     long refusal sentence inside #812's own 保存 block kept the card wider than
-     its 288px column and pushed the text off the page edge — seen on the
-     予約と確保 shot before the column became one box. */
-  .biz .pg-settings .st-side > * { min-width: 0; }
-  /* ⚠ NAMED EXCEPTION 2 of 2, same exception, same reason — but the box that
-     owns the axis is the LIST, not the rail. The search field and the count
-     belong to the rail whatever is scrolled to: a field that scrolls away is a
-     field a reader has to scroll BACK to in order to change what they are
-     looking for, which is the one thing they are doing. So the rail is the
-     pinned frame (no axis of its own) and its list is what moves inside it. */
-  .biz .pg-settings .st-rail {
-    position: sticky; top: calc(var(--st-topbar) + 12px);
-    max-height: calc(100vh - var(--st-topbar) - 24px);
-  }
-  .biz .pg-settings .st-rail-list {
-    flex: 1 1 auto; min-height: 0;
-    overflow-y: auto; overscroll-behavior: contain;
-  }
-  /* …and the stack goes back to being a column, undoing ②'s strip. It lives in
-     THIS query rather than in a second `st-body` block of its own: the room's
-     ladder is ONE QUERY PER CONTAINER, and two blocks at one threshold are two
-     places to read the same number. */
-  .biz .pg-settings .st-side { flex-direction: column; align-items: stretch; gap: 8px; }
-  .biz .pg-settings .st-jump { display: block; padding: 10px 11px 11px; }
-  .biz .pg-settings .st-jump-head { padding: 0 2px 5px; }
-  .biz .pg-settings .st-jump-list { flex-direction: column; gap: 1px; overflow: visible; }
-  .biz .pg-settings .st-jump-item { width: 100%; border: 0; border-radius: 7px; padding: 5px 8px; white-space: normal; }
-  .biz .pg-settings .st-jump-note { display: block; }
-  .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; }
-  .biz .pg-settings .st-save-card .st-foot { display: block; }
-  /* …and the lead may finally say 「右のカード」, because here it is. */
-  .biz .pg-settings .st-lead-wide { display: inline; }
-  .biz .pg-settings .st-lead-narrow { display: none; }
-}
-
-/* ═══ ≥1440 — big displays: the rail and the stack take their full width and
-   the reading lines are capped. ═══ */
-@media (min-width: 1440px) {
-  .biz .page.pg-settings { --st-rail-w: 240px; --st-side-w: 300px; --st-gap: 20px; }
-  .biz .pg-settings .st-lead,
-  .biz .pg-settings .st-dial-desc,
-  .biz .pg-settings .st-fact,
-  .biz .pg-settings .st-block-note,
-  .biz .pg-settings .st-boundary p { max-width: 66ch; }
-}
-
-/* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone (room 8's C8-7). ⚖
-   ALL-SCREEN names ≥44px at the phone, and that is its FLOOR rather than its
-   ceiling: 900–1023 is the iPad landscape / opened-foldable band, which is a
-   finger on glass exactly as 390 is. ═══ */
-/* ═══ ≤1399 — laptops. The page keeps a 24px gutter, which is what puts the
-   reference width (1280 with the shell's rail OPEN) at a body of 968 rather
-   than exactly 960: eight pixels of headroom over the ③ threshold, so a
-   scrollbar cannot drop the room back to the strip. ═══ */
-@media (max-width: 1399px) {
-  .biz .page.pg-settings { padding-left: 24px; padding-right: 24px; }
-}
-
-@media (max-width: 1023px) {
-  .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
-  .biz .pg-settings .st-opt,
-  .biz .pg-settings .st-pick,
-  .biz .pg-settings .st-jump-item,
-  .biz .pg-settings .st-rail-item,
-  .biz .pg-settings .st-det-btn,
-  .biz .pg-settings .st-link,
-  .biz .pg-settings .st-act,
-  .biz .pg-settings .st-back,
-  .biz .pg-settings .st-save,
-  .biz .pg-settings .st-select,
-  .biz .pg-settings .st-input,
-  /* ⚠ FOUND BY THE PROBE, NOT BY READING: 取り消す measured 27px at 1023. It is a
-     button on a list row, so it never looked like it belonged with 「the
-     controls」 — which is exactly why an enumerated touch list needs a machine
-     measuring every pressable rather than a person remembering them. */
-  .biz .pg-settings .st-coll-del,
-  .biz .pg-settings .st-spot-foot button { min-height: 44px; }
-  .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
-  .biz .pg-settings .st-search-field { min-height: 44px; }
-  .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
-  .biz .pg-settings .st-switch { width: 68px; height: 44px; }
-  .biz .pg-settings .st-switch-thumb { top: 4px; left: 4px; width: 34px; height: 34px; }
-  .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
-}
-
-/* ═══ ① ≤899 — LIST IS THE PAGE. ⚖ ALL-SCREEN's device clause: the rail IS the
-   page, and a chosen section replaces it with a way back. This is the ONE
-   media-driven composition swap in the room — see the header. ═══ */
-@media (max-width: 899px) {
-  .biz .page.pg-settings { padding: 16px 14px 32px; gap: 12px; }
-  .biz .pg-settings .st-panel { display: none; }
-  .biz .pg-settings.is-detail .st-rail { display: none; }
-  .biz .pg-settings.is-detail .st-panel { display: grid; }
-  .biz .pg-settings .st-back {
-    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; order: 1;
-    padding: 4px 14px 4px 11px;
-    border: 1px solid var(--st-accent); border-radius: 999px;
-    background: var(--st-accent-wash); color: var(--st-accent);
-    font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
-  }
-  .biz .pg-settings .st-sec-head { order: 2; }
-  /* ⚠ `display: contents` DISSOLVES THE STACK so its three children become grid
-     items of the panel in their own right — which is the only way one DOM can
-     put このページの中身 under the head and the save bar at the bottom of the
-     screen without rendering either of them twice. */
-  .biz .pg-settings .st-side { display: contents; }
-  /* ⚠ ON A PHONE THE CARD GOES UNDER THE DIALS, NOT OVER THEM. The mock made it
-     a collapsible row above the presets; on a 390px screen that is either a tall
-     picture standing between a manager and the thing they opened the section
-     for, or one more press before they can start. Below the dials it is a
-     reference they scroll to after changing something — which is when they want
-     to see what their staff will see — and it costs no press at all. */
-  .biz .pg-settings .st-jump { order: 3; }
-  .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { order: 4; }
-  .biz .pg-settings .st-side-card { order: 5; }
-  .biz .pg-settings .st-save-card {
-    order: 6;
-    position: sticky; bottom: 0; z-index: 3;
-    margin: 0 -14px -32px; border-radius: 13px 13px 0 0; border-bottom: 0;
-    padding: 10px 14px 14px;
-    background: rgba(255, 255, 255, .96);
-    backdrop-filter: saturate(180%) blur(12px);
-    box-shadow: 0 -4px 14px rgba(16, 24, 40, .06);
-  }
-  /* A row stacks: the label and its description over the control, in reading
-     order, with the control filling the line rather than leaving half of it
-     empty. */
-  .biz .pg-settings .st-dial { grid-template-columns: minmax(0, 1fr); row-gap: 8px; padding: 11px 0; }
-  .biz .pg-settings .st-dial-ctl { max-width: none; width: 100%; }
-  .biz .pg-settings .st-dial-ctl > .st-select,
-  .biz .pg-settings .st-dial-ctl > .st-textline { width: 100%; max-width: none; }
-  .biz .pg-settings .st-dial-ctl > .st-seg { width: 100%; }
-  .biz .pg-settings .st-dial-ctl > .st-seg .st-opt { flex: 1 1 0; text-align: center; }
-  /* The week loses its head and pairs its times under the day. */
-  .biz .pg-settings .st-week-head { display: none; }
-  .biz .pg-settings .st-week-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
-  .biz .pg-settings .st-week-day { grid-column: 1; grid-row: 1; }
-  .biz .pg-settings .st-week-cell:nth-of-type(2) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  .biz .pg-settings .st-week-cell:nth-of-type(3) { grid-column: 1; grid-row: 2; }
-  .biz .pg-settings .st-week-cell:nth-of-type(4) { grid-column: 2; grid-row: 2; }
-  .biz .pg-settings .st-block { padding: 12px 12px 13px; }
-  .biz .pg-settings .st-tr { grid-template-columns: minmax(0, 1fr) !important; }
-}
-
-/* ═══ ≥900 — the rail and the panel share the page, and a data table earns its
-   columns once there is room for them. ═══ */
-@media (min-width: 900px) {
-  .biz .pg-settings .st-tr { grid-template-columns: repeat(var(--st-cols, 1), minmax(0, 1fr)); gap: 10px; }
-}
-
-/* ── reduced motion: the state still changes, it simply stops travelling ──── */
-@media (prefers-reduced-motion: reduce) {
-  .biz .pg-settings .st-rail-item,
-  .biz .pg-settings .st-back,
-  .biz .pg-settings .st-jump-item,
-  .biz .pg-settings .st-det-btn,
-  .biz .pg-settings .st-opt,
-  .biz .pg-settings .st-pick,
-  .biz .pg-settings .st-swatch,
-  .biz .pg-settings .st-switch,
-  .biz .pg-settings .st-save,
-  .biz .pg-settings .st-act,
-  .biz .pg-settings .st-link,
-  .biz .pg-settings .st-search-clear { transition: background-color 120ms linear, border-color 120ms linear, color 120ms linear; }
-  .biz .pg-settings .st-rail-item:active,
-  .biz .pg-settings .st-back:active,
-  .biz .pg-settings .st-jump-item:active,
-  .biz .pg-settings .st-det-btn:active,
-  /* ⚠ THE SELECTORS MIRROR THE LIVE ONES EXACTLY, `:not()` included. A bare
-     `.st-opt:active` here would state a press rule for a LOCKED option — which
-     is the one thing the press law forbids — even though its effect is to turn
-     motion off. A rule that reads as the opposite of the law it obeys is a rule
-     the next reader has to re-derive. */
-  .biz .pg-settings .st-opt:not([aria-disabled="true"]):active,
-  .biz .pg-settings .st-pick:not([aria-disabled="true"]):active,
-  .biz .pg-settings .st-swatch:not([aria-disabled="true"]):active,
-  .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
-  .biz .pg-settings .st-save:not(:disabled):active,
-  .biz .pg-settings .st-act:active,
-  .biz .pg-settings .st-link:active,
-  .biz .pg-settings .st-search-clear:active { transform: none; }
-  .biz .pg-settings .st-det-caret,
-  .biz .pg-settings .st-det-inner,
-  .biz .pg-settings .st-jump-dot { transition: opacity 120ms linear; transform: none; }
-}
-
 /* ══ ── 予約と確保 (from #812, PR #812's own rules, re-homed) ── ═══════════════
    ⚖ S17 FOLD (PACKET-ROOM9-S17 §A9). Every rule below is #812's own, appended
    under the shell room's sheet and still four-level scoped. What did NOT come
@@ -1481,9 +1222,291 @@
 .biz .pg-settings .st-coll-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .biz .pg-settings .st-coll-field > span { color: var(--ink-3); font-size: 10.5px; font-weight: 700; letter-spacing: .02em; }
 .biz .pg-settings .st-coll-error { flex: 1 1 100%; color: var(--orange); font-size: 11.5px; font-weight: 600; line-height: 1.6; }
+/* ══════════════════════════════════════════════════════════════════════════
+   THE COMPOSITIONS COME LAST, AND THAT IS A CASCADE FACT RATHER THAN A FILING
+   PREFERENCE.
+
+   ⚠ A CONTAINER QUERY ADDS NO SPECIFICITY. `@container st-main (min-width:
+   640px) { .biz .pg-settings .st-presets { … } }` and a bare
+   `.biz .pg-settings .st-presets { … }` are BOTH (0,3,0), so between them the
+   later one wins — and #812's appended block, which carries the base rules of
+   予約と確保, sits after the room's own by A9's ruling. Written above it, the
+   three-across rule was DEAD CODE: the presets never went three across at any
+   width the room can reach, and every jest pin stayed green because both rules
+   were present and correct. The probe measured it (`.st-presets` resolved to one
+   column at main 652 / 748 / 686 / 836, all over the 640 threshold) and the
+   capability grid — whose base rule sits BEFORE the query — went 2 → 4 columns
+   at exactly 640, which is the same query working on the other side of the same
+   line.
+
+   It is the SECOND time this class of defect landed in this round: the ③ column
+   lost to ②'s strip the same way, at 1280, and only a shot showed it. So the
+   rule is now structural instead of remembered — EVERY band and EVERY container
+   query lives here, after BOTH rooms' base rules, and the suite pins that the
+   first composition block comes after the last bare rule in the sheet.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── ⚖ ALL-SCREEN ADAPTIVITY — the three compositions ──────────────────────── */
+
+/* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
+   capability grid is eight facts that read as a grid or not at all. ═══ */
+@container st-main (min-width: 640px) {
+  .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* ═══ ② STRIP — ≥900 viewport, `.st-body` under 960. The stack has nowhere to
+   stand, so it becomes a band above the panel. ═══ */
+@media (min-width: 900px) {
+  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  /* ⚠ BOTH WRAPPERS DISSOLVE, so the six pieces take their own places. The
+     strip is a TOOLBAR — このページの中身 beside the save state, on one line — and
+     the live card is NOT part of it: it goes UNDER the dials, where ① puts it
+     too. That is label truth rather than taste: the lead says 「下のカード」 at
+     every width below ③, and a card sitting above the dials would make the one
+     sentence pointing at it false. (Found by the probe's T2, which measures the
+     card's own rect against the word in the visible lead.) */
+  .biz .pg-settings .st-col,
+  .biz .pg-settings .st-col,
+  .biz .pg-settings .st-side { display: contents; }
+  .biz .pg-settings .st-panel { grid-template-columns: minmax(0, 1fr) auto; }
+  .biz .pg-settings .st-back { order: 1; grid-column: 1 / -1; }
+  .biz .pg-settings .st-sec-head { order: 2; grid-column: 1 / -1; }
+  .biz .pg-settings .st-jump { order: 3; grid-column: 1; }
+  .biz .pg-settings .st-save-card { order: 3; grid-column: 2; }
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { order: 4; grid-column: 1 / -1; }
+  .biz .pg-settings .st-side-card { order: 5; grid-column: 1 / -1; max-width: 560px; }
+  .biz .pg-settings .st-jump { min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
+  .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
+  .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
+  .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
+  .biz .pg-settings .st-jump-note { display: none; }
+  .biz .pg-settings .st-save-card { flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; white-space: nowrap; }
+  .biz .pg-settings .st-save-card .st-foot { display: none; }
+}
+
+/* ═══ ③ SIDE COLUMN — `.st-body` ≥ 960. See the arithmetic in the header.
+   ⚠ IT MUST COME AFTER ②'s BAND, AND THAT IS NOT A TIDINESS PREFERENCE. A
+   container query and a media query carry the SAME specificity, so at 1280 with
+   the shell's rail open — where BOTH match — the winner is whichever is written
+   last. Written first, ③'s column lost to ②'s strip at the exact width this
+   product is read on, and the shot showed it: the jump list rendered as a row of
+   chips inside the right column. Ordered last, ③ is the composition that wins
+   wherever it applies, which is what a ladder means. ═══ */
+@container st-body (min-width: 960px) {
+  .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
+  .biz .pg-settings .st-panel { grid-template-columns: minmax(var(--st-main-min), 1fr) var(--st-side-w); }
+  /* …and here the two wrappers become real boxes again: the reading column is
+     ONE grid item (so the stack never has to span rows — see the note in the
+     screen beside `columnAnd`), and the stack is the other. */
+  .biz .pg-settings .st-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; grid-column: 1; }
+  .biz .pg-settings .st-side { display: flex; grid-column: 2; }
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-sec-head,
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { grid-column: auto; }
+  /* ⚠ NAMED EXCEPTION 1 of 2 (see the header): a box pinned to the viewport that
+     is taller than the viewport can never reveal its own last row, because the
+     page scroll no longer moves it. Capped at the viewport and scrolling inside
+     itself is the only shape that keeps it whole. */
+  .biz .pg-settings .st-side {
+    align-self: start;
+    position: sticky; top: calc(var(--st-topbar) + 12px);
+    max-height: calc(100vh - var(--st-topbar) - 24px);
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* ⚠ AND ITS CHILDREN MAY SHRINK. A flex item's `min-width` is `auto`, so a
+     long refusal sentence inside #812's own 保存 block kept the card wider than
+     its 288px column and pushed the text off the page edge — seen on the
+     予約と確保 shot before the column became one box. */
+  .biz .pg-settings .st-side > * { min-width: 0; }
+  /* ⚠ NAMED EXCEPTION 2 of 2, same exception, same reason — but the box that
+     owns the axis is the LIST, not the rail. The search field and the count
+     belong to the rail whatever is scrolled to: a field that scrolls away is a
+     field a reader has to scroll BACK to in order to change what they are
+     looking for, which is the one thing they are doing. So the rail is the
+     pinned frame (no axis of its own) and its list is what moves inside it. */
+  .biz .pg-settings .st-rail {
+    position: sticky; top: calc(var(--st-topbar) + 12px);
+    max-height: calc(100vh - var(--st-topbar) - 24px);
+  }
+  .biz .pg-settings .st-rail-list {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  /* …and the stack goes back to being a column, undoing ②'s strip. It lives in
+     THIS query rather than in a second `st-body` block of its own: the room's
+     ladder is ONE QUERY PER CONTAINER, and two blocks at one threshold are two
+     places to read the same number. */
+  .biz .pg-settings .st-side { flex-direction: column; align-items: stretch; gap: 8px; }
+  .biz .pg-settings .st-jump { display: block; padding: 10px 11px 11px; }
+  .biz .pg-settings .st-jump-head { padding: 0 2px 5px; }
+  .biz .pg-settings .st-jump-list { flex-direction: column; gap: 1px; overflow: visible; }
+  .biz .pg-settings .st-jump-item { width: 100%; border: 0; border-radius: 7px; padding: 5px 8px; white-space: normal; }
+  .biz .pg-settings .st-jump-note { display: block; }
+  .biz .pg-settings .st-save-card { flex-direction: column; align-items: stretch; padding: 11px 12px 12px; }
+  .biz .pg-settings .st-save-card .st-foot { display: block; }
+  /* …and the lead may finally say 「右のカード」, because here it is. */
+  .biz .pg-settings .st-lead-wide { display: inline; }
+  .biz .pg-settings .st-lead-narrow { display: none; }
+}
+
+/* ═══ ≥1440 — big displays: the rail and the stack take their full width and
+   the reading lines are capped. ═══ */
+@media (min-width: 1440px) {
+  .biz .page.pg-settings { --st-rail-w: 240px; --st-side-w: 300px; --st-gap: 20px; }
+  .biz .pg-settings .st-lead,
+  .biz .pg-settings .st-dial-desc,
+  .biz .pg-settings .st-fact,
+  .biz .pg-settings .st-block-note,
+  .biz .pg-settings .st-boundary p { max-width: 66ch; }
+}
+
+/* ═══ ≤1023 — EVERY TOUCH DEVICE, not just the phone (room 8's C8-7). ⚖
+   ALL-SCREEN names ≥44px at the phone, and that is its FLOOR rather than its
+   ceiling: 900–1023 is the iPad landscape / opened-foldable band, which is a
+   finger on glass exactly as 390 is. ═══ */
+/* ═══ ≤1399 — laptops. The page keeps a 24px gutter, which is what puts the
+   reference width (1280 with the shell's rail OPEN) at a body of 968 rather
+   than exactly 960: eight pixels of headroom over the ③ threshold, so a
+   scrollbar cannot drop the room back to the strip. ═══ */
+@media (max-width: 1399px) {
+  .biz .page.pg-settings { padding-left: 24px; padding-right: 24px; }
+}
+
+@media (max-width: 1023px) {
+  .biz .page.pg-settings { padding-left: 18px; padding-right: 18px; }
+  .biz .pg-settings .st-opt,
+  .biz .pg-settings .st-pick,
+  .biz .pg-settings .st-jump-item,
+  .biz .pg-settings .st-rail-item,
+  .biz .pg-settings .st-det-btn,
+  .biz .pg-settings .st-link,
+  .biz .pg-settings .st-act,
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-save,
+  .biz .pg-settings .st-select,
+  .biz .pg-settings .st-input,
+  /* ⚠ FOUND BY THE PROBE, NOT BY READING: 取り消す measured 27px at 1023. It is a
+     button on a list row, so it never looked like it belonged with 「the
+     controls」 — which is exactly why an enumerated touch list needs a machine
+     measuring every pressable rather than a person remembering them. */
+  .biz .pg-settings .st-coll-del,
+  .biz .pg-settings .st-spot-foot button { min-height: 44px; }
+  .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
+  .biz .pg-settings .st-search-field { min-height: 44px; }
+  .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
+  .biz .pg-settings .st-switch { width: 68px; height: 44px; }
+  .biz .pg-settings .st-switch-thumb { top: 4px; left: 4px; width: 34px; height: 34px; }
+  .biz .pg-settings .st-swatch { width: 44px; height: 44px; }
+}
+
+/* ═══ ① ≤899 — LIST IS THE PAGE. ⚖ ALL-SCREEN's device clause: the rail IS the
+   page, and a chosen section replaces it with a way back. This is the ONE
+   media-driven composition swap in the room — see the header. ═══ */
 @media (max-width: 899px) {
+  .biz .page.pg-settings { padding: 16px 14px 32px; gap: 12px; }
+  .biz .pg-settings .st-panel { display: none; }
+  .biz .pg-settings.is-detail .st-rail { display: none; }
+  .biz .pg-settings.is-detail .st-panel { display: grid; }
+  .biz .pg-settings .st-back {
+    display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; order: 1;
+    padding: 4px 14px 4px 11px;
+    border: 1px solid var(--st-accent); border-radius: 999px;
+    background: var(--st-accent-wash); color: var(--st-accent);
+    font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  }
+  .biz .pg-settings .st-sec-head { order: 2; }
+  /* ⚠ `display: contents` DISSOLVES THE STACK so its three children become grid
+     items of the panel in their own right — which is the only way one DOM can
+     put このページの中身 under the head and the save bar at the bottom of the
+     screen without rendering either of them twice. */
+  .biz .pg-settings .st-side { display: contents; }
+  /* ⚠ ON A PHONE THE CARD GOES UNDER THE DIALS, NOT OVER THEM. The mock made it
+     a collapsible row above the presets; on a 390px screen that is either a tall
+     picture standing between a manager and the thing they opened the section
+     for, or one more press before they can start. Below the dials it is a
+     reference they scroll to after changing something — which is when they want
+     to see what their staff will see — and it costs no press at all. */
+  .biz .pg-settings .st-jump { order: 3; }
+  .biz .pg-settings .st-main,
+  .biz .pg-settings .st-boundary { order: 4; }
+  .biz .pg-settings .st-side-card { order: 5; }
+  .biz .pg-settings .st-save-card {
+    order: 6;
+    position: sticky; bottom: 0; z-index: 3;
+    margin: 0 -14px -32px; border-radius: 13px 13px 0 0; border-bottom: 0;
+    padding: 10px 14px 14px;
+    background: rgba(255, 255, 255, .96);
+    backdrop-filter: saturate(180%) blur(12px);
+    box-shadow: 0 -4px 14px rgba(16, 24, 40, .06);
+  }
+  /* A row stacks: the label and its description over the control, in reading
+     order, with the control filling the line rather than leaving half of it
+     empty. */
+  .biz .pg-settings .st-dial { grid-template-columns: minmax(0, 1fr); row-gap: 8px; padding: 11px 0; }
+  .biz .pg-settings .st-dial-ctl { max-width: none; width: 100%; }
+  .biz .pg-settings .st-dial-ctl > .st-select,
+  .biz .pg-settings .st-dial-ctl > .st-textline { width: 100%; max-width: none; }
+  .biz .pg-settings .st-dial-ctl > .st-seg { width: 100%; }
+  .biz .pg-settings .st-dial-ctl > .st-seg .st-opt { flex: 1 1 0; text-align: center; }
+  /* The week loses its head and pairs its times under the day. */
+  .biz .pg-settings .st-week-head { display: none; }
+  .biz .pg-settings .st-week-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; }
+  .biz .pg-settings .st-week-day { grid-column: 1; grid-row: 1; }
+  .biz .pg-settings .st-week-cell:nth-of-type(2) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .biz .pg-settings .st-week-cell:nth-of-type(3) { grid-column: 1; grid-row: 2; }
+  .biz .pg-settings .st-week-cell:nth-of-type(4) { grid-column: 2; grid-row: 2; }
+  .biz .pg-settings .st-block { padding: 12px 12px 13px; }
+  .biz .pg-settings .st-tr { grid-template-columns: minmax(0, 1fr) !important; }
+  /* 臨時休業's 追加 row: a date field and a reason field, each on its own line
+     and each filling it, rather than two half-width boxes on a 390px screen. */
   .biz .pg-settings .st-input.is-date,
   .biz .pg-settings .st-coll-field { width: 100%; }
   .biz .pg-settings .st-coll-field .st-input { width: 100%; max-width: none; }
   .biz .pg-settings .st-coll-add > .st-act { width: 100%; }
+}
+
+/* ═══ ≥900 — the rail and the panel share the page, and a data table earns its
+   columns once there is room for them. ═══ */
+@media (min-width: 900px) {
+  .biz .pg-settings .st-tr { grid-template-columns: repeat(var(--st-cols, 1), minmax(0, 1fr)); gap: 10px; }
+}
+
+/* ── reduced motion: the state still changes, it simply stops travelling ──── */
+@media (prefers-reduced-motion: reduce) {
+  .biz .pg-settings .st-rail-item,
+  .biz .pg-settings .st-back,
+  .biz .pg-settings .st-jump-item,
+  .biz .pg-settings .st-det-btn,
+  .biz .pg-settings .st-opt,
+  .biz .pg-settings .st-pick,
+  .biz .pg-settings .st-swatch,
+  .biz .pg-settings .st-switch,
+  .biz .pg-settings .st-save,
+  .biz .pg-settings .st-act,
+  .biz .pg-settings .st-link,
+  .biz .pg-settings .st-search-clear { transition: background-color 120ms linear, border-color 120ms linear, color 120ms linear; }
+  .biz .pg-settings .st-rail-item:active,
+  .biz .pg-settings .st-back:active,
+  .biz .pg-settings .st-jump-item:active,
+  .biz .pg-settings .st-det-btn:active,
+  /* ⚠ THE SELECTORS MIRROR THE LIVE ONES EXACTLY, `:not()` included. A bare
+     `.st-opt:active` here would state a press rule for a LOCKED option — which
+     is the one thing the press law forbids — even though its effect is to turn
+     motion off. A rule that reads as the opposite of the law it obeys is a rule
+     the next reader has to re-derive. */
+  .biz .pg-settings .st-opt:not([aria-disabled="true"]):active,
+  .biz .pg-settings .st-pick:not([aria-disabled="true"]):active,
+  .biz .pg-settings .st-swatch:not([aria-disabled="true"]):active,
+  .biz .pg-settings .st-switch:not([aria-disabled="true"]):active,
+  .biz .pg-settings .st-save:not(:disabled):active,
+  .biz .pg-settings .st-act:active,
+  .biz .pg-settings .st-link:active,
+  .biz .pg-settings .st-search-clear:active { transform: none; }
+  .biz .pg-settings .st-det-caret,
+  .biz .pg-settings .st-det-inner,
+  .biz .pg-settings .st-jump-dot { transition: opacity 120ms linear; transform: none; }
 }
