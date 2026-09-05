@@ -443,6 +443,41 @@ describe('今日の運営 screen', () => {
     await expect(board()).rejects.toThrow('NEXT_NOT_FOUND')
   })
 
+  /** ⚖ ROOM RULE, FIX ROUND 1 (L2 N2) — THE TWO FACTS, EXECUTED ON THE REAL BOARD.
+   *
+   *  The whole round's claim is that the room need is a fact about the BOOKING
+   *  and the VIP badge is a fact about the CUSTOMER. While the sample's one
+   *  tagged row was also its one VIP customer the two coincided, so a model that
+   *  went back to reading `customer.vip` produced a byte-identical board — the
+   *  mutation lens's M10 died to a source-text pin and to nothing else.
+   *
+   *  The demo separates them now, so this asks the built board rather than the
+   *  source: 見本 あかり (apt-29) carries the tag and wears her own category word,
+   *  テスト えいた (apt-25) is the VIP and carries no tag, and both facts reach the
+   *  accessible name a keyboard operator is refused by. */
+  it('⚖ ROOM RULE — the sample board separates the 個室のみ tag from the VIP badge', async () => {
+    const p = await board(STORE_A)
+    const cardFor = (id: string) => p.lanes.flatMap((l) => l.items).find((i) => i.caseId === id)!
+    const tagged = cardFor('apt-29')
+    const vip = cardFor('apt-25')
+    // the tagged row: the tag is TRUE and the category word is its own, untouched
+    expect(tagged.requiresPrivateRoom).toBe(true)
+    expect([tagged.category, tagged.ticketCat]).toEqual(['repeat', '単発'])
+    expect(tagged.label).toContain('個室のみ・再来')
+    // the VIP row: the badge is intact and the tag is absent — a VIP places
+    // anywhere, which is the rule Liam ruled.
+    expect(vip.requiresPrivateRoom).toBe(false)
+    expect([vip.category, vip.ticketCat]).toEqual(['vip', 'VIP'])
+    expect(vip.label).not.toContain('個室のみ')
+    // …and the accessible name still has exactly five segments, so the room
+    // re-label (today-interactions `parts.length === 5`) still reads it.
+    expect(tagged.label.split(' / ')).toHaveLength(5)
+    expect(vip.label.split(' / ')).toHaveLength(5)
+    // The pair, stated as the round's claim: tagged ≠ VIP, on the shipped demo.
+    expect(tagged.requiresPrivateRoom === vip.requiresPrivateRoom).toBe(false)
+    expect((tagged.category === 'vip') === (vip.category === 'vip')).toBe(false)
+  })
+
   // ── band by band ────────────────────────────────────────────────────────
   it('C — the ops strip carries every money and queue cell', async () => {
     const p = await board(STORE_A)

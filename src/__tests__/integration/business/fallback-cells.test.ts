@@ -672,7 +672,7 @@ function sceneRun(withStandardRoom: boolean): FallbackResult {
   })
 }
 
-describe('3 — class-aware rooms: the 個室 is spent last, both directions', () => {
+describe('3 — class-aware rooms: the 個室 is spent last, always', () => {
   it('a standard room yields a fragment ⇒ the 個室 is NOT spent', () => {
     const r = sceneRun(true)
     const got = boxes(r).map((c) => `${span(c.s, c.e)}@${c.resourceKey}`)
