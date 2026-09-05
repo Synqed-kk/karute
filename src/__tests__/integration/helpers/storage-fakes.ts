@@ -21,14 +21,19 @@
  * with statusCode '409' is the demotion storage answers a duplicate with, and
  * the same one storage-put.ts#putSaysAlreadyThere reads at the PUT.
  */
-export const DUPLICATE_KEY_ERROR = {
+const DUPLICATE_KEY_ERROR = {
   name: 'StorageApiError',
   message: 'The resource already exists',
   status: 400,
   statusCode: '409',
 }
 
-export type FakeSignedUpload = {
+/** The shape production storage-api actually answers for a missing object:
+ *  HTTP 400 with the 404 demoted into the body (hotfix #838 / take-binding.ts
+ *  isStorageNotFound). */
+export const OBJECT_NOT_FOUND = { status: 400, statusCode: '404', message: 'Object not found' }
+
+type FakeSignedUpload = {
   data: { path: string; signedUrl: string; token: string } | null
   error: { name?: string; message: string; status?: number; statusCode?: string } | null
 }

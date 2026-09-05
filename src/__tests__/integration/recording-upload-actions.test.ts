@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 const can = jest.fn(async (_c: string) => true)
 const requireCapability = jest.fn(async (_c: string) => {})
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
@@ -71,7 +71,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 // storage-js's single-object probe. Default: the key is FREE — the bucket has
 // never held this take, which is every ordinary first mint.
-const notFoundError = { message: 'Object not found', status: 404 }
+const notFoundError = { ...OBJECT_NOT_FOUND }
 const info = jest.fn(
   async (
     _key: string,
@@ -79,7 +79,7 @@ const info = jest.fn(
     data: { size?: number } | null
     // `status` matters: storage saying "no such object" and storage failing to
     // ANSWER are different facts, and only the first frees the key.
-    error: { message: string; status?: number } | null
+    error: { message: string; status?: number; statusCode?: string } | null
   }> => ({ data: null, error: notFoundError }),
 )
 /** What the fake bucket HOLDS — the store `info` above answers for, and the
@@ -224,7 +224,11 @@ beforeEach(() => {
   resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
-  info.mockResolvedValue({ data: null, error: notFoundError })
+  info.mockImplementation(async (key: string) =>
+    held.has(key)
+      ? { data: { size: 2048 }, error: null }
+      : { data: null, error: { ...OBJECT_NOT_FOUND } },
+  )
   held.clear()
   get.mockResolvedValue(row())
   create.mockResolvedValue(row({ id: 'sess-new' }))

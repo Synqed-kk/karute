@@ -5,7 +5,7 @@
 // the audit-map registration — never the shared body's logic, which is proved
 // in recording-finalize-take.test.ts.
 import { createHmac } from 'node:crypto'
-import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 
@@ -108,7 +108,7 @@ const finalizeBody = {
  *  row the body names — REQUIRED as of fix round 7: the mint creates none. */
 const mintBody = { takeId: TAKE, mimeType: 'audio/mp4', recordingSessionId: SESSION }
 /** storage-js's "no such object" — a free key, which is every first mint. */
-const objectFree = { data: null, error: { message: 'Object not found', status: 404 } }
+const objectFree = { data: null, error: { ...OBJECT_NOT_FOUND } }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -177,7 +177,7 @@ describe('POST recordings/upload-url — the fenced mint', () => {
     recordingsGet.mockResolvedValue(ROW)
     // The key is FREE — this suite's default `info` answers "an object is
     // there", which since fix round 2 is a different, un-signed answer.
-    info.mockResolvedValue({ data: null, error: { message: 'Object not found', status: 404 } })
+    info.mockResolvedValue({ data: null, error: { ...OBJECT_NOT_FOUND } })
     const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -475,7 +475,7 @@ describe('POST recordings/finalize', () => {
     // message 'Object not found' — never a plain 404 alone.
     info.mockResolvedValue({
       data: null,
-      error: { message: 'Object not found', status: 400, statusCode: '404' },
+      error: { ...OBJECT_NOT_FOUND },
     })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)

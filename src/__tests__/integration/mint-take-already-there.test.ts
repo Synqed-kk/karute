@@ -12,7 +12,7 @@
  * fixed at the fakes' home (helpers/storage-fakes.ts), which is what makes the
  * first case below RED against the pre-fix mint rather than quietly green.
  */
-import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
 const can = jest.fn(async (_c: string) => true)
 const getMyCapabilities = jest.fn(async () => new Set<string>(['records.write']))
@@ -70,9 +70,6 @@ jest.mock('@/lib/synqed/client', () => ({
  *  to ONE `held` set here — a fake whose "does it exist" and "may I create it"
  *  answers can disagree is exactly the fake that hid this bug. */
 const held = new Set<string>()
-/** The REAL not-found shape (storage-api v1.71): HTTP 400 with the 404 demoted
- *  into the body, which is what take-binding's isStorageNotFound matches. */
-const OBJECT_NOT_FOUND = { status: 400, statusCode: '404', message: 'Object not found' }
 const info = jest.fn(async (key: string) =>
   held.has(key)
     ? { data: { size: LANDED_SIZE } as { size?: number } | null, error: null }

@@ -4,7 +4,7 @@
 // fail-closed staff posture + policy_version SERVER-pinning + the tenant-prefixed
 // storage path. All network mocked; the Bearer verifier runs for real.
 import { createHmac } from 'node:crypto'
-import { fakeCreateSignedUploadUrl } from './helpers/storage-fakes'
+import { fakeCreateSignedUploadUrl, OBJECT_NOT_FOUND } from './helpers/storage-fakes'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
@@ -50,7 +50,7 @@ jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, get
  *  refuses one for a key already there (helpers/storage-fakes.ts). */
 const held = new Set<string>()
 const createSignedUploadUrl = jest.fn(fakeCreateSignedUploadUrl(held, () => 'https://x/upload'))
-const info = jest.fn(async (_key: string) => ({ data: null as { size?: number } | null, error: { message: 'Object not found', status: 404 } as { message: string; status?: number } | null }))
+const info = jest.fn(async (_key: string) => ({ data: null as { size?: number } | null, error: { ...OBJECT_NOT_FOUND } as { message: string; status?: number; statusCode?: string } | null }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: () => ({ storage: { from: () => ({ createSignedUploadUrl, info }) } }) }))
 
 import { GET as consentGET } from '@/app/api/app/v1/customers/[id]/consent/route'
