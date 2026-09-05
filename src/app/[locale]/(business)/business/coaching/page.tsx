@@ -20,9 +20,18 @@
 //  · N-STORES — per-store, ONE lens. 全スタッフ表示 is THIS store's roster and
 //    there is no unbounded all-store read; the roster obeys ANY-ROSTER-SIZE (the
 //    25+ proof is a test-world matter, the demo plane stays small).
-//  · HQ — 本部 reads ADOPTION AGGREGATES and store-level banded trend ONLY.
+//  · HQ — 本部 reads ADOPTION AGGREGATES and store-level figures ONLY.
 //    Anti-coercion outranks the roll-up: content never crosses, and a per-staff
-//    band never leaves its store. Registry ⑥ is that door; it is not built here.
+//    band never leaves its store.
+//    ⚖ B2-2-4 (S16F) — AND THAT DOOR IS BUILT NOW, on the money screen. This
+//    line used to end 「Registry ⑥ is that door; it is not built here」, and I-10
+//    made it false in the same round it was read in: 導入の状況 carries the two
+//    adoption counts over this store's roster and ONE LINE PER STORE — whether
+//    the module is on, plus that store's own headline lift and its confidence
+//    label where it is. That is a store aggregate and nothing else; there is no
+//    per-staff field in `StoreCoachingRoi` for one to travel in, and the gate is
+//    `access.viewRoi`. What registry ⑥ still owes is the REAL cross-store read:
+//    every store's line comes from this room's own fixture plane today.
 //  · TYPE — a CAPABILITY SWITCH (the module is on or off per store) plus Tier-2
 //    defaults through the business-type tokens, mirrored by shape. Nothing on
 //    this page branches on a business type.
