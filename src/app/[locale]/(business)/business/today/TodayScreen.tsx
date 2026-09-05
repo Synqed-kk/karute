@@ -6310,8 +6310,13 @@ export function TodayScreen(props: TodayProps) {
                       {/* ⚖ LINKED UP (2026-09-01). The signpost used to NAME the
                           destination and leave the reader to find it; the 設定
                           room now reads `?section=`, so the sentence is the way
-                          there. */}
-                      <Link className="chip" href="/business/settings?section=store-hours">変更は「設定」＞店舗情報・営業時間で</Link>
+                          there.
+                          ⚖ S17 FOLD (2026-09-05) — AND IT NAMES THE DIAL'S REAL
+                          HOME NOW. 予約と確保 is where the guard's strength is
+                          decided since #812's room folded into the rail; a chip
+                          pointing at 店舗情報・営業時間 would open a section that
+                          no longer holds this control (⚖ label truth). */}
+                      <Link className="chip" href="/business/settings?section=booking-guard">変更は「設定」＞予約と確保で</Link>
                     </div>
 
                     <div className="pop-divider" role="presentation" />

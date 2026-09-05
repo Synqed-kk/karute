@@ -32,6 +32,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
+import { StorePolicySection, type StorePolicyProps } from './StorePolicySection'
 import {
   blockingError,
   commitNumber,
@@ -68,6 +69,12 @@ const ROOT = 'page pg-settings'
  *  test. The tour is this room's only such surface. */
 const SETTLE_MS = 500
 
+/** ⚖ S17 — the ONE section whose panel is not built from this file's block
+ *  vocabulary: #812's 予約と確保 renders itself (A1) and brings its own 保存 bar
+ *  (A3). Named once so the three places that ask are asking the same question,
+ *  and `settings.ts`'s RAIL is where the id itself is declared. */
+const BOOKING_GUARD_ID = 'booking-guard'
+
 /** 自分の表示設定's home. Versioned in the name so a later shape change cannot
  *  read an older one's value. */
 const PREF_KEY = 'synqedBizDisplayPrefs.v1'
@@ -102,7 +109,15 @@ function kindsOf(props: SettingsProps): Record<string, ControlKind> {
   return out
 }
 
-export function SettingsScreen(props: SettingsProps) {
+/** ⚖ S17 / A1 — WHAT THE ROOM RENDERS WITH. The rail's own payload, plus
+ *  予約と確保's — #812's room arrived as one section of this rail, and its
+ *  assembly is `storePolicyProps()`'s rather than this file's vocabulary. It
+ *  rides beside `SettingsProps` because `@/business/lib/settings` is the room's
+ *  PURE rules file (empty import inventory, pinned), so a props type from
+ *  another module may not enter it. */
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps }
+
+export function SettingsScreen(props: SettingsScreenProps) {
   // ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
   // panel always shows something (the opening section); on a phone the rail IS
   // the page until a reader picks a row, which is ⚖ list-is-the-page.
@@ -360,7 +375,11 @@ export function SettingsScreen(props: SettingsProps) {
               <div
                 className="st-sec-head"
                 data-guide-title={section.title}
-                data-guide={section.lead || `${section.title}の画面です。`}
+                // ⚖ A2 — ONE TOUR ENGINE. A section that arrived carrying its own
+                // page-head declaration (予約と確保, from #812) states it in the
+                // payload; every other section is explained by its lead, exactly
+                // as before.
+                data-guide={section.guide || section.lead || `${section.title}の画面です。`}
               >
                 <span className="st-kicker">{section.kicker}</span>
                 <h2>{section.title}</h2>
@@ -377,6 +396,15 @@ export function SettingsScreen(props: SettingsProps) {
                 </section>
               ) : (
                 <>
+                  {section.id === BOOKING_GUARD_ID ? (
+                    // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets,
+                    // its live card, its eight dials and its OWN 保存 bar. The
+                    // generic dirty/保存 bar and the demo footnote below are NOT
+                    // rendered for it — the seam's `saveRefusal` is the gate's
+                    // ANSWER, and a demo-local commit here would contradict the
+                    // seam the section imports.
+                    <StorePolicySection tourOpen={tourOpen} {...props.storePolicy} />
+                  ) : (
                   <div className="st-cols">
                     <div className="st-main">
                       {section.blocks.map((b) => (
@@ -413,12 +441,13 @@ export function SettingsScreen(props: SettingsProps) {
                       </aside>
                     )}
                   </div>
+                  )}
 
                   {/* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT:
                       it is already saved, in this browser, the moment it is
                       pressed. Printing 保存する under it would ask a reader to
                       commit something nobody else can see. */}
-                  {section.persist === 'local' ? (
+                  {section.id === BOOKING_GUARD_ID ? null : section.persist === 'local' ? (
                     <p className="st-foot">{props.selfSaveLine}</p>
                   ) : (
                     <div className="st-savebar">
@@ -435,7 +464,7 @@ export function SettingsScreen(props: SettingsProps) {
                       </button>
                     </div>
                   )}
-                  {section.persist !== 'local' && <p className="st-foot">{props.demoSaveLine}</p>}
+                  {section.id !== BOOKING_GUARD_ID && section.persist !== 'local' && <p className="st-foot">{props.demoSaveLine}</p>}
                 </>
               )}
             </>
@@ -532,7 +561,7 @@ function Block({
       {block.rightsNote && <p className="st-rights">{block.rightsNote}</p>}
 
       {block.rows.map((r) => (
-        <Row key={r.id} row={r} values={values} onChange={onChange} />
+        <Row key={r.id} row={r} values={values} onChange={onChange} onLink={onLink} />
       ))}
 
       {block.list && (
@@ -667,10 +696,12 @@ function Row({
   row,
   values,
   onChange,
+  onLink,
 }: {
   row: SettingsRow
   values: Record<string, RowValue>
   onChange: (id: string, v: RowValue) => void
+  onLink: (sectionId: string) => void
 }) {
   return (
     <section
@@ -686,6 +717,15 @@ function Row({
         ))}
       </div>
       <div className="st-dial-ctl">
+        {/* ⚖ S17 — ONE RULE ONE HOME. A row whose control moved keeps its place
+            and offers the way there: a REAL button, so it is reachable by
+            keyboard exactly like every other control in this room, and its label
+            promises only what the destination can do (⚖ label truth). */}
+        {row.link && (
+          <button type="button" className="st-link" onClick={() => onLink(row.link!.sectionId)}>
+            {row.link.label} →
+          </button>
+        )}
         {groupTimes(row.controls).map((group) =>
           group.length === 1 ? (
             <Control key={group[0].id} row={row} c={group[0]} value={values[group[0].id]} onChange={onChange} />

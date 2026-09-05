@@ -194,6 +194,12 @@ export interface RailEntry {
  *  for the flag to mean. */
 export const RAIL: readonly RailEntry[] = [
   { id: 'store-hours', group: '店舗運営', label: '店舗情報・営業時間', scope: 'store', needs: 'settings.manage' },
+  // ⚖ S17 FOLD — 予約と確保, SECOND, right after 店舗情報・営業時間. It is #812's
+  // whole room (PR #812, 2026-09-01) arriving as ONE section of this rail rather
+  // than as a second 設定 route at the same path; `settings.manage` like its
+  // neighbours, and the save-ROLE gate inside it is the store's own
+  // `releaseHeldRoles` (A12).
+  { id: 'booking-guard', group: '店舗運営', label: '予約と確保', scope: 'store', needs: 'settings.manage' },
   { id: 'services', group: '店舗運営', label: '提供内容', scope: 'store', needs: 'settings.manage' },
   { id: 'people-equipment', group: '店舗運営', label: '人・設備', scope: 'store', needs: 'settings.manage' },
   { id: 'payments', group: '店舗運営', label: '決済', scope: 'store', needs: 'settings.manage' },
@@ -392,6 +398,11 @@ export interface SettingsRow {
   id: string
   label: string
   description: string
+  /** ⚖ S17 — ONE RULE ONE HOME. A row whose control moved to another section
+   *  keeps its PLACE and points at the home, with a control that really
+   *  navigates (a real button — ⚖ keyboard reach). The label never promises more
+   *  than the destination can do: 「…で決めます」 + 「開く」, never 「ここで変更」. */
+  link?: { label: string; sectionId: string }
   /** 事業全体 / この店舗 / 自分だけ — printed, never inferred by the reader.
    *  `null` on a row that is a list entry rather than a policy (a weekday, a
    *  menu, a person), where the block's own scope already answered it. */
@@ -448,6 +459,13 @@ export interface SettingsSection {
   kicker: string
   title: string
   lead: string
+  /** ⚖ S17 / A2 — ONE TOUR ENGINE, and this is how a section that arrived with
+   *  its OWN walk keeps its own words. The screen declares the section head with
+   *  `data-guide-title={title}` + `data-guide={guide ?? lead}`, so a section
+   *  whose explanation is not simply its lead (予約と確保, which came from #812
+   *  carrying a page-head declaration of its own) states it here instead of the
+   *  screen growing a second engine to hold it. */
+  guide?: string
   blocks: SettingsBlock[]
   aside: { title: string; lines: Array<{ label: string; value: string }>; note: string } | null
   /** `local` = this section's values round-trip through the reader's own

@@ -80,6 +80,7 @@ import {
   type SettingsRow,
   type SettingsSection,
 } from '@/business/lib/settings'
+import { storePolicyProps, type StorePolicyPropsInput } from './store-policy-props'
 
 const JST = { timeZone: 'Asia/Tokyo' } as const
 const fmtDay = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', ...JST })
@@ -112,6 +113,14 @@ export interface SettingsPropsInput {
 
 export interface SettingsPropsResult {
   props: SettingsProps
+  /** ⚖ S17 / A1 — ONE ASSEMBLY. 予約と確保's payload is built by
+   *  `storePolicyProps()` (#812's own page body) and handed through here, so the
+   *  route and the evidence harness render the SAME assembly rather than a
+   *  hand-written replica of it. It rides BESIDE `props` because
+   *  `@/business/lib/settings` is the room's PURE rules file — its inventory is
+   *  empty and pinned that way, so a props type from another module may not
+   *  enter it. */
+  storePolicy: Awaited<ReturnType<typeof storePolicyProps>>
   /** The RESOLVED lens, returned rather than re-derived by the caller so the
    *  clamp keeps exactly one home. `page.tsx` keys the screen by it, so which
    *  section is open resets when the store changes — the ⚖ 8/17 isolation law at
@@ -124,8 +133,10 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
   const storeOptions = await listStoreOptions()
   const storeId = defaultStoreId(store, storeOptions)
   const clamped = storeId !== null
+  // ⚖ S17 — the lens is REALLY read now: 予約と確保's assembly takes it as its
+  // first argument, which is the data door's own rule (`foundation.test.ts`:
+  // 「every read requires the store lens as its first argument」).
   const lens: StoreLens = clamped ? storeId! : { viewAll: true }
-  void lens
 
   const now = renderNow()
   const role = world?.role ?? operator.role
@@ -144,6 +155,14 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     access,
     now,
   }
+
+  // ⚖ S17 / A1 — 予約と確保's own assembly, run HERE so the room has one. The
+  // input is what this function already settled: the resolved lens, the store
+  // list it was resolved against and the render's ONE clock read, passed in
+  // rather than re-read so the two halves of the page cannot disagree about
+  // which store or which instant they describe.
+  const storePolicyInput: StorePolicyPropsInput = { lens, storeId, clamped, storeOptions, now }
+  const storePolicy = await storePolicyProps(storePolicyInput)
 
   const sections = RAIL.map((entry) => buildSection(entry, ctx))
   // ⚖ A LINK FROM ANOTHER ROOM LANDS WHERE IT POINTED — but only where the
@@ -179,7 +198,7 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     roleLabel: role,
   }
 
-  return { props, storeKey: clamped ? storeId! : 'all-stores' }
+  return { props, storePolicy, storeKey: clamped ? storeId! : 'all-stores' }
 }
 
 // ── the builders' shorthand ─────────────────────────────────────────────────
@@ -227,7 +246,7 @@ const row = (
   label: string,
   description: string,
   controls: RowControl[],
-  extra: Partial<Pick<SettingsRow, 'scopeLabel' | 'meta' | 'trio'>> = {},
+  extra: Partial<Pick<SettingsRow, 'scopeLabel' | 'meta' | 'trio' | 'link'>> = {},
 ): SettingsRow => ({
   id,
   label,
@@ -236,6 +255,7 @@ const row = (
   meta: extra.meta ?? [],
   controls,
   ...(extra.trio ? { trio: extra.trio } : {}),
+  ...(extra.link ? { link: extra.link } : {}),
 })
 
 const block = (
@@ -368,6 +388,8 @@ function storeSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: StoreDia
   switch (entry.id) {
     case 'store-hours':
       return storeHours(base, ctx, d)
+    case 'booking-guard':
+      return bookingGuard(base)
     case 'services':
       return services(base, ctx, d)
     case 'people-equipment':
@@ -418,6 +440,44 @@ function businessSection(base: SectionBase, entry: RailEntry, ctx: Ctx, d: Store
   return entry.id === 'billing' ? billing(base, ctx, d) : businessStructure(base, ctx, d)
 }
 
+// ── 予約と確保 ──────────────────────────────────────────────────────────────
+//
+// ⚖ S17 FOLD — THE SECTION HEAD AND NOTHING ELSE. Every control in this section
+// lives in `StorePolicySection.tsx`, which is #812's own room re-homed: the
+// presets, the live card and the eight dials keep their own state, their own
+// save and their own `data-guide` declarations there. What this file supplies is
+// the section's PLACE in the rail — its kicker, its title, its lead and the one
+// declaration the shell's ?-walk reads off the section head (A2).
+
+/** ⚖ A2 — #812's own page-head declaration, re-homed onto the section head. The
+ *  literal is kept whole so the tour step a manager reads is the one that
+ *  shipped, and so the room's suite can pin it where it now lives. */
+const BOOKING_GUARD_GUIDE =
+  'この店舗の予約と確保のルールを、まとめて決める画面です。まずプリセットを選び、変えたいところだけ詳細設定で直します。右のカードは、いまの設定でスタッフの画面に出るものです。'
+
+/** #812's two lead paragraphs, verbatim and in order — the section's own lead. */
+const BOOKING_GUARD_LEAD =
+  '予約と確保のルールを、ここでまとめて決めます。まずは3つのプリセットから選び、直したいところだけ詳細設定で変えられます。右のカードは、いまの設定でスタッフの画面に出てくるものです。'
+
+function bookingGuard(base: SectionBase): SettingsSection {
+  return {
+    ...base,
+    kicker: '店舗運営',
+    title: '予約と確保',
+    lead: BOOKING_GUARD_LEAD,
+    guide: BOOKING_GUARD_GUIDE,
+    // ⚠ NO BLOCKS, AND THAT IS THE POINT. A second copy of these dials in this
+    // file's vocabulary would be exactly the two-rooms-one-path problem the fold
+    // exists to end.
+    blocks: [],
+    // The right column of this section is #812's live スタッフが見るカード, which
+    // the section renders itself; a trace card beside it would be a second
+    // answer to 「where does this value come from」.
+    aside: null,
+    persist: null,
+  }
+}
+
 // ── 店舗情報・営業時間 ──────────────────────────────────────────────────────
 
 const WEEKDAYS: Array<[number, string]> = [
@@ -459,24 +519,20 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
         audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（月曜を定休日に設定）`,
       }),
       block('store-hours.ops', '予約ボードの操作', '「今日の運営」のボードで、予約や予定ブロックを動かすときの刻みと、空きの守り方です。', [
-        row('store-hours.row-guard', 'スキマガード', '空きが売れない形になる置き方を防ぎます。標準は上書きできる人だけが承知のうえで置け、厳格は上書きを許しません。', [
-          seg('store-hours.guard', 'スキマガード', opts([['off', 'オフ'], ['standard', '標準'], ['strict', '厳格']]), storeBookingPolicy.gapGuardMode),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 標準',
-            guardrail: 'オフにしても、どこに置いても損が避けられない区間は警告と記録が残ります。',
-          },
-        }),
-        row('store-hours.row-booking-step', '予約の移動単位', 'スタッフがボードで予約を動かすときの刻みです。お客様がReserveで選べる開始時刻とは別の設定です。', [
-          seg('store-hours.booking-step', '予約の移動単位', minuteOpts([15, 30, 60], opsConfig.bookingStepMin), String(opsConfig.bookingStepMin)),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 30分',
-            guardrail: '細かくするほどボードの操作は敏感になります。既にある予約は、いまの位置のまま刻みだけが変わります。',
-          },
-        }),
+        // ⚖ S17 — ONE RULE ONE HOME. スキマガード（強さ）・予約の移動単位・販売
+        // 可能な最小の長さ・確保枠の会員ランク開放 all had a second control here
+        // and their real home is 予約と確保, where #812's dials write the same
+        // plane values. The four are GONE from this block and this one row
+        // stands in their place — a sentence that says where the rules are
+        // decided, and a control that really opens that section (⚖ label truth:
+        // 「決めます」+「開く」, never 「ここで変更」).
+        row(
+          'store-hours.row-guard-moved',
+          '予約の刻み・スキマガードの強さ・すき間の販売・確保枠の会員ランク開放・上書きの権限は「予約と確保」で決めます',
+          '',
+          [],
+          { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
+        ),
         row('store-hours.row-block-step', '予定ブロックの移動単位', '休憩・準備・記録・レジ・清掃を動かすときの刻みです。', [
           seg('store-hours.block-step', '予定ブロックの移動単位', minuteOpts([5, 10, 15, 30], opsConfig.blockStepMin), String(opsConfig.blockStepMin)),
         ], {
@@ -486,15 +542,6 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             guardrail: '既にある予定ブロックは、いまの位置のまま刻みだけが変わります。近い刻みへ勝手に丸めることはしません。',
           },
         }),
-        row('store-hours.row-min-sellable', '販売可能な最小の長さ', 'これより短い空きは、お店として売りに出しません。ボードにも案内が出ません。', [
-          seg('store-hours.min-sellable', '販売可能な最小の長さ', minuteOpts([15, 30, 45, 60], opsConfig.minSellableMin), String(opsConfig.minSellableMin)),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 30分',
-            guardrail: '短くしすぎると、受けきれない細切れの予約が入ります。0分にはできません。',
-          },
-        }),
         row('store-hours.row-release', '確保枠を早めに売りに戻せる役職', '新規のお客様のために確保した枠を、まだ埋まらないうちに通常の販売へ戻せる人です。', [
           chips('store-hours.release', '確保枠を売りに戻せる役職', roleOptions(), [...p.releaseHeldRoles]),
         ], {
@@ -502,17 +549,6 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           trio: {
             base: '初期値: オーナー・店舗管理者',
             guardrail: '誰も戻せない状態にはできません。埋まらない確保枠が、最後まで空いたまま残ってしまうためです。',
-          },
-        }),
-        row('store-hours.row-rank', '確保枠の会員ランク開放', '新規のお客様のために確保した枠を、どのランク以上の常連さんにも開けるかです。', [
-          sel('store-hours.rank', '確保枠の会員ランク開放', opts([
-            ['closed', '開放しない'], ['silver', 'シルバー以上'], ['gold', 'ゴールド以上'], ['platinum', 'プラチナのみ'],
-          ]), p.heldRankAccess),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 開放しない',
-            guardrail: '開放すると、新規のお客様のための枠がその分だけ減ります。常連さんは確保枠の外の時間なら、いつでも予約できます。',
           },
         }),
         row('store-hours.row-breaks', '休憩の有給扱い', '人件費の概算で、休憩の時間ぶんも払うものとして計算するかどうかです。', [
@@ -526,8 +562,10 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           },
         }),
       ], {
+        // ⚖ S17 — the sentence describes ONLY the dials this block still holds. A
+        // preview naming a control that moved would be a dead lever with words.
         preview: {
-          template: '予約は{store-hours.booking-step}きざみ、予定ブロックは{store-hours.block-step}きざみで動きます。{store-hours.min-sellable}より短い空きは売りに出しません。スキマガードは{store-hours.guard}です。',
+          template: '予定ブロックは{store-hours.block-step}きざみで動きます。確保枠を早めに売りに戻せるのは{store-hours.release}で、休憩は{store-hours.breaks-paid}です。',
         },
         links: [{ label: 'お客様が選べる開始時刻はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
@@ -546,8 +584,10 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
       lines: [
         { label: 'スキマガード', value: '今日の運営が実際に使っている値' },
         { label: '移動単位', value: '今日の運営のドラッグが実際に使っている値' },
-        { label: '上書きできる人', value: `${p.overridePolicy.roles.join('・')} — 変更はスタッフ管理から` },
-        { label: '新規のための確保', value: `${minutesLabel(p.newClientSessionMinutes)}（提供内容で変更）` },
+        // ⚖ S17 — 上書きできる人 went with the スキマガード row it explained: who
+        // may override is 予約と確保 § 上書きの権限 now, and a read-only line here
+        // would be a second place to look it up.
+        { label: '新規のための確保', value: `${minutesLabel(p.newClientSessionMinutes)}（予約と確保で変更）` },
         { label: '休憩の有給扱い', value: '人件費の計算はいま休憩を除いています' },
       ],
       note: 'この画面の値は、それぞれの機能が実際に使っている値です。ここで変えた内容は、この画面の中だけに反映されます。',
@@ -595,17 +635,18 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         preview: d.tickets.length === 0 ? null : { template: 'いまの単価は{services.ticket-0}です。最低価格を上回ると、この行の右に「要確認」が出ます。' },
       }),
       block('services.new-client', '新規のお客様の所要時間', '問診を含めた予約枠の長さです。この長さが、スキマガードが守る新規枠の長さになります。', [
-        row('services.row-new-client', '所要時間', '新規のお客様の予約には、この長さの枠を確保します。短くすると、スキマガードが守る新規枠も短くなります。', [
-          sel('services.new-client', '新規のお客様の所要時間', minuteOpts([60, 75, 90, 120], storeBookingPolicy.newClientSessionMinutes), String(storeBookingPolicy.newClientSessionMinutes)),
-        ], {
-          scopeLabel: BUSINESS_SCOPE,
-          trio: {
-            base: '初期値: 90分',
-            guardrail: '短くすると新規のお客様を取りこぼしやすくなり、長くすると1日に入る予約の数が減ります。',
-          },
-        }),
+        // ⚖ S17 — ONE RULE ONE HOME. The 60/75/90/120 select here could name 120,
+        // which `SetStoreBookingPolicyInput.new_client_session_minutes` (60 | 75 |
+        // 90) cannot save — a control that offers a value the store cannot keep.
+        // 予約と確保's three chips ARE that enum, so the length is decided there.
+        row(
+          'services.row-new-client-moved',
+          '新規のお客様の確保の長さは「予約と確保」で決めます（60分・75分・90分）',
+          '',
+          [],
+          { link: { label: '予約と確保を開く', sectionId: 'booking-guard' } },
+        ),
       ], {
-        preview: { template: '新規のお客様の予約は{services.new-client}の枠を確保し、スキマガードもこの長さが残る置き方を守ります。' },
         links: [{ label: 'Reserveでの見え方はReserve受付で', sectionId: 'reserve-acceptance' }],
       }),
     ],
@@ -614,7 +655,7 @@ function services(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
       lines: [
         { label: 'メニューと所要時間', value: '予約作成とレジが使っているメニュー一覧' },
         { label: '定価', value: '料金・ポイントの価格表' },
-        { label: '新規の確保時間', value: '今日の運営のスキマガードが実際に使っている値' },
+        { label: '新規の確保時間', value: '今日の運営のスキマガードが実際に使っている値（変更は予約と確保で）' },
       ],
       note: '回数券の「最低価格」は、定価から割引の上限（−30%）を引いた金額です。',
     },
@@ -1312,7 +1353,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
         audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（受付ウィンドウを変更）`,
       }),
-      block('reserve.guard', 'スキマガードの見え方', 'ガードが有効なとき、お客様に出す開始時刻がどう変わるかです。オン・オフと厳しさは店舗情報・営業時間で変更します。', [], {
+      block('reserve.guard', 'スキマガードの見え方', 'ガードが有効なとき、お客様に出す開始時刻がどう変わるかです。オン・オフと厳しさは予約と確保で変更します。', [], {
         facts: [
           '新規のお客様の枠を壊す開始時刻は、お客様には最初から表示されません。打ち消し線ではなく、選べる時間として存在しません。',
           '安全な開始がひとつもない場合は、通常の「空きなし」として表示します。',
@@ -1324,7 +1365,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
             { cells: ['ガードあり', '選べます', '出しません', '選べます', '選べます'], tags: [] },
           ],
         },
-        links: [{ label: 'スキマガードの設定は店舗情報・営業時間で', sectionId: 'store-hours' }],
+        links: [{ label: 'スキマガードの設定は予約と確保で', sectionId: 'booking-guard' }],
       }),
       block('reserve.cancel', 'キャンセル規定', 'お客様都合のキャンセルと、ご連絡のないキャンセルの扱いです。', [
         row('reserve.row-free', '無料キャンセル期限', 'この時刻より前のキャンセルは、キャンセル料がかかりません。', [
@@ -1378,7 +1419,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       lines: [
         { label: 'お客様の開始時刻', value: `${minutesLabel(opsConfig.reserveStartGridMin)}きざみ（今日の運営の公開レイヤーが読む値）` },
         { label: 'スキマ枠', value: `${minutesLabel(opsConfig.gapFillMinMin)}以上・${opsConfig.gapFillDiscountPct}%引き` },
-        { label: 'スキマガード', value: '店舗情報・営業時間で変更します' },
+        { label: 'スキマガード', value: '予約と確保で変更します' },
         { label: '営業時間', value: '店舗情報・営業時間で変更します' },
       ],
       note: '受付できるのは営業時間の範囲内だけです。価格は時間帯ごとの価格を分単位で按分し、¥10単位で表示します。',
@@ -1515,7 +1556,12 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
         list: {
           title: 'まだ用意されていない権限',
           items: [
-            '「置けない」場所への上書き — 誰が上書きできるかを名指しで決める項目がありません。いまは役職の一覧で決めています。',
+            // ⚖ S17 — THE LINE WAS TRUE UNTIL THE FOLD AND IS NOT ANY MORE.
+            // 予約と確保 ships 上書きの権限 AND 名指しロック, so 「no control
+            // exists」 became false the moment #812 arrived. What is still
+            // missing is the SAVE — the capability token that records who may
+            // override, in core (registry ②) — and that is what this now says.
+            '「置けない」場所への上書きは「予約と確保」で決めます。権限としての本保存（誰に上書き権限があるかをコアに記録する項目）はまだありません。',
             '設定ページごとの権限 — いまは「設定の変更」ひとつで、すべての設定ページをまとめて開いています。',
           ],
         },
@@ -1524,7 +1570,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           `人件費を見られるのは ${shiftsPolicy.laborCostRoles.join('・')} です。`,
           `売上分析を店舗全体で見られるのは ${analyticsPolicy.viewRoles.join('・')} です。`,
         ],
-        links: [{ label: '上書きの範囲は店舗情報・営業時間で', sectionId: 'store-hours' }],
+        links: [{ label: '予約と確保を開く', sectionId: 'booking-guard' }],
       }),
     ],
     aside: {

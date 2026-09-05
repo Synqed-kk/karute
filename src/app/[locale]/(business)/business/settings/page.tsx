@@ -50,7 +50,7 @@ export default async function SettingsPage({
   // ⚖ LINKED UP. `?section=` is how a trace card in another room lands on the
   // setting it points at instead of on whatever this page opens with. An unknown
   // or gated section falls back to the first one this reader may open.
-  const { props, storeKey } = await settingsProps({ locale, store: query.store, section: query.section })
+  const { props, storePolicy, storeKey } = await settingsProps({ locale, store: query.store, section: query.section })
 
   // ⚖ VIEW STATE IS STORE-SCOPED. `?store=` navigation keeps the same screen
   // instance, so the open section AND every control's value would survive a lens
@@ -58,5 +58,5 @@ export default async function SettingsPage({
   // is the isolation law failing at the frame rather than at the read. Keying by
   // the resolved lens resets both, which is what a shop expects when it changes
   // which store it is looking at.
-  return <SettingsScreen key={storeKey} {...props} />
+  return <SettingsScreen key={storeKey} {...props} storePolicy={storePolicy} />
 }
