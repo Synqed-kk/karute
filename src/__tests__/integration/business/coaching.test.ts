@@ -3533,7 +3533,11 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // The decision card is the one move to make next, not a warning; it wore the
     // room's PRIORITY amber, pixel-identical to a 重点 finding.
     expect(CSS_CODE).toContain('.cg-focus { border-color: var(--cg-accent-line); background: linear-gradient(180deg, var(--cg-accent-wash) 0%, #f7faff 100%); }')
-    expect(CSS_CODE).toContain('.cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--cg-accent-ink); }')
+    // ⚖ GREPTILE-3 (S16C) — RE-SPELLED. This line asserted 「color: var(--cg-accent-ink)」
+    // on the kicker: the accent WASH is what R2-8 was about, and the saturated INK
+    // rode in beside it. The wash is the claim that survives; the ink is pinned
+    // dead in the census below.
+    expect(CSS_CODE).toContain('.cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--ink-2); }')
     // the two tokens are declared, and they are CLAUDE.md's own icon-chip pair
     expect(CSS_CODE).toContain('--cg-accent-chip: #dbeafe;')
     expect(CSS_CODE).toContain('--cg-accent-line: rgba(37, 99, 235, .18);')
@@ -3862,6 +3866,76 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     )
     expect(assembly.length).toBeGreaterThan(0)
     expect(assembly).not.toContain('findings[0]')
+  })
+
+  // ⚖ GREPTILE-3 (S16C) — 「Accent Used On Label」. The non-interactive 次の一手
+  // kicker wore `--cg-accent-ink` (blue-700), the colour this room spends on
+  // PRESSES; 「あなたの重点に関係」 wore the same pair one section down. Both are
+  // <span>s. A label in a link's colour is a press the page cannot honour (⚖ 8/6,
+  // state is not action), so the ink came off and the washes stayed — a wash or a
+  // *-100 chip on a non-pressable is the legal tier of the one-way accent law.
+  // The pin is a CENSUS rather than two negative assertions, because the finding
+  // is about a RULE, and a rule is only kept if the whole set obeys it.
+  it('⚖ GREPTILE-3 · the accent INK is a CLOSED list, and every selector on it is a press', () => {
+    // every rule in the sheet whose body sets `color: var(--cg-accent-ink)`, read
+    // off the stylesheet with its comments stripped — so the census counts paint,
+    // never prose about paint.
+    const inked = [...CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /color:\s*var\(--cg-accent-ink\)/.test(m[2]))
+      .map((m) => m[1].trim().replace(/\s+/g, ' '))
+    // THE CLOSED LIST — selector → why the accent belongs on it. Nothing joins
+    // this without a reason of the same kind: a real door, or a pressed state.
+    const SPENT_ON = {
+      '.biz .pg-coaching .cg-boundary-link':
+        'PRESSABLE — a real <a> to the 設定 room (⚖ R1-3)',
+      '.biz .pg-coaching .cg-linkchip':
+        'PRESSABLE — 練習するもの, a real <a> to the module card (⚖-ADJ D)',
+      '.biz .pg-coaching .cg-tile[aria-pressed="true"] .cg-tile-label':
+        'PRESSED STATE — the count tile is a <button>, and ⚖ R13 paints its selected state with a wash and accent text',
+      '.biz .pg-coaching .cg-tile[aria-pressed="true"] .cg-tile-value':
+        'PRESSED STATE — the same button, its other line',
+    }
+    expect(inked.slice().sort()).toEqual(Object.keys(SPENT_ON).sort())
+    // …and each one is a press IN THE MARKUP, not just in a comment: the two
+    // links and the tile all carry the room's own `data-press` marker.
+    for (const sel of inked) {
+      const cls = sel.includes('cg-tile') ? 'cg-tile' : sel.slice(sel.lastIndexOf(' ') + 2)
+      const at = SCREEN_CODE.indexOf(`className="${cls}"`)
+      expect({ cls, rendered: at > 0 }).toEqual({ cls, rendered: true })
+      expect({ cls, press: SCREEN_CODE.slice(at, at + 400).includes('data-press') })
+        .toEqual({ cls, press: true })
+    }
+    // THE TWO THE ROUND TOOK OFF THE LIST — absent from the census, by name.
+    expect(inked.filter((sel) => /cg-kicker|cg-learn-rel/.test(sel))).toEqual([])
+    // …and they are absent because they are LABELS: <span>s, no `data-press`,
+    // nothing to press. (A pin that only said 「not accent」 would pass the day
+    // one of them became a button and kept its neutral text.)
+    expect(SCREEN_CODE).toContain('<span className="cg-kicker">次の一手</span>')
+    expect(SCREEN_CODE).toContain('<span className="cg-learn-rel">{p.relatedLabel}</span>')
+    // EVERY use of either class, not just the two the finding named — the kicker
+    // is repeated (未導入, the module's 自分の one) and a <button> among them would
+    // put the whole census back in question.
+    for (const cls of ['cg-kicker', 'cg-learn-rel']) {
+      const uses = [...SCREEN_CODE.matchAll(new RegExp(`className="${cls}"`, 'g'))].map((m) => m.index!)
+      expect({ cls, uses: uses.length > 0 }).toEqual({ cls, uses: true })
+      for (const at of uses) {
+        const tag = SCREEN_CODE.lastIndexOf('<', at)
+        expect({ cls, at, el: SCREEN_CODE.slice(tag, tag + 5) }).toEqual({ cls, at, el: '<span' })
+        const openTag = SCREEN_CODE.slice(tag, SCREEN_CODE.indexOf('>', at) + 1)
+        expect({ cls, at, press: openTag.includes('data-press') })
+          .toEqual({ cls, at, press: false })
+      }
+    }
+    // THE WASHES STAYED — the fix is 「wash yes, accent ink no」, not 「go grey」.
+    expect(CSS_CODE).toContain('.cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--ink-2); }')
+    expect(CSS_CODE).toContain('.cg-learn-rel { padding: 2px 8px; border-radius: 999px; background: var(--cg-accent-chip); color: var(--ink-2);')
+    // …and the sheet SAYS the rule it now keeps, where the next reader will meet
+    // it: in the header's accent note, and beside the card R2-8 wrote about.
+    const header = CSS_SRC.slice(0, CSS_SRC.indexOf('/* ── the fence'))
+    expect(header.replace(/\s+/g, ' ')).toContain(
+      'A NON-PRESSABLE MAY WEAR THE ACCENT AS A WASH OR A *-100 CHIP; IT MAY NEVER WEAR IT AS INK.',
+    )
+    expect(CSS_SRC).toContain('NO SOLID ACCENT FILL AND NO ACCENT INK ANYWHERE ON THIS CARD.')
   })
 
   it('⚖ I-1 · the sheet is a DECLARED band above the desk, and the quote scope has ONE home', () => {

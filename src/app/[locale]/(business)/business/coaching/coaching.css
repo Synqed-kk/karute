@@ -120,12 +120,22 @@
 
    WHERE THE ACCENT IS SPENT, EXACTLY — pressables, and ONE data mark:
      · PRESSABLES — the selected tab and its underline, a pressed count tile, the
-       練習するもの link chip, the ? while the tour is up. That is the one-way
-       accent law's main clause.
+       練習するもの link chip, the 設定 boundary link, the ? while the tour is up.
+       That is the one-way accent law's main clause.
      · ONE DATA MARK — the LAST bar of the 成約率 trend (`.cg-bar:last-child
        .cg-bar-fill`), which is the month the reader is in. CLAUDE.md's own law
        carves out 「chart/data colours」, and a series highlight is that.
-   Nothing else. Every band chip is a NEUTRAL wash — that last part is a rule
+   Nothing else — and ⚖ GREPTILE-3 (9/5) drew the line this sheet had left
+   blurred. A NON-PRESSABLE MAY WEAR THE ACCENT AS A WASH OR A *-100 CHIP; IT MAY
+   NEVER WEAR IT AS INK. The 次の一手 kicker and the 「あなたの重点に関係」 chip
+   kept their blue-100 backgrounds and gave their blue-700 TEXT back to
+   `--ink-2`, because a label wearing a link's colour is a press this page cannot
+   honour (⚖ 8/6 — state is not action). So `--cg-accent-ink` is spent on FOUR
+   rules and no others: the two REAL links (`.cg-boundary-link`, `.cg-linkchip`)
+   and the PRESSED tile's two lines (`.cg-tile[aria-pressed="true"] .cg-tile-label`
+   and the same tile's `.cg-tile-value`). The room's suite enumerates that set as
+   a closed list, so a fifth cannot appear quietly.
+   Every band chip is a NEUTRAL wash — that last part is a rule
    rather than a taste:
    ⚖ 8/25's B family forbids a red or a threshold tone on a per-person number,
    and サポートが必要 is a place to send help, not a failing grade. There is no
@@ -177,7 +187,7 @@
 .biz .page.pg-coaching {
   --cg-accent: #2563eb;                       /* globals.css:99 --primary (⚖ R13) */
   --cg-accent-wash: rgba(37, 99, 235, .08);   /* ⚖ R13's selected recipe: /8, never a fill */
-  --cg-accent-ink: #1d4ed8;                   /* blue-700 — the accent one step down, for text on a wash */
+  --cg-accent-ink: #1d4ed8;                   /* blue-700 — the accent one step down, for the TEXT OF A PRESSABLE on a wash (⚖ GREPTILE-3: never a label's) */
   --cg-accent-chip: #dbeafe;                  /* blue-100 — CLAUDE.md's approved icon-chip wash */
   --cg-accent-line: rgba(37, 99, 235, .18);   /* the accent as a LINE tint, for a non-pressable card */
   --cg-panel: #fff;
@@ -636,12 +646,16 @@
    next」 read as 「something is wrong」. The mock's own grammar separates them:
    blue is the decision, amber is the problem. A soft WASH on a non-pressable
    card is the legal tier of the one-way accent law (CLAUDE.md names washes and
-   *-100 tints explicitly), and the kicker takes the approved icon-chip recipe —
-   blue-100 behind blue-700 — rather than saturated accent text on plain prose.
-   NO SOLID ACCENT FILL ANYWHERE ON THIS CARD. */
+   *-100 tints explicitly), and the kicker takes the approved icon-chip WASH —
+   blue-100 — rather than saturated accent text on plain prose.
+   ⚖ GREPTILE-3 (9/5) finished that sentence. The chip's TEXT was still blue-700
+   `--cg-accent-ink` — the colour this room's LINKS wear — on a label nobody can
+   press. The wash stays; the ink is `--ink-2` now. Wash yes, accent ink no, on
+   every non-pressable in this room.
+   NO SOLID ACCENT FILL AND NO ACCENT INK ANYWHERE ON THIS CARD. */
 .biz .pg-coaching .cg-focus { border-color: var(--cg-accent-line); background: linear-gradient(180deg, var(--cg-accent-wash) 0%, #f7faff 100%); }
 .biz .pg-coaching .cg-focus-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 7px; }
-.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--cg-accent-ink); }
+.biz .pg-coaching .cg-focus .cg-kicker { background: var(--cg-accent-chip); color: var(--ink-2); }
 .biz .pg-coaching .cg-focus .cg-sec-title { font-size: 19px; line-height: 1.4; letter-spacing: -.012em; margin-bottom: 5px; }
 .biz .pg-coaching .cg-focus-desc { margin: 0; max-width: 68ch; color: var(--ink-2); font-size: 13px; line-height: 1.85; }
 
@@ -1087,7 +1101,10 @@
 .biz .pg-coaching .cg-learn { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--section); }
 .biz .pg-coaching .cg-learn-title { margin: 0 0 9px; color: var(--ink); font-size: 13px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
 .biz .pg-coaching .cg-learn-foot { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
-.biz .pg-coaching .cg-learn-rel { padding: 2px 8px; border-radius: 999px; background: var(--cg-accent-chip); color: var(--cg-accent-ink); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
+/* ⚖ GREPTILE-3 — the SAME pair the 次の一手 kicker wore, and the same answer: the
+   blue-100 wash says 「this one is about your 重点」, and the text is `--ink-2`
+   because the chip is a span, not a door. */
+.biz .pg-coaching .cg-learn-rel { padding: 2px 8px; border-radius: 999px; background: var(--cg-accent-chip); color: var(--ink-2); font-size: 11px; font-weight: 700; letter-spacing: .01em; white-space: nowrap; }
 .biz .pg-coaching .cg-patterns-note { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.8; }
 
 /* ── the learning-module catalog ───────────────────────────────────────────── */
