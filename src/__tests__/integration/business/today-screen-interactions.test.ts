@@ -8343,10 +8343,12 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(CSS).toContain('.biz .timeline.hide-time .e-time { display: none; }')
     // ⚖ FIX ROUND 4 (delta3 lens 3 X1) — AND 密度→コンパクト IS NOT THE SAME DIAL.
     // Fix round 3 gave コンパクト the same three-node hide, so 個室のみ and 保持
-    // would survive it too — and the 52px lane has 37px of content box for 47.8px
-    // of three lines. `.biz .event` is absolutely positioned with
-    // `overflow: hidden`, so the surviving note was SLICED: the top fifth of a
-    // run of kanji, on exactly the two cards the change was written for. This
+    // would survive it too — and the 52px lane has 36px of content box (47px
+    // card once the lane's own 1px bottom border is counted; 37px only on a
+    // group's last lane) for 47.8px of three lines. `.biz .event` is
+    // absolutely positioned with `overflow: hidden`, so the surviving note
+    // was SLICED: the top fifth of a run of kanji, on exactly the two cards
+    // the change was written for. This
     // dial drops the whole line again, INTENTIONALLY — the tag still reads off
     // the accessible name, the inspector, the shelf chip and every refusal.
     expect(CSS).toContain('.biz.board-compact .event small.e-tkt { display: none; }')
