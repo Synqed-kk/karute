@@ -372,6 +372,7 @@
 .biz .pg-settings .st-lead-wide { display: none; }
 .biz .pg-settings .st-lead-narrow { display: inline; }
 
+.biz .pg-settings .st-col { display: contents; }
 .biz .pg-settings .st-main { container: st-main / inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 
 /* ── a block ───────────────────────────────────────────────────────────────── */
@@ -799,21 +800,31 @@
    stand, so it becomes a band above the panel. ═══ */
 @media (min-width: 900px) {
   .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
-  /* Source order is back → head → main → side; `order` puts the band where a
-     reader meets it, without a second DOM for a second width. */
-  .biz .pg-settings .st-back { order: 1; }
-  .biz .pg-settings .st-sec-head { order: 2; }
-  .biz .pg-settings .st-side { order: 3; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; }
+  /* ⚠ BOTH WRAPPERS DISSOLVE, so the six pieces take their own places. The
+     strip is a TOOLBAR — このページの中身 beside the save state, on one line — and
+     the live card is NOT part of it: it goes UNDER the dials, where ① puts it
+     too. That is label truth rather than taste: the lead says 「下のカード」 at
+     every width below ③, and a card sitting above the dials would make the one
+     sentence pointing at it false. (Found by the probe's T2, which measures the
+     card's own rect against the word in the visible lead.) */
+  .biz .pg-settings .st-col,
+  .biz .pg-settings .st-col,
+  .biz .pg-settings .st-side { display: contents; }
+  .biz .pg-settings .st-panel { grid-template-columns: minmax(0, 1fr) auto; }
+  .biz .pg-settings .st-back { order: 1; grid-column: 1 / -1; }
+  .biz .pg-settings .st-sec-head { order: 2; grid-column: 1 / -1; }
+  .biz .pg-settings .st-jump { order: 3; grid-column: 1; }
+  .biz .pg-settings .st-save-card { order: 3; grid-column: 2; }
   .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { order: 4; }
-  .biz .pg-settings .st-side-card { flex: 1 1 100%; max-width: 560px; }
-  .biz .pg-settings .st-jump { flex: 1 1 320px; min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
+  .biz .pg-settings .st-boundary { order: 4; grid-column: 1 / -1; }
+  .biz .pg-settings .st-side-card { order: 5; grid-column: 1 / -1; max-width: 560px; }
+  .biz .pg-settings .st-jump { min-width: 0; padding: 6px 9px; display: flex; align-items: center; gap: 8px; }
   .biz .pg-settings .st-jump-head { padding: 0; white-space: nowrap; }
   .biz .pg-settings .st-jump-list { flex-direction: row; gap: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   .biz .pg-settings .st-jump-item { width: auto; flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
   .biz .pg-settings .st-jump-item.is-on { border-color: var(--st-accent); }
   .biz .pg-settings .st-jump-note { display: none; }
-  .biz .pg-settings .st-save-card { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; }
+  .biz .pg-settings .st-save-card { flex-direction: row; align-items: center; gap: 9px; padding: 6px 10px; white-space: nowrap; }
   .biz .pg-settings .st-save-card .st-foot { display: none; }
 }
 
@@ -828,20 +839,30 @@
 @container st-body (min-width: 960px) {
   .biz .pg-settings .st-grid { grid-template-columns: var(--st-rail-w) minmax(0, 1fr); }
   .biz .pg-settings .st-panel { grid-template-columns: minmax(var(--st-main-min), 1fr) var(--st-side-w); }
+  /* …and here the two wrappers become real boxes again: the reading column is
+     ONE grid item (so the stack never has to span rows — see the note in the
+     screen beside `columnAnd`), and the stack is the other. */
+  .biz .pg-settings .st-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; grid-column: 1; }
+  .biz .pg-settings .st-side { display: flex; grid-column: 2; }
   .biz .pg-settings .st-back,
   .biz .pg-settings .st-sec-head,
   .biz .pg-settings .st-main,
-  .biz .pg-settings .st-boundary { grid-column: 1; }
+  .biz .pg-settings .st-boundary { grid-column: auto; }
   /* ⚠ NAMED EXCEPTION 1 of 2 (see the header): a box pinned to the viewport that
      is taller than the viewport can never reveal its own last row, because the
      page scroll no longer moves it. Capped at the viewport and scrolling inside
      itself is the only shape that keeps it whole. */
   .biz .pg-settings .st-side {
-    grid-column: 2; grid-row: 1 / -1; align-self: start;
+    align-self: start;
     position: sticky; top: calc(var(--st-topbar) + 12px);
     max-height: calc(100vh - var(--st-topbar) - 24px);
     overflow-y: auto; overscroll-behavior: contain;
   }
+  /* ⚠ AND ITS CHILDREN MAY SHRINK. A flex item's `min-width` is `auto`, so a
+     long refusal sentence inside #812's own 保存 block kept the card wider than
+     its 288px column and pushed the text off the page edge — seen on the
+     予約と確保 shot before the column became one box. */
+  .biz .pg-settings .st-side > * { min-width: 0; }
   /* ⚠ NAMED EXCEPTION 2 of 2, same exception, same reason — but the box that
      owns the axis is the LIST, not the rail. The search field and the count
      belong to the rail whatever is scrolled to: a field that scrolls away is a

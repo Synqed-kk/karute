@@ -292,10 +292,16 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection')
     expect(SHELL_SCREEN_CODE).toContain('tourOpen={tourOpen}')
     expect(SHELL_SCREEN_CODE).toContain('{...props.storePolicy}')
-    expect(SHELL_SCREEN_CODE).toContain('render={(slots) => (')
+    // ⚖ S17 — RE-PINNED. The room builds the reading column and the stack as ONE
+    // pair (`columnAnd`), and 予約と確保 builds the SAME pair from inside its own
+    // render prop — one call, nothing carried across the render. So the three
+    // slots are read where they are used rather than as JSX attributes.
+    expect(SHELL_SCREEN_CODE).toContain('render={(slots) =>')
     expect(SHELL_SCREEN_CODE).toContain('<div className="st-main">{slots.main}</div>')
-    expect(SHELL_SCREEN_CODE).toContain('card={slots.card}')
-    expect(SHELL_SCREEN_CODE).toContain('save={slots.save}')
+    expect(SHELL_SCREEN_CODE).toContain('slots.card,')
+    expect(SHELL_SCREEN_CODE).toContain('slots.save,')
+    expect(SHELL_SCREEN_CODE).toContain('slots.jump,')
+    expect(SHELL_SCREEN_CODE).toContain('columnAnd(')
     expect(SCREEN).toContain('return <>{props.render({ main, card: cardSlot, save, jump: STORE_POLICY_ANCHORS })}</>')
     // ⚖ mock D4 — AND THE LEAD TELLS THE TRUTH AT BOTH WIDTHS. #812's sentence
     // points at 「右のカード」, and the card is on the right ONLY in the ③

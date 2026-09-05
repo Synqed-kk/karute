@@ -536,6 +536,125 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
   const highlighted = jumpPin ?? inView
 
+  /* ⚖ list-is-the-page: at ≤899 the rail is the page and a section is its own
+     screen, so the way back has to be ON that screen. It is rendered ALWAYS and
+     hidden by the band, never conditionally mounted — a button that appears and
+     disappears with a resize is a target that moves under a thumb. It is lifted
+     out of the branches because every one of them carries it. */
+  const backNode = (
+    <button
+      className="st-back"
+      type="button"
+      data-guide-title="設定の一覧に戻る"
+      data-guide="スマートフォンでは、設定の一覧と中身がそれぞれ1つの画面です。ここを押すと一覧に戻ります。"
+      aria-label="設定の一覧に戻る"
+      onClick={backToList}
+    >
+      {/* ⚠ 「設定」, NOT `railHeading`. The rail's heading is 設定カテゴリー — the
+          right words for the list's own accessible name, and three syllables too
+          many on a back control, which is read as 「back to WHERE」 and wants the
+          page's name. The fuller sentence rides the accessible name. */}
+      ‹ 設定
+    </button>
+  )
+
+  /* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
+     DELIBERATELY. 自分の表示設定 is `scope: 'self'`, so `gateOf` answers `open`
+     for every role — including one this world has never heard of — and
+     `firstOpenSection` therefore never returns null. It stays as DEFENCE for a
+     rail whose every row could one day be gated: this room's rule is that a
+     panel is never a blank rectangle, and that rule needs somewhere to land. The
+     suite pins the CLAIM (every role opens on something) rather than the
+     presence of this string. */
+  const boundaryFallbackNode = (
+    <section className="st-boundary" data-guide-title="表示できる設定がありません" data-guide="いまのアカウントの権限では、開ける設定がありません。">
+      <p>{props.boundaryFallback}</p>
+    </section>
+  )
+
+  const boundaryNode = section === null ? null : (
+    <section
+      className="st-boundary"
+      data-guide-title="権限について"
+      data-guide="この設定は、権限のあるアカウントでのみ表示されます。ここでは中身を出していません。"
+    >
+      <p>{section.boundaryLine}</p>
+    </section>
+  )
+
+  const headNode = section === null ? null : (
+    <div
+      className="st-sec-head"
+      data-guide-title={section.title}
+      // ⚖ A2 — ONE TOUR ENGINE. A section that arrived carrying its own page-head
+      // declaration (予約と確保, from #812) states it in the payload; every other
+      // section is explained by its lead, exactly as before.
+      data-guide={section.guide || section.lead || `${section.title}の画面です。`}
+    >
+      <span className="st-kicker">{section.kicker}</span>
+      <h2>{section.title}</h2>
+      {section.lead && (
+        <p className="st-lead">
+          {section.leadNarrow ? (
+            <>
+              {/* ⚖ mock D4 — both forms ship and the SHEET picks; see
+                  `SettingsSection.leadNarrow`. Nothing is chosen in JS, so the
+                  server and the browser cannot disagree. */}
+              <span className="st-lead-wide">{section.lead}</span>
+              <span className="st-lead-narrow">{section.leadNarrow}</span>
+            </>
+          ) : (
+            section.lead
+          )}
+        </p>
+      )}
+    </div>
+  )
+
+  /** The reading column and the stack beside it, for whichever branch is
+   *  rendering. Written once so the two callers cannot drift into two different
+   *  panels — and so 予約と確保, whose three slots arrive inside a render prop,
+   *  can build the same pair from inside it. */
+  const columnAnd = (main: ReactNode, side: ReactNode) => (
+    <>
+      {/* ⚠ ONE BOX FOR THE READING COLUMN, and it is structural rather than
+          cosmetic. The sticky stack stands beside the WHOLE column, and saying
+          that with `grid-row: 1 / -1` does NOT work: with no EXPLICIT rows
+          declared, `-1` names the last line of the explicit grid — which is line
+          1 — so the stack spanned exactly ONE row, forced that row to its own
+          ~800px height, and left an 800px hole between the section head and its
+          first block. MEASURED on the 予約と確保 shot at 1280. With the column as
+          one box there is nothing to span, and at ①/② the box dissolves
+          (`display: contents`) so its children take their own places in the
+          panel's single column. */}
+      <div className="st-col">
+        {backNode}
+        {headNode}
+        {main}
+      </div>
+      {side}
+    </>
+  )
+
+  const sideNode = (
+    jump: ReadonlyArray<{ id: string; title: string }>,
+    card: ReactNode,
+    save: ReactNode,
+    dirtyOf: (id: string) => boolean,
+    raised: boolean,
+  ) => (
+    <Side
+      jump={jump}
+      card={card}
+      save={save}
+      highlighted={highlighted}
+      dirtyOf={dirtyOf}
+      onJump={jumpTo}
+      raised={raised}
+      reduced={reduced}
+    />
+  )
+
   return (
     <div className={`${ROOT}${isDetail ? ' is-detail' : ''}`} ref={rootRef}>
       {/* ⚖ IMPROVEMENT 1 — ONE COMPACT ROW. The dateline, the title, the ? and
@@ -637,186 +756,109 @@ export function SettingsScreen(props: SettingsScreenProps) {
         </aside>
 
         <div className="st-panel">
-          {/* ⚖ list-is-the-page: at ≤899 the rail is the page and a section is its
-              own screen, so the way back has to be ON that screen. It is rendered
-              always and hidden by the band, never conditionally mounted — a
-              button that appears and disappears with a resize is a target that
-              moves under a thumb. */}
-          <button
-            className="st-back"
-            type="button"
-            data-guide-title="設定の一覧に戻る"
-            data-guide="スマートフォンでは、設定の一覧と中身がそれぞれ1つの画面です。ここを押すと一覧に戻ります。"
-            aria-label="設定の一覧に戻る"
-            onClick={backToList}
-          >
-            {/* ⚠ 「設定」, NOT `railHeading`. The rail's heading is 設定カテゴリー —
-                the right words for the list's own accessible name, and three
-                syllables too many on a back control, which is read as 「back to
-                WHERE」 and wants the page's name. The fuller sentence rides the
-                accessible name, where a screen reader wants it. */}
-            ‹ 設定
-          </button>
-
-          {/* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
-              DELIBERATELY. 自分の表示設定 is `scope: 'self'`, so `gateOf`
-              answers `open` for every role — including one this world has never
-              heard of — and `firstOpenSection` therefore never returns null. It
-              stays as DEFENCE for a rail whose every row could one day be gated:
-              this room's rule is that a panel is never a blank rectangle, and
-              that rule needs somewhere to land. The suite pins the CLAIM (every
-              role opens on something) rather than the presence of this string. */}
           {section === null ? (
-            <section className="st-boundary" data-guide-title="表示できる設定がありません" data-guide="いまのアカウントの権限では、開ける設定がありません。">
-              <p>{props.boundaryFallback}</p>
-            </section>
+            columnAnd(boundaryFallbackNode, null)
+          ) : section.gate === 'no-rights' ? (
+            columnAnd(boundaryNode, null)
+          ) : isBookingGuard ? (
+            // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets, its
+            // live card, its eight dials and its OWN 保存 block. It hands the
+            // three back as SLOTS so this room can put each where the design puts
+            // it — the dials in the reading column, the live card at the top of
+            // the sticky stack, the 保存 block in the save slot — while every
+            // dial's state stays inside the section that owns it (⚖ A12). ONE
+            // call: the render prop builds the same column-and-stack pair every
+            // other section gets, from inside itself, so nothing has to be
+            // carried across the render.
+            <StorePolicySection
+              tourOpen={tourOpen}
+              {...props.storePolicy}
+              render={(slots) =>
+                columnAnd(
+                  <div className="st-main">{slots.main}</div>,
+                  sideNode(
+                    slots.jump,
+                    slots.card,
+                    slots.save,
+                    // ⚖ A3 — this section keeps #812's own 保存, which is a
+                    // refusal rather than a commit, so it has no unsaved state
+                    // for a dot or a rise to be about.
+                    () => false,
+                    false,
+                  ),
+                )
+              }
+            />
           ) : (
-            <>
-              <div
-                className="st-sec-head"
-                data-guide-title={section.title}
-                // ⚖ A2 — ONE TOUR ENGINE. A section that arrived carrying its own
-                // page-head declaration (予約と確保, from #812) states it in the
-                // payload; every other section is explained by its lead, exactly
-                // as before.
-                data-guide={section.guide || section.lead || `${section.title}の画面です。`}
-              >
-                <span className="st-kicker">{section.kicker}</span>
-                <h2>{section.title}</h2>
-                {section.lead && (
-                  <p className="st-lead">
-                    {section.leadNarrow ? (
-                      <>
-                        {/* ⚖ mock D4 — both forms ship and the SHEET picks; see
-                            `SettingsSection.leadNarrow`. Nothing is chosen in JS,
-                            so the server and the browser cannot disagree. */}
-                        <span className="st-lead-wide">{section.lead}</span>
-                        <span className="st-lead-narrow">{section.leadNarrow}</span>
-                      </>
-                    ) : (
-                      section.lead
-                    )}
-                  </p>
-                )}
-              </div>
-
-              {section.gate === 'no-rights' ? (
-                <section
-                  className="st-boundary"
-                  data-guide-title="権限について"
-                  data-guide="この設定は、権限のあるアカウントでのみ表示されます。ここでは中身を出していません。"
-                >
-                  <p>{section.boundaryLine}</p>
-                </section>
-              ) : isBookingGuard ? (
-                // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets, its
-                // live card, its eight dials and its OWN 保存 block. It hands the
-                // three back as SLOTS so this room can put each where the design
-                // puts it — the dials in the panel, the card at the top of the
-                // sticky stack, the 保存 block in the save slot — while every
-                // dial's state stays inside the section that owns it (⚖ A12).
-                <StorePolicySection
-                  tourOpen={tourOpen}
-                  {...props.storePolicy}
-                  render={(slots) => (
-                    <>
-                      <div className="st-main">{slots.main}</div>
-                      <Side
-                        jump={slots.jump}
-                        card={slots.card}
-                        save={slots.save}
-                        highlighted={highlighted}
-                        /* ⚖ A3 — this section keeps #812's own 保存, which is a
-                           refusal rather than a commit, so it has no unsaved
-                           state for a dot to be about. */
-                        dirtyOf={() => false}
-                        onJump={jumpTo}
-                        /* ⚖ A3 — this section's 保存 is a refusal, so there is
-                           never anything for the card to rise about. */
-                        raised={false}
-                        reduced={reduced}
-                      />
-                    </>
-                  )}
-                />
-              ) : (
-                <>
-                  <div className="st-main">
-                    {section.blocks.map((b) => (
-                      <Block
-                        key={b.id}
-                        block={b}
-                        values={values}
-                        onChange={setValue}
-                        labelFor={labelFor}
-                        result={results[b.id] ?? null}
-                        error={actionErrors[b.id] ?? null}
-                        onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
-                        onLink={(id) => openSection(id, false)}
-                        openRows={openRows}
-                        onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
-                        listRows={b.collection ? (listRows[b.id] ?? b.collection.items) : null}
-                        listError={listErrors[b.id] ?? null}
-                        onListAdd={() => addRow(b)}
-                        onListRemove={(rowId) => removeFromCollection(b, rowId)}
-                        reduced={reduced}
-                      />
-                    ))}
-                  </div>
-
-                  <Side
-                    jump={section.blocks.map((b) => ({ id: b.id, title: b.title }))}
-                    card={null}
-                    save={
-                      /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE
-                         POINT: it is already saved, in this browser, the moment
-                         it is pressed. Printing 保存する under it would ask a
-                         reader to commit something nobody else can see. */
-                      section.persist === 'local' ? (
-                        <>
-                          <p className="st-save-state" role="status">
-                            {committed[section.id]
-                              ? `✓ この端末に保存しました ${props.saveStampTime}`
-                              : '押すとすぐ保存されます'}
-                          </p>
-                          <p className="st-foot">{props.selfSaveLine}</p>
-                        </>
-                      ) : (
-                        <>
-                          <div className="st-save-line">
-                            <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
-                              {blocked ??
-                                (changed > 0
-                                  ? `変更 ${changed}件`
-                                  : committed[section.id]
-                                    ? `✓ 保存しました ${props.saveStampTime}`
-                                    : '変更はありません')}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className="st-save"
-                            disabled={!dirty || blocked !== null}
-                            onClick={() => commitSection(section)}
-                          >
-                            保存する
-                          </button>
-                          <p className="st-foot">{props.demoSaveLine}</p>
-                        </>
-                      )
-                    }
-                    highlighted={highlighted}
-                    dirtyOf={(id) => {
-                      const b = section.blocks.find((x) => x.id === id)
-                      return b !== undefined && blockDirty(b, values, saved)
-                    }}
-                    onJump={jumpTo}
-                    raised={changed > 0}
+            columnAnd(
+              <div className="st-main">
+                {section.blocks.map((b) => (
+                  <Block
+                    key={b.id}
+                    block={b}
+                    values={values}
+                    onChange={setValue}
+                    labelFor={labelFor}
+                    result={results[b.id] ?? null}
+                    error={actionErrors[b.id] ?? null}
+                    onAction={() => runAction(b, values, setResults, setActionErrors, labelFor)}
+                    onLink={(id) => openSection(id, false)}
+                    openRows={openRows}
+                    onToggleRow={(id) => setOpenRows((prev) => ({ ...prev, [id]: !prev[id] }))}
+                    listRows={b.collection ? (listRows[b.id] ?? b.collection.items) : null}
+                    listError={listErrors[b.id] ?? null}
+                    onListAdd={() => addRow(b)}
+                    onListRemove={(rowId) => removeFromCollection(b, rowId)}
                     reduced={reduced}
                   />
-                </>
-              )}
-            </>
+                ))}
+              </div>,
+              sideNode(
+                section.blocks.map((b) => ({ id: b.id, title: b.title })),
+                null,
+                /* ⚠ 自分の表示設定 HAS NO SAVE BUTTON, AND THAT IS THE POINT: it is
+                   already saved, in this browser, the moment it is pressed.
+                   Printing 保存する under it would ask a reader to commit
+                   something nobody else can see. */
+                section.persist === 'local' ? (
+                  <>
+                    <p className="st-save-state" role="status">
+                      {committed[section.id]
+                        ? `✓ この端末に保存しました ${props.saveStampTime}`
+                        : '押すとすぐ保存されます'}
+                    </p>
+                    <p className="st-foot">{props.selfSaveLine}</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="st-save-line">
+                      <span className={`st-save-count${changed === 0 ? ' is-none' : ''}`} role="status">
+                        {blocked ??
+                          (changed > 0
+                            ? `変更 ${changed}件`
+                            : committed[section.id]
+                              ? `✓ 保存しました ${props.saveStampTime}`
+                              : '変更はありません')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="st-save"
+                      disabled={!dirty || blocked !== null}
+                      onClick={() => commitSection(section)}
+                    >
+                      保存する
+                    </button>
+                    <p className="st-foot">{props.demoSaveLine}</p>
+                  </>
+                ),
+                (id) => {
+                  const b = section.blocks.find((x) => x.id === id)
+                  return b !== undefined && blockDirty(b, values, saved)
+                },
+                changed > 0,
+              ),
+            )
           )}
         </div>
         </div>

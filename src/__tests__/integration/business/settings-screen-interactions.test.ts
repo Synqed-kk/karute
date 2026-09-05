@@ -200,8 +200,15 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     // Studio standard exists to remove; a rise tied to 「there is unsaved work」
     // is the card speaking.
     expect(SRC_CODE).toContain('spring.current?.set(raised ? -6 : 0)')
-    expect(SRC_CODE).toContain('raised={changed > 0}')
-    expect(SRC_CODE).toContain('raised={false}')
+    // ⚖ S17 — RE-PINNED THROUGH `sideNode`. The stack is built by ONE helper now
+    // (the reading column and the stack are a pair, and 予約と確保 builds the same
+    // pair from inside its render prop), so `raised` is that helper's fifth
+    // argument rather than a JSX attribute. The CLAIM is unchanged: it is
+    // `changed > 0` for a section that can be saved and `false` for the one that
+    // cannot.
+    expect(SRC_CODE).toContain('raised: boolean,')
+    expect(SRC_CODE).toContain('changed > 0,')
+    expect(SRC_CODE).toMatch(/\(\) => false,\s*\n\s*false,/)
   })
 
   it('NO declared element is a whole panel — the walk points at rows and blocks', () => {
