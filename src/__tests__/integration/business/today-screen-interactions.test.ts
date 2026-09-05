@@ -94,6 +94,7 @@ import {
   proxyTimeLabel,
   windowsEatenBy,
   withPriceFact,
+  factsRowsShown,
   hasPriceFact,
   priceFactSets,
   PRICE_HOLD_ROW,
@@ -1388,7 +1389,7 @@ describe('the 配置ガイド rail', () => {
       '  `新規用に確保（${clockOf(start)}〜${clockOf(end)}）。${reservedClause(end - start)}`',
       '  const judged = `（${clockOf(cell.start)}〜${clockOf(cell.start + dur)}）`',
       '  const window = `${clockOf(start)}〜${clockOf(end)}`',
-      "  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'} / ${moved}${bedLane?.label ?? '—'}`",
+      "  return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'}${bedLane ? ` / ${moved}${bedLane.label}` : ''}`",
       '  const when = (i: BoardItem) => `${clockOf(i.startMin)}〜${clockOf(i.endMin)}`',
     ]) expect([home, pinnedLines(INT, home)]).toEqual([home, 1])
     // The composer may not go back to a bare count at any of the three sites —
@@ -2139,6 +2140,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "gapKindOf,",
       "gapLayerFor,",
       "gapPackingDials,",
+      "factsRowsShown,",
       "guardCheckRow,",
       "guardCheckRowBesideOffer,",
       "guardRailsFor,",
@@ -6486,14 +6488,21 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     })
     expect(solved.refusal).toBeNull()
     expect(solved.laneKey).toBe('bed-01')
-    // The em-dash is `holdSummary` reading a board with no bed drawing at all —
-    // which is exactly what the skipped solve produced.
+    // The missing room is `holdSummary` reading a board with no bed drawing at
+    // all — which is exactly what the skipped solve produced.
+    //
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M1) — AND IT IS AN ABSENCE, NOT AN EM-DASH.
+    // The line used to end 「/ —」, the shape Liam rejected on 8/22; the summary
+    // now states what it can and leaves out what it cannot, so the rest of the
+    // sentence — the customer, the window, the staff member — survives a landing
+    // with no room. The `/` count is the pin: three segments become two.
     const at = { laneKey: 'p-06', ...place(780, 840, HOURS) }
     const noBed = holdSummary(
       [{ ...staff, items: [booking({ key: 's', caseId: 'apt-akari' }, 780, 840)] }, free],
       'apt-akari', at, HOURS,
     )
-    expect(noBed).toContain('/ —')
+    expect(noBed).not.toContain('—')
+    expect(noBed).toBe('見本 はなこ様 → 13:00〜14:00 / 担当 見本 あずさ')
     // …and with the room drawn, the confirm names it (⚖ 51's own law).
     const withBed = holdSummary(
       [
@@ -7618,11 +7627,13 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC.match(/v\.floor === 'policy'/g)).toHaveLength(1)
     const explain = SRC.slice(SRC.indexOf('function explainBlocked('), SRC.indexOf('function cancelDrag('))
     expect(explain.match(/v\.floor === 'policy'/g)).toHaveLength(1)
-    // ⚖ FIX ROUND 2 (delta lens 4 N1) — and the rows clause gained its second
-    // half: a landing that ASKED for a room and got none has no room to name, so
-    // it gets no strip rather than an all-✓ one over 「/ 担当 ◯◯ / —」. Still one
-    // question about authority and one about what was read.
-    expect(explain).toContain('const facts =\n      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)\n        ? {')
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — and the ROWS question left this function
+    // entirely, because a rule spelled inside a closure the suite never renders
+    // can only ever be pinned by its own characters — which lens 2 proved worth
+    // nothing, walking three different gates through the whole battery green. It
+    // is `factsRowsShown` now, asked ONCE here and proved on behaviour in the
+    // A1-5 family below. Still one question about authority, one about the rows.
+    expect(explain.match(/factsRowsShown\(/g)).toHaveLength(1)
     // …and the button still inherits the gate rather than testing anything.
     expect(SRC).toContain('{advice.kind === \'blocked\' && advice.override && (')
     // The authority is still DATA, never a literal on the board (⚠SETTINGS-BATCH).
@@ -7786,7 +7797,12 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Wired from the verdict's own room, never re-solved at the surface.
     expect(SRC).toContain('bedLane: v.bedLane,')
     expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
-    expect(SRC).toContain('checks: v.checks,')
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — THE ONE ANTI-DRIFT PIN ON THE CALL, and
+    // the rule itself is proved by behaviour next door (`factsRowsShown`, the
+    // A1-5 family). Lens 2 mutated this gate three different ways and walked all
+    // three through the whole battery green by editing four copies of its own
+    // source text, so the text is a drift alarm here and nothing more.
+    expect(SRC).toContain('checks: factsRowsShown(v, ask.solveRoom) ? v.checks : [],')
     // ⚖ FIX-6 (blind round, 2026-08-25) — this box has an OFFER LINE under it,
     // so it takes the row built for surfaces-with-offers. The hold popover has
     // no offer line and keeps the whole sentence. Same verdict, same cell, one
@@ -7805,9 +7821,17 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // 個室のみ box with nothing recording it. The honest question is whether any
     // row was read, so that is the one the gate asks.
     //
-    // ⚖ FIX ROUND 2 (delta lens 4 N1) — plus 「and a room is in hand」: rows alone
-    // let a 満室 mint an all-✓ strip over a summary ending 「/ 担当 ◯◯ / —」.
-    expect(SRC).toContain("const facts =\n      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)\n        ? {")
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — AND THE QUESTION IS ASKED ON A SEAM.
+    // The gate spent two rounds inside a closure this suite never renders, so
+    // its only armour was four copies of its own source text; lens 2 rewrote the
+    // expression three different ways, edited the four strings to match, and the
+    // whole battery stayed green on all three. `factsRowsShown` is the rule with
+    // a door on it — and the FLOOR is still not what it asks: a `hard` bed-row
+    // stop keeps its rows, and a landing that read nothing shows nothing.
+    const bedRowStop = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
+    expect(bedRowStop.floor).toBe('hard')
+    expect(factsRowsShown(bedRowStop, false)).toBe(true)
+    expect(factsRowsShown({ bedLane: 'bed-01', checks: [] }, false)).toBe(false)
     expect(SRC).toContain('{advice.facts && (')
     expect(SRC).toContain('<div className="gp-facts">')
     // ⚖ 52's glyphs have ONE home, and the box reads it rather than minting a
@@ -8059,7 +8083,14 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // LENS-1 F4. They hung off `attempt`, which exists only where a CARD can sit
     // at the landing (flag 57's paint) — so the keyboard nudge, 配置モード and the
     // shelf all staged with no facts at all. `ask` is what every path has.
-    expect(SRC).toContain("const facts =\n      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)\n        ? {")
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — AND THE ROWS ASK THE QUESTION, not the
+    // verdict. ONE verdict, both answers: 新規予約を作成 hands the same `policy`
+    // stop with no room in it, and whether its rows render turns entirely on
+    // whether the ASK wanted a room. Nothing on the board can tell them apart.
+    const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
+    expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
+    expect(factsRowsShown(form, false)).toBe(true)
+    expect(factsRowsShown(form, true)).toBe(false)
     expect(SRC).toContain('summary: holdSummary(boardLanes, ask.id ?? \'\', { laneKey, ...span }, hours, ask.bedLane, {')
     expect(SRC).toContain('staffLane: ask.staffLane,')
     // …and it is decoupled from the ghost, so flag 57's own contract is untouched.
@@ -8142,7 +8173,10 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // and false of the box: `facts` was gated on `policy`, so the strip this test
     // exists for was gone while the test still passed. The two gates the strip
     // actually passes through are pinned here beside the verdict that feeds them.
-    expect(SRC).toContain('const facts =\n      v.checks.length > 0 && (v.bedLane !== null || !ask.solveRoom)\n        ? {')
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — asked of the rule rather than of the
+    // characters that used to spell it: this is the box the round exists for and
+    // its rows are the half being claimed.
+    expect(factsRowsShown(tagged, false)).toBe(true)
     expect(SRC).toContain('{advice.facts && (')
     // ⚖ FIX ROUND 1 (blind lens 3 F1) — AND NO OFFER LINE UNDER IT. A room
     // refusal is true at every start on the lane, so the guard's 「この区間に、
@@ -8174,42 +8208,68 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(cross.reason).toBe('担当と店舗が異なります: 見本 あずさ / ベッド9')
   })
 
-  it('⚖ FIX ROUND 2 — a landing that ASKED for a room and got none carries no facts strip', () => {
-    // DELTA LENS 4 N1. ⚖ 74's rows moved from `floor === 'policy'` to
-    // `checks.length > 0`, and that was one class too wide. A 満室 solved a room
-    // and got NONE, so `bedLane` is null; no check row is ever ABOUT a room; and
-    // the box drew an all-✓ strip over a summary ending 「/ 担当 見本 あずさ / —」
-    // — the ✓✓✓✓ + 「—」 shape Liam rejected on 8/22, arriving on the refusal box.
+  it('⚖ FIX ROUND 3 — the refusal box keeps its IDENTITY line and stands its rows down', () => {
+    // DELTA2 LENS 3 M1 + LENS 2 F1. Fix round 2 answered the 「/ 担当 見本 あずさ /
+    // —」 Liam rejected on 8/22 by deleting the WHOLE strip on a room refusal —
+    // which took the customer, the window and the staff member with it, under two
+    // buttons that COMMIT a placement, on the two landings that have no card
+    // drawn to read (an armed 配置モード and a shelf chip). ⚖ AMENDMENT 3's own
+    // defect, one class over.
     //
-    // The strip is composed inside a closure in the component and this suite has
-    // no DOM, so the GATE is pinned as the byte-exact line it is (above) and the
-    // two facts it reads — `checks.length` and `bedLane` — are asked of the real
-    // verdicts that feed it. The predicate itself is deliberately NOT re-spelled
-    // here: a second copy of a rule is a second answer, which is the defect this
-    // whole family exists to remove.
-    //
-    // NO ROOM IN HAND ⇒ nothing to put in the summary ⇒ no strip. 満室 asked and
-    // got none…
-    const full = verdict(board({ beds: busyBeds }), {}, cellOf('safe', ''))
+    // The two halves are now two questions, and BOTH have a seam. `holdSummary`
+    // omits the room it cannot name, so the em-dash goes at the source and the
+    // sentence survives; `factsRowsShown` decides the rows alone. Lens 2 mutated
+    // the old in-component gate three different ways and walked all three through
+    // the whole battery green by editing the four copies of its source text that
+    // were its only proof — so every claim below is asked of the rule.
+    const at = { laneKey: 'p-01', ...place(960, 1020, HOURS) }
+    const held = booking({ key: 's', caseId: 'apt-1', title: 'テスト なぎ' }, 960, 1020)
+    const summaryOf = (lanes: BoardLane[], bedLane: string | null) =>
+      holdSummary(lanes, 'apt-1', at, HOURS, 'bed-01', { staffLane: 'p-01', bedLane })
+
+    // S-A · 満室 — asked for a room, got none. Rows down, identity intact.
+    const fullLanes = board({ staff: { items: [held] }, beds: busyBeds })
+    const full = verdict(fullLanes, {}, cellOf('safe', ''))
     expect([full.floor, full.bedLane, full.checks.length > 0]).toEqual(['hard-room', null, true])
+    expect(factsRowsShown(full, true)).toBe(false)
+    expect(summaryOf(fullLanes, full.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
+    expect(summaryOf(fullLanes, full.bedLane)).not.toContain('—')
+    expect(summaryOf(fullLanes, full.bedLane)).not.toContain('ベッド')
+
     // …and a CLASH whose room ALSO failed reads the same: it returns first, so
-    // its `bedLane` is null too and its summary would end 「/ —」 as well.
-    const clash = verdict(board({ staff: { items: [booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }, beds: busyBeds }), {}, cellOf('safe', ''))
+    // its `bedLane` is null too.
+    const clashLanes = board({ staff: { items: [held, booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }, beds: busyBeds })
+    const clash = verdict(clashLanes, {}, cellOf('safe', ''))
     expect([clash.floor, clash.bedLane, clash.checks.length > 0]).toEqual(['hard', null, true])
-    // A ROOM IN HAND ⇒ the strip stays. The 個室のみ bed-row stop names its own
-    // room, and every policy stop has a solved one.
-    const tagged = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
+    expect(factsRowsShown(clash, true)).toBe(false)
+    expect(summaryOf(clashLanes, clash.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
+
+    // S-B · the 個室のみ bed-row stop — the operator NAMED the room, so the rows
+    // are about a room that was really checked and the summary says which.
+    const taggedLanes = board({ staff: { items: [held] } })
+    const tagged = verdict(taggedLanes, { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
     expect([tagged.floor, tagged.bedLane, tagged.checks.length > 0]).toEqual(['hard', 'bed-01', true])
-    const policy = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), {}, cellOf('safe', ''))
+    expect(factsRowsShown(tagged, false)).toBe(true)
+    expect(summaryOf(taggedLanes, tagged.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+
+    // S-D · an ordinary staged placement stopped by policy — the allocator solved
+    // a room, so nothing is suppressed and the room is in the sentence.
+    const policyLanes = board({ staff: { items: [held], untilLabel: '16:30', window: { from: 600, until: 990 } } })
+    const policy = verdict(policyLanes, {}, cellOf('safe', ''))
     expect([policy.floor, policy.bedLane, policy.checks.length > 0]).toEqual(['policy', 'bed-01', true])
-    // ⚠ AND THE ONE CALLER THAT ASKS WITH NO ROOM AND SOLVES NONE. 新規予約を作成
-    // opens a FORM — the dialog is where the menu and the resource are chosen —
-    // so it deliberately asks nothing about a bed. Its 「—」 is an absence rather
-    // than a refusal, and its policy box has carried rows since ⚖ 74 shipped;
-    // `!ask.solveRoom` is the clause that keeps it whole.
+    expect(factsRowsShown(policy, true)).toBe(true)
+    expect(summaryOf(policyLanes, policy.bedLane)).toContain('/ ベッド1')
+
+    // S-C · 新規予約を作成 opens a FORM — the dialog is where the menu and the
+    // resource are chosen — so it deliberately asks nothing about a bed. It
+    // carries no room and solves none, its rows have been there since ⚖ 74
+    // shipped, and its summary simply stops after 担当 rather than trailing 「/ —」.
     expect(SRC).toContain('{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },')
     const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
     expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
+    expect(factsRowsShown(form, false)).toBe(true)
+    expect(holdSummary(board(), '', at, HOURS, null, { staffLane: 'p-01', bedLane: null }))
+      .toBe('16:00〜17:00 / 担当 見本 あずさ')
   })
 
   it('⚖ FIX ROUND 2 — the no-room DEAD END offers no start; a busy room still does', () => {
@@ -8238,6 +8298,19 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt::before,\n.biz .timeline.hide-tkt .e-tkt .tkt-cat,\n.biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }')
     expect(CSS).not.toContain('.biz .timeline.hide-tkt .e-tkt { display: none; }')
     expect(CSS).toContain('.biz .timeline.hide-time .e-time { display: none; }')
+    // ⚖ FIX ROUND 3 (delta2 lens 4 D3 · lens 3 M3) — AND 密度→コンパクト IS THE
+    // SAME DIAL ONE SEAT OVER. The round fixed the toggle the finding named and
+    // stopped; コンパクト still ate 個室のみ and 保持 whole, on the dense afternoon
+    // where the fact that refuses a drop matters most. Same three nodes, so an
+    // operator cannot lose the placement rule by reaching for the other control.
+    expect(CSS).toContain('.biz.board-compact .event small.e-tkt::before,\n.biz.board-compact .event small.e-tkt .tkt-cat,\n.biz.board-compact .event small.e-tkt .tkt-core { display: none; }')
+    expect(CSS).not.toMatch(/\.biz\.board-compact \.event small\.e-tkt\s*\{/)
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M4) — and the note that survives starts at the
+    // left margin under BOTH dials, because the money is hidden rather than
+    // removed and `.tkt-note`'s 5px was the gap after it. The gap is kept only
+    // where it still separates two notes.
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note,\n.biz.board-compact .event small.e-tkt .tkt-note { margin-left: 0; }')
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note,\n.biz.board-compact .event small.e-tkt .tkt-note + .tkt-note { margin-left: 5px; }')
     // The two notes are siblings of the two hidden nodes inside that one line, so
     // 「what the toggle hides」 is decided by the class each span wears.
     expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')

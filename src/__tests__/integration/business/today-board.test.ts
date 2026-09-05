@@ -476,8 +476,25 @@ describe('今日の運営 screen', () => {
     // comment explaining WHY the parenthetical was wrong quotes it, which is the
     // decoy a naive source ban would trip over — the two rows above are the
     // claim, and they are behavioural.)
+    // ⚖ FIX ROUND 3 (delta2 lens 4 D5 · lens 3 M2 · JP 3) — AND THE CATEGORY WORD
+    // COMES FROM THE TABLE. The open-coded ternary collapsed everything that was
+    // not 回数券/VIP to 単発, so cus-11's deliberately-新規 booking (apt-26, the
+    // fixture's own honest carrier of the category) read 新規 on its card and in
+    // its accessible name and 単発 in this row — one screen contradicting itself,
+    // and it was fix round 2's new shape that put the two side by side. Asked of
+    // the built board: the row and the accessible name now agree.
+    expect(factOf('apt-26', '予約種別')).toEqual(['予約種別', '新規 / Reserve'])
+    const newCard = p.lanes.flatMap((l) => l.items).find((i) => i.caseId === 'apt-26')!
+    expect(newCard.category).toBe('new')
+    expect(newCard.label).toContain('新規')
+    // ⚠ NOT the 再来/単発 question: `CATEGORY_WORD.repeat` is 単発 and
+    // `CATEGORY_LABEL.repeat` is 再来, so apt-29 still reads 単発 here and 再来 in
+    // its accessible name. That is a ruled rider (one word, one home) and this
+    // round deliberately does not answer it — pinned so the divergence is a
+    // known one rather than an accident.
+    expect(factOf('apt-29', '予約種別')[1]).toContain('単発')
     const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
-    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${CATEGORY_WORD[b.category]} / ${b.source.split(' ')[0]}`],")
     expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
   })
 
