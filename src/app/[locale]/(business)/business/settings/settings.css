@@ -1508,8 +1508,12 @@
      lock: `lockedOut` is empty in the sample world, so an enumerated list of
      pressables never meets it. The chip becomes the touch row and its ✕ a real
      target inside it. */
+  /* ⚠ AND THE ✕ IS 44 TOO, NOT 34 — measured, not read (⚖ F14). My own first
+     cut sized the CHIP and left its button short, and the probe's own G1b found
+     it the moment a lock chip was put on screen to be measured. A chip a manager
+     removes on a phone is a control like any other; the chip grows to hold it. */
   .biz .pg-settings .st-lockchip { min-height: 44px; padding: 3px 5px 3px 13px; }
-  .biz .pg-settings .st-lockchip button { width: 34px; height: 34px; font-size: 13px; }
+  .biz .pg-settings .st-lockchip button { width: 44px; height: 44px; font-size: 14px; }
   .biz .pg-settings .st-help { width: 44px; height: 44px; min-width: 44px; font-size: 16px; }
   .biz .pg-settings .st-search-field { min-height: 44px; }
   .biz .pg-settings .st-search-clear { width: 32px; height: 32px; }
