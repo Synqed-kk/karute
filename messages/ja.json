@@ -508,6 +508,7 @@
       "back15": "15秒戻す",
       "fwd15": "15秒進む",
       "speed": "再生速度",
+      "seek": "再生位置",
       "speedChip": "{rate}×",
       "processing": "処理中",
       "processingHint": "サーバーで文字起こし中",

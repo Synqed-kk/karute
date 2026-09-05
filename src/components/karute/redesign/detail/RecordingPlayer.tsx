@@ -269,7 +269,7 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
             if (audioRef.current) audioRef.current.currentTime = next
             setElapsed(next)
           }}
-          aria-label={t('transcript.title')}
+          aria-label={t('transcript.seek')}
           className={cn(
             'h-[5px] w-full cursor-pointer appearance-none rounded-full disabled:cursor-default',
             '[&::-webkit-slider-thumb]:size-[15px] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[1.5px] [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-card [&::-webkit-slider-thumb]:shadow-sm',

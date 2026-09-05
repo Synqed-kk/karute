@@ -201,9 +201,11 @@ describe('the controls', () => {
     expect(audio.currentTime).toBe(742)
   })
 
-  it('the scrub seeks the real audio', () => {
+  it('the scrub seeks the real audio, under its OWN label (not the card title)', () => {
     const { container } = card()
-    const range = container.querySelector('input[type="range"]') as HTMLInputElement
+    const range = screen.getByLabelText('再生位置') as HTMLInputElement
+    expect(range).toBe(container.querySelector('input[type="range"]'))
+    expect(range.getAttribute('aria-label')).not.toBe('録音 ・ 文字起こし')
     expect(range.max).toBe('742')
     fireEvent.change(range, { target: { value: '300' } })
     expect(audioEl().currentTime).toBe(300)

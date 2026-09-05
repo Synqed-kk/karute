@@ -32,6 +32,10 @@ const LITERAL_ONLY_CATEGORY = {
   // karute.entry_edit above).
   'karute.summary_edit': 'karute',
   'customer.create': 'customer',
+  // Choke emit: src/lib/recording/playback-url.ts#mintPlaybackUrlWithClient
+  // (facade key recordings.playbackUrl is a skip row — same doctrine as
+  // karute.entry_edit above).
+  'recording.play': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',

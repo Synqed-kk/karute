@@ -508,6 +508,7 @@
       "back15": "Back 15 seconds",
       "fwd15": "Forward 15 seconds",
       "speed": "Playback speed",
+      "seek": "Seek",
       "speedChip": "{rate}×",
       "processing": "Processing",
       "processingHint": "Transcribing on the server",
