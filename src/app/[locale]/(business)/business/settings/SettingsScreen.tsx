@@ -647,9 +647,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
             type="button"
             data-guide-title="設定の一覧に戻る"
             data-guide="スマートフォンでは、設定の一覧と中身がそれぞれ1つの画面です。ここを押すと一覧に戻ります。"
+            aria-label="設定の一覧に戻る"
             onClick={backToList}
           >
-            ‹ {props.railHeading}
+            {/* ⚠ 「設定」, NOT `railHeading`. The rail's heading is 設定カテゴリー —
+                the right words for the list's own accessible name, and three
+                syllables too many on a back control, which is read as 「back to
+                WHERE」 and wants the page's name. The fuller sentence rides the
+                accessible name, where a screen reader wants it. */}
+            ‹ 設定
           </button>
 
           {/* ⚠ THIS BRANCH IS UNREACHABLE BY CONSTRUCTION TODAY, AND IT IS KEPT
