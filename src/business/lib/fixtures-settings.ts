@@ -136,7 +136,13 @@ export interface StoreDials {
   walletPacks: WalletPack[]
   /** AI設定. */
   aiSummaryLength: 'short' | 'standard' | 'detailed'
-  aiTone: 'polite' | 'friendly'
+  /** ⚖ S17 · C4 — KARUTE-OWNED. Karute calls this ボイススタイル and stores it as
+   *  `ai_voice_style`, a THREE-value enum: `src/actions/org-settings.ts:22`
+   *  `export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'`, mirrored in
+   *  its own DTO at `src/lib/app-api/settings-screen-dto.ts:118`. The first cut
+   *  offered two of the three, so フォーマル was a setting the product has and
+   *  this page could not reach. */
+  aiVoiceStyle: 'formal' | 'polite' | 'friendly'
   aiLanguage: string
   aiOutcomes: string[]
   aiAggressiveness: 'light' | 'standard' | 'active'
@@ -151,7 +157,15 @@ export interface StoreDials {
   /** 文字起こしの公開範囲. DEFAULT = private. GUARDRAIL: staff always see the
    *  store's current mode before they record, and a change is 監査-logged. */
   transcriptVisibility: TranscriptVisibility
-  voiceEnrolled: boolean
+  /** ⚖ S17 · C4 — KARUTE-OWNED, and it is a STATE rather than a boolean:
+   *  `src/actions/org-settings.ts:35-44` `VoiceEnrollment { consent_at;
+   *  sample_path; ref_path?; status: 'saved' | 'revoked'; revoked_at? }`, held
+   *  per staff at `:76` `voice_enrollments: Record<string, VoiceEnrollment>`
+   *  (mirrored in the DTO at `src/lib/app-api/settings-screen-dto.ts:95,126`).
+   *  `revoked` is not the same as 「never registered」 — the consent and its
+   *  withdrawal are both on the record — so the room carries the word, not a
+   *  flag that throws the difference away. */
+  voiceStatus: 'saved' | 'revoked'
   /** コーチング — `org_settings.coaching_enabled`, per store. */
   coachingEnabled: boolean
   coachingSharing: CoachingSharingMode
@@ -162,8 +176,12 @@ export interface StoreDials {
   coachingCadence: 'daily' | 'weekly' | 'biweekly'
   /** 予約同期. */
   syncIntervalMin: number
-  syncStart: string
-  syncEnd: string
+  /** ⚖ S17 · C4 — HOURS, as `SyncConfig.business_hours_start` /
+   *  `business_hours_end` hold them (@synqed-kk/client@1.34.0
+   *  dist/types.d.ts:633-634 — plain `number`). The first cut held 「08:00」
+   *  strings, which let the room offer a half-hour the wire cannot keep. */
+  syncStartHour: number
+  syncEndHour: number
   syncConflict: 'latest' | 'reserve' | 'manual'
   /** Reserve 受付. */
   acceptWindowDays: number
@@ -248,7 +266,7 @@ const ginza: StoreDials = {
     { price: 20000, points: 21000 },
   ],
   aiSummaryLength: 'standard',
-  aiTone: 'polite',
+  aiVoiceStyle: 'polite',
   aiLanguage: 'ja',
   aiOutcomes: ['改善', '維持', '経過観察', '未評価'],
   aiAggressiveness: 'standard',
@@ -257,15 +275,15 @@ const ginza: StoreDials = {
   recordingConsentRequired: true,
   retentionClass: 'no-duty',
   transcriptVisibility: 'staff-only',
-  voiceEnrolled: true,
+  voiceStatus: 'saved',
   coachingEnabled: true,
   coachingSharing: 'manager-grant',
   coachingRetentionMonths: 12,
   coachingSampleFloor: 20,
   coachingCadence: 'weekly',
   syncIntervalMin: 15,
-  syncStart: '08:00',
-  syncEnd: '22:00',
+  syncStartHour: 8,
+  syncEndHour: 22,
   syncConflict: 'latest',
   acceptWindowDays: 30,
   acceptCutoffHours: 2,
@@ -347,7 +365,7 @@ const daikanyama: StoreDials = {
     { dayOffset: 12, at: '09:30', who: '見本 たろう', category: 'pricing', what: '動的価格の切り替え', subject: '動的価格', before: '使わない', after: '使う' },
   ],
   winBackDays: 90,
-  voiceEnrolled: false,
+  voiceStatus: 'revoked',
   entitlements: { karute: true, reserve: false },
 }
 
@@ -392,34 +410,60 @@ export const colorTokenMeaning: Record<string, string> = {
   '--guard-dark': 'スキマガードのしるしの色',
 }
 
-/** 業種プロファイル — the 26 verticals the product's vocabulary rides, as canon
- *  lists them. The room shows which one is in force and says who changes it. */
+/** 業種プロファイル — ⚖ S17 · C4. KARUTE-OWNED, SO KARUTE'S SPELLING WINS.
+ *
+ *  THE CONTRACT: `src/lib/welcome/business-types.ts:71-98` on `origin/main` —
+ *  `export const BUSINESS_TYPES: BusinessType[]`, 26 entries of
+ *  `{ value; label; labelJa }`. Every `value` and every `labelJa` below is that
+ *  list, byte for byte, in its own order.
+ *
+ *  ⚠ THE LABELS WERE THIS ROOM'S OWN AND THEY WERE WRONG. The first cut wrote a
+ *  reasonable-sounding Japanese name for each vertical — 「美容室（ヘアサロン）」,
+ *  「マッサージ」, 「接骨院・整骨院」, 「歯科医院」 — against Karute's own
+ *  「ヘアサロン」, 「リラクゼーション・マッサージ」, 「整骨院」, 「歯科クリニック」.
+ *  Eleven of the twenty-six differed. A settings page naming a business type
+ *  differently from the app that acts on it is two names for one thing, and the
+ *  operator cannot tell which one the product believes.
+ *
+ *  ⚠ COPIED, NOT IMPORTED, and that is the fence rather than laziness: Business
+ *  territory may not import `src/lib/**` (the import-isolation gate). So the
+ *  list is mirrored BY SHAPE with its cite, and `settings.test.ts` READS
+ *  Karute's file off disk and asserts equality — a drift on either side goes red
+ *  the same day it lands.
+ *
+ *  ⚠ AND KARUTE WRITES IT IN TWO PLACES, which is Karute's truth and not ours to
+ *  quietly pick between: `completeOnboarding` puts it in the business's own
+ *  org-settings blob (`src/actions/org-settings.ts:294` → `:363-366`
+ *  `orgSettings.upsert({ settings })`), and the store add/edit dialog puts it on
+ *  the STORE (`src/actions/stores.ts:330,405` → `synqed.stores.create/update`,
+ *  core's `stores.business_type` column). The row is per-store here, says so, and
+ *  names the other home in its own 詳しく rather than pretending there is one. */
 export const businessProfiles: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'esthetic_salon', label: 'エステサロン' },
-  { value: 'hair_salon', label: '美容室（ヘアサロン）' },
+  { value: 'hair_salon', label: 'ヘアサロン' },
   { value: 'nail_salon', label: 'ネイルサロン' },
   { value: 'eyelash_salon', label: 'まつげサロン' },
-  { value: 'massage', label: 'マッサージ' },
+  { value: 'massage', label: 'リラクゼーション・マッサージ' },
   { value: 'chiropractic', label: '整体院' },
   { value: 'beauty_chiropractic', label: '美容整体' },
   { value: 'acupuncture', label: '鍼灸院' },
-  { value: 'osteopathy', label: '接骨院・整骨院' },
+  { value: 'osteopathy', label: '整骨院' },
   { value: 'yoga_studio', label: 'ヨガスタジオ' },
   { value: 'pilates_studio', label: 'ピラティススタジオ' },
   { value: 'personal_gym', label: 'パーソナルジム' },
-  { value: 'dental_clinic', label: '歯科医院' },
-  { value: 'medical_clinic', label: '医科クリニック' },
-  { value: 'dermatology', label: '皮膚科' },
-  { value: 'cosmetic_surgery', label: '美容外科' },
-  { value: 'physical_therapy', label: '理学療法・リハビリ' },
-  { value: 'foot_care', label: 'フットケア' },
-  { value: 'relaxation', label: 'リラクゼーション' },
-  { value: 'aroma', label: 'アロマテラピー' },
+  { value: 'dental_clinic', label: '歯科クリニック' },
+  { value: 'medical_clinic', label: '医療クリニック' },
+  { value: 'dermatology', label: '皮膚科クリニック' },
+  { value: 'cosmetic_surgery', label: '美容外科クリニック' },
+  { value: 'physical_therapy', label: '理学療法' },
+  { value: 'foot_care', label: 'フットケア・リフレクソロジー' },
+  { value: 'relaxation', label: 'リラクゼーションサロン' },
+  { value: 'aroma', label: 'アロマセラピーサロン' },
   { value: 'wellness_clinic', label: 'ウェルネスクリニック' },
   { value: 'mental_health', label: 'メンタルヘルス・カウンセリング' },
   { value: 'veterinary', label: '動物病院' },
-  { value: 'pet_grooming', label: 'ペットグルーミング' },
-  { value: 'training_school', label: 'スクール・教室' },
+  { value: 'pet_grooming', label: 'トリミングサロン' },
+  { value: 'training_school', label: 'スクール・レッスン' },
   { value: 'other', label: 'その他' },
 ]
 

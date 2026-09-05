@@ -254,7 +254,7 @@ const row = (
   label: string,
   description: string,
   controls: RowControl[],
-  extra: Partial<Pick<SettingsRow, 'scopeLabel' | 'meta' | 'trio' | 'link'>> = {},
+  extra: Partial<Pick<SettingsRow, 'scopeLabel' | 'meta' | 'trio' | 'link' | 'source' | 'weekday'>> = {},
 ): SettingsRow => ({
   id,
   label,
@@ -264,6 +264,10 @@ const row = (
   controls,
   ...(extra.trio ? { trio: extra.trio } : {}),
   ...(extra.link ? { link: extra.link } : {}),
+  // ⚖ S17 — the receipt, beside the value it is a receipt for (see
+  // `SettingsRow.source`). It prints inside the row's own 詳しく.
+  ...(extra.source ? { source: extra.source } : {}),
+  ...(extra.weekday !== undefined ? { weekday: extra.weekday } : {}),
 })
 
 const block = (
@@ -657,6 +661,13 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
 
 const roleOptions = (): ControlOption[] => opts([['オーナー', 'オーナー'], ['店舗管理者', '店舗管理者'], ['スタッフ', 'スタッフ']])
 
+/** ⚖ S17 · C4 — 0…23 as 「0時」…「23時」, the VALUES being the integers
+ *  `SyncConfig.business_hours_start` / `_end` hold. The label carries its unit
+ *  (⚖ numbers explain themselves) and the value carries nothing but the number
+ *  the wire keeps. */
+const hourOptions = (): ControlOption[] =>
+  Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${h}時` }))
+
 function dayFrom(now: Date, offset: number): Date {
   const d = new Date(now)
   d.setDate(d.getDate() + offset)
@@ -1031,9 +1042,27 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             guardrail: '短めにしても、記録の元になった内容は消えません。表示の長さだけが変わります。',
           },
         }),
-        row('ai.row-tone', '要約のトーン', '文章の言い回しです。', [
-          seg('ai.tone', '要約のトーン', opts([['polite', '丁寧'], ['friendly', 'フレンドリー']]), d.aiTone),
-        ], { scopeLabel: STORE_SCOPE }),
+        // ⚖ S17 · C4 — KARUTE-OWNED, so Karute's own NAME and Karute's own three
+        // LABELS. The key is `ai_voice_style` (`src/actions/org-settings.ts:22`,
+        // `'formal' | 'polite' | 'friendly'`); Karute's screen calls it ボイス
+        // スタイル with the labels フォーマル / 丁寧 / フレンドリー
+        // (`messages/ja.json:2535-2538`, read through
+        // `src/components/settings/redesign/sections/AISection.tsx:22-26`), and
+        // its description is 「AIがメッセージを書くときの口調。」
+        // (`messages/ja.json:2539`). The first cut called it 要約のトーン and
+        // offered two of the three, so フォーマル was a setting the product has
+        // and this page could not reach — and two names for one dial is the
+        // reader having to guess which one the product believes.
+        row('ai.row-voice-style', 'ボイススタイル', 'AIがメッセージを書くときの口調です。', [
+          seg('ai.voice-style', 'ボイススタイル', opts([['formal', 'フォーマル'], ['polite', '丁寧'], ['friendly', 'フレンドリー']]), d.aiVoiceStyle),
+        ], {
+          scopeLabel: BUSINESS_SCOPE,
+          trio: {
+            base: '初期値: 丁寧',
+            guardrail: '口調を変えても、記録の中身は変わりません。すでに保存された文章もそのままです。',
+          },
+          source: 'カルテのAI設定と同じ値です（カルテ側の画面ではまだ「近日公開」で、値だけが先にあります）',
+        }),
         row('ai.row-language', 'AIの応答言語', 'AI要約とAI相談の文章に使う言語です。', [
           sel('ai.language', 'AIの応答言語', opts([['ja', '日本語'], ['en', 'English']]), d.aiLanguage),
         ], {
@@ -1044,7 +1073,7 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           },
         }),
       ], {
-        preview: { template: 'いまの設定では、要約は{ai.length}・{ai.tone}で、{ai.language}で書かれます。' },
+        preview: { template: 'いまの設定では、要約は{ai.length}・{ai.voice-style}で、{ai.language}で書かれます。' },
       }),
       block('ai.outcomes', '施術結果の選択肢', 'カルテの「施術結果」の欄で選べる言葉です。カルテの一覧と記録が同じ言葉を読みます。', d.aiOutcomes.map((term, i) =>
         row(`ai.row-outcome-${i}`, `選択肢 ${i + 1}`, '', [
@@ -1070,10 +1099,19 @@ function aiSettings(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
       ], {
         preview: { template: '積極度は{ai.aggressiveness}、出す提案の種類は{ai.categories}です。' },
       }),
+      // ⚖ S17 · C4 — the 26 are KARUTE'S, verbatim (`businessProfiles` carries
+      // the cite and `settings.test.ts` reads Karute's file off disk to prove
+      // they still match). The scope chip follows the column the STORE dialog
+      // writes — core's `stores.business_type` — and the 出どころ line names the
+      // other home rather than leaving the reader to find out that changing it
+      // in one place does not change it in the other.
       block('ai.profile', '業種プロファイル', '予約とカルテの言葉づかいや画面の構成の土台になります。', [
-        row('ai.row-profile', '現在のプロファイル', '26の業種のうち、いまこの事業に選ばれているものです。', [
+        row('ai.row-profile', '現在のプロファイル', '26の業種のうち、いまこの店舗に選ばれているものです。', [
           sel('ai.profile', '業種プロファイル', businessProfiles.map((p) => ({ value: p.value, label: p.label })), d.businessProfile, 'プロファイルの変更はサポートが承ります（この画面からは変えられません）。'),
-        ], { scopeLabel: BUSINESS_SCOPE }),
+        ], {
+          scopeLabel: STORE_SCOPE,
+          source: 'カルテと同じ26業種の一覧です。店舗ごとの業種と、事業を始めるときに選んだ業種は別に持たれていて、片方を変えても、もう片方は変わりません',
+        }),
       ], {
         facts: [`いまのプロファイルは「${profileLabel}」です。`],
       }),
@@ -1118,14 +1156,22 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
             guardrail: '不要にしても、お客様が断ったことの記録は残ります。同意のないお客様の録音は、どの設定でも始められません。',
           },
         }),
+        // ⚖ S17 · C5 — the dial stands exactly as Liam ruled it on 8/30 (default
+        // private), and its 詳しく now tells the truth of TODAY: nothing saves
+        // this value yet, and what actually decides who may read a transcript is
+        // Karute's `recordings.viewAll` capability, which is owner-only by
+        // default (`src/lib/auth/permissions.ts:31-36`). Saying so is the
+        // difference between a dial that is ahead of its wire and a dial that
+        // lies about what it is doing.
         row('recording.row-transcript', '文字起こしの公開範囲', 'スタッフの録音から起こした文字を、店長・オーナーも読めるようにするかどうかです。', [
           seg('recording.transcript', '文字起こしの公開範囲', opts([['staff-only', 'スタッフのみ'], ['managers-too', '管理者も閲覧可']]), d.transcriptVisibility, locked),
         ], {
-          scopeLabel: STORE_SCOPE,
+          scopeLabel: BUSINESS_SCOPE,
           trio: {
             base: '初期値: スタッフのみ（安全な側）',
             guardrail: 'スタッフは録音を始める前に、いまどちらの設定かを必ず見られます。設定を変えたことは記録に残ります。',
           },
+          source: 'いまは「録音の全件閲覧」権限（標準ではオーナーだけ）がこの役目を担っています。この設定がコアに保存されるようになると、その決まりに置き換わります',
         }),
       ], {
         flag: '適用範囲: 事業全体',
@@ -1168,9 +1214,21 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
         },
       }),
       block('recording.voice', '自分の音声登録', '自分の声を登録すると、録音の文字起こしの精度が上がります。ここは権限に関わらず本人だけが変えられます。', [
+        // ⚖ S17 · C4 — the value is a STATE, not a flag: Karute holds
+        // `voice_enrollments[staffId].status` as `'saved' | 'revoked'`
+        // (`src/actions/org-settings.ts:35-44,76`; written at
+        // `src/actions/voice.ts:116` and `:230`). 「取り消し済み」 is not the same
+        // fact as 「未登録」 — the consent and its withdrawal are both on the
+        // record — so the switch maps ON/OFF onto those two words rather than
+        // onto a boolean that throws the difference away. SELF scope, and it is
+        // never gated: `gateOf` cannot reach a self-scoped section at all, and
+        // this row sits inside a store section on purpose, as the finer proof.
         row('recording.row-voice', '自分の声の登録', '登録した音声は本人だけに使われます。ほかのスタッフの声と混同されることはありません。', [
-          sw('recording.voice', '自分の声を登録する', '登録済み', '未登録', d.voiceEnrolled),
-        ], { scopeLabel: SELF_SCOPE }),
+          sw('recording.voice', '自分の声を登録する', '登録済み', '取り消し済み', d.voiceStatus === 'saved'),
+        ], {
+          scopeLabel: SELF_SCOPE,
+          source: 'カルテの音声登録と同じ値です（登録済み / 取り消し済み）',
+        }),
       ], {
         preview: { template: 'いまの状態は「{recording.voice}」です。削除すると、次の録音では文字起こしの精度が下がることがあります。' },
       }),
@@ -1201,10 +1259,12 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
     lead: `接客の振り返りを${ctx.lensLabel}で使うかどうかと、その見せ方の決まりです。`,
     blocks: [
       block('coaching.use', '利用と共有', 'この店舗で振り返りを使うかどうかと、共有してよい範囲です。', [
+        // ⚖ C4 — `coaching_enabled` lives in the business's own org-settings blob,
+        // so it is a 事業全体 fact wherever the reader is standing.
         row('coaching.row-enabled', 'コーチングの利用', 'オフのあいだは分析が動かず、成績も気づきも出ません。', [
           sw('coaching.enabled', 'コーチングの利用', '使う', '使わない', d.coachingEnabled),
         ], {
-          scopeLabel: STORE_SCOPE,
+          scopeLabel: BUSINESS_SCOPE,
           trio: {
             base: '初期値: 使わない（お申し込みで使えるようになります）',
             guardrail: 'オフにしても、すでにある記録は消えません。保存期間の設定に従います。',
@@ -1221,7 +1281,7 @@ function coaching(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
           },
         }),
       ], {
-        preview: { template: 'この店舗のコーチングは{coaching.enabled}、共有の範囲は{coaching.sharing}です。' },
+        preview: { template: 'この事業のコーチングは{coaching.enabled}、共有の範囲は{coaching.sharing}です。' },
         list: {
           title: 'この機能にないもの',
           items: [
@@ -1297,21 +1357,34 @@ function sync(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         row('sync.row-interval', '同期の間隔', 'Reserveの予約の変更をBusinessに取り込む間隔です。', [
           sel('sync.interval', '同期の間隔', opts([['15', '15分ごと'], ['30', '30分ごと'], ['60', '60分ごと']]), String(d.syncIntervalMin)),
         ], {
-          scopeLabel: STORE_SCOPE,
+          // ⚖ C4 — `SyncConfig` is ONE ROW PER BUSINESS (`business_id`, no
+          // `store_id` of its own for the schedule), so the interval is a
+          // business-wide fact and the chip has to say so.
+          scopeLabel: BUSINESS_SCOPE,
           trio: {
             base: '初期値: 15分ごと',
             guardrail: '間隔を長くすると、Reserveで入った予約がボードに出るまで時間がかかります。',
           },
         }),
-        row('sync.row-window', '稼働時間帯', 'この時間帯の外では同期を行いません。', [
-          tim('sync.start', '稼働時間帯の開始', d.syncStart),
-          tim('sync.end', '稼働時間帯の終了', d.syncEnd),
+        // ⚖ S17 · C4 — TWO HOUR SELECTS, BECAUSE THE WIRE HOLDS TWO INTEGERS.
+        // `SyncConfig.business_hours_start` / `business_hours_end`
+        // (@synqed-kk/client@1.34.0 dist/types.d.ts:633-634, and the same two on
+        // `UpsertSyncConfigInput` at :653-654) are plain `number` HOURS. The
+        // first cut rendered them as two `time` fields, so the room offered
+        // 「8:30」 — a value core has no way to keep, which it would silently
+        // round or refuse. An hour is what the wire stores, so an hour is what
+        // the reader picks (⚖ label truth, and ⚖ mistake-proofing: the control
+        // cannot name a value the store cannot save).
+        row('sync.row-window', '稼働時間帯', 'この時間帯の外では同期を行いません。時刻は1時間きざみです。', [
+          sel('sync.start', '稼働時間帯の開始', hourOptions(), String(d.syncStartHour)),
+          sel('sync.end', '稼働時間帯の終了', hourOptions(), String(d.syncEndHour)),
         ], {
-          scopeLabel: STORE_SCOPE,
+          scopeLabel: BUSINESS_SCOPE,
           trio: {
-            base: '初期値: 8:00〜22:00',
+            base: '初期値: 8時〜22時',
             guardrail: '停止しているあいだの変更は、次に動いたときにまとめて取り込みます。取りこぼしはありません。',
           },
+          source: '予約同期の設定は事業ぜんたいでひとつです。店舗ごとには分かれていません',
         }),
         row('sync.row-conflict', '重なったときの優先ルール', 'Reserveと店舗の両方から同じ予約が同時に変更されたときの決まりです。', [
           sel('sync.conflict', '重なったときの優先ルール', opts([
