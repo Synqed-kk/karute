@@ -2255,10 +2255,16 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
     // floor is the SENTENCE, and 260 is untouched — that is the half the pixel
     // review was about.
     expect(row).toContain('grid-template-columns: 112px 140px minmax(260px, 1fr);')
-    // …and the action is a LINE OF ITS OWN in the sentence's column, right-
-    // aligned — never a fourth track, which would be 0px wide on every row
-    // without an action and ~200px on the one that has it.
-    expect(row).toContain('.cg-row-act { grid-column: 3; justify-self: end; }')
+    // …and the action is NEVER a fourth track of the ROW, which would be 0px wide
+    // on every row without an action and ~200px on the one that has it. ⚖ I-7
+    // moves it INSIDE the body's own `minmax(0,1fr) auto` pair at the desk, so
+    // every row's body cell is still the same width and the sentences still line
+    // up down the column; below the desk it keeps its own right-aligned line.
+    expect(CSS_CODE).not.toContain('.cg-row-act { grid-column: 3')
+    expect(CSS_CODE).toContain('.biz .pg-coaching .cg-row-act { align-self: flex-end; }')
+    const deskRow = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
+    expect(deskRow).toContain('.cg-row-body { display: grid; grid-template-columns: minmax(260px, 1fr) auto;')
+    expect(deskRow).toContain('.cg-row-act { justify-self: end; align-self: start; max-width: 240px; white-space: normal; }')
     expect(CSS_CODE).not.toMatch(/grid-template-columns:[^;]*max-content[^;]*minmax\(0, 1fr\)/)
     // there is exactly ONE board-row composition above the phone, so no band can
     // disagree with another about how wide the sentence gets.
@@ -3281,11 +3287,19 @@ describe('⚖ S16 — the mock became the product, and every new lever is real',
     // card's PROSE. It answers a different question (「how long may a line of
     // Japanese run」, which every other prose cap in this sheet answers in `ch`)
     // and it is enumerated here so a second one cannot arrive unnoticed.
+    // ⚠ ⚖ I-7 ADDS THE SECOND, and it answers a THIRD question: how wide a LEVER
+    // may grow inside a row before it starts eating the sentence it acts on. The
+    // help action's label names its module now (⚖ I-9), so it is a long string on
+    // a control that sits beside a 260px floor — capped and wrapping rather than
+    // allowed to take the row. Enumerated, like the first.
     const pxCaps = [...CSS_CODE.matchAll(/([^{}]*)\{[^}]*max-width:\s*([0-9]{3,})px/g)].map((m) => ({
       selector: m[1].trim().split('\n').pop()!.trim(),
       px: Number(m[2]),
     }))
-    expect(pxCaps).toEqual([{ selector: '.biz .pg-coaching .cg-dormant p', px: 760 }])
+    expect(pxCaps).toEqual([
+      { selector: '.biz .pg-coaching .cg-dormant p', px: 760 },
+      { selector: '.biz .pg-coaching .cg-row-act', px: 240 },
+    ])
   })
 
   it('⚖-ADJ N · the tab underline is the FROZEN spring, and no new easing was written', () => {
@@ -3986,6 +4000,27 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(self.outcomes.reasons.length).toBeGreaterThan(0)
     expect(self.categories.length).toBeGreaterThan(0)
     expect(self.share.stateLine.length).toBeGreaterThan(0)
+  })
+
+  it('⚖ I-7 · the roster reads as ONE LINE PER PERSON, and the lever never steals the sentence', () => {
+    const board = SCREEN_CODE.slice(SCREEN_CODE.indexOf('className="cg-board"'), SCREEN_CODE.indexOf('className="cg-foot"'))
+    // the focus AREA rides the trajectory's own line — what they need help WITH,
+    // beside how they are moving
+    expect(board).toContain('{r.focusAreas[0] && <span className="cg-cat">{r.focusAreas[0].label}</span>}')
+    expect(board).toContain('<span className="cg-row-traj">{r.trajectoryLine}</span>')
+    // the sentence rides UNDER it, quiet, and a second area brings its own chip
+    // because only the first one's is on the line above
+    expect(board).toContain('{i > 0 && <span className="cg-cat">{f.label}</span>}')
+    // the action is INSIDE the body, so every row's body cell is the same width
+    const body = board.slice(board.indexOf('className="cg-row-body"'), board.indexOf('</li>'))
+    expect(body).toContain('cg-row-act')
+    expect(body.indexOf('cg-row-text')).toBeLessThan(body.indexOf('cg-row-act'))
+    // …and the ROW is still THREE tracks, never four (V2-1's own defect)
+    const row = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
+    expect(row.slice(0, 900)).toContain('grid-template-columns: 112px 140px minmax(260px, 1fr);')
+    expect([...CSS_CODE.matchAll(/\.cg-row \{\s*\n?\s*grid-template-columns/g)].length).toBeLessThanOrEqual(1)
+    // the pair's arithmetic is stated where it can be read rather than remembered
+    expect(CSS_SRC).toContain('− 112 (name) − 140 (band) − 20 (two row gaps)   =  598')
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {

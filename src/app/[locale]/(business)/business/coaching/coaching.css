@@ -905,9 +905,16 @@
 .biz .pg-coaching .cg-row.is-support { border-color: #e7dcc6; background: #fffdf9; }
 .biz .pg-coaching .cg-row-name { color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; }
 .biz .pg-coaching .cg-row-band { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.biz .pg-coaching .cg-row-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.biz .pg-coaching .cg-row-line { color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
+.biz .pg-coaching .cg-row-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.biz .pg-coaching .cg-row-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* ⚖ I-7 — the focus AREA and the trajectory share one line: what this person
+   needs help with, beside how they are moving. */
+.biz .pg-coaching .cg-row-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.biz .pg-coaching .cg-row-traj { min-width: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.75; }
 .biz .pg-coaching .cg-row-focus { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 12px; line-height: 1.75; }
+/* Below the desk the lever keeps its own line, right-aligned under the sentence
+   it acts on — today's proven shape, and the phone runs it full width. */
+.biz .pg-coaching .cg-row-act { align-self: flex-end; }
 /* The L2 leak guard's honesty half — amber, like every other 「this number/this
    sentence did not check out」 line in the room, and never red on a person. */
 .biz .pg-coaching .cg-row-warn { color: var(--cg-priority); font-size: 11.5px; line-height: 1.7; }
@@ -1256,7 +1263,6 @@
     align-items: start;
     gap: 10px 10px;
   }
-  .biz .pg-coaching .cg-row-act { grid-column: 3; justify-self: end; }
 }
 
 /* ③ ROI DESK (≥880) — the claim and the money sentence stacked left, the chart
@@ -1302,6 +1308,17 @@
     grid-template-columns: minmax(var(--cg-board-min), 8fr) minmax(var(--cg-side-min), 4fr);
     gap: var(--cg-cols-gap);
   }
+  /* ⚖ I-7 — ONE LINE PER PERSON. The body becomes the `minmax(0,1fr) auto` pair
+     the action lives in, so the lever sits at the row's right edge ON the
+     sentence's line rather than under it.
+     THE ARITHMETIC, and it is why the pair opens HERE rather than at a number of
+     its own: at container 940 the body cell is
+         940 − 40 (the card's padding) − 28 (the row's) − 2 (its borders)
+             − 112 (name) − 140 (band) − 20 (two row gaps)   =  598
+     against 260 (the sentence's own V2-1 floor) + 12 (the pair's gap) + 240 (the
+     lever, capped and wrapping) = 512. 86px of slack, and it grows from there. */
+  .biz .pg-coaching .cg-row-body { display: grid; grid-template-columns: minmax(260px, 1fr) auto; gap: 10px 12px; align-items: start; }
+  .biz .pg-coaching .cg-row-act { justify-self: end; align-self: start; max-width: 240px; white-space: normal; }
 }
 
 /* ── ⚖ ALL-SCREEN ADAPTIVITY (Liam 8/23 + 9/1) — the viewport bands ────────── */

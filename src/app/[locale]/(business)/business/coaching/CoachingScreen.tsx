@@ -1823,30 +1823,49 @@ export function CoachingScreen(props: CoachingProps) {
                               <span className={`cg-chip ${r.bandTone}`}>{r.bandLabel}</span>
                               {r.maturityNote && <span className="cg-note-chip">{r.maturityNote}</span>}
                             </span>
+                            {/* ⚖ I-7 (S16C) — ONE LINE PER PERSON AT THE DESK.
+                                A manager opens this at the start of the week to see
+                                WHO needs help WITH WHAT, and the one lever to pull.
+                                Read as four stacked lines per person that took a
+                                scroll a head; read across, it is a table.
+                                ⚠ THE ACTION IS INSIDE THE BODY, as the second track
+                                of a `minmax(0,1fr) auto` pair — never a fourth
+                                column of the ROW. V2-1's defect was exactly that: a
+                                fourth track is 0px on every row without an action
+                                and ~200px on the one that has it, and `.cg-row` is
+                                a grid PER `<li>`, so the flagged person's sentence
+                                collapsed while every other row ran to the card edge.
+                                Inside the body every row's cell is the same width,
+                                so the sentences still line up down the column. */}
                             <span className="cg-row-body">
-                              <span className="cg-row-line">{r.trajectoryLine}</span>
-                              {/* staff-focus.ts:159 — categorical only, no number,
-                                  no name. This is the ONE per-staff sentence an
-                                  owner may read, and it is the generator's own. */}
-                              {r.focusAreas.map((f) => (
-                                <span className="cg-row-focus" key={f.label}>
-                                  <span className="cg-cat">{f.label}</span>
-                                  <span>{f.summaryText}</span>
+                              <span className="cg-row-text">
+                                <span className="cg-row-line">
+                                  {/* staff-focus.ts:159 — the focus AREA, categorical
+                                      only, on the same line as the trajectory: what
+                                      this person needs help WITH, beside how they
+                                      are moving. */}
+                                  {r.focusAreas[0] && <span className="cg-cat">{r.focusAreas[0].label}</span>}
+                                  <span className="cg-row-traj">{r.trajectoryLine}</span>
                                 </span>
-                              ))}
-                              {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
-                                  the L2 leak guard's own honesty half. */}
-                              {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}
+                                {/* the ONE per-staff sentence an owner may read, and
+                                    it is the generator's own. It rides UNDER the
+                                    line, quiet; a second or third area brings its
+                                    own chip, because only the first one's is on the
+                                    line above. */}
+                                {r.focusAreas.map((f, i) => (
+                                  <span className="cg-row-focus" key={f.label}>
+                                    {i > 0 && <span className="cg-cat">{f.label}</span>}
+                                    <span>{f.summaryText}</span>
+                                  </span>
+                                ))}
+                                {/* ⚠ AN OMITTED SENTENCE IS SAID, NOT SWALLOWED —
+                                    the L2 leak guard's own honesty half. */}
+                                {r.summaryWarning && <span className="cg-row-warn">{r.summaryWarning}</span>}
+                              </span>
+                              {r.action && (
+                                <button {...refused(r.action.label, props.helpRefusals[r.action.kind], 'cg-row-act')}>{r.action.label}</button>
+                              )}
                             </span>
-                            {/* ⚠ V2-1 — THE ACTION IS ITS OWN LINE UNDER THE BODY,
-                                never a fourth column. A fourth track is 0px wide on
-                                every row that has no action and ~200px on the one
-                                that does, and `.cg-row` is a grid PER `<li>`, so the
-                                one flagged row's sentence collapsed to ~90px and
-                                wrapped character by character. */}
-                            {r.action && (
-                              <button {...refused(r.action.label, props.helpRefusals[r.action.kind], 'cg-row-act')}>{r.action.label}</button>
-                            )}
                           </li>
                         ))}
                       </ul>
