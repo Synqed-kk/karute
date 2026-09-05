@@ -1769,7 +1769,11 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // 「コーチング」, and the rail showed one row (コーチング) while the panel
     // still showed 契約・請求 — `.st-rail-item.is-on` count 0, and nothing on
     // screen saying which section the panel belonged to.
-    expect(SCREEN_CODE).toContain('if (shownId === null || railHits.some((r) => r.id === shownId)) return railHits')
+    expect(SCREEN_CODE).toContain('if (!panelShown || railHits.some((r) => r.id === shownId)) return railHits')
+    // …and ONLY where the panel is really on screen: at ① in list mode nothing
+    // is 「表示中」, so a kept row labelled there would be the same claim H2 just
+    // removed from `aria-current`, one chip over. One question, one home.
+    expect(SCREEN_CODE).toContain('const panelShown = !narrow || isDetail')
     expect(SCREEN_CODE).toContain('return open ? [open, ...railHits] : railHits')
     // …it is PREPENDED, so it sits at the top of its own group rather than
     // wherever the unfiltered order would have dropped it…

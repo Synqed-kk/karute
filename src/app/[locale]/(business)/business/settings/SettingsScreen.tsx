@@ -411,6 +411,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const shownId = picked ?? props.openingSectionId
   const section = props.sections.find((s) => s.id === shownId) ?? null
   const isDetail = picked !== null
+  /** ⚖ S17 fix round 4 · H2 + M6 — IS THAT SECTION'S PANEL REALLY ON SCREEN?
+   *
+   *  `shownId` is never null, so it answers 「which section WOULD the panel show」
+   *  and not 「is the panel there」 — and at ≤899 the rail IS the page until a
+   *  reader picks a row. Two things hang off the difference: a rail row calling
+   *  itself the current page (H2), and the row the search KEEPS so the panel
+   *  always has a current one (M6). Both would be false in the same place, so
+   *  both ask the same question, in one home. */
+  const panelShown = !narrow || isDetail
 
   const labelFor = useCallback(
     (id: string): string | null => {
@@ -778,10 +787,13 @@ export function SettingsScreen(props: SettingsScreenProps) {
    *  about; a foot saying 2件 over one match would be the room lying about its
    *  own search to explain a row it added itself. */
   const shownRail = useMemo(() => {
-    if (shownId === null || railHits.some((r) => r.id === shownId)) return railHits
+    // ⚠ AND ONLY WHERE THE PANEL IS REALLY ON SCREEN. At ① in list mode nothing
+    // is 「表示中」 — the list IS the page — so a row kept and labelled there
+    // would be the same claim H2 removed from `aria-current`, one chip over.
+    if (!panelShown || railHits.some((r) => r.id === shownId)) return railHits
     const open = props.rail.find((r) => r.id === shownId)
     return open ? [open, ...railHits] : railHits
-  }, [railHits, props.rail, shownId])
+  }, [railHits, props.rail, shownId, panelShown])
 
   const dirty = section !== null && section.gate === 'open' ? sectionDirty(section, values, saved, listRows, savedRows) : false
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
@@ -1010,7 +1022,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
                           key={row.id}
                           row={row}
                           hit={hitOf(row, sectionById[row.id] ?? null, query, termsFor(row.id))}
-                          on={row.id === shownId && (!narrow || isDetail)}
+                          on={row.id === shownId && panelShown}
                           // ⚖ M6 — this row is here because it is OPEN, not
                           // because it answered the search, and it says so.
                           kept={!railHits.some((r) => r.id === row.id)}

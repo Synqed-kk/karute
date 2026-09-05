@@ -725,7 +725,8 @@ describe('⚖ list-is-the-page — the phone’s own screen, and the way back', 
     expect(SRC_CODE).toContain('const isDetail = picked !== null')
     // ⚖ H2 — and a rail row is 「current」 only where its panel is really on
     // screen: at ≤899 that is detail mode alone, because the list IS the page.
-    expect(SRC_CODE).toContain('on={row.id === shownId && (!narrow || isDetail)}')
+    expect(SRC_CODE).toContain('const panelShown = !narrow || isDetail')
+    expect(SRC_CODE).toContain('on={row.id === shownId && panelShown}')
     expect(SRC_CODE).toContain(`aria-current={on ? 'page' : undefined}`)
     // ⚖ S17 STEP 1 — RE-PINNED THROUGH `openSection`/`backToList`. Picking is
     // still what opens a section; what the round added is that opening it FROM
