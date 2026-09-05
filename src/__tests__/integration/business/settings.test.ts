@@ -124,7 +124,15 @@ const room = async (input?: { store?: string; role?: string; section?: string; d
  *  block vocabulary (they are #812's, rendered by `StorePolicySection`), so the
  *  ONE-TRUTH pins below read them where they now live rather than being
  *  deleted. */
-const policyOf = async (input?: { store?: string; role?: string }) => (await assemble(input)).storePolicy
+const policyOf = async (input?: { store?: string; role?: string }) => {
+  const { storePolicy } = await assemble(input)
+  // ⚖ S17 fix round 5 · G1 — the payload is WITHHELD from a reader whose
+  // 予約と確保 gate is shut, so it is nullable now. A pin that wants it asks for
+  // it here, once, rather than every caller carrying a null check that would
+  // quietly pass if the payload went missing.
+  if (storePolicy === null) throw new Error('this reader is not given 予約と確保’s payload')
+  return storePolicy
+}
 
 const sectionOf = (props: SettingsProps, id: string): SettingsSection => {
   const s = props.sections.find((x) => x.id === id)
@@ -406,6 +414,55 @@ describe('⚖ THE STRUCTURAL DUTY — gating is SECTION-scoped, and cannot be ma
     expect(rulebook.capabilities.map((c) => c.token)).toContain('business.manage')
     expect(rulebook.grants.owner).toContain('business.manage')
     expect(rulebook.grants.manager).not.toContain('business.manage')
+  })
+
+  it('⚖ S17 fix round 5 · G1 — a shut gate means NO PAYLOAD, not a hidden one', async () => {
+    // ⚠ CONDITIONAL RENDERING IS NOT A GATE. 予約と確保's assembly ran for every
+    // reader and the screen hid it behind a branch, so a front-desk account that
+    // could only ever be shown the boundary still RECEIVED the section: the
+    // store's whole roster, its named restrictions, its pricing frame and every
+    // policy value, serialized into its own page payload where a browser's own
+    // devtools read it. The door is the server.
+    const shut = await assemble({ store: STORE_A, role: 'スタッフ' })
+    const open = await assemble({ store: STORE_A })
+    expect(sectionOf(shut.props, 'booking-guard').gate).toBe('no-rights')
+    expect(sectionOf(open.props, 'booking-guard').gate).toBe('open')
+    expect(shut.storePolicy).toBeNull()
+    expect(open.storePolicy).not.toBeNull()
+
+    // …and the WIRE says so, not just the field. Everything the route hands the
+    // screen is serialized and read, so the proof is the serialized payload.
+    const wire = (r: typeof shut) => JSON.stringify({ ...r.props, storePolicy: r.storePolicy })
+    const shutWire = wire(shut)
+    const openWire = wire(open)
+    const policy = open.storePolicy!
+    // ⚠ THE NEEDLE IS THE SERIALIZED FORM, never the bare substring. The payload
+    // carries these as JSON values, and a bare-substring scan reads データ入出力's
+    // own EXAMPLE row (「例）見本 はなこ」 — a made-up name in a preview table, open
+    // to everyone by canon's own words) as the store's roster. A quoted string
+    // value cannot collide with a name embedded in a sentence, and a keyed number
+    // cannot collide with a number that means something else.
+    const probes: Array<[string, string]> = [
+      ...policy.roster.map((r) => ['a roster name', JSON.stringify(r.name)] as [string, string]),
+      ...policy.policy.lockedOut.map((v) => ['a named restriction', JSON.stringify(v)] as [string, string]),
+      ...Object.keys(policy.scenes).map((k) => ['a policy value', JSON.stringify(k)] as [string, string]),
+      ['the sample landing', JSON.stringify(policy.sample!.summary)],
+      ['the pricing frame', `"hqMax":${policy.sample!.frame.hqMax}`],
+      ['the pricing frame', `"lo":${policy.sample!.frame.lo}`],
+    ]
+    // The scan is not vacuous: every probe IS in the payload of the reader who
+    // may see it, and in NONE of the payload of the reader who may not.
+    expect(probes.length).toBeGreaterThan(6)
+    for (const [shape, value] of probes) {
+      expect({ shape, value, owner: openWire.includes(value), gated: shutWire.includes(value) })
+        .toEqual({ shape, value, owner: true, gated: false })
+    }
+
+    // …and the assembly is really CONDITIONAL, read off the section's own answer
+    // rather than a second reading of the rule (⚖ the room is handed the answer).
+    expect(PROPS_CODE).toContain(
+      "sections.find((s) => s.id === BOOKING_GUARD_ID)?.gate === 'open' ? await storePolicyProps(storePolicyInput) : null",
+    )
   })
 
   it('an unknown role holds nothing — never a default grant', () => {
@@ -1030,7 +1087,8 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
   // if the save gate ever stops reading this list, or this row stops naming the
   // second consequence, it goes red.
   it('⚖ F8 — the release row IS 予約と確保’s save gate, says so, and refuses to lock the reader out', async () => {
-    const { props, storePolicy } = await assemble({ store: STORE_A })
+    const props = await room({ store: STORE_A })
+    const storePolicy = await policyOf({ store: STORE_A })
     const release = rowsOf(props).find((r) => r.id === 'store-hours.row-release')!
     const chips = release.controls.find((c) => c.id === 'store-hours.release')!
     // ONE LIST, read by both ends — not two lists that happen to agree today.

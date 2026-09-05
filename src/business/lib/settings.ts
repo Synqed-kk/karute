@@ -195,6 +195,14 @@ export const RAIL: readonly RailEntry[] = [
   { id: 'billing', group: '組織・管理', label: '契約・請求', scope: 'store', needs: 'billing.manage' },
 ]
 
+/** ⚖ S17 FOLD — #812's room arrived as ONE row of the rail above, and three
+ *  files ask about that row by id: the SCREEN (which renders it from another
+ *  module's payload and gives it the search's own headings), the ASSEMBLY
+ *  (which, since fix round 5 · G1, will not BUILD that payload at all for a
+ *  reader whose gate is shut) and the rail itself. The id is named once, here,
+ *  beside the entry it belongs to. */
+export const BOOKING_GUARD_ID = 'booking-guard'
+
 export type SectionGate = 'open' | 'no-rights'
 
 /** THE GATE, AND IT IS ASKED ONE SECTION AT A TIME.

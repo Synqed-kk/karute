@@ -52,6 +52,7 @@ import { shiftsPolicy } from '@/business/lib/fixtures-shifts'
 import { closedWeekday, operatingHours, opsConfig, resources, storeBookingPolicy } from '@/business/lib/fixtures-today'
 import {
   accessFor,
+  BOOKING_GUARD_ID,
   clampCoachingFloor,
   clampCoachingRetention,
   clampWinBackDays,
@@ -127,7 +128,7 @@ export interface SettingsPropsResult {
    *  `@/business/lib/settings` is the room's PURE rules file — its inventory is
    *  empty and pinned that way, so a props type from another module may not
    *  enter it. */
-  storePolicy: Awaited<ReturnType<typeof storePolicyProps>>
+  storePolicy: Awaited<ReturnType<typeof storePolicyProps>> | null
   /** The RESOLVED lens, returned rather than re-derived by the caller so the
    *  clamp keeps exactly one home. `page.tsx` keys the screen by it, so which
    *  section is open resets when the store changes — the ⚖ 8/17 isolation law at
@@ -163,15 +164,31 @@ export async function settingsProps({ locale, store, section, world }: SettingsP
     now,
   }
 
+  const sections = RAIL.map((entry) => buildSection(entry, ctx))
+
   // ⚖ S17 / A1 — 予約と確保's own assembly, run HERE so the room has one. The
   // input is what this function already settled: the resolved lens, the store
   // list it was resolved against and the render's ONE clock read, passed in
   // rather than re-read so the two halves of the page cannot disagree about
   // which store or which instant they describe.
+  //
+  // ⚖ S17 fix round 5 · G1 — AND ONLY WHERE THE SECTION'S OWN GATE IS OPEN.
+  // THE DATA DOOR IS THE SERVER, never the render. This payload carries the
+  // store's whole roster, its named restrictions (`lockedOut`), its pricing
+  // frame and every policy value, and it was assembled for EVERY reader and
+  // then hidden by a branch in the screen — so a front-desk account holding no
+  // 設定の変更 received the entire hidden section inside its own page payload,
+  // where a browser's own devtools read it. Conditional rendering is not a
+  // gate. A shut gate now means the props carry `storePolicy: null` and the
+  // screen renders the same boundary every other gated section gets.
+  //
+  // The answer is the SECTION'S, never a second reading of the rule here:
+  // `buildSection` already asked `gateOf` once, which is why this runs after
+  // the rail rather than before it (⚖ the room is handed the answer, never the
+  // rule).
   const storePolicyInput: StorePolicyPropsInput = { lens, storeId, clamped, storeOptions, now }
-  const storePolicy = await storePolicyProps(storePolicyInput)
-
-  const sections = RAIL.map((entry) => buildSection(entry, ctx))
+  const storePolicy =
+    sections.find((s) => s.id === BOOKING_GUARD_ID)?.gate === 'open' ? await storePolicyProps(storePolicyInput) : null
   // ⚖ A LINK FROM ANOTHER ROOM LANDS WHERE IT POINTED — but only where the
   // reader may actually go: an unknown or gated `?section=` falls back to the
   // first section this reader can open, rather than to a boundary they did not

@@ -291,7 +291,16 @@ describe('⚖ Liam 8/23 — the guided ?-tour ships in the SAME round as the roo
     // inside the section (⚖ A12).
     expect(SHELL_SCREEN_CODE).toContain('<StorePolicySection')
     expect(SHELL_SCREEN_CODE).toContain('tourOpen={tourOpen}')
-    expect(SHELL_SCREEN_CODE).toContain('{...props.storePolicy}')
+    // ⚖ S17 fix round 5 · G1 (D-40) — the spread reads a NAMED local, not the
+    // prop, because the payload is nullable now: the server withholds it from a
+    // reader whose gate is shut, so the screen narrows it once and renders the
+    // section's own boundary when it is absent. Same claim (the section is
+    // handed 予約と確保's whole assembly), and the two lines that make the
+    // withholding real are pinned beside it.
+    expect(SHELL_SCREEN_CODE).toContain('const policy = props.storePolicy')
+    expect(SHELL_SCREEN_CODE).toContain('{...policy}')
+    expect(SHELL_SCREEN_CODE).toContain('isBookingGuard && policy === null ? (')
+    expect(SHELL_SCREEN_CODE).not.toContain('{...props.storePolicy}')
     // ⚖ S17 — RE-PINNED. The room builds the reading column and the stack as ONE
     // pair (`columnAnd`), and 予約と確保 builds the SAME pair from inside its own
     // render prop — one call, nothing carried across the render. So the three

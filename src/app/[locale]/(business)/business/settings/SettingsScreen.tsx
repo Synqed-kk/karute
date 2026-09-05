@@ -78,6 +78,7 @@ import { StorePolicySection, STORE_POLICY_ANCHORS, STORE_POLICY_HEADINGS, type S
 import {
   addToCollection,
   blockDirty,
+  BOOKING_GUARD_ID,
   hitOf,
   blockingError,
   changedCount,
@@ -120,12 +121,6 @@ const ROOT = 'page pg-settings'
  *  gesture is covered by construction rather than by a number chosen to fit a
  *  test. The tour is this room's only such surface. */
 const SETTLE_MS = 500
-
-/** ⚖ S17 — the ONE section whose panel is not built from this file's block
- *  vocabulary: #812's 予約と確保 renders itself (A1) and brings its own 保存 bar
- *  (A3). Named once so the three places that ask are asking the same question,
- *  and `settings.ts`'s RAIL is where the id itself is declared. */
-const BOOKING_GUARD_ID = 'booking-guard'
 
 /** ⚖ S17 fix round 4 · H3 — what the ? says about this page, in each shape it
  *  has. Only the middle sentence differs, and it is the one that points at a
@@ -259,8 +254,13 @@ function useNarrow(): boolean {
  *  assembly is `storePolicyProps()`'s rather than this file's vocabulary. It
  *  rides beside `SettingsProps` because `@/business/lib/settings` is the room's
  *  PURE rules file (empty import inventory, pinned), so a props type from
- *  another module may not enter it. */
-export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps }
+ *  another module may not enter it.
+ *
+ *  ⚖ S17 fix round 5 · G1 — AND IT IS NULLABLE, because for a reader whose
+ *  予約と確保 gate is shut the server does not assemble it at all. `null` is not
+ *  「loading」 and not 「empty」: it is the ONLY shape a reader who may not see the
+ *  section is given, and the screen renders that section's own boundary for it. */
+export type SettingsScreenProps = SettingsProps & { storePolicy: StorePolicyProps | null }
 
 export function SettingsScreen(props: SettingsScreenProps) {
   /** ⚠ `null` IS THE PHONE'S LIST STATE, not「nothing chosen」. On a desk the
@@ -799,6 +799,12 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const blocked = section !== null && section.gate === 'open' ? blockingError(section, values) : null
   const changed = section !== null && section.gate === 'open' ? changedCount(section, values, saved, listRows, savedRows) : 0
   const isBookingGuard = section?.id === BOOKING_GUARD_ID
+  /** ⚖ S17 fix round 5 · G1 — 予約と確保'S PAYLOAD IS ABSENT FOR A READER WHOSE
+   *  GATE IS SHUT. The server no longer assembles it (`settings-props.ts`): the
+   *  roster, the named restrictions, the pricing frame and every policy value
+   *  used to ship in the page payload of a reader who was only ever going to be
+   *  shown the boundary. Read once here so the branch below can narrow it. */
+  const policy = props.storePolicy
   const highlighted = jumpPin ?? inView
 
   /* ⚖ list-is-the-page: at ≤899 the rail is the page and a section is its own
@@ -1049,7 +1055,15 @@ export function SettingsScreen(props: SettingsScreenProps) {
             columnAnd(boundaryFallbackNode, null)
           ) : section.gate === 'no-rights' ? (
             columnAnd(boundaryNode, null)
-          ) : isBookingGuard ? (
+          ) : isBookingGuard && policy === null ? (
+            // ⚖ S17 fix round 5 · G1 — NO PAYLOAD, SAME BOUNDARY. By
+            // construction this is the gated reader the branch above already
+            // caught (the server withholds the payload on exactly that gate), so
+            // this renders the same sentence rather than a second design for one
+            // state — and the screen can never reach into a payload that is not
+            // there.
+            columnAnd(boundaryNode, null)
+          ) : isBookingGuard && policy !== null ? (
             // ⚖ S17 / A1 + A3 — #812's room, rendered whole: its presets, its
             // live card, its eight dials and its OWN 保存 block. It hands the
             // three back as SLOTS so this room can put each where the design puts
@@ -1062,7 +1076,7 @@ export function SettingsScreen(props: SettingsScreenProps) {
             <StorePolicySection
               tourOpen={tourOpen}
               reduced={reduced}
-              {...props.storePolicy}
+              {...policy}
               render={(slots) =>
                 columnAnd(
                   <div className="st-main">{slots.main}</div>,
