@@ -54,13 +54,17 @@
            practice sheet's three cells are one answer in three parts and must
            end together, so a stretched cell there is a cell, not a slab — which
            is why that region is gated on INTERIOR SLACK as well as on the ratio.
-           Where the row is a LIST of independent things — the shelves — stretch
-           satisfies the arithmetic by producing exactly the blank card the law
-           exists to remove. That was the measured V2-1 defect.
+           Where the row is a LIST of independent things — the shelves, and the
+           supporting cards in the fold band — stretch satisfies the arithmetic
+           by producing exactly the blank card the law exists to remove. That
+           was the measured V2-1 defect, and V3-1 is the same defect in the
+           other region: one strength beside a four-row card, 54.4% of it blank
+           at 1024, with the ratio reading 0.0% the whole time.
          · BALANCED COLUMNS — CSS multi-column: the browser fills N columns to
            the same depth and every box is exactly as tall as its own content.
-           The library's shelves work this way, and the ratio is small BECAUSE
-           the content is distributed rather than because anything was stretched.
+           The library's shelves work this way, and so does the supporting
+           column in the fold band, and the ratio is small BECAUSE the content
+           is distributed rather than because anything was stretched.
          · PACKED — two stacks that end where their own content ends. Only the
            DESK does, and there the ratio is a fact about WHAT IS IN EACH COLUMN.
            So it is balanced by ASSIGNMENT — 気づき alone on the left, the four
@@ -86,7 +90,8 @@
 
    ② FOLD     (700 ≤ container < 880 — opened foldables, near-square)
       The desk stays one column — a quoted moment needs the line — and the
-      SUPPORTING cards pair up two-across beneath it. The roster row becomes its
+      SUPPORTING cards run two BALANCED columns beneath it (V3-1: multi-column,
+      never a pair of stretched tracks). The roster row becomes its
       three real columns here, because the board is the one surface a near-square
       screen has the width for. A near-square screen is wide and SHORT: stacking
       seven cards down it is the stretched-phone look Liam named.
@@ -1351,19 +1356,31 @@
    THE LADDER — the four container thresholds, each stated ONCE.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ② FOLD (≥700) — the near-square band. The supporting cards pair up beneath
-   the findings, and the roster row becomes its three real columns. */
+/* ② FOLD (≥700) — the near-square band. The supporting cards run two BALANCED
+   columns beneath the findings, and the roster row becomes its three real
+   columns. */
 @container cg-page (min-width: 700px) {
-  .biz .pg-coaching .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* ⚠ AND NO ORPHAN IN THE LAST ROW. The supporting column carries SEVEN cards
-     when a run has everything (成績 / 強み / 推移 / 不成約 / 会話スキル /
-     上位層 / 共有) and the pair grid leaves the seventh alone beside half a row
-     of white — the same defect the fifth STAT TILE had one level down.
-     `:last-child:nth-child(odd)` is the count read off the DOM rather than a
-     number this sheet would have to keep in sync: last AND odd can only be true
-     when the total is odd, so the orphan — and only the orphan — takes the whole
-     row. A run with six cards is untouched. */
-  .biz .pg-coaching .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  /* ⚠ V3-1 — BALANCED COLUMNS, AND IT IS THE SHELVES' OWN MECHANISM (V2-1) one
+     band up. Two grid TRACKS paired the supporting cards BY INDEX and stretched
+     each cell to its row, so 「うまくいっている理由」 — a single strength — stood
+     beside the four-row 不成約の理由 carrying 172px of its own 316px as blank
+     card (54.4% at 1024/open and 1100/open; 149px of 293px = 50.8% at 1024/rail
+     and 1180/open). The hole law's ARITHMETIC was 0 the whole time, because
+     row-stretch makes it 0 by construction — which is the law kept by producing
+     exactly the blank it exists to remove. These four cards are a LIST of
+     independent things, not one answer in parts, so stretch has no claim here.
+     CSS multi-column balances by HEIGHT instead: the browser fills two columns
+     to the same depth, every card is exactly as tall as its own content, and
+     the reading order — and therefore the Tab order, which is the DOM's — runs
+     down the first column and then the second. `break-inside: avoid` keeps a
+     card whole; nothing is clipped, nothing is hidden, and no card needs a rule
+     about being last or odd, so the orphan rule this band used to carry is
+     gone. The row spacing is a MARGIN because multi-column has no row gap to
+     give — and the desk takes it back off with the composition.
+     THE BAND IS THIS ONE ONLY: ≥940 the column is a single track again and the
+     phone (<700) never had a second column to balance. */
+  .biz .pg-coaching .cg-side { display: block; column-count: 2; column-fill: balance; column-gap: var(--cg-card-gap); }
+  .biz .pg-coaching .cg-side > * { break-inside: avoid; margin-bottom: var(--cg-card-gap); }
   /* …and the board's four counts take their own row, all four (see above). */
   .biz .pg-coaching .cg-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   /* ⚠ V2-1 — THE BOARD ROW IS THREE COLUMNS, AND THE ACTION IS ITS OWN LINE.
@@ -1417,13 +1434,22 @@
     grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr);
     gap: var(--cg-cols-gap);
   }
-  .biz .pg-coaching .cg-side { grid-template-columns: minmax(0, 1fr); }
+  /* ⚠ V3-1 — `display` COMES BACK WITH THE TRACK, and the fold's row margin
+     comes off with it: the band below balances by multi-column and spaces its
+     cards with a margin, which on a grid would be added to the grid's own gap
+     and double the space between every supporting card on the desk. */
+  .biz .pg-coaching .cg-side { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .biz .pg-coaching .cg-side > * { margin-bottom: 0; }
   /* ⚖ R2-7 — A ONE-CARD MAIN STACK KEEPS THE FOLD'S SHAPE AT EVERY WIDTH. The
      screen sets `is-thin` when the run produced no findings and no focus, so
      the desk's 7/5 would put the status card alone beside a full supporting
-     column. The fold grammar — full width, then the pair, with the same
-     no-orphan rule — is the composition that reads right, and it is stated
-     ONCE, here, rather than as a second ladder. */
+     column. Full width, then the pair — that is the composition that reads
+     right, and it is stated ONCE, here, rather than as a second ladder.
+     ⚠ V3-1 SCOPE, SAID RATHER THAN LEFT TO BE FOUND (S16E-D1): this is a DESK
+     composition and V3-1's band stops at 940, so the thin desk keeps the PAIR
+     GRID and its no-orphan rule — the same mechanism V3-1 replaced one band
+     down. It is a different world (a run with no findings AND no focus) and it
+     was never measured; it is named here rather than changed unmeasured. */
   .biz .pg-coaching .cg-cols.is-thin { grid-template-columns: minmax(0, 1fr); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .biz .pg-coaching .cg-cols.is-thin .cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }

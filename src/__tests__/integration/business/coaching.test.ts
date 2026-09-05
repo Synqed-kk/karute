@@ -995,13 +995,20 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // ⚠ AND EACH THRESHOLD ACTUALLY DOES ITS JOB. A threshold that exists but
     // sets the same shape on both sides is a band with no composition — mutant
     // M28 removed the fold's two-across cards and survived until this pin.
+    // ⚠ V3-1 — WHAT THE FOLD OPENS FOR THE SUPPORTING COLUMN IS A SECOND
+    // COLUMN, and the pin reads that rather than the mechanism that makes it:
+    // the band went from two stretched grid tracks to two BALANCED multi-column
+    // columns, and a pin spelled as the old tracks would have failed for the
+    // right change. The mechanism has its own pin (⚖ V3-1, below).
     const fold = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
-    expect(fold.slice(0, 700)).toContain('.cg-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }')
+    expect(fold.slice(0, 700)).toContain('.cg-side { display: block; column-count: 2;')
     const roiDesk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 880px)'))
     expect(roiDesk.slice(0, 700)).toContain('grid-template-columns: minmax(var(--cg-side-min), 5fr) minmax(var(--cg-chart-min), 7fr)')
     const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
     expect(desk.slice(0, 900)).toContain('grid-template-columns: minmax(var(--cg-main-min), 7fr) minmax(var(--cg-side-min), 5fr)')
-    expect(desk.slice(0, 900)).toContain('.cg-side { grid-template-columns: minmax(0, 1fr); }')
+    // …and the desk takes the column back to ONE track AND hands `display` back
+    // with it, because the band below it is no longer a grid at all.
+    expect(desk.slice(0, 900)).toContain('.cg-side { display: grid; grid-template-columns: minmax(0, 1fr); }')
     // ⚖ I-8 — the board has no rail to sit beside; what the desk band opens for
     // it is the ONE-LINE row (⚖ I-7), and that is what is read here instead.
     expect(desk.slice(0, 1400)).toContain('.cg-row-body { display: grid; grid-template-columns: minmax(260px, 1fr) auto;')
@@ -2255,8 +2262,15 @@ describe('⚖ FIX ROUND 1 — the design corrections, pinned in the sheet and th
   })
 
   it('D8-2F · the fold band never orphans a card in a half-empty row', () => {
-    // the count is read off the DOM, so no number here can go stale
-    expect(at(700)).toContain('.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    // ⚠ V3-1 RE-DERIVED THIS PIN, and the truth it holds is unchanged: no card
+    // in this band is ever alone beside half a row of white. What changed is
+    // WHY — the band has no rows any more. Balanced multi-column has no last
+    // row to leave half empty and no cell to stretch, so the orphan rule it
+    // used to need is GONE from the band rather than loosened, and the pin
+    // reads its absence. (The rule survives ONE band up, on the thin DESK's own
+    // pair grid — a different composition, pinned at R2-7.)
+    expect(at(700)).not.toContain(':last-child:nth-child(odd)')
+    expect(at(700)).toContain('.cg-side > * { break-inside: avoid;')
     // ⚠ AND THE BOARD'S FOUR COUNTS ARE TWO OR FOUR, NEVER THREE-AND-AN-ORPHAN.
     // `auto-fit` took three at the reference width and left the fourth alone on
     // a row of its own — the same defect one level up (the supporting column)
@@ -4059,6 +4073,43 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(PATTERN_CATEGORIES.length % 2).toBe(1)
   })
 
+  it('⚖ V3-1 · the FOLD band’s supporting column is BALANCED COLUMNS — no stretched card, and the desk takes it back', () => {
+    // ⚠ THE DEFECT THIS REPLACES, measured on cde4861f7 with the same instrument
+    // V2-1 used: 「うまくいっている理由」 — one strength — beside the four-row
+    // 不成約の理由 carried 172px of its own 316px as blank card (54.4%) at
+    // 1024/open and 1100/open, and 149px of 293px (50.8%) at 1024/rail and
+    // 1180/open. Two grid TRACKS pairing four INDEPENDENT cards by index and
+    // stretching each cell to its row — the shelves' defect, one region over,
+    // with the hole ratio reading 0.0% the whole time because row-stretch makes
+    // it 0 by construction.
+    const fold = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
+    const block = fold.slice(0, fold.indexOf('\n}'))
+    expect(block).toContain('.cg-side { display: block; column-count: 2; column-fill: balance; column-gap: var(--cg-card-gap); }')
+    expect(block).toContain('.cg-side > * { break-inside: avoid; margin-bottom: var(--cg-card-gap); }')
+    // the band places nothing with a TRACK any more, so nothing in it can be
+    // stretched to a row it does not fill — and nothing spans, either
+    expect(block).not.toContain('.cg-side { grid-template-columns')
+    expect(block).not.toContain('grid-column: 1 / -1')
+    // …and no card is CLIPPED to fake the balance (⚖-ADJ A / S16-3, whole-sheet)
+    expect(CSS_CODE).not.toMatch(/overflow:\s*hidden/)
+    // ⚠ THE BAND IS A BAND, and that is the half a `min-width` rule cannot state
+    // on its own: `display` and the row MARGIN both have to come back off at the
+    // desk, or the supporting column stays a multi-column box at 1280 and every
+    // gap between its cards is 18 + 18. Both resets are read here.
+    const desk = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
+    const deskBlock = desk.slice(0, desk.indexOf('\n}'))
+    expect(deskBlock).toContain('.cg-side { display: grid; grid-template-columns: minmax(0, 1fr); }')
+    expect(deskBlock).toContain('.cg-side > * { margin-bottom: 0; }')
+    // …and the reset comes AFTER the rule it undoes, which is the only ordering
+    // in which either of them means anything.
+    expect(CSS_CODE.indexOf('@container cg-page (min-width: 940px)'))
+      .toBeGreaterThan(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
+    // FOUR supporting cards — even against two columns, so the region never
+    // needed the odd-count rule for its OWN count; what it needed the balancer
+    // for is that the four are of very different heights.
+    expect(SECTION_CARDS.filter((c) => ['cg-strengths', 'cg-outcomes', 'cg-skills', 'cg-share'].includes(c)).length).toBe(4)
+  })
+
   it('⚖ I-6 · the catalog is a ROW, and the reader’s OWN modules come first', async () => {
     pinClock(MID_MONTH)
     const { props } = await coachingProps(GINZA)
@@ -4100,8 +4151,16 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // blank card the law exists to remove. The shelves are BALANCED COLUMNS now
     // and carry their own pin, one test below.
     expect(CSS_CODE).not.toContain('.cg-shelf:last-child:nth-child(odd)')
+    // ⚠ V3-1 — `.cg-side`'s FOLD BAND LEFT THIS LIST FOR THE SAME REASON, one
+    // round later and one region over: four supporting cards are a LIST, so the
+    // pair grid's stretch put 172px of blank inside 「うまくいっている理由」 at
+    // 1024 while the ratio read 0.0%. It is BALANCED COLUMNS now and carries its
+    // own pin (⚖ V3-1), below. The rule the band used to state survives ONLY on
+    // the thin DESK's own pair grid (R2-7), which is why the census reads the
+    // BAND rather than the whole sheet.
+    const foldBand = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-page (min-width: 700px)'))
+    expect(foldBand.slice(0, foldBand.indexOf('\n}'))).not.toContain('grid-template-columns: repeat(2')
     const ROW_REGIONS = [
-      { region: '.cg-side', can: 'five supporting cards, or four', rule: '.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
       { region: '.cg-sheet-cols', can: 'three columns paired two-up', rule: '.cg-sheet-move { grid-column: 1 / -1; }' },
       { region: '.cg-module-list', can: 'three modules in two columns', rule: '.cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
     ]
