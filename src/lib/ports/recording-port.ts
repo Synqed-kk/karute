@@ -74,6 +74,20 @@ export type MintSegmentUrlsPortResult =
     }
   | { error: string }
 
+/**
+ * What a port answers the PLAY BUTTON with (build 23 slice ①). The success arm
+ * is the shared body's own (src/lib/recording/playback-url.ts).
+ *
+ * The error arm is a plain string for the same reason the two mints' are: the
+ * thin arm also answers `mint_<status>` for a non-2xx whose body named no code
+ * at all (a proxy page, an auth blip). Every code reaches the player, which
+ * shows ONE inline line and returns the button to 再生 — there is nothing to
+ * retry in a loop here, so no code is terminal in the take-store sense.
+ */
+export type PlaybackUrlPortResult =
+  | { url: string; expiresAt: string; durationSeconds: number | null }
+  | { error: string }
+
 export interface RecordingPipelinePort {
   /** AI route base — web '/api/ai', thin '/api/app/v1/ai'. */
   aiBase: string
@@ -290,6 +304,19 @@ export interface RecordingPipelinePort {
   enqueueJob(
     input: EnqueueRecordingJobInput,
   ): Promise<{ ok: true; jobId: string; status: string } | { error: string }>
+  /**
+   * Mint a short-lived signed READ url for the audio behind ONE karute — the
+   * play button's single server call, fired on the FIRST tap and never on
+   * mount (a mount-mint would file an audit row per view, not per listen).
+   *
+   * Web calls the server action directly (identity from the cookie); thin GETs
+   * the facade twin (Bearer + store lens ride the DataPort). Both reach the one
+   * shared body, so the two doors cannot disagree about who may hear a take.
+   *
+   * NEVER throws on a refusal: `forbidden` / `no_audio` / `not_found` are
+   * settled answers the card shows once and forgets.
+   */
+  mintPlaybackUrl(karuteId: string): Promise<PlaybackUrlPortResult>
   /** Poll job status by recording-session id. `notFound: true` on the error
    *  arm means the server DEFINITIVELY answered "no job for this session"
    *  (HTTP 404) — the ambiguous-enqueue resolution may fall back in-tab on
@@ -562,6 +589,15 @@ export const webRecordingPort: RecordingPipelinePort = {
     return withDeadline(finalizeTake(input), WEB_DOOR_DEADLINE_MS, {
       error: 'failed' as const,
     })
+  },
+  async mintPlaybackUrl(karuteId) {
+    // Lazy, same reason as finalizeTake above — the action module's import
+    // graph reaches @synqed-kk/client, which jest cannot parse.
+    const { mintRecordingPlaybackUrl } = await import('@/actions/recording-playback')
+    const result = await mintRecordingPlaybackUrl(karuteId)
+    return result.ok
+      ? { url: result.url, expiresAt: result.expiresAt, durationSeconds: result.durationSeconds }
+      : { error: result.error }
   },
   async enqueueJob(input) {
     // Lazy import (same reason as customer-facade.ts's provePackForCustomer):

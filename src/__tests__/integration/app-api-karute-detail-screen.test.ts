@@ -72,6 +72,26 @@ const karuteGet = jest.fn(async (id: string) => {
   if (id !== '00000000-0000-4000-8000-000000000008') throw Object.assign(new Error('nope'), { status: 404 })
   return KAR.current
 })
+// The recording behind the karute (slice ①, the player's presence probe). The
+// path is a REAL take key for this tenant — the fence is isOwnRecordingKey, so
+// a hand-written prefix would not prove what these tests claim to prove.
+/** The fixture karute's id — spelled once for the fix-round-1 cases below;
+ *  the pre-existing cases keep their literals rather than churn them. */
+const KARUTE_UUID = '00000000-0000-4000-8000-000000000008'
+const TAKE = '11111111-1111-4111-8111-111111111111'
+const TAKE_KEY = `app_business-1_${TAKE}.mp4`
+const REC = {
+  current: {
+    id: 'sess-1',
+    audio_storage_path: TAKE_KEY as string | null,
+    duration_seconds: 742 as number | null,
+    status: 'COMPLETED',
+  },
+}
+const recordingsGet = jest.fn(async (id: string) => {
+  if (id !== 'sess-1') throw Object.assign(new Error('nope'), { status: 404 })
+  return REC.current
+})
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0' } }))
 const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' as string | null }] }))
 // Return type spelled out (not inferred from the null default) so the #689
@@ -82,6 +102,7 @@ const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
   karuteOutcomes: { get: outcomeGet },
+  recordings: { get: (id: string) => recordingsGet(id) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -94,6 +115,7 @@ jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: (c: unknown
 jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [{ id: 'cust-1', name: '山田 花子' }], total: 1 })) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/karute/[id]/route'
+import { KaruteDetailScreenDTO } from '@/lib/app-api/karute-detail-screen-dto'
 import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
@@ -120,6 +142,11 @@ beforeEach(() => {
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
   listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
   outcomeGet.mockResolvedValue(null)
+  REC.current = { id: 'sess-1', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
+  recordingsGet.mockImplementation(async (id: string) => {
+    if (id !== 'sess-1') throw Object.assign(new Error('nope'), { status: 404 })
+    return REC.current
+  })
 })
 
 describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
@@ -175,6 +202,153 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     const dto = await res.json()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     expect(dto.transcriptRestricted).toBe(false)
+  })
+
+  // ── The PLAYER's presence (slice ①) ──────────────────────────────────────
+  // `recording` is server-decided by the SAME predicate that withholds the raw
+  // transcript, plus the take-key fence. Every null below is the mock's F5
+  // answer: no player, and the card says nothing about one.
+  describe('recording (the player) — presence + ACL + key fence', () => {
+    it('the recorder gets audioPresent + the row’s duration and status', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 742, status: 'COMPLETED' })
+    })
+
+    it('a non-owner without recordings.viewAll gets recording:null (same withholding as the transcript)', async () => {
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('recordings.viewAll hears any staff’s take', async () => {
+      capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    // ⚠ FIX ROUND 2 — THE INVERSION THIS CLOSES. `business.manage` is a
+    // GRANTABLE row labelled 「店舗の削除・譲渡」, while `recordings.viewAll` is
+    // hard-stripped to the owner and hidden from the toggle list. Treating the
+    // former as "the owner" let an owner hand a manager every staffer's AUDIO
+    // while the WORDS stayed withheld — the exact inversion the recorder-private
+    // ruling exists to prevent. The sound now uses the words' own input.
+    it('business.manage alone does NOT reach a colleague’s take', async () => {
+      capabilities.current = new Set(['customers.view', 'business.manage'])
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      // …and the words are withheld on the same request, as they always were:
+      // one rule, one answer, no inversion in either direction.
+      expect(dto.transcript).toBeNull()
+      expect(dto.transcriptRestricted).toBe(true)
+    })
+
+    it('an OWNERLESS karute keeps canViewTranscript’s shared answer for audio too (D-14)', async () => {
+      KAR.current = { ...KAR.current, staff_id: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    it('no recording_session_id → recording:null and the row is never read', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1', recording_session_id: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      expect(recordingsGet).not.toHaveBeenCalled()
+    })
+
+    it('a null audio path → recording:null (nothing was ever finalized)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    // A DISCARDED take's audio sits at a stg/ key the row is deliberately not
+    // re-pointed to (DESIGN-SLICE5 D10). isOwnRecordingKey is TAKE-only, so
+    // this is the same null — and the fence must never be widened to reach it.
+    it('a stg/ staged key → recording:null (the discard fence)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: `stg/business-1_${TAKE}_${TAKE}.mp4` }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('another tenant’s app_ key → recording:null', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, audio_storage_path: `app_other-biz_${TAKE}.mp4` }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    // D-8: an accessory read that blipped costs the PLAYER, never the karute.
+    it('a failed recordings.get → recording:null AND the karute still 200s', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      recordingsGet.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }))
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      expect(res.status).toBe(200)
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+      expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    })
+
+    // FIX ROUND 1 — the row is BORN RESERVED (session-mint.ts:171), so a key
+    // with no receipt behind it is a take still on the DEVICE. A player there
+    // could only ever answer 「再生できませんでした」.
+    it('a RESERVED-but-not-secured row (UPLOADING, no duration) → recording:null', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('finalize’s own stamp (UPLOADING + a duration) → the player appears', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'UPLOADING', duration_seconds: 45 }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: 45, status: 'UPLOADING' })
+    })
+
+    it('a job-owned COMPLETED row with no duration still carries the player', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'COMPLETED', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording?.audioPresent).toBe(true)
+    })
+
+    it('a RECORDING row → recording:null (a live recorder owns it)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+      REC.current = { ...REC.current, status: 'RECORDING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+      const dto = await res.json()
+      expect(dto.recording).toBeNull()
+    })
+
+    it('a PROCESSING row still carries the player — the audio is already safe (F6)', async () => {
+      KAR.current = { ...KAR.current, staff_id: 'auth-user-1', transcript: null }
+      REC.current = { ...REC.current, status: 'PROCESSING', duration_seconds: null }
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const dto = await res.json()
+      expect(dto.recording).toEqual({ audioPresent: true, durationSeconds: null, status: 'PROCESSING' })
+    })
+
+    // Rollback compat, the staffCanReassignRecords rule: a payload minted
+    // before this field existed must still parse — absent = no player.
+    it('a payload WITHOUT the field still parses (absent = no player)', async () => {
+      const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
+      const { recording: _r, ...legacy } = await res.json()
+      expect(KaruteDetailScreenDTO.parse(legacy).recording).toBeUndefined()
+    })
   })
 
   // Recorder-lock fix (⚖ Liam 8/22, packet 2026-08-30): the karute's staff_id

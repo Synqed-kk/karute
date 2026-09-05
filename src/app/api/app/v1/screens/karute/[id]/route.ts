@@ -60,9 +60,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   // both OUTSIDE the wave catch so they surface with their own status.
   const raw = await readKaruteRaw(synqed, id)
   const customerId = (raw.customer_id as string | null) ?? null
+  const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
   try {
-    const [staffList, allCustomers, outcome, gated] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRow] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -90,6 +91,16 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
                   }>,
               ),
           ])
+        : Promise.resolve(null),
+      // The recording behind this karute — the player's presence probe (slice
+      // ①). Page-parity graceful like photos above, and for the stronger
+      // reason: an accessory read that blipped must cost the PLAYER, never 502
+      // the whole karute screen. A 404 (row swept) is the same null.
+      recordingSessionId
+        ? synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+            console.warn('[screens/karute] recording read failed — no player', err)
+            return null
+          })
         : Promise.resolve(null),
     ])
 
@@ -148,6 +159,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       outcome: outcomeForClient,
       viewerStaffId,
       canViewAllRecordings,
+      recordingRow,
+      businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,

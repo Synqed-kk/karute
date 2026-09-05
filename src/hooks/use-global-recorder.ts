@@ -3,6 +3,23 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { globalRecorder, type RecordingTarget } from '@/lib/global-recorder'
 
+/**
+ * Is a recording live RIGHT NOW? Read straight off the singleton, never from a
+ * render snapshot (player fix round 2, F3).
+ *
+ * `useGlobalRecorder()` gives a component the value as of its last render, and
+ * that is the correct thing to RENDER from — but it is stale inside an async
+ * handler, and the window between a play tap and the minted url resolving is
+ * exactly long enough to start a recording in. A guard asked immediately before
+ * `audio.play()` has to ask the singleton itself.
+ *
+ * Lives here rather than in a new module so components keep ONE door onto the
+ * recorder — and so a test that mocks this module still covers both readers.
+ */
+export function recorderIsLive(): boolean {
+  return globalRecorder.state === 'recording' || globalRecorder.state === 'paused'
+}
+
 export function useGlobalRecorder() {
   const subscribe = useCallback(
     (fn: () => void) => globalRecorder.subscribe(fn),
