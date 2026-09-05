@@ -426,7 +426,7 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     expect(railExplain(cell, 60, { room: lifted }).word).toBeNull()
   })
 
-  it('a refusal that names NOBODY wears no word — 使えるベッドがありません is not a full house', () => {
+  it('a refusal that names NOBODY wears no word — この店舗には使えるベッドがありません is not a full house', () => {
     // ⚖ 46 store isolation: this staff member's store has no rooms in it at all,
     // so the allocator's candidate list is empty. It refuses — truthfully — and
     // there is no occupant anywhere in the answer.
@@ -437,15 +437,15 @@ describe('§2 — the 10px word, and 清掃 when that is the truth', () => {
     const empty = allocateBed(split, {
       id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start: 780, end: 840,
     })
-    expect(empty.refusal).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(empty.refusal).toBe('この店舗には使えるベッドがありません')
     expect(empty.blockers).toEqual([])
     const bedCell: RailCell = { ...at(railOn(sceneWith([])), 780), state: 'blocked', reason: 'bed' }
     const said = railExplain(bedCell, 60, { room: empty })
-    // 「満室」 beside 「使えるベッドがありません」 said two different things about
+    // 「満室」 beside 「この店舗には使えるベッドがありません」 said two different things about
     // one board — and 清掃 was the LITERAL old answer here, because `every` on an
     // empty list is true. Neither now: the sentence still refuses, the chip is bare.
     expect(said.word).toBeNull()
-    expect(said.sentence).toBe('13:00〜14:00に使えるベッドがありません')
+    expect(said.sentence).toBe('この店舗には使えるベッドがありません')
   })
 })
 
@@ -453,7 +453,7 @@ describe('§3 — every sentence names the window it judged', () => {
   it('a bed refusal is `fullRoomsRefusal`’s sentence, whole and unedited', () => {
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     const said = explainOn(busy, at(railOn(busy), 780)).sentence
-    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様 13:00〜15:00）')
+    expect(said).toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です')
     // ⛔ THE RETIRED VOCABULARY, pinned dead. The 8/25 native pass ruled
     // 「…に空きがありません」; 満室 survives as the CHIP's word and nowhere else,
     // and 「空きベッドなし」 was never vocabulary at all.
@@ -778,7 +778,7 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     const per = ask(busy).get('p-01')!
     // `fullRoomsRefusal`'s sentence, whole — the composer was handed a real
     // `allocateBed` answer for this chip's own window.
-    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1が使用中（見本 かえる様 13:00〜15:00）' })
+    expect(per.get(780)).toEqual({ word: '満室', sentence: '13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）が使用中です' })
     // …and a chip of any other class never grew a room answer, so it can never
     // wear a room word.
     for (const [start, said] of per) {
@@ -792,7 +792,35 @@ describe('§7 — the whole strip’s reading of itself: `explainRails`', () => 
     // asked with `handId` lifted out, which is the booking in the way — case (a).
     const busy = sceneWith([booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)])
     expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)).toEqual({ word: null, sentence: expect.any(String) })
-    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1が使用中')
+    expect(ask(busy, { handId: 'x1' }).get('p-01')!.get(780)!.sentence).not.toContain('ベッド1（見本 かえる様')
+  })
+
+  it('⚖ ROOM RULE — the strip answers the question the DROP will ask, for the card in hand', () => {
+    // ⚖ FIX ROUND 2 (delta lens 4 N5). The rail's room probe used to ask the
+    // allocator with `requiresPrivate: false` always, so the strip beside a
+    // 個室のみ card answered a different question than the drop itself would. Fix
+    // round 1 read the hand's own tag and defended it with two source-text pins
+    // and no behaviour — this is the behaviour.
+    //
+    // Both beds busy, so the cell IS bed-refused and the probe runs. The hand
+    // sits on the STAFF row at a window of its own, so it is neither occupant.
+    const tagged = { ...booking({ key: 'h1', caseId: 'tag-1', title: 'テスト なぎ' }, 600, 660), requiresPrivateRoom: true }
+    const lanes = [
+      lane({ key: 'p-01', group: 'staff', label: '見本 あずさ', items: [tagged] }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'b1', caseId: 'x1', title: '見本 かえる' }, 780, 900)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private', items: [booking({ key: 'b3', caseId: 'x3', title: '見本 さくら' }, 780, 900)] }),
+    ]
+    // With the tagged card in hand the strip judges the 個室 alone…
+    expect(ask(lanes, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00は個室に空きがありません。ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // …and with nothing in hand it is the hypothetical it always was.
+    expect(ask(lanes).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
+    // An UNTAGGED hand asks the hypothetical's question, so the tag is what
+    // moved the answer rather than the presence of a hand.
+    const plain = [{ ...lanes[0], items: [{ ...tagged, requiresPrivateRoom: false }] }, lanes[1], lanes[2]]
+    expect(ask(plain, { handId: 'tag-1' }).get('p-01')!.get(780)!.sentence)
+      .toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様 13:00〜15:00）、ベッド3（見本 さくら様 13:00〜15:00）が使用中です')
   })
 
   it('A GESTURE EMPTIES THE MAP — nothing is composed while a card is in hand', () => {

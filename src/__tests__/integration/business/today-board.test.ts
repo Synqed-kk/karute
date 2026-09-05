@@ -455,6 +455,32 @@ describe('今日の運営 screen', () => {
    *  source: テスト なぎ (apt-29) carries the tag and wears her own category word,
    *  テスト えいた (apt-25) is the VIP and carries no tag, and both facts reach the
    *  accessible name a keyboard operator is refused by. */
+  it('⚖ ROOM RULE — the inspector says 個室のみ about the BOOKING, never about the room', async () => {
+    // ⚖ FIX ROUND 2 (delta lens 3 N2 · JP native pass 5c · L2 S2). A parenthetical
+    // after a room name describes THAT ROOM — 「ベッド3（個室のみ）」 reads as
+    // 「bed 3 is private-room-only」, and on any row the allocator did not choose
+    // it is a flat lie about a standard bed. 予約種別 is the row that is about the
+    // booking, and 「個室のみ・単発」 is the shape the accessible name ships.
+    //
+    // Fix round 1 shipped this surface with no cover of either kind: dropping the
+    // clause left the whole battery green.
+    const p = await board(STORE_A)
+    const factOf = (id: string, key: string) => p.cases[id].facts.find(([k]) => k === key)!
+    expect(factOf('apt-29', '担当・設備')).toEqual(['担当・設備', '見本 あずさ / ベッド3'])
+    expect(factOf('apt-29', '予約種別')).toEqual(['予約種別', '個室のみ・単発 / 店頭受付'])
+    // The untagged VIP's two rows carry no trace of the rule.
+    expect(factOf('apt-25', '担当・設備')[1]).not.toContain('個室のみ')
+    expect(factOf('apt-25', '予約種別')[1]).not.toContain('個室のみ')
+    // …and the tag reaches the row through the booking's own field, in the shape
+    // the accessible name uses. (No 「not.toContain('（個室のみ）')」 pin: the
+    // comment explaining WHY the parenthetical was wrong quotes it, which is the
+    // decoy a naive source ban would trip over — the two rows above are the
+    // claim, and they are behavioural.)
+    const PAGE = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/page.tsx'), 'utf8')
+    expect(PAGE).toContain("['予約種別', `${b.requiresPrivateRoom ? '個室のみ・' : ''}${b.category === 'ticket' ? '回数券' : b.category === 'vip' ? 'VIP' : '単発'} / ${b.source.split(' ')[0]}`],")
+    expect(PAGE).toContain("['担当・設備', `${b.staffName} / ${b.resourceName}`],")
+  })
+
   it('⚖ ROOM RULE — the sample board separates the 個室のみ tag from the VIP badge', async () => {
     const p = await board(STORE_A)
     const cardFor = (id: string) => p.lanes.flatMap((l) => l.items).find((i) => i.caseId === id)!
