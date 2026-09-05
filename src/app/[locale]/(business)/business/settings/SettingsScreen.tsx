@@ -207,6 +207,41 @@ function useReducedMotion(): boolean {
   return reduced
 }
 
+/** ⚖ S17 fix round 1 · F19 — IS THE ROOM ON A PHONE?
+ *
+ *  ≤899 is the room's ①: the rail IS the page and a section is its own screen.
+ *  There, このページの中身 is a DISCLOSURE under the head (packet §2.4) rather
+ *  than an open list — rendered open it is four items plus a two-line note,
+ *  ~248px between the section head and the first block, and at 390×844 the whole
+ *  first screen held ZERO settings: a reader opened a section to change one rule
+ *  and had to scroll past a table of contents and a save bar to reach anything.
+ *  ⚖ apple-design §16.6 — show the common path first, the rest one level deeper.
+ *
+ *  ⚠ SAME SHAPE AS `useReducedMotion`, for the same reason: read in the
+ *  INITIALISER so the client's first render already knows, and subscribed so a
+ *  rotation or a resized window is obeyed without a reload. It reaches only the
+ *  disclosure's OPEN state, which a layout effect applies — never markup — so
+ *  the server's `false` and a phone's `true` still render byte-identical DOM. */
+function useNarrow(): boolean {
+  /** ⚠ READ IN AN EFFECT, AND THAT IS THE OPPOSITE OF `useReducedMotion` ON
+   *  PURPOSE. That flag reaches only SPRINGS, so reading it in the initialiser
+   *  costs nothing and buys a correct first frame. THIS one reaches MARKUP — a
+   *  disclosure button instead of a heading, `aria-expanded`, a wrapper — so a
+   *  client that knew the answer during hydration would render a different tree
+   *  than the server sent. Known after mount, the swap is an ordinary re-render:
+   *  the collapse MOUNTS closed rather than animating shut, so the list does not
+   *  fold itself in front of the reader on load. */
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 899px)')
+    const apply = () => setNarrow(mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
+  return narrow
+}
+
 /** ⚖ S17 / A1 — WHAT THE ROOM RENDERS WITH. The rail's own payload, plus
  *  予約と確保's — #812's room arrived as one section of this rail, and its
  *  assembly is `storePolicyProps()`'s rather than this file's vocabulary. It
@@ -248,6 +283,10 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [tourTick, setTourTick] = useState(0)
   const tourOpen = tourIdx >= 0
   const reduced = useReducedMotion()
+  const narrow = useNarrow()
+  /** ⚖ F19 — このページの中身 is closed on a phone until a reader asks for it,
+   *  and always open where the column has room for it. */
+  const [jumpOpen, setJumpOpen] = useState(false)
 
   /** ⚖ IMPROVEMENT 1 — FIND BY TYPING. Twenty-two rows is past the size a rail
    *  can be scanned, so the rail gets the settings grammar every phone and desk
@@ -794,6 +833,9 @@ export function SettingsScreen(props: SettingsScreenProps) {
       onJump={jumpTo}
       raised={raised}
       reduced={reduced}
+      narrow={narrow}
+      jumpOpen={jumpOpen}
+      onToggleJump={() => setJumpOpen((was) => !was)}
     />
   )
 
@@ -1111,6 +1153,9 @@ function Side({
   onJump,
   raised,
   reduced,
+  narrow,
+  jumpOpen,
+  onToggleJump,
 }: {
   /** The anchors this section actually renders, in page order. It is a LIST
    *  rather than `section.blocks` because 予約と確保 has no blocks in this file's
@@ -1125,7 +1170,35 @@ function Side({
   /** ⚖ the save card MOVES only when it has something to say — see `SaveCard`. */
   raised: boolean
   reduced: boolean
+  /** ⚖ F19 — ≤899 is the room's ①, where このページの中身 is a disclosure. */
+  narrow: boolean
+  jumpOpen: boolean
+  onToggleJump: () => void
 }) {
+  /** ⚖ S17 fix round 1 · F19 — ONE COPY OF THE LIST, two wrappers. At ① it
+   *  lives inside the room's own disclosure and at every other band it stands
+   *  open; writing it twice would be two places to change one list. */
+  const jumpList = (
+    <>
+          <div className="st-jump-list">
+            {jump.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                className={`st-jump-item${b.id === highlighted ? ' is-on' : ''}${dirtyOf(b.id) ? ' is-dirty' : ''}`}
+                aria-current={b.id === highlighted ? 'true' : undefined}
+                onClick={() => onJump(b.id)}
+              >
+                <span className="st-jump-name">{b.title}</span>
+                <span className="st-jump-dot" aria-hidden="true" />
+                {dirtyOf(b.id) && <span className="st-sr">未保存の変更があります</span>}
+              </button>
+            ))}
+          </div>
+          <p className="st-jump-note">見出しを押すとその場所へ移動します。●は未保存の変更です。</p>
+    </>
+  )
+
   return (
     /* ⚠ A `<div>`, NOT AN `<aside>`. This element is a LAYOUT wrapper — one box
        so one grid placement moves all three pieces between the room's three
@@ -1143,23 +1216,32 @@ function Side({
           data-guide-title="このページの中身"
           data-guide="いま開いている設定の中身の一覧です。見出しを押すとその場所へ移動します。●は、まだ保存していない変更があるまとまりです。"
         >
-          <div className="st-jump-head">このページの中身</div>
-          <div className="st-jump-list">
-            {jump.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                className={`st-jump-item${b.id === highlighted ? ' is-on' : ''}${dirtyOf(b.id) ? ' is-dirty' : ''}`}
-                aria-current={b.id === highlighted ? 'true' : undefined}
-                onClick={() => onJump(b.id)}
-              >
-                <span className="st-jump-name">{b.title}</span>
-                <span className="st-jump-dot" aria-hidden="true" />
-                {dirtyOf(b.id) && <span className="st-sr">未保存の変更があります</span>}
-              </button>
-            ))}
-          </div>
-          <p className="st-jump-note">見出しを押すとその場所へ移動します。●は未保存の変更です。</p>
+          {/* ⚖ S17 fix round 1 · F19 — A HEADING ON A DESK, A DISCLOSURE ON A
+              PHONE. Rendered open at ① the list is four items plus a two-line
+              note between the section head and the first block — ~248px — and at
+              390×844 the whole first screen held ZERO settings: a reader opened a
+              section to change one rule and had to scroll past a table of
+              contents and a save bar to reach anything they could change.
+              ⚠ A HEADING, NOT A DEAD BUTTON, where the column has room for the
+              list: a control that cannot change anything is a lever with a
+              promise on it. */}
+          {narrow ? (
+            <button
+              type="button"
+              className="st-jump-head"
+              aria-expanded={jumpOpen}
+              aria-controls="stJumpList"
+              onClick={onToggleJump}
+            >
+              このページの中身
+              <span className="st-det-caret" aria-hidden="true">⌄</span>
+            </button>
+          ) : (
+            <div className="st-jump-head">このページの中身</div>
+          )}
+          {narrow
+            ? <Collapse open={jumpOpen} id="stJumpList" reduced={reduced}>{jumpList}</Collapse>
+            : <div id="stJumpList">{jumpList}</div>}
         </nav>
       )}
       <SaveCard raised={raised} reduced={reduced}>{save}</SaveCard>

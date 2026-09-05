@@ -767,6 +767,43 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     }
   })
 
+  // ⚖ S17 · F19 — ON A PHONE A SECTION OPENS ON ITS SETTINGS, NOT ON ITS INDEX.
+  // このページの中身 rendered OPEN at ①: four items plus a two-line note, ~248px
+  // between the section head and the first block, so the whole 390×844 first
+  // screen held ZERO settings — a reader opened a section to change one rule and
+  // had to scroll past a table of contents and a save bar to reach anything.
+  // ⚖ apple-design §16.6 (the common path first, the rest one level deeper);
+  // ⚖ codex-dashboard-architect §6 (keep the surface the job needs in front).
+  it('⚖ F19 — このページの中身 is a closed disclosure at ①, and a heading everywhere else', () => {
+    // the width is asked in an EFFECT, never in the initialiser — this one
+    // reaches MARKUP, so a client that knew during hydration would render a
+    // different tree than the server sent (the opposite call to the motion
+    // preference, whose value reaches only springs).
+    const hook = SCREEN_CODE.slice(SCREEN_CODE.indexOf('function useNarrow'))
+    const body = hook.slice(0, hook.indexOf('return narrow'))
+    expect(body).toContain('const [narrow, setNarrow] = useState(false)')
+    expect(body).not.toMatch(/useState\(\s*\(\)\s*=>[^)]*matchMedia/)
+    expect(body).toContain("window.matchMedia('(max-width: 899px)')")
+    expect(body).toContain("mq.addEventListener('change', apply)")
+    // …closed by default, and only ① has a control at all…
+    expect(SCREEN_CODE).toContain('const [jumpOpen, setJumpOpen] = useState(false)')
+    expect(SCREEN_CODE).toContain('aria-expanded={jumpOpen}')
+    expect(SCREEN_CODE).toContain('aria-controls="stJumpList"')
+    expect(SCREEN_CODE).toContain('<div className="st-jump-head">このページの中身</div>')
+    // …the list itself is written ONCE, whichever wrapper it lands in…
+    expect((SCREEN_CODE.match(/className="st-jump-list"/g) ?? []).length).toBe(1)
+    expect(SCREEN_CODE).toContain('? <Collapse open={jumpOpen} id="stJumpList" reduced={reduced}>{jumpList}</Collapse>')
+    expect(SCREEN_CODE).toContain(': <div id="stJumpList">{jumpList}</div>')
+    // …and at ① it is a real control: a touch height, a caret that turns with
+    // `aria-expanded`, and a press.
+    const phone = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 899px)'))
+    const head = phone.slice(phone.indexOf('.st-jump-head'))
+    expect(head).toContain('min-height: 44px')
+    expect(head).toContain('cursor: pointer')
+    expect(head).toContain('.st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }')
+    expect(head).toContain('.st-jump-head:active { transform: scale(.97); }')
+  })
+
   // ⚖ S17 · F18 — EVERY PRESSABLE ANSWERS THE FINGER, NOT THE RELEASE.
   // Five did not: 取り消す, the ? that opens the walk, 詳細設定's own summary and
   // the walk's three footer buttons. ⚖ apple-design §1 — feedback lives on
@@ -804,6 +841,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       '.st-lockchip', '.st-step-g',
       // a container whose CHILDREN are the buttons (they carry their own rules)
       '.st-spot-foot',
+      // ⚖ F19 — a control only at ①; its press lives in that block (asserted in
+      // the F19 pin), because at every other band it is a heading.
+      '.st-jump-head',
     ])
     expect([...pressables].filter((c) => !EXEMPT.has(c) && !pressed.has(c))).toEqual([])
     // …and the five this round added are really in the grouped rule…
@@ -1960,6 +2000,11 @@ describe('⚖ the LADDER — three compositions, two thresholds, arithmetic that
       // not controls: the search ✕ sits INSIDE the 44px field, and the spot
       // layer is the tour's own scrim.
       '.st-search-clear', '.st-spot-catch',
+      // ⚖ F19 — このページの中身's head is a CONTROL only at ①, where the list is
+      // a disclosure; at every other band it is a heading (a `<div>`), because a
+      // button that cannot change anything is a lever with a promise on it. It
+      // is sized and pressed inside the ① block, asserted there rather than here.
+      '.st-jump-head',
     ])
     const pressables = new Set<string>()
     for (const rule of CSS_CODE.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {

@@ -741,7 +741,17 @@
   padding: 10px 11px 11px;
   border: 1px solid var(--st-line); border-radius: 13px; background: var(--st-panel-bg);
 }
-.biz .pg-settings .st-jump-head { padding: 0 2px 5px; color: var(--quiet); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+/* ⚖ S17 fix round 1 · F19 — the heading is a BUTTON now (a disclosure at ①,
+   where the list rendered open cost a 390px screen every one of its settings).
+   It looks the same everywhere; only ① lets it close, and only there does it
+   grow a caret and a touch height. */
+.biz .pg-settings .st-jump-head {
+  display: block; width: 100%; padding: 0 2px 5px;
+  border: 0; background: none; text-align: left;
+  color: var(--quiet); font-family: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  cursor: default;
+}
+.biz .pg-settings .st-jump-head .st-det-caret { display: none; }
 .biz .pg-settings .st-jump-list { display: flex; flex-direction: column; gap: 1px; }
 .biz .pg-settings .st-jump-item {
   display: flex; align-items: center; gap: 7px;
@@ -1501,6 +1511,20 @@
    page, and a chosen section replaces it with a way back. This is the ONE
    media-driven composition swap in the room — see the header. ═══ */
 @media (max-width: 899px) {
+  /* ⚖ S17 fix round 1 · F19 — AT ① このページの中身 IS A DISCLOSURE, CLOSED.
+     Rendered open it is four items plus a two-line note between the section head
+     and the first block — ~248px — and at 390×844 the whole first screen held
+     ZERO settings: a reader opened a section to change one rule and had to
+     scroll past a table of contents and a save bar to reach anything they could
+     change. Here it is a real control: pressable, a caret that turns with
+     `aria-expanded`, and the band's own touch height. */
+  .biz .pg-settings .st-jump-head {
+    display: flex; align-items: center; justify-content: space-between;
+    min-height: 44px; padding: 0 2px; cursor: pointer;
+  }
+  .biz .pg-settings .st-jump-head .st-det-caret { display: inline-block; }
+  .biz .pg-settings .st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
+  .biz .pg-settings .st-jump-head:active { transform: scale(.97); }
   .biz .page.pg-settings { padding: 16px 14px 32px; gap: 12px; }
   .biz .pg-settings .st-panel { display: none; }
   .biz .pg-settings.is-detail .st-rail { display: none; }
