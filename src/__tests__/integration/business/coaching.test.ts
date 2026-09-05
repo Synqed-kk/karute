@@ -5073,3 +5073,21 @@ describe('⚖ B2-4-1 / B2-4-3 (S16F) — the 成績 strip is ONE height, by comp
     expect([...CSS_CODE.matchAll(/\.cg-stat:first-child \{ grid-column: span 2/g)].length).toBe(1)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-4-4 (S16F) — the practice sheet keeps ONE proportion in both bands', () => {
+  it('the pair band and the three-up band ask for the same share', () => {
+    const pair = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-sheet (min-width: 580px)'))
+    expect(pair.slice(0, 300)).toContain('grid-template-columns: minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr);')
+    const three = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-sheet (min-width: 880px)'))
+    expect(three.slice(0, 400)).toContain('minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr)')
+    // the move still takes the whole row in the pair band — it is the answer the
+    // other two cells are the working for, and it leads the band.
+    expect(pair.slice(0, 300)).toContain('.cg-sheet-move { grid-column: 1 / -1; }')
+    // ⚠ AND THE SHEET STILL STRETCHES. Its three cells are ONE answer in three
+    // parts and must end together (the header note's own words), which is why
+    // this region answers to interior slack instead of to `align-items`.
+    const at = CSS_CODE.indexOf('.cg-sheet-cols {')
+    expect(/align-items:\s*(start|flex-start)/.test(CSS_CODE.slice(at, CSS_CODE.indexOf('}', at)))).toBe(false)
+  })
+})

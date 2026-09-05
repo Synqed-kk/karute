@@ -816,8 +816,15 @@
 .biz .pg-coaching .cg-sheet { container: cg-sheet / inline-size; }
 .biz .pg-coaching .cg-sheet > .cg-sec-head { margin-bottom: 12px; }
 .biz .pg-coaching .cg-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-sheet-gap); }
+/* ⚖ B2-4-4 (S16F) — THE PAIR BAND CARRIES THE SAME PROPORTION THE THREE-UP BAND
+   ALREADY EARNED. Split 1fr/1fr, やること (a four-step list) and 根拠 (a claim,
+   a count and one quote) came out 74.1px apart at 744/rail — 20.1% of the 根拠
+   cell, one tenth of a point past this region's own ≥80% bar, at a width V2-2's
+   verdict never visited (it sampled 1280 / 1440 / 1920). The steps ask for the
+   width and the receipt does not, which is exactly what 1.2 / .85 says one band
+   up; asked here too, the two cells end together. */
 @container cg-sheet (min-width: 580px) {
-  .biz .pg-coaching .cg-sheet-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .biz .pg-coaching .cg-sheet-cols { grid-template-columns: minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr); }
   .biz .pg-coaching .cg-sheet-move { grid-column: 1 / -1; }
 }
 @container cg-sheet (min-width: 880px) {
