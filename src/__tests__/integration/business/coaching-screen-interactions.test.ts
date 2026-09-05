@@ -179,7 +179,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
       // facts are the adoption line and the disclosure's notes.
       '表示の切り替え', '全スタッフ表示の見かた', 'スタッフの状況',
       // 経営への効果 (the owner's own third screen)
+      // ⚖ I-10 adds 「導入の状況」 — 「is it being used」, the owner's second
+      // question, which had no surface at all.
       'コーチングの効果', '他店舗との比較', '指標ごとの押し上げ', 'この数字の出し方', '費用との比較',
+      '導入の状況',
       // and the boundary a staff member gets instead of the tabs — S16 makes it a
       // <section>, because ⚖ Q6 gave it a second sentence and a settings door
       '全スタッフ表示について',
@@ -192,10 +195,10 @@ describe('⚖ Liam 8/23 — the room declares every section it renders', () => {
     // 費用との比較 and never renders beside the first.
     // ⚖ I-3 (S16C) — ONE declaration retired with its card (成約率の推移 → the
     // sparkline inside the 成約率 tile), so 27 for 26 steps.
-    // ⚖ I-5 merges two declarations into one and ⚖ I-8 folds two rail cards into
-    // one strip inside the framing card, so 24 for 23 steps.
-    expect(titles.length).toBe(24)
-    expect(new Set(titles).size).toBe(23)
+    // ⚖ I-5 merges two declarations into one, ⚖ I-8 folds two rail cards into one
+    // strip inside the framing card, and ⚖ I-10 adds 導入の状況 — 25 for 24 steps.
+    expect(titles.length).toBe(25)
+    expect(new Set(titles).size).toBe(24)
     // …and the two COMPOSED declarations are really in the census rather than
     // dropped by a parser that could not read them (the room-6 lesson: a census
     // that only counts what it can parse is self-referential).

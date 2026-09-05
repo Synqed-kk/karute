@@ -28,6 +28,7 @@
 import { jstYmd } from '@/business/lib/clock'
 import {
   accessFor,
+  adoptionCounts,
   buildModuleLibrary,
   buildPatternLibrary,
   buildRoi,
@@ -460,6 +461,23 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
     strip: CONSENT_STATE[ownConsent.status].strip ?? null,
   }
 
+  // ⚖ I-10 — THE ADOPTION AGGREGATES, and the ⚖ 8/24 本部 ROLL-UP DOOR. Both are
+  // built ONLY for a reader who holds the ROI capability, the same construction
+  // the board and the money screen already use: a payload nobody may read is a
+  // payload that is never assembled.
+  // ⚠ THE PER-STORE LINE CROSSES STORES ON PURPOSE, and it carries ONLY what a
+  // store aggregate carries: whether the module is on, and the headline lift the
+  // SAME derivation produces for that store. No person, no roster, no per-staff
+  // figure — `StoreCoachingRoi` has no field for one (contract.ts:284-286).
+  const adoption = adoptionCounts({ roster, rows, consent: consentPlane })
+  const enabled = world?.enabledStores ?? coachingStores
+  const storeLine = (id: string): string => {
+    if (!enabled.includes(id)) return '未導入'
+    const view = buildRoi({ roi: storeRoi[id] })
+    if (!view) return '導入中 ・ 効果を出せる実績がまだありません'
+    return `導入中 ・ ${ROI_METRIC_LABEL[view.headline.key]} ${liftDisplay(view.headline)}（${ROI_CONFIDENCE_LABEL[view.headline.confidence]}）`
+  }
+
   const props: CoachingProps = {
     dateline: `サンプルデータ ${fmtDay.format(now)} / ${lensLabel}`,
     lensLabel,
@@ -871,6 +889,16 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
             roi.monthlyValueEstimate === null
               ? '金額に置き換えた目安は、確からしさが「確立」になるまで表示しません。'
               : null,
+          // ⚖ I-10 — 「IS IT BEING USED」. Both counts come from ONE arithmetic
+          // (`adoptionCounts`), which is also what the manager's board reads, so
+          // the two screens cannot disagree about how many people opened up.
+          adoption: {
+            title: '導入の状況',
+            consentLine: `コーチングに同意 ${adoption.coaching}名 ／ 在籍 ${adoption.total}名`,
+            sharingLine: `深い共有を許可 ${adoption.sharing}名 ／ 在籍 ${adoption.total}名`,
+            storesTitle: '店舗ごとの状況',
+            stores: storeOptions.map((st) => ({ id: st.id, name: st.name, line: storeLine(st.id) })),
+          },
         }
       : null,
     // ⚖ あなたのデータについて (audit #40-#45) — nine itemised facts, the

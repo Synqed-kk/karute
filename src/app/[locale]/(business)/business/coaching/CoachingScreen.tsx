@@ -323,6 +323,19 @@ export interface CoachingRoi {
   pitchTitle: string
   pitchSub: string | null
   pitchWithheld: string | null
+  /** ⚖ I-10 (S16C) — 「is it being used」, which is the owner's SECOND question
+   *  and had no surface at all. Two aggregate counts over this store's roster
+   *  (never a roster, never a name), and the ⚖ 8/24 本部 roll-up door: one line
+   *  per store the owner has, saying whether the module is on and what it has
+   *  lifted there. Every number below already exists in the plane or is a count
+   *  of it. */
+  adoption: {
+    title: string
+    consentLine: string
+    sharingLine: string
+    storesTitle: string
+    stores: Array<{ id: string; name: string; line: string }>
+  }
 }
 
 export interface CoachingProps {
@@ -2036,6 +2049,33 @@ export function CoachingScreen(props: CoachingProps) {
                       <p>{props.roi.pitchWithheld}</p>
                     </section>
                   )}
+
+                  {/* ⚖ I-10 (S16C) — 「IS IT BEING USED」, ON THE SAME SCREEN AS
+                      「DOES IT PAY」. Those are the owner's two questions and the
+                      page only ever answered the first. Two aggregate counts over
+                      this store's roster — never a roster, never a name — and one
+                      line per store, which is the ⚖ 8/24 本部 roll-up door on a
+                      money page: on or off, and what it has lifted where it is on.
+                      Nothing here is invented: every number is in the plane or is
+                      a count of it. */}
+                  <section
+                    className="cg-roi-adopt"
+                    data-guide-title="導入の状況"
+                    data-guide="この機能がどれだけ使われているかです。コーチングを受けることに同意した人数と、店長への深い共有を許可した人数を、人数だけで出しています。誰かは表示しません。下は店舗ごとの導入状況で、導入している店舗はいまの押し上げ分も添えています。"
+                  >
+                    <h2 className="cg-sec-title">{props.roi.adoption.title}</h2>
+                    <p className="cg-adopt-line">{props.roi.adoption.consentLine}</p>
+                    <p className="cg-adopt-line">{props.roi.adoption.sharingLine}</p>
+                    <p className="cg-adopt-stores-title">{props.roi.adoption.storesTitle}</p>
+                    <ul className="cg-adopt-stores">
+                      {props.roi.adoption.stores.map((st) => (
+                        <li className="cg-adopt-store" key={st.id}>
+                          <span className="cg-adopt-store-name">{st.name}</span>
+                          <span className="cg-adopt-store-line">{st.line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 </div>
               </div>
             )

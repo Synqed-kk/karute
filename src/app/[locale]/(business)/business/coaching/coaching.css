@@ -350,6 +350,7 @@
   --cg-sheet-gap: 14px;
   --cg-shelf-min: 250px;
   --cg-module-min: 280px;
+  --cg-lift-min: 190px;
   --cg-main-min: 512px;
   --cg-side-min: 300px;
   --cg-chart-min: 520px;
@@ -512,6 +513,7 @@
 .biz .pg-coaching .cg-roi-lifts,
 .biz .pg-coaching .cg-pitch,
 .biz .pg-coaching .cg-roi-withheld,
+.biz .pg-coaching .cg-roi-adopt,
 .biz .pg-coaching .cg-notice,
 .biz .pg-coaching .cg-dormant {
   padding: 18px 20px;
@@ -1094,7 +1096,23 @@
 .biz .pg-coaching .cg-roi-key.is-treated { border-top-width: 2.6px; border-top-color: var(--cg-strength); }
 .biz .pg-coaching .cg-roi-key.is-control { border-top-width: 1.8px; border-top-style: dashed; border-top-color: var(--muted); }
 
-.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+/* ⚖ I-10 — FOUR LIFTS, AND NEVER THREE-AND-AN-ORPHAN. `auto-fit` took three at
+   the middle widths and left the fourth alone on a row of its own, which is the
+   same half-empty row the supporting column, the shelves, the modules and the
+   成績 tiles each already have a rule against.
+   THRESHOLD ⑫ — THE LIFTS CARD'S OWN CONTAINER:
+       190 × 2 + 12 =  392 the PAIR first fits · 400 ships
+       190 × 4 + 36 =  796 all four first fit  · 810 ships
+   Two, four, or one. Every one of those leaves the last row FULL, so the block's
+   columns end at the same y whatever the four cards hold (the hole law). */
+.biz .pg-coaching .cg-roi-lifts { container: cg-lifts / inline-size; }
+.biz .pg-coaching .cg-lift-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0; padding: 0; list-style: none; }
+@container cg-lifts (min-width: 400px) {
+  .biz .pg-coaching .cg-lift-list { grid-template-columns: repeat(2, minmax(var(--cg-lift-min), 1fr)); }
+}
+@container cg-lifts (min-width: 810px) {
+  .biz .pg-coaching .cg-lift-list { grid-template-columns: repeat(4, minmax(var(--cg-lift-min), 1fr)); }
+}
 .biz .pg-coaching .cg-lift { display: flex; flex-direction: column; gap: 3px; padding: 13px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-lift-label { color: var(--muted); font-size: 11.5px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
 .biz .pg-coaching .cg-lift-value { color: var(--ink); font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
@@ -1119,6 +1137,17 @@
 .biz .pg-coaching .cg-roi-withheld { background: var(--cg-soft); }
 .biz .pg-coaching .cg-roi-withheld .cg-sec-title { font-size: 16px; letter-spacing: -.012em; }
 .biz .pg-coaching .cg-roi-withheld p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.85; }
+
+/* ── ⚖ I-10 · 導入の状況 ─────────────────────────────────────────────────────── */
+/* AGGREGATES AND A STORE LIST — no roster, no name, nothing a person could be
+   read out of. The per-store lines are the ⚖ 8/24 本部 roll-up door: on or off,
+   and where it is on, the headline lift the same derivation produces there. */
+.biz .pg-coaching .cg-adopt-line { margin: 0 0 5px; color: var(--ink); font-size: 13.5px; font-weight: 700; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.biz .pg-coaching .cg-adopt-stores-title { margin: 13px 0 8px; color: var(--ink-3); font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+.biz .pg-coaching .cg-adopt-stores { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.biz .pg-coaching .cg-adopt-store { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 11px; border-radius: 8px; background: var(--cg-soft); }
+.biz .pg-coaching .cg-adopt-store-name { color: var(--ink-2); font-size: 12.5px; font-weight: 600; line-height: 1.6; }
+.biz .pg-coaching .cg-adopt-store-line { color: var(--ink); font-size: 12px; line-height: 1.6; font-variant-numeric: tabular-nums; }
 
 /* ── whose eyes: the role preview (dev only; absent from the DOM in prod) ──── */
 /* ⚠ IT LOOKS LIKE A TOOL, NOT LIKE THE PRODUCT. A dashed hairline and a 開発用
@@ -1288,7 +1317,8 @@
     grid-template-areas:
       "hero  chart"
       "pitch chart"
-      "lifts lifts";
+      "lifts lifts"
+      "adopt adopt";
     align-items: start;
   }
   .biz .pg-coaching .cg-roigrid > .cg-roi-hero { grid-area: hero; }
@@ -1296,6 +1326,12 @@
   .biz .pg-coaching .cg-roigrid > .cg-roi-lifts { grid-area: lifts; }
   .biz .pg-coaching .cg-roigrid > .cg-pitch,
   .biz .pg-coaching .cg-roigrid > .cg-roi-withheld { grid-area: pitch; }
+  /* ⚖ I-10 — 「is it being used」 is a FULL-WIDTH row under the desk, not a third
+     card in a column. Beside the chart it would have put a ~200px card into a
+     column already balanced against it to within 4% (measured), which is the
+     hole this round exists to close rather than move. A full-width row leaves
+     BOTH of the region's columns ending at the same y (the hole law). */
+  .biz .pg-coaching .cg-roigrid > .cg-roi-adopt { grid-area: adopt; }
 }
 
 /* ④ DESK (≥940) — the decision desk, the library row and the board's rail.
@@ -1409,6 +1445,7 @@
   .biz .pg-coaching .cg-roi-lifts,
   .biz .pg-coaching .cg-pitch,
   .biz .pg-coaching .cg-roi-withheld,
+.biz .pg-coaching .cg-roi-adopt,
   .biz .pg-coaching .cg-dormant { padding: 15px 14px; }
   .biz .pg-coaching .cg-notice-bar { padding: 13px 14px; }
   .biz .pg-coaching .cg-notice-body { padding: 0 14px 14px; }

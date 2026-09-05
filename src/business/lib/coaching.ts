@@ -670,6 +670,32 @@ const isConsented = (
   staffId: string,
 ): boolean => (Object.hasOwn(consent, staffId) ? consent[staffId].status : 'unset') === 'granted'
 
+/** ⚖ I-10 (S16C) — THE TWO ADOPTION COUNTS, IN ONE PLACE. The owner's money
+ *  screen answers 「is it being used」 with the same two numbers the manager's
+ *  board answers 「who has opened up」 with, and two homes for one arithmetic is
+ *  the ⚖ A8 disease this room has already been bitten by. `buildTriage` reads
+ *  this too, so the board's aggregate and the owner's line cannot disagree.
+ *
+ *  ⚠ AGGREGATES ONLY, AND THAT IS STRUCTURAL: this returns three integers and no
+ *  roster, so there is nothing here for a surface to walk. The anti-coercion rule
+ *  is kept the same way it is kept everywhere else in this file — by there being
+ *  no per-person field to read. */
+export function adoptionCounts(input: {
+  roster: Array<{ id: string }>
+  rows: FixtureCoachingStaff[]
+  consent?: Record<string, { status: 'unset' | 'granted' | 'declined' }>
+}): { coaching: number; sharing: number; total: number } {
+  const { roster, rows, consent = {} } = input
+  const byStaff = new Map(rows.map((r) => [r.staffId, r]))
+  return {
+    // 「may my sessions be analysed at all」 — the consent plane's own question.
+    coaching: roster.filter((m) => isConsented(consent, m.id)).length,
+    // …and the DEPTH-SHARE, which is a different question and a different record.
+    sharing: roster.filter((m) => byStaff.get(m.id)?.grant === 'granted').length,
+    total: roster.length,
+  }
+}
+
 export function buildTriage(input: {
   /** The store's roster, in the order the world returns it. */
   roster: Array<{ id: string; name: string }>
@@ -752,8 +778,10 @@ export function buildTriage(input: {
     // different facts in the fixture plane and the same fact to every manager
     // and owner surface — the anti-coercion rule made structural rather than
     // promised.
+    // ⚖ I-10 — and the count is `adoptionCounts`' own, so the board's aggregate
+    // and the owner's 導入の状況 line are one arithmetic rather than two.
     sharingAdoption: {
-      granted: roster.filter((m) => byStaff.get(m.id)?.grant === 'granted').length,
+      granted: adoptionCounts({ roster, rows, consent }).sharing,
       total: roster.length,
     },
   }

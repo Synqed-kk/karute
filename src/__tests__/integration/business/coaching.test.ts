@@ -29,6 +29,7 @@ import {
   MATURITY_MIN_SESSIONS,
   MIN_HISTORY,
   accessFor,
+  adoptionCounts,
   bandOf,
   buildSelfView,
   buildTriage,
@@ -61,6 +62,7 @@ import {
 } from '@/business/lib/coaching'
 import { coachingConsent, coachingPolicy, coachingStaff, coachingStores, learningModules, patternLibrary, storeRoi, teamPatterns } from '@/business/lib/fixtures-coaching'
 import { STORE_A, STORE_B, staff as worldStaff } from '@/business/lib/fixtures'
+import { listStaff, listStoreOptions } from '@/business/lib/data'
 import { coachingProps } from '@/app/[locale]/(business)/business/coaching/coaching-props'
 import type { CoachingSelf } from '@/app/[locale]/(business)/business/coaching/CoachingScreen'
 
@@ -1128,17 +1130,18 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // EXACTLY ONCE across a sweep — the room never gains a column, loses it and
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
-    // TWELVE blocks on SEVEN containers: the page (700 · 880 · 940), the
+    // FOURTEEN blocks on EIGHT containers: the page (700 · 880 · 940), the
     // PRACTICE SHEET (580 · 860 — ⚖ I-1), the PATTERNS card (520 — ⚖ I-5), the
-    // MODULES card (580 · 880 — ⚖ I-6), the finding CARD (480), the 成績 card
-    // (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
+    // MODULES card (580 · 880 — ⚖ I-6), the LIFTS card (400 · 810 — ⚖ I-10), the
+    // finding CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
     // container exists because what decides that composition is the box it is in
     // — the page's width is one, two or three layout decisions away from it.
-    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(12)
+    expect([...CSS_CODE.matchAll(/@container/g)].length).toBe(14)
     expect([...CSS_CODE.matchAll(/@container cg-page/g)].length).toBe(3)
     expect([...CSS_CODE.matchAll(/@container cg-sheet/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-shelves/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-modules/g)].length).toBe(2)
+    expect([...CSS_CODE.matchAll(/@container cg-lifts/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-find/g)].length).toBe(1)
     expect([...CSS_CODE.matchAll(/@container cg-spine/g)].length).toBe(2)
     expect([...CSS_CODE.matchAll(/@container cg-stat /g)].length).toBe(1)
@@ -4104,6 +4107,42 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(fell.action!.label).toBe('学習モジュールを割り当てる')
     // …and it is still never punitive
     for (const r of props.team!.rows) if (r.action) expect(r.action.label).not.toMatch(/警告|注意|指導|評価|減点/)
+  })
+
+  it('⚖ I-10 · the owner screen answers 「is it being used」 — aggregates only, and ONE arithmetic', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    const a = props.roi!.adoption
+    // BOTH counts come from the same helper the manager's board reads, so the two
+    // screens cannot disagree about how many people opened up (⚖ A8).
+    const roster = props.team!.rows.length
+    const counts = adoptionCounts({ roster: (await listStaff(STORE_A)).map((m) => ({ id: m.id })), rows: coachingStaff, consent: coachingConsent })
+    expect(a.consentLine).toBe(`コーチングに同意 ${counts.coaching}名 ／ 在籍 ${counts.total}名`)
+    expect(a.sharingLine).toBe(`深い共有を許可 ${counts.sharing}名 ／ 在籍 ${counts.total}名`)
+    expect(counts.total).toBe(roster)
+    expect(props.team!.adoptionLine).toContain(`${counts.sharing}名`)
+    // …and NOTHING a person could be read out of: no roster, no name, no
+    // per-staff figure anywhere in the block.
+    const blob = JSON.stringify(a)
+    for (const r of props.team!.rows) expect({ staff: r.staffLabel, leaked: blob.includes(r.staffLabel) }).toEqual({ staff: r.staffLabel, leaked: false })
+    // the ⚖ 8/24 本部 ROLL-UP: one line per store, on or off, with the lift the
+    // SAME derivation produces there — never a store's people.
+    expect(a.stores.length).toBe((await listStoreOptions()).length)
+    const off = a.stores.find((st) => !coachingStores.includes(st.id))!
+    expect(off.line).toBe('未導入')
+    const on = a.stores.find((st) => coachingStores.includes(st.id))!
+    expect(on.line).toMatch(/^導入中 ・ 成約率 \+\d+\.\dpt（確立）$/)
+    expect(on.line).toContain(props.roi!.hero.liftDisplay)
+    // the card is a FULL-WIDTH row of the ROI desk, so neither of the region's
+    // columns is left short by it (the hole law)
+    expect(CSS_CODE).toContain('"adopt adopt"')
+    expect(CSS_CODE).toContain('.cg-roigrid > .cg-roi-adopt { grid-area: adopt; }')
+    // …and the four lifts are 1 / 2×2 / 4 — never three and an orphan
+    expect(CSS_CODE).not.toMatch(/\.cg-lift-list \{[^}]*auto-fit/)
+    expect(CSS_CODE).toContain('.cg-lift-list { grid-template-columns: repeat(2, minmax(var(--cg-lift-min), 1fr)); }')
+    expect(CSS_CODE).toContain('.cg-lift-list { grid-template-columns: repeat(4, minmax(var(--cg-lift-min), 1fr)); }')
+    expect(props.roi!.lifts.length).toBe(4)
   })
 
   it('R2-6 · the consent guide says each reassurance ONCE', () => {
