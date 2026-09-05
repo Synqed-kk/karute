@@ -3939,9 +3939,37 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // …and it is a finger target on every touch band
     const touch = CSS_CODE.slice(CSS_CODE.indexOf('@media (max-width: 1023px)'), CSS_CODE.indexOf('@media (max-width: 899px)'))
     expect(touch).toContain('.cg-shelf-more { min-height: 44px; }')
-    // FIVE shelves in TWO columns never leave the fifth alone on a half row
+  })
+
+  it('⚖ V2-1 · the shelves are TWO COLUMNS BALANCED BY CONTENT — no shelf is stretched, and none spans', () => {
+    // ⚠ THE DEFECT THIS REPLACES, measured at 1280 / 1920 / 2560: two grid
+    // TRACKS pair the shelves by INDEX and stretch each cell to its row, so a
+    // one-entry shelf beside a two-entry one showed ~150px of blank card. The
+    // span rule on the odd fifth shelf was the same move one row down. Both
+    // satisfied the hole law's arithmetic by producing the thing it forbids.
     const shelves = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-shelves (min-width: 520px)'))
-    expect(shelves.slice(0, 400)).toContain('.cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }')
+    const block = shelves.slice(0, shelves.indexOf('\n}'))
+    expect(block).toContain('column-count: 2;')
+    expect(block).toContain('column-fill: balance;')
+    expect(block).toContain('column-gap: 14px;')
+    expect(block).toContain('.cg-shelf { break-inside: avoid;')
+    // the region no longer places anything with a TRACK, so nothing can be
+    // stretched to a row it does not fill
+    expect(block).not.toContain('grid-template-columns')
+    // …and the span rule is GONE from the whole sheet, not merely from this
+    // block — the mutant that puts it back is M93.
+    expect(CSS_CODE).not.toContain('.cg-shelf:last-child:nth-child(odd)')
+    // ⑩'s own 250 is load-bearing rather than a comment: it is the column width
+    // the browser's count is derived from, so a shelf can never render below the
+    // width the threshold was derived against.
+    const shelfMin = Number(/--cg-shelf-min:\s*(\d+)px/.exec(CSS_CODE)![1])
+    expect(shelfMin).toBe(250)
+    expect(block).toContain('column-width: var(--cg-shelf-min);')
+    expect(shelfMin * 2 + 14).toBe(514)
+    expect(Number(/@container cg-shelves \(min-width: (\d+)px\)/.exec(CSS_CODE)![1])).toBeGreaterThanOrEqual(514)
+    // FIVE shelves — odd against two columns, which is exactly the count that
+    // used to need a rule and now needs none: the balancer distributes by
+    // HEIGHT, so an odd count is not a half-empty row.
     expect(PATTERN_CATEGORIES.length % 2).toBe(1)
   })
 
@@ -3979,10 +4007,16 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // rule that does it — and the arithmetic each one answers to: a grid of N
     // items in C columns leaves N mod C cells empty on the last row, and every
     // region below can have N mod C ≠ 0.
+    // ⚠ V2-1 — `.cg-shelves` LEFT THIS LIST, and that is the round's own finding
+    // rather than a loosened pin: row-stretch is legitimate where the row is ONE
+    // ANSWER (the sheet's three cells must end together) and a defect where the
+    // row is a LIST of independent things, because there it produces exactly the
+    // blank card the law exists to remove. The shelves are BALANCED COLUMNS now
+    // and carry their own pin, one test below.
+    expect(CSS_CODE).not.toContain('.cg-shelf:last-child:nth-child(odd)')
     const ROW_REGIONS = [
       { region: '.cg-side', can: 'five supporting cards, or four', rule: '.cg-side > *:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
       { region: '.cg-sheet-cols', can: 'three columns paired two-up', rule: '.cg-sheet-move { grid-column: 1 / -1; }' },
-      { region: '.cg-shelves', can: 'five shelves in two columns', rule: '.cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
       { region: '.cg-module-list', can: 'three modules in two columns', rule: '.cg-module:last-child:nth-child(odd) { grid-column: 1 / -1; }' },
     ]
     for (const r of ROW_REGIONS) {
@@ -3995,10 +4029,13 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
       expect({ region: r.region, stretches: !/align-items:\s*(start|flex-start|baseline|center)/.test(block) })
         .toEqual({ region: r.region, stretches: true })
     }
-    // …and the counts those rules exist for are the counts the room really has:
-    // FIVE shelves and THREE modules, both odd against two columns.
-    expect(PATTERN_CATEGORIES.length % 2).toBe(1)
+    // …and the count the module rule exists for is the count the room really
+    // has: THREE modules, odd against two columns.
     expect(learningModules.length % 2).toBe(1)
+    // …and the sheet is the ONE row-stretch region that also has to answer for
+    // what is INSIDE its cells (V2-2), because its row is one answer in three
+    // parts rather than a list.
+    expect(CSS_SRC).toContain('INTERIOR SLACK')
   })
 
   it('⚖ I-2 · THE DESK IS TWO PACKED STACKS, and the ASSIGNMENT is what balances them', async () => {

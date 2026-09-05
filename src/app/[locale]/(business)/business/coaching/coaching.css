@@ -45,19 +45,30 @@
                         the tallest column's height
        The measured breach that named it: at ≥1280 the self desk's left column
        ended 390–460px above the right one, and the board's rail ended ~380px
-       above the board. TWO MECHANISMS keep it, and only two:
+       above the board. THREE MECHANISMS keep it, and only three:
          · ROW-STRETCH — a grid whose cells stretch to their row's height, with a
            rule that keeps the LAST row full (`:last-child:nth-child(odd)`, or a
            move that spans). Column bottoms are then equal BY CONSTRUCTION and
-           the ratio is 0, whatever the content is. Every region in this room
-           except the desk works this way.
+           the ratio is 0, whatever the content is.
+           ⚠ V2-1 — AND IT IS ONLY LEGITIMATE WHERE THE ROW IS ONE ANSWER. The
+           practice sheet's three cells are one answer in three parts and must
+           end together, so a stretched cell there is a cell, not a slab — which
+           is why that region is gated on INTERIOR SLACK as well as on the ratio.
+           Where the row is a LIST of independent things — the shelves — stretch
+           satisfies the arithmetic by producing exactly the blank card the law
+           exists to remove. That was the measured V2-1 defect.
+         · BALANCED COLUMNS — CSS multi-column: the browser fills N columns to
+           the same depth and every box is exactly as tall as its own content.
+           The library's shelves work this way, and the ratio is small BECAUSE
+           the content is distributed rather than because anything was stretched.
          · PACKED — two stacks that end where their own content ends. Only the
            DESK does, and there the ratio is a fact about WHAT IS IN EACH COLUMN.
            So it is balanced by ASSIGNMENT — 気づき alone on the left, the four
            supporting cards on the right — and never by stretching a card, which
            would trade a hole for a slab.
        The assignment is pinned in the suite; the RATIO is measured by the probe,
-       every region, at every ladder width, in both rail states.
+       every region, at every ladder width, in both rail states — and the sheet's
+       three cells carry the INTERIOR SLACK verdict on top of it (V2-2).
 
    (d) ⚖ NOTHING IS HIDDEN, EVER (⚖-ADJ A / S16-3). There is no `display: none`,
        no `visibility: hidden`, no `max-height` clip and no `overflow: hidden`
@@ -962,7 +973,8 @@
    the room rather than at a number this sheet would have to keep in sync with
    the ladder. One column on a phone, two in the desk's 7fr column, three when
    the library row is still full width. */
-/* ⚖ I-5 — THE SHELVES ARE TWO ACROSS OR ONE, NEVER THREE-AND-AN-ORPHAN.
+/* ⚖ I-5 / V2-1 — THE SHELVES ARE TWO COLUMNS BALANCED BY CONTENT, and nothing
+   in this region is stretched to fill a row.
    THRESHOLD ⑩ — THE PATTERNS CARD'S OWN CONTAINER (what decides how many shelves
    fit is the card, not the page — the room's own rule, four containers deep):
        250  a shelf: a title, a description, two entries and its expander
@@ -971,16 +983,29 @@
      ─────
        514  two across first fit
        520  ships — 514 plus 6.
-   FIVE shelves in TWO columns leaves the fifth alone on the last row, which is
-   the same half-empty row the supporting column and the 成績 tiles each already
-   have a rule against — so the odd last shelf takes the whole row, and the
-   region's two columns end at the same y by construction (the hole law, kept by
-   the grid rather than by luck). */
+   The 250 is not a comment: it is `column-width`, so the browser's own count
+   can never put a shelf below the width the threshold was derived from.
+
+   ⚠ V2-1 — THE GRID WAS THE DEFECT, AND THE THRESHOLD WAS NEVER THE PROBLEM.
+   Two grid TRACKS pair the shelves BY INDEX and then stretch each cell to its
+   row's height, so カウンセリング質問例 (two entries) beside 会話フロー (one)
+   showed ~150px of blank card inside the shorter one at 1280 / 1920 / 2560 —
+   and the fifth shelf spanning the last row was the same move again, one row
+   down. That satisfied the hole law's ARITHMETIC by defeating what the law is
+   FOR: 「balance by what goes in each column, never by stretching a card」.
+   CSS MULTI-COLUMN balances by HEIGHT instead. The browser fills two columns to
+   the same depth, every shelf is exactly as tall as its own content, and the
+   reading order — and therefore the Tab order, which is the DOM's — runs down
+   the first column and then the second, which is how a library is read.
+   `break-inside: avoid` keeps a shelf whole; nothing is clipped, nothing is
+   hidden, and no shelf needs a rule about being last or odd.
+   THE HOLE LAW IS STILL MEASURED HERE, per shelf COLUMN: the probe groups the
+   `.cg-shelf` rects by their left edge and compares the two column bottoms. */
 .biz .pg-coaching .cg-patterns { container: cg-shelves / inline-size; }
 .biz .pg-coaching .cg-shelves { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 @container cg-shelves (min-width: 520px) {
-  .biz .pg-coaching .cg-shelves { grid-template-columns: repeat(2, minmax(var(--cg-shelf-min), 1fr)); }
-  .biz .pg-coaching .cg-shelf:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .biz .pg-coaching .cg-shelves { display: block; column-count: 2; column-width: var(--cg-shelf-min); column-gap: 14px; column-fill: balance; }
+  .biz .pg-coaching .cg-shelf { break-inside: avoid; margin-bottom: 14px; }
 }
 .biz .pg-coaching .cg-shelf { padding: 14px 15px; border: 1px solid var(--cg-panel-line); border-radius: 11px; background: var(--cg-soft); }
 .biz .pg-coaching .cg-shelf-title { margin: 0; font-size: 13.5px; font-weight: 700; line-height: 1.5; letter-spacing: -.005em; color: var(--ink); }
