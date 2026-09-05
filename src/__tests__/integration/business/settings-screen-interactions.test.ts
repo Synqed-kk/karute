@@ -288,9 +288,51 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     }
     const springs = [...callsOf(SRC_CODE), ...callsOf(DISCLOSURE)]
     expect(springs.length).toBeGreaterThanOrEqual(5)
+    /** ⚠ D-32 RE-POINT (⚖ S17 fix round 4 · H5) — AND THE TOKEN IS NOT THE
+     *  CLAIM. This loop used to ask `sp.includes('reduced')`, which is true of
+     *  `{ response: SPRING_THUMB, eps: 0.3, reduced: false }` — the fresh-eyes
+     *  round wrote exactly that into the switch's thumb and the whole suite
+     *  stayed green while the thumb went on travelling for a reader who had
+     *  asked the platform for stillness (measured: translateX 0.53px → 16.83px
+     *  at 200ms under `reduce`). What the room claims is that the READER'S FLAG
+     *  reaches every spring, so the pin reads the options object of each call
+     *  and requires the identifier — the shorthand `reduced`, or `reduced:
+     *  reduced` — and refuses a literal.
+     *
+     *  ⚠ THE LAST TOP-LEVEL ARGUMENT, parsed rather than sliced at the last
+     *  brace: `Collapse`'s options object carries an `onRest` callback with its
+     *  own braces, so 「everything after the last `{`」 would read that callback
+     *  and call the pin green for the wrong reason. */
+    const optionsOf = (call: string): string => {
+      const body = call.slice(call.indexOf('(') + 1, call.lastIndexOf(')'))
+      const parts: string[] = []
+      let depth = 0
+      let start = 0
+      let quote: string | null = null
+      for (let i = 0; i < body.length; i += 1) {
+        const c = body[i]
+        if (quote !== null) {
+          if (c === '\\') { i += 1; continue }
+          if (c === quote) quote = null
+          continue
+        }
+        if (c === "'" || c === '"' || c === '`') { quote = c; continue }
+        if (c === '(' || c === '[' || c === '{') depth += 1
+        else if (c === ')' || c === ']' || c === '}') depth -= 1
+        else if (c === ',' && depth === 0) { parts.push(body.slice(start, i)); start = i + 1 }
+      }
+      parts.push(body.slice(start))
+      const real = parts.map((x) => x.trim()).filter((x) => x.length > 0)
+      return real[real.length - 1] ?? ''
+    }
     for (const sp of springs) {
-      expect({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: sp.includes('reduced') })
-        .toEqual({ spring: sp.slice(0, 40).replace(/\s+/g, ' '), reduced: true })
+      const label = sp.slice(0, 40).replace(/\s+/g, ' ')
+      const opts = optionsOf(sp)
+      const takesTheFlag = /(^|[{,])\s*reduced\s*(,|})/.test(opts) || /\breduced:\s*reduced\b/.test(opts)
+      expect({ spring: label, options: opts.replace(/\s+/g, ' ').slice(0, 60), takesTheFlag })
+        .toEqual({ spring: label, options: opts.replace(/\s+/g, ' ').slice(0, 60), takesTheFlag: true })
+      expect({ spring: label, hardCoded: /\breduced:\s*(?:true|false)\b/.test(opts) })
+        .toEqual({ spring: label, hardCoded: false })
     }
     // …and it is asked in ONE PLACE and handed down, never re-queried per
     // component: two components asking `matchMedia` separately can disagree, and

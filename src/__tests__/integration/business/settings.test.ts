@@ -1850,6 +1850,41 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     // …and removal is the list minus that one row, which is what the screen does.
     expect(rows.filter((r) => r.id !== existing)).toHaveLength(rows.length - 1)
     expect(coll.removeLabel).toBe('取り消す')
+
+    /* ⚠ D-33 (⚖ S17 fix round 4 · H6) — AND THE HANDLER REALLY CALLS IT. This
+       test named a BEHAVIOUR (「臨時休業 adds, removes…」) and only ran the pure
+       function, so the fresh-eyes round gutted `addRow` — `setListRows((prev) =>
+       ({ ...prev }))`, dropping `next.rows` — and all 170 tests stayed green
+       while 追加 was a completely dead lever: the two fields still cleared, so
+       the press LOOKED like it worked and nothing anywhere said otherwise.
+
+       No suite in this folder can mount React (territory's import fence), so
+       the shape is read out of the handler's OWN slice: the decision comes from
+       the rule, and the rule's answer is what reaches the state. The probe
+       presses it for real (P1–P6d). */
+    const addBody = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('const addRow = useCallback((block: SettingsBlock) => {'),
+      SCREEN_CODE.indexOf('const removeFromCollection = useCallback'),
+    )
+    expect(addBody.length).toBeGreaterThan(100)
+    expect(addBody).toContain('addToCollection(')
+    // the refusal is spoken, and it is the ONLY thing that stops the row…
+    const guard = 'if (next.error !== null) return'
+    expect(addBody).toContain(guard)
+    const afterGuard = addBody.slice(addBody.indexOf(guard) + guard.length)
+    // …nothing else returns between the decision and the state…
+    expect(afterGuard.slice(0, afterGuard.indexOf('setListRows('))).not.toMatch(/\breturn\b/)
+    // …and what reaches the state is the RULE'S OWN ANSWER, not a copy of what
+    // was already there.
+    const call = afterGuard.slice(afterGuard.indexOf('setListRows('))
+    const line = call.slice(0, call.indexOf('\n'))
+    expect({ line, carriesTheAnswer: line.includes('next.rows') }).toEqual({ line, carriesTheAnswer: true })
+    // …and 取り消す is the same shape: the row leaves the list it is removed from.
+    const delBody = SCREEN_CODE.slice(
+      SCREEN_CODE.indexOf('const removeFromCollection = useCallback'),
+      SCREEN_CODE.indexOf('const commitSection = useCallback'),
+    )
+    expect(delBody).toContain('rows.filter((r) => r.id !== rowId)')
   })
 
   it('⚖ C6 — the 直前締切 select stores MINUTES and only says hours', async () => {
