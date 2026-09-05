@@ -802,6 +802,15 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     expect(head).toContain('cursor: pointer')
     expect(head).toContain('.st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }')
     expect(head).toContain('.st-jump-head:active { transform: scale(.97); }')
+    // ⚖ F25 — AND NOTHING FLASHES ON THE WAY IN. The server renders the OPEN
+    // wrapper (it cannot know the width); the client learns it in an effect and
+    // swaps in the disclosure, which mounts closed. At ① that is ~248px of list
+    // appearing and vanishing on the first hydrated frame of a phone reloading
+    // straight into a section. The rule hides ONLY the pre-hydration plain
+    // wrapper — `:not(.st-det-wrap)` keeps it off the real disclosure, whose
+    // height is its spring's — and it lives inside ①, so no other band sees it.
+    expect(phone).toContain('.biz .pg-settings .st-jump #stJumpList:not(.st-det-wrap) { display: none; }')
+    expect(CSS_CODE.slice(0, CSS_CODE.indexOf('@media (max-width: 899px)'))).not.toContain('#stJumpList')
   })
 
   // ⚖ S17 · F18 — EVERY PRESSABLE ANSWERS THE FINGER, NOT THE RELEASE.

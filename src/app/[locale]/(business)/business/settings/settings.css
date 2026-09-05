@@ -1528,6 +1528,15 @@
   .biz .pg-settings .st-jump-head .st-det-caret { display: inline-block; }
   .biz .pg-settings .st-jump-head[aria-expanded="true"] .st-det-caret { transform: rotate(180deg); }
   .biz .pg-settings .st-jump-head:active { transform: scale(.97); }
+  /* ⚖ S17 fix round 1 · F25 — AND NO FLASH ON THE WAY IN. The server cannot
+     know the width, so it renders the OPEN wrapper (a plain `<div>`); the client
+     learns it in an effect and swaps in the disclosure, which mounts closed. On
+     a phone reloading straight into a section that is ~248px of list appearing
+     and then vanishing on the first hydrated frame. Hidden here, the plain
+     wrapper never paints at ①. `:not(.st-det-wrap)` is what keeps this off the
+     real disclosure — that one is opened and closed by its own spring — and the
+     whole rule is inside ① so no other band sees it. */
+  .biz .pg-settings .st-jump #stJumpList:not(.st-det-wrap) { display: none; }
   .biz .page.pg-settings { padding: 16px 14px 32px; gap: 12px; }
   .biz .pg-settings .st-panel { display: none; }
   .biz .pg-settings.is-detail .st-rail { display: none; }
