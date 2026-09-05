@@ -7797,17 +7797,36 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // Wired from the verdict's own room, never re-solved at the surface.
     expect(SRC).toContain('bedLane: v.bedLane,')
     expect(SRC).not.toContain('v.bedLane ?? attempt.bedLane')
-    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — THE ONE ANTI-DRIFT PIN ON THE CALL, and
+    // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — THE ANTI-DRIFT PINS ON THE WIRING, and
     // the rule itself is proved by behaviour next door (`factsRowsShown`, the
     // A1-5 family). Lens 2 mutated this gate three different ways and walked all
     // three through the whole battery green by editing four copies of its own
     // source text, so the text is a drift alarm here and nothing more.
-    expect(SRC).toContain('checks: factsRowsShown(v, ask.solveRoom) ? v.checks : [],')
+    //
+    // ⚖ FIX ROUND 4 (delta3 lens 2 §c) — THE ARGUMENT LOST ITS SEAM. The call
+    // used to hand a bare `ask.solveRoom`, and lens 2 inverted it to
+    // `!ask.solveRoom` — three of five landing scenes flipped and the whole
+    // battery stayed green, because the call site lives inside a component this
+    // suite never renders. The rule takes the ASK now, so inverting it means
+    // constructing a fake ask rather than typing a `!`. Asked ONCE and consumed
+    // twice, so the check rows and the guard row cannot answer differently.
+    expect(SRC).toContain('const rows = factsRowsShown(v, ask)')
+    expect(SRC).toContain('checks: rows ? v.checks : [],')
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E1) — AND THE OUTER GATE IS PINNED AGAIN.
+    // Fix round 3 replaced four byte-exact copies of the whole expression with
+    // one pin on the INNER line and left the outer half — the gate that keeps the
+    // release-over-no-lane from composing a facts strip at all — carrying no
+    // armour. Delete it and nothing reddens; what ships is 「16:00〜17:00 / 担当
+    // —」 on the one box with neither a lane nor a span.
+    expect(SRC).toContain('const facts =\n      v.checks.length > 0')
     // ⚖ FIX-6 (blind round, 2026-08-25) — this box has an OFFER LINE under it,
     // so it takes the row built for surfaces-with-offers. The hold popover has
     // no offer line and keeps the whole sentence. Same verdict, same cell, one
     // home for the split (`guardCheckRowBesideOffer`, today-interactions).
-    expect(SRC).toContain('guardRow: guardCheckRowBesideOffer(v.cell),')
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2) — and it stands down WITH the check rows:
+    // a lone △ about loss, under a sentence about rooms, is ⚖ 73's rider one line
+    // below where the rider already closed it.
+    expect(SRC).toContain('guardRow: rows ? guardCheckRowBesideOffer(v.cell) : null,')
     expect(SRC.match(/checksFor\(/g)).toHaveLength(2) // the two confirm-side readers, and NOT the box
   })
 
@@ -7830,8 +7849,8 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // stop keeps its rows, and a landing that read nothing shows nothing.
     const bedRowStop = verdict(board(), { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
     expect(bedRowStop.floor).toBe('hard')
-    expect(factsRowsShown(bedRowStop, false)).toBe(true)
-    expect(factsRowsShown({ bedLane: 'bed-01', checks: [] }, false)).toBe(false)
+    expect(factsRowsShown(bedRowStop, { solveRoom: false })).toBe(true)
+    expect(factsRowsShown({ bedLane: 'bed-01', checks: [] }, { solveRoom: false })).toBe(false)
     expect(SRC).toContain('{advice.facts && (')
     expect(SRC).toContain('<div className="gp-facts">')
     // ⚖ 52's glyphs have ONE home, and the box reads it rather than minting a
@@ -8089,8 +8108,8 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // whether the ASK wanted a room. Nothing on the board can tell them apart.
     const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
     expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
-    expect(factsRowsShown(form, false)).toBe(true)
-    expect(factsRowsShown(form, true)).toBe(false)
+    expect(factsRowsShown(form, { solveRoom: false })).toBe(true)
+    expect(factsRowsShown(form, { solveRoom: true })).toBe(false)
     expect(SRC).toContain('summary: holdSummary(boardLanes, ask.id ?? \'\', { laneKey, ...span }, hours, ask.bedLane, {')
     expect(SRC).toContain('staffLane: ask.staffLane,')
     // …and it is decoupled from the ghost, so flag 57's own contract is untouched.
@@ -8176,7 +8195,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // ⚖ FIX ROUND 3 (delta2 lens 2 F1) — asked of the rule rather than of the
     // characters that used to spell it: this is the box the round exists for and
     // its rows are the half being claimed.
-    expect(factsRowsShown(tagged, false)).toBe(true)
+    expect(factsRowsShown(tagged, { solveRoom: false })).toBe(true)
     expect(SRC).toContain('{advice.facts && (')
     // ⚖ FIX ROUND 1 (blind lens 3 F1) — AND NO OFFER LINE UNDER IT. A room
     // refusal is true at every start on the lane, so the guard's 「この区間に、
@@ -8231,17 +8250,31 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const fullLanes = board({ staff: { items: [held] }, beds: busyBeds })
     const full = verdict(fullLanes, {}, cellOf('safe', ''))
     expect([full.floor, full.bedLane, full.checks.length > 0]).toEqual(['hard-room', null, true])
-    expect(factsRowsShown(full, true)).toBe(false)
+    expect(factsRowsShown(full, { solveRoom: true })).toBe(false)
     expect(summaryOf(fullLanes, full.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
     expect(summaryOf(fullLanes, full.bedLane)).not.toContain('—')
     expect(summaryOf(fullLanes, full.bedLane)).not.toContain('ベッド')
+
+    // ⚖ FIX ROUND 4 (delta3 lens 4 E2) — AND THE GUARD ROW GOES WITH THEM. The
+    // 満室 stop keeps its cell whenever a room exists and is merely BUSY, so on a
+    // degraded lane `guardCheckRowBesideOffer` had a real row to draw — and with
+    // the checks stood down it drew it ALONE: one 「ここに置くと…」 in the same
+    // `span.ck` a check wears, about LOSS, under a sentence about ROOMS.
+    // Both halves are one answer now, so the whole strip is empty here and the
+    // F5 gate closes the container. Two facts make the claim, and neither is a
+    // copy of the wiring: the rule says no rows, and the row it stands down is a
+    // REAL one rather than a null that was never going to render.
+    const fullDegraded = verdict(fullLanes, {}, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(fullDegraded.cell).not.toBeNull()
+    expect(guardCheckRowBesideOffer(fullDegraded.cell)).not.toBeNull()
+    expect(factsRowsShown(fullDegraded, { solveRoom: true })).toBe(false)
 
     // …and a CLASH whose room ALSO failed reads the same: it returns first, so
     // its `bedLane` is null too.
     const clashLanes = board({ staff: { items: [held, booking({ key: 'a', caseId: 'apt-other', title: '見本 あかり' }, 960, 1020)] }, beds: busyBeds })
     const clash = verdict(clashLanes, {}, cellOf('safe', ''))
     expect([clash.floor, clash.bedLane, clash.checks.length > 0]).toEqual(['hard', null, true])
-    expect(factsRowsShown(clash, true)).toBe(false)
+    expect(factsRowsShown(clash, { solveRoom: true })).toBe(false)
     expect(summaryOf(clashLanes, clash.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ')
 
     // S-B · the 個室のみ bed-row stop — the operator NAMED the room, so the rows
@@ -8249,16 +8282,24 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     const taggedLanes = board({ staff: { items: [held] } })
     const tagged = verdict(taggedLanes, { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('safe', ''))
     expect([tagged.floor, tagged.bedLane, tagged.checks.length > 0]).toEqual(['hard', 'bed-01', true])
-    expect(factsRowsShown(tagged, false)).toBe(true)
+    expect(factsRowsShown(tagged, { solveRoom: false })).toBe(true)
     expect(summaryOf(taggedLanes, tagged.bedLane)).toBe('テスト なぎ様 → 16:00〜17:00 / 担当 見本 あずさ / ベッド1')
+    // …and its guard row is untouched — the same answer that keeps the checks.
+    const taggedDegraded = verdict(taggedLanes, { solveRoom: false, bedLane: 'bed-01', requiresPrivate: true }, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(factsRowsShown(taggedDegraded, { solveRoom: false })).toBe(true)
 
     // S-D · an ordinary staged placement stopped by policy — the allocator solved
     // a room, so nothing is suppressed and the room is in the sentence.
     const policyLanes = board({ staff: { items: [held], untilLabel: '16:30', window: { from: 600, until: 990 } } })
     const policy = verdict(policyLanes, {}, cellOf('safe', ''))
     expect([policy.floor, policy.bedLane, policy.checks.length > 0]).toEqual(['policy', 'bed-01', true])
-    expect(factsRowsShown(policy, true)).toBe(true)
+    expect(factsRowsShown(policy, { solveRoom: true })).toBe(true)
     expect(summaryOf(policyLanes, policy.bedLane)).toContain('/ ベッド1')
+    // S-D's guard row too: a solved room means nothing is being suppressed, so
+    // 「ここに置くと…」 still rides at the end of a real list of checks.
+    const policyDegraded = verdict(policyLanes, {}, cellOf('degraded', '新規90分の空き2→1（1枠減・損を減らす）'))
+    expect(guardCheckRowBesideOffer(policyDegraded.cell)).not.toBeNull()
+    expect(factsRowsShown(policyDegraded, { solveRoom: true })).toBe(true)
 
     // S-C · 新規予約を作成 opens a FORM — the dialog is where the menu and the
     // resource are chosen — so it deliberately asks nothing about a bed. It
@@ -8267,7 +8308,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(SRC).toContain('{ staffLane: lane.key, bedLane: null, solveRoom: false, id: null, requiresPrivate: false, foreignRefusal: null, hasPrice: false, span: slot },')
     const form = verdict(board({ staff: { untilLabel: '16:30', window: { from: 600, until: 990 } } }), { solveRoom: false, bedLane: null }, cellOf('safe', ''))
     expect([form.floor, form.bedLane, form.checks.length > 0]).toEqual(['policy', null, true])
-    expect(factsRowsShown(form, false)).toBe(true)
+    expect(factsRowsShown(form, { solveRoom: false })).toBe(true)
     expect(holdSummary(board(), '', at, HOURS, null, { staffLane: 'p-01', bedLane: null }))
       .toBe('16:00〜17:00 / 担当 見本 あずさ')
   })
@@ -8298,19 +8339,25 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt::before,\n.biz .timeline.hide-tkt .e-tkt .tkt-cat,\n.biz .timeline.hide-tkt .e-tkt .tkt-core { display: none; }')
     expect(CSS).not.toContain('.biz .timeline.hide-tkt .e-tkt { display: none; }')
     expect(CSS).toContain('.biz .timeline.hide-time .e-time { display: none; }')
-    // ⚖ FIX ROUND 3 (delta2 lens 4 D3 · lens 3 M3) — AND 密度→コンパクト IS THE
-    // SAME DIAL ONE SEAT OVER. The round fixed the toggle the finding named and
-    // stopped; コンパクト still ate 個室のみ and 保持 whole, on the dense afternoon
-    // where the fact that refuses a drop matters most. Same three nodes, so an
-    // operator cannot lose the placement rule by reaching for the other control.
-    expect(CSS).toContain('.biz.board-compact .event small.e-tkt::before,\n.biz.board-compact .event small.e-tkt .tkt-cat,\n.biz.board-compact .event small.e-tkt .tkt-core { display: none; }')
-    expect(CSS).not.toMatch(/\.biz\.board-compact \.event small\.e-tkt\s*\{/)
-    // ⚖ FIX ROUND 3 (delta2 lens 3 M4) — and the note that survives starts at the
-    // left margin under BOTH dials, because the money is hidden rather than
+    // ⚖ FIX ROUND 4 (delta3 lens 3 X1) — AND 密度→コンパクト IS NOT THE SAME DIAL.
+    // Fix round 3 gave コンパクト the same three-node hide, so 個室のみ and 保持
+    // would survive it too — and the 52px lane has 37px of content box for 47.8px
+    // of three lines. `.biz .event` is absolutely positioned with
+    // `overflow: hidden`, so the surviving note was SLICED: the top fifth of a
+    // run of kanji, on exactly the two cards the change was written for. This
+    // dial drops the whole line again, INTENTIONALLY — the tag still reads off
+    // the accessible name, the inspector, the shelf chip and every refusal.
+    expect(CSS).toContain('.biz.board-compact .event small.e-tkt { display: none; }')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt::before,')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt .tkt-core')
+    // ⚖ FIX ROUND 3 (delta2 lens 3 M4) — and the note that survives 「チケット・
+    // 価格」 starts at the left margin, because the money is hidden rather than
     // removed and `.tkt-note`'s 5px was the gap after it. The gap is kept only
-    // where it still separates two notes.
-    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note,\n.biz.board-compact .event small.e-tkt .tkt-note { margin-left: 0; }')
-    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note,\n.biz.board-compact .event small.e-tkt .tkt-note + .tkt-note { margin-left: 5px; }')
+    // where it still separates two notes. THIS DIAL ONLY: コンパクト has no
+    // surviving note to align, so it carries no margin rule either.
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note { margin-left: 0; }')
+    expect(CSS).toContain('.biz .timeline.hide-tkt .e-tkt .tkt-note + .tkt-note { margin-left: 5px; }')
+    expect(CSS).not.toContain('.biz.board-compact .event small.e-tkt .tkt-note')
     // The two notes are siblings of the two hidden nodes inside that one line, so
     // 「what the toggle hides」 is decided by the class each span wears.
     expect(SRC).toContain('{item.requiresPrivateRoom === true && <span className="tkt-note">個室のみ</span>}')
