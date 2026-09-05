@@ -1,6 +1,6 @@
 'use server'
 
-import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -104,7 +104,7 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
       getMyCapabilities(),
     ])
     return await finalizeTakeWithClient(
-      newSynqedClient(businessId),
+      newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,

@@ -20,6 +20,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { FinalizeTakeSchema } from '@/lib/app-api/record-schemas'
@@ -39,7 +40,7 @@ export const POST = facadeHandler('recordings.finalize', async (ctx) => {
   const parsed = FinalizeTakeSchema.safeParse(body)
   if (!parsed.success) throw new AppApiError('validation', 'invalid finalize payload')
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const synqed = newSynqedClient(ctx.identity.businessId, extractBearer(ctx.req))
 
   // ROSTER GATE — the half a capability check cannot carry (#566). The web
   // twin's getCurrentUserStaffId IS a roster-membership probe; ctx.identity

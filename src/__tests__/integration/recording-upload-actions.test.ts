@@ -25,9 +25,11 @@ jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveSto
 // evidence of that ordering (storage-not-reached also holds if the gate is last).
 const getBusinessId = jest.fn(async () => 'biz-1')
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
+const getCurrentAccessToken = jest.fn(async () => 'web-cookie-token')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: () => getBusinessId(),
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  getCurrentAccessToken: () => getCurrentAccessToken(),
 }))
 // The mint files ONE audit row for a client-named take (fix round 2, B4).
 const auditFn = jest.fn()

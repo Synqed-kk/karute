@@ -34,7 +34,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { isOwnRecordingKey, isStagedKeyFor } from '@/lib/recording/key-grammar'
@@ -500,7 +500,7 @@ export async function transcribeAndPersistDiscard(input: {
   try {
     const businessId = await getBusinessId()
     return await transcribeAndPersistDiscardWithClient(
-      newSynqedClient(businessId),
+      newSynqedClient(businessId, await getCurrentAccessToken()),
       { staffId: await getCurrentUserStaffId(), businessId },
       input,
     )

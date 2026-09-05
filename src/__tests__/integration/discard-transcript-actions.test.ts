@@ -101,6 +101,7 @@ const identity = { current: 'staff-A' as string | null }
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   getCurrentUserStaffId: jest.fn(async () => identity.current),
+  getCurrentAccessToken: jest.fn(async () => 'web-cookie-token'),
   staffListByBusinessOrThrow: jest.fn(async () => []),
 }))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -165,7 +166,11 @@ jest.mock('@/lib/supabase/service', () => ({
         info: async (path: string) => {
           mockBucket.probed.push(path)
           if (mockBucket.unreachable) return { data: null, error: { status: 500 } }
-          if (mockBucket.missing.has(path)) return { data: null, error: { status: 404 } }
+          // The production shape (hotfix 9/5): storage-api answers a missing
+          // object with HTTP 400 and body statusCode '404', message
+          // 'Object not found' — never a plain 404 alone.
+          if (mockBucket.missing.has(path))
+            return { data: null, error: { status: 400, statusCode: '404', message: 'Object not found' } }
           return { data: { size: 1 }, error: null }
         },
         // Storage cannot sign what it does not hold — which is the whole

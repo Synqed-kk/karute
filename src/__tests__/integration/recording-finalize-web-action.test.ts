@@ -21,9 +21,11 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 const getBusinessId = jest.fn(async () => 'biz-1')
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
+const getCurrentAccessToken = jest.fn(async () => 'web-cookie-token')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: () => getBusinessId(),
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  getCurrentAccessToken: () => getCurrentAccessToken(),
 }))
 
 // Still mocked, still asserted NOT to matter: finalizeTake must not reach for a
@@ -33,9 +35,9 @@ jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveSto
 jest.mock('@/lib/audit-web', () => ({ resolveWebAuditContext: jest.fn() }))
 
 const CLIENT = { recordings: {} }
-const newSynqedClient = jest.fn((_businessId: string) => CLIENT)
+const newSynqedClient = jest.fn((_businessId: string, _accessToken?: string) => CLIENT)
 jest.mock('@/lib/synqed/client', () => ({
-  newSynqedClient: (b: string) => newSynqedClient(b),
+  newSynqedClient: (b: string, t?: string) => newSynqedClient(b, t),
   getSynqedClient: jest.fn(),
 }))
 
@@ -118,7 +120,9 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
 
   it('the client and the actor carry the cookie’s business and staff', async () => {
     await finalizeTake(input)
-    expect(newSynqedClient).toHaveBeenCalledWith('biz-1')
+    // ⚖ packet hotfix 2 (2026-09-05): the cookie session's own access token now
+    // rides alongside the business id — core's actor-gated PUT 401s without it.
+    expect(newSynqedClient).toHaveBeenCalledWith('biz-1', 'web-cookie-token')
     expect(actorPassed()).toMatchObject({ staffId: 'staff-1', businessId: 'biz-1', source: 'web' })
   })
 

@@ -18,6 +18,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import {
   discardRecordingWithClient,
@@ -48,7 +49,7 @@ export const POST = facadeHandler('recordings.discard', async (ctx) => {
   // is the receipt-only shape. ONE endpoint either way — the phone and the web
   // page must not be able to drift into different discard semantics, and both
   // shapes are `.strict()`, so a body is never ambiguous about which it is.
-  const synqed = newSynqedClient(businessId)
+  const synqed = newSynqedClient(businessId, extractBearer(ctx.req))
   const hasReason =
     typeof body === 'object' && body !== null && 'reason' in (body as Record<string, unknown>)
   const result = hasReason

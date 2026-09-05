@@ -173,6 +173,7 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
   resolveUserId: jest.fn(async () => 'auth-user-1'),
   getCurrentUserStaffId: jest.fn(async () => 'auth-user-1'),
+  getCurrentAccessToken: jest.fn(async () => 'web-cookie-token'),
   staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]),
 }))
 jest.mock('@/lib/auth/require-permission', () => {

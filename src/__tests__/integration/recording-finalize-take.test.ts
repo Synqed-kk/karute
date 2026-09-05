@@ -21,7 +21,10 @@ const info = jest.fn(
     _key: string,
     // `status` matters: storage saying "no such object" and storage failing to
     // ANSWER are different facts, and only the first settles a take.
-  ): Promise<{ data: { size?: number } | null; error: { message: string; status?: number } | null }> => ({
+  ): Promise<{
+    data: { size?: number } | null
+    error: { message: string; status?: number; statusCode?: string } | null
+  }> => ({
     data: { size: 1024 },
     error: null,
   }),
@@ -278,7 +281,13 @@ describe('finalizeTakeWithClient — the schema is the web door’s parse', () =
 
 describe('finalizeTakeWithClient — the object must be there, at the size claimed', () => {
   it('refuses when storage has no such object — zero core writes, zero audit rows', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'not found', status: 404 } })
+    // The production shape (hotfix 9/5): storage-api answers a missing object
+    // on /object/info/… with HTTP 400 and body statusCode '404' — never a
+    // plain 404 alone.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 400, statusCode: '404' },
+    })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
@@ -293,17 +302,25 @@ describe('finalizeTakeWithClient — the object must be there, at the size claim
 
   // Fix round 2, B5: storage answering "no" and storage not answering at all
   // are different facts. Only the first may settle the take.
-  it('a 404 status is a genuine miss — object_missing, the drain retries', async () => {
-    info.mockResolvedValue({ data: null, error: { message: 'nope', status: 404 } })
+  it('a plain 404 status is a genuine miss — object_missing, the drain retries', async () => {
+    // The alternate real shape (hotfix 9/5): a plain HTTP 404 carrying the
+    // same NoSuchKey message storage-api's other missing-object route uses.
+    info.mockResolvedValue({
+      data: null,
+      error: { message: 'Object not found', status: 404, statusCode: '404' },
+    })
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ error: 'object_missing' })
     expectNoWrites()
   })
 
-  // FIX ROUND 12 (fresh-eyes #8, P3): the message regex is GONE — status 404
-  // alone is a miss. A message-only "not found" no longer counts, and neither
-  // does storage's own "Bucket not found" (a bucket-config problem the old
-  // regex silently swallowed as an ordinary "the PUT hasn't landed" retry).
+  // FIX ROUND 12 (fresh-eyes #8, P3), narrowed again by the hotfix of 9/5:
+  // status/statusCode 404 alone is NOT a miss — it must carry storage's own
+  // NoSuchKey message ('Object not found') too. A message-only "not found"
+  // still doesn't count, and neither does storage's own "Bucket not found"
+  // (a bucket-config problem the old regex silently swallowed as an ordinary
+  // "the PUT hasn't landed" retry) or a 404 with any OTHER message (a missing
+  // route, say).
   it.each([
     ['a storage 500', { message: 'internal error', status: 500 }],
     ['an unrecognizable failure', { message: 'boom' }],
