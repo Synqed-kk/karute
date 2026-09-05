@@ -166,6 +166,7 @@ export default async function KaruteDetailPage({
       consentOnFile={built.consentOnFile}
       transcriptDurationLabel={built.transcriptDurationLabel}
       transcriptRestricted={built.transcriptRestricted}
+      recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
