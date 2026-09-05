@@ -1106,6 +1106,43 @@ describe('⚖ 8/21 MISTAKE-PROOFING — a policy row ships default, guardrail an
     expect(new Set(rails).size).toBe(rails.length)
   })
 
+  it('⚖ S17 fix round 4 · B1 — EVERY 最終変更 receipt is dated on or before the page’s own dateline', async () => {
+    // ⚠ DERIVED FROM THE PROPS, NEVER FROM A LIST OF SECTIONS. A pin holding
+    // eleven hand-copied offsets would go stale the day a twelfth receipt
+    // ships; this one reads every audit line the payload actually contains and
+    // compares it against the ONE date the page prints about itself. Nine of
+    // the eleven were in the FUTURE — 「最終変更 ・ 9月22日(火)」 on a page whose
+    // own dateline read 9月6日 — because `dayFrom` adds and the offsets were
+    // written positive (⚖ 8/9: sample data is product truth).
+    const props = await room({ store: STORE_A, role: 'オーナー' })
+    const dayOf = (s: string): { m: number; d: number } | null => {
+      const m = /(\d+)月(\d+)日/.exec(s)
+      return m ? { m: Number(m[1]), d: Number(m[2]) } : null
+    }
+    const today = dayOf(props.dateline)
+    expect({ dateline: props.dateline, parsed: today !== null }).toEqual({ dateline: props.dateline, parsed: true })
+    // Day-of-year, with the ONE wrap this room can produce: a receipt up to 34
+    // days back crosses New Year, so a month far AHEAD of the dateline is last
+    // year rather than a defect. Anything else ahead of it is the defect.
+    const ord = (x: { m: number; d: number }) => x.m * 31 + x.d
+    const audits = props.sections.flatMap((s) => s.blocks.map((b) => ({ section: s.id, block: b.id, line: b.audit })))
+      .filter((a): a is { section: string; block: string; line: string } => typeof a.line === 'string' && a.line.includes('最終変更'))
+    expect(audits.length).toBeGreaterThanOrEqual(10)
+    for (const a of audits) {
+      const on = dayOf(a.line)
+      expect({ block: a.block, parsed: on !== null }).toEqual({ block: a.block, parsed: true })
+      const ahead = ord(on!) - ord(today!)
+      const past = ahead <= 0 || ahead > 300
+      expect({ block: a.block, line: a.line, past }).toEqual({ block: a.block, line: a.line, past: true })
+    }
+    // …and the SOURCE says the same thing, so a receipt written with a positive
+    // offset fails here rather than in a reader's eyes: every `audit:` line in
+    // the props file takes a 0 or negative `dayFrom` offset.
+    const auditOffsets = [...PROPS_CODE.matchAll(/audit:[^\n]*dayFrom\(ctx\.now, (-?\d+)\)/g)].map((m) => Number(m[1]))
+    expect(auditOffsets.length).toBeGreaterThanOrEqual(audits.length)
+    expect(auditOffsets.filter((n) => n > 0)).toEqual([])
+  })
+
   it('a 業種 line prints ONLY where a ruling gave one — absence is SILENCE, never a null sentence', async () => {
     const props = await room({ store: STORE_A })
     const RULED = ['payments.row-tolerance', 'store-hours.row-breaks', 'contact.row-winback', 'coaching.row-enabled']

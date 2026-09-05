@@ -581,7 +581,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
             + '。ボードの1日と、Reserveの受付枠は、この範囲を描きます。',
         },
         links: [{ label: '変更の記録を見る', sectionId: 'audit-log' }],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（${closedName}を定休日に設定）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -2))}（${closedName}を定休日に設定）`,
       }),
       block('store-hours.ops', '予約ボードの操作', '「今日の運営」のボードで、予約や予定ブロックを動かすときの刻みと、空きの守り方です。', [
         // ⚖ S17 — ONE RULE ONE HOME. スキマガード（強さ）・予約の移動単位・販売
@@ -699,7 +699,7 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           emptyDateError: '日付を選んでください。',
         },
         facts: ['臨時休業にすると、その日にすでに入っている予約へ店舗都合の連絡が必要になります。'],
-        audit: d.closures.length === 0 ? null : `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 1))}（臨時休業を追加）`,
+        audit: d.closures.length === 0 ? null : `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -1))}（臨時休業を追加）`,
       }),
     ],
     aside: {
@@ -733,6 +733,19 @@ const roleOptions = (): ControlOption[] => opts([['オーナー', 'オーナー'
 const hourOptions = (): ControlOption[] =>
   Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${h}時` }))
 
+/** ⚠ A RECEIPT IS ALWAYS IN THE PAST (⚖ S17 fix round 4 · B1). `dayFrom` ADDS
+ *  days, and eleven 「最終変更」 lines were written with POSITIVE offsets — so a
+ *  page whose own dateline read 9月6日 printed 「最終変更 ・ 9月22日(火)」 sixteen
+ *  days into its future, on nine of the eleven. Sample data is product truth
+ *  (⚖ 8/9): a demo that states an impossible fact teaches the reader to stop
+ *  believing the honest ones beside it.
+ *
+ *  The offsets a RECEIPT takes are ≤ 0, always. A FUTURE offset is still right
+ *  where the thing being dated has not happened yet — the store's own upcoming
+ *  臨時休業 dates take `c.dayOffset` — so the rule is about what the date is
+ *  ABOUT, not about the helper: 「最終変更」 looks backwards, a closure looks
+ *  forwards, and the suite reads every audit line back out of the props and
+ *  compares it against the page's own dateline. */
 function dayFrom(now: Date, offset: number): Date {
   const d = new Date(now)
   d.setDate(d.getDate() + offset)
@@ -830,7 +843,7 @@ function peopleEquipment(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSe
         })), {
         facts: ['休止にすると、その人の予約枠はボードにもReserveにも出なくなります。すでに入っている予約は残ります。'],
         links: [{ label: '役職と権限はスタッフ管理で', sectionId: 'staff' }],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 1))}（稼働状態を変更）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（稼働状態を変更）`,
       }),
       block('people.equipment', '設備・枠', `この数は、ボードの空き枠計算に使われます（設備の台数 × 営業時間）。`, beds.map((r) =>
         row(`people.row-${r.id}`, r.name, r.note, [
@@ -902,7 +915,7 @@ function payments(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection {
         ], { scopeLabel: STORE_SCOPE }),
       ], {
         preview: { template: 'いまレジで選べるのは、現金は{payments.cash}、カードは{payments.card}、QRコード決済は{payments.qr}です。' },
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 4))}（カード決済をオンに）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -4))}（カード決済をオンに）`,
       }),
       block('payments.tolerance', '現金の締め', 'レジを締めるとき、どこまでの差異を理由なしで通してよいかの設定です。', [
         row('payments.row-tolerance', '現金差異の承認しきい値', 'この金額までの差異は理由なしで通せます。これを超えると、店舗管理者の承認が必要になります。', [
@@ -1562,7 +1575,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
       ], {
         preview: { template: 'お客様には{reserve.days}先まで、{reserve.grid}きざみの開始時刻を出します。{reserve.cutoff}で締め切り、{reserve.lead}の空きは出しません。スキマ枠は{reserve.gapfill}以上を{reserve.gapdisc}引きで掲載します。' },
         links: [{ label: 'ボードの操作の刻みは店舗情報・営業時間で', sectionId: 'store-hours' }],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 2))}（受付ウィンドウを変更）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -6))}（受付ウィンドウを変更）`,
       }),
       block('reserve.guard', 'スキマガードの見え方', 'ガードが有効なとき、お客様に出す開始時刻がどう変わるかです。オン・オフと厳しさは予約と確保で変更します。', [], {
         facts: [
@@ -1608,7 +1621,7 @@ function reserveAcceptance(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         }),
       ], {
         preview: { template: '{reserve.free}までは無料、それ以降のキャンセルは{reserve.sameday}、ご連絡のないキャンセルは{reserve.noshow}です。' },
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 6))}（当日キャンセル料を変更）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -9))}（当日キャンセル料を変更）`,
       }),
       block('reserve.lock', '価格の見え方', '毎晩の再計算のあいだ、確定するまで新規予約の価格表示を一時的に隠せます。', [
         row('reserve.row-lock', '再計算中は価格を隠す', '空き状況（◯／△／×）の表示は、価格を隠しているあいだも止まりません。', [
@@ -1661,7 +1674,7 @@ function notifications(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
         ], { scopeLabel: STORE_SCOPE })), {
         preview: { template: '新規予約は{notify.new-booking}、予約変更は{notify.changed}、キャンセルは{notify.cancelled}に届きます。' },
         facts: ['経路をどちらも外すと、その出来事のお知らせはどこにも届きません。受信トレイには残ります。'],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 3))}（キャンセルのお知らせにメールを追加）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -12))}（キャンセルのお知らせにメールを追加）`,
       }),
       block('notify.guard', '価格のお知らせ', '価格の自動計算まわりの注意サインです。', [
         row('notify.row-guard', '表示の健全性のお知らせ', '比較表示のもとになる価格での取引が基準を割り込みそうなとき、切り替わる前にお知らせします。', [
@@ -1690,7 +1703,7 @@ function notifications(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSect
         }),
       ], {
         preview: { template: '{notify.quiet-start}から{notify.quiet-end}のあいだ、アプリのお知らせは届きません。' },
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 16))}（静かな時間を設定）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -16))}（静かな時間を設定）`,
       }),
     ],
     aside: {
@@ -1772,7 +1785,7 @@ function staffAdmin(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
           { label: '音声登録は録音設定で', sectionId: 'recording' },
         ],
         preview: { template: `いま${nameOf.get(roster[0]) ?? ''}さんは{staff.preset-${roster[0]}}で、できることは{staff.caps-${roster[0]}}です。` },
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 3))}（権限を更新）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -3))}（権限を更新）`,
       }),
       block('staff.invite', '招待', 'まだ参加していない人に、参加のご案内を送ります。', [
         row('staff.row-invite', '招待する人', '氏名・メールアドレス・最初の役職を決めて送ります。', [
@@ -2150,7 +2163,7 @@ function businessStructure(base: SectionBase, ctx: Ctx, d: StoreDials): Settings
         ], { scopeLabel: BUSINESS_SCOPE }),
       ], {
         facts: ['代表と法人番号の変更は、本人確認のうえサポートが承ります（この画面からは変更できません）。'],
-        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, 34))}（会社名の表記を修正）`,
+        audit: `最終変更: ${operator.name} ・ ${fmtDayWeek.format(dayFrom(ctx.now, -34))}（会社名の表記を修正）`,
       }),
       block('org.stores', '店舗', `${business.name}が運営する店舗の一覧です。ほかの店舗の設定はここからは変更できません。`, [], {
         table: {
