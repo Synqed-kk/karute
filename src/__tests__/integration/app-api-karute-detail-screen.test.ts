@@ -229,13 +229,19 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
       expect(dto.recording?.audioPresent).toBe(true)
     })
 
-    // The OWNER FLOOR, silently (⚖ 9/3). business.manage is NOT
-    // recordings.viewAll: the transcript stays withheld on the same request.
-    it('business.manage hears the take WITHOUT widening the transcript rule', async () => {
+    // ⚠ FIX ROUND 2 — THE INVERSION THIS CLOSES. `business.manage` is a
+    // GRANTABLE row labelled 「店舗の削除・譲渡」, while `recordings.viewAll` is
+    // hard-stripped to the owner and hidden from the toggle list. Treating the
+    // former as "the owner" let an owner hand a manager every staffer's AUDIO
+    // while the WORDS stayed withheld — the exact inversion the recorder-private
+    // ruling exists to prevent. The sound now uses the words' own input.
+    it('business.manage alone does NOT reach a colleague’s take', async () => {
       capabilities.current = new Set(['customers.view', 'business.manage'])
       const res = await GET(req({ headers: auth }), routeFor('00000000-0000-4000-8000-000000000008'))
       const dto = await res.json()
-      expect(dto.recording?.audioPresent).toBe(true)
+      expect(dto.recording).toBeNull()
+      // …and the words are withheld on the same request, as they always were:
+      // one rule, one answer, no inversion in either direction.
       expect(dto.transcript).toBeNull()
       expect(dto.transcriptRestricted).toBe(true)
     })

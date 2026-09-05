@@ -31,19 +31,18 @@ export async function mintRecordingPlaybackUrl(
   }
 
   try {
-    const [businessId, staffId, canViewAll, canManage] = await Promise.all([
+    const [businessId, staffId, canViewAll] = await Promise.all([
       getBusinessId(),
       getCurrentUserStaffId(),
+      // The whole owner floor: `recordings.viewAll` is stripped to owner-only
+      // at the resolve chokepoint, so it IS the owner (fix round 2).
       can('recordings.viewAll'),
-      // The owner floor, silently (⚖ 9/3) — resolved beside viewAll, never
-      // folded into it.
-      can('business.manage'),
     ])
     if (!businessId) return { ok: false, error: 'forbidden' }
 
     const result = await mintPlaybackUrlWithClient(
       newSynqedClient(businessId),
-      { staffId, businessId, canHearAll: canViewAll || canManage, source: 'web' },
+      { staffId, businessId, canViewAll, source: 'web' },
       { karuteId },
     )
     return 'error' in result ? { ok: false, error: result.error } : { ok: true, ...result }

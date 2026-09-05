@@ -47,7 +47,6 @@ export default async function KaruteDetailPage({
     viewerStaffId,
     canViewAllRecordings,
     canReassign,
-    canManageBusiness,
     businessId,
   ] = await Promise.all([
     getKaruteRecord(id),
@@ -63,10 +62,6 @@ export default async function KaruteDetailPage({
     can('recordings.viewAll'),
     // F4: records.reassign gate — the 顧客を変更 entry point.
     can('records.reassign'),
-    // The PLAYBACK owner floor (slice ①): an owner hears every take, silently.
-    // Resolved separately from recordings.viewAll so the transcript rule above
-    // is not widened by it.
-    can('business.manage'),
     // The tenant the key grammar's take fence is checked against.
     getBusinessId(),
   ])
@@ -120,7 +115,6 @@ export default async function KaruteDetailPage({
     viewerStaffId,
     canViewAllRecordings,
     recordingRow,
-    canHearAll: canViewAllRecordings || canManageBusiness,
     businessId,
     staffCanReassignRecords: canReassign,
     contact,

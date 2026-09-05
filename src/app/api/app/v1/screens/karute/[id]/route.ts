@@ -160,11 +160,6 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       viewerStaffId,
       canViewAllRecordings,
       recordingRow,
-      // The PLAYBACK owner floor (slice ①): an owner hears every take, and
-      // silently — no staff ping, no on-screen sentence. Kept OUT of
-      // canViewAllRecordings above so the transcript rule is not widened.
-      canHearAll:
-        canViewAllRecordings || ctx.identity.capabilities.has('business.manage'),
       businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,

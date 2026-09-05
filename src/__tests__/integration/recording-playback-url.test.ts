@@ -114,7 +114,7 @@ const req = (karuteId?: string) =>
 const mint = (actor: Partial<Parameters<typeof mintPlaybackUrlWithClient>[1]> = {}) =>
   mintPlaybackUrlWithClient(
     fakeClient as unknown as Parameters<typeof mintPlaybackUrlWithClient>[0],
-    { staffId: 'auth-user-1', businessId: 'business-1', canHearAll: false, source: 'web', ...actor },
+    { staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, source: 'web', ...actor },
     { karuteId: KARUTE_ID },
   )
 
@@ -153,13 +153,13 @@ describe('mintPlaybackUrlWithClient — the ACL matrix (claim 2)', () => {
     })
   })
 
-  it('another staffer without canHearAll is FORBIDDEN', async () => {
+  it('another staffer without recordings.viewAll is FORBIDDEN', async () => {
     const r = await mint({ staffId: 'someone-else' })
     expect(r).toEqual({ error: 'forbidden' })
   })
 
-  it('canHearAll hears a colleague’s take (viewAll and the owner floor reach the same input)', async () => {
-    const r = await mint({ staffId: 'someone-else', canHearAll: true })
+  it('recordings.viewAll — the whole owner floor — hears a colleague’s take', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewAll: true })
     expect('url' in r).toBe(true)
   })
 
@@ -294,7 +294,7 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 3)', () => {
   })
 
   it('breakGlass is true only for a NON-recorder', async () => {
-    const lines = await auditLines(() => mint({ staffId: 'the-owner', canHearAll: true }))
+    const lines = await auditLines(() => mint({ staffId: 'the-owner', canViewAll: true }))
     expect(plays(lines)[0].break_glass).toBe(true)
   })
 

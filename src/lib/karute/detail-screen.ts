@@ -112,11 +112,6 @@ export interface BuildKaruteDetailScreenArgs {
     duration_seconds: number | null
     status: string
   } | null
-  /** May this viewer hear EVERY staff's audio: `recordings.viewAll` OR
-   *  `business.manage` (the owner floor, silently — ⚖ 9/3: no on-screen
-   *  sentence, no staff ping). A SEPARATE input from canViewAllRecordings on
-   *  purpose: the owner floor must not widen the existing TRANSCRIPT rule. */
-  canHearAll: boolean
   /** The caller's verified tenant — the key grammar's fence needs it (web:
    *  getBusinessId(); facade: ctx.identity.businessId). */
   businessId: string
@@ -141,7 +136,6 @@ export function buildKaruteDetailScreen(
     viewerStaffId,
     canViewAllRecordings,
     recordingRow,
-    canHearAll,
     businessId,
     staffCanReassignRecords,
     contact,
@@ -169,10 +163,18 @@ export function buildKaruteDetailScreen(
   const visibleTranscript = canSeeTranscript ? transcript : null
   const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
 
-  // THE PLAYER'S PRESENCE (slice ①). One predicate for the words and the sound
-  // — whoever may read the raw transcript of this karute may hear its audio —
-  // with the OWNER floor OR'd in through `canHearAll` (kept out of the
-  // transcript input above so the two rules stay separable).
+  // THE PLAYER'S PRESENCE (slice ①). ONE predicate for the words and the sound,
+  // on the SAME input: whoever may read the raw transcript of this karute may
+  // hear its audio, and nobody else.
+  //
+  // ⚠ THE OWNER FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2). It used
+  // to OR in `business.manage` as a proxy for "the owner", which was wrong in
+  // this repo: `recordings.viewAll` is hard-stripped from every non-owner at
+  // the resolve chokepoint (permissions.ts) and hidden from the toggle list, so
+  // it already IS the owner — while `business.manage` is a grantable row
+  // labelled 「店舗の削除・譲渡」. An owner ticking that for a manager silently
+  // handed them every staffer's AUDIO while the words stayed withheld: the
+  // exact inversion the recorder-private ruling exists to prevent.
   //
   // ⚠ A KEY ON THE ROW IS NOT AUDIO (fix round 1). The row is BORN RESERVED:
   // session-mint.ts stamps `audio_storage_path` when the row is created, before
@@ -185,13 +187,8 @@ export function buildKaruteDetailScreen(
   // The fence inside stays TAKE-only, so a null path, a discarded take's `stg/`
   // staged copy and another tenant's key are all the same answer — no player,
   // nothing said.
-  const canHearRecording = canViewTranscript({
-    ownerStaffId,
-    viewerStaffId,
-    canViewAll: canHearAll,
-  })
   const recording =
-    recordingRow && canHearRecording && serverHoldsTakeRow(recordingRow, businessId)
+    recordingRow && canSeeTranscript && serverHoldsTakeRow(recordingRow, businessId)
       ? {
           audioPresent: true,
           durationSeconds: recordingRow.duration_seconds,

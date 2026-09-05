@@ -52,9 +52,7 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
     {
       staffId,
       businessId,
-      canHearAll:
-        ctx.identity.capabilities.has('recordings.viewAll') ||
-        ctx.identity.capabilities.has('business.manage'),
+      canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
       source: 'facade',
       requestId: ctx.meta.requestId,
     },

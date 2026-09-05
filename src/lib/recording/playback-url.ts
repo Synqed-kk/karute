@@ -13,10 +13,11 @@
 //      discarded take is a different surface (manager discard review), not a
 //      loosened fence here.
 //   2. THE ACL. Whoever may read the RAW TRANSCRIPT of this karute may hear its
-//      audio — canViewTranscript, the same predicate the detail screen applies
-//      to the words, with the owner floor (`business.manage`) OR'd in by the
-//      CALLER through `canHearAll`. One rule, one place; a record with no owner
-//      keeps its shared answer for the sound exactly as for the words.
+//      audio — canViewTranscript, on the SAME input the words use
+//      (`recordings.viewAll`, which this repo hard-strips to the owner). One
+//      rule, one place, literally: there is no second capability that reaches
+//      the sound. A record with no owner keeps its shared answer for the sound
+//      exactly as for the words.
 //   3. ONE ROW PER MINT. Every successful mint writes exactly one
 //      `recording.play` audit row and every refusal writes none — the audit
 //      call lexically dominates the single success return (CP7), and each
@@ -65,10 +66,11 @@ export interface PlaybackActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the take key must carry. */
   businessId: string
-  /** `recordings.viewAll` OR `business.manage` (the owner floor, silently —
-   *  ⚖ 9/3: no staff ping, no on-screen sentence). Resolved by the caller so
-   *  the owner floor never widens the transcript rule it sits beside. */
-  canHearAll: boolean
+  /** `recordings.viewAll` — the SAME input the raw transcript uses, and the
+   *  whole owner floor (fix round 2: `business.manage` is grantable and is not
+   *  a synonym for the owner in this repo; viewAll is stripped to owner-only at
+   *  the resolve chokepoint). Silently, per ⚖ 9/3 — no staff ping, no sentence. */
+  canViewAll: boolean
   source: 'web' | 'facade'
   requestId?: string
 }
@@ -147,7 +149,7 @@ export async function mintPlaybackUrlWithClient(
     !canViewTranscript({
       ownerStaffId,
       viewerStaffId: actor.staffId,
-      canViewAll: actor.canHearAll,
+      canViewAll: actor.canViewAll,
     })
   ) {
     return { error: 'forbidden' }

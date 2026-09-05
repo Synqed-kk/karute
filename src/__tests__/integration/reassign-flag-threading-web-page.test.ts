@@ -35,8 +35,9 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 // — this is the whole point of this test: distinguish 'records.reassign'
 // from every other capability the page also resolves.
 const grantedCaps = { current: new Set<string>() }
+const canMock = jest.fn(async (cap: string) => grantedCaps.current.has(cap))
 jest.mock('@/lib/auth/require-permission', () => ({
-  can: jest.fn(async (cap: string) => grantedCaps.current.has(cap)),
+  can: (cap: string) => canMock(cap),
 }))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),
@@ -108,26 +109,32 @@ describe('KaruteDetailPage — staffCanReassignRecords (pin 8b, web half)', () =
 // Slice ① (the player), web half: the page resolves the playback inputs and
 // hands them to the SAME chokepoint. The facade half is pinned in
 // app-api-karute-detail-screen.test.ts.
-describe('KaruteDetailPage — playback inputs (canHearAll · businessId · recordingRow)', () => {
-  it('canHearAll is false for a plain staffer, and businessId is the cookie tenant', async () => {
+describe('KaruteDetailPage — playback inputs (businessId · recordingRow)', () => {
+  it('businessId is the cookie tenant, and a plain staffer gets no viewAll', async () => {
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(buildSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ canHearAll: false, businessId: 'biz-1' }),
+      expect.objectContaining({ canViewAllRecordings: false, businessId: 'biz-1' }),
     )
   })
 
-  it('business.manage alone raises canHearAll WITHOUT raising canViewAllRecordings (the silent owner floor)', async () => {
+  // ⚠ FIX ROUND 2 — business.manage is grantable to a manager; it must not
+  // become a second door onto other staff's audio. The page must not even READ
+  // it for this purpose.
+  it('business.manage alone reaches nothing — it is not read, and viewAll stays false', async () => {
     grantedCaps.current = new Set(['business.manage'])
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(buildSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ canHearAll: true, canViewAllRecordings: false }),
+      expect.objectContaining({ canViewAllRecordings: false }),
     )
+    expect(canMock).not.toHaveBeenCalledWith('business.manage')
   })
 
-  it('recordings.viewAll also raises canHearAll', async () => {
+  it('recordings.viewAll — the whole owner floor — is what the builder receives', async () => {
     grantedCaps.current = new Set(['recordings.viewAll'])
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
-    expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ canHearAll: true }))
+    expect(buildSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ canViewAllRecordings: true }),
+    )
   })
 
   it('no recording_session_id → recordingRow null and the row is never read', async () => {
