@@ -369,61 +369,36 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // fire at all (round 4): en 129,868 · index 972,501 · vendor 937,082 =
 // 2,039,451 B → 549 B of headroom.
 //
-// RAISED 2026-09-06 for the PLAY BUTTON (build 23 slice ①), ⚖ 8/25 + 9/4:
-// 2,040,000 → 2,048,300. A FEATURE raise, not a method correction — the method
-// is unchanged from the 2026-09-02 entry above (release-length placeholder env,
-// emptied thin/dist).
+// RAISED 2026-09-06 for THE PLAY BUTTON (build 23 slice ①) — one entry for the
+// whole slice, ⚖ 8/25 + 9/4: 2,040,000 → 2,049,700. The method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist). Base 75ac94083 measured 2,039,663 B; this tip measures
+// en 130,244 · index 981,158 · vendor 937,743 = 2,049,145 B, so the play button
+// costs the phone +9,482 B in total — the feature plus six review rounds, three
+// of which were correctness fixes rather than new surface. What the bytes
+// bought: a staffer hears a session again from inside the same 文字起こし card
+// the words live in (play/pause, ±15 s, 標準/1.5/2/3倍, a scrub bar) over a
+// signed url the server mints on the FIRST tap and only after proving, by the
+// same rule that governs the words, that this viewer may hear this take and
+// that the bytes are really in the bucket; recording always wins, across the
+// mint and the re-mint; one tap is one mint and one audit row; the element's own
+// events drive the button so an outside pause cannot leave it lying; the chip
+// states the rate the engine is actually running; the controls carry 44 pt hit
+// areas without changing the look; the scrub commits on release, keeps the thumb
+// under the finger while the audio plays, leaves vertical panning to the page,
+// and an assistive adjust moves the audio too; an unknown total says –:––
+// rather than claiming 0:00.
 //
-// What is in the phone for the bytes: a staffer can HEAR a session again from
-// inside the same 文字起こし card the words live in — play/pause, 15 seconds
-// back and forward, 1/1.5/2/3× and a scrub bar, over a signed url the server
-// mints on the FIRST tap (never on mount) after checking, with the same rule
-// that governs the words, that this viewer may hear this take. The recorder
-// always wins: a tap mid-recording is refused and a recorder that starts pauses
-// the player.
-//
-// Measured at this round's tip, the CI/release way: en 130,196 · index 979,812
-// · vendor 937,743 = 2,047,751 B — 7,751 B over the 2,040,000 ceiling, which is
-// the breach this raise answers. The last release-way figure on the base
-// (75ac94083) is 2,039,663 B, so the whole slice costs the phone +8,088 B: the
-// player component and the card's new states in `index`, the four new lucide
-// glyphs in `vendor` (+661 B), the ten new strings in `en` (+328 B).
-//
-// The new ceiling leaves 549 B of headroom — deliberately the same narrow
-// margin the last slice-five entry above recorded, and inside the ≤600 B this
-// round was given. It is narrow ON PURPOSE: the JP strings in this slice are
-// drafts awaiting a native pass, so a rewrite of a few dozen bytes must still
-// fit without a second raise, and anything larger than that should have to come
-// back and say so.
-//
-// RAISED 2026-09-06 for the player's blind-round fixes (fix round 2), ⚖ 8/25 +
-// 9/4: 2,048,300 → 2,049,200. A CORRECTNESS raise, not a feature one — the
-// method is unchanged from the 2026-09-02 entry above (release-length
-// placeholder env, emptied thin/dist).
-//
-// What is in the phone for the bytes, all of it found by the blind round:
-// the recorder guard now holds ACROSS the mint and on the re-mint (a take used
-// to be able to start playing over a live microphone), the second tap is
-// synchronous so Karute web in mobile Safari can play at all, one tap mints
-// once instead of once per impatient tap, the element's own play/pause events
-// drive the button so a system pause cannot leave it lying, the speed chip
-// states the rate the engine is ACTUALLY running, the controls got 44 pt hit
-// areas (the look is unchanged), the scrub commits on release instead of per
-// pixel, and an unknown total says –:–– instead of claiming 0:00.
-//
-// Measured at this round's tip, the CI/release way: en 130,244 · index 980,662
-// · vendor 937,743 = 2,048,649 B — 349 B over the 2,048,300 ceiling, which is
-// the breach this raise answers. The whole fix round costs the phone +861 B
-// over round 1b's 2,047,788 B.
-//
-// The new ceiling leaves 551 B of headroom — the same narrow margin the last
-// two entries kept, and for the same reason: the next thing to land here should
-// have to come back and say what it is.
+// The new ceiling leaves 555 B of headroom — the same margin the slice-five
+// entry above left, and left for the same reason: the next thing to land here
+// should have to come back and say what it is. The previous number for this
+// slice left 55 B, which is not headroom, and correcting that is this entry's
+// other job.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_049_200
+const BUDGET_BYTES = 2_049_700
 
 let dir
 try {
