@@ -690,6 +690,30 @@ export function blockDirty(
 // and this suite cannot mount React at all — so the decision is a pure function
 // and the handler is the two lines that call it.
 
+/** ⚖ S17 · F9 — ONE DATE, ONE FORMAT, WHEREVER THE ROW CAME FROM.
+ *
+ *  The seeded rows were formatted at the plane boundary and the rows a reader
+ *  ADDS were not, so one list read 「9月13日(日)」・「9月20日(日)」・
+ *  「2026-09-25」 the moment the 追加 control was used — and 取り消す announced
+ *  the raw ISO to a screen reader. One list, two calendars, is the room telling
+ *  a reader that the day they just added is a different kind of thing.
+ *
+ *  ⚠ FORMATTED IN UTC, DELIBERATELY. `YYYY-MM-DD` is a CALENDAR DATE — it is
+ *  `StoreClosedDay.date`'s own spelling and carries no instant and no zone.
+ *  Reading it as an instant and re-projecting it into Asia/Tokyo is how a
+ *  closed day becomes the day before somewhere else; here the parts ARE the
+ *  answer and the formatter only names the weekday.
+ *
+ *  A string that is not a calendar date is printed AS IT STANDS rather than as
+ *  a guess: this room never produces one, and a wrong date is worse than an
+ *  unformatted one. */
+const CLOSED_DAY_FMT = new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', timeZone: 'UTC' })
+export function dayTitle(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim())
+  if (!m) return iso
+  return CLOSED_DAY_FMT.format(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))))
+}
+
 export interface CollectionAdd {
   /** The rows after the attempt — UNCHANGED when it was refused. */
   rows: Array<{ id: string; title: string; note: string }>
@@ -709,7 +733,9 @@ export function addToCollection(
   // ⚠ THE DATE IS THE IDENTITY, which is the wire's own rule: one row per store
   // per date (`StoreClosedDay`, and the 409 that enforces it).
   if (rows.some((r) => r.id === date)) return { rows: [...rows], error: coll.duplicateError }
-  return { rows: [...rows, { id: date, title: date, note: reason }], error: null }
+  // ⚖ F9 — the SAME formatter the seeded rows use, so the list a reader is
+  // looking at reads one way whichever end a row came from.
+  return { rows: [...rows, { id: date, title: dayTitle(date), note: reason }], error: null }
 }
 
 /** ⚠ 変更 n件 COUNTS CONTROLS, AND THE LABEL SAYS SO (⚖ numbers explain

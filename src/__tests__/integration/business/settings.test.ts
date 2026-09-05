@@ -50,6 +50,7 @@ import {
   changedCount,
   clampCoachingFloor,
   controlIdsOfBlock,
+  dayTitle,
   clampCoachingRetention,
   clampWinBackDays,
   COACHING_FLOOR_MAX,
@@ -1395,7 +1396,19 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     const added = addToCollection(coll, rows, '2026-12-24', '設備メンテナンスのため')
     expect(added.error).toBeNull()
     expect(added.rows).toHaveLength(rows.length + 1)
-    expect(added.rows[added.rows.length - 1]).toEqual({ id: '2026-12-24', title: '2026-12-24', note: '設備メンテナンスのため' })
+    // ⚠ D-19 RE-PIN (⚖ S17 fix round 1, F9): the added row's TITLE was the raw
+    // ISO, so one list read 「9月13日(日)」 and 「2026-09-25」 together the moment
+    // 追加 was used, and 取り消す announced the ISO to a screen reader. The id is
+    // still the wire's `YYYY-MM-DD` — it is the identity a duplicate is refused
+    // on — and only the title moved.
+    expect(added.rows[added.rows.length - 1]).toEqual({ id: '2026-12-24', title: '12月24日(木)', note: '設備メンテナンスのため' })
+    // ⚖ F9 — ONE LIST, ONE CALENDAR: a seeded row and an added row are titled by
+    // the same function, so the shape holds across the whole list.
+    const JP_DAY = /^\d+月\d+日\(.\)$/
+    for (const r of added.rows) expect({ id: r.id, japanese: JP_DAY.test(r.title) }).toEqual({ id: r.id, japanese: true })
+    // …and it is the CALENDAR date, never an instant re-projected into a zone:
+    // a closed day is the day it says, everywhere.
+    expect(dayTitle('2026-01-01')).toBe('1月1日(木)')
 
     // …the SAME date is refused, in the sentence the server would answer with,
     // and the list is left exactly as it was.

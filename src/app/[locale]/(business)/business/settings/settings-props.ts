@@ -57,6 +57,7 @@ import {
   clampWinBackDays,
   COACHING_FLOOR_MAX,
   COACHING_FLOOR_MIN,
+  dayTitle,
   firstOpenSection,
   gateOf,
   hhmm,
@@ -665,11 +666,13 @@ function storeHours(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection
       // named in the report and in the Anthony column list, never on screen).
       block('store-hours.closures', '臨時休業', '通常の営業時間を休みにする、その日限りの予定です。', [], {
         collection: {
-          items: d.closures.map((c) => ({
-            id: isoDay(dayFrom(ctx.now, c.dayOffset)),
-            title: fmtDayWeek.format(dayFrom(ctx.now, c.dayOffset)),
-            note: c.note,
-          })),
+          // ⚖ F9 — ONE FORMATTER, and the id is what it reads. A seeded row and
+          // an added row used to be titled by two different code paths, so the
+          // list changed calendars the moment 追加 was pressed.
+          items: d.closures.map((c) => {
+            const date = isoDay(dayFrom(ctx.now, c.dayOffset))
+            return { id: date, title: dayTitle(date), note: c.note }
+          }),
           dateControlId: 'store-hours.closure-date',
           reasonControlId: 'store-hours.closure-reason',
           addLabel: '追加',
