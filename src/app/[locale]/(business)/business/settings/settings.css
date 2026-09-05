@@ -515,6 +515,9 @@
 .biz .pg-settings .st-det-rail { color: var(--ink); font-weight: 500; }
 .biz .pg-settings .st-det-type { color: var(--ink-3); }
 .biz .pg-settings .st-det-src { color: var(--muted); }
+/* ⚖ S17 fix round 1 · F15 — the 準備中 chip travelled into the fold with the
+   lines it sits on; the spacing rule was scoped to the line class it left. */
+.biz .pg-settings .st-det li .st-chip { margin-right: 6px; vertical-align: 1px; }
 .biz .pg-settings .st-det-why { color: var(--orange); }
 
 /* ── 営業時間 as a week ────────────────────────────────────────────────────── */
