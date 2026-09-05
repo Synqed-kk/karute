@@ -269,6 +269,27 @@ describe('⚖ 8/23 — the 画面の説明 census, derived from the source rathe
     expect(SRC_CODE).toContain('}, [on, reduced])')
   })
 
+  // ⚖ S17 · F11 — THE ROOM DOES NOT STATE A GUARD RULE THE GUARD DOES NOT HAVE.
+  // A comment here claimed the data-access guard 「forbids `.set(` / `.delete(`
+  // tokens outright」. `.set(` is not one of the guard's patterns, and this file
+  // calls it five times on spring handles — so a reader who trusted the comment
+  // would have read five correct lines as violations. The guard's own list is
+  // READ FROM THE GUARD, so the day a token is added or removed there, the
+  // sentence here fails rather than drifting.
+  it('⚖ F11 — the comment about the data-access guard names the guard’s real tokens', () => {
+    const guard = readFileSync(join(process.cwd(), 'scripts/business/check-business-data-access.mjs'), 'utf8')
+    const banned = [...guard.matchAll(/label: 'write call (\.[a-z]+\()'/g)].map((m) => m[1])
+    expect(banned).toEqual(['.insert(', '.update(', '.upsert(', '.delete(', '.rpc('])
+    // the room names every one of them, and cites where to check…
+    for (const t of banned) expect(SRC).toContain(t)
+    expect(SRC).toContain('scripts/business/check-business-data-access.mjs')
+    // …the false claim is gone…
+    expect(SRC).not.toMatch(/forbids `\.set\(` \/ `\.delete\(` tokens outright/)
+    // …and the room really uses none of them, which is the claim the live guard
+    // makes and this pin keeps true in jest as well.
+    for (const t of banned) expect({ token: t, used: SRC_CODE.includes(t) }).toEqual({ token: t, used: false })
+  })
+
   // ⚖ S17 · F8 — THE KEPT CHIP REFUSES THE REMOVE DIRECTION, AND ONLY THAT ONE.
   // A chip the reader may not take away has to stay reachable (`aria-disabled`,
   // never `disabled` — the room's own law for a refusal), has to say why on the

@@ -215,9 +215,21 @@ export function SettingsScreen(props: SettingsScreenProps) {
   const [values, setValues] = useState<Record<string, RowValue>>(() => seedOf(props))
   const [saved, setSaved] = useState<Record<string, RowValue>>(() => seedOf(props))
   /** Which sections have been saved in this session — the 保存しました stamp's
-   *  own fact. A `Record` rather than a `Set`: the room's data-access guard
-   *  forbids `.set(` / `.delete(` tokens outright, and an object literal spread
-   *  says the same thing without them. */
+   *  own fact.
+   *
+   *  ⚠ A `Record` RATHER THAN A `Set`, AND THE REASON THIS COMMENT USED TO GIVE
+   *  WAS FALSE (⚖ F11). It said the data-access guard 「forbids `.set(` /
+   *  `.delete(` tokens outright」. The guard's write patterns are `.insert(`
+   *  `.update(` `.upsert(` `.delete(` `.rpc(`
+   *  (`scripts/business/check-business-data-access.mjs:118-122`, `ALLOW` empty)
+   *  — `.set(` is NOT among them, and this file calls it five times on spring
+   *  handles. A reader who trusted the old sentence would have read those five
+   *  lines as violations.
+   *
+   *  The CHOICE stands on its own: a plain object edited by spread is the same
+   *  shape every other piece of this room's state has, so one reading rule
+   *  covers all of it — and it keeps `.delete(`, which the guard really does
+   *  ban, out of the room without an exception being argued for. */
   const [committed, setCommitted] = useState<Record<string, boolean>>({})
   const [results, setResults] = useState<Record<string, string>>({})
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({})
