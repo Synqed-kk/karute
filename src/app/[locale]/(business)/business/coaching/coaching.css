@@ -675,7 +675,14 @@
      +  28  two gaps
      ─────
        848  three across first fit
-       860  ships — 848 plus 12.
+       880  ships — 848 plus 32, and V2-2 EARNED that 32 rather than picking it.
+            Between 860 and 880 all three tracks sit ON their floors
+            (300 + 260 + 260 of 832), which is the composition at its tightest —
+            and measured there, the MOVE cell reads 94px of 370px (25.6%) blank
+            at 1024 with the rail collapsed, because a four-step numbered list
+            beside five short facts is ~100px taller and the row takes the
+            taller. At 880 that page renders ⑨'s PAIR instead, where the same
+            measurement reads 0% / 0% / 11.5%.
    THRESHOLD ⑨ — the PAIR, with the move spanning the row above it:
        260  やること
      + 260  根拠
@@ -692,25 +699,33 @@
    ⚠ V2-2 — AND A STRETCHED ROW STILL HAS TO BE FILLED. The hole law says the
    COLUMNS end together; it says nothing about what is inside a cell, and this
    band was the one place that mattered: 根拠 ended ~130px above its row at 1280
-   and ~140px at 1920 while やること's four steps set the height. Two changes,
-   both from the plane rather than from padding:
+   and ~140px at 1920 while やること's four steps set the height. Three changes,
+   all from the plane or from the arithmetic — never from padding:
      · the 根拠 column carries the finding's own CLAIM above the count, so it
        reads claim → count → quote (the screen's (c) block);
-     · the three tracks are weighted 1.1fr / 1.1fr / .8fr instead of
-       1.15fr / 1fr / 1fr, which makes 根拠 the NARROWEST of the three, so its
-       receipt wraps taller in the same row instead of leaving the space blank.
-   THE MINIMA DO NOT MOVE, so ⑧'s sum does not either: 300 + 260 + 260 + 28 =
-   848, and 860 still ships it. What the weights change is the split ABOVE the
-   floors — the .8fr share reaches 根拠's own 260 floor at
-       260 × 3.0 ÷ .8  =  975 of tracks  +  28 of gaps  =  1003
-   so between 860 and 1003 the split is FLOOR-driven (260 | 315 | 315 at the
-   wave's own 1280) and above 1003 it is fr-driven. Both are the SAME three
-   columns, so nothing is gained, lost and gained again across a drag — the
-   monotonicity ④'s second condition is about is untouched.
+     · the three tracks are weighted .95fr / 1.2fr / .85fr instead of
+       1.15fr / 1fr / 1fr. 根拠 is the NARROWEST, so its receipt wraps taller in
+       the same row instead of leaving the space blank; やること is the WIDEST,
+       because it is the only cell holding a LIST — four numbered steps whose
+       details wrap to two lines each — and its height is what sets the row;
+       and the MOVE, which holds five short facts, keeps a share narrow enough
+       that its own sentence and its 練習するもの chip take the extra line that
+       fills it. Every one of those three is a MEASURED fact, not a taste: the
+       whole ≥1024 ladder is swept in both rail states below.
+     · ⑧ ships at 880 rather than 860 (above).
+   THE FLOORS DO NOT MOVE — 300 / 260 / 260 — so ⑧'s first-fit sum is still 848.
+   What the weights change is the split ABOVE the floors: the .85fr share reaches
+   根拠's own 260 floor at
+       260 × 3.0 ÷ .85  =  918 of tracks  +  28 of gaps  =  946
+   so between 880 and 946 the split is FLOOR-driven and above 946 it is
+   fr-driven. Both are the SAME three columns, so nothing is gained, lost and
+   gained again across a drag — the monotonicity ④'s second condition is about
+   is untouched.
    THE VERDICT ON THIS REGION IS INTERIOR SLACK, measured by the probe at
    1280 / 1440 / 1920 in both rail states: in each of the three cells, the blank
    BELOW the last content child — past the cell's own bottom padding — is ≤20%
-   of the cell's height. */
+   of the cell's height. MEASURED WORST across that gate: 15.8% (the move at
+   1440 with the rail open), and 15.8% again across the WHOLE ≥1024 ladder. */
 .biz .pg-coaching .cg-sheet { container: cg-sheet / inline-size; }
 .biz .pg-coaching .cg-sheet > .cg-sec-head { margin-bottom: 12px; }
 .biz .pg-coaching .cg-sheet-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--cg-sheet-gap); }
@@ -718,9 +733,9 @@
   .biz .pg-coaching .cg-sheet-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .biz .pg-coaching .cg-sheet-move { grid-column: 1 / -1; }
 }
-@container cg-sheet (min-width: 860px) {
+@container cg-sheet (min-width: 880px) {
   .biz .pg-coaching .cg-sheet-cols {
-    grid-template-columns: minmax(var(--cg-move-min), 1.1fr) minmax(var(--cg-step-min), 1.1fr) minmax(var(--cg-why-min), .8fr);
+    grid-template-columns: minmax(var(--cg-move-min), .95fr) minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr);
   }
   .biz .pg-coaching .cg-sheet-move { grid-column: auto; }
 }

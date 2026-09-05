@@ -1138,7 +1138,7 @@ describe('⚖ THE SHEET — the ladder’s arithmetic, the ring, and page scroll
     // gains it again. Four blocks, two distinct widths: the page columns and the
     // board row each recompose at both.
     // FOURTEEN blocks on EIGHT containers: the page (700 · 880 · 940), the
-    // PRACTICE SHEET (580 · 860 — ⚖ I-1), the PATTERNS card (520 — ⚖ I-5), the
+    // PRACTICE SHEET (580 · 880 — ⚖ I-1 / V2-2), the PATTERNS card (520 — ⚖ I-5), the
     // MODULES card (580 · 880 — ⚖ I-6), the LIFTS card (400 · 810 — ⚖ I-10), the
     // finding CARD (480), the 成績 card (332 · 560) and a single TILE (128). Each is stated ONCE, and every card-level
     // container exists because what decides that composition is the box it is in
@@ -3855,35 +3855,50 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     // …and the SCREEN composes nothing: the sentence is resolved in the props
     // file, from the same finding the count and the quote come from.
     expect(PROPS_CODE).toContain('claim: sheetFinding.impact,')
-    // THE THREE TRACKS. 根拠 is the .8, which is what makes its receipt wrap
-    // taller in a row it was already sharing rather than leaving it blank.
-    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-sheet (min-width: 860px)'))
+    // THE THREE TRACKS, and every one of the three weights is a MEASURED fact
+    // (the interior-slack sweep in the probe, whole ≥1024 ladder, both rail
+    // states): 根拠 is the NARROWEST, so its receipt wraps taller in a row it was
+    // already sharing instead of leaving it blank; やること is the WIDEST because
+    // it is the only cell holding a LIST and its height is what sets the row;
+    // and the MOVE keeps a share narrow enough that its own sentence and its
+    // 練習するもの chip take the extra line that fills it.
+    const wide = CSS_CODE.slice(CSS_CODE.indexOf('@container cg-sheet (min-width: 880px)'))
     expect(wide.slice(0, 400)).toContain(
-      'grid-template-columns: minmax(var(--cg-move-min), 1.1fr) minmax(var(--cg-step-min), 1.1fr) minmax(var(--cg-why-min), .8fr);',
+      'grid-template-columns: minmax(var(--cg-move-min), .95fr) minmax(var(--cg-step-min), 1.2fr) minmax(var(--cg-why-min), .85fr);',
     )
-    // ⑧ / ⑨ — THE MINIMA DID NOT MOVE, so neither threshold does. Parsed, not
-    // remembered (the room-6 B4-1 law).
+    // ⑧ / ⑨ — THE FLOORS DID NOT MOVE; ⑧'s SLACK DID, and it is argued below.
+    // Parsed, not remembered (the room-6 B4-1 law).
     const num = (name: string) => Number(new RegExp(`--${name}:\\s*(\\d+)px`).exec(CSS_CODE)![1])
     const [move, step, why2, gap] = [num('cg-move-min'), num('cg-step-min'), num('cg-why-min'), num('cg-sheet-gap')]
     expect({ move, step, why: why2, gap }).toEqual({ move: 300, step: 260, why: 260, gap: 14 })
     const sheetThresholds = [...CSS_CODE.matchAll(/@container cg-sheet \(min-width: (\d+)px\)/g)].map((m) => Number(m[1]))
-    expect(sheetThresholds).toEqual([580, 860])
+    expect(sheetThresholds).toEqual([580, 880])
     expect(move + step + why2 + gap * 2).toBe(848)
     expect(sheetThresholds[1]).toBeGreaterThanOrEqual(move + step + why2 + gap * 2)
-    expect(sheetThresholds[1] - (move + step + why2 + gap * 2)).toBeLessThanOrEqual(16)
+    // ⚠ THE SLACK IS 32 AND IT IS EARNED (V2-2, argued as S16D-D4): between 860
+    // and 880 all three tracks sit ON their floors, and the MOVE cell measured
+    // 94px of 370px blank there (1024, rail collapsed). At 880 that page renders
+    // ⑨'s pair, where the same measurement reads 0% / 0% / 11.5%.
+    expect(sheetThresholds[1] - (move + step + why2 + gap * 2)).toBe(32)
     expect(step + why2 + gap).toBe(534)
     expect(sheetThresholds[0]).toBeGreaterThanOrEqual(step + why2 + gap)
-    // MONOTONIC: at ⑧ the .8 share is BELOW 根拠's own floor, so the split is
-    // floor-driven there and fr-driven from 1003 up — the SAME three columns on
+    // MONOTONIC: at ⑧ the .85 share is BELOW 根拠's own floor, so the split is
+    // floor-driven there and fr-driven from 946 up — the SAME three columns on
     // both sides, so no composition is gained, lost and gained again.
-    const shareAtThreshold = ((sheetThresholds[1] - gap * 2) * 0.8) / 3.0
+    const shareAtThreshold = ((sheetThresholds[1] - gap * 2) * 0.85) / 3.0
     expect(shareAtThreshold).toBeLessThan(why2)
-    const frGoverns = Math.ceil((why2 * 3.0) / 0.8) + gap * 2
-    expect(frGoverns).toBe(1003)
+    const frGoverns = Math.ceil((why2 * 3.0) / 0.85) + gap * 2
+    expect(frGoverns).toBe(946)
     expect(frGoverns).toBeGreaterThan(sheetThresholds[1])
     // …and every one of the three floors still fits at the threshold, or the
     // 「floor-driven」 reading above would be a track overflowing instead.
     expect(move + step + why2).toBeLessThanOrEqual(sheetThresholds[1] - gap * 2)
+    // …and 根拠 really is the narrowest weight and やること the widest, read off
+    // the sheet rather than asserted in prose.
+    const w = [...wide.slice(0, 400).matchAll(/, (\.?\d+(?:\.\d+)?)fr\)/g)].map((m) => Number(m[1]))
+    expect(w).toEqual([0.95, 1.2, 0.85])
+    expect(Math.min(...w)).toBe(w[2])
+    expect(Math.max(...w)).toBe(w[1])
   })
 
   it('⚖ I-3 · 成績 IS A STRIP and the trend lives INSIDE the number it is a trend of', async () => {
