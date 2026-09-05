@@ -375,7 +375,7 @@ describe('⚖ ANTI-COERCION — a declined share is INDISTINGUISHABLE from an ab
     pinClock(MID_MONTH)
     const { props } = await coachingProps(GINZA)
     unpinClock()
-    expect(props.team!.adoptionLine).toMatch(/深い共有を許可しているスタッフ \d+名 \/ 在籍 \d+名/)
+    expect(props.team!.adoptionLine).toMatch(/深い共有を許可しているスタッフ \d+名 ／ 在籍 \d+名/)
     expect(props.team!.adoptionNote).toContain('誰が許可していないかは表示しません')
     expect(JSON.stringify(props.team!.rows)).not.toMatch(/grant|shared|declin|共有/)
   })
@@ -958,7 +958,7 @@ describe('⚖ ANY-ROSTER-SIZE — 25+ staff, arithmetic exact, no scroller', () 
     const { props } = await coachingProps({ ...GINZA, world: { roster: bigRoster, rows: bigRows } })
     unpinClock()
     const granted = bigRows.filter((r) => r.grant === 'granted').length
-    expect(props.team!.adoptionLine).toBe(`深い共有を許可しているスタッフ ${granted}名 / 在籍 28名`)
+    expect(props.team!.adoptionLine).toBe(`深い共有を許可しているスタッフ ${granted}名 ／ 在籍 28名`)
   })
 
   it('a 28-row board still carries NO number per row', async () => {
@@ -1884,7 +1884,7 @@ describe('⚖ THE VISIBILITY SPEC’s persona rules', () => {
       }
     }
     // …and adoption is ONE aggregate count, N of M.
-    expect(props.team!.adoptionLine).toMatch(/^深い共有を許可しているスタッフ \d+名 \/ 在籍 \d+名$/)
+    expect(props.team!.adoptionLine).toMatch(/^深い共有を許可しているスタッフ \d+名 ／ 在籍 \d+名$/)
   })
 
   it('the framing banner and the flagged rows are on the SAME screen', () => {
@@ -4400,7 +4400,7 @@ describe('⚖ FIX ROUND 2 — the blind round’s findings', () => {
     expect(CSS_CODE).not.toContain('.cg-adoption')
     // the payload is unchanged — this is a COMPOSITION change, not a data one
     expect(team.focusRanking.rows.length).toBeGreaterThan(0)
-    expect(team.adoptionLine).toMatch(/^深い共有を許可しているスタッフ \d+名 \/ 在籍 \d+名$/)
+    expect(team.adoptionLine).toMatch(/^深い共有を許可しているスタッフ \d+名 ／ 在籍 \d+名$/)
     expect(team.summaryMoreLabel).toBe('くわしく')
     expect(team.summaryLessLabel).toBe('閉じる')
   })
@@ -4841,6 +4841,21 @@ describe('⚖ B2-2-3 (S16F) — the quantity class covers the counters it was mi
     unpinClock()
     for (const r of props.team!.rows) {
       expect({ staff: r.staffLabel, warning: r.summaryWarning }).toEqual({ staff: r.staffLabel, warning: null })
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ B2-L5-1 (S16F) — one slash for one sentence shape', () => {
+  it('all three 「N名 ／ 在籍 M名」 lines are spelled the same way', async () => {
+    pinClock(MID_MONTH)
+    const { props } = await coachingProps({ ...GINZA, world: { role: 'オーナー' } })
+    unpinClock()
+    const lines = [props.team!.adoptionLine, props.roi!.adoption.consentLine, props.roi!.adoption.sharingLine]
+    for (const line of lines) {
+      expect({ line, shape: /名 ／ 在籍 \d+名$/.test(line) }).toEqual({ line, shape: true })
+      // and not the half-width form anywhere on this shape
+      expect({ line, half: line.includes(' / ') }).toEqual({ line, half: false })
     }
   })
 })

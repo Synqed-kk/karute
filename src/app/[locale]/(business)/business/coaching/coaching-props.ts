@@ -881,7 +881,14 @@ export async function coachingProps({ locale, store, as, world }: CoachingPropsI
           // ⚖ R2-18 — the board's own empty branch, in the same grammar the
           // ranking rail already uses: an absence is said, never left blank.
           filteredEmptyLine: 'この区分に当てはまるスタッフはいません。',
-          adoptionLine: `深い共有を許可しているスタッフ ${team.sharingAdoption.granted}名 / 在籍 ${team.sharingAdoption.total}名`,
+          // ⚖ B2-L5-1 (S16F) — ONE SLASH FOR ONE SHAPE. This line and the two
+          // 導入の状況 lines are the same sentence — 「[count]名 ／ 在籍
+          // [count]名」 — and the same owner reads both, one tab apart. They were
+          // written with two different slashes (a half-width / here, a full-width
+          // ／ there), which a native eye reads as two authors rather than one
+          // design. The full-width form is the idiomatic one in this register
+          // (cf. 「はい／いいえ」) and it is what the newer copy already uses twice.
+          adoptionLine: `深い共有を許可しているスタッフ ${team.sharingAdoption.granted}名 ／ 在籍 ${team.sharingAdoption.total}名`,
           // ⚖ I-8 — the summary strip's own disclosure, in the room's own two
           // words. What is behind it is READ ONCE (how to read the counts, that
           // the decline is invisible, and why a small store is not anonymous) plus
