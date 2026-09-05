@@ -135,15 +135,15 @@ describe('the card’s states', () => {
   it('PROCESSING: player + 処理中 chip + the hint, open by default', () => {
     card({ transcript: null, recording: { ...REC, status: 'PROCESSING' } })
     expect(playButton()).toBeTruthy()
-    expect(screen.getByText('処理中')).toBeTruthy()
-    expect(screen.getByText('自動で文字起こし中')).toBeTruthy()
+    expect(screen.getByText('文字起こし中')).toBeTruthy()
+    expect(screen.getByText('完了までしばらくお待ちください')).toBeTruthy()
     expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
   })
 
   it('COMPLETED with no transcript: player only — no body, and no dead chevron', () => {
     card({ transcript: null })
     expect(playButton()).toBeTruthy()
-    expect(screen.queryByText('処理中')).toBeNull()
+    expect(screen.queryByText('文字起こし中')).toBeNull()
     expect(screen.queryByRole('button', { expanded: false })).toBeNull()
     expect(screen.queryByRole('button', { expanded: true })).toBeNull()
   })
@@ -195,8 +195,8 @@ describe('the controls', () => {
   it('the speed chip cycles 1 → 1.5 → 2 → 3 → 1 and every step reaches the element', () => {
     card()
     const chip = screen.getByRole('button', { name: '再生速度' })
-    expect(chip.textContent).toBe('1倍')
-    for (const [label, rate] of [['1.5倍', 1.5], ['2倍', 2], ['3倍', 3], ['1倍', 1]] as const) {
+    expect(chip.textContent).toBe('標準')
+    for (const [label, rate] of [['1.5倍', 1.5], ['2倍', 2], ['3倍', 3], ['標準', 1]] as const) {
       fireEvent.click(chip)
       expect(audioEl().playbackRate).toBe(rate)
       expect(chip.textContent).toBe(label)

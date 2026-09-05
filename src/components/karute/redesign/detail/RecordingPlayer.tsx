@@ -323,7 +323,12 @@ export function RecordingPlayer({ karuteId, durationSeconds }: RecordingPlayerPr
             press,
           )}
         >
-          {t('transcript.speedChip', { rate: effectiveRate ?? SPEEDS[speedIndex] })}
+          {/* ⚖ blind native check: 「1倍」 is not how Japanese says normal speed.
+              Rate 1 — the EFFECTIVE rate, so an engine that clamped back to 1
+              also says 標準 — gets its own word. */}
+          {(effectiveRate ?? SPEEDS[speedIndex]) === 1
+            ? t('transcript.speedNormal')
+            : t('transcript.speedChip', { rate: effectiveRate ?? SPEEDS[speedIndex] })}
         </button>
       </div>
 
