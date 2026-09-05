@@ -26,16 +26,23 @@ export function statusOf(err: unknown): number | undefined {
 }
 
 /** Storage's "no such object" — for the mint, the key is free; for finalize,
- *  the ordinary "the PUT has not landed yet" case. storage-js answers a
- *  missing key with 404, and 404 ALONE (fix round 12, fresh-eyes #8, P3): a
- *  message regex used to stand in for the status, and "not found" also
- *  matches storage's own "Bucket not found" — a bucket-config problem, not a
- *  missing object — which would have been read as the ordinary retryable
- *  case instead of the operational failure it actually is. A storage failure
- *  that is NOT a 404 must never be read as "no object" — see both call
- *  sites, which treat the difference as the whole question. */
+ *  the ordinary "the PUT has not landed yet" case. storage-js carries the
+ *  HTTP status in `status` (number) and the server body's `statusCode`
+ *  (string). The storage server (storage-api v1.71, acceptance spec
+ *  rest-extended.test.ts:169-174) answers a MISSING OBJECT with HTTP 400 and
+ *  body statusCode '404', message 'Object not found' (codes.ts NoSuchKey);
+ *  other routes answer a plain 404. Neither status alone is the object
+ *  question: 'Bucket not found' and a missing ROUTE are 404-shaped too and
+ *  must stay 'unknown' (fix round 12, fresh-eyes #8, P3, extended 9/5 — a
+ *  message regex used to stand in for the status and would have matched
+ *  those too). So the answer is "404 by either field AND the server's own
+ *  NoSuchKey message" — see both call sites, which treat the difference as
+ *  the whole question. */
 export function isStorageNotFound(error: unknown): boolean {
-  return statusOf(error) === 404
+  if (!error || typeof error !== 'object') return false
+  const e = error as { status?: unknown; statusCode?: unknown; message?: unknown }
+  const notFound = e.status === 404 || e.statusCode === '404' || e.statusCode === 404
+  return notFound && e.message === 'Object not found'
 }
 
 /** Statuses the JOB PIPELINE owns. NEITHER door writes `status` on one of
