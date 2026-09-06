@@ -17,6 +17,16 @@ jest.mock('@/lib/customers/cached', () => ({
   getCachedCustomerListFor: () => getCachedCustomerListFor(),
 }))
 
+/** The REAL resolver, mocked at the module the read's DEFAULT seam imports —
+ *  so the wiring of that default (which nothing else in this file exercises)
+ *  has a pin of its own. Its precedence is take-audio.ts's own suite's job. */
+const resolveTakeAudio = jest.fn(
+  async (_b: string, _t: string, _e: string): Promise<'absent'> => 'absent',
+)
+jest.mock('@/lib/recording/take-audio', () => ({
+  resolveTakeAudio: (b: string, t: string, e: string) => resolveTakeAudio(b, t, e),
+}))
+
 import {
   makeSegmentsProbe,
   readRecordingsInbox,
@@ -487,6 +497,24 @@ describe('a degraded discard ledger stands the whole derivation down', () => {
  * pin at all, and `data.length > 0` would have passed every gate while painting
  * 「途中まで届いています」 over a folder the assembler can never seal.
  */
+describe('the DEFAULT resolver seam — the one wiring no injected probe covers', () => {
+  it('forwards the business, the take and the container, IN THAT ORDER', async () => {
+    // All three are plain strings, so a transposition type-checks and would
+    // ask storage about a key that cannot exist — a rescued take would read
+    // 失敗 for ever and nothing would fail. This is the only pin on it.
+    recordings.current = [rec({ id: 's1' })]
+    const [row] = await readRecordingsInbox({
+      synqed: client,
+      staffId: 'staff-1',
+      businessId: BIZ,
+      now: NOW,
+      segmentsProbe: probe,
+    })
+    expect(resolveTakeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
+    expect(row.serverAudio).toBe('segments')
+  })
+})
+
 describe('makeSegmentsProbe — the real rule, over a fake list', () => {
   const leaf = (name: string) => ({ data: [{ name }], error: null })
 
