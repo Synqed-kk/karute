@@ -460,8 +460,11 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // contract is "403 → forbidden", and the store clamp runs BEFORE the
       // shared body on this route, so `store_forbidden` is reachable here;
       // `tenant_forbidden` is normalised the same way by FACADE_CODE_TO_MINT in
-      // this very file. Leaving them to fall through would have called a
-      // terminal refusal retryable.
+      // this very file. Leaving them to fall through would have called a 403
+      // retryable. `store_forbidden` covers one true out-of-scope refusal AND
+      // two fail-CLOSED lookups (store-clamp.ts:43-48) — the wire cannot tell
+      // them apart, so the port takes the status at its word. Nothing branches
+      // on the difference today: runServerSave shows one toast for every arm.
       if (code === 'forbidden' || code === 'store_forbidden' || code === 'tenant_forbidden')
         return { error: 'forbidden' }
       // 409 — a staff member deliberately discarded this recording. Terminal,
