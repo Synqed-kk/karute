@@ -193,8 +193,11 @@ export function makeSegmentsProbe(list: ListFn): SegmentsProbe {
       // EXACT name equality on the FIRST leaf, never a length check: a folder
       // whose prefix starts at seq 3 has nothing the assembler can seal, and
       // painting it 「途中まで届いています」 would promise a rescue that cannot
-      // happen.
-      return data?.[0]?.name === `000000.${parsed.ext}`
+      // happen. Named rather than inlined so the rule has a line a mutation
+      // anchor can hold (a backtick cannot ride in one — the battery's own
+      // shell-quoting limit).
+      const firstLeaf = `000000.${parsed.ext}`
+      return data?.[0]?.name === firstLeaf
     } catch (err) {
       console.warn('[recordings-inbox] segment probe failed:', err)
       return 'unknown'
