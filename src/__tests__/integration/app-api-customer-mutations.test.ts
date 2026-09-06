@@ -628,7 +628,7 @@ describe('POST memory/relearn', () => {
     expect(staffStoresGet).not.toHaveBeenCalled()
   })
 
-  it('dev-tool gate: business.manage + recordings.viewAll passes the gate (read runs)', async () => {
+  it('dev-tool gate: business.manage + recordings.viewAll + unrestricted scope passes the gate (read runs)', async () => {
     const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
       listSynqedKaruteRows: jest.Mock
     }

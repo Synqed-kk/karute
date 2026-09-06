@@ -199,7 +199,9 @@ describe('viewerAllowedStoreIds — an unplaceable caller is [] , never unrestri
       synqed,
       authUserId: AUTH,
       capabilities: caps('recordings.viewAll'),
-      selfStaffId: AUTH,
+      // A DIFFERENT value from authUserId on purpose: if the helper ever keyed
+      // the lookup on selfStaffId instead, this assertion would catch it.
+      selfStaffId: 'placed-marker',
     })
     expect(allowed).toEqual(['store-A'])
     expect(staffStoresGet).toHaveBeenCalledWith(AUTH)

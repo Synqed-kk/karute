@@ -403,7 +403,7 @@ describe('regenerateKarute — web wrapper twin (lane 2026-08-30)', () => {
     expect(lines).toHaveLength(0)
   })
 
-  it('…while the OWNER’S HAND (both keys) rewrites the same colleague’s record', async () => {
+  it('…while the OWNER’S HAND (both keys + unrestricted scope) rewrites the same colleague’s record', async () => {
     REC.current = { ...REC.current, staff_id: 'other-staff' }
     capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     const result = await regenerateKarute('00000000-0000-4000-8000-000000000007')
@@ -712,6 +712,21 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     colleaguesKaruteInStoreB()
     capabilities.current = new Set(BOTH)
     webScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
+    await expect(regenerateKarute(ID)).resolves.toEqual({
+      error: 'You cannot regenerate a recording you are not allowed to view.',
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE THROWN ARM (fix round 8, L2 R3 F1). The web pins only ever exercised
+  // `degraded === true`; resolveStoreScope can also THROW (it awaits four
+  // helpers, none null-safe), and fail-open there would hand a clamped
+  // both-keys manager every branch's 再生成 during a core blip. The helper's own
+  // catch is unit-pinned in store-scope.test.ts; this is the DOOR's half.
+  it('web: a THROWN scope read fails the reach closed', async () => {
+    colleaguesKaruteInStoreB()
+    capabilities.current = new Set(BOTH)
+    webScopeThrows.current = true
     await expect(regenerateKarute(ID)).resolves.toEqual({
       error: 'You cannot regenerate a recording you are not allowed to view.',
     })

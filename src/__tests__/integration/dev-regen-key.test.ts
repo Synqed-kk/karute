@@ -39,7 +39,7 @@ describe('canUseDevRegen — BOTH keys', () => {
     scope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
   })
 
-  it('both keys (the owner, or a person the owner gave both) → true', async () => {
+  it('both keys (the owner, or a person the owner gave both) + unrestricted scope → true', async () => {
     rp.getMyCapabilities.mockResolvedValue(new Set(['business.manage', 'recordings.viewAll']))
     await expect(canUseDevRegen()).resolves.toBe(true)
   })
