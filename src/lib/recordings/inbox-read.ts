@@ -464,26 +464,36 @@ export async function readRecordingsInbox({
  * would paint 復元可能 + 保存する over nothing, the door would answer no_audio,
  * and the 要対応 count would be one a staffer could never clear.
  *
- * ⚖ AND THE SEGMENT FOLDER IS ASKED FIRST (amendment 9's ADDENDUM 9.2, M1).
- * The rescue lives at its own key now, and a folder with no seq 0 was never
- * rescued and never can be — so the cheap listing that already answers the
- * 'segments' half is also the gate on asking about audio at all:
- *  · seq 0 present → `resolveTakeAudio`: a key (the phone's object OR the
- *    rescue — the inbox does not care which) → 'object'; 'absent' →
- *    'segments'; 'unknown' → nothing.
- *  · anything else from the listing → nothing at all, and no second call.
- *  · 'unknown' from either probe → nothing. A blip is not evidence in either
- *    direction, and the row keeps exactly today's behaviour.
- * NAMED COST of that order: a take shorter than one flush window has no
- * segments to list, so its finished object is not offered here — it reads as
- * it did before this build. Nothing is claimed that cannot be saved.
+ * ⚖ AND THE PHONE'S OWN KEY IS ASKED FIRST (ADDENDUM 9.4, 2026-09-07).
+ * `resolveTakeAudio` is the ONE precedence for "where is this take's audio" —
+ * the phone's whole object, then the rescue beside it — and it needs no
+ * segments to answer. WHY THAT ORDER: a whole object can exist with no `seg/`
+ * folder behind it at all. Every take recorded by a shell older than the
+ * segment pump (#836) is that shape, which is every fielded phone until this
+ * build's bake reaches it; so is a take whose stop-time pump was refused or
+ * budget-cut and whose object landed on a later drain. Asking the listing
+ * first hid all of them behind 失敗 while the save door would have queued
+ * them happily. So, per candidate:
+ *  · the resolver first: a key (the phone's object OR the rescue — the inbox
+ *    does not care which) → 'object', and nothing else is asked;
+ *  · 'unknown' → nothing at all, and no listing. A blip is not evidence in
+ *    either direction, and the row keeps exactly today's behaviour;
+ *  · 'absent' → THEN the listing, which now gates only the half it can speak
+ *    for: seq 000000 present → 'segments'; anything else, or 'unknown' →
+ *    nothing.
  *
- * THE HONEST CALL COUNT: up to THREE storage calls per candidate row — the
- * listing, then the phone's key, then the rescue's — and the cap below bounds
- * the CANDIDATES, not the calls. One pool, one cap, for the same reason the
- * job probes have theirs: a genuinely broken tenant must not turn one inbox
- * read into hundreds of storage round trips. Newest-first, and the drop is
- * logged.
+ * THE HONEST CALL COUNT: still up to THREE storage calls per candidate row —
+ * the phone's key, the rescue's, then the listing — and the cap below bounds
+ * the CANDIDATES, not the calls. A finished-object row now pays ONE. The only
+ * row that pays MORE than before is a dead folder with no seq 0 (three calls
+ * instead of one), which is rare and bounded by the same cap. One pool, one
+ * cap, for the same reason the job probes have theirs: a genuinely broken
+ * tenant must not turn one inbox read into hundreds of storage round trips.
+ * Newest-first, and the drop is logged.
+ *
+ * THE HONEST REMAINING COST: a take with nothing on the server at all — no
+ * object at either key, no seq 0 in the folder — still reads 失敗, which is
+ * exactly what it is.
  */
 async function deriveServerAudio(
   rows: readonly InboxServerSession[],
@@ -531,12 +541,16 @@ async function deriveServerAudio(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
       for (let i = next++; i < probeList.length; i = next++) {
         const { row, key, takeId, ext } = probeList[i]
-        // The listing FIRST, and it is a gate as well as a fact: no seq 0, no
-        // rescue is possible, so nothing else is asked (ADDENDUM 9.2 M1).
-        if ((await deps.segmentsProbe(businessId, key)) !== true) continue
+        // THE PHONE'S KEY FIRST (ADDENDUM 9.4), because a whole object needs no
+        // segments behind it. Only a proven 'absent' buys the listing, and the
+        // listing now gates the RESCUE half alone.
         const audio = await deps.takeAudioProbe(businessId, takeId, ext)
         if (audio === 'unknown') continue
-        row.serverAudio = audio === 'absent' ? 'segments' : 'object'
+        if (audio !== 'absent') {
+          row.serverAudio = 'object'
+          continue
+        }
+        if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
       }
     }),
   )

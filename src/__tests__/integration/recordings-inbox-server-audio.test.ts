@@ -147,8 +147,9 @@ describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () =
     // Asked as the PARSED take — the business, the take id and the container —
     // never as the pointer string the row happens to carry.
     expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
-    // …and the folder listing came FIRST (ADDENDUM 9.2 M1).
-    expect(probe).toHaveBeenCalledWith(BIZ, KEY)
+    // …and the listing is never reached (ADDENDUM 9.4): the resolver already
+    // named the bytes, so there is nothing left for the folder to gate.
+    expect(probe).not.toHaveBeenCalled()
   })
 
   it('the PHONE’s own object is the same news to the inbox — object, no flag', async () => {
@@ -159,16 +160,23 @@ describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () =
     const [row] = await read()
     expect(row.serverAudio).toBe('object')
     expect(JSON.stringify(row)).not.toContain('rescued')
+    // ⚖ ADDENDUM 9.4 — the cohort the old order lost: every take from a shell
+    // older than the segment pump has this exact shape, a whole object with no
+    // seq 0 anywhere. One call answers it; the listing is never asked.
+    expect(probe).not.toHaveBeenCalled()
   })
 
-  it('⚖ M1: NO seq 0 → the resolver is never asked at all', async () => {
-    // A folder without seq 0 was never rescued and never can be, so the cheap
-    // listing is the gate on asking about audio: no second and third call.
+  it("⚖ 9.4: 'absent' at BOTH keys and NO seq 0 → nothing at all", async () => {
+    // The listing gates only the half it can speak for. Nothing is on the
+    // server for this take, so the row keeps today's 失敗 — which is the truth.
+    takeAudio.mockResolvedValue('absent')
     probe.mockResolvedValue(false)
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(takeAudio).not.toHaveBeenCalled()
+    // Both were asked, in the ruled order: the resolver, then the folder.
+    expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
+    expect(probe).toHaveBeenCalledWith(BIZ, KEY)
   })
 
   it('⚖ R1: a DURATION IS NOT A PROOF — a stamped row is still probed', async () => {
@@ -205,6 +213,9 @@ describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () =
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
+    // …and it stops the whole question: a blip must not spend a listing and
+    // must never let the row read 'segments' on the way past.
+    expect(probe).not.toHaveBeenCalled()
   })
 
   it('a pointer that is not THIS business’s take is never probed at all', async () => {
@@ -234,8 +245,10 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('segments')
-    expect(probe).toHaveBeenCalledWith(BIZ, KEY)
     expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
+    // One listing, and only because the resolver proved 'absent' first.
+    expect(probe).toHaveBeenCalledWith(BIZ, KEY)
+    expect(probe).toHaveBeenCalledTimes(1)
   })
 
   it('BELOW the grace nothing is probed — the row already reads 処理中', async () => {
