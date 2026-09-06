@@ -128,6 +128,13 @@ jest.mock('@synqed-kk/client', () => ({
 // Service client: select chains read `profileRow`; update chains resolve
 // `{ error: updateError }` after one OR two .eq() calls (both shapes exist).
 let profileRow: Record<string, unknown> | null = null
+/** Successive maybeSingle() reads, consumed IN ORDER, for the cases where the
+ *  target row and the CALLER's own row must differ — setStaffPermissionsCore
+ *  issues a second select only when the write adds an owner-granted-only
+ *  capability. Empty (the default) = every read returns `profileRow`, so every
+ *  pre-existing case is untouched. Same idiom as app-api-staff-authority's
+ *  `selectResults`. */
+let profileRows: Array<Record<string, unknown> | null> = []
 let updateError: { message: string } | null = null
 const adminCreateUser = jest.fn(async () => ({
   data: { user: { id: 'user-new' } },
@@ -137,7 +144,9 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'ilike', 'order', 'limit']) builder[m] = () => builder
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
+      data: profileRows.length > 0 ? profileRows.shift()! : profileRow,
+    })
     ;(builder as { update: unknown }).update = () => {
       const chain: Record<string, unknown> = {}
       chain.eq = () => chain
@@ -172,6 +181,7 @@ beforeEach(() => {
   can.mockImplementation(async () => true)
   requireCapability.mockImplementation(async () => {})
   profileRow = null
+  profileRows = []
   updateError = null
 })
 
@@ -357,6 +367,22 @@ describe('authority writers', () => {
       target_id: 'staff-9',
       detail: { before_role: 'practitioner', after_role: 'manager', customized: false },
     })
+  })
+
+  it('setStaffPermissions feeds callerStaffId to the owner gate: the OWNER granting 全スタッフの録音 through the WEB action passes', async () => {
+    // The facade PUT's owner gate is pinned in app-api-staff-authority.test.ts;
+    // this is the WEB transport's half. If setStaffPermissions ever stopped
+    // resolving callerStaffId, the caller row below could not be read and the
+    // OWNER would be refused on the 設定 → スタッフ screen with
+    // "Only the owner can grant recording access." — a green repo, a broken
+    // desktop. Two rows: the target, then the caller's own row.
+    profileRows = [
+      { id: 'staff-9', display_role: 'stylist', permission_role: 'practitioner' },
+      { display_role: 'owner', permission_role: 'owner' },
+    ]
+    await expect(
+      setStaffPermissions('staff-9', 'custom', ['recordings.viewAll']),
+    ).resolves.toEqual({ ok: true })
   })
 
   it('setStaffStores emits settings.staff_stores_change at notice with the full assignment set', async () => {

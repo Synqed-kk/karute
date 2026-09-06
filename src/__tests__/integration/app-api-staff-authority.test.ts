@@ -142,6 +142,21 @@ describe('GET /api/app/v1/staff/[id]/permissions', () => {
     expect(body.permissionRole).toBe('practitioner')
     expect(body.isOwner).toBe(false)
   })
+
+  it('read-back: a stored 全スタッフの録音 override comes back in `capabilities` — the form re-opens TICKED', async () => {
+    // The other half of the bug the resolve-time strip caused (DESIGN §THE
+    // FOUR SIDES 1: "the owner's tick is a checkbox that never sticks"). The
+    // PUT cases below prove the tick is STORED; this one proves the READ hands
+    // it back, which is what the owner sees on the phone. Restoring the strip
+    // in src/lib/auth/permissions.ts turns this red.
+    selectResults = [
+      { ...nonOwnerTarget, permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    const res = await permissionsGET(getReq('staff/staff-9/permissions'), params('staff-9'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.capabilities).toContain('recordings.viewAll')
+  })
 })
 
 describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
@@ -352,6 +367,34 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
     // Untick → requested == the custom preset (empty) → stored null → gone.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: null })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: { recordings_view_all: 'revoked' } })
+  })
+
+  it("a MANAGER can untick the owner's grant — removals are not owner-gated (the recorded non-change)", async () => {
+    // The twin of the owner case above, run by a non-owner caller. ⚖ recorded,
+    // deliberate: the owner gate reads `added` only, exactly as audit.view and
+    // sync.view already do — taking a capability away needs staff.manage, not
+    // ownership. A guard bolted onto the removal side would silently reverse
+    // that ruling and pass every other test in the repo; this case is the one
+    // that would go red.
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // a manager, no viewAll
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      { id: 'staff-9', display_role: 'stylist', permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', { permissionRole: 'custom', capabilities: [] }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
     expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: null })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ detail: { recordings_view_all: 'revoked' } })

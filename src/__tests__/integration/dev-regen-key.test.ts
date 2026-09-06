@@ -13,10 +13,10 @@ import { canUseDevRegen } from '@/actions/dev-tools'
 
 const rp = jest.requireMock('@/lib/auth/require-permission') as { getMyCapabilities: jest.Mock }
 
-describe('canUseDevRegen — owner-identity key', () => {
+describe('canUseDevRegen — BOTH keys', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('owner (both keys) → true', async () => {
+  it('both keys (the owner, or a person the owner gave both) → true', async () => {
     rp.getMyCapabilities.mockResolvedValue(new Set(['business.manage', 'recordings.viewAll']))
     await expect(canUseDevRegen()).resolves.toBe(true)
   })
