@@ -416,17 +416,30 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // still holds the recording keeps winning: the complete copy is always the one
 // offered.
 //
-// Measured at this PR's tip, the CI/release way, AFTER fix round 2:
-// en 130,422 · index 984,321 · vendor 937,743 = 2,052,486 B. All three figures
-// below were taken in ONE environment, each from a cold `rm -rf thin/dist`
-// build under the env extracted from ci.yml's own gate step, and each
-// reproduced twice:
+// Measured at this PR's tip, the CI/release way, AFTER fix round 3:
+// en 130,422 · index 984,398 · vendor 937,743 = 2,052,563 B. Every figure below
+// came from a cold `rm -rf thin/dist` build under the env extracted from
+// ci.yml's own gate step by
+// evidence/assembler-20260906/extract-ci-bundle-env.py (no value retyped by
+// hand), and each was reproduced twice:
 //   · base 3ee1cdf8d on main — en 130,251 · index 981,263 · vendor 937,743
 //     = 2,049,257 B
 //   · fix round 1 (19db4c223) — en 130,422 · index 984,147 · vendor 937,743
 //     = 2,052,312 B
-//   · this tip — 2,052,486 B
-// So the PR costs the phone +3,229 B, of which fix round 2 is +174 B.
+//   · fix round 2 (c9faaee4e) — en 130,422 · index 984,321 · vendor 937,743
+//     = 2,052,486 B
+//   · this tip — 2,052,563 B
+// So the PR costs the phone +3,306 B, of which fix round 3 is +77 B.
+//
+// ⚖ AND THE ENVIRONMENT IS PART OF THE MEASUREMENT (fix round 3, R6). These are
+// the CI RECIPE run in ONE environment — this repo's own node_modules at this
+// tip's lockfile. A build from another dependency tree can emit a different
+// index chunk hash and land a few bytes apart without anything here moving: at
+// 19db4c223 this environment emits index-C3F9hjgF.js at 984,147 B and a review
+// worktree whose node_modules were symlinked from elsewhere emitted
+// index-CIqb6iSh.js at 984,151 B. Four bytes, a different chunk, no defect —
+// and re-measuring rather than re-typing is the only way to tell. So do not
+// "correct" a figure here from another machine's build; re-run the recipe.
 //
 // Where those bytes went. The build itself was +2,080 B (2,051,337 B at the
 // pre-review tip): two message strings in both catalogs, the fold's two new
@@ -439,13 +452,16 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // reaching the phone. Fix round 2's +174 B is the same kind of thing, smaller:
 // the save's latch moved to the tap and held across the consent round trip, the
 // seal re-checked after it, the store handing a mid-flight caller a promise it
-// can follow, and the greyed button losing its hover fill.
+// can follow, and the greyed button losing its hover fill. Fix round 3's +77 B
+// is three lines of the same: the discard fence refusing a ledger row it cannot
+// read, every save arm on the card greying while any one save runs, and the
+// seal re-read across the consent grant as well.
 //
 // The ceiling is sized for the WHOLE slice, not just this PR, because the other
 // two land beside it: PR-A (the nightly assembler) adds +119 B of i18n labels
 // its own totality gate demands, and PR-B (the store stamp) is server-side but
-// for a few lines at the take doors. So 2,054,000 leaves 1,514 B of headroom at
-// this tip and 1,395 B once A's labels land — the rest is B's allowance plus
+// for a few lines at the take doors. So 2,054,000 leaves 1,437 B of headroom at
+// this tip and 1,318 B once A's labels land — the rest is B's allowance plus
 // the rebase. Whatever is left after those three is the next thing's problem,
 // and it should have to come back and say what it is.
 //

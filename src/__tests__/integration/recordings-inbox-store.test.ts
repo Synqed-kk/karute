@@ -136,8 +136,16 @@ describe('FX-2 — a refresh during a fold is deferred, not dropped', () => {
     await flush()
 
     let settled = false
+    let rowsWhenSettled = -1
     const follower = loadInbox().then(() => {
       settled = true
+      // ⚖ R3 (fix round 3) — the state AT THE MOMENT the promise settled, read
+      // inside the `.then()`. Asserting it after the test's own `flush()` below
+      // proves nothing about the promise: the trailing re-run finishes inside
+      // that flush whether or not anyone awaited it, so dropping the `await` in
+      // inbox-store's re-run left this test green. This variable is the only
+      // thing here that can tell the two apart.
+      rowsWhenSettled = getInboxState().rows.length
     })
     await flush()
     expect(settled).toBe(false)
@@ -148,7 +156,8 @@ describe('FX-2 — a refresh during a fold is deferred, not dropped', () => {
     await flush()
 
     expect(settled).toBe(true)
-    // …and the state it settled on is the FRESH fold, not the stale one.
+    // The FRESH fold — the trailing re-run's, not the one that ran before it.
+    expect(rowsWhenSettled).toBe(1)
     expect(getInboxState().rows).toHaveLength(1)
     expect(getInboxState().rows[0].state).toBe('saved')
   })
