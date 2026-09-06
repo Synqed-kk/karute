@@ -1807,6 +1807,42 @@ export function TodayScreen(props: TodayProps) {
     (excludeId: string | null) => restingSpanFor(pending, committedLanes, excludeId, hours, props.dayOffset, props.store),
     [pending, committedLanes, hours, props.dayOffset, props.store],
   )
+  /** ⚖ NUDGE-GUARD FIX 1 — 「could a NEW placement start here, with THIS card lifted」.
+   *
+   *  The before-list was asked `bedDoorFor(excludeId)`, which is the other question —
+   *  「may this booking go here」 — and binds the mover's own 個室のみ tag and its
+   *  current room. On a room-bound card that narrowed the before-list below the
+   *  windows the store really publishes, so a move that destroyed the lane's last
+   *  新規 window went quiet under 「守れます」 with the ¥ gone. A protected window's
+   *  subject is a NEW client, who needs no private room: the hypothetical asker on
+   *  the world MINUS the moving card. Packet + findings, whole:
+   *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/PKT-NUDGE-FIX1.md §F2
+   *  …/nextround/BLIND-NUDGE-f14f7294f/LENS-1-engineer.md L1-1 · LENS-2-breaker.md B-1 · LENS-4-drift.md F1
+   *
+   *  ⚖ THE ONE-DOOR INVARIANT MIGRATES WITH THE DECISION, as it did at E3a: this is
+   *  the second walk through `bedViewsFor`'s door on this screen and it is NAMED
+   *  here. No id, or a board holding no such card, has no lifted world → `undefined`,
+   *  which is today's behaviour everywhere.
+   *
+   *  ponytail — the frame's own book already holds the lifted world when the mover IS
+   *  the live hand; the confirm surface's card is not, so its world is built here and
+   *  memoised per id (at most `pending.id` and `handId` in one frame). */
+  const newClientDoorMinus = useMemo(() => {
+    const built = new Map<string, ReturnType<typeof bedDoor>>()
+    const doorFor = (excludeId: string | null, lanes: BoardLane[]) => {
+      const lifted =
+        lanes === boardLanes && excludeId === ledger.handId
+          ? ledger.worldMinusHand
+          : bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand
+      return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)
+    }
+    return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {
+      if (lanes !== boardLanes) return doorFor(excludeId, lanes)
+      const key = excludeId ?? ''
+      if (!built.has(key)) built.set(key, doorFor(excludeId, lanes))
+      return built.get(key)
+    }
+  }, [boardLanes, ledger, ledgerFrame])
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
    *  builder, two worlds; the sales door's instance is above.
@@ -1873,10 +1909,10 @@ export function TodayScreen(props: TodayProps) {
             // world-minus-hand — which is exactly the book `heldBoard` reads.
             protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,
             resting: restingFor(handId),
-            restingWindowFeasible: bedDoorFor(handId),
+            restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
@@ -2160,10 +2196,10 @@ export function TodayScreen(props: TodayProps) {
             // already taken something out of.
             protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,
             resting: restingFor(excludeId),
-            restingWindowFeasible: bedDoorFor(excludeId, lanes),
+            restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,
           })
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.

@@ -1811,8 +1811,10 @@ export interface RailInput {
    *  card lifted out — see COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 2.
    *  Absent or null = today's behaviour everywhere (a new card, a cell at rest). */
   resting?: { laneKey: string; start: number; dur: number } | null
-  /** The window door the BEFORE-list is judged through: the world MINUS the moving
-   *  card's own room hold. Judging it on the after-world erased the very window the
+  /** The window door the BEFORE-list is judged through: 「could a NEW placement start
+   *  here, with the moving card lifted out」 — never 「may THIS card go here」, which
+   *  binds the mover's own 個室のみ tag and silenced a real loss (…/nextround/
+   *  PKT-NUDGE-FIX1.md §F2). Judging it on the after-world erased the very window the
    *  move destroys (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 3). Same
    *  shape as `protectedWindowFeasible` above; the AFTER-list keeps that one. */
   restingWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
@@ -2026,10 +2028,13 @@ function railCell(
   const loss = Math.max(0, beforeStarts.length - afterStarts.length)
   /** ⚖ 9/1 「zero-loss is quiet」 — WHAT SURVIVES, in the ✓ branch's own words, spelled
    *  once: a MOVE that costs the store no window says exactly this and no count pair
-   *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 4). */
-  const keptSentence = () => {
-    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)
-    return v.protectedCapacityBefore === 0
+   *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 4). THE CALLER NAMES ITS
+   *  OWN LISTS: the ✓ branch decided on the engine's pocket, a MOVE decided on the
+   *  honest lane lists, and reading the pocket here printed a bare 「守れます」 over
+   *  a lane holding nothing (…/nextround/PKT-NUDGE-FIX1.md §F1). */
+  const keptSentence = (after: readonly number[], noneAtAll: boolean) => {
+    const held = protectedWindowsClause(after, input.protectedDur)
+    return noneAtAll
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
       : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
   }
@@ -2097,13 +2102,13 @@ function railCell(
     // engine (a start that keeps its capacity keeps its windows); it is here so
     // a future engine that reports a count without its starts falls back to the
     // sentence that shipped rather than printing a bare 「の」.
-    const sentence = keptSentence()
+    const sentence = keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
     // A MOVE whose honest loss is zero is not a 0枠減 count sentence: it is the ✓
     // branch's own promise about what survives, quiet and un-priced.
-    if (resting !== null && loss === 0) return degradedFace(keptSentence(), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+    if (resting !== null && loss === 0) return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
     // ⚖ Liam 8/30 — and it names the windows this start EATS, which is the
     // question a cost sentence answers. Not the whole before-set (most of it
     // survives) and not before-minus-after (the after-set re-tiles). A degraded
@@ -2138,7 +2143,7 @@ function railCell(
   // no inventory by confirming this change, so the gate that priced it and held it behind
   // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
   if (repCapacity && resting !== null && loss === 0) {
-    return degradedFace(keptSentence(), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+    return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
   }
   // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
   // every other refusal class keeps the engine's own pocket numbers, untouched.
