@@ -176,18 +176,14 @@ export async function mintPlaybackUrlWithClient(
   //    passed in, because the caller has not seen either object yet when it
   //    builds the actor.
   //
-  //    ⚠ THE KARUTE'S STORE, NOT THE ROW'S (fix round 4, blind round 2 F1).
-  //    `recordings` rows carry NO store_id in this repo — `recordings.create`
-  //    never sends one (session-mint.ts:174, the payload's own comment), the
-  //    SDK's update input has no such field, and a shipped route header states
-  //    it as fact for exactly this reason (recordings/inbox/route.ts:12-13:
-  //    "filtering by it would return an empty list for everyone"). Clamping on
-  //    the row therefore evaluated to the 全店舗/legacy branch for EVERY take in
-  //    the field — the sound door was open while the words door was shut on the
-  //    same karute. The karute's store IS written (resolveKaruteStoreId,
-  //    actions/karute.ts), and it is the same object the words door clamps on,
-  //    so both doors now answer one karute the same way. `?? row.store_id`
-  //    keeps the row's value if core ever starts stamping it.
+  //    ⚠ THE KARUTE'S STORE LEADS (fix round 4, blind round 2 F1). The karute's
+  //    store is ALWAYS written (resolveKaruteStoreId, actions/karute.ts) and is
+  //    the same object the words door clamps on, so both doors answer one
+  //    karute the same way. `?? row.store_id` is the recording row's own store
+  //    — live for rows minted since slice three ③ (session-mint.ts:199), null
+  //    for every row before it. Reading the ROW ALONE was the bug: it was empty
+  //    for every take in the field, so the clamp took the 全店舗/legacy branch
+  //    and the sound door stood open while the words door was shut.
   if (
     !canViewTranscript({
       ownerStaffId,
