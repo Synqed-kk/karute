@@ -96,13 +96,15 @@ export type EnqueueFromSessionResult =
  * fetch, three retries and a FAILED row — and leaves the staffer's row at 失敗
  * with no better story than before.
  *
- * ⚠ PR-B REBASE: `EnqueueFromSessionActor extends FinalizeTakeActor`, and PR-B
- * makes `allowedStoreIds: readonly string[] | null` REQUIRED on that shape, so
- * BOTH callers below will fail to compile — deliberately. RESOLVE the reach
- * exactly as the finalize callers do (web: viewerScopeForActs, only when
- * holdsOwnerKeys; facade: store-clamp's viewerAllowedStoreIds). Typing
- * `allowedStoreIds: null` to silence the error would read as UNCLAMPED under
- * D7's null rule and silently widen the owner's hand on a store-stamped row.
+ * ⚖ THE STORE REACH, RESOLVED (PR-B, merged 2026-09-06).
+ * `EnqueueFromSessionActor extends FinalizeTakeActor`, whose `allowedStoreIds`
+ * is REQUIRED, so both callers resolve it the way the finalize callers do and
+ * the compiler is what says they must: web reads viewerScopeForActs, the
+ * facade reads store-clamp's viewerAllowedStoreIds, each ONLY when the owner's
+ * keys are held (an own-session save never reaches the store leg). Typing
+ * `allowedStoreIds: null` at a caller to satisfy the type would read as
+ * UNCLAMPED under D7's null rule and silently widen the owner's hand over a
+ * store-stamped row — which is why neither caller does.
  */
 export async function enqueueFromSessionWithClient(
   synqed: Core,

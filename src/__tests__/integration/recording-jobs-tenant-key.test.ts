@@ -22,6 +22,10 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 }))
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: async () => ({ storeId: 'store-1' }),
+  // PR-B's act scope: what the OWNER'S HAND may reach, resolved only when the
+  // pair is held. A staffer assigned to one store — so a colleague's row
+  // stamped with another store is out of reach, which the pin below asserts.
+  viewerScopeForActs: async () => ['store-1'],
 }))
 const objectExists = jest.fn(async (_key: string): Promise<boolean | 'unknown'> => true)
 jest.mock('@/lib/recording/mint-take-url', () => ({
@@ -35,6 +39,8 @@ type Row = {
   audio_storage_path: string | null
   duration_seconds: number | null
   status: string
+  /** Stamped since ③ (PR-B); absent on every row minted before it. */
+  store_id?: string | null
 }
 const current = { row: null as Row | null }
 const recordingsGet = jest.fn(async (_id: string) => current.row)
@@ -163,6 +169,17 @@ describe('enqueueRecordingJobFromSession — the cookie arm', () => {
     current.row = { ...current.row!, staff_id: 'someone-else' }
     capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     await expect(enqueueRecordingJobFromSession(input)).resolves.toMatchObject({ ok: true })
+  })
+
+  it('…but only as far as she can SEE: a colleague’s row stamped in another store is refused', async () => {
+    // The rebase's whole point. The cookie arm resolves the reach with
+    // viewerScopeForActs (one store above), so a row PR-B stamped elsewhere is
+    // out of the owner's hand — and typing `allowedStoreIds: null` at this
+    // caller to silence the compiler would have made this pass.
+    current.row = { ...current.row!, staff_id: 'someone-else', store_id: 'store-9' }
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    await expect(enqueueRecordingJobFromSession(input)).resolves.toEqual({ error: 'forbidden' })
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   it('a denied capability throws inside and answers upstream, never a queued job', async () => {

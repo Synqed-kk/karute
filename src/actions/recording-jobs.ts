@@ -17,7 +17,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, viewerScopeForActs } from '@/lib/auth/store-scope'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
@@ -139,12 +139,23 @@ export async function enqueueRecordingJobFromSession(
       : null
     if (!jobStaffId) return { error: 'forbidden' }
 
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE (PR-B's rule,
+    // resolved here exactly as finalizeTake's web caller resolves it — one
+    // spelling of the act scope, viewerScopeForActs). Only when the pair is
+    // held: a recorder saving her OWN session never reaches the store leg, so
+    // an assignment blip must not cost her the recording. `null` here would
+    // read as UNCLAMPED under the D7 null rule, so it is never typed — it is
+    // what the resolver answers for a caller who genuinely has no restriction.
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld ? await viewerScopeForActs() : null
+
     const result = await enqueueFromSessionWithClient(
       synqed,
       {
         staffId: profileStaffId,
         businessId,
-        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
         source: 'web',
         jobStaffId,
         storeId: scope.storeId,

@@ -104,6 +104,10 @@ const actor = (over: Partial<Parameters<typeof enqueueFromSessionWithClient>[1]>
   staffId: 'staff-A',
   businessId: BIZ,
   holdsOwnerKeys: false,
+  // PR-B makes the reach REQUIRED on the take doors' actor: null = the caller
+  // is unrestricted, which is what a plain recorder acting on her own session
+  // is. The owner's-hand cases below pass a concrete list.
+  allowedStoreIds: null,
   source: 'web' as const,
   jobStaffId: 'synqed-staff-A',
   storeId: 'store-1',

@@ -23,7 +23,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveStoreForRequest, viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { RecordingJobFromSessionSchema } from '@/lib/app-api/record-schemas'
 import { enqueueFromSessionWithClient } from '@/lib/recording/enqueue-from-session'
@@ -70,12 +70,29 @@ export const POST = facadeHandler('recordings.job.enqueueFromSession', async (ct
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
 
+  // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE (PR-B's rule).
+  // The Bearer twin of web's viewerScopeForActs, and the same call the finalize
+  // route makes two doors over. Resolved ONLY when the pair is held — saving
+  // one's OWN session never reaches the store leg — and it reads the staff
+  // ASSIGNMENT, never the `store-id` header above: a phone-set pin can neither
+  // widen nor narrow the owner's hand.
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+  const allowedStoreIds = callerHoldsOwnerKeys
+    ? await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        selfStaffId,
+      })
+    : null
+
   const result = await enqueueFromSessionWithClient(
     synqed,
     {
       staffId: selfStaffId,
       businessId: ctx.identity.businessId,
-      holdsOwnerKeys: holdsOwnerKeys(ctx.identity.capabilities),
+      holdsOwnerKeys: callerHoldsOwnerKeys,
+      allowedStoreIds,
       source: 'facade',
       requestId: ctx.meta.requestId,
       jobStaffId,
