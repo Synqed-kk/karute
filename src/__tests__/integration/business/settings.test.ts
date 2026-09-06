@@ -533,9 +533,9 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
     // is the third: canon has no page for it because it is #812's room, which
     // arrived as ONE section of this rail rather than as a second 設定 route at
     // the same path. It sits SECOND, right after 店舗情報・営業時間.
-    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', '自分の表示設定'])
+    expect(labels.filter((l) => !CANON_PAGES.includes(l))).toEqual(['予約と確保', '顧客・連絡', '会員カードの色', '自分の表示設定'])
     expect(labels[1]).toBe('予約と確保')
-    expect(RAIL).toHaveLength(22)
+    expect(RAIL).toHaveLength(23)
   })
 
   it('NOT ONE SECTION IS A STUB — every open section carries real content', async () => {
@@ -549,7 +549,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
         // dials from `storePolicyProps()`'s payload. Its substance is asserted
         // directly below, against that payload, rather than against blocks it
         // deliberately does not have.
-        if (s.id === 'booking-guard') continue
+        if (s.id === 'booking-guard' || s.id === 'reserve-card-color') continue // Independently rendered and tested sections.
         const rows = s.blocks.reduce((n, b) => n + b.rows.length, 0)
         const substance = s.blocks.reduce((n, b) => n + b.rows.length + b.facts.length + (b.list ? 1 : 0) + (b.table ? 1 : 0), 0)
         expect({ role, id: s.id, blocks: s.blocks.length > 0 }).toEqual({ role, id: s.id, blocks: true })
@@ -644,7 +644,7 @@ describe('⚖ EVERY CANON PAGE IS BUILT, AND EVERY CONTROL MOVES', () => {
       // ruling rather than an omission: its 保存 is #812's own, gated by the
       // seam's `saveRefusal` answer. The rail's demo-local dirty/保存 grammar
       // beside it would be a second, contradicting save story on one section.
-      if (s.id === 'booking-guard') continue
+      if (s.id === 'booking-guard' || s.id === 'reserve-card-color') continue // Independently rendered and tested sections.
       const ids = controlIdsOf(s)
       expect({ id: s.id, controls: ids.length > 0 }).toEqual({ id: s.id, controls: true })
       // Clean at rest…
@@ -1791,7 +1791,7 @@ describe('⚖ S17 — find by typing, what is unsaved, and the wire’s own shap
     expect(matchesQuery(searchTextOf(rowOf('ai'), byId['ai']), 'ai')).toBe(true)
     // …and the footer's count is DERIVED, so a 23rd section cannot ship beside a
     // rail still claiming 22.
-    expect(props.rail).toHaveLength(22)
+    expect(props.rail).toHaveLength(23)
     expect(SCREEN_CODE).toContain('`全${props.rail.length}件の設定 ・ 名前とページの中の見出しから探せます`')
   })
 

@@ -46,6 +46,8 @@
 //      · strip · list-is-the-page) and ONE spring (`makeSpring`) driving every
 //      thumb, height and rise — never a second easing.
 //
+// Reserve card colour is the explicit company-wide server-persisted exception
+// (2026-09-06). Its isolated component owns loading, validation and real saves.
 // WHAT IS CLIENT STATE HERE: every control's value, what was last saved, which
 // section is open, the search query, which 詳しく are open, whether the phone is
 // showing the list or the section, the result line of a block's action, and which
@@ -73,6 +75,7 @@ import {
 } from 'react'
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep, type SpotRect } from '@/business/lib/guide'
 import { makeSpring } from '@/business/lib/spring'
+import { ReserveCardColorSection } from './ReserveCardColorSection'
 import { Collapse, DetailToggle } from './Collapse'
 import { StorePolicySection, STORE_POLICY_ANCHORS, STORE_POLICY_HEADINGS, type StorePolicyProps } from './StorePolicySection'
 import {
@@ -1072,6 +1075,8 @@ export function SettingsScreen(props: SettingsScreenProps) {
             columnAnd(boundaryFallbackNode, null)
           ) : section.gate === 'no-rights' ? (
             columnAnd(boundaryNode, null)
+          ) : section.id === 'reserve-card-color' ? (
+            columnAnd(<>{backNode}<ReserveCardColorSection /></>, null)
           ) : isBookingGuard && policy === null ? (
             // ⚖ S17 fix round 5 · G1 — NO PAYLOAD, SAME BOUNDARY. By
             // construction this is the gated reader the branch above already

@@ -1371,6 +1371,20 @@
 
 /* ═══ THREE ACROSS — `.st-main` ≥ 640. The presets are a set, and the
    capability grid is eight facts that read as a grid or not at all. ═══ */
+/* Reserve's company appearance setting; card carries no ornamental strokes. */
+.biz .page.pg-settings .st-reserve-color { max-width: 760px; padding: 24px; }
+.biz .page.pg-settings .st-reserve-preview { position:relative; min-height:190px; border-radius:26px; padding:32px; display:flex; flex-direction:column; gap:46px; color:var(--satin-ink); background:radial-gradient(ellipse 80% 110% at 82% 12%,var(--satin-high) 0%,var(--satin-high) 10%,var(--satin-shoulder) 43%,var(--satin-body) 70%,var(--satin-low) 100%); box-shadow:0 12px 28px #162b2015; }
+.biz .page.pg-settings .st-reserve-preview strong { font-size:28px; }
+.biz .page.pg-settings .st-reserve-preview span { font-size:12px; letter-spacing:.15em; }
+.biz .page.pg-settings .st-reserve-swatches { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 24px; }
+.biz .page.pg-settings .st-reserve-swatches button { display:flex; align-items:center; gap:8px; min-height:44px; padding:8px 12px; border:1px solid #d6d8dc; border-radius:12px; background:white; color:#1d2530; }
+.biz .page.pg-settings .st-reserve-swatches button[aria-pressed=true] { outline:2px solid #536b91; outline-offset:2px; }
+.biz .page.pg-settings .st-reserve-swatches i { width:20px; height:20px; border-radius:50%; }
+.biz .page.pg-settings .st-reserve-custom { display:flex; flex-wrap:wrap; gap:20px; margin:20px 0; }
+.biz .page.pg-settings .st-reserve-custom label { display:flex; flex-direction:column; gap:8px; }
+.biz .page.pg-settings .st-reserve-custom input { min-height:44px; max-width:180px; }
+.biz .page.pg-settings .st-reserve-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:24px; }
+
 @container st-main (min-width: 640px) {
   .biz .pg-settings .st-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .biz .pg-settings .st-chips.is-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -1765,3 +1779,5 @@
   .biz .pg-settings .st-det-inner,
   .biz .pg-settings .st-jump-dot { transition: opacity 120ms linear; transform: none; }
 }
+
+@media(max-width:599px) { .biz .page.pg-settings .st-reserve-color { padding:16px 0; } }

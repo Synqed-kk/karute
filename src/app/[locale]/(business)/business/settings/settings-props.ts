@@ -358,6 +358,7 @@ function buildSection(entry: RailEntry, ctx: Ctx): SettingsSection {
     return { ...base, kicker: '権限', title: entry.label, lead: '', blocks: [], aside: null, persist: null }
   }
 
+  if (entry.id === 'reserve-card-color') return { ...base, kicker: 'Reserve設定 · 事業全体', title: entry.label, lead: 'すべての店舗の会員カードに反映されます。', blocks: [], aside: null, persist: null }
   if (entry.scope === 'self') return myDisplay(base)
   if (ctx.dials === null) return noStore(base, entry)
   return storeSection(base, entry, ctx, ctx.dials)
