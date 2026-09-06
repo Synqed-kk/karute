@@ -117,6 +117,7 @@ import {
   priceFactSets,
   proxyTimeLabel,
   restCueStarts,
+  restingSpanFor,
   warnFaceFor,
   holdClock,
   holdResumeAt,
@@ -1799,6 +1800,13 @@ export function TodayScreen(props: TodayProps) {
       bedDoor(lanes === boardLanes ? ledger : bedViewsFor(lanes, ledgerFrame, handId), lanes, askerId),
     [boardLanes, ledger, ledgerFrame, handId],
   )
+  /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THE CARD BEING MOVED.
+   *  The guard prices a move against this span, not against the lane with the card
+   *  lifted out; the rule and its arm order live in `restingSpanFor`. */
+  const restingFor = useCallback(
+    (excludeId: string | null) => restingSpanFor(pending, committedLanes, excludeId, hours, props.dayOffset, props.store),
+    [pending, committedLanes, hours, props.dayOffset, props.store],
+  )
   /** ⚖ SPEC-SELLING-ENGINE §2 — THE HELD SET FOR THE STAFF DOOR: the same
    *  builder, the BOARD world's snapshot, out of the frame's own book. One
    *  builder, two worlds; the sales door's instance is above.
@@ -1864,9 +1872,11 @@ export function TodayScreen(props: TodayProps) {
             // in hand, so this asks `bedDoorFor(null)` — the world, not the
             // world-minus-hand — which is exactly the book `heldBoard` reads.
             protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,
+            resting: restingFor(handId),
+            restingWindowFeasible: bedDoorFor(handId),
           })
         : [],
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],
   )
   const railByLane = useMemo(() => new Map(rails.map((r) => [r.laneKey, r])), [rails])
   /** ⚖ GREPTILE RE-REVIEW (2026-08-30) — THE OTHER HALF OF THE ROVING PATTERN.
@@ -2149,9 +2159,11 @@ export function TodayScreen(props: TodayProps) {
             // passes it, because the block advisor asks about a board it has
             // already taken something out of.
             protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,
+            resting: restingFor(excludeId),
+            restingWindowFeasible: bedDoorFor(excludeId, lanes),
           })
         : null,
-    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],
+    [guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],
   )
 
   /** ⚖ LIAM flag 50 (2026-08-22) — THE ONE VERDICT, ASKED FROM THE SCREEN.

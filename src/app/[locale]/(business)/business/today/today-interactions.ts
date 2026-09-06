@@ -24,7 +24,7 @@ import {
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig, type GuardContext, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -1805,6 +1805,17 @@ export interface RailInput {
    *  callback only when there is one, and a store with no rooms configured has
    *  none to consult either way. */
   protectedWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
+  /** ⚖ NUDGE-GUARD — WHERE THE STORE'S COMMITTED DAY STILL HAS THIS CARD, when the
+   *  question is a MOVE. The baseline for 「does the store lose inventory by
+   *  confirming this change」 is the span 元に戻す restores, never the lane with the
+   *  card lifted out — see COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 2.
+   *  Absent or null = today's behaviour everywhere (a new card, a cell at rest). */
+  resting?: { laneKey: string; start: number; dur: number } | null
+  /** The window door the BEFORE-list is judged through: the world MINUS the moving
+   *  card's own room hold. Judging it on the after-world erased the very window the
+   *  move destroys (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 3). Same
+   *  shape as `protectedWindowFeasible` above; the AFTER-list keeps that one. */
+  restingWindowFeasible?: (lane: BoardLane, start: number, dur: number) => boolean
 }
 
 /** The engine's ctx for ONE staff lane — canon `ctxFor` (:7278). The clock the
@@ -1817,6 +1828,81 @@ function railCtx(lane: BoardLane, input: RailInput): GuardContext {
     placementFeasible: feasible ? (start, dur) => feasible(lane, start, dur) : undefined,
     protectedWindowFeasible: held ? (start, dur) => held(lane, start, dur) : undefined,
   }
+}
+
+/** Does a placement touch this pocket at all? Half-open both sides, canon's own
+ *  `overlaps` grammar (gap-guard :187-188). Spelled by its own name because
+ *  `spansOverlap` next door is PERCENT-space with an epsilon and would answer a
+ *  different question here. */
+const overlapsPocket = (a: GuardPlacement, p: { s: number; e: number }) => a.start < p.e && a.start + a.dur > p.s
+
+/** The lane's protected windows with a card at X; `protectedCapacityOf` answers the
+ *  at-rest count and stays separate. WHOLE-LANE, because a per-pocket frame is blind
+ *  across the pockets of one lane — a nudge across a 休憩 kept a false 1枠減
+ *  (COUNCIL-NUDGE-FIX-2026-09-06/ADJUDICATION.md ruling 2). */
+export function laneWindowsWith(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  placement: GuardPlacement | null,
+  ctx: GuardContext,
+): number[] {
+  return pockets.flatMap((p) =>
+    placement && overlapsPocket(placement, p)
+      ? engine.protectedCapacity(p, placement, ctx).afterStarts
+      : engine.protectedCapacity(p, null, ctx).beforeStarts,
+  )
+}
+
+/** ⚖ NUDGE-GUARD — THE CARD'S COMMITTED SPAN, in the arm order the ruling fixes
+ *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 1).
+ *
+ *  PENDING FIRST, because `committedLanes` already carries a staged card at its
+ *  STAGED span — reading the board there would price the move against itself and
+ *  report zero for every staged nudge. `pending.origin` is the span 元に戻す
+ *  restores, which is the store's own committed day.
+ *
+ *  A `ParkHome` origin (the shelf's place-back) carries the day and store it was
+ *  parked from, and it is only a baseline on the board it belongs to; a creation
+ *  sentinel (`laneKey === ''`) has no committed span at all, so its first landing's
+ *  warning honestly re-fires until it is confirmed (C4). `pending.origin` is TYPED
+ *  `Move` on the screen and a `ParkHome` is assignable to it, so the home fields are
+ *  read structurally — this file may not import the session provider (foundation's
+ *  import inventory for it). */
+export function restingSpanFor(
+  pending: { id: string; origin: Move & { dayOffset?: number; store?: string | null } } | null,
+  committedLanes: BoardLane[],
+  id: string | null,
+  hours: Hours,
+  dayOffset: number,
+  store: string | null,
+): RailInput['resting'] {
+  if (id == null) return null
+  if (pending != null && pending.id === id) {
+    const home = pending.origin
+    if (home.laneKey === '') return null
+    if (home.dayOffset !== undefined && (home.dayOffset !== dayOffset || home.store !== store)) return null
+    const start = minuteOf(home.x, hours)
+    return { laneKey: home.laneKey, start, dur: minuteOf(home.x + home.w, hours) - start }
+  }
+  const lane = committedLanes.find(
+    (l) => l.group === 'staff' && l.items.some((i) => i.kind === 'booking' && i.caseId === id),
+  )
+  const item = lane?.items.find((i) => i.kind === 'booking' && i.caseId === id)
+  return lane != null && item != null ? { laneKey: lane.key, start: item.startMin, dur: item.endMin - item.startMin } : null
+}
+
+/** The committed span, but only where it is this lane's business: a cross-lane target
+ *  is priced exactly as today, and STRICT mode keeps today's behaviour entirely
+ *  (C2 — COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 7). */
+const restingOn = (lane: BoardLane, input: RailInput): GuardPlacement | null =>
+  input.resting != null && input.resting.laneKey === lane.key && input.guard.mode !== 'strict'
+    ? { start: input.resting.start, dur: input.resting.dur }
+    : null
+
+/** `railCtx` for the BEFORE-list — the same wiring, through the other door. */
+function beforeCtxFor(lane: BoardLane, input: RailInput, ctx: GuardContext): GuardContext {
+  const lifted = input.restingWindowFeasible
+  return lifted ? { ...ctx, protectedWindowFeasible: (start, dur) => lifted(lane, start, dur) } : ctx
 }
 
 /** The 60分配置 rail for every staff lane — canon `renderSlotBoxes` (:7543),
@@ -1854,8 +1940,10 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     })
     const cells: RailCell[] = []
     const ctx = railCtx(lane, input)
+    const resting = restingOn(lane, input)
+    const beforeCtx = beforeCtxFor(lane, input, ctx)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -1874,7 +1962,8 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
     now: input.nowMinute,
     occupied: laneSpans(lane, input.excludeId),
   })
-  return railCell(createGapGuard(input.guard), pockets, start, input, railCtx(lane, input))
+  const ctx = railCtx(lane, input)
+  return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
 }
 
 function railCell(
@@ -1883,6 +1972,8 @@ function railCell(
   start: number,
   input: RailInput,
   ctx: GuardContext,
+  resting: GuardPlacement | null = null,
+  beforeCtx: GuardContext = ctx,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -1918,6 +2009,50 @@ function railCell(
     }
   }
   const v = engine.evaluate(pocket, { start, dur: input.dur }, ctx)
+  // The engine's 「before」 is this POCKET with the card lifted out, which is the honest
+  // baseline for a NEW card and a phantom for a MOVE: a 5-minute nudge inside a card's
+  // own stretch read as one lost 新規 window. A move's honest before is the WHOLE LANE
+  // with the card where the store's committed day still has it, and its rooms are judged
+  // through the door that lifts the card's own room hold. Ceiling C1: a window at the
+  // card's OLD minutes may then count as feasible when its only free room was that card's
+  // — over-report only, never a false quiet. Rulings, whole:
+  // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-2026-09-06/ADJUDICATION.md
+  // business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md
+  // ponytail: C2 — strict mode keeps today's behaviour entirely; `restingOn` hands null there.
+  // ponytail: C3 — the count frame is the board's own, so a count-neutral swap of a prime window for a cheaper one reads 0枠減 and prices nothing.
+  // ponytail: C4 — a created card has no committed span, so its first landing's warning re-fires on a nudge until it is confirmed.
+  const beforeStarts = resting === null ? v.protectedWindowsBefore : laneWindowsWith(engine, pockets, resting, beforeCtx)
+  const afterStarts = resting === null ? v.protectedWindowsAfter : laneWindowsWith(engine, pockets, { start, dur: input.dur }, ctx)
+  const loss = Math.max(0, beforeStarts.length - afterStarts.length)
+  /** ⚖ 9/1 「zero-loss is quiet」 — WHAT SURVIVES, in the ✓ branch's own words, spelled
+   *  once: a MOVE that costs the store no window says exactly this and no count pair
+   *  (COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md ruling 4). */
+  const keptSentence = () => {
+    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)
+    return v.protectedCapacityBefore === 0
+      ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
+      : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
+  }
+  // ⚖ R2 ruling 6 — a zero-loss row keeps only the engine's SAFE offers: with nothing to
+  // reduce, a least-loss offer under it prints 「（損を減らす）」 over a costless move.
+  const safeAlternatives = v.alternativeKind === 'safe' ? v.alternatives : []
+  const degradedFace = (sentence: string, alternatives: number[], alternativeKind: RailCell['alternativeKind']): RailCell => ({
+    start,
+    state: 'degraded',
+    label: `△${clockOf(start)}`,
+    sentence,
+    reason: null,
+    alternatives,
+    alternativeKind,
+    ackAllowed: true,
+    impact: {
+      code: 'DEGRADED',
+      capacityBefore: beforeStarts.length,
+      capacityAfter: afterStarts.length,
+      windowsBefore: beforeStarts,
+      windowsAfter: afterStarts,
+    },
+  })
   /** ⚖ 76 / canon `evaluateExactAim` (:7330-7337) — THE ROOM IS A HARD BLOCK.
    *
    *  The staff pocket held (the branch above already answered when it did not,
@@ -1962,14 +2097,13 @@ function railCell(
     // engine (a start that keeps its capacity keeps its windows); it is here so
     // a future engine that reports a count without its starts falls back to the
     // sentence that shipped rather than printing a bare 「の」.
-    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)
-    const sentence = v.protectedCapacityBefore === 0
-      ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
-      : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
+    const sentence = keptSentence()
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
-    const loss = Math.max(0, v.protectedCapacityBefore - v.protectedCapacityAfter)
+    // A MOVE whose honest loss is zero is not a 0枠減 count sentence: it is the ✓
+    // branch's own promise about what survives, quiet and un-priced.
+    if (resting !== null && loss === 0) return degradedFace(keptSentence(), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
     // ⚖ Liam 8/30 — and it names the windows this start EATS, which is the
     // question a cost sentence answers. Not the whole before-set (most of it
     // survives) and not before-minus-after (the after-set re-tiles). A degraded
@@ -1980,30 +2114,17 @@ function railCell(
     const atRisk =
       loss > 0
         ? protectedWindowsClause(
-            windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
+            windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
             input.protectedDur,
           )
         : ''
-    return {
-      start,
-      state: 'degraded',
-      label: `△${clockOf(start)}`,
-      sentence: `${atRisk === '' ? '' : `${atRisk}の`}新規${input.protectedDur}分の空き${v.protectedCapacityBefore}→${v.protectedCapacityAfter}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
-      reason: null,
-      alternatives: v.alternatives,
-      alternativeKind: v.alternativeKind,
-      ackAllowed: true,
-      // ⚖ 92 — the same two numbers the sentence above spells, carried as data.
-      // ⚖ 92 fix round 5 V1 (breaker #4) — plus the window starts behind them, so
-      // the card can price the loss through canon instead of guessing at it.
-      impact: {
-        code: 'DEGRADED',
-        capacityBefore: v.protectedCapacityBefore,
-        capacityAfter: v.protectedCapacityAfter,
-        windowsBefore: v.protectedWindowsBefore,
-        windowsAfter: v.protectedWindowsAfter,
-      },
-    }
+    // ⚖ 92 — the same two numbers the sentence spells, carried as data, and the window
+    // starts behind them so the card prices the loss through canon.
+    return degradedFace(
+      `${atRisk === '' ? '' : `${atRisk}の`}新規${input.protectedDur}分の空き${beforeStarts.length}→${afterStarts.length}（${loss}枠減・損を減らす）。${clockOf(v.leastLossStart ?? start)}はこの区間で損が最少の開始です`,
+      v.alternatives,
+      v.alternativeKind,
+    )
   }
   // ⚖ Liam 8/30 — THE THIRD SENTENCE, and the decision that guards it. A refusal
   // that names 新規（90分） is the same fact as the ✓ and △ rows above and gets
@@ -2011,13 +2132,24 @@ function railCell(
   // なります」, gap-guard `reasonForKey`'s `repLabel(lossSet)` line — :338) is not
   // a protected window and gets nothing. The engine's own `capacityLost` is the
   // test — the words are not.
-  const repWindows =
+  const repCapacity =
     v.reason?.code === 'R-REP' && Number(v.reason.params.capacityLost) > 0
-      ? protectedWindowsClause(
-          windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),
-          input.protectedDur,
-        )
-      : ''
+  // (c) — A REFUSAL WHOSE ONLY COST WAS THE PHANTOM WINDOW IS PLACEABLE. The store loses
+  // no inventory by confirming this change, so the gate that priced it and held it behind
+  // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
+  if (repCapacity && resting !== null && loss === 0) {
+    return degradedFace(keptSentence(), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+  }
+  // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
+  // every other refusal class keeps the engine's own pocket numbers, untouched.
+  const windowsBefore = repCapacity ? beforeStarts : v.protectedWindowsBefore
+  const windowsAfter = repCapacity ? afterStarts : v.protectedWindowsAfter
+  const repWindows = repCapacity
+    ? protectedWindowsClause(
+        windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),
+        input.protectedDur,
+      )
+    : ''
   return {
     ...blocked(reasonLine(v.reason, input.protectedDur, repWindows), 'guard'),
     alternatives: v.alternatives,
@@ -2030,10 +2162,10 @@ function railCell(
       ? {
           impact: {
             code: v.reason.code,
-            capacityBefore: v.protectedCapacityBefore,
-            capacityAfter: v.protectedCapacityAfter,
-            windowsBefore: v.protectedWindowsBefore,
-            windowsAfter: v.protectedWindowsAfter,
+            capacityBefore: windowsBefore.length,
+            capacityAfter: windowsAfter.length,
+            windowsBefore,
+            windowsAfter,
           },
         }
       : {}),
@@ -4260,7 +4392,7 @@ function impactOf(cell: RailCell, listPrice: number, protectedDur: number, frame
  *  face's own TRIGGER, so the composer, the draw gate and the press now all ask
  *  it. Three readers, one spelling, and the screen imports it. */
 export const lossOf = (c: RailCell | null): number =>
-  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter
+  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)
 
 /** ⚖ 54 — HOW MANY 新規 WINDOWS A DAY HOLDS, and it is the ENGINE'S count.
  *
