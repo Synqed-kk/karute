@@ -50,8 +50,17 @@ type Row = {
 const current = { row: null as Row | null }
 const recordingsGet = jest.fn(async (_id: string) => current.row)
 const jobsEnqueue = jest.fn(async (_a: unknown) => ({ id: 'job-1', status: 'QUEUED' }))
+/** The ledger row shape the door's fence RE-READS since fix round 2 (R1) —
+ *  carried here so this transport's pins prove the answer, not the count. */
+type DiscardEvent = { id: string; recording_session_id: string; source: 'STAFF' | 'SYSTEM' }
+const discardEvent = (over: Partial<DiscardEvent> = {}): DiscardEvent => ({
+  id: 'disc-1',
+  recording_session_id: 'sess-1',
+  source: 'STAFF',
+  ...over,
+})
 const listDiscards = jest.fn(
-  async (_o: unknown): Promise<{ events: Array<{ id: string }> }> => ({ events: [] }),
+  async (_o: unknown): Promise<{ events: DiscardEvent[] }> => ({ events: [] }),
 )
 const storesGet = jest.fn(async (id: string) => ({ id }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
@@ -187,11 +196,20 @@ describe('POST recordings/job/from-session', () => {
   })
 
   it('a STAFF-discarded session → 409, and nothing is queued (R9a)', async () => {
-    listDiscards.mockResolvedValue({ events: [{ id: 'disc-1' }] })
+    listDiscards.mockResolvedValue({ events: [discardEvent()] })
     const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
     expect(res.status).toBe(409)
     expect(objectExists).not.toHaveBeenCalled()
     expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('⚖ R1: a discard for ANOTHER session is not this one — the save goes through', async () => {
+    listDiscards.mockResolvedValue({
+      events: [discardEvent({ id: 'disc-9', recording_session_id: 'sess-OTHER' })],
+    })
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 
   it('an unreadable discard ledger → 502, never a save', async () => {

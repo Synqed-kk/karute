@@ -141,13 +141,28 @@ export async function enqueueFromSessionWithClient(
   // session filter.
   //
   // A THROW REFUSES. "We could not check" is never "not discarded" here.
+  //
+  // ⚖ AND THE FENCE CHECKS, IT NEVER COUNTS (fix round 2, R1). The rows that
+  // come back are re-read in code, for the reason recording-discard-transcript
+  // .ts's `hasStaffDiscard` states in its own docblock about this same call: a
+  // fence does not trust the query filter it asked for. If core ever stopped
+  // honouring `recording_session_id` — a rename on an SDK bump, a proxy that
+  // strips an unknown param — a bare count would turn ONE reasoned discard
+  // anywhere in the business into a 409 on EVERY server save in that salon,
+  // silently and green, because a fake that implements the filter cannot see
+  // it. Fail-closed, so nothing unlawful is written; it would just kill this
+  // slice's one affordance for every staffer in the tenant with nothing on
+  // screen or in the log to say why.
   try {
     const discards = await synqed.recordingDiscards.list({
       recording_session_id: input.recordingSessionId,
       source: 'STAFF',
       page_size: 1,
     })
-    if ((discards?.events?.length ?? 0) > 0) return { error: 'discarded' }
+    const hit = (discards?.events ?? []).some(
+      (e) => e?.source === 'STAFF' && e.recording_session_id === input.recordingSessionId,
+    )
+    if (hit) return { error: 'discarded' }
   } catch (err) {
     console.warn('[enqueueFromSession] discard ledger unreadable:', err)
     return { error: 'upstream' }

@@ -76,9 +76,19 @@ const customerGet = jest.fn(async () => ({
 }))
 const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
 const listKaruteRecords = jest.fn(async () => ({ karute_records: [] as Array<{ id: string }> }))
+/** A ledger row as core really answers it — the two fields the fence RE-READS
+ *  (fix round 2, R1) are on it, so a fixture can hand the door a discard for
+ *  ANOTHER session and see whether it is actually looked at. */
+type DiscardEvent = { id: string; recording_session_id: string; source: 'STAFF' | 'SYSTEM' }
+const discardEvent = (over: Partial<DiscardEvent> = {}): DiscardEvent => ({
+  id: 'disc-1',
+  recording_session_id: 'sess-1',
+  source: 'STAFF',
+  ...over,
+})
 /** The discard ledger, asked per session by the door's own fence (R9a). */
 const listDiscards = jest.fn(
-  async (_opts: unknown): Promise<{ events: Array<{ id: string }> }> => ({ events: [] }),
+  async (_opts: unknown): Promise<{ events: DiscardEvent[] }> => ({ events: [] }),
 )
 
 const synqed = {
@@ -399,10 +409,28 @@ describe('the duration stamp', () => {
  */
 describe('a deliberate discard outranks everything', () => {
   it('a STAFF-discarded session is refused, and storage is never asked', async () => {
-    listDiscards.mockResolvedValue({ events: [{ id: 'disc-1' }] })
+    listDiscards.mockResolvedValue({ events: [discardEvent()] })
     await expect(run()).resolves.toEqual({ error: 'discarded' })
     expect(objectExists).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('⚖ R1: the fence CHECKS the rows — a discard for ANOTHER session lets the save through', async () => {
+    // The regression this pin exists for is a DROPPED filter, not a wrong
+    // answer: if core ever stopped honouring `recording_session_id`, a count
+    // would see the tenant's whole ledger and refuse every server save in the
+    // salon. A fake that implements the filter can never show that, so the
+    // fake here deliberately does not — it hands back a foreign row.
+    listDiscards.mockResolvedValue({
+      events: [discardEvent({ id: 'disc-9', recording_session_id: 'sess-OTHER' })],
+    })
+    await expect(run()).resolves.toEqual({ ok: true, jobId: 'job-1', status: 'QUEUED' })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('⚖ R1: a SYSTEM row in the answer is not a staff discard', async () => {
+    listDiscards.mockResolvedValue({ events: [discardEvent({ source: 'SYSTEM' })] })
+    await expect(run()).resolves.toEqual({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   })
 
   it('the fence asks for THIS session, STAFF rows only, one page', async () => {
