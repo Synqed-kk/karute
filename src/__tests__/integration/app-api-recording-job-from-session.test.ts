@@ -1,0 +1,211 @@
+// The 保存する-from-the-server facade door (build 23 slice ③):
+// POST /api/app/v1/recordings/job/from-session. Harness mirrors
+// app-api-recording-job.test.ts — all network mocked, the Bearer verifier runs
+// for real. What only THIS level can prove: the envelope (capability,
+// Idempotency-Key, the strict schema that refuses an audioPath key outright),
+// the store clamp running BEFORE the body, and the refusal mapping — the shared
+// body's own rules are pinned in recording-enqueue-from-session.test.ts.
+import { createHmac } from 'node:crypto'
+
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
+process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
+
+type GetUserResult = { data: { user: { id: string } | null }; error: { message: string } | null }
+const getUser = { fn: jest.fn(async (): Promise<GetUserResult> => ({ data: { user: { id: 'auth-user-1' } }, error: null })) }
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({ auth: { getUser: (...a: unknown[]) => getUser.fn(...(a as [])) } }),
+}))
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+
+const capabilities = { current: new Set<string>(['customers.view', 'records.write']) }
+const roster = { current: [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }] }
+jest.mock('@/lib/staff', () => ({
+  businessIdForUser: jest.fn(async () => 'business-1'),
+  getBusinessId: jest.fn(async () => 'business-1'),
+  staffListByBusinessOrThrow: jest.fn(async () => roster.current),
+}))
+jest.mock('@/lib/auth/require-permission', () => ({
+  capabilitiesForUser: jest.fn(async () => capabilities.current),
+  ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
+}))
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffIdForBusiness: jest.fn(async (id: string) => `synqed-${id}`),
+}))
+const objectExists = jest.fn(async (_key: string): Promise<boolean | 'unknown'> => true)
+jest.mock('@/lib/recording/mint-take-url', () => ({
+  objectExists: (key: string) => objectExists(key),
+}))
+
+type Row = {
+  id: string
+  business_id: string
+  staff_id: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+}
+const current = { row: null as Row | null }
+const recordingsGet = jest.fn(async (_id: string) => current.row)
+const jobsEnqueue = jest.fn(async (_a: unknown) => ({ id: 'job-1', status: 'QUEUED' }))
+const storesGet = jest.fn(async (id: string) => ({ id }))
+const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
+const fakeClient = {
+  recordings: { get: recordingsGet },
+  recordingJobs: { enqueue: jobsEnqueue },
+  stores: { get: storesGet },
+  staffStores: { get: staffStoresGet },
+  customers: { get: jest.fn() },
+  packs: { listPacks: jest.fn(async () => []) },
+  karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
+}
+jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
+
+import { POST } from '@/app/api/app/v1/recordings/job/from-session/route'
+import { REVOCATION_SENSITIVE_ENDPOINTS } from '@/lib/auth/revocation'
+import { FACADE_AUDIT_MAP } from '@/lib/audit'
+import { conformingKey } from './helpers/recording-key-fixtures'
+
+const BIZ = 'business-1'
+const OWN_KEY = conformingKey(BIZ)
+const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
+const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
+const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+function bearer(sub = 'auth-user-1') {
+  const now = Math.floor(Date.now() / 1000)
+  const header = b64({ alg: 'HS256', typ: 'JWT' })
+  const payload = b64({ sub, iss: ISSUER, aud: 'authenticated', exp: now + 3600, iat: now })
+  const sig = createHmac('sha256', SECRET).update(`${header}.${payload}`).digest('base64url')
+  return `${header}.${payload}.${sig}`
+}
+const idem = { 'idempotency-key': 'k1' }
+const auth = { authorization: `Bearer ${bearer()}`, 'content-type': 'application/json' }
+const noRoute = { params: Promise.resolve({}) }
+const req = (headers: Record<string, string>, body?: unknown) =>
+  new Request('https://s/api/app/v1/recordings/job/from-session', {
+    method: 'POST',
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1' }
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  delete process.env.CRON_SECRET
+  capabilities.current = new Set(['customers.view', 'records.write'])
+  getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
+  roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
+  current.row = {
+    id: 'sess-1',
+    business_id: BIZ,
+    staff_id: 'auth-user-1',
+    audio_storage_path: OWN_KEY,
+    duration_seconds: 1380,
+    status: 'UPLOADING',
+  }
+  objectExists.mockResolvedValue(true)
+  jobsEnqueue.mockResolvedValue({ id: 'job-1', status: 'QUEUED' })
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  storesGet.mockImplementation(async (id: string) => ({ id }))
+})
+
+describe('POST recordings/job/from-session', () => {
+  it('happy → 200 {ok,jobId,status}; the path comes from the ROW', async () => {
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, jobId: 'job-1', status: 'QUEUED' })
+    const [call] = jobsEnqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
+    expect(call.payload).toMatchObject({
+      customer_id: 'cust-1',
+      staff_id: 'synqed-auth-user-1',
+      audio_path: OWN_KEY,
+    })
+  })
+
+  it('THE SCHEMA REFUSES AN audioPath KEY — a caller cannot name an object here', async () => {
+    const res = await POST(
+      req({ ...auth, ...idem }, { ...validBody, audioPath: `app_other-biz_x.webm` }),
+      noRoute,
+    )
+    expect(res.status).toBe(400)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a missing Idempotency-Key is a 400 before anything is read', async () => {
+    const res = await POST(req(auth, validBody), noRoute)
+    expect(res.status).toBe(400)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
+  it('without records.write it is a 403', async () => {
+    capabilities.current = new Set(['customers.view'])
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a body that is not JSON is a 400', async () => {
+    const res = await POST(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, ...idem }, body: 'nope' }),
+      noRoute,
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('OFF the roster is a 403 — the worker cannot attribute an unrostered save', async () => {
+    roster.current = []
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a store the caller may not see is 403, BEFORE the body runs', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-mine'] })
+    const res = await POST(
+      req({ ...auth, ...idem, 'store-id': 'store-theirs' }, validBody),
+      noRoute,
+    )
+    expect(res.status).toBe(403)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
+  it("a colleague's session without the owner's hand → 403", async () => {
+    current.row = { ...current.row!, staff_id: 'auth-user-2' }
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('no object in the bucket → 404, and nothing is queued', async () => {
+    objectExists.mockResolvedValue(false)
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(404)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it("storage answering 'unknown' → 502, a retryable shape", async () => {
+    objectExists.mockResolvedValue('unknown')
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(502)
+  })
+
+  it('a failed enqueue → 502', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {})
+    jobsEnqueue.mockRejectedValue(new Error('core down'))
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(502)
+    err.mockRestore()
+  })
+
+  it('the endpoint is revocation-sensitive and audits through the worker', () => {
+    expect(REVOCATION_SENSITIVE_ENDPOINTS.has('recordings.job.enqueueFromSession')).toBe(true)
+    expect(FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']).toEqual({
+      kind: 'skip',
+      category: 'recording',
+      action: '',
+      coveredBy: 'src/lib/jobs/process-recording.ts#processJob',
+    })
+  })
+})

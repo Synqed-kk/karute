@@ -279,3 +279,18 @@
   (src/actions/recordings.ts::recordings.create) is pruned rather than left
   dead — that call site no longer exists · Liam (fresh-eyes round #7, packet
   PACKET-PR2-FIX-ROUND-11.md, karute-field-issues lane)
+- 2026-09-06 · SDK_WRITE_ALLOWLIST:src/lib/recording/enqueue-from-session.ts::recordingJobs.enqueue · build 23
+  slice ③ adds a THIRD door onto the one job the worker already owns:
+  saving a recording whose audio reached the server without the device (the
+  nightly assembler sealed a stranded take, or the phone finalized at stop and
+  then died). The write is `recordingJobs.enqueue` in the shared body both new
+  doors run, and it is silent for EXACTLY the reason the two existing enqueue
+  sites are — see the src/actions/recording-jobs.ts and
+  src/app/api/app/v1/recordings/job/route.ts entries above, and
+  FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: the enqueue
+  stages no auditable outcome, and the act becomes auditable at the job
+  pipeline's own choke point (src/lib/jobs/process-recording.ts#processJob,
+  AUDITED_CORES), which emits karute.save when the record actually lands. A live
+  row here would double-log every save the worker performs. Not a widening of
+  what goes unaudited — the same one act, reachable from one more place · Fable
+  (DESIGN-ASSEMBLER-2026-09-06 D8, PACKET-ASSEMBLER-C C3)

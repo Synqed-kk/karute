@@ -294,6 +294,7 @@ export type FacadeEndpointKey =
   | 'recordings.finalize'
   | 'recordings.inbox'
   | 'recordings.job.enqueue'
+  | 'recordings.job.enqueueFromSession'
   | 'recordings.job.status'
   | 'recordings.playbackUrl'
   | 'recordings.session.delete'
@@ -768,6 +769,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // idempotent no-op this route deliberately returns in a 2xx body.
   'recordings.finalize': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/recording/finalize-take.ts#finalizeTakeWithClient' },
   'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // The SAME job, entered from the 録音履歴 row instead of from a device that
+  // just uploaded (build 23 slice ③) — so the same skip, for the same reason:
+  // this route routes exclusively into processJob, which is where the act
+  // becomes auditable. The enqueue step itself stages no outcome, and a live
+  // row here would double-log every save that goes through the worker.
+  'recordings.job.enqueueFromSession': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
   // The play button's mint (build 23 slice ①). Same doctrine as finalize above:
   // the ONE emit lives at the shared choke point, which alone knows whether a
   // url was actually minted — the generic hook would emit on every 2xx, and a

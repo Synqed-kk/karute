@@ -184,6 +184,9 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // fast-path. The status GET is read-only (no write side effect) and stays
   // OFF this list, like every other unlisted facade GET.
   'recordings.job.enqueue',
+  // …and the same job entered from a 録音履歴 row instead of from the device
+  // that just recorded (build 23 slice ③). Same act, same rule.
+  'recordings.job.enqueueFromSession',
   // 今すぐ同期 manual crawl trigger (packet 32): a just-terminated staffer
   // must not keep kicking off QuickReserve crawls on the local fast-path.
   'sync.run',
