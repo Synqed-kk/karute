@@ -176,14 +176,26 @@ export async function mintPlaybackUrlWithClient(
   //    passed in, because the caller has not seen either object yet when it
   //    builds the actor.
   //
-  //    ⚠ THE KARUTE'S STORE LEADS (fix round 4, blind round 2 F1). The karute's
-  //    store is ALWAYS written (resolveKaruteStoreId, actions/karute.ts) and is
-  //    the same object the words door clamps on, so both doors answer one
-  //    karute the same way. `?? row.store_id` is the recording row's own store
-  //    — live for rows minted since slice three ③ (session-mint.ts:199), null
-  //    for every row before it. Reading the ROW ALONE was the bug: it was empty
-  //    for every take in the field, so the clamp took the 全店舗/legacy branch
-  //    and the sound door stood open while the words door was shut.
+  //    ⚠ ⚖ THE KARUTE'S STORE IS THIS DOOR'S ONE TRUTH (fix round 4, blind
+  //    round 2 F1; RE-RULED slice three ③ fix round 1). The KARUTE's own column
+  //    decides, and nothing else: `resolveKaruteStoreId` (actions/karute.ts)
+  //    writes it, and it is the SAME object the words doors clamp on
+  //    (karute/[id]/page.tsx · screens/karute/[id]/route.ts, both
+  //    `recordStoreId: karute.store_id`). One input, one answer — so the words
+  //    door and the sound door can never disagree about one karute, and the
+  //    page's "HIDE, NEVER SHOW-AND-REFUSE" rule stays true.
+  //
+  //    ⚖ AND NOT THE RECORDING ROW'S, even though ③ now stamps one. That store
+  //    is a SESSION-level fact — where the device was — and it gates the
+  //    SESSION-level doors, where no karute exists yet to ask: reserve, bind
+  //    and finalize a take (take-binding.ts#assertRecorderOwnsRow). Falling
+  //    back to it here would let a karute with no store of its own be judged by
+  //    the row while the words doors judged it open, and the player would
+  //    render on a tap that could only fail.
+  //
+  //    (Reading the ROW ALONE was the original bug: the column was empty for
+  //    every take in the field, so the clamp took the 全店舗/legacy branch and
+  //    the sound door stood open while the words door was shut.)
   if (
     !canViewTranscript({
       ownerStaffId,
@@ -191,7 +203,7 @@ export async function mintPlaybackUrlWithClient(
       canViewAll: canViewAllInStore({
         canViewAll: actor.canViewAll,
         allowedStoreIds: actor.allowedStoreIds,
-        recordStoreId: karute.store_id ?? row.store_id,
+        recordStoreId: karute.store_id,
       }),
     })
   ) {
@@ -252,10 +264,12 @@ export async function mintPlaybackUrlWithClient(
     actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
-    // The KARUTE's store, same reason as the ACL above (fix round 4b): the
-    // recording row's column is never written, the karute's always is, and the
-    // audit viewer filters by store — so a row keyed on the empty one was
-    // invisible to every store-scoped search.
+    // The KARUTE's store first, then the ROW's (fix round 4b): the audit viewer
+    // filters by store, so a line keyed on an empty column was invisible to
+    // every store-scoped search. ⚖ The fallback stays HERE and only here: this
+    // is a filter on a report, never an access decision — the ACL above keys on
+    // the karute alone. A karute with no store still lands on the store the
+    // device was in, which is the honest answer for a search.
     storeId: karute.store_id ?? row.store_id ?? undefined,
     targetType: 'recording',
     targetId: row.id,

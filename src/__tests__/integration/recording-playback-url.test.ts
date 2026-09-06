@@ -79,12 +79,14 @@ const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 
 // ⚠ THE PRODUCTION SHAPE (fix round 4, restated at slice three ③). The KARUTE
-// always carries the store (resolveKaruteStoreId, actions/karute.ts, stamps it
-// on every save). The RECORDING ROW carries one only since ③ — the mint stamps
-// the actor's active store (session-mint.ts:199) and `UpdateRecordingInput`
-// still has no such field, so every row minted BEFORE ③ is null for ever. Both
-// shapes are production now, and the pins below cover both: the karute's store
-// leads either way.
+// carries the store (resolveKaruteStoreId, actions/karute.ts, stamps it on
+// every save). The RECORDING ROW carries one only since ③ — the mint stamps the
+// actor's active store (session-mint.ts:199) and `UpdateRecordingInput` still
+// has no such field, so every row minted BEFORE ③ is null for ever.
+// ⚖ Both shapes are production now, and at THIS door only one of them is read:
+// the KARUTE's. The row's store gates the take doors (reserve · bind ·
+// finalize), where no karute exists yet — never a read door, so the words door
+// and the sound door can never disagree about one karute.
 const KAR = {
   current: {
     id: KARUTE_ID,
@@ -656,11 +658,18 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     expect(r).toEqual({ error: 'forbidden' })
   })
 
-  it('…and the row’s own store is honoured when the karute has none — LIVE since ③, not a hypothetical (karute null, row store-9)', async () => {
+  // ⚖ THE OTHER HALF OF THE SAME RULE (③ fix round 1). The row's store is LIVE
+  // now, and this door still does not read it. A karute with no store of its
+  // own is OPEN here — exactly as the two words doors read it
+  // (karute/[id]/page.tsx · screens/karute/[id]/route.ts, both
+  // `recordStoreId: karute.store_id`) — because one karute must get one answer
+  // from both doors. Put `?? row.store_id` back and this goes red: the player
+  // would render on a karute whose every tap is refused.
+  it('karute null, row store-9 → OPEN — the karute’s store decides at the read doors; the row’s store gates the take doors only', async () => {
     KAR.current = { ...KAR.current, store_id: null }
     ROW.current = { ...ROW.current, store_id: 'store-9' }
     const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
-    expect(r).toEqual({ error: 'forbidden' })
+    expect('url' in r).toBe(true)
   })
 
   it('a DEGRADED scope ([]) fails closed', async () => {
@@ -749,12 +758,14 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
 })
 
 // ── ⚖ THE PLAY AUDIT ROW CARRIES THE KARUTE'S STORE (fix round 4b) ──────────
-// Same column the ACL reads, same order. A play row keyed on the RECORDING row
-// alone was invisible to every store-scoped audit search, because before slice
-// three ③ that column was empty for every take in the field. The `??` chain
-// puts the karute's store first and falls back to the row's — null on a pre-③
-// row, the minted store since ③ — and a karute with no store and a row with
-// none still carries nothing, because there is nothing to stamp.
+// A play row keyed on the RECORDING row alone was invisible to every
+// store-scoped audit search, because before slice three ③ that column was empty
+// for every take in the field. The `??` chain puts the karute's store first and
+// falls back to the row's — null on a pre-③ row, the minted store since ③.
+// ⚖ THE FALLBACK LIVES HERE AND NOWHERE ELSE (③ fix round 1): this is a FILTER
+// on a report, never an access decision, so a karute with no store still lands
+// the line on the store the device was in, which is what a search wants. The
+// ACL above deliberately does NOT do this — see its own comment.
 describe('recording.play — the audit row’s store', () => {
   it('a karute with NO store and a row with none → the line carries no store', async () => {
     KAR.current = { ...KAR.current, store_id: null }
