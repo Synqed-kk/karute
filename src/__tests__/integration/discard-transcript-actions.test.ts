@@ -452,7 +452,16 @@ describe('the tenant fence on a client-supplied storage key', () => {
       // staged path away again.
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       mockBucket.missing.add(OWN_PATH)
+      // …and the RESCUE too (fix round 8). The bucket's default is "every key
+      // has bytes", so marking only the pointer missing made the resolver
+      // answer the rescue key — and this test, which is about the STAGED copy,
+      // silently began proving `rsc/…` instead. It stayed green because it
+      // asserted the words and never the URL; both are asserted now.
+      mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
+      )
       expect(segmentSets[0][0].text).toBe('こんにちは、本日はありがとうございます')
     })
 
