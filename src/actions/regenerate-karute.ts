@@ -8,7 +8,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import { canViewTranscript, ownerHandReach, readDoorStoreId } from '@/lib/auth/recording-acl'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -25,7 +25,10 @@ import type { EntryAuthor } from '@synqed-kk/client'
 
 type SynqedRecordsClient = Pick<
   Awaited<ReturnType<typeof getSynqedClient>>,
-  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings'
+  // `recordings` since ③ fix round 4: the store gate below falls back to the
+  // RECORDING row's store when the karute carries none, exactly as the read
+  // doors do — and it is read here, only when it is needed.
+  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings' | 'recordings'
 >
 
 type SynqedCategory =
@@ -404,10 +407,33 @@ export async function regenerateKaruteWithClient(
   //    …AND ONLY WHERE THE CALLER CAN SEE: the owner's hand obeys the store law
   //    the read doors already obey, so a clamped both-keys manager cannot
   //    rewrite another branch's record. The recorder's own branch is untouched.
+  //
+  //    ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4). The
+  //    read doors compare `readDoorStoreId` — the karute's store, then the
+  //    RECORDING row's — so this gate must compare the same thing, or the
+  //    person who cannot READ this record could still rewrite it, which is the
+  //    wrong way round for the stronger door.
+  //
+  //    The row is fetched ONLY when the karute names no store of its own: the
+  //    common case pays nothing, and the rare one pays a single read on an act
+  //    path that is about to run an LLM anyway. A FAILED fetch (or a karute
+  //    with no session at all) leaves the row unknown, which reads as "no
+  //    store" — the pre-③ answer, OPEN. Named ceiling: it fails in the widening
+  //    direction, and closing it would refuse a regenerate on a storage blip.
+  //    The same ceiling the read doors carry (readDoorStoreId's docblock).
+  const karuteStoreId = (record.store_id as string | null) ?? null
+  const recordingSessionId = (record.recording_session_id as string | null) ?? null
+  const recordingRow =
+    karuteStoreId === null && recordingSessionId
+      ? await synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+          console.warn('[regenerate] recording read failed — store unknown, treated as none', err)
+          return null
+        })
+      : null
   const reach = ownerHandReach({
     holdsOwnerKeys,
     allowedStoreIds,
-    recordStoreId: (record.store_id as string | null) ?? null,
+    recordStoreId: readDoorStoreId({ store_id: karuteStoreId }, recordingRow),
   })
   if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: reach })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')

@@ -838,6 +838,48 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     expect(dto.staffCanRegenerate).toBe(true)
   })
 
+  // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4) — the
+  // Bearer twin of the web page's pins. Greptile's fixture at the ACT door:
+  // karute store null, its recording row store-9, a both-keys manager clamped
+  // to store-a. The transcript is already withheld by the read clamp; the
+  // 再生成 control must be withheld with it, and the server gate refuses the
+  // post (app-api-karute-mutations.test.ts).
+  it('a NULL-store karute whose RECORDING names store-9 → transcript withheld AND no regenerate control', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
   it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
     const dto = await dtoFor()
     expect(dto.transcript).toBeNull()

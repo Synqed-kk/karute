@@ -145,7 +145,7 @@ export default async function KaruteDetailPage({
   // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
   // `recordings.viewAll`; the ACT — rewriting a colleague's record — is the
   // owner's two keys. This is the SERVER'S OWN expression, character for
-  // character (actions/regenerate-karute.ts:392), so the button and the action
+  // character (actions/regenerate-karute.ts), so the button and the action
   // cannot drift: the recorder keeps her own button on the own-recording
   // branch, the owner and any both-keys holder keep theirs, and a named
   // grantee reads the words with no button at all.
@@ -157,16 +157,18 @@ export default async function KaruteDetailPage({
     canViewTranscript({
       ownerStaffId: ownerProfileId,
       viewerStaffId,
-      // ownerHandReach, not holdsOwnerKeys — the ACT door now obeys the store
-      // law too (⚖ 8/17; fix round 7), so the button and the door still cannot
-      // drift: a clamped both-keys manager sees no button on a store she
-      // cannot reach, and gets no 再生成 if she posts anyway.
+      // ownerHandReach, not holdsOwnerKeys — the ACT door obeys the store law
+      // too (⚖ 8/17; fix round 7), so the button and the door cannot drift: a
+      // clamped both-keys manager sees no button on a store she cannot reach,
+      // and gets no 再生成 if she posts anyway.
       canViewAll: ownerHandReach({
         holdsOwnerKeys: holdsOwnerKeys(capabilities),
         allowedStoreIds,
-        // `?? null` explicitly: a legacy karute shape can OMIT store_id, and an
-        // absent field must never be mistaken for the customer-wide mode.
-        recordStoreId: karute.store_id ?? null,
+        // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4): the
+        // SAME input as canViewAllRecordings above. Reading the karute alone
+        // here let a clamped manager who could not READ this record still see
+        // the 再生成 button on it — the wrong way round for the stronger door.
+        recordStoreId: readDoorStoreId(karute, recordingRow),
       }),
     })
 

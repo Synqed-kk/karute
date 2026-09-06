@@ -449,6 +449,57 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     expect(built().staffCanRegenerate).toBe(true)
   })
 
+  // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4). Greptile's
+  // exact fixture, at the ACT door this time: the karute names no store, its
+  // recording row names store-9, the viewer is a clamped both-keys manager in
+  // store-a. The READ door already hides this record from her (the R1′ pins
+  // above); the button must go with it, or she is shown a 再生成 on a record she
+  // cannot read — and the server gate refuses it (app-api-karute-mutations).
+  const rowInStore9 = () =>
+    recordingsGet.mockResolvedValue({
+      id: 'sess-1',
+      audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+      duration_seconds: 90,
+      status: 'COMPLETED',
+      store_id: 'store-9',
+    })
+  const clampedBothKeys = () => {
+    grantedCaps.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+  }
+
+  it('a NULL-store karute whose RECORDING names store-9 → no button for a store-a manager', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff',
+      store_id: null, recording_session_id: 'sess-1',
+    }
+    rowInStore9()
+    clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → button', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff',
+      store_id: 'store-a', recording_session_id: 'sess-1',
+    }
+    rowInStore9()
+    clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, button', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff',
+      store_id: null, recording_session_id: 'sess-1',
+    }
+    clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
   it('a plain staffer on a colleague’s karute → false (unchanged from main)', async () => {
     colleaguesKarute()
     grantedCaps.current = new Set()

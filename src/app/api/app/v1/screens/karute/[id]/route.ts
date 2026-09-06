@@ -216,8 +216,11 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
           canViewAll: ownerHandReach({
             holdsOwnerKeys: callerHoldsOwnerKeys,
             allowedStoreIds,
-            // `?? null` explicitly — see the web page's twin.
-            recordStoreId: karute.store_id ?? null,
+            // ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round
+            // 4): the SAME input as canViewAllRecordings above. Reading the
+            // karute alone here let a clamped manager who could not READ this
+            // record still be handed the 再生成 control.
+            recordStoreId: readDoorStoreId(karute, recordingRow),
           }),
         }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
