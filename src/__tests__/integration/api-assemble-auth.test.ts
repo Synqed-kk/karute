@@ -7,7 +7,7 @@ import * as appHandler from '@/app/api/assemble/route'
 // CLOSED, including when CRON_SECRET is not configured at all), and its HTTP
 // status tells the scheduler the truth — a walk that could not see the whole
 // tree is a 500, while a run that merely ran out of tonight's budget is a 200,
-// because tomorrow continues where it stopped.
+// because tomorrow's run picks the tree up a stride further along.
 //
 // runAssembler itself is doubled: its own behaviour is proved in
 // recording-assembler.test.ts, and a route test that reached storage would be

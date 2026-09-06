@@ -96,6 +96,7 @@ jest.mock('@/lib/supabase/service', () => ({
 import {
   ASSEMBLE_AFTER_MS,
   MAX_TAKES_PER_RUN,
+  ROTATION_STRIDE,
   SEGMENT_NOMINAL_MS,
   longestPrefix,
   runAssembler,
@@ -273,19 +274,43 @@ describe('longestPrefix — the contiguous run from zero, and the first hole', (
 })
 
 describe('the walk', () => {
-  it('opens each tenant’s folder with ITS OWN business client', async () => {
-    seed({ businessId: BIZ, takeId: TAKE, seqs: [0, 1] })
-    seed({ businessId: BIZ2, takeId: TAKE2, seqs: [0] })
+  it('opens each tenant’s folder with ITS OWN business client, in walk order', async () => {
+    // INTERLEAVED on purpose, and asserted IN ORDER: sorting the tenants threw
+    // the interleave away, so a memo handing back whichever client it made
+    // first only had to be wrong about ONE folder to pass. Four folders that
+    // alternate tenants make the sequence itself the assertion, whatever index
+    // the day's stride starts at.
+    const takes = [
+      [BIZ, '0f8c6c9a-3f2d-4a71-9b5e-000000000001'],
+      [BIZ2, '0f8c6c9a-3f2d-4a71-9b5e-000000000002'],
+      [BIZ, '0f8c6c9a-3f2d-4a71-9b5e-000000000003'],
+      [BIZ2, '0f8c6c9a-3f2d-4a71-9b5e-000000000004'],
+    ] as const
+    takes.forEach(([businessId, takeId], i) =>
+      seed({
+        businessId,
+        takeId,
+        seqs: [0],
+        rowId: `${SESSION.slice(0, 24)}${String(i).padStart(12, '0')}`,
+      }),
+    )
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
-    expect(summary.candidates).toBe(2)
-    expect(summary.assembled).toBe(2)
+    expect(summary.candidates).toBe(4)
+    expect(summary.assembled).toBe(4)
     expect(coreFor).toHaveBeenCalledWith(BIZ)
     expect(coreFor).toHaveBeenCalledWith(BIZ2)
-    // Every core read went to the client of the folder's OWN tenant — a single
-    // shared client would have listed biz-1 twice and biz-2 never.
-    expect(listedBy.sort()).toEqual([BIZ, BIZ2])
+    // The tenant each opened folder BELONGS to, in the order the walk opened
+    // them — read off the storage calls rather than assumed, because the start
+    // index is the day's.
+    const walked = [...new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix))]
+    const owners = walked.map((prefix) => (prefix.includes(BIZ2) ? BIZ2 : BIZ))
+    expect(walked).toHaveLength(4)
+    expect(new Set(owners).size).toBe(2)
+    // Every core read went to the client of the folder being walked — a single
+    // shared client would have listed one tenant four times and the other never.
+    expect(listedBy).toEqual(owners)
     // …and each rescue is audited under the tenant whose folder it came out of.
-    expect(auditFn.mock.calls.map((c) => c[0].businessId).sort()).toEqual([BIZ, BIZ2])
+    expect(auditFn.mock.calls.map((c) => c[0].businessId)).toEqual(owners)
   })
 
   it('skips a junk folder in silence and still does the real one', async () => {
@@ -343,7 +368,12 @@ describe('the walk', () => {
     // one clock tick per folder is the whole per-folder cost.
     const ids = Array.from({ length: 10 }, (_, i) => `0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}`)
     ids.forEach((takeId, i) =>
-      seed({ takeId, seqs: [0], objectSize: 10, rowId: `${SESSION.slice(0, 23)}${i}${SESSION.slice(24)}` }),
+      seed({
+        takeId,
+        seqs: [0],
+        objectSize: 10,
+        rowId: `${SESSION.slice(0, 24)}${String(i).padStart(12, '0')}`,
+      }),
     )
     const DAY = 86_400_000
     const seen = new Set<string>()
@@ -366,6 +396,80 @@ describe('the walk', () => {
     // Every folder reached inside ceil(10 / 4) = 3 nights. A one-step rotation
     // would have covered {s..s+3} ∪ {s+1..s+4} ∪ {s+2..s+5} — six of ten.
     expect(seen.size).toBe(10)
+  })
+
+  // ⚖ THE DEFAULT STRIDE IS THE ONE PRODUCTION RUNS. Every other rotation case
+  // in this file INJECTS a stride, so `opts.rotationStride ?? 1` — or the
+  // constant itself lowered — would pass the whole battery while the real walk
+  // crawled one folder a night. Both halves are pinned: the number, and the
+  // index the walk actually starts at when nothing is injected.
+  it('the DEFAULT stride is the prime constant, and an uninjected walk really starts a stride in', async () => {
+    expect(ROTATION_STRIDE).toBe(1_999)
+    // Two strides plus one folder, so index ROTATION_STRIDE is neither 0 nor 1
+    // and the modulus is not what put the start there.
+    const N = ROTATION_STRIDE * 2 + 1
+    for (let i = 0; i < N; i++) {
+      rootFolders.push({
+        name: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
+        id: null,
+        created_at: null,
+        metadata: null,
+      })
+    }
+    contents.set('seg', [...rootFolders])
+    // Night 1 on a clock that advances 1 s per read: two reads are fixed (the
+    // deadline and the day), then one per folder — so 3 s admits exactly one.
+    let tick = 0
+    const summary = await runAssembler(
+      { coreFor, now: () => 86_400_000 + tick++ * 1000 },
+      { budgetMs: 3_000 },
+    )
+    expect(summary.candidates).toBe(N)
+    expect(summary.budgetExhausted).toBe(true)
+    // The empty folders parse and are walked; the one that was opened is the
+    // whole assertion.
+    expect(summary.skipped.noSeq0).toBe(1)
+    const walked = [...new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix))]
+    expect(walked).toEqual([`seg/${rootFolders[ROTATION_STRIDE].name}`])
+  })
+
+  // ⚖ WHY THE STRIDE IS PRIME. The start positions are the multiples of
+  // gcd(stride, N), so a stride sharing a factor with the folder count only
+  // ever reaches N/gcd of the indexes — and one that DIVIDES N never moves the
+  // start at all. The folders in the band nothing walks are reported as a green
+  // 200 forever, which is the exact pathology the rotation exists to prevent.
+  it('a stride sharing a factor with N freezes on a lattice; a coprime one walks every folder', async () => {
+    const names = Array.from(
+      { length: 8 },
+      (_, i) => `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
+    )
+    names.forEach((name) => rootFolders.push({ name, id: null, created_at: null, metadata: null }))
+    contents.set('seg', [...rootFolders])
+
+    /** Eight one-folder nights at this stride: which INDEXES were ever opened. */
+    const eightNights = async (rotationStride: number) => {
+      const seen = new Set<number>()
+      for (let day = 0; day < 8; day++) {
+        listCalls.length = 0
+        let tick = 0
+        await runAssembler(
+          { coreFor, now: () => day * 86_400_000 + tick++ * 1000 },
+          { budgetMs: 3_000, rotationStride },
+        )
+        for (const call of listCalls) {
+          const index = names.indexOf(call.prefix.replace('seg/', ''))
+          if (index >= 0) seen.add(index)
+        }
+      }
+      return [...seen].sort((a, b) => a - b)
+    }
+
+    // gcd(4, 8) = 4: the start only ever lands on 0 and 4, and eight nights
+    // never reach the other six folders at all.
+    expect(await eightNights(4)).toEqual([0, 4])
+    // gcd(3, 8) = 1: the start walks every residue, so eight one-folder nights
+    // cover all eight — which is what 1,999 buys against any real folder count.
+    expect(await eightNights(3)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
   })
 
   // ⚖ THE PEEK'S FALLBACK. The cheap pair reads the container off the FIRST
@@ -765,7 +869,9 @@ describe('the estimate’s own constant', () => {
     // The recorder module cannot be imported here (it reaches for MediaRecorder
     // and the DOM at module scope), so the constant is read out of the file
     // text — the same pin, without dragging a browser into a node suite.
-    const src = readFileSync(join(process.cwd(), 'src/lib/global-recorder.ts'), 'utf8')
+    // Resolved against THIS file, not process.cwd(): a run from anywhere but
+    // the repo root would otherwise fail on the path rather than the pin.
+    const src = readFileSync(join(__dirname, '../../lib/global-recorder.ts'), 'utf8')
     const match = /const TAKE_FLUSH_MS = ([\d_]+)/.exec(src)
     expect(match).not.toBeNull()
     expect(Number(match![1].replace(/_/g, ''))).toBe(SEGMENT_NOMINAL_MS)
