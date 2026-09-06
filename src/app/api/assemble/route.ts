@@ -34,7 +34,10 @@ export async function GET(request: Request) {
 
   // The scheduler reads only the HTTP status, so a run that could not see the
   // whole tree must not record as a green one — /api/cleanup's rule. A BUDGET
-  // stop is different and stays a 200: the walk saw every candidate, tonight
-  // simply ended, and tomorrow continues where it stopped.
+  // stop is different and stays a 200: the walk saw every candidate and tonight
+  // simply ended. The next run starts at a DIFFERENT place in the same list
+  // (the walk rotates by day number and wraps), so a bucket too large for one
+  // night is covered over several rather than the same leading folders every
+  // night — which is what makes this 200 honest.
   return NextResponse.json(summary, { status: summary.walkComplete ? 200 : 500 })
 }

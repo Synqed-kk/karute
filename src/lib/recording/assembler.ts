@@ -74,8 +74,22 @@ export const SEGMENT_NOMINAL_MS = 5_000
 /** How many takes one night may seal. A 90-minute take is ~1,000 objects
  *  (~32 MB); twenty of those fit the route's budget on hnd1 with room, and the
  *  field's worst night is a handful. A run that hits it reports
- *  `budgetExhausted` and tomorrow continues. */
+ *  `budgetExhausted`, and tomorrow's run — which starts further along the same
+ *  rotating list — takes the next ones. */
 export const MAX_TAKES_PER_RUN = 20
+
+/** Stop STARTING a rebuild with less than this much of the budget left. The
+ *  worst take the recorder can produce is 2 h at 48 kbps (~43 MB, ~1,440
+ *  segments — global-recorder.ts's own ceiling), which is tens of seconds of
+ *  downloading plus one large PUT. Admitting one at 269 s would have the
+ *  function killed at the 300 s wall mid-PUT, and storage may still complete
+ *  that PUT server-side — leaving an object no run will ever audit, because
+ *  the next night meets it and skips. Cheap folders keep being walked; only
+ *  the expensive act is held back. */
+const TAKE_RESERVE_MS = 30_000
+
+/** One day in ms — the rotation's period (see runAssembler). */
+const DAY_MS = 86_400_000
 
 /** Downloads in flight at once while rebuilding one take. Four, not the whole
  *  prefix: this runs at 03:07 against a bucket nobody is recording into, so it
@@ -108,8 +122,8 @@ const ROW_WINDOW_MS = 6 * 60 * 60 * 1000
 const SEGMENT_ROOT = 'seg'
 const BUCKET = 'recordings'
 
-/** Reasons a folder was passed over. Disjoint except `objectExists`, which is
- *  an ENTRY counter (see AssemblerSummary). */
+/** Reasons a folder was passed over — one per folder, disjoint: every folder
+ *  the walk does not rescue lands in exactly one of these. */
 export interface AssemblerSkipped {
   /** The newest segment is younger than ASSEMBLE_AFTER_MS — the device may
    *  still come back and secure the whole take itself. */
@@ -154,7 +168,9 @@ export interface AssemblerSummary {
   walkComplete: boolean
   /** True when the run stopped on its own time/count bound with candidates
    *  left. Distinct from walkComplete on purpose: the walk SAW them, tonight
-   *  simply ended — and tomorrow continues. A 200, not a 500. */
+   *  simply ended, and tomorrow's run begins at a different index of the same
+   *  list (the rotation), so what tonight missed is reached within a few
+   *  nights. A 200, not a 500. */
   budgetExhausted: boolean
 }
 
@@ -204,6 +220,13 @@ export interface StrandedTake {
   /** The row that reserved this key: id only — nothing else is read from it
    *  after the walk classified it. */
   rowId: string
+  /** The row's own store, for the audit row. The 監査ログ viewer FILTERS by
+   *  store, so a row keyed on an empty one is invisible to every store-scoped
+   *  search (playback-url.ts:259-263 is the precedent, and it was itself a fix
+   *  round). Null on every row today — nothing stamps `store_id` on a
+   *  recording yet — which is exactly why it is threaded now: the PR that
+   *  starts stamping it touches the mint and the take doors, not this file. */
+  storeId: string | null
 }
 
 /** `{ ok }` on a path that filed an audit row; `{ error }` on every path that
@@ -217,8 +240,8 @@ export type AssembleResult = { ok: 'assembled' } | { error: 'deviceReturned' | '
  * THE CONTIGUOUS PREFIX FROM ZERO, and the first hole after it.
  *
  * Pure, and exported for its own tests AND for the save-from-server door,
- * which recomputes the same estimate when it stamps the duration. A seq that landed after a gap is real
- * on storage and stays there — it simply cannot be part of the take, because
+ * which recomputes the same estimate when it writes the duration. A seq that
+ * landed after a gap is real on storage and stays there — it simply cannot be part of the take, because
  * what a concatenation promises is that everything up to its end is present
  * and in order. Same rule the pump's `landedUpTo` mark obeys.
  *
@@ -316,6 +339,58 @@ async function listAll(
     offset += data.length
   }
   return { entries, complete: false }
+}
+
+/**
+ * THE CHEAP QUESTION, asked first: what container is this take in?
+ *
+ * One `list` with `limit: 1`. The six-digit pad makes lexical order numeric,
+ * so the first name a `name asc` listing returns is seq 000000 — and its
+ * extension is the whole folder's, because a recorder negotiates one container
+ * per take. That is all the key needs, and knowing the key is what lets the
+ * walk answer "is this take already on the server" for ONE storage call
+ * instead of a full folder listing.
+ *
+ * Null when the first entry is not this take's segment at all (a stray object
+ * sorting before `000000.*` — a dotfile, say). The caller then reads the
+ * folder whole, which filters junk properly; it costs the extra listing only
+ * in a case that should not exist.
+ */
+async function peekExt(
+  folder: string,
+  businessId: string,
+  takeId: string,
+): Promise<string | null | 'error'> {
+  const { data, error } = await bucket().list(`${SEGMENT_ROOT}/${folder}`, {
+    limit: 1,
+    offset: 0,
+    sortBy: { column: 'name', order: 'asc' },
+  })
+  if (error) {
+    console.warn(JSON.stringify({ evt: 'assembler_list_error', prefix_depth: 2 }))
+    return 'error'
+  }
+  const first = data?.[0]
+  if (!first || first.id == null) return null
+  const parsed = parseRecordingKey(`${SEGMENT_ROOT}/${folder}/${first.name}`, businessId)
+  return parsed?.kind === 'segment' && parsed.takeId === takeId ? parsed.ext : null
+}
+
+/** The object probe, and what its answer means for a folder. `'unknown'` is
+ *  never read as "the key is free" — that is the one answer that must not be
+ *  acted on. */
+async function probeObject(key: string): Promise<'exists' | 'absent' | 'error'> {
+  const answer = await objectExists(key)
+  return answer === 'unknown' ? 'error' : answer ? 'exists' : 'absent'
+}
+
+/** The finalized key for a folder's take in a given container, or null when
+ *  the container is one the closed map does not know. `audio/<ext>` is its own
+ *  inverse for every member of that map today (webm · mp4 · ogg · wav), pinned
+ *  by recording-assembler.test.ts; composeTakeKey is the fence either way —
+ *  a container it cannot resolve composes nothing rather than a guessed key. */
+function takeKeyFor(businessId: string, takeId: string, ext: string) {
+  return composeTakeKey(businessId, takeId, `audio/${ext}`)
 }
 
 /**
@@ -470,6 +545,9 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
     businessId: take.businessId,
     targetType: 'recording',
     targetId: take.rowId,
+    // `?? undefined` because AuditEvent.storeId is `string | undefined`
+    // (audit.ts) — the same spelling playback-url.ts's own emit uses.
+    storeId: take.storeId ?? undefined,
     severity: 'notice',
     detail: {
       recording_session_id: take.rowId,
@@ -497,11 +575,26 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * no lookup by storage path, so the folder name IS the join key. Same shape as
  * /api/cleanup's root walk, one level deeper.
  *
- * TWO PHASES on purpose. The listing is cheap and bounded, so it runs whole
- * first and gives an honest denominator; the per-take work (four listings,
- * a probe, a core page, a rebuild) then runs under the clock. A night that
- * runs out of time has still SEEN every candidate, which is what makes
- * `budgetExhausted` mean "tomorrow continues" rather than "we were blind".
+ * TWO PHASES on purpose. The root listing is cheap and bounded, so it runs
+ * whole first and gives an honest denominator; the per-folder work then runs
+ * under the clock. A night that runs out of time has still SEEN every
+ * candidate, which is what makes `budgetExhausted` mean "there are more" and
+ * never "we were blind".
+ *
+ * WHAT A FOLDER COSTS. Most folders in `seg/` belong to takes that finished
+ * long ago — segments outlive every take that ever recorded, because nothing
+ * deletes them — so the common path is deliberately the cheapest: ONE `list`
+ * with `limit: 1` (the container) and ONE `objectExists` (is it already on the
+ * server), then `continue`. No full listing, no core call. Only a folder whose
+ * object is genuinely absent pays for the whole listing, the age arithmetic,
+ * the core page and the rebuild.
+ *
+ * AND THE START ROTATES. A run cut by the clock keeps no cursor, so beginning
+ * at index 0 every night would re-walk the same leading folders forever and
+ * never reach the tail — silently, since the route's 200 hides it. Starting at
+ * today's index and walking circularly covers a bucket too large for one night
+ * over several nights instead. The ceiling that remains is named at the
+ * rotation itself: past a few nights' reach, this wants a resume cursor.
  */
 export async function runAssembler(
   deps: AssemblerDeps,
@@ -551,14 +644,54 @@ export async function runAssembler(
     return made
   }
 
-  for (const { folder, businessId, takeId } of folders) {
+  // ROTATE THE START. Every folder in `seg/` costs at least the cheap pair
+  // above, `seg/` only ever grows (nothing deletes a segment, by law), and a
+  // run cut by the clock has no cursor to resume from — so a walk that always
+  // began at index 0 would stop in the same place every night and never reach
+  // the tail. Starting at today's index and walking CIRCULARLY means a bucket
+  // too large for one night is covered over several, deterministically and
+  // with no new state to keep.
+  // ponytail: day-number rotation; a tenant whose tree outgrows a few nights'
+  // reach needs a resume cursor, and that is the upgrade path.
+  const startIndex = folders.length === 0 ? 0 : Math.floor(deps.now() / DAY_MS) % folders.length
+
+  for (let i = 0; i < folders.length; i++) {
+    const { folder, businessId, takeId } = folders[(startIndex + i) % folders.length]
     if (deps.now() >= deadline || summary.assembled >= MAX_TAKES_PER_RUN) {
       summary.budgetExhausted = true
       break
     }
 
+    // THE CHEAP PAIR, FIRST. One `list` with limit 1 to learn the container,
+    // one `objectExists` to ask whether the take is already on the server. A
+    // finished take — which is most of them, since segments outlive every take
+    // that ever recorded — costs exactly those two calls a night and never
+    // reaches core at all.
+    const peeked = await peekExt(folder, businessId, takeId)
+    if (peeked === 'error') {
+      summary.skipped.error++
+      continue
+    }
+    let composed = peeked === null ? null : takeKeyFor(businessId, takeId, peeked)
+    if (composed) {
+      const probe = await probeObject(composed.key)
+      if (probe === 'error') {
+        summary.skipped.error++
+        continue
+      }
+      if (probe === 'exists') {
+        summary.skipped.objectExists++
+        continue
+      }
+    }
+
+    // The object is absent (or the peek could not name a container): read the
+    // folder whole.
     const listing = await listAll(`${SEGMENT_ROOT}/${folder}`)
     if (!listing.complete) {
+      // A HALF-LISTED folder must never be rebuilt from: the missing tail
+      // would read as a gap, and the short object it produced would go under
+      // the take's immutable key where nothing can replace it.
       summary.skipped.error++
       continue
     }
@@ -572,43 +705,33 @@ export async function runAssembler(
       continue
     }
 
-    // AGE: the NEWEST leaf is the last time the device was heard from. An
-    // unparseable timestamp reads as NaN, and every comparison against NaN is
-    // false — so it is answered explicitly as YOUNG, never as "old enough".
+    if (composed === null) {
+      composed = takeKeyFor(businessId, takeId, leaves[0].ext)
+      if (composed === null) {
+        summary.skipped.extMismatch++
+        continue
+      }
+      const probe = await probeObject(composed.key)
+      if (probe === 'error') {
+        summary.skipped.error++
+        continue
+      }
+      if (probe === 'exists') {
+        summary.skipped.objectExists++
+        continue
+      }
+    }
+
+    // AGE: the NEWEST leaf is the last time the device was heard from — an old
+    // FIRST slice says nothing about a take the device was still recording ten
+    // minutes ago. An unparseable timestamp reads as NaN, and every comparison
+    // against NaN is false, so it is answered explicitly as YOUNG rather than
+    // being allowed to read as "old enough"; one unreadable leaf therefore
+    // holds the WHOLE folder young rather than sealing on a partial age, and a
+    // folder stuck there is invisible by design (skipped-young is silent).
     const newest = Math.max(...leaves.map((l) => l.createdAtMs))
     if (!Number.isFinite(newest) || newest > deps.now() - ASSEMBLE_AFTER_MS) {
       summary.skipped.young++
-      continue
-    }
-
-    // Composed, never string-built: composeTakeKey validates the take id and
-    // the container against the closed map and re-parses its own output, so
-    // the only key that reaches storage is one isOwnRecordingKey would accept
-    // for this same business. `audio/<ext>` round-trips every member of that
-    // map today; a container it does not know composes nothing and the folder
-    // is passed over rather than reached for under a guessed key.
-    const ext = leaves[0].ext
-    const composed = composeTakeKey(businessId, takeId, `audio/${ext}`)
-    if (composed === null) {
-      summary.skipped.extMismatch++
-      continue
-    }
-
-    const exists = await objectExists(composed.key)
-    if (exists === 'unknown') {
-      // Never assemble on a storage that will not say whether the key is free
-      // — that is the one answer that must not be read as "it is".
-      summary.skipped.error++
-      continue
-    }
-    if (exists) {
-      // The audio is already on the server: this take was rescued on an
-      // earlier night, or its own device finalized it. Either way there is
-      // nothing to rebuild, and this is what makes the whole job idempotent —
-      // exactly one audit row per rescued take, by construction. Answered
-      // BEFORE the core read, so a healthy tenant's finished takes cost one
-      // storage probe a night and not a single core call.
-      summary.skipped.objectExists++
       continue
     }
 
@@ -616,9 +739,11 @@ export async function runAssembler(
     let row: Recording | null
     try {
       row = await findReservingRow(coreFor(businessId), composed.key, oldest)
-    } catch {
+    } catch (err) {
+      // The error is KEPT: this is the one failure an operator most needs to
+      // read, and a bare catch made its status unreadable.
       summary.skipped.error++
-      warnAssembler('row_lookup', businessId, takeId)
+      warnAssembler('row_lookup', businessId, takeId, err)
       continue
     }
     if (!row) {
@@ -635,6 +760,12 @@ export async function runAssembler(
       continue
     }
 
+    // Never START what the wall will interrupt (see TAKE_RESERVE_MS).
+    if (deps.now() + TAKE_RESERVE_MS >= deadline) {
+      summary.budgetExhausted = true
+      break
+    }
+
     const { prefix, firstGap } = longestPrefix(leaves.map((l) => l.seq))
     const bySeq = new Map(leaves.map((l) => [l.seq, l]))
     const result = await assembleStrandedTake({
@@ -648,6 +779,7 @@ export async function runAssembler(
       prefix: prefix.map((seq) => bySeq.get(seq)!),
       firstGapSeq: firstGap,
       rowId: row.id,
+      storeId: row.store_id ?? null,
     })
     if ('error' in result) {
       summary.skipped[result.error]++
@@ -671,6 +803,15 @@ export async function runAssembler(
  *  finalize-take.ts, mint-take-url.ts), which is what keeps the bucket write
  *  lexically inside the audited symbol where the coverage registry sees it. */
 export function realAssemblerDeps(): AssemblerDeps {
+  // FAIL BEFORE THE WALK, not during it. newSynqedClient throws when
+  // SYNQED_CORE_URL / SYNQED_CORE_API_KEY are missing (client.ts) — and built
+  // lazily inside the loop that throw lands in the per-folder catch, so a
+  // deployment with no core env would answer 200 with `skipped.error` equal to
+  // `candidates` in a body nobody reads. Constructing one client here makes
+  // the same missing env a 500 the scheduler can actually see. The zero uuid
+  // is the worker's own idiom for a client built before any tenant is known
+  // (process-recording.ts).
+  newSynqedClient('00000000-0000-0000-0000-000000000000')
   return {
     coreFor: (businessId: string) => newSynqedClient(businessId),
     now: () => Date.now(),
