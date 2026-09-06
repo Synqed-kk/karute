@@ -521,8 +521,9 @@ function MemoryTrustBadge({
   // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
     // Scaffold shells pass customerId='' — render the plain trust chip; the
-    // relearn trigger only exists for a real customer AND an owner viewer
-    // (再学習 = owner-only dev tool, Liam 2026-07-16).
+    // relearn trigger only exists for a real customer AND a viewer holding
+    // BOTH dev-tool keys — the owner, or a person the owner gave both (see
+    // actions/dev-tools.ts; 再学習 is a dev tool, Liam 2026-07-16).
     if (!customerId || !canRelearn) {
       return (
         <span
