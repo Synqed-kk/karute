@@ -549,7 +549,7 @@ describe('POST memory/relearn', () => {
     const body = await res.json()
     expect(body.ok).toBe(false) // listSynqedKaruteRows mocked empty → nothing to relearn
   })
-  it('owner-gate (7/16 ruling): customers.view alone → refused BEFORE any transcript read', async () => {
+  it('dev-tool gate (7/16 ruling): customers.view alone → refused BEFORE any transcript read', async () => {
     const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
       listSynqedKaruteRows: jest.Mock
     }
@@ -562,7 +562,25 @@ describe('POST memory/relearn', () => {
     expect((await res.json()).ok).toBe(false)
     expect(listSynqedKaruteRows).not.toHaveBeenCalled()
   })
-  it('owner-gate: business.manage + recordings.viewAll passes the gate (read runs)', async () => {
+  // ⚖ THE PAIR, AS A PAIR (fix round 4). The two cases around this one are
+  // "neither key" and "both keys" — neither separates the pair from the named
+  // grant alone, so mutating the route to `.has('recordings.viewAll')` left the
+  // whole file green (blind round 2, L2 F5).
+  it('dev-tool gate: recordings.viewAll ALONE → refused BEFORE any transcript read', async () => {
+    const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
+      listSynqedKaruteRows: jest.Mock
+    }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const res = await memoryRelearn(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, 'Idempotency-Key': 'k-grantee' } }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(false)
+    expect(listSynqedKaruteRows).not.toHaveBeenCalled()
+  })
+
+  it('dev-tool gate: business.manage + recordings.viewAll passes the gate (read runs)', async () => {
     const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
       listSynqedKaruteRows: jest.Mock
     }

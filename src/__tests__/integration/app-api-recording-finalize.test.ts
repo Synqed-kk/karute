@@ -497,3 +497,51 @@ describe('POST recordings/finalize', () => {
     expect(REVOCATION_SENSITIVE_ENDPOINTS.has('recordings.finalize')).toBe(true)
   })
 })
+
+// ── ⚖ THE NAMED GRANT IS READ-ONLY, ON THE BEARER TRANSPORT (fix round 4) ────
+// Greptile #848 point 1's phone half. The web twins pinned it
+// (recording-upload-actions · recording-finalize-web-action); the transport the
+// app actually uses did not — mutating either route back to
+// `.has('recordings.viewAll')` left this whole file green (blind round 2, L2 F2).
+// Each refusal is bracketed by the both-keys positive on the SAME row, so the
+// 403 is provably about the keys and not about the row.
+describe('the named grant reserves and finalizes NOTHING on a colleague’s session (facade)', () => {
+  const colleaguesRow = () => {
+    // The take key must be FREE for the mint to reserve it — same setup the
+    // ordinary mint cases use; otherwise a 409 would mask the 403 question.
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: null })
+  }
+
+  it('mint: a NAMED GRANTEE (recordings.viewAll alone) → 403, nothing signed', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    colleaguesRow()
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('…while the OWNER’S HAND (both keys) reserves on the same row → 200', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    colleaguesRow()
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsUpdate).toHaveBeenCalled()
+  })
+
+  it('finalize: a NAMED GRANTEE (recordings.viewAll alone) → 403, nothing written', async () => {
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('…while the OWNER’S HAND (both keys) finalizes the same row → 200', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+  })
+})

@@ -21,6 +21,15 @@ describe('canUseDevRegen — BOTH keys', () => {
     await expect(canUseDevRegen()).resolves.toBe(true)
   })
 
+  // ⚖ THE HALF THE ⚖ 9/3 GRANT CREATES (fix round 4). The file's own header
+  // claims "the named grant ALONE never reaches a dev tool"; until now nothing
+  // asserted that sentence, and mutating the helper to viewAll-alone left every
+  // dev-tool suite green (blind round 2, L2 F4).
+  it('recordings.viewAll alone (the named grant) → false — a read grant is not a dev key', async () => {
+    rp.getMyCapabilities.mockResolvedValue(new Set(['recordings.viewAll']))
+    await expect(canUseDevRegen()).resolves.toBe(false)
+  })
+
   it('business.manage alone (granted to a non-owner) → false', async () => {
     rp.getMyCapabilities.mockResolvedValue(new Set(['business.manage']))
     await expect(canUseDevRegen()).resolves.toBe(false)

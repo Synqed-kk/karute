@@ -357,6 +357,32 @@ describe('regenerateKarute — web wrapper twin (lane 2026-08-30)', () => {
     expect(lines[0].detail).toEqual({ added: 1, removed: 1 })
   })
 
+  // ⚖ THE NAMED GRANT REWRITES NOTHING, ON THE DESKTOP (fix round 4). The
+  // FACADE half is pinned above; mutating the wrapper's own
+  // `holdsOwnerKeys(capabilities)` back to `.has('recordings.viewAll')` left
+  // every web-wrapper case green, because they only ever ran the caller against
+  // their OWN record (blind round 2, L2 F3). The message is the AppApiError the
+  // orchestration throws, mapped to `{ error }` by the wrapper's catch.
+  it('a NAMED GRANTEE (recordings.viewAll alone) cannot rewrite a colleague’s record — NO LLM, NO audit line', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    const lines = await auditLines(async () => {
+      await expect(regenerateKarute('00000000-0000-4000-8000-000000000007')).resolves.toEqual({
+        error: 'You cannot regenerate a recording you are not allowed to view.',
+      })
+    })
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('…while the OWNER’S HAND (both keys) rewrites the same colleague’s record', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    const result = await regenerateKarute('00000000-0000-4000-8000-000000000007')
+    expect(result.error).toBeUndefined()
+    expect(runExtract).toHaveBeenCalled()
+  })
+
   it('soft failure (extract error): No changes applied, NO audit line', async () => {
     runExtract.mockRejectedValueOnce(new Error('llm down'))
     const lines = await auditLines(async () => {
