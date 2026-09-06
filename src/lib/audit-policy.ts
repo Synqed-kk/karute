@@ -167,18 +167,18 @@ export const AUDITED_CORES: {
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
   // The nightly assembler (build 23 slice ③) — the take a dead device never
-  // came back for, rebuilt from its segments. Both of its writes sit inside
-  // this ONE symbol alongside the emit: the bucket PUT
-  // (storage.recordings.upload) and the duration stamp (recordings.update),
-  // so neither needs an SDK_WRITE_ALLOWLIST row — the same shape
-  // finalizeTakeWithClient above has. The walk driver runAssembler is
-  // deliberately NOT listed: it performs no write of its own and returns a
-  // summary whenever there is nothing old enough to rescue. Every path here
-  // that writes nothing (the device sealed its own key first; the object
-  // standing there is not this prefix's concatenation; the stamp did not
-  // land) returns an { error } before the emit — a rescue that files a row
-  // for audio it did not actually settle would be the one lie this job must
-  // never tell.
+  // came back for, rebuilt from its segments. Its ONE write sits inside this
+  // symbol alongside the emit — the bucket PUT (storage.recordings.upload) —
+  // so it needs no SDK_WRITE_ALLOWLIST row, the same shape
+  // finalizeTakeWithClient above has. It makes NO SDK write at all: the client
+  // it is handed is narrowed to `list`, because core fences a recording write
+  // behind a human actor and a cron has none (the duration is written by the
+  // save door instead). The walk driver runAssembler is deliberately NOT
+  // listed: it performs no write of its own and returns a summary whenever
+  // there is nothing old enough to rescue. Every path here that writes nothing
+  // (the device sealed its own key first; a leaf would not come down) returns
+  // an { error } before the emit — a rescue that files a row for audio it did
+  // not actually settle would be the one lie this job must never tell.
   { file: 'src/lib/recording/assembler.ts', symbols: ['assembleStrandedTake'] },
   // The play-button mint (build 23 slice ①) — its ONE success return is
   // dominated by the recording.play emit; every refusal is an { error } literal
