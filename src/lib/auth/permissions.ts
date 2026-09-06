@@ -28,12 +28,12 @@ export const CAPABILITIES = [
   'records.delete',    // delete customers / karute (destructive)
   'records.reassign',  // re-point a saved karute to another customer (audited)
   'records.write',     // record sessions, create / edit karute
-  'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
-                       // your OWN). OWNER ONLY by default (Liam ruling 7/16:
-                       // recordings are private to whoever recorded them —
-                       // managers included; the owner keeps it as the dev/
-                       // support key). The AI summary + entries stay shared
-                       // regardless.
+  'recordings.viewAll',// read EVERY staff's raw transcript + hear its audio (vs.
+                       // only your OWN). OWNER by preset; every other role only
+                       // through an explicit per-person override the OWNER ticks
+                       // (⚖ 9/3 council; the 7/16 recorder-private default
+                       // stands; owner-only ADD enforced in actions/
+                       // permissions.ts). AI summary + entries stay shared.
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
   'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
                        // Without it, a staff member is clamped to their
@@ -128,20 +128,23 @@ export function effectiveCapabilities(
   const valid = new Set<string>(CAPABILITIES)
   const source = override ?? presetCapabilities(role)
   const caps = new Set(source.filter((c): c is Capability => valid.has(c)))
-  // recordings.viewAll is owner-only (recorder-private ruling, Liam 7/16) and
-  // is enforced HERE, not just in the presets: a per-staff override stored
-  // before the ruling still carries it, and this function is the single
-  // chokepoint every read path (capabilitiesForUser, cookie + Bearer) and the
-  // override WRITE path (setStaffPermissions) pass through. Stripping at
-  // resolve time self-heals stale rows with no data migration.
-  if (role !== 'owner') caps.delete('recordings.viewAll')
-  // audit.view is deliberately NOT stripped here (grant-honoring flow, Liam
-  // ruling 7/17): owner-only by default because no non-owner PRESET carries it;
-  // a stored override carries it only when the owner ticked the toggle in
-  // StaffForm — that explicit per-staff grant is the sanctioned path to 監査ログ.
-  // Stale pre-#528 snapshots can't smuggle it in: overrides are stored only
-  // when they DIFFER from the preset (setStaffPermissions stores null on
-  // preset match) and the toggle UI was feature-flagged off until #528.
+  // NOTHING is stripped here. recordings.viewAll now follows the audit.view
+  // grant flow (⚖ 9/3 council, built 2026-09-06): never by preset for a
+  // non-owner — no non-owner PRESET carries it — but a stored override that
+  // carries it IS a live grant, because only the OWNER can put it there
+  // (ownerGrantedOnlyAdds, src/actions/permissions.ts). The resolve-time strip
+  // that used to sit here made the owner's own tick a checkbox that never
+  // stuck. Stale pre-7/16 rows can't smuggle it in either: the population was
+  // COUNTED at 0 on 2026-09-06 and the old write path stripped every non-owner
+  // request until this code deployed, so that set was frozen at zero — no
+  // migration, nothing to self-heal.
+  // audit.view is the precedent this follows (Liam ruling 7/17): owner-only by
+  // default because no non-owner PRESET carries it; a stored override carries
+  // it only when the owner ticked the toggle in StaffForm — that explicit
+  // per-staff grant is the sanctioned path to 監査ログ. Stale pre-#528 snapshots
+  // can't smuggle it in: overrides are stored only when they DIFFER from the
+  // preset (setStaffPermissions stores null on preset match) and the toggle UI
+  // was feature-flagged off until #528.
   return caps
 }
 
