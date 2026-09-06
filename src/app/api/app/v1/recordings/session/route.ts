@@ -17,9 +17,11 @@
 // the VERIFIED Bearer identity, never from the body.
 //
 // SLICE THREE ③ — THE STORE. The row is now minted carrying the store the
-// caller is working in (the `store-id` header, clamped). The clamp runs OUTSIDE
-// the fail-open try: a store this caller may not use is a 403, never a 200
-// {id:null} that would let the take be captured against it anyway.
+// caller is working in: the `store-id` header, clamped, and — ⚖ amendment 10 —
+// the business's primary store when the request named none, so a NEW row is
+// never born store-less. Both run OUTSIDE the fail-open try: a store this
+// caller may not use, or a store lookup that cannot answer, is a 403, never a
+// 200 {id:null} that would let the take be captured against it anyway.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -27,7 +29,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolvePrimaryStoreId, resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import {
   startRecordingSessionWithClient,
   type StartRecordingSessionResult,
@@ -105,6 +107,28 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
 
+  // ⚖ AMENDMENT 10 — THIS SERVER NEVER PERSISTS A STORE-LESS NEW ROW, whatever
+  // the client sent. `null` is no longer a possible outcome of this route: the
+  // header wins when one rode the request (the clamp above has already proven
+  // it belongs to this caller), and otherwise the business's PRIMARY store is
+  // the answer. The thin shell seeds its own lens to that same store on first
+  // boot and sends it as `store-id` from then on
+  // (thin/chrome/chrome-store.ts seedStoreLens · thin/ports/facade-fetch.ts),
+  // so this is the server-side twin of the client's own seed, not a second
+  // opinion — it simply also covers the caller whose seed never stuck and the
+  // raw API caller. It is a NARROWING, never a widening: a clamped staffer
+  // cannot reach the lookup at all (the clamp already answered them
+  // `requested ?? assigned[0]`, always concrete), so nobody's reach grows —
+  // an unstamped row would have read OPEN at the take doors under the D7 null
+  // rule, which was only ever meant for rows minted before slice ③.
+  //
+  // The lookup's own failure leg is the SAME fail-closed 403 as the clamp's
+  // (`store_forbidden` from resolvePrimaryStoreId, normalized by facadeHandler
+  // → 403, errors.ts STATUS), and it stays OUTSIDE the fail-open try below for
+  // the reason above: swallowed into `{ id: null }` it would read as "carry on"
+  // and put a store-less row behind the take.
+  const storeId = clamp.storeId ?? (await resolvePrimaryStoreId(synqed))
+
   // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
   // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
   // the client proceeds without dedupe, capture never blocks on the mint.
@@ -119,7 +143,7 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
       businessId: ctx.identity.businessId,
       takeId: parsed.data.takeId ?? null,
       mimeType: parsed.data.mimeType ?? null,
-      storeId: clamp.storeId,
+      storeId,
     })
   } catch (err) {
     console.error('[recordings.session.mint] failed:', err)
