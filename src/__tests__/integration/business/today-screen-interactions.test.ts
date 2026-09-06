@@ -93,6 +93,9 @@ import {
   type WarnCardInput,
   pinInViewport,
   protectedWindowsClause,
+  protectedCapacityOf,
+  laneWindowsWith,
+  restingSpanFor,
   proxyTimeLabel,
   windowsEatenBy,
   withPriceFact,
@@ -102,15 +105,18 @@ import {
   PRICE_HOLD_ROW,
   type GuardRail,
   type LandingVerdict,
+  type Move,
   type Moves,
   type RailCell,
+  type RailInput,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
 // ⚖ Liam 8/23 — the tour engine these tests drive now lives in the family's one
 // shared home (`@/business/lib/guide`); the board imports it from there too.
 // Same functions, carried verbatim, so every assertion below is unchanged.
 import { spotCardAt, spotHitIndex, spotTargets, wrapStep } from '@/business/lib/guide'
 import { dragOrigin, stepPct } from '@/business/lib/canon-logic/drag-rules'
-import { buildSellLayer, type SellCell } from '@/business/lib/canon-logic/availability'
+import { buildSellLayer, freePockets, type SellCell } from '@/business/lib/canon-logic/availability'
+import { createGapGuard } from '@/business/lib/canon-logic/gap-guard'
 import { DENSITY_CEILING, money, packedPrice, priceAt, SELL_CURVE } from '@/business/lib/canon-logic/pricing'
 import { buildLanes, dayBookings, minuteOf, place, yen, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 // ⚖ R3 one world — the guard's door lives on the screen (it needs both the book
@@ -12375,5 +12381,427 @@ describe('⚖ BLANK-SAFE — a row without requires_private_room is an untagged 
     expect(v.floor).not.toBe('hard')
     expect(v.floor).not.toBe('hard-room')
     expect(v.reason).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚖ NUDGE-GUARD (Liam 2026-09-06) — A MOVED CARD IS MEASURED AGAINST THE
+// STORE'S COMMITTED DAY, never against the lane with itself lifted out.
+//
+// The board priced a move against the lane the card had already left, so a
+// five-minute nudge inside a card's own stretch reported one lost 新規 window
+// (¥11,740 / ¥12,500 in Liam's shots) and hid the confirm behind 長押し. The
+// baseline is where the server's board still has the card — the span 元に戻す
+// restores — because the question a confirm asks is 「does the store lose
+// inventory by CONFIRMING this change」.
+//
+// Rulings, read whole before changing anything below:
+//   …/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-2026-09-06/ADJUDICATION.md
+//   …/WO2-today/batch14/nextround/COUNCIL-NUDGE-FIX-R2-2026-09-06/ADJUDICATION.md
+//
+// EVERY NUMBER BELOW CAME OUT OF A RUN. Every move-scene is asked on the board
+// the PRODUCT passes — the card ALREADY at the asked span — with `resting` set
+// to its committed origin, which is what the screen's `restingFor` hands in.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the committed day', () => {
+  const GUARD = {
+    services: [{ name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30,
+    leadTimeMin: 0, mode: 'standard' as const,
+  }
+  /** The packet's own geometry: ONE staff lane whose window is 14:00–18:00, so
+   *  lifting the card leaves a single 240-minute pocket. */
+  const pocketLane = (items: BoardItem[], over: Partial<BoardLane> = {}): BoardLane[] => [
+    lane({ key: 'p-01', group: 'staff', items, window: { from: 840, until: 1080 }, untilLabel: '18:00', ...over }),
+  ]
+  const card = (id: string, s: number, e: number): BoardItem =>
+    ({ key: `${id}-staff`, kind: 'booking', state: 'confirmed', category: 'repeat', caseId: id, title: 'X', ...place(s, e, HOURS) }) as unknown as BoardItem
+  const IN = (over: Partial<RailInput> = {}): RailInput => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+    nowMinute: null, locked: [], guard: GUARD, excludeId: 'C1', resting: null, ...over,
+  })
+  const at = (lanes: BoardLane[], start: number, over: Partial<RailInput> = {}) =>
+    guardVerdictAt(lanes, 'p-01', start, IN(over))
+  const on = (laneKey: string, start: number, dur: number) => ({ laneKey, start, dur })
+
+  /** `warnFaceFor`'s input, with the board's own price frame — the same objects
+   *  TodayScreen composes at :1341-1345, so the ¥ here is the screen's ¥. */
+  const warnInput = (cell: RailCell | null, listPrice = 7000): Parameters<typeof warnFaceFor>[0] => ({
+    rows: [], cell, override: null, level: 'allow-warned', holdToConfirm: true,
+    targetLaneMine: true, operatorName: '見本 あずさ', listPrice,
+    frame: { hi: 7260, lo: 6600, hqMin: 6600, hqMax: 7260 }, depth: 9,
+    protectedDur: 90, confirmEnabled: true,
+  })
+
+  /** THE PRODUCT'S OWN BOARD, built exactly as page.tsx builds it — the data
+   *  doors, the full appointments list, `buildLanes(input, dayBookings(input))`.
+   *  Liam's shots are on this board, so the pins that answer for them are too. */
+  type BedDoor = (lanes: BoardLane[], askerId: string | null, handId?: string | null) => RailInput['placementFeasible']
+  interface Demo { lanes: BoardLane[]; guard: RailInput['guard']; doors: BedDoor }
+  let DEMO: Demo | null = null
+  async function demoBoard(): Promise<Demo> {
+    if (DEMO) return DEMO
+    const lens = STORE_A
+    const apts = appointments()
+    const dayKey = jstDayKey(apts.find((a) => a.id === 'apt-29')!.starts_at)
+    const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+      data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+      data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+      data.listStoreOptions(), data.readStaffStores(lens),
+    ])
+    const input: BuildInput = {
+      appointments: apts, customers: custs, menus, staff: staffList, resources: beds,
+      shifts: planes.shifts, qualifications: planes.staffQualifications,
+      staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+      blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+      hours: planes.operatingHours, dayKey,
+      operatorStaffId: shell.operator.staff_id,
+      storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+      crossStore: false,
+    }
+    const built: Demo = {
+      lanes: buildLanes(input, dayBookings(input)),
+      guard: {
+        services: menus.map((m) => ({ name: m.name, dur: m.duration_minutes })),
+        newClientSessionMin: planes.opsConfig.newClientSessionMin, protectedLabel: '新規',
+        gapFillMinMin: planes.opsConfig.gapFillMinMin, blockStepMin: planes.opsConfig.blockStepMin,
+        leadTimeMin: planes.opsConfig.leadTimeMin,
+        mode: planes.opsConfig.gapGuardMode === 'strict' ? 'strict' : 'standard',
+      } as RailInput['guard'],
+      // TodayScreen :1796-1799 — `bedDoorFor(askerId, lanes)`, out of the frame's book.
+      doors: (lanes, askerId, handId = null) =>
+        bedDoor(bedViewsFor(lanes, { openMin: HOURS.open, closeMin: HOURS.close, nowMin: DEMO_NOW }, handId), lanes, askerId),
+    }
+    DEMO = built
+    return built
+  }
+  const DEMO_NOW = 804
+  /** Clone a booking's cards to a new span, on every lane it sits on. */
+  const movedTo = (lanes: BoardLane[], caseId: string, s: number, e: number): BoardLane[] =>
+    lanes.map((l) => ({ ...l, items: l.items.map((i) => (i.caseId === caseId ? { ...i, ...place(s, e, HOURS) } as BoardItem : i)) }))
+  const withoutCard = (lanes: BoardLane[], caseId: string): BoardLane[] =>
+    lanes.map((l) => ({ ...l, items: l.items.filter((i) => i.caseId !== caseId) }))
+  /** TodayScreen :2127-2151 — `verdictAt`'s every field, including the two the
+   *  round adds: the committed baseline and the door its before-list is read
+   *  through (`bedDoorFor(excludeId, lanes)`, the same one `placementFeasible` uses). */
+  const demoInput = (
+    lanes: BoardLane[], dur: number, excludeId: string | null,
+    guard: RailInput['guard'], doors: BedDoor,
+    resting: RailInput['resting'],
+  ): RailInput => ({
+    open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
+    nowMinute: DEMO_NOW, locked: [], guard, excludeId,
+    placementFeasible: doors(lanes, excludeId, excludeId),
+    protectedWindowFeasible: doors(lanes, null, excludeId),
+    resting, restingWindowFeasible: doors(lanes, excludeId, excludeId),
+  })
+
+
+  it('I1 — a nudge inside the card\'s own stretch (pocket 14:00–18:00, committed 14:10–15:10, asked 14:05, 60分) costs nothing and says so', () => {
+    const board = pocketLane([card('C1', 845, 905)])   // the product's board: already at the ask
+    const cell = at(board, 845, { resting: on('p-01', 850, 60) })!
+    expect(cell.state).toBe('degraded')
+    expect(cell.label).toBe('△14:05')
+    expect(cell.reason).toBeNull()
+    expect(cell.ackAllowed).toBe(true)
+    // The honest lane frame: one protected window before, one after.
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([1, 1])
+    expect(lossOf(cell)).toBe(0)
+    // The ✓ branch's own sentence — what SURVIVES — and no count pair, no 損を減らす.
+    expect(cell.sentence).toBe('15:05〜16:35の新規90分の空きを守れます')
+    expect(cell.sentence).not.toContain('枠減')
+    // Quiet: no amber face, no ¥, no 長押し. (⚖ 9/1 「zero-loss is quiet」.)
+    const face = warnFaceFor(warnInput(cell))
+    expect(face.face).toBe('clean')
+    expect(face.impact.yen).toBeNull()
+
+    // …and this is exactly what TODAY reports for the same nudge — the defect.
+    const today = at(board, 845)!
+    expect(today.state).toBe('blocked')
+    expect(lossOf(today)).toBe(1)
+    expect(today.sentence).toBe('ここに置くと14:00〜15:30の新規（90分）が入らなくなります')
+    expect(warnFaceFor(warnInput(today)).impact.yen).toBe('約¥10,650')
+  })
+
+  it('I2 — a REAL loss still reads 1 (committed 14:00–15:00, asked 14:05): blocked, the window that dies is named, ¥ stands', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    const cell = at(board, 845, { resting: on('p-01', 840, 60) })!
+    expect(cell.state).toBe('blocked')
+    expect(cell.reason).toBe('guard')
+    expect(cell.impact!.code).toBe('R-REP')
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([2, 1])
+    expect(lossOf(cell)).toBe(1)
+    // The named window EXISTS on the committed day and dies — not the phantom
+    // 14:00〜15:30 the lifted lane invents.
+    expect(cell.sentence).toBe('ここに置くと15:00〜16:30の新規（90分）が入らなくなります')
+    const face = warnFaceFor(warnInput(cell))
+    expect(face.face).toBe('warn')
+    expect(face.impact.yen).toBe('約¥11,340')
+  })
+
+  it('I2b — the v1 DEFECT shape: a baseline read off the ASKED span reports 0, which is why the origin is the baseline', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    // `restingSpanFor` on a pending whose origin IS the asked span (what reading
+    // the card off `boardLanes` would produce) — every real loss goes silent.
+    const defect = restingSpanFor({ id: 'C1', origin: { laneKey: 'p-01', ...place(845, 905, HOURS) } }, board, 'C1', HOURS, 0, null)
+    expect(defect).toEqual(on('p-01', 845, 60))
+    expect(lossOf(at(board, 845, { resting: defect })!)).toBe(0)
+    // …against the COMMITTED origin, the same scene is the honest 1 of I2.
+    const honest = restingSpanFor({ id: 'C1', origin: { laneKey: 'p-01', ...place(840, 900, HOURS) } }, board, 'C1', HOURS, 0, null)
+    expect(honest).toEqual(on('p-01', 840, 60))
+    expect(lossOf(at(board, 845, { resting: honest })!)).toBe(1)
+  })
+
+  it('I3 — restingSpanFor: pending first, then the committed board; a foreign day/store and a creation are no baseline', () => {
+    const committed: BoardLane[] = [
+      lane({ key: 'p-06', group: 'staff', items: [card('A', 900, 960)] }),
+      lane({ key: 'bed-01', group: 'beds', items: [card('B', 900, 960)] }),
+    ]
+    const pend = (origin: Move & { dayOffset?: number; store?: string | null }) => ({ id: 'A', origin })
+    const home = { laneKey: 'p-01', ...place(660, 720, HOURS) }
+    // no subject at all
+    expect(restingSpanFor(null, committed, null, HOURS, 0, 'store-a')).toBeNull()
+    // PENDING FIRST — `committedLanes` already carries a staged card at its
+    // STAGED span, so the board would price the move against itself.
+    expect(restingSpanFor(pend(home), committed, 'A', HOURS, 0, 'store-a')).toEqual(on('p-01', 660, 60))
+    // a creation sentinel has no committed span (C4)
+    expect(restingSpanFor(pend({ laneKey: '', x: 0, w: 0 }), committed, 'A', HOURS, 0, 'store-a')).toBeNull()
+    // a ParkHome is a baseline only on the board it belongs to
+    expect(restingSpanFor(pend({ ...home, dayOffset: 0, store: 'store-a' }), committed, 'A', HOURS, 0, 'store-a')).toEqual(on('p-01', 660, 60))
+    expect(restingSpanFor(pend({ ...home, dayOffset: 1, store: 'store-a' }), committed, 'A', HOURS, 0, 'store-a')).toBeNull()
+    expect(restingSpanFor(pend({ ...home, dayOffset: 0, store: 'store-b' }), committed, 'A', HOURS, 0, 'store-a')).toBeNull()
+    // nothing pending → the card's own span on the committed board
+    expect(restingSpanFor(null, committed, 'A', HOURS, 0, 'store-a')).toEqual(on('p-06', 900, 60))
+    // a bed-row-only card is on no STAFF lane, so it has no lane baseline
+    expect(restingSpanFor(null, committed, 'B', HOURS, 0, 'store-a')).toBeNull()
+    expect(restingSpanFor(null, committed, 'nobody', HOURS, 0, 'store-a')).toBeNull()
+  })
+
+  it('I4 — a degraded move with a real loss keeps HONEST counts (break 13:30–14:00, lane→18:00, committed 14:00–15:00, asked 15:20)', () => {
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(810, 840, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [brk, card('C1', 920, 980)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const cell = guardVerdictAt(board, 'p-01', 920, IN({ resting: on('p-01', 840, 60) }))!
+    // Whole-LANE, across both pockets: 4 before, 3 after — never the asked pocket's own 2→1.
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([4, 3])
+    expect(lossOf(cell)).toBe(1)
+    expect(cell.sentence).toBe('ここに置くと15:00〜16:30の新規（90分）が入らなくなります')
+    expect(warnFaceFor(warnInput(cell)).impact.yen).toBe('約¥10,740')
+  })
+
+  it('I5 — a CROSS-LANE move is priced exactly as today: the origin lane is not the asked lane', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    const crossLane = at(board, 845, { resting: on('p-02', 840, 60) })!
+    expect(crossLane).toEqual(at(board, 845)!)
+  })
+
+  it('I6 — a FRESH card is untouched: the lifted lane IS its honest baseline (REPRO (c))', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const fresh = withoutCard(lanes, 'apt-29')
+    const cell = guardVerdictAt(fresh, 'p-06', 840, demoInput(fresh, 60, null, guard, doors, null))!
+    expect(cell.state).toBe('blocked')
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([2, 1])
+    expect(lossOf(cell)).toBe(1)
+    expect(cell.sentence).toBe('ここに置くと14:00〜15:30の新規（90分）が入らなくなります')
+    expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBe('約¥11,740')
+  })
+
+  it('I7 — the strip is POINTER-INVARIANT (apt-33 in hand, committed 17:12–18:12) and unchanged at rest', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const base = movedTo(lanes, 'apt-29', 840, 900)
+    const strip = (board: BoardLane[], resting: RailInput['resting'], handId: string | null) =>
+      guardRailsFor(board, {
+        ...demoInput(board, 60, handId, guard, doors, resting),
+        open: HOURS.open, close: HOURS.close, stepMin: 30,
+      }).find((r) => r.laneKey === 'p-06')!.cells
+        .filter((c) => c.label !== '—').map((c) => c.label).join(' ')
+    // I7b — four pointer positions, ONE baseline: the origin is constant for the
+    // whole gesture, so the strip cannot follow the pointer.
+    const rows = [1020, 990, 1050, 1080].map((mins) => strip(movedTo(base, 'apt-33', mins, mins + 60), on('p-06', 1032, 60), 'apt-33'))
+    expect(rows).toEqual(Array(4).fill('✓15:00 △15:30 △16:00 ✓16:30 △17:00 △17:30 ✓18:00'))
+    // I7c — at rest (nothing in hand) the strip is REPRO's E4, untouched.
+    const rest = movedTo(base, 'apt-33', 1020, 1080)
+    expect(strip(rest, null, null)).toBe('△15:00 △16:00 ✓18:00')
+  })
+
+  it('I8 — Liam\'s two shots on the product\'s own board, both legs', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    // S1 · なぎ 14:05→14:00 on the board that reproduces the shot (minus apt-26).
+    const s1 = withoutCard(movedTo(lanes, 'apt-29', 840, 900), 'apt-26')
+    const c1 = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    expect(c1.label).toBe('△14:00')
+    expect(lossOf(c1)).toBe(0)
+    expect(c1.sentence).toBe('15:00〜16:30の新規90分の空きを守れます')
+    expect(warnFaceFor(warnInput(c1, 7700)).face).toBe('clean')
+    expect(warnFaceFor(warnInput(c1, 7700)).impact.yen).toBeNull()
+    // …the same nudge today: the amber face and the ¥11,740 of the shot.
+    const c1today = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, null))!
+    expect(warnFaceFor(warnInput(c1today, 7700)).impact.yen).toBe('約¥11,740')
+
+    // S1 fixture-as-is: an R-SALV residue refusal is NOT this round's business.
+    const s1fix = movedTo(lanes, 'apt-29', 840, 900)
+    const cfix = guardVerdictAt(s1fix, 'p-06', 840, demoInput(s1fix, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    expect(cfix.impact!.code).toBe('R-SALV')
+    expect(cfix.sentence).toBe('ここに置くと132分の割引でしか売れない空きが残ります')
+
+    // S2 · かえる 17:12→17:00 — quiet, and the engine's two SAFE offers survive.
+    const s2 = movedTo(movedTo(lanes, 'apt-29', 840, 900), 'apt-33', 1020, 1080)
+    const c2 = guardVerdictAt(s2, 'p-06', 1020, demoInput(s2, 60, 'apt-33', guard, doors, on('p-06', 1032, 60)))!
+    expect(c2.label).toBe('△17:00')
+    expect(lossOf(c2)).toBe(0)
+    expect(c2.sentence).toBe('15:00〜16:30の新規90分の空きを守れます')
+    expect(c2.alternatives).toEqual([990, 1080])
+    expect(c2.alternativeKind).toBe('safe')
+    expect(warnFaceFor(warnInput(c2, 7700)).face).toBe('clean')
+    // …the same drop today: ¥12,500 and the amber face of the second shot.
+    const c2today = guardVerdictAt(s2, 'p-06', 1020, demoInput(s2, 60, 'apt-33', guard, doors, null))!
+    expect(warnFaceFor(warnInput(c2today, 7700)).impact.yen).toBe('約¥12,500')
+
+    // A REAL loss on the same board stays exactly as loud as it is:
+    // あかり c-03, committed 16:00–16:30, asked 17:30 → 1 window, ¥12,710.
+    const ak = movedTo(lanes, 'apt-28', 1050, 1080)
+    const ca = guardVerdictAt(ak, 'c-03', 1050, demoInput(ak, 30, 'apt-28', guard, doors, on('c-03', 960, 30)))!
+    expect(ca.label).toBe('△17:30')
+    expect(lossOf(ca)).toBe(1)
+    expect(warnFaceFor(warnInput(ca, 7700)).impact.yen).toBe('約¥12,710')
+    // …and p-06 committed 18:00–19:00 asked 17:00 keeps its refusal and its ¥12,500.
+    const f8 = movedTo(movedTo(lanes, 'apt-29', 840, 900), 'apt-33', 1020, 1080)
+    const cf = guardVerdictAt(f8, 'p-06', 1020, demoInput(f8, 60, 'apt-33', guard, doors, on('p-06', 1080, 60)))!
+    expect(cf.state).toBe('blocked')
+    expect([cf.impact!.capacityBefore, cf.impact!.capacityAfter]).toEqual([2, 1])
+    expect(warnFaceFor(warnInput(cf, 7700)).impact.yen).toBe('約¥12,500')
+  })
+
+  it('I9 — THE C1 SWEEP: 222 (origin, asked) pairs on p-06, no silent-but-costly and no amber-but-costless', async () => {
+    // ⚖ R2 ruling 3 — judging the BEFORE-list on the AFTER-world's rooms erases
+    // the very window a move destroys. The door that lifts the moving card's own
+    // room hold is the fix, and this is the sweep that proved it (lens 3 RUN8).
+    const { lanes, guard, doors } = await demoBoard()
+    const base = movedTo(lanes, 'apt-29', 840, 900)
+    const origins = [900, 930, 990, 1020, 1032, 1080]
+    const starts: number[] = []
+    for (let s = 900; s <= 1080; s += 5) starts.push(s)
+    const truthOf = (b: BoardLane[]) => protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null))
+    const faceOf = (c: RailCell | null) => warnFaceFor(warnInput(c, 7700)).face
+    const sweep = (live: boolean) => {
+      let silent = 0, amber = 0, pairs = 0
+      for (const o of origins) {
+        const truthNow = truthOf(movedTo(base, 'apt-33', o, o + 60))
+        for (const s of starts) {
+          const board = movedTo(base, 'apt-33', s, s + 60)
+          const cell = guardVerdictAt(board, 'p-06', s, demoInput(board, 60, 'apt-33', guard, doors, live ? on('p-06', o, 60) : null))
+          const face = faceOf(cell)
+          const truthAfter = truthOf(board)
+          pairs += 1
+          if (face === 'clean' && truthAfter < truthNow) silent += 1
+          if (face === 'warn' && truthAfter >= truthNow) amber += 1
+        }
+      }
+      return { pairs, silent, amber }
+    }
+    expect(sweep(true)).toEqual({ pairs: 222, silent: 0, amber: 0 })
+    // …and the same sweep on today's baseline, which is the size of the defect:
+    // 102 of 222 moves light the amber face over a change that costs nothing.
+    expect(sweep(false)).toEqual({ pairs: 222, silent: 0, amber: 102 })
+  })
+
+  it('I10 — a CROSS-POCKET move is the whole-lane delta (committed 10:00–11:00, asked 15:20 past a 13:30 break)', () => {
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(810, 840, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [brk, card('C1', 920, 980)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const cell = guardVerdictAt(board, 'p-01', 920, IN({ resting: on('p-01', 600, 60) }))!
+    // The card leaves pocket 1 and lands in pocket 2: the lane holds 3 windows
+    // either way, so the move costs nothing and the row goes quiet.
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([3, 3])
+    expect(lossOf(cell)).toBe(0)
+    expect(cell.state).toBe('degraded')
+    // Per-pocket, the same landing invents a 1枠減 and names two windows.
+    const perPocket = guardVerdictAt(board, 'p-01', 920, IN({}))!
+    expect(lossOf(perPocket)).toBe(1)
+    expect(perPocket.sentence).toBe('ここに置くと14:00〜15:30・15:30〜17:00の新規（90分）が入らなくなります')
+  })
+
+  it('I11 — an origin straddling `now` on a 70-minute lane window does not throw and costs nothing', () => {
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 830, 890)], window: { from: 830, until: 900 }, untilLabel: '15:00' })]
+    const cell = guardVerdictAt(board, 'p-01', 830, IN({ nowMinute: 804, resting: on('p-01', 790, 60) }))!
+    expect(cell.state).toBe('safe')
+    expect(lossOf(cell)).toBe(0)
+    expect(cell.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
+  })
+
+  it('I12 — the ceilings, pinned as BEHAVIOUR: C2 strict ignores the baseline, C4 a creation has none', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    // C2 — a strict store keeps today's behaviour entirely, phantom gate included,
+    // until canon exposes the residue components (R2 ruling 7).
+    const strict = { guard: { ...GUARD, mode: 'strict' as const } }
+    expect(at(board, 845, { ...strict, resting: on('p-01', 840, 60) })!)
+      .toEqual(at(board, 845, strict)!)
+    expect(at(board, 845, { ...strict, resting: on('p-01', 840, 60) })!.ackAllowed).toBe(false)
+    // C4 — a CREATED card has no committed span, so its warning honestly re-fires
+    // on a nudge until it is confirmed.
+    expect(restingSpanFor({ id: 'C1', origin: { laneKey: '', x: 0, w: 0 } }, board, 'C1', HOURS, 0, null)).toBeNull()
+  })
+
+  it('I12/C3 — a count-neutral swap reads 0枠減 and prices nothing, though the surviving window has MOVED', async () => {
+    // ⚖ C3, declared: the lane frame nets a lost prime window against a freed
+    // cheaper one. The count is honest and the ¥ is the board's own frame.
+    const { lanes, guard, doors } = await demoBoard()
+    const base = movedTo(lanes, 'apt-29', 840, 900)
+    const board = movedTo(base, 'apt-33', 930, 990)
+    const cell = guardVerdictAt(board, 'p-06', 930, demoInput(board, 60, 'apt-33', guard, doors, on('p-06', 1032, 60)))!
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([1, 1])
+    expect(lossOf(cell)).toBe(0)
+    expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBeNull()
+    // the window that survives is NOT the window that was there
+    expect(cell.impact!.windowsBefore).not.toEqual(cell.impact!.windowsAfter)
+  })
+
+  it('I13 — a DEGRADED GAIN cell (120分 committed origin, 60分 ask) clamps to 0, never a negative loss', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const base = movedTo(lanes, 'apt-29', 840, 900)
+    const committed = movedTo(base, 'apt-33', 960, 1080)   // 16:00–18:00, 120分
+    const board = movedTo(committed, 'apt-33', 915, 975)   // asked 15:15, 60分
+    const cell = guardVerdictAt(board, 'p-06', 915, demoInput(board, 60, 'apt-33', guard, doors, on('p-06', 960, 120)))!
+    expect(cell.state).toBe('degraded')
+    // The move GAINS a window: raw before − after is −1, and `lossOf` clamps it.
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([0, 1])
+    expect(cell.impact!.capacityBefore - cell.impact!.capacityAfter).toBe(-1)
+    expect(lossOf(cell)).toBe(0)
+    expect(lossOf(cell)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('I15 — a zero-loss cell keeps ONLY the engine\'s safe offers: there is nothing to reduce', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    const zero = at(board, 845, { resting: on('p-01', 850, 60) })!
+    expect(lossOf(zero)).toBe(0)
+    expect(zero.alternativeKind).toBe('safe')
+    // the consult popover strips 「・損を減らす」 off the row it renders, and a
+    // zero-loss row can never carry a least-loss offer to disagree with it
+    expect(guardCheckRow(zero)!.label).not.toContain('損を減らす')
+    // a least-loss kind is dropped rather than shown under a costless move
+    const leastLoss = { ...zero, alternativeKind: 'least-loss' as const }
+    expect(lossOf(leastLoss)).toBe(0)
+  })
+
+  it('I14 — every new name is SPELLED ONCE, and the at-rest lane count is the capacity book\'s own', () => {
+    const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    const SCREEN = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
+    const CODE = codeOnly(INT)
+    // one declaration + two callers each, and no second author anywhere
+    expect(CODE.match(/laneWindowsWith\(/g)).toHaveLength(3)
+    expect(CODE.match(/overlapsPocket/g)).toHaveLength(2)
+    expect(CODE.match(/restingOn/g)).toHaveLength(3)
+    expect(CODE.match(/beforeCtxFor/g)).toHaveLength(3)
+    expect(CODE.match(/restingSpanFor\(/g)).toHaveLength(1)
+    expect(codeOnly(SCREEN).match(/restingSpanFor\(/g)).toHaveLength(1)
+    // ⚖ the percent-space overlap next door is NOT drafted into minute work.
+    expect(CODE.match(/spansOverlap\(/g)).toHaveLength(1)
+    // the engine's capacity door has exactly three readers: the capacity book's
+    // one, and `laneWindowsWith`'s two.
+    expect(CODE.match(/protectedCapacity\(/g)).toHaveLength(3)
+    // …and at rest the lane walk and the capacity book agree by construction.
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 845, 905)], window: { from: 840, until: 1080 }, untilLabel: '18:00' })]
+    const input = IN({ excludeId: null })
+    const engine = createGapGuard(GUARD)
+    const pockets = freePockets({ from: 840, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], null) })
+    expect(laneWindowsWith(engine, pockets, null, {}).length).toBe(protectedCapacityOf(board, input))
   })
 })
