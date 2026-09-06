@@ -47,7 +47,7 @@ export async function GET(request: Request) {
   // and tonight simply ended. The next run starts at a different point on the
   // ring — the day's golden-ratio position, which is equidistributed for every
   // folder count — so with a night's reach K, every folder is reached within
-  // about ceil(1.62 · N / K) + 1 nights. That is what makes this 200 honest.
+  // about ceil(1.894 · N / K) + 1 nights. That is what makes this 200 honest.
   return NextResponse.json(summary, {
     status: summary.walkComplete && summary.auditLost === 0 ? 200 : 500,
   })

@@ -292,7 +292,7 @@ describe('the walk', () => {
     // the interleave away, so a memo handing back whichever client it made
     // first only had to be wrong about ONE folder to pass. Four folders that
     // alternate tenants make the sequence itself the assertion, whatever index
-    // the day's stride starts at.
+    // the day's golden point starts at.
     const takes = [
       [BIZ, '0f8c6c9a-3f2d-4a71-9b5e-000000000001'],
       [BIZ2, '0f8c6c9a-3f2d-4a71-9b5e-000000000002'],
@@ -374,7 +374,7 @@ describe('the walk', () => {
   // place every night and never reach the tail — silently, because the route
   // still answers 200. The start is the day's GOLDEN-RATIO point on the ring,
   // which is equidistributed for every folder count: with a night's reach K,
-  // every folder is visited within about ceil(1.62 · N / K) + 1 nights. Ten
+  // every folder is visited within about ceil(1.894 · N / K) + 1 nights. Ten
   // folders at four a night is a bound of 6; the run below needs 3.
   //
   // UNINJECTED on purpose — this walks on the same arithmetic production does,
@@ -393,8 +393,8 @@ describe('the walk', () => {
     )
     const DAY = 86_400_000
     const seen = new Set<string>()
-    // ceil(1.62 × 10 / 4) + 1 = 6 — the bound the docblock promises.
-    const BOUND = Math.ceil((1.62 * 10) / 4) + 1
+    // ceil(1.894 × 10 / 4) + 1 = 6 — the bound the docblock promises.
+    const BOUND = Math.ceil((1.894 * 10) / 4) + 1
     expect(BOUND).toBe(6)
     let nightsNeeded = 0
     for (let day = 0; day < BOUND; day++) {
@@ -486,14 +486,14 @@ describe('the walk', () => {
     // (3,998 = 2 × 1,999 is the exact residual it could not close).
     for (const n of [8, 1999, 3998, 4000, 6000]) {
       const k = Math.ceil(n / 3)
-      const bound = Math.ceil((1.62 * n) / k) + 1
-      expect(bound).toBe(6)
+      const bound = Math.ceil((1.894 * n) / k) + 1
+      expect(bound).toBe(7)
       for (const day0 of DAY0S) expect(nightsToCover(n, k, day0)).toBeLessThanOrEqual(bound)
     }
     // Half the tree a night at 4,000 folders — the case a stride of 1,999
     // could not promise, because at N = 3,998 it starts at only two places on
     // the whole ring, forever.
-    const halfBound = Math.ceil((1.62 * 4000) / 2000) + 1
+    const halfBound = Math.ceil((1.894 * 4000) / 2000) + 1
     expect(halfBound).toBe(5)
     for (const day0 of DAY0S) expect(nightsToCover(4000, 2000, day0)).toBeLessThanOrEqual(halfBound)
 

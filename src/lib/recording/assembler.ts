@@ -148,14 +148,15 @@ const PHI_FRAC = 0.6180339887498949
  * equidistributed on the ring for EVERY N, with no lattice and no residual.
  *
  * The three-gap theorem is what makes that a promise rather than a hope: after
- * m nights the largest untouched arc is at most about 1.62/m of the ring — the
+ * m nights the largest untouched arc is at most about 1.9/m of the ring — the
+ * three-gap constant for the golden Weyl sequence, 1 + 2/√5 ≈ 1.894, the
  * golden ratio's own bound, and the smallest any irrational achieves. So with
  * a night's reach of K folders, every folder is visited within roughly
  *
- *     ceil(1.62 · N / K) + 1   nights
+ *     ceil(1.894 · N / K) + 1   nights
  *
  * (the +1 pays for the arc that straddles tonight's own window). At 6,000
- * folders and a 2,000-folder night that is 6 nights, for any N — including the
+ * folders and a 2,000-folder night that is 7 nights, for any N — including the
  * counts a stride of 1,999 could not promise, such as N = 3,998, where that
  * stride only ever starts at two places on the whole ring.
  *
@@ -265,7 +266,7 @@ export interface AssemblerSummary {
    *  left. Distinct from walkComplete on purpose: the walk SAW them, tonight
    *  simply ended, and tomorrow's run begins at the next night's golden-ratio
    *  point on the same circular list, so with a night's reach K every folder
-   *  is visited within about ceil(1.62 · N / K) + 1 nights, for every folder
+   *  is visited within about ceil(1.894 · N / K) + 1 nights, for every folder
    *  count (goldenStartIndex). A 200, not a 500. */
   budgetExhausted: boolean
 }
@@ -716,7 +717,7 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * route's 200 hides it. The start is `frac(day × φ) × N` and the walk is
  * circular: those points are equidistributed on the ring for EVERY folder
  * count, with no lattice and no residual, so with a night's reach K every
- * folder is visited within about ceil(1.62 · N / K) + 1 nights. The full
+ * folder is visited within about ceil(1.894 · N / K) + 1 nights. The full
  * argument, and the upgrade a resume cursor would buy, sit at goldenStartIndex.
  */
 export async function runAssembler(
