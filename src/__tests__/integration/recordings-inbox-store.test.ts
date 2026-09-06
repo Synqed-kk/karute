@@ -42,6 +42,8 @@ type Session = {
   jobStatus: string | null
   jobProbeFailed: boolean
   jobLastError: string | null
+  /** Slice ③ — what the server holds for this session's audio. */
+  serverAudio?: 'segments' | 'object' | null
 }
 const session = (over: Partial<Session> & { recordingSessionId: string }): Session => ({
   customerId: 'cust-1',
@@ -159,6 +161,41 @@ describe('FX-3 — the bounded poll for processing rows', () => {
     await loadInbox()
     await flush()
     expect(getInboxState().rows[0].state).toBe('processing')
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
+  })
+
+  it('a partialOnServer row is 処理中 but does NOT poll — the nightly job resolves it', async () => {
+    // Slice ③: this row is waiting on a cron that runs once a night, so a 90 s
+    // re-read of the whole inbox for up to three days would cost real calls and
+    // catch the change no sooner than the next mount does.
+    listRecordingsInbox.mockResolvedValue([
+      session({
+        recordingSessionId: 's1',
+        serverAudio: 'segments',
+        createdAt: new Date(NOW - 5 * 60 * 60_000).toISOString(),
+      }),
+    ])
+    await loadInbox()
+    await flush()
+    expect(getInboxState().rows[0].reason).toBe('partialOnServer')
+    await jest.advanceTimersByTimeAsync(INBOX_POLL_MS * 3)
+    await flush()
+    expect(listRecordingsInbox).toHaveBeenCalledTimes(1)
+  })
+
+  it('a live job alongside it still arms the timer — the exclusion is per-reason', async () => {
+    listRecordingsInbox.mockResolvedValue([
+      session({
+        recordingSessionId: 's1',
+        serverAudio: 'segments',
+        createdAt: new Date(NOW - 5 * 60 * 60_000).toISOString(),
+      }),
+      session({ recordingSessionId: 's2', jobStatus: 'RUNNING' }),
+    ])
+    await loadInbox()
+    await flush()
     await jest.advanceTimersByTimeAsync(INBOX_POLL_MS)
     await flush()
     expect(listRecordingsInbox).toHaveBeenCalledTimes(2)

@@ -119,7 +119,16 @@ function schedulePoll(rows: readonly InboxRow[]): void {
   stopPoll()
   // All three processing-class reasons (transcribing / unsettled / the
   // unknown-job handling) land on this one state.
-  if (listeners.size === 0 || !rows.some((r) => r.state === 'processing')) return
+  //
+  // …with ONE exception, and it is about time scales (slice ③).
+  // `partialOnServer` is 処理中 too, but what resolves it is the NIGHTLY
+  // assembler, not a run finishing in this minute — so a 90 s timer would
+  // re-read the whole inbox (two core lists, the discard ledger, the job
+  // probes and a storage listing) every 90 seconds for up to three days and
+  // never once catch the change sooner than the next mount would. The other
+  // reasons settle in minutes, which is what this poll was built for.
+  const pollable = rows.some((r) => r.state === 'processing' && r.reason !== 'partialOnServer')
+  if (listeners.size === 0 || !pollable) return
   pollTimer = setTimeout(() => {
     pollTimer = null
     void loadInbox()

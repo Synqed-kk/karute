@@ -80,6 +80,28 @@ export type InboxReason =
    *  partway, and a staff member deciding what to do with it deserves to know
    *  that before they press 保存する rather than after. */
   | 'tailIncomplete'
+  /** THE AUDIO IS ON THE SERVER, and no job has turned it into anything
+   *  (build 23 slice ③). The nightly assembler sealed a stranded take, or a
+   *  phone finalized this one at stop and then never got to 録音を使用 — the
+   *  row cannot tell which, and does not need to: the news to a staffer is the
+   *  same, and so is the one action.
+   *
+   *  It rides state `recoverable` ON PURPOSE, and that is the whole reason
+   *  this needs no new state, no new chip and no change to 要対応: 復元可能
+   *  already means "unsaved audio exists and 保存する will save it", the card
+   *  already renders the solid 保存する for it, and needsAttention already
+   *  counts it. The only thing that differs from `localAudio` is WHERE the
+   *  audio is, which is exactly what the sub-line says. */
+  | 'serverAudio'
+  /** PART of it is on the server (slice ③): the take's segments are there, the
+   *  whole object is not, and the nightly job will finish what it can.
+   *
+   *  It rides state `processing` and is therefore NEVER counted in 要対応 —
+   *  correctly, because there is nothing a staff member can do about it yet.
+   *  What it replaces is the lie: until this build such a row sat at 失敗
+   *  saying 「この録音は保存されませんでした」 while the server was in fact
+   *  holding most of the recording. */
+  | 'partialOnServer'
 
 /** The statuses this build knows how to read. Anything else on the wire is
  *  narrowed to "unknown, still in flight" — see `jobStatus` below. */
@@ -213,6 +235,11 @@ export interface InboxRow {
   /** 再試行 is offered ONLY when the audio is still here. Without the blob the
    *  link would promise a retry the app cannot perform. */
   canRetry: boolean
+  /** THE SAVE COMES FROM THE SERVER, not from this device (slice ③). True only
+   *  on the `serverAudio` row, so the card's button and the page's handler read
+   *  ONE flag instead of matching on a reason string — a reason is a display
+   *  fact, and routing a save off one is how the two drift apart. */
+  serverAudio?: boolean
 }
 
 /** The states that mean a human still owes this recording something AND can
@@ -377,8 +404,39 @@ export function deriveInboxRows(input: {
 
     // No job row at all — the enqueue never landed, or this device's run died
     // before one existed.
+    //
+    // THE LOCAL TAKE WINS, ALWAYS (slice ③). A device that still holds the
+    // audio holds the COMPLETE copy: the server's is at best the same bytes
+    // and at worst a prefix the assembler could seal, so a row with a take
+    // keeps today's 復元可能/localAudio and today's save path, untouched.
     if (take) {
       rows.push({ ...base, state: 'recoverable', reason: recoverableReason(take) })
+      continue
+    }
+    // …and only THEN what the server holds. `===` on purpose: the value is a
+    // plain string on the wire, so a literal this build never heard of falls
+    // straight through to today's grace/failed line rather than inventing a
+    // state for it.
+    if (s.serverAudio === 'object') {
+      // 復元可能 with the SAME chip, the SAME solid 保存する and the SAME place
+      // in 要対応 as a device-held take. Only the sub-line and the save's
+      // source differ — and `takeId` stays null because this device holds
+      // nothing, which is also what makes 再試行 impossible here (canRetry).
+      rows.push({
+        ...base,
+        state: 'recoverable',
+        reason: 'serverAudio',
+        takeId: null,
+        canRetry: false,
+        serverAudio: true,
+      })
+      continue
+    }
+    if (s.serverAudio === 'segments') {
+      // 処理中, never counted: the server has part of the recording and the
+      // nightly job will finish what it can. Nothing for a human to do, and
+      // saying 失敗 about audio the server is holding was the lie this closes.
+      rows.push({ ...base, state: 'processing', reason: 'partialOnServer' })
       continue
     }
     // ponytail: `now` is the CLIENT's clock and `startedAt` is the SERVER's
