@@ -595,6 +595,27 @@ describe('the walk', () => {
     expect(listCalls.filter((c) => c.prefix === `seg/${folder}`).length).toBeGreaterThan(1)
   })
 
+  // ⚖ THE SECOND CHEAP PAIR. Condition 5 lives at BOTH sites — after the peek,
+  // and after the full listing when the peek could not name a container — and
+  // every other rescue case enters through the first one. Without this, a hole
+  // put in the second site alone survives the whole battery.
+  it('a dotfile folder whose rescue is already there → skipped.rescued, after the listing', async () => {
+    const { folder, key, rescueKey } = seed({ seqs: [0, 1], ext: 'mp4', rescueObjectSize: 21 })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.rescued).toBe(1)
+    // The same ORDER as the first site: the phone's own key, then the rescue.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key, rescueKey])
+    // …and it stops there — no core call, no second PUT of a take an earlier
+    // night already rebuilt, no second audit row for one take.
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
   it('a folder with nothing parseable in it is skipped without a probe or a core call', async () => {
     const folder = `app_${BIZ}_${TAKE}`
     addFolder(folder)
