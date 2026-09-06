@@ -43,8 +43,9 @@ export interface RecordingsInboxCardProps {
    *
    *  ⚖ AND IT GREYS THE NEIGHBOURS TOO (fix round 3, R2). The page holds ONE
    *  latch for the whole card, so while this row's save is in flight the save
-   *  on the row NEXT DOOR is refused at the handler's first guard — silently,
-   *  with no toast and no chip change. A device that walked out of signal
+   *  on the row NEXT DOOR is UNAVAILABLE — its button is disabled, silently,
+   *  with no toast and no chip change, and a SERVER neighbour is additionally
+   *  refused at startServerSave's own guard. A device that walked out of signal
    *  usually strands more than one recording, so two rows offering 保存する is
    *  the ordinary shape here, not the exotic one: the staffer would tap both,
    *  see both stay solid, and walk away believing both were queued. Only the

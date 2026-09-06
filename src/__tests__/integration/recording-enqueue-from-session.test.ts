@@ -386,14 +386,6 @@ describe('the revisit label cannot be smuggled past its guard', () => {
 })
 
 /**
- * ⚖ THE DURATION STAMP (D8' amendment). Core fences `recordings.update` behind
- * a HUMAN actor, so the nightly assembler rebuilds a take's object and can
- * never write its length. This door is the first moment after that rescue with
- * a real staffer's bearer in hand — so it computes the flush-window estimate
- * from the segments the recorder actually flushed and writes it ONCE, and the
- * save never depends on that write landing.
- */
-/**
  * ⚖ THE DOOR STAMPS NO DURATION — EVER (ADDENDUM 9.2 H3, 2026-09-07).
  *
  * The D8' amendment had this door write the flush-window estimate, because the
