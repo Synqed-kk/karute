@@ -174,9 +174,12 @@ describe('Business import isolation (phone-safety lock 3)', () => {
   function outwardOffense(spec: string, fromFile: string): string | null {
     const target = resolveSpecifier(spec, fromFile)
     if (target === null) {
+      if (fromFile === 'src/__tests__/integration/business/reserve-card-color-ui.test.tsx' && spec === '@testing-library/react') return null
       return ALLOWED_BARE.test(spec) ? null : 'bare package off the allowlist'
     }
     if (inTerritory(target)) return null // territory's own, root barrel included
+    // One authorized appearance reconnect; all other Business routes remain sealed.
+    if (['src/app/api/business/reserve-card-color/route.ts', 'src/__tests__/integration/business/reserve-card-color.test.ts'].includes(fromFile) && ['src/lib/auth/require-permission', 'src/lib/staff', 'src/lib/synqed/client'].includes(target)) return null
     if (ALLOWED_TARGETS.includes(target)) return null
     return `resolves outside territory to ${target}`
   }
@@ -224,6 +227,9 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     expect(outwardOffense('@/actions/stores', from)).not.toBeNull()
     expect(outwardOffense('@/lib/auth/require-permission', from)).not.toBeNull()
     expect(outwardOffense('@/lib/staff', from)).not.toBeNull()
+    expect(outwardOffense('@/lib/staff', 'src/app/api/business/reserve-card-color/route.ts')).toBeNull()
+    expect(outwardOffense('@/lib/staff', 'src/app/api/business/other/route.ts')).not.toBeNull()
+    expect(outwardOffense('@/actions/org-settings', 'src/app/api/business/reserve-card-color/route.ts')).not.toBeNull()
     expect(outwardOffense('@/lib/workspaces/types', from)).not.toBeNull()
     // …the old denylist's targets, now offenders by default…
     expect(outwardOffense('@/components/ui/button', from)).not.toBeNull()
