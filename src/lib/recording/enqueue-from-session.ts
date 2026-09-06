@@ -246,6 +246,9 @@ export async function enqueueFromSessionWithClient(
   // who made it under the store-isolation law. The caller's own scope stays the
   // fallback for pre-③ rows, whose store nobody stamped. `staff_id` is NOT
   // treated the same way: attribution-at-enqueue is the twins' own rule.
+  // The device-side save (actions/recording-jobs.ts `enqueueRecordingJob`) still
+  // stamps the saver's active scope: it holds the take and never reads the row,
+  // so it adopts this rule on its next touch, not here.
   const payload: RecordingJobPayload = {
     customer_id: input.customerId,
     staff_id: actor.jobStaffId,
