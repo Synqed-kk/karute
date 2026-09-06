@@ -24,6 +24,9 @@ const recordingsGet = jest.fn(async () => ({
   audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
   duration_seconds: 90,
   status: 'COMPLETED',
+  // ③ The store the device was in — null is the pre-③ production shape and the
+  // default; only the R1′ cases set one.
+  store_id: null as string | null,
 }))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ recordings: { get: () => recordingsGet() } })),
@@ -126,6 +129,7 @@ beforeEach(() => {
     audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
     duration_seconds: 90,
     status: 'COMPLETED',
+    store_id: null,
   })
 })
 
@@ -238,6 +242,13 @@ describe('KaruteDetailPage — playback inputs (businessId · recordingRow)', ()
   })
 })
 
+// ── ⚖ R1′ — THE THREE READ DOORS ANSWER ONE KARUTE THE SAME WAY (③ fix round 3;
+// Greptile #849 point 2). The karute's store leads, the recording ROW's store is
+// the fallback, both null = unlabelled = open — one spelling, readDoorStoreId
+// (auth/recording-acl.ts). The same fixture is pinned at the other two doors:
+// the facade screen route (app-api-karute-detail-screen.test.ts) and the sound
+// door (recording-playback-url.test.ts). Any door that read only the karute
+// would open here where its siblings close.
 // ── ⚖ STORE REACH, WEB HALF (Liam's store-isolation law 8/17; Greptile #848
 // point 2). The grant widens WHOSE recordings, never WHICH stores — the page
 // resolves the viewer's assignment and hands the builder the NARROWED flag.
@@ -278,6 +289,71 @@ describe('KaruteDetailPage — the named grant stays inside the viewer’s store
     storeScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  // ⚖ R1′ (③ fix round 3; Greptile #849 point 2) — the recording ROW's store is
+  // the fallback when the karute carries none. Before it, a store-less booking's
+  // karute read as 全店舗 while its row plainly named store-9.
+  it('a NULL-store karute is closed by its recording row’s store — grantee in store-a, row store-9', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9',
+      summary: null,
+      store_id: null,
+      recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockResolvedValue({
+      id: 'sess-1',
+      audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+      duration_seconds: 90,
+      status: 'COMPLETED',
+      store_id: 'store-9',
+    })
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → true', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9',
+      summary: null,
+      store_id: 'store-a',
+      recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockResolvedValue({
+      id: 'sess-1',
+      audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+      duration_seconds: 90,
+      status: 'COMPLETED',
+      store_id: 'store-9',
+    })
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  // Both null — and the no-row case, which is the same answer for the same
+  // reason: nothing names a store, so there is no store to be outside of.
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, open', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9',
+      summary: null,
+      store_id: null,
+      recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockResolvedValue({
+      id: 'sess-1',
+      audio_storage_path: 'app_biz-1_11111111-1111-4111-8111-111111111111.mp4',
+      duration_seconds: 90,
+      status: 'COMPLETED',
+      store_id: null,
+    })
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
   })
 
   it('a THROWN scope read fails closed and the PAGE still renders', async () => {

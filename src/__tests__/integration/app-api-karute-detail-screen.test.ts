@@ -86,6 +86,9 @@ const REC = {
     audio_storage_path: TAKE_KEY as string | null,
     duration_seconds: 742 as number | null,
     status: 'COMPLETED',
+    // ③ The store the device was in. `null` is the pre-③ production shape and
+    // the default; only the R1′ cases below set one.
+    store_id: null as string | null,
   },
 }
 const recordingsGet = jest.fn(async (id: string) => {
@@ -149,7 +152,7 @@ beforeEach(() => {
   getConsent.mockResolvedValue({ consent: { policy_version: 'v0' } })
   listPhotos.mockResolvedValue({ photos: [{ id: 'p1', signed_url: 'https://x/p1', category: 'before', caption: null, recording_session_id: 'sess-1' }] })
   outcomeGet.mockResolvedValue(null)
-  REC.current = { id: 'sess-1', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
+  REC.current = { id: 'sess-1', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED', store_id: null }
   recordingsGet.mockImplementation(async (id: string) => {
     if (id !== 'sess-1') throw Object.assign(new Error('nope'), { status: 404 })
     return REC.current
@@ -698,11 +701,35 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     expect(staffStoresGet).not.toHaveBeenCalled()
   })
 
-  it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+  it('a record with NO store — and no store on its recording either — is read by a clamped grantee (全店舗 / legacy)', async () => {
     KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
     capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
     staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
     expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // ⚖ R1′ (③ fix round 3; Greptile #849 point 2) — the recording ROW's store is
+  // the fallback when the karute carries none. Same fixture as the web page's
+  // pin and the sound door's; all three must answer alike.
+  it('…but a NULL-store karute whose RECORDING names store-9 is closed to a store-a grantee — transcript AND player', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and the KARUTE still leads when it has one — karute store-a, row store-9 → read and heard', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    REC.current = { ...REC.current, store_id: 'store-9' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.recording?.audioPresent).toBe(true)
   })
 
   // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, F3) — the
