@@ -6,8 +6,9 @@ import * as appHandler from '@/app/api/assemble/route'
 // under test: it refuses to run without the correct Vercel-Cron bearer (fail
 // CLOSED, including when CRON_SECRET is not configured at all), and its HTTP
 // status tells the scheduler the truth — a walk that could not see the whole
-// tree is a 500, while a run that merely ran out of tonight's budget is a 200,
-// because tomorrow's run picks the tree up a stride further along.
+// tree is a 500, so is a rescue whose durable receipt never landed, while a
+// run that merely ran out of tonight's budget is a 200, because tomorrow's run
+// picks the tree up a stride further along.
 //
 // runAssembler itself is doubled: its own behaviour is proved in
 // recording-assembler.test.ts, and a route test that reached storage would be
@@ -37,6 +38,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
     deviceReturned: 0,
     error: 0,
   },
+  auditLost: 0,
   walkComplete: true,
   budgetExhausted: false,
   ...over,
@@ -149,6 +151,45 @@ describe('GET /api/assemble — the status is the run’s own honesty', () => {
         })
         expect(res.status).toBe(500)
         expect(await res.json()).toMatchObject({ walkComplete: false, assembled: 3 })
+      },
+    })
+  })
+
+  // ⚖ A RESCUE WITHOUT ITS RECEIPT IS NOT A GREEN NIGHT (Greptile #850 point
+  // 1). The object is under the take's immutable key, so no later run will
+  // ever meet that folder as work again — the missing row cannot be retried by
+  // the job itself, and the scheduler reads only this status.
+  it('a rescue whose receipt did not land is a 500, even though the walk was whole', async () => {
+    runAssembler.mockImplementation(async () =>
+      summary({ assembled: 2, partial: 2, auditLost: 1 }),
+    )
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(500)
+        // The body still reports the rescue: the audio IS on the server.
+        expect(await res.json()).toMatchObject({ assembled: 2, auditLost: 1, walkComplete: true })
+      },
+    })
+  })
+
+  it('rescues whose receipts all landed stay a 200', async () => {
+    runAssembler.mockImplementation(async () =>
+      summary({ assembled: 2, partial: 2, auditLost: 0 }),
+    )
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(200)
+        expect(await res.json()).toMatchObject({ assembled: 2, auditLost: 0 })
       },
     })
   })

@@ -32,16 +32,27 @@ export async function GET(request: Request) {
   // take in hand and report, so a run never dies unreported at the wall.
   const summary = await runAssembler(realAssemblerDeps(), { budgetMs: 270_000 })
 
-  // The scheduler reads only the HTTP status, so a run that could not see the
-  // whole tree must not record as a green one — /api/cleanup's rule. A BUDGET
-  // stop is different and stays a 200: the walk saw every candidate and tonight
-  // simply ended. The next run starts ROTATION_STRIDE folders further along the
-  // same list (the walk strides by a night's reach and wraps), so nights that
-  // each reach at least that many cover the whole tree within
-  // ceil(N / ROTATION_STRIDE) nights — and a slower night still advances the
-  // start by the stride, so what it skipped is reached when the walk comes
-  // round (at most N nights, except the named residual: a folder count that
-  // is itself a multiple of ROTATION_STRIDE). Closing that exactly would take
-  // a resume cursor. That is what makes this 200 honest.
-  return NextResponse.json(summary, { status: summary.walkComplete ? 200 : 500 })
+  // The scheduler reads only the HTTP status, so TWO failures must not record
+  // as a green night.
+  //
+  // A BLIND WALK — /api/cleanup's rule: a run that could not see the whole tree
+  // says so with a 500.
+  //
+  // A LOST RECEIPT (⚖ 2026-09-07) — an object was written and its durable
+  // capture_resumed row was not. The audio is rescued, but its key is now
+  // occupied, so every later night skips it and nothing retries the row on its
+  // own. Cleanup's rule extended: a rescue with no receipt is not a green run.
+  //
+  // A BUDGET stop is different and stays a 200: the walk saw every candidate
+  // and tonight simply ended. The next run starts ROTATION_STRIDE folders
+  // further along the same list (the walk strides by a night's reach and
+  // wraps), so nights that each reach at least that many cover the whole tree
+  // within ceil(N / ROTATION_STRIDE) nights — and a slower night still advances
+  // the start by the stride, so what it skipped is reached when the walk comes
+  // round (at most N nights, except the named residual: a folder count that is
+  // itself a multiple of ROTATION_STRIDE). Closing that exactly would take a
+  // resume cursor. That is what makes this 200 honest.
+  return NextResponse.json(summary, {
+    status: summary.walkComplete && summary.auditLost === 0 ? 200 : 500,
+  })
 }

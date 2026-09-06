@@ -61,7 +61,7 @@
 // these would take a caller's word for whose take it is opening.
 
 import type { Recording, SynqedClient } from '@synqed-kk/client'
-import { audit } from '@/lib/audit'
+import { auditDurable } from '@/lib/audit'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { createServiceClient } from '@/lib/supabase/service'
 import { composeTakeKey, parseRecordingKey, parseSegmentFolder } from '@/lib/recording/key-grammar'
@@ -219,6 +219,18 @@ export interface AssemblerSummary {
   candidates: number
   /** Objects newly written from segments — one audit row each. */
   assembled: number
+  /** Rescues whose object LANDED but whose receipt did not: the durable
+   *  capture_resumed row came back unwritten (`ok: false` — core refused, or
+   *  the sink is not configured). The audio IS rescued and still counts under
+   *  `assembled`; what is missing is the row that explains it, and the take's
+   *  key is now occupied, so every later night meets `objectExists` and no run
+   *  ever retries the receipt on its own. That is why any count above zero
+   *  turns the run's HTTP status red (route.ts): a rescue with no receipt must
+   *  never read as a green night. The console line — sink 1, emitted by the
+   *  same call — still carries the event into the log drain, so the trail is
+   *  degraded rather than gone. Named upgrade: a reconciler that walks sealed
+   *  objects with no row and re-emits. */
+  auditLost: number
   /** Rescues filed as `partial: true` — which, on today's main, is every one
    *  of them (design D2: no declaration of a take's length exists). */
   partial: number
@@ -291,12 +303,17 @@ export interface StrandedTake {
   storeId: string | null
 }
 
-/** `{ ok }` on a path that filed an audit row; `{ error }` on every path that
+/** `{ ok }` on a path that WROTE the object; `{ error }` on every path that
  *  wrote nothing. The shape is the family's own (finalize-take.ts) and it is
  *  load-bearing here: the audit-emission walker (CP7) reads a bare string
  *  return as an unaudited exit, which is exactly what a rescue that files no
- *  row must never look like by accident. */
-export type AssembleResult = { ok: 'assembled' } | { error: 'deviceReturned' | 'error' }
+ *  row must never look like by accident.
+ *
+ *  `auditLost` rides on the OK side because the two facts are independent: the
+ *  audio is on the server either way, and the receipt is a separate promise
+ *  that either landed or did not. Folding a lost receipt into `{ error }`
+ *  would report the rescue as not having happened, which is the opposite lie. */
+export type AssembleResult = { ok: 'assembled'; auditLost: boolean } | { error: 'deviceReturned' | 'error' }
 
 /**
  * THE CONTIGUOUS PREFIX FROM ZERO, and the first hole after it.
@@ -563,7 +580,10 @@ async function downloadPrefix(take: StrandedTake): Promise<Buffer | null> {
  * left behind. It says how many segments there were, how many of them are in
  * the object, where the first hole is, and that the length it reports is an
  * ESTIMATE — nothing on today's main declares how long a take was meant to be
- * (design D2), so completeness is never claimed.
+ * (design D2), so completeness is never claimed. It is AWAITED and DURABLE
+ * (auditDurable, the discard receipt's emitter), and a row that did not land
+ * comes back as `auditLost: true` — the run's own red flag, see the field's
+ * note on AssemblerSummary.
  *
  * ⚖ NO CORE WRITE HERE (amendment 2026-09-06). The duration is not stamped by
  * this job: core fences `PUT /v1/recordings/:id` behind a human actor (core
@@ -592,12 +612,26 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
   // and pins.
   const estimatedDurationSeconds = Math.floor((take.prefix.length * SEGMENT_NOMINAL_MS) / 1000)
 
+  // THE RECEIPT IS AWAITED AND DURABLE, and a lost one is counted (⚖ 2026-09-07,
+  // Greptile #850 point 1). auditDurable is the discard receipt's own emitter
+  // (discard.ts): same console line, then the core row AWAITED, and the outcome
+  // handed back. Its CONTRACT, read at source: it never throws — a refused
+  // forward, a missing sink env and any thrown error all come back as
+  // `{ ok: false }` (forwardToCore swallows and counts). So `ok` is the whole
+  // question, and there is nothing here to catch.
+  //
+  // Why this and not fire-and-forget audit(): the object is under the take's
+  // IMMUTABLE key the moment the PUT lands, so every later night meets
+  // `objectExists` and skips. A dropped row is therefore permanent — nothing
+  // retries it, and the take's audio would exist with nobody able to say what
+  // rebuilt it. The run reports the loss instead of hiding it.
+  //
   // ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no path: the ids
   // below carry everything the key would have said, honestly.
   // no-request-scope: a Vercel cron tick has no inbound request id to thread —
   // the recording_session_id + take_id in detail are the correlation keys (the
   // auto-burn writer's precedent, auto-burn.ts).
-  audit({
+  const receipt = await auditDurable({
     category: 'recording',
     action: 'recording.capture_resumed',
     // A cron has no person behind it — the auto-burn writer is the precedent
@@ -626,7 +660,10 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
     },
     source: 'system',
   })
-  return { ok: 'assembled' }
+  // Ids only, as every warn in this family is: the take is findable, the log
+  // drain already holds the console half of the receipt.
+  if (!receipt.ok) warnAssembler('audit', take.businessId, take.takeId)
+  return { ok: 'assembled', auditLost: !receipt.ok }
 }
 
 /**
@@ -681,6 +718,7 @@ export async function runAssembler(
       deviceReturned: 0,
       error: 0,
     },
+    auditLost: 0,
     walkComplete: true,
     budgetExhausted: false,
   }
@@ -863,6 +901,9 @@ export async function runAssembler(
     // Every rescue this job can file is partial: nothing declares a take's
     // length (design D2), so completeness is never claimed.
     summary.partial++
+    // The audio landed; its receipt may not have. Counted here rather than
+    // demoted into `skipped`, because the rescue DID happen — see the field.
+    if (result.auditLost) summary.auditLost++
   }
 
   console.info(JSON.stringify({ evt: 'assembler_run', ...summary }))

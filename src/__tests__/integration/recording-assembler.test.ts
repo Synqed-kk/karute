@@ -19,8 +19,20 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+// ⚖ THE RECEIPT IS THE DURABLE, AWAITED ONE (the discard receipt's emitter).
+// `auditAnswer` is what core gives back: ok:true is the row landing, ok:false
+// is every way it can fail — auditDurable NEVER throws (forwardToCore swallows
+// a refusal, a thrown SDK error and a missing sink env alike and reports
+// { ok: false }), so ok:false IS "the sink threw" as this module can ever see
+// it.
 const auditFn = jest.fn()
-jest.mock('@/lib/audit', () => ({ audit: (e: unknown) => auditFn(e) }))
+let auditAnswer: { ok: boolean; rowId?: string } = { ok: true }
+jest.mock('@/lib/audit', () => ({
+  auditDurable: async (e: unknown) => {
+    auditFn(e)
+    return auditAnswer
+  },
+}))
 // The SDK is ESM-only and jest cannot load it unmocked — the same stand-in
 // every suite in this family uses. Nothing here ever builds a real client:
 // runAssembler takes its core clients from deps.
@@ -243,6 +255,7 @@ beforeEach(() => {
   listOpts.length = 0
   rowPageSize = 0
   uploadAnswer = { error: null }
+  auditAnswer = { ok: true }
   listThrows = false
   jest.spyOn(console, 'info').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -620,6 +633,8 @@ describe('the assembly', () => {
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.assembled).toBe(1)
     expect(summary.partial).toBe(1)
+    // The receipt landed, so the night is clean — the route reads this.
+    expect(summary.auditLost).toBe(0)
     expect(uploads).toHaveLength(1)
     expect(uploads[0].key).toBe(key)
     expect(uploads[0].opts).toEqual({ contentType: 'audio/webm', upsert: false })
@@ -667,6 +682,50 @@ describe('the assembly', () => {
       bytes: 10,
       estimated_duration_seconds: 10,
     })
+  })
+
+  // ⚖ THE RECEIPT IS DURABLE, AWAITED, AND A LOST ONE TURNS THE NIGHT RED
+  // (Greptile #850 point 1). The PUT put the take under its IMMUTABLE key, so
+  // every later night meets objectExists and skips: a receipt dropped here is
+  // dropped forever, and nothing retries it. The audio is genuinely rescued —
+  // so the rescue still counts — but the run must say the row is missing, and
+  // the route turns that into a 500 (api-assemble-auth.test.ts).
+  it('the receipt did not land: the object is still written, and the run counts auditLost', async () => {
+    const { key } = seed({ seqs: [0, 1] })
+    auditAnswer = { ok: false }
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    // The audio IS on the server — the loss is the row, never the rescue.
+    expect(uploads).toHaveLength(1)
+    expect(uploads[0].key).toBe(key)
+    expect(summary.assembled).toBe(1)
+    expect(summary.auditLost).toBe(1)
+    // Nothing was demoted into skipped: the rescue happened.
+    expect(Object.values(summary.skipped)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    // The emit was still ATTEMPTED — the console line is sink 1, and it is
+    // what carries the event into the log drain when core will not take it.
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    // And the failure is visible on its own line, ids only.
+    expect(console.warn).toHaveBeenCalledWith(
+      JSON.stringify({
+        evt: 'assembler_error',
+        stage: 'audit',
+        business_id: BIZ,
+        take_id: TAKE,
+        status: null,
+        statusCode: null,
+      }),
+    )
+  })
+
+  // The other half of the same rule: a run whose receipts all landed carries a
+  // zero, which is what lets the route answer 200.
+  it('two rescues with two landed receipts leave auditLost at zero', async () => {
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000a', seqs: [0] })
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000b', seqs: [0], rowId: SESSION2 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(2)
+    expect(summary.auditLost).toBe(0)
+    expect(auditFn).toHaveBeenCalledTimes(2)
   })
 
   it('a leaf that will not come down is an error — never a short object under the take’s key', async () => {
