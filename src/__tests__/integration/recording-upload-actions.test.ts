@@ -123,12 +123,18 @@ import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
   isOwnRecordingKey,
+  isOwnAudioKey,
   isStagedKeyFor,
   looksLikeRecordingKey,
+  parseSegmentFolder,
   composeTakeKey,
   composeSegmentKey,
   composeStagedKey,
+  composeRescueKey,
+  composeTakeKeyFromExt,
+  composeRescueKeyFromExt,
   extFromMime,
+  MIME_TO_EXT,
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
@@ -210,6 +216,10 @@ const REFUSED: [string, string][] = [
   // Parses (it IS this tenant's), and is still refused: these actions mean a
   // whole take, and the widened grammar must not widen a single fence.
   ['this business’s own segment', `seg/app_biz-1_${UUID}/000000.webm`],
+  // ⚖ …and its own RESCUE (Liam 2026-09-06, "b"). The assembler's side copy is
+  // this tenant's object and parses as one, and no CLIENT-NAMED door may accept
+  // it: the only paths that reach a `rsc/` key are server-derived.
+  ['this business’s own rescue', `rsc/app_biz-1_${UUID}.webm`],
 ]
 
 // Not a string, but string-SHAPED: every method the fence calls answers
@@ -1580,6 +1590,158 @@ describe('composeTakeKey — the self-check, as a table', () => {
   })
 })
 
+// ⚖ THE FOURTH KIND — THE RESCUE (Liam 2026-09-06, "b"). The nightly assembler
+// used to rebuild a dead device's take under that take's OWN key, so a phone
+// that was merely PAUSED for two days came back to an occupied key and a
+// terminal size_mismatch. The rebuild now lands BESIDE the take: same body, one
+// prefix further left. What this block owns is that the shape is the take's
+// exactly (never a second regex), that it belongs to nobody else, and that
+// widening the GRAMMAR widened no ROW-POINTER fence.
+describe('composeRescueKey — the side key beside the take', () => {
+  const MIMES = ['audio/webm', 'audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg', 'audio/wav']
+
+  it.each(MIMES)('%s composes a key that parses as kind rescue', (mimeType) => {
+    const composed = composeRescueKey('biz-1', UUID, mimeType)!
+    expect(composed).not.toBeNull()
+    expect(parseRecordingKey(composed.key, 'biz-1')).toEqual({
+      kind: 'rescue',
+      takeId: UUID,
+      ext: composed.ext,
+    })
+    // …and belongs to NOBODY else: the tenant is inside the body, not the prefix.
+    expect(parseRecordingKey(composed.key, 'biz-2')).toBeNull()
+  })
+
+  it('is `rsc/` + the take key, byte for byte — one body, two kinds', () => {
+    const take = composeTakeKey('biz-1', UUID, 'audio/mp4')!
+    const rescue = composeRescueKey('biz-1', UUID, 'audio/mp4')!
+    expect(rescue.key).toBe(`rsc/${take.key}`)
+    expect(rescue).toMatchObject({ ext: take.ext, contentType: take.contentType })
+    // One folder level, exactly like `stg/` — never a deeper tree.
+    expect(rescue.key.split('/')).toHaveLength(2)
+  })
+
+  it('round-trips: compose → parse → the same take id and ext', () => {
+    const rescue = composeRescueKey('biz-1', UUID, 'audio/ogg')!
+    expect(parseRecordingKey(rescue.key, 'biz-1')).toEqual({
+      kind: 'rescue',
+      takeId: UUID,
+      ext: 'ogg',
+    })
+  })
+
+  it.each([
+    ['a non-uuid take', 'take-1', 'audio/webm'],
+    ['an uppercase uuid take', UUID.toUpperCase(), 'audio/webm'],
+    ['a string-shaped non-string take', IMPOSTOR, 'audio/webm'],
+    ['a container outside the closed map', UUID, 'audio/mpeg'],
+    ['a prototype member as the container', UUID, 'constructor'],
+    ['no container at all', UUID, null],
+  ])('refuses %s — null, never a composed key', (_label, takeId, mimeType) => {
+    expect(composeRescueKey('biz-1', takeId, mimeType)).toBeNull()
+  })
+
+  it.each([
+    ['`rsc/` wrapping a SEGMENT shape', `rsc/seg/app_biz-1_${UUID}/000000.webm`],
+    ['`rsc/` wrapping a STAGED shape', `rsc/stg/biz-1_${SESSION_UUID}_${UUID}.webm`],
+    ['a rescue with a slash in the stem', `rsc/app_biz-1_${UUID}/x.webm`],
+    ['a rescue of another tenant', `rsc/app_biz-2_${UUID}.webm`],
+    ['a rescue with no unique part', 'rsc/app_biz-1_.webm'],
+    ['a doubled rescue prefix', `rsc/rsc/app_biz-1_${UUID}.webm`],
+  ])('%s does not parse for biz-1', (_label, key) => {
+    expect(parseRecordingKey(key, 'biz-1')).toBeNull()
+  })
+
+  // ⚖ WIDENING THE GRAMMAR WIDENED NO ROW-POINTER FENCE. isOwnRecordingKey is
+  // what serverHoldsTakeRow, the take mint and finalize all mean, and a row's
+  // pointer is always the phone's own key — the assembler never writes core, so
+  // a `rsc/` pointer cannot exist. Pinned anyway.
+  it('isOwnRecordingKey REFUSES a rescue key, for its own tenant and any other', () => {
+    const rescue = composeRescueKey('biz-1', UUID, 'audio/webm')!
+    expect(isOwnRecordingKey(rescue.key, 'biz-1')).toBe(false)
+    expect(isOwnRecordingKey(rescue.key, 'biz-2')).toBe(false)
+    expect(isStagedKeyFor(rescue.key, 'biz-1', SESSION_UUID)).toBe(false)
+  })
+})
+
+// ⚖ TWO PREDICATES, AND WHICH DOOR MAY USE WHICH (ADDENDUM 9.1). The row-
+// POINTER fence stays 'take' alone at every surface a CLIENT names a path at;
+// isOwnAudioKey is for a SERVER-DERIVED audio path only — the transcription
+// worker's payload re-check and the discard door's karute audio path, the two
+// places that read AUDIO rather than a pointer. Without it a rescued take could
+// never be transcribed and a karute made from one could never be discarded.
+describe('isOwnAudioKey — take OR rescue, and nothing else', () => {
+  const rescue = () => composeRescueKey('biz-1', UUID, 'audio/webm')!.key
+  const take = () => composeTakeKey('biz-1', UUID, 'audio/webm')!.key
+
+  it.each([
+    ['this tenant’s take', () => take(), true],
+    ['this tenant’s rescue', () => rescue(), true],
+    ['this tenant’s segment', () => composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key, false],
+    ['this tenant’s staged copy', () => composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key, false],
+    ['another tenant’s take', () => composeTakeKey('biz-2', UUID, 'audio/webm')!.key, false],
+    ['another tenant’s rescue', () => composeRescueKey('biz-2', UUID, 'audio/webm')!.key, false],
+    ['a string-shaped non-string', () => IMPOSTOR, false],
+  ])('%s', (_label, key, expected) => {
+    expect(isOwnAudioKey(key(), 'biz-1')).toBe(expected)
+  })
+
+  // The two predicates differ in EXACTLY one place, and this is it.
+  it('is isOwnRecordingKey plus the rescue kind — no other difference', () => {
+    for (const key of [
+      take(),
+      rescue(),
+      composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key,
+      composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key,
+      composeTakeKey('biz-2', UUID, 'audio/webm')!.key,
+      'nonsense',
+    ]) {
+      expect(isOwnAudioKey(key, 'biz-1')).toBe(
+        isOwnRecordingKey(key, 'biz-1') || key === rescue(),
+      )
+    }
+  })
+})
+
+// ⚖ ADDENDUM 9.2 M2 — ONE ext→key SPELLING. The assembler reads a CONTAINER off
+// a folder's leaf names (an extension), not a MIME, so `audio/<ext>` is how it
+// re-enters the closed map. That inverse is a COINCIDENCE of MIME_TO_EXT, and
+// this is where it is pinned: the day a member's MIME is not `audio/<ext>`
+// exactly, this table fails and the two wrappers below are what change.
+describe('composeTakeKeyFromExt / composeRescueKeyFromExt — the ext round trip', () => {
+  // THE MAP ITSELF is the table (fix round 8). Both halves used to be typed-out
+  // copies of today's four members, so the very drift the docblock promises to
+  // catch — a member whose MIME is not `audio/<ext>` — added itself to the map
+  // and left every pin green.
+  it.each(Object.entries(MIME_TO_EXT))(
+    '`%s` is exactly `audio/` + its own extension (%s)',
+    (mimeType, ext) => {
+      expect(mimeType).toBe(`audio/${ext}`)
+      expect(extFromMime(mimeType)).toBe(ext)
+    },
+  )
+
+  it('every container IN THE MAP round-trips through both wrappers, never null', () => {
+    for (const [mimeType, ext] of Object.entries(MIME_TO_EXT)) {
+      const take = composeTakeKey('biz-1', UUID, mimeType)!
+      expect(take.ext).toBe(ext)
+      expect(composeTakeKeyFromExt('biz-1', UUID, ext)).toEqual(take)
+      expect(composeRescueKeyFromExt('biz-1', UUID, ext)).toEqual(
+        composeRescueKey('biz-1', UUID, mimeType),
+      )
+    }
+  })
+
+  it.each([
+    ['an unknown container', 'mpeg'],
+    ['a prototype member', 'constructor'],
+    ['an empty extension', ''],
+  ])('refuses %s — null from both wrappers', (_label, ext) => {
+    expect(composeTakeKeyFromExt('biz-1', UUID, ext)).toBeNull()
+    expect(composeRescueKeyFromExt('biz-1', UUID, ext)).toBeNull()
+  })
+})
+
 // ⚖ THE THIRD COMPOSER (slice five packet C, C1). A segment is a ~5 s slice of a
 // take that is still being recorded, and its key hangs under that take's own
 // folder — so the pad, the bounds and the self-parse are what keep a thousand
@@ -1886,5 +2048,53 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     expect(looksLikeRecordingKey(`stg/other-biz_${SESSION_UUID}_${UUID}.webm`)).toBe(true)
     expect(looksLikeRecordingKey(`stg/biz-1_${UUID}.webm`)).toBe(false)
     expect(looksLikeRecordingKey(`stg/a/b_${SESSION_UUID}_${UUID}.webm`)).toBe(false)
+  })
+
+  // ⚖ THE FOLDER NAME, TENANT-BLIND (build 23 slice ③, the assembler). The
+  // nightly job walks `seg/` with no tenant context, so it has to read the
+  // business back out of a FOLDER name — and then ask the one parser, exactly
+  // as looksLikeRecordingKey does for a key.
+  describe('parseSegmentFolder — the assembler reads the tenant off the folder', () => {
+    it('reads the businessId and the take out of a real folder name', () => {
+      expect(parseSegmentFolder(`app_biz-1_${UUID}`)).toEqual({
+        businessId: 'biz-1',
+        takeId: UUID,
+      })
+      // Tenant-blind on purpose: ANY businessId shape it can read back out
+      // counts, exactly like looksLikeRecordingKey — the walk has no tenant
+      // to compare against.
+      expect(parseSegmentFolder(`app_other-biz_${UUID}`)).toEqual({
+        businessId: 'other-biz',
+        takeId: UUID,
+      })
+    })
+
+    it.each([
+      ['an uppercase uuid', `app_biz-1_${UUID.toUpperCase()}`],
+      ['a businessId carrying a path separator', `app_a/b_${UUID}`],
+      ['a traversal body', `app_../../evil_${UUID}`],
+      ['no app_ prefix', `biz-1_${UUID}`],
+      ['the seg/ prefix included', `seg/app_biz-1_${UUID}`],
+      ['a ROOT take name (it carries an extension)', `app_biz-1_${UUID}.webm`],
+      ['an empty businessId', `app__${UUID}`],
+      ['a truncated uuid', `app_biz-1_${UUID.slice(0, 20)}`],
+      ['a leaf, not a folder', `app_biz-1_${UUID}/000000.webm`],
+    ])('refuses %s', (_label, name) => {
+      expect(parseSegmentFolder(name)).toBeNull()
+    })
+
+    it('refuses a string-shaped non-string before it calls a method on it', () => {
+      expect(parseSegmentFolder(IMPOSTOR)).toBeNull()
+    })
+
+    it('what it reads back is what the ONE parser reads out of that folder’s own leaf', () => {
+      const parsed = parseSegmentFolder(`app_biz-1_${UUID}`)!
+      expect(parseRecordingKey(`seg/app_biz-1_${UUID}/000003.mp4`, parsed.businessId)).toEqual({
+        kind: 'segment',
+        takeId: parsed.takeId,
+        seq: 3,
+        ext: 'mp4',
+      })
+    })
   })
 })

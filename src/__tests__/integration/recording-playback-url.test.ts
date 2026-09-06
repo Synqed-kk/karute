@@ -77,6 +77,10 @@ const KARUTE_ID = '00000000-0000-4000-8000-000000000008'
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
+/** ⚖ THE SIDE KEY (Liam 2026-09-06, "b") — the nightly assembler's rebuild,
+ *  beside the take and never on it. A row's pointer is always the take key; the
+ *  rescue is only ever REACHED, never named. */
+const RESCUE_KEY = `rsc/${TAKE_KEY}`
 
 // ⚠ THE PRODUCTION SHAPE (fix round 4, restated at slice three ③). The KARUTE
 // carries the store (resolveKaruteStoreId, actions/karute.ts, stamps it on
@@ -401,6 +405,114 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
     await mint()
     expect(createSignedUrl).toHaveBeenCalledWith(TAKE_KEY, PLAYBACK_URL_TTL_S)
     expect(PLAYBACK_URL_TTL_S).toBe(3600)
+  })
+})
+
+// ⚖ THE RESCUE FALLBACK (Liam 2026-09-06, "b"). The nightly assembler no longer
+// writes under the take's own key: it rebuilds a dead device's take BESIDE it,
+// at `rsc/<the take key>`. So a row's pointer can name an object that is not
+// there while the audio genuinely exists one prefix over — and a phone that was
+// only PAUSED can later put its whole take at the pointer, leaving BOTH. This
+// door reads them in the one order every reader shares (resolveTakeAudio): the
+// device's own object first, always.
+describe('mintPlaybackUrlWithClient — the device’s object first, the rescue second', () => {
+  // ⚖ ADDENDUM 9.2 H3 — THE PRODUCTION SHAPE OF A RESCUED ROW. The save door
+  // stamps NO duration, ever, so a rescued row's `duration_seconds` stays null
+  // until the phone's own finalize writes the real one: such a row passes
+  // serverHoldsTakeRow on the isJobOwnedStatus leg ALONE, which is precisely
+  // the leg a rescue rides. The shared fixture's 742 s belongs to a phone that
+  // came back and finalized — a different case, and pinning the fence and the
+  // fallback on it would prove them only apart.
+  beforeEach(() => {
+    ROW.current = { ...ROW.current, duration_seconds: null, status: 'COMPLETED' }
+  })
+
+  /** Bytes at these keys and nowhere else. */
+  const onlyAt = (...keys: string[]) =>
+    info.mockImplementation(async (key: string) =>
+      keys.includes(key)
+        ? { data: { size: 1024 }, error: null }
+        : { data: null, error: { message: 'Object not found', status: 404 } },
+    )
+
+  it('phone present → the phone’s key is signed and the row says rescued:false', async () => {
+    onlyAt(TAKE_KEY, RESCUE_KEY)
+    const lines = await auditLines(async () => {
+      expect('url' in (await mint())).toBe(true)
+    })
+    expect(createSignedUrl).toHaveBeenCalledWith(TAKE_KEY, PLAYBACK_URL_TTL_S)
+    expect(createSignedUrl).not.toHaveBeenCalledWith(RESCUE_KEY, PLAYBACK_URL_TTL_S)
+    // BOTH objects exist here — the paused phone that came back — so a wrong
+    // order would quietly hand the listener the shorter rebuild.
+    expect(info).toHaveBeenCalledTimes(1)
+    expect(info).toHaveBeenCalledWith(TAKE_KEY)
+    expect(lines.filter((l) => l.action === 'recording.play')[0].detail).toEqual({
+      karute_id: KARUTE_ID,
+      ttl_s: 3600,
+      rescued: false,
+    })
+  })
+
+  it('phone absent + rescue present → the RESCUE key is signed and the row says rescued:true', async () => {
+    onlyAt(RESCUE_KEY)
+    const lines = await auditLines(async () => {
+      expect('url' in (await mint())).toBe(true)
+    })
+    expect(createSignedUrl).toHaveBeenCalledWith(RESCUE_KEY, PLAYBACK_URL_TTL_S)
+    expect(createSignedUrl).not.toHaveBeenCalledWith(TAKE_KEY, PLAYBACK_URL_TTL_S)
+    expect(info.mock.calls.map((c) => c[0])).toEqual([TAKE_KEY, RESCUE_KEY])
+    expect(lines.filter((l) => l.action === 'recording.play')[0].detail).toEqual({
+      karute_id: KARUTE_ID,
+      ttl_s: 3600,
+      rescued: true,
+    })
+  })
+
+  it('both absent → no_audio, nothing signed, no audit row', async () => {
+    onlyAt()
+    const lines = await auditLines(async () => {
+      expect(await mint()).toEqual({ error: 'no_audio' })
+    })
+    expect(info.mock.calls.map((c) => c[0])).toEqual([TAKE_KEY, RESCUE_KEY])
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(lines.filter((l) => l.action === 'recording.play')).toHaveLength(0)
+  })
+
+  // ⚖ A BLIP IS NOT A MISS, and it must not become a DOWNGRADE either: falling
+  // through here would sign the partial rebuild while the phone's whole take
+  // sat unread at the key storage merely failed to answer about.
+  it('an `unknown` at the phone’s key → upstream, and the rescue is NEVER probed', async () => {
+    info.mockImplementation(async (key: string) =>
+      key === TAKE_KEY
+        ? { data: null, error: { message: 'Internal error', status: 500 } }
+        : { data: { size: 1024 }, error: null },
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await mint()).toEqual({ error: 'upstream' })
+    expect(info.mock.calls.map((c) => c[0])).toEqual([TAKE_KEY])
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  // The ACL still runs first, so the two-probe path buys a REFUSED caller
+  // nothing at all — not even the knowledge that a rescue exists.
+  it('the forbidden path still never touches storage', async () => {
+    onlyAt(RESCUE_KEY)
+    expect(await mint({ staffId: 'someone-else' })).toEqual({ error: 'forbidden' })
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE POINTER FENCE IS STILL THE POINTER FENCE. `rsc/` is not a take, so a
+  // row that somehow carried one never reaches the resolver at all — it dies at
+  // serverHoldsTakeRow, exactly as a `stg/` copy does. The job never writes
+  // core, so this row cannot exist; it is pinned so it cannot start to.
+  it('a row whose POINTER is a rescue key is refused by the fence → no_audio', async () => {
+    ROW.current = { ...ROW.current, audio_storage_path: RESCUE_KEY }
+    onlyAt(RESCUE_KEY)
+    expect(await mint()).toEqual({ error: 'no_audio' })
+    expect(info).not.toHaveBeenCalled()
+    expect(createSignedUrl).not.toHaveBeenCalled()
   })
 })
 

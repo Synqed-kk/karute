@@ -325,20 +325,34 @@ describe('what REPLACED them', () => {
   // Fix round 7 amends it once more: the claim that stands in for an empty
   // reservation must be THIS SESSION'S OWN staged copy, proven by the key
   // (stg/<biz>_<session>_<uuid>), never any same-tenant key the caller typed.
+  // ⚖ THE SIDE KEY (Liam 2026-09-06, "b") amends the middle line and nothing
+  // else: the row's key still leads, but "is the pointer's object there" is no
+  // longer the whole question, because a rescued take's audio sits at `rsc/`
+  // beside a pointer that is genuinely empty. The pointer is RESOLVED through
+  // the one precedence every reader shares — the phone's object first, the
+  // rescue second — and the escape hatch is unchanged.
   it('the discard transcript reads the ROW’s key, not the caller’s claim', () => {
     const src = code('src/actions/recording-discard-transcript.ts')
     expect(src).toContain('const pointer = recording?.audio_storage_path ?? null')
     expect(src).toContain('let audioPath = input.audioPath')
-    expect(src).toContain(
-      "if (pointer && (pointer === input.audioPath || (await objectExists(pointer)) !== false)) {",
-    )
+    // The caller naming the pointer itself still costs no probe at all.
+    expect(src).toContain('if (pointer && pointer === input.audioPath) {')
+    // …and anything else goes through the shared resolver, on the PARSED take.
+    expect(src).toContain('const resolved = await resolveTakeAudio(')
+    expect(src).toContain("if (resolved === 'unknown') return { error: 'failed' }")
+    expect(src).toContain("if (resolved !== 'absent') audioPath = resolved.key")
     // …and the ONLY other way out of that branch is the session-bound claim.
     expect(src).toContain('} else if (!ownStaged) {')
+    expect(src).toContain("else if (!ownStaged) return { error: 'forbidden' }")
     expect(src).toContain("return { error: 'forbidden' }")
     expect(src).toContain('const ownStaged = isStagedKeyFor(')
     expect(src).toContain('.createSignedUrl(audioPath, 3600)')
-    // ONE home for "does this object exist", shared with both mints.
-    expect(src).toContain("import { objectExists } from '@/lib/recording/mint-take-url'")
+    // ONE home for the precedence, shared with the play button (and PR-C's
+    // save door next) — never a second spelling of "which object is this take".
+    expect(src).toContain("import { resolveTakeAudio } from '@/lib/recording/take-audio'")
+    // And the bare pointer probe does NOT come back: under the side key it
+    // reads false for every rescued take and answers `forbidden`.
+    expect(src).not.toContain('objectExists(pointer)')
   })
 
   // ⚖ …AND THE SECOND UPLOAD OF THE SAME TAKE IS GONE TOO (fix round 2). Both

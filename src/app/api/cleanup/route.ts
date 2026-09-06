@@ -19,7 +19,9 @@ export const maxDuration = 30
  * not conform so a human can look; the count comes back as
  * `recordingsOrphanCandidates`. Conforming takes are never reported here, so a
  * take with no live job/session row is NOT surfaced by this sweep — that join
- * is a later round. Anything that has to go, goes by a named hand.
+ * lives in /api/assemble (the nightly assembler), which walks the `seg/` tree
+ * and rebuilds a take whose device never came back. Anything that has to go,
+ * goes by a named hand.
  *
  * Runs from Vercel Cron (no user session) — which sends
  * `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured. This

@@ -37,8 +37,8 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient, getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { isOwnRecordingKey, isStagedKeyFor } from '@/lib/recording/key-grammar'
-import { objectExists } from '@/lib/recording/mint-take-url'
+import { isOwnAudioKey, isOwnRecordingKey, isStagedKeyFor, parseRecordingKey } from '@/lib/recording/key-grammar'
+import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
@@ -328,17 +328,23 @@ export async function transcribeAndPersistDiscardWithClient(
     // audio. FIRST on purpose: a foreign key is the one exit that must never
     // reach the object it names, not even to read it.
     //
-    // TWO SHAPES REACH IT (fix round 7): the take's own finalized key — which
-    // has to pass because the ordinary discard names the row's own pointer —
-    // and a STAGED copy named for THIS session, which is the only claim this
-    // door honours in place of that pointer. Asked once, read twice: here as
-    // the tenant fence, and below as the binding.
+    // THREE SHAPES REACH IT: the take's own finalized key — which has to pass
+    // because the ordinary discard names the row's own pointer — the nightly
+    // job's RESCUE of that take (⚖ ADDENDUM 9.1: a karute made from a rescue
+    // must be discardable, and its audio path is a `rsc/` key), and a STAGED
+    // copy named for THIS session, which is the only claim this door honours in
+    // place of that pointer. Asked once, read twice: here as the tenant fence,
+    // and below as the binding.
+    //
+    // `isOwnAudioKey`, not `isOwnRecordingKey`: this is an AUDIO path, and the
+    // row-POINTER check further down stays take-only. A segment, a staged copy
+    // of another session and every other tenant's object are refused by both.
     const ownStaged = isStagedKeyFor(
       input.audioPath,
       actor.businessId,
       input.recordingSessionId,
     )
-    if (!ownStaged && !isOwnRecordingKey(input.audioPath, actor.businessId)) {
+    if (!ownStaged && !isOwnAudioKey(input.audioPath, actor.businessId)) {
       return { error: 'forbidden' }
     }
 
@@ -388,9 +394,12 @@ export async function transcribeAndPersistDiscardWithClient(
     //
     // Asked ONLY when the caller named a DIFFERENT key: the ordinary discard
     // sends the finalized key itself, so there is nothing to decide and nothing
-    // to pay for. A probe that cannot READ is not an answer ('unknown'), so the
-    // pointer keeps winning — fail closed, exactly like the mint's own use of
-    // it. B5 is untouched: a colleague's FINISHED take has an object, so a row
+    // to pay for. A probe that cannot READ is not an answer ('unknown') — and
+    // since ADDENDUM 9.2 H4 it no longer keeps the pointer either: the arm
+    // below returns `failed`, which is retryable, rather than signing a key
+    // nobody has confirmed holds anything. The full reason is in the ⚖ block
+    // at the end of this comment.
+    // B5 is untouched: a colleague's FINISHED take has an object, so a row
     // pointing at one still wins over any claim, and `input.audioPath` cleared
     // the SAME isOwnRecordingKey fence at the top of this function before
     // anything here read it.
@@ -404,9 +413,30 @@ export async function transcribeAndPersistDiscardWithClient(
     // KEY, which is the identity a row-less object otherwise has none of, so
     // the claim is CHECKED rather than trusted. B5 is untouched: a pointer
     // whose object is really there still wins, whatever the caller named.
+    //
+    // ⚖ …AND THE POINTER IS RESOLVED, NOT PROBED (ADDENDUM 9.2 H4, Liam
+    // 2026-09-06 "b"). The nightly job writes BESIDE a take now, so for a
+    // rescued recording the pointer names a key that is genuinely empty while
+    // the audio sits one prefix over. A bare `objectExists(pointer)` therefore
+    // read false and sent every rescued karute to `forbidden` — a state nobody
+    // decided. resolveTakeAudio asks the same question in the order every
+    // reader shares: the phone's object first, the rescue second. `absent` is
+    // the old false and keeps the staged-claim arm below; an UNANSWERABLE probe
+    // is `failed` — retryable — never `forbidden`, because refusing somebody's
+    // own discard on a storage blip is a permission answer we do not have.
     let audioPath = input.audioPath
-    if (pointer && (pointer === input.audioPath || (await objectExists(pointer)) !== false)) {
+    const parsedPointer = pointer ? parseRecordingKey(pointer, actor.businessId) : null
+    if (pointer && pointer === input.audioPath) {
       audioPath = pointer
+    } else if (parsedPointer?.kind === 'take') {
+      const resolved = await resolveTakeAudio(
+        actor.businessId,
+        parsedPointer.takeId,
+        parsedPointer.ext,
+      )
+      if (resolved === 'unknown') return { error: 'failed' }
+      if (resolved !== 'absent') audioPath = resolved.key
+      else if (!ownStaged) return { error: 'forbidden' }
     } else if (!ownStaged) {
       return { error: 'forbidden' }
     }

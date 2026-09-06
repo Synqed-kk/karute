@@ -14,16 +14,23 @@
 //      owner only). One rule, one place, literally: there is no second
 //      capability that reaches the sound. A record with no owner keeps its
 //      shared answer for the sound exactly as for the words.
-//   3. AND ONLY THEN, THE OBJECT. Storage is asked whether the bytes are really
-//      there, because the fence's helper is a heuristic and its own header says
-//      so: a reasoned discard stamps a client-reported duration on the row with
-//      no object proof, and the ordinary discard leaves the row on its TAKE
-//      key. A row whose object is simply gone joins the same no_audio answer.
-//      It runs AFTER the ACL (fix round 3) so this really is one storage probe
-//      per LISTEN rather than per attempt, and so a caller who may not hear the
-//      take learns nothing about whether its bytes exist. Per VIEW it would not
-//      be affordable at all — which is why the card keeps the heuristic and
-//      this door keeps the proof.
+//   3. AND ONLY THEN, THE OBJECT — WHICHEVER ONE HOLDS IT. Storage is asked
+//      whether the bytes are really there, because the fence's helper is a
+//      heuristic and its own header says so: a reasoned discard stamps a
+//      client-reported duration on the row with no object proof, and the
+//      ordinary discard leaves the row on its TAKE key. A row whose object is
+//      simply gone joins the same no_audio answer. Since the nightly assembler
+//      moved off the take's own key (⚖ Liam 2026-09-06, "b") there are TWO
+//      places a take's audio can be, and this door asks about them in the one
+//      order every reader shares — the device's own object first, the job's
+//      rescue second (resolveTakeAudio, take-audio.ts) — so nobody is handed
+//      the partial rebuild while the whole take sits beside it. The honest
+//      count is one probe per LISTEN when the device came through, two when it
+//      did not; never one per ATTEMPT, because this runs AFTER the ACL (fix
+//      round 3), which is also why a caller who may not hear the take learns
+//      nothing about whether its bytes exist. Per VIEW it would not be
+//      affordable at all — which is why the card keeps the heuristic and this
+//      door keeps the proof.
 //   4. ONE ROW PER MINT. Every successful mint writes exactly one
 //      `recording.play` audit row and every refusal writes none — the audit
 //      call lexically dominates the single success return (CP7), and each
@@ -55,7 +62,8 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
 import { canViewAllInStore, canViewTranscript, readDoorStoreId } from '@/lib/auth/recording-acl'
-import { objectExists } from '@/lib/recording/mint-take-url'
+import { parseRecordingKey } from '@/lib/recording/key-grammar'
+import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -217,37 +225,67 @@ export async function mintPlaybackUrlWithClient(
   //
   //    ⚠ WHY IT SITS HERE AND NOT ABOVE THE ACL. It used to run first, which
   //    bought two things nobody wanted: the bucket paid for every REFUSED
-  //    attempt (the header promises "one probe per LISTEN", not per try), and a
+  //    attempt (the header promises a probe per LISTEN, not per try), and a
   //    same-tenant staffer who may not hear a colleague's take could still tell
   //    "the bytes are there" (forbidden) from "they are gone" (no_audio) — new
   //    information about someone else's audio, handed out before the permission
   //    question was even asked. Below the ACL, every authorized answer is
   //    identical and an unauthorized caller learns nothing.
   //
-  //    A proven MISS is `no_audio`: there is genuinely nothing to hear. A probe
-  //    that could not ANSWER ('unknown') is `upstream`, never a miss — telling a
-  //    staffer her recording has no audio when storage merely blipped is the one
-  //    wrong thing to say here, and it is the same fail-closed reading the mint
-  //    and the discard door already take. A THROW is the same answer: wrapped
-  //    like session-cleanup.ts's twin of this probe, so it leaves as this door's
-  //    own 502 rather than escaping to the handler as a 500.
-  let exists: boolean | 'unknown'
+  //    ⚖ AND IT ASKS ABOUT TWO OBJECTS NOW, IN ONE ORDER (Liam 2026-09-06,
+  //    "b"). Since the nightly assembler stopped writing under the take's own
+  //    key, a take's audio can be the device's whole object OR the job's rescue
+  //    of its segments beside it — and for a paused phone that came back, both.
+  //    resolveTakeAudio (take-audio.ts) is the ONE precedence every reader
+  //    shares: the phone's object first, the rescue second, so nobody is ever
+  //    handed the partial copy while the full take sits there. The honest count
+  //    is therefore ONE probe when the device came through (the common case)
+  //    and TWO when it did not.
+  //
+  //    The pointer passed serverHoldsTakeRow above, so it parses as a TAKE; the
+  //    resolver takes the PARSED take rather than the string, which is what
+  //    keeps this door's fence the only thing deciding whose audio is reached.
+  //    A pointer that will not parse here cannot happen and is answered
+  //    `no_audio` with a warn naming ids only — never the key (⚖ 8/17).
+  //
+  //    A proven MISS at BOTH keys is `no_audio`: there is genuinely nothing to
+  //    hear. A probe that could not ANSWER ('unknown') is `upstream`, never a
+  //    miss — telling a staffer her recording has no audio when storage merely
+  //    blipped is the one wrong thing to say here, and it is the same
+  //    fail-closed reading the mint and the discard door already take. A THROW
+  //    is the same answer: wrapped like session-cleanup.ts's twin of this
+  //    probe, so it leaves as this door's own 502 rather than escaping to the
+  //    handler as a 500.
+  const parsed = parseRecordingKey(audioPath, actor.businessId)
+  if (parsed?.kind !== 'take') {
+    console.warn(
+      JSON.stringify({
+        evt: 'playback_pointer_unparsed',
+        business_id: actor.businessId,
+        recording_session_id: row.id,
+      }),
+    )
+    return { error: 'no_audio' }
+  }
+  let resolved: Awaited<ReturnType<typeof resolveTakeAudio>>
   try {
-    exists = await objectExists(audioPath)
+    resolved = await resolveTakeAudio(actor.businessId, parsed.takeId, parsed.ext)
   } catch (err) {
     console.warn('[playback-url] object probe failed:', err)
     return { error: 'upstream' }
   }
-  if (exists === false) return { error: 'no_audio' }
-  if (exists === 'unknown') return { error: 'upstream' }
+  if (resolved === 'absent') return { error: 'no_audio' }
+  if (resolved === 'unknown') return { error: 'upstream' }
 
   // 6. The signed READ url — service-role, same by-construction posture as the
   //    job worker's Deepgram mint. The fence above is all that stands between a
-  //    caller and another tenant's audio, which is why it runs first.
+  //    caller and another tenant's audio, which is why it runs first. The key
+  //    signed is whichever one the resolver found, never the raw pointer: for a
+  //    rescued take the pointer names an object that is not there.
   const supabase = createServiceClient()
   const { data: signed, error: signErr } = await supabase.storage
     .from('recordings')
-    .createSignedUrl(audioPath, PLAYBACK_URL_TTL_S)
+    .createSignedUrl(resolved.key, PLAYBACK_URL_TTL_S)
   if (signErr || !signed?.signedUrl) {
     console.warn('[playback-url] storage refused the signature', signErr)
     return { error: 'upstream' }
@@ -272,7 +310,11 @@ export async function mintPlaybackUrlWithClient(
     targetId: row.id,
     severity: 'notice',
     breakGlass: ownerStaffId !== null && ownerStaffId !== actor.staffId,
-    detail: { karute_id: input.karuteId, ttl_s: PLAYBACK_URL_TTL_S },
+    // ⚖ ONE FLAG, NO KEY (8/17 doc law: ids, numbers and flags). `rescued`
+    // says the bytes signed were the nightly job's rebuild rather than the
+    // device's own take — which is what makes a shorter-than-expected listen
+    // explainable afterwards without putting a storage path in an audit row.
+    detail: { karute_id: input.karuteId, ttl_s: PLAYBACK_URL_TTL_S, rescued: resolved.rescued },
     requestId: actor.requestId,
     source: actor.source,
   })

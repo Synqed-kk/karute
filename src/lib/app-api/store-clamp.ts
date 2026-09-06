@@ -295,8 +295,37 @@ export async function resolveExportStoreId(args: {
 
   // Floating staff: header store already passed tenancy validation above.
   if (clamp.storeId) return clamp.storeId
+  return resolvePrimaryStoreId(args.synqed)
+}
+
+/**
+ * The business's PRIMARY store (`is_primary`, else the first one) — the Bearer
+ * twin of web's `getPrimaryStoreId()`, i.e. the second half of web's
+ * `activeStore ?? getPrimaryStoreId()` pair.
+ *
+ * WHO USES IT, and why each one needs it:
+ *  - the EXPORT lens above — floating staff who sent no `store-id` header must
+ *    still clamp to one store, never to the whole business (two Greptile P1s);
+ *  - the facade RECORDING-SESSION mint (`app/v1/recordings/session/route.ts`) —
+ *    ⚖ amendment 10: a newly minted row must never be born store-less, whatever
+ *    the client sent. The thin shell seeds its own lens to this same store on
+ *    first boot (`thin/chrome/chrome-store.ts` seedStoreLens) and sends it as
+ *    `store-id` from then on, so this server-side answer is the twin of the
+ *    client's own seed — the two agree by construction.
+ *
+ * There is no widening here in either caller: the header (already
+ * tenant-validated by resolveStoreForRequest) always wins, and a clamped caller
+ * never reaches this function at all — resolveStoreForRequest already answers
+ * them a concrete `requested ?? assigned[0]`.
+ *
+ * FAIL CLOSED: a `stores.list` failure or a business with zero stores throws
+ * `store_forbidden` (no `store_header` marker — the verdict is UNKNOWN, so the
+ * thin shell's stranded-pin self-heal correctly does not fire). Never a silent
+ * null, and never "every store".
+ */
+export async function resolvePrimaryStoreId(synqed: Pick<SynqedClient, 'stores'>): Promise<string> {
   try {
-    const { stores } = await args.synqed.stores.list()
+    const { stores } = await synqed.stores.list()
     const primary = stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
     if (primary) return primary
   } catch {

@@ -973,4 +973,21 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     dated: '2026-08-08',
     coveredBy: 'src/lib/packs/auto-burn.ts#burnOneAutoRedemption',
   },
+  // The nightly assembler (build 23 slice ③). CRON_SECRET-gated like its
+  // siblings, and NOT a skip: it is the first job in the app that WRITES an
+  // object into the recordings bucket — a take rebuilt from the segments a
+  // dead device left behind — with no staff in the loop. Every sealed take
+  // therefore files its own recording.capture_resumed row (actorType 'system',
+  // severity 'notice', detail carrying the segment counts, the first gap and
+  // the fact that the duration is an ESTIMATE), because otherwise the only
+  // audio this product ever created without a person present would have no
+  // trail at all. Structured `action` is deliberately omitted, exactly as the
+  // auto-burn row above omits it: the emit site's own literal is CP4's source.
+  assemble: {
+    kind: 'mutation',
+    justification:
+      "coveredBy assembleStrandedTake's recording.capture_resumed emit, ONE row per take actually sealed (verified at source). The walk driver runAssembler is deliberately NOT the citation — it returns a summary whenever there is nothing old enough to rescue, which is a correct outcome, not an unaudited write. Every path that writes nothing (a concurrent run already wrote the rescue; a leaf would not come down) returns before the emit and files nothing, by design — no device ever writes the `rsc/` key this job uploads to (⚖ Liam 2026-09-06 \"b\"), so the walk, not this symbol, is where a returning phone is skipped. It writes no core row at all — the client it is handed is narrowed to `list`.",
+    dated: '2026-09-06',
+    coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
+  },
 }

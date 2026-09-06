@@ -91,6 +91,17 @@ export async function startRecordingSession(input: {
       return null
     }
     const storeId = scope.storeId
+    // ⚖ ADDENDUM 10.1. `degraded: false` does not mean this scope named a
+    // store — a viewAll/floating caller with no active-store cookie falls to
+    // getPrimaryStoreId(), which SWALLOWS its own failure to null
+    // (actions/stores.ts:209-211). "Cannot name a store" has two spellings —
+    // degraded, and a null storeId from a healthy scope — and both must
+    // refuse the same way: the door's own fail-open null, no row created,
+    // capture unaffected (the drain re-mints later through this same door).
+    if (storeId === null) {
+      console.warn('[startRecordingSession] no store to stamp — no session minted')
+      return null
+    }
     const res = await startRecordingSessionWithClient(synqed, {
       ...input,
       selfStaffId: staffId,

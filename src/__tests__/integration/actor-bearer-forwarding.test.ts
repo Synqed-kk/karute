@@ -85,6 +85,7 @@ jest.mock('@synqed-kk/client', () => {
     }
     recordingDiscards: { list: (input: unknown) => Promise<unknown>; create: (input: unknown) => Promise<unknown> }
     staffStores: { get: (id: string) => Promise<{ store_ids: string[] }> }
+    stores: { list: () => Promise<{ stores: { id: string; is_primary: boolean }[] }> }
     audit: { list: (input: unknown) => Promise<unknown>; log: (input: unknown) => Promise<unknown> }
     constructor(config: { baseUrl: string; apiKey: string; businessId: string }) {
       this.baseUrl = config.baseUrl
@@ -116,6 +117,10 @@ jest.mock('@synqed-kk/client', () => {
       // writes carry, and a clamp read would only add noise to fetchCalls.
       // Empty assignment = floating staff = unrestricted within the tenant.
       this.staffStores = { get: async (_id: string) => ({ store_ids: [] }) }
+      // ⚖ amendment 10: an unrestricted caller who sends no `store-id` now
+      // stamps the business's PRIMARY store, so the mint reads the store list
+      // too. Off the wire for the same reason as staffStores above.
+      this.stores = { list: async () => ({ stores: [{ id: 'store-1', is_primary: true }] }) }
     }
     // Real SynqedClient.fetch's own shape (dist/client.js): base headers,
     // then the caller's own headers spread LAST — the same order

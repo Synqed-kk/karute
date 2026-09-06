@@ -23,7 +23,7 @@ import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { isOwnAudioKey } from '@/lib/recording/key-grammar'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -78,8 +78,19 @@ async function processJob(job: RecordingJob): Promise<string> {
   // and this is the invariant that holds even if a future caller forgets to.
   // The re-check runs the SHARED grammar (2026-09-03), not its own prefix twin:
   // same intent, stronger — a prefix alone accepted a separator, a traversal
-  // body or a segment fragment, and this worker only ever means a whole take.
-  if (!isOwnRecordingKey(payload.audio_path, job.business_id)) {
+  // body or a segment fragment.
+  //
+  // ⚖ A WHOLE TAKE, OR THE JOB'S RESCUE OF ONE (ADDENDUM 9.1, Liam
+  // 2026-09-06 "b"). Since the nightly assembler writes beside a take rather
+  // than on it, the audio a save door enqueues for a device that never came
+  // back is a `rsc/` object — same tenant prefix, same closed container set,
+  // same take. Fencing on 'take' alone would mean a rescued recording could
+  // never be transcribed at all. Still NEVER a segment, never a staged copy and
+  // never another tenant's object, and this path is SERVER-DERIVED throughout:
+  // the payload was written by a door that read the row, not by a client naming
+  // a key — which is why isOwnRecordingKey (take-only) stays exactly as it is at
+  // every client-facing surface.
+  if (!isOwnAudioKey(payload.audio_path, job.business_id)) {
     throw new Error('audio_path does not belong to this job’s business')
   }
 

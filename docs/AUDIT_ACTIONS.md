@@ -57,6 +57,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `privacy.voice_enroll` | privacy | live | `settings.auditLog.actions.privacy.voice_enroll` |
 | `privacy.voice_revoke` | privacy | live | `settings.auditLog.actions.privacy.voice_revoke` |
 | `recording.capture_finalized` | recording | live | `settings.auditLog.actions.recording.capture_finalized` |
+| `recording.capture_resumed` | recording | live | `settings.auditLog.actions.recording.capture_resumed` |
 | `recording.capture_unlinked` | recording | live | `settings.auditLog.actions.recording.capture_unlinked` |
 | `recording.discard` | recording | live | `settings.auditLog.actions.recording.discard` |
 | `recording.play` | recording | live | `settings.auditLog.actions.recording.play` |

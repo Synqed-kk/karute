@@ -2472,6 +2472,7 @@
         },
         "recording": {
           "capture_finalized": "録音の音声を保存",
+          "capture_resumed": "録音の音声をサーバーで復元",
           "capture_unlinked": "録音の音声が記録に紐付かず",
           "discard": "録音を破棄",
           "play": "録音を再生",

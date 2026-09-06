@@ -42,14 +42,24 @@ const getConsent = jest.fn(async () => ({ consent: { granted_at: '2026-05-01T00:
 // assignment) = unrestricted within the tenant, which is what every case in
 // this file is about: the clamp passes and the mint's own contract is the
 // subject. `stores.get` answers the tenancy probe for a supplied store-id.
+// ⚖ amendment 10: an unrestricted caller who sent no `store-id` now falls back
+// to the business's PRIMARY store, so `stores.list` is part of this route's
+// contract too.
+type FakeStore = { id: string; is_primary: boolean }
 const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
 const storesGet = jest.fn(async (id: string) => ({ id }))
+const storesList = jest.fn(async () => ({
+  stores: [
+    { id: 'store-second', is_primary: false },
+    { id: 'store-primary', is_primary: true },
+  ] as FakeStore[],
+}))
 const fakeClient = {
   customers: { get: customersGet, getConsent, grantConsent },
   appointments: { get: jest.fn(async () => ({ staff_id: 'appt-staff' })) },
   recordings: { create: recordingsCreate },
   staffStores: { get: staffStoresGet },
-  stores: { get: storesGet },
+  stores: { get: storesGet, list: storesList },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -93,6 +103,12 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   staffStoresGet.mockImplementation(async () => ({ store_ids: [] }))
   storesGet.mockImplementation(async (id: string) => ({ id }))
+  storesList.mockImplementation(async () => ({
+    stores: [
+      { id: 'store-second', is_primary: false },
+      { id: 'store-primary', is_primary: true },
+    ],
+  }))
 })
 
 describe('GET consent', () => {
@@ -161,11 +177,15 @@ describe('POST consent grant', () => {
   })
 })
 
-// ── ⚖ THE STORE THE DEVICE IS IN (slice three ③) ───────────────────────────
+// ── ⚖ THE STORE THE DEVICE IS IN (slice three ③, amendment 10) ─────────────
 // The row now carries the store the caller is working in — the Bearer twin of
 // the web action's active store, resolved by the same clamp the job route uses.
 // The clamp runs BEFORE the fail-open try: a store this caller may not use is a
 // 403, never a 200 {id:null} that would let the take be captured against it.
+// ⚖ AMENDMENT 10: and a NEW row is never born store-less either — an
+// unrestricted caller who sent no header gets the business's PRIMARY store (the
+// same store the shell seeds its own lens to), and a lookup that cannot answer
+// is the same fail-closed 403.
 describe('POST recordings/session mint — the store rides along', () => {
   const idem = { 'idempotency-key': 'idem-1' }
 
@@ -181,6 +201,19 @@ describe('POST recordings/session mint — the store rides along', () => {
     )
   })
 
+  it('an UNRESTRICTED caller’s header wins too — no primary lookup happens', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem, 'store-id': 'store-a' }, { customerId: 'cust-1' }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-a' }),
+    )
+    expect(storesList).not.toHaveBeenCalled()
+  })
+
   it('falls back to the caller’s first assigned store when no header is sent', async () => {
     staffStoresGet.mockResolvedValue({ store_ids: ['store-a', 'store-b'] })
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
@@ -188,13 +221,53 @@ describe('POST recordings/session mint — the store rides along', () => {
     expect(recordingsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ store_id: 'store-a' }),
     )
+    // A clamped caller can never reach the primary-store fallback: the clamp
+    // already answered `requested ?? assigned[0]`. Pinned so the fallback can
+    // never quietly become a second lens for staff who already have one.
+    expect(storesList).not.toHaveBeenCalled()
   })
 
-  it('null when there is no store to name — floating staff, no header', async () => {
+  it('an UNRESTRICTED caller with no header gets the PRIMARY store (⚖ amendment 10)', async () => {
     staffStoresGet.mockResolvedValue({ store_ids: [] })
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(200)
-    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
+    // `is_primary` decides — NOT the list order (the primary is second here).
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-primary' }),
+    )
+  })
+
+  it('…and the FIRST store when the business marks none primary', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockResolvedValue({
+      stores: [
+        { id: 'store-second', is_primary: false },
+        { id: 'store-third', is_primary: false },
+      ],
+    })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-second' }),
+    )
+  })
+
+  it('a store lookup that cannot ANSWER → 403, and NO row is created', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockRejectedValue(new Error('core down'))
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('a business with ZERO stores → 403, and NO row is created (never a null stamp)', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    storesList.mockResolvedValue({ stores: [] })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   it('a store-id OUTSIDE the caller’s assignment → 403, and NO row is created', async () => {

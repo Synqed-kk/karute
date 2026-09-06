@@ -2472,6 +2472,7 @@
         },
         "recording": {
           "capture_finalized": "Recording audio saved",
+          "capture_resumed": "Recording audio restored on the server",
           "capture_unlinked": "Recording audio not linked to a record",
           "discard": "Discarded recording",
           "play": "Played recording",

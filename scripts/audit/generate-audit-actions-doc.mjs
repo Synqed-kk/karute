@@ -71,6 +71,10 @@ const LITERAL_ONLY_CATEGORY = {
   // superseded branch's own action (fix round 6, I2) — a row that moved on to
   // other audio before this take's finalize landed. capture_finalized above
   // stays reserved for a call that actually wrote a pointer or a duration.
+  // Choke emit: src/lib/recording/assembler.ts#assembleStrandedTake — the
+  // nightly rescue of a take whose device never came back (build 23 slice ③).
+  // Literal-only by construction: no endpoint reaches it, only the cron.
+  'recording.capture_resumed': 'recording',
   'recording.capture_unlinked': 'recording',
   'recording.discard': 'recording',
   // Choke emit: src/lib/recording/session-cleanup.ts#deleteRecordingSessionWithClient

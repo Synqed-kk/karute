@@ -1,0 +1,1151 @@
+/**
+ * THE ASSEMBLER (src/lib/recording/assembler.ts) — the take whose device never
+ * came back. What only this file can prove:
+ *   1. the PREFIX rule: bytes are the contiguous run from seq 0 and nothing
+ *      after a gap, concatenated in seq order;
+ *   2. the AGE gate: a take younger than 48 h is left for its own device;
+ *   3. ⚖ THE SIDE KEY (Liam 2026-09-06, "b"): the rebuild goes BESIDE the
+ *      take, never on it, so a paused phone comes back to a free key — and the
+ *      walk asks the rescue key only when the device's own object is absent;
+ *   4. the ONE audit row, with the exact detail keys design D5 names, and NO
+ *      row on any path that wrote nothing;
+ *   5. every folder is opened with ITS OWN tenant's core client;
+ *   6. ⚖ nothing is ever deleted.
+ *
+ * NO NETWORK: storage is an in-memory bucket behind the same
+ * createServiceClient seam finalize-take's own suite doubles, and core is a
+ * per-business fake.
+ */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+// ⚖ THE RECEIPT IS THE DURABLE, AWAITED ONE (the discard receipt's emitter).
+// `auditAnswer` is what core gives back: ok:true is the row landing, ok:false
+// is every way it can fail — auditDurable NEVER throws (forwardToCore swallows
+// a refusal, a thrown SDK error and a missing sink env alike and reports
+// { ok: false }), so ok:false IS "the sink threw" as this module can ever see
+// it.
+const auditFn = jest.fn()
+let auditAnswer: { ok: boolean; rowId?: string } = { ok: true }
+jest.mock('@/lib/audit', () => ({
+  auditDurable: async (e: unknown) => {
+    auditFn(e)
+    return auditAnswer
+  },
+}))
+// The SDK is ESM-only and jest cannot load it unmocked — the same stand-in
+// every suite in this family uses. Nothing here ever builds a real client:
+// runAssembler takes its core clients from deps.
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: class {} }))
+
+type Entry = {
+  name: string
+  id: string | null
+  created_at: string | null
+  metadata: { size?: number } | null
+}
+type ListAnswer = { data: Entry[] | null; error: { message: string } | null }
+
+/** prefix -> everything under it, in name order. The fake serves it by
+ *  OFFSET, exactly as storage does, so a `limit: 1` peek and a paged walk of
+ *  the same prefix can both be modelled without a call-order trick. */
+const contents = new Map<string, Entry[]>()
+/** Prefixes whose CONTINUATION page fails — i.e. the walk was cut part-way
+ *  through, which is the only listing failure that matters (the first page
+ *  failing just answers nothing at all). */
+const cutListings = new Set<string>()
+/** Every list call, so a test can say what a folder COST as well as what it
+ *  answered. */
+const listCalls: { prefix: string; limit?: number; offset?: number }[] = []
+const bodies = new Map<string, Buffer>()
+const infos = new Map<string, { size?: number } | null>()
+const uploads: { key: string; body: Buffer; opts: { contentType?: string; upsert?: boolean } }[] = []
+let uploadAnswer: { error: unknown } = { error: null }
+const storageRemove = jest.fn(async () => ({ data: [], error: null }))
+const emptyBucket = jest.fn(async () => ({ data: null, error: null }))
+
+const NOT_FOUND = { message: 'Object not found', status: 404, statusCode: '404' }
+
+const list = jest.fn(
+  async (prefix: string, opts: { limit?: number; offset?: number }): Promise<ListAnswer> => {
+    listCalls.push({ prefix, limit: opts?.limit, offset: opts?.offset })
+    const offset = opts?.offset ?? 0
+    if (cutListings.has(prefix) && offset > 0) return { data: null, error: { message: 'boom' } }
+    const all = contents.get(prefix) ?? []
+    return { data: all.slice(offset, offset + (opts?.limit ?? 100)), error: null }
+  },
+)
+const download = jest.fn(async (key: string) => {
+  const body = bodies.get(key)
+  if (!body) return { data: null, error: NOT_FOUND }
+  return { data: new Blob([new Uint8Array(body)]), error: null }
+})
+type InfoAnswer = {
+  data: { size?: number } | null | undefined
+  error: { message: string; status?: number; statusCode?: string } | null
+}
+const info = jest.fn(async (key: string): Promise<InfoAnswer> => {
+  if (!infos.has(key)) return { data: null, error: NOT_FOUND }
+  return { data: infos.get(key), error: null }
+})
+const upload = jest.fn(
+  async (key: string, body: Buffer, opts: { contentType?: string; upsert?: boolean }) => {
+    if (uploadAnswer.error) return { data: null, error: uploadAnswer.error }
+    uploads.push({ key, body, opts })
+    infos.set(key, { size: body.byteLength })
+    return { data: { id: 'x', path: key, fullPath: `recordings/${key}` }, error: null }
+  },
+)
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({
+    storage: {
+      from: (_bucket: string) => ({ list, download, info, upload, remove: storageRemove }),
+      emptyBucket,
+    },
+  }),
+}))
+
+import {
+  ASSEMBLE_AFTER_MS,
+  MAX_TAKES_PER_RUN,
+  SEGMENT_NOMINAL_MS,
+  goldenStartIndex,
+  longestPrefix,
+  runAssembler,
+  type AssemblerDeps,
+} from '@/lib/recording/assembler'
+
+const BIZ = 'biz-1'
+const BIZ2 = 'biz-2'
+const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
+const TAKE2 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
+const SESSION2 = '9d2e1b3c-5f4a-4e67-8b9c-0d1e2f3a4b5c'
+
+const NOW = Date.parse('2026-09-06T18:07:00.000Z')
+const OLD = new Date(NOW - ASSEMBLE_AFTER_MS - 60 * 60 * 1000).toISOString()
+
+type Row = {
+  id: string
+  business_id: string
+  audio_storage_path: string | null
+  duration_seconds: number | null
+  status: string
+  /** A born-reserved row carries no store (session-mint.ts sends none), so
+   *  null is the production shape — set it only where a test is about the
+   *  audit row's store leg. */
+  store_id: string | null
+  /** When the SESSION was minted. Core filters its list by this, and the fake
+   *  below does too, so the row-lookup WINDOW is a real fence in these tests
+   *  rather than a pair of strings nobody reads. */
+  created_at: string
+}
+const rowsByBusiness = new Map<string, Row[]>()
+/** Every time anything reached for a core WRITE method. Must stay empty. */
+const coreWrites: string[] = []
+const listedBy: string[] = []
+/** The options the assembler asked core for — the row query's whole class
+ *  definition lives in them, so they are pinned rather than assumed. */
+const listOpts: unknown[] = []
+let listThrows = false
+/** Rows per PAGE, when a test is about paging. Default: everything on page 1. */
+let rowPageSize = 0
+
+// ⚖ READ-ONLY BY CONSTRUCTION. Core fences recording writes behind a human
+// actor and this job has none, so the fake offers `list` and NOTHING else:
+// `update` is a getter that throws, which fails on the mere REFERENCE — a
+// call, a spread, even a `typeof` probe. A regression that brings the stamp
+// back cannot pass this file by accident.
+const coreFor = jest.fn((businessId: string) => ({
+  recordings: {
+    list: async (opts: { status?: string; page?: number; from?: string; to?: string }) => {
+      listedBy.push(businessId)
+      listOpts.push(opts)
+      if (listThrows) throw new Error('core down')
+      // Core filters by status AND by the created_at window server-side; the
+      // fake does both, so a test can put a PROCESSING row behind the same
+      // pointer and see it not come back — and so the row window is a fence
+      // these tests actually cross rather than a pair of unread strings.
+      const all = (rowsByBusiness.get(businessId) ?? []).filter(
+        (r) =>
+          (!opts?.status || r.status === opts.status) &&
+          (!opts?.from || r.created_at >= opts.from) &&
+          (!opts?.to || r.created_at <= opts.to),
+      )
+      if (rowPageSize === 0) return { recordings: all, total: all.length, page: 1, page_size: 200 }
+      const page = opts?.page ?? 1
+      return {
+        recordings: all.slice((page - 1) * rowPageSize, page * rowPageSize),
+        total: all.length,
+        page,
+        page_size: rowPageSize,
+      }
+    },
+    get update() {
+      coreWrites.push(businessId)
+      throw new Error('the assembler must never write to core')
+    },
+  },
+})) as unknown as AssemblerDeps['coreFor']
+
+const deps = (): AssemblerDeps => ({ coreFor, now: () => NOW })
+
+/** The oldest leaf's timestamp, or OLD when nothing readable is there. */
+function oldestLeafIso(leaves: Entry[]): string {
+  const ms = Math.min(...leaves.map((l) => Date.parse(l.created_at ?? '')))
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : OLD
+}
+
+/** A take folder + its leaves, wired into the fake bucket. */
+function seed(opts: {
+  businessId?: string
+  takeId?: string
+  seqs: number[]
+  ext?: string
+  sizes?: number[]
+  createdAt?: string
+  /** Per-leaf timestamps, when the test is about WHICH leaf decides the age. */
+  createdAts?: string[]
+  rowId?: string
+  rowPointer?: string | null
+  duration?: number | null
+  storeId?: string | null
+  /** Bytes at the DEVICE'S own key — the phone finalized its take. */
+  objectSize?: number | null
+  /** Bytes at the RESCUE key — an earlier night already rebuilt this take. */
+  rescueObjectSize?: number | null
+  /** The row's own `created_at`. Defaults to the OLDEST leaf's, which is what
+   *  every case but the row-window ones wants. */
+  rowCreatedAt?: string
+  status?: string
+}) {
+  const businessId = opts.businessId ?? BIZ
+  const takeId = opts.takeId ?? TAKE
+  const ext = opts.ext ?? 'webm'
+  const folder = `app_${businessId}_${takeId}`
+  const leaves: Entry[] = opts.seqs.map((seq, i) => {
+    const size = opts.sizes?.[i] ?? 10 + seq
+    const name = `${String(seq).padStart(6, '0')}.${ext}`
+    bodies.set(`seg/${folder}/${name}`, Buffer.alloc(size, seq + 1))
+    return {
+      name,
+      id: `obj-${folder}-${seq}`,
+      created_at: opts.createdAts?.[i] ?? opts.createdAt ?? OLD,
+      metadata: { size },
+    }
+  })
+  addFolder(folder)
+  contents.set(`seg/${folder}`, leaves)
+  const key = `app_${businessId}_${takeId}.${ext}`
+  // ⚖ THE SIDE KEY (Liam 2026-09-06, "b") — where the rebuild goes, beside the
+  // device's own key and never on it.
+  const rescueKey = `rsc/${key}`
+  if (opts.objectSize != null) infos.set(key, { size: opts.objectSize })
+  if (opts.rescueObjectSize != null) infos.set(rescueKey, { size: opts.rescueObjectSize })
+  const pointer = opts.rowPointer === undefined ? key : opts.rowPointer
+  const rowId = opts.rowId ?? (opts.takeId === TAKE2 ? SESSION2 : SESSION)
+  if (pointer !== null) {
+    const rows = rowsByBusiness.get(businessId) ?? []
+    rows.push({
+      id: rowId,
+      business_id: businessId,
+      audio_storage_path: pointer,
+      duration_seconds: opts.duration ?? null,
+      status: opts.status ?? 'UPLOADING',
+      store_id: opts.storeId ?? null,
+      // The row is minted when recording STARTS, so its default here is the
+      // oldest leaf's own timestamp — the shape every case but the window ones
+      // is about. A leaf whose timestamp is unreadable (the age gate's own
+      // case) falls back to OLD: that test never reaches the row query.
+      created_at: opts.rowCreatedAt ?? oldestLeafIso(leaves),
+    })
+    rowsByBusiness.set(businessId, rows)
+  }
+  return { folder, key, rescueKey, leaves, rowId }
+}
+
+const rootFolders: Entry[] = []
+function addFolder(name: string) {
+  rootFolders.push({ name, id: null, created_at: null, metadata: null })
+  contents.set('seg', [...rootFolders])
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  contents.clear()
+  cutListings.clear()
+  listCalls.length = 0
+  bodies.clear()
+  infos.clear()
+  uploads.length = 0
+  rootFolders.length = 0
+  rowsByBusiness.clear()
+  coreWrites.length = 0
+  listedBy.length = 0
+  listOpts.length = 0
+  rowPageSize = 0
+  uploadAnswer = { error: null }
+  auditAnswer = { ok: true }
+  listThrows = false
+  jest.spyOn(console, 'info').mockImplementation(() => {})
+  jest.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
+// ⚖ THE TWO INVARIANTS of this whole job, asserted after every case rather
+// than in the one test that happens to be about each: it only ever ADDS, and
+// it only ever adds TO STORAGE. The duration is written by the save door,
+// which has the actor core requires; this job never touches a core row.
+afterEach(() => {
+  expect(storageRemove).not.toHaveBeenCalled()
+  expect(emptyBucket).not.toHaveBeenCalled()
+  expect(coreWrites).toEqual([])
+})
+
+describe('longestPrefix — the contiguous run from zero, and the first hole', () => {
+  it.each([
+    // Nothing at all is not a HOLE — there is no take here to have one.
+    ['empty', [], [], null],
+    ['just zero', [0], [0], null],
+    ['contiguous', [0, 1, 2], [0, 1, 2], null],
+    ['a gap at 2', [0, 1, 3, 4], [0, 1], 2],
+    ['no zero at all', [1, 2], [], 0],
+    ['unsorted input', [2, 0, 1], [0, 1, 2], null],
+    ['unsorted with a gap', [4, 1, 0], [0, 1], 2],
+  ])('%s', (_label, seqs, prefix, firstGap) => {
+    expect(longestPrefix(seqs as number[])).toEqual({ prefix, firstGap })
+  })
+})
+
+describe('the walk', () => {
+  it('opens each tenant’s folder with ITS OWN business client, in walk order', async () => {
+    // INTERLEAVED on purpose, and asserted IN ORDER: sorting the tenants threw
+    // the interleave away, so a memo handing back whichever client it made
+    // first only had to be wrong about ONE folder to pass. Four folders that
+    // alternate tenants make the sequence itself the assertion, whatever index
+    // the day's golden point starts at.
+    const takes = [
+      [BIZ, '0f8c6c9a-3f2d-4a71-9b5e-000000000001'],
+      [BIZ2, '0f8c6c9a-3f2d-4a71-9b5e-000000000002'],
+      [BIZ, '0f8c6c9a-3f2d-4a71-9b5e-000000000003'],
+      [BIZ2, '0f8c6c9a-3f2d-4a71-9b5e-000000000004'],
+    ] as const
+    takes.forEach(([businessId, takeId], i) =>
+      seed({
+        businessId,
+        takeId,
+        seqs: [0],
+        rowId: `${SESSION.slice(0, 24)}${String(i).padStart(12, '0')}`,
+      }),
+    )
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.candidates).toBe(4)
+    expect(summary.assembled).toBe(4)
+    expect(coreFor).toHaveBeenCalledWith(BIZ)
+    expect(coreFor).toHaveBeenCalledWith(BIZ2)
+    // The tenant each opened folder BELONGS to, in the order the walk opened
+    // them — read off the storage calls rather than assumed, because the start
+    // index is the day's.
+    const walked = [...new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix))]
+    const owners = walked.map((prefix) => (prefix.includes(BIZ2) ? BIZ2 : BIZ))
+    expect(walked).toHaveLength(4)
+    expect(new Set(owners).size).toBe(2)
+    // Every core read went to the client of the folder being walked — a single
+    // shared client would have listed one tenant four times and the other never.
+    expect(listedBy).toEqual(owners)
+    // …and each rescue is audited under the tenant whose folder it came out of.
+    expect(auditFn.mock.calls.map((c) => c[0].businessId)).toEqual(owners)
+  })
+
+  it('skips a junk folder in silence and still does the real one', async () => {
+    rootFolders.push({ name: 'not-a-take', id: null, created_at: null, metadata: null })
+    seed({ seqs: [0] })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.candidates).toBe(1)
+    expect(summary.assembled).toBe(1)
+  })
+
+  it('a failed listing page reports walkComplete false — and the folders already walked are still processed', async () => {
+    seed({ seqs: [0] })
+    // Page 1 came back with the folder; the CONTINUATION page fails, so the
+    // rest of the tree was never seen. What WAS listed is still real work.
+    cutListings.add('seg')
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.walkComplete).toBe(false)
+    expect(summary.assembled).toBe(1)
+  })
+
+  // ⚖ THE GUARD BETWEEN A TRUNCATED LISTING AND A WRONG OBJECT. A half-listed
+  // folder rebuilt from would seal a SHORT object under the take's immutable
+  // key — and the next night meets it, skips, and nothing can ever replace it.
+  it('a folder whose own listing was cut is an error, never a rebuild from half a folder', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2] })
+    cutListings.add(`seg/${folder}`)
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1: most folders in seg/ belong to takes that finished long ago, and
+  // they must not cost a full listing every night — that is what let the clock
+  // cut the walk in the same place forever.
+  it('a finished take costs ONE one-leaf listing and ONE probe — no full listing, no core call', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2], objectSize: 33 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    const folderCalls = listCalls.filter((c) => c.prefix === `seg/${folder}`)
+    expect(folderCalls).toEqual([{ prefix: `seg/${folder}`, limit: 1, offset: 0 }])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+  })
+
+  // ⚖ THE ROTATION, AND THE PROPERTY IT ACTUALLY BUYS. Nothing carries a cursor
+  // between runs, so a walk that always began at index 0 would stop in the same
+  // place every night and never reach the tail — silently, because the route
+  // still answers 200. The start is the day's GOLDEN-RATIO point on the ring,
+  // which is equidistributed for every folder count: with a night's reach K,
+  // every folder is visited within about ceil(1.894 · N / K) + 1 nights. Ten
+  // folders at four a night is a bound of 6; the run below needs 3.
+  //
+  // UNINJECTED on purpose — this walks on the same arithmetic production does,
+  // so a start pinned at 0 or a day dropped out of it dies right here.
+  it('covers every folder within the golden bound: ten folders, four a night', async () => {
+    // Ten finished folders — each costs the cheap pair and nothing more, so
+    // one clock tick per folder is the whole per-folder cost.
+    const ids = Array.from({ length: 10 }, (_, i) => `0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}`)
+    ids.forEach((takeId, i) =>
+      seed({
+        takeId,
+        seqs: [0],
+        objectSize: 10,
+        rowId: `${SESSION.slice(0, 24)}${String(i).padStart(12, '0')}`,
+      }),
+    )
+    const DAY = 86_400_000
+    const seen = new Set<string>()
+    // ceil(1.894 × 10 / 4) + 1 = 6 — the bound the docblock promises.
+    const BOUND = Math.ceil((1.894 * 10) / 4) + 1
+    expect(BOUND).toBe(6)
+    let nightsNeeded = 0
+    for (let day = 0; day < BOUND; day++) {
+      listCalls.length = 0
+      // A clock that advances 1 s per read. Two reads are fixed (the deadline
+      // and the day the start is taken from), then one per folder — so a 6 s
+      // budget admits exactly four folders.
+      let tick = 0
+      const now = () => day * DAY + tick++ * 1000
+      const summary = await runAssembler({ coreFor, now }, { budgetMs: 6_000 })
+      expect(summary.budgetExhausted).toBe(true)
+      const visited = listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)
+      expect(visited).toHaveLength(4)
+      visited.forEach((v) => seen.add(v))
+      if (seen.size === 10 && nightsNeeded === 0) nightsNeeded = day + 1
+    }
+    // Every folder reached, inside the promised bound. A start that never
+    // moved — pinned at 0, or a day dropped out of the arithmetic — would
+    // have covered the same four folders six nights running.
+    expect(seen.size).toBe(10)
+    expect(nightsNeeded).toBe(3)
+  })
+
+  // ⚖ THE DEFAULT START IS THE ONE PRODUCTION RUNS. The seam below can put the
+  // walk anywhere, so a default quietly pinned at 0 — or one that ignores the
+  // day — would pass every injected case while the real walk re-read the same
+  // leading folders every night. Both halves are pinned here: the pure
+  // function's own numbers, and the index an UNINJECTED walk actually starts
+  // at (4 of 8, so neither 0 nor 1, and no modulus put it there).
+  it('the DEFAULT start is the day’s golden point, and an uninjected walk really begins there', async () => {
+    // The constant itself, read through the function: frac(1 × φ) = 0.618…,
+    // frac(2 × φ) = 0.236…, frac(3 × φ) = 0.854… — a different φ, or a day
+    // dropped, moves all three.
+    expect(goldenStartIndex(1, 1000)).toBe(618)
+    expect(goldenStartIndex(2, 1000)).toBe(236)
+    expect(goldenStartIndex(3, 1000)).toBe(854)
+    // Degenerate inputs answer 0 rather than NaN: an empty tree has no ring.
+    expect(goldenStartIndex(1, 0)).toBe(0)
+
+    const N = 8
+    for (let i = 0; i < N; i++) {
+      rootFolders.push({
+        name: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
+        id: null,
+        created_at: null,
+        metadata: null,
+      })
+    }
+    contents.set('seg', [...rootFolders])
+    // Night 1 on a clock that advances 1 s per read: two reads are fixed (the
+    // deadline and the day), then one per folder — so 3 s admits exactly one.
+    let tick = 0
+    const summary = await runAssembler(
+      { coreFor, now: () => 86_400_000 + tick++ * 1000 },
+      { budgetMs: 3_000 },
+    )
+    expect(summary.candidates).toBe(N)
+    expect(summary.budgetExhausted).toBe(true)
+    // The empty folders parse and are walked; the one that was opened is the
+    // whole assertion.
+    expect(summary.skipped.noSeq0).toBe(1)
+    expect(goldenStartIndex(1, N)).toBe(4)
+    const walked = [...new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix))]
+    expect(walked).toEqual([`seg/${rootFolders[4].name}`])
+  })
+
+  // ⚖ NO LATTICE, NO RESIDUAL — THE WHOLE REASON THE START IS NOT A STRIDE.
+  // A fixed stride's starts are the multiples of gcd(stride, N), so some
+  // folder counts leave a band nothing ever walks; `seg/` only ever grows, so
+  // N passes through every such count on its way up. The golden-ratio point
+  // has no modulus in it at all — the simulation below is over the pure
+  // function, at the folder counts a stride of 1,999 was worst at.
+  it('the start is equidistributed for EVERY folder count, within the stated bound', () => {
+    /** Nights until every index has been inside some night's window. */
+    const nightsToCover = (n: number, k: number, day0: number): number => {
+      const seen = new Set<number>()
+      for (let d = 0; d < 200; d++) {
+        const start = goldenStartIndex(day0 + d, n)
+        for (let i = 0; i < k; i++) seen.add((start + i) % n)
+        if (seen.size === n) return d + 1
+      }
+      return Infinity
+    }
+    // Real day numbers, not just day 0: the property must not depend on where
+    // in the sequence the window happens to open (2026 is day ~20,700).
+    const DAY0S = [0, 1, 20_700, 100_000]
+
+    // A third of the tree a night, at the counts a 1,999 stride handled worst
+    // (3,998 = 2 × 1,999 is the exact residual it could not close).
+    for (const n of [8, 1999, 3998, 4000, 6000]) {
+      const k = Math.ceil(n / 3)
+      const bound = Math.ceil((1.894 * n) / k) + 1
+      expect(bound).toBe(7)
+      for (const day0 of DAY0S) expect(nightsToCover(n, k, day0)).toBeLessThanOrEqual(bound)
+    }
+    // Half the tree a night at 4,000 folders — the case a stride of 1,999
+    // could not promise, because at N = 3,998 it starts at only two places on
+    // the whole ring, forever.
+    const halfBound = Math.ceil((1.894 * 4000) / 2000) + 1
+    expect(halfBound).toBe(5)
+    for (const day0 of DAY0S) expect(nightsToCover(4000, 2000, day0)).toBeLessThanOrEqual(halfBound)
+
+    // The lattice, stated rather than implied: that is what a 1,999 stride
+    // does at 3,998 folders, and what the golden point does not do at any N.
+    const strideStarts = new Set<number>()
+    for (let d = 0; d < 500; d++) strideStarts.add((d * 1999) % 3998)
+    expect([...strideStarts].sort((a, b) => a - b)).toEqual([0, 1999])
+    const goldenStarts = new Set<number>()
+    for (let d = 0; d < 500; d++) goldenStarts.add(goldenStartIndex(d, 3998))
+    expect(goldenStarts.size).toBeGreaterThan(400)
+  })
+
+  // ⚖ THE SEAM, AND ITS FENCE. `startIndexFor` is what lets a case put the
+  // walk exactly where it needs it — and because it is injectable, a number
+  // off the end of the list must WRAP rather than index into nothing, which
+  // would skip folders in silence.
+  it('an injected start is honoured, and one off the ring wraps instead of skipping', async () => {
+    const names = Array.from(
+      { length: 5 },
+      (_, i) => `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
+    )
+    names.forEach((name) => rootFolders.push({ name, id: null, created_at: null, metadata: null }))
+    contents.set('seg', [...rootFolders])
+
+    /** One folder at this injected start: which index did the walk open? */
+    const firstOpened = async (startIndexFor: (d: number, n: number) => number) => {
+      listCalls.length = 0
+      let tick = 0
+      await runAssembler(
+        { coreFor, now: () => 86_400_000 + tick++ * 1000 },
+        { budgetMs: 3_000, startIndexFor },
+      )
+      const opened = listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)
+      return names.indexOf(opened[0].replace('seg/', ''))
+    }
+
+    expect(await firstOpened(() => 3)).toBe(3)
+    // Off the end and off the front both wrap onto the ring.
+    expect(await firstOpened(() => 7)).toBe(2)
+    expect(await firstOpened(() => -1)).toBe(4)
+    // And the day it is handed is the day the clock says.
+    const days: number[] = []
+    await firstOpened((d) => {
+      days.push(d)
+      return 0
+    })
+    expect(days).toEqual([1])
+  })
+
+  // ⚖ THE PEEK'S FALLBACK. The cheap pair reads the container off the FIRST
+  // name a `name asc` listing returns, which is seq 000000 — unless something
+  // sorts before it. `.` is 0x2E and `0` is 0x30, so a dotfile does exactly
+  // that (storage's own `.emptyFolderPlaceholder` is one). The peek answers
+  // null there and the folder is read whole instead, which is the path the
+  // docblock designs for and nothing exercised.
+  it('a folder whose first entry is a dotfile is read whole, and still rebuilt', async () => {
+    const { folder, rescueKey } = seed({ seqs: [0, 1], ext: 'mp4' })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    // The real container came from the first PARSEABLE leaf, not the dotfile.
+    expect(uploads[0].key).toBe(rescueKey)
+    expect(uploads[0].opts.contentType).toBe('audio/mp4')
+    // …and it cost the full listing, not the one-leaf peek alone.
+    expect(listCalls.filter((c) => c.prefix === `seg/${folder}`).length).toBeGreaterThan(1)
+  })
+
+  // ⚖ THE SECOND CHEAP PAIR. Condition 5 lives at BOTH sites — after the peek,
+  // and after the full listing when the peek could not name a container — and
+  // every other rescue case enters through the first one. Without this, a hole
+  // put in the second site alone survives the whole battery.
+  it('a dotfile folder whose rescue is already there → skipped.rescued, after the listing', async () => {
+    const { folder, key, rescueKey } = seed({ seqs: [0, 1], ext: 'mp4', rescueObjectSize: 21 })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.rescued).toBe(1)
+    // The same ORDER as the first site: the phone's own key, then the rescue.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key, rescueKey])
+    // …and it stops there — no core call, no second PUT of a take an earlier
+    // night already rebuilt, no second audit row for one take.
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE SECOND CHEAP PAIR'S OTHER ARM. The sibling above drives `where ===
+  // 'rescue'` at this same post-listing site; `where === 'main'` there is the
+  // more common case — the phone's own object already exists — and had no
+  // test, so a mutant deleting only that arm survived: a folder whose peek
+  // could not name the container but whose PHONE object is present would be
+  // rebuilt anyway, writing a duplicate rescue and filing a spurious
+  // capture_resumed for a take the device already delivered.
+  it('a dotfile folder whose PHONE object is there → skipped.objectExists, after the listing', async () => {
+    const { folder, key } = seed({ seqs: [0, 1], ext: 'mp4', objectSize: 21 })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    // Only the phone's own key is probed — `probeTake` returns 'main' before
+    // it ever asks about the rescue key.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('a folder with nothing parseable in it is skipped without a probe or a core call', async () => {
+    const folder = `app_${BIZ}_${TAKE}`
+    addFolder(folder)
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      { name: 'notes.txt', id: 'n', created_at: OLD, metadata: { size: 3 } },
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noSeq0).toBe(1)
+    // No key could be composed, so storage was never asked about one and core
+    // was never opened — the folder is junk, and junk is cleanup's business.
+    expect(info).not.toHaveBeenCalled()
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+  })
+
+  it('the rotation WRAPS rather than running off the end', async () => {
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000a', seqs: [0] })
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000b', seqs: [0], rowId: SESSION2 })
+    // Whatever day it is, both folders are visited exactly once.
+    for (const now of [NOW, NOW + 86_400_000]) {
+      listCalls.length = 0
+      const summary = await runAssembler({ coreFor, now: () => now }, { budgetMs: 60_000 })
+      expect(summary.candidates).toBe(2)
+      expect(new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)).size).toBe(2)
+    }
+  })
+})
+
+describe('the age gate — the newest segment is the last sign of the device', () => {
+  it('47 h old is YOUNG: the device may still come back for it', async () => {
+    seed({ seqs: [0], createdAt: new Date(NOW - 47 * 60 * 60 * 1000).toISOString() })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.young).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it('49 h old is a candidate', async () => {
+    seed({ seqs: [0], createdAt: new Date(NOW - 49 * 60 * 60 * 1000).toISOString() })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+  })
+
+  // ⚖ THE RULE, and the one the fixtures used to hide by stamping every leaf
+  // with the same timestamp: it is the LAST slice that says when the device
+  // was last heard from. Reading the first would seal a take that was still
+  // recording minutes ago — the self-inflicted strand D1 exists to avoid.
+  it('an old FIRST segment does not age a take whose LAST segment is minutes old', async () => {
+    seed({
+      seqs: [0, 1],
+      createdAts: [
+        new Date(NOW - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date(NOW - 60 * 60 * 1000).toISOString(),
+      ],
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.young).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it.each([
+    ['one second younger than the threshold', 1000, 'young'],
+    ['one second older', -1000, 'candidate'],
+  ])('%s', async (_label, offset, verdict) => {
+    seed({ seqs: [0], createdAt: new Date(NOW - ASSEMBLE_AFTER_MS + offset).toISOString() })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    if (verdict === 'young') {
+      expect(summary.skipped.young).toBe(1)
+      expect(uploads).toHaveLength(0)
+    } else {
+      expect(summary.assembled).toBe(1)
+    }
+  })
+
+  it('an unparseable created_at reads as YOUNG, never as "old enough"', async () => {
+    seed({ seqs: [0], createdAt: 'not-a-date' })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.young).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+})
+
+describe('the object probe', () => {
+  it('a storage that will not answer is an ERROR — never "the key is free"', async () => {
+    const { key } = seed({ seqs: [0] })
+    info.mockImplementationOnce(async (k: string) => {
+      if (k === key) return { data: null, error: { message: 'gateway', status: 500 } }
+      return { data: null, error: NOT_FOUND }
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // ⚖ the amendment's disjoint meaning: the audio is already on the server —
+  // rescued on an earlier night, or finalized by the device itself. This is
+  // ALSO what makes the job idempotent: exactly one audit row per rescued
+  // take, because the second night meets the object and stops here.
+  it('object already at the key → skipped.objectExists, no upload, no audit, and core is never even read', async () => {
+    seed({ seqs: [0, 1], objectSize: 21 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    expect(summary.assembled).toBe(0)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+    // Answered before the core read: a healthy tenant's finished takes cost
+    // one storage probe a night, not a core page.
+    expect(listedBy).toEqual([])
+  })
+
+  // ⚖ THE SIDE KEY'S OWN PROBE (Liam 2026-09-06, "b"). A take rescued on an
+  // earlier night whose phone has still not returned: its own key is empty and
+  // the rescue key is not. That is a DIFFERENT fact from "the device came
+  // through", so it gets its own counter — and it must cost nothing more than
+  // the probe, because the rescue is written once and never rewritten.
+  it('the rescue is already there → skipped.rescued, no listing, no core call, no upload, no audit', async () => {
+    const { folder } = seed({ seqs: [0, 1], rescueObjectSize: 21 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.rescued).toBe(1)
+    expect(summary.skipped.objectExists).toBe(0)
+    expect(summary.assembled).toBe(0)
+    // The one-leaf peek and nothing more: no full listing of the folder.
+    expect(listCalls.filter((c) => c.prefix === `seg/${folder}`)).toEqual([
+      { prefix: `seg/${folder}`, limit: 1, offset: 0 },
+    ])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // …and the other side of the order: when the DEVICE'S own object is there,
+  // the rescue key is never asked about at all. Reading it first — or reading
+  // it as well — would spend a probe a night on every finished take in the
+  // bucket, which is the cost the cheap pair exists to avoid.
+  it('the device’s own object wins, and the rescue key is NEVER probed', async () => {
+    const { key, rescueKey } = seed({ seqs: [0, 1], objectSize: 21, rescueObjectSize: 9 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    expect(summary.skipped.rescued).toBe(0)
+    // ONE probe, and it was the phone's key.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key])
+    expect(info).not.toHaveBeenCalledWith(rescueKey)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // The order itself, read off the calls: the phone's key, THEN the rescue.
+  it('probes the phone’s key first and the rescue second, in that order', async () => {
+    const { key, rescueKey } = seed({ seqs: [0] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key, rescueKey])
+  })
+
+  it('a row somebody already settled is left alone', async () => {
+    seed({ seqs: [0, 1], duration: 300 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.settled).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+})
+
+describe('the assembly', () => {
+  it('a contiguous take: the object is the concat in SEQ ORDER, upsert false, one audit row', async () => {
+    const { key, rescueKey } = seed({ seqs: [0, 1, 2, 3, 4], sizes: [1, 2, 3, 4, 5] })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(summary.partial).toBe(1)
+    // The receipt landed, so the night is clean — the route reads this.
+    expect(summary.auditLost).toBe(0)
+    expect(uploads).toHaveLength(1)
+    // ⚖ BESIDE THE TAKE, NEVER ON IT (Liam 2026-09-06, "b") — all three facts,
+    // because "starts with rsc/" alone would pass for the wrong take's key and
+    // "is not the pointer" alone would pass for any stray key at all.
+    expect(uploads[0].key).toBe(rescueKey)
+    expect(uploads[0].key.startsWith('rsc/')).toBe(true)
+    expect(uploads[0].key).not.toBe(key)
+    expect(uploads[0].opts).toEqual({ contentType: 'audio/webm', upsert: false })
+    // Byte for byte, in seq order: each leaf is filled with (seq + 1).
+    expect(uploads[0].body).toEqual(
+      Buffer.concat([0, 1, 2, 3, 4].map((seq) => Buffer.alloc(seq + 1, seq + 1))),
+    )
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    expect(auditFn.mock.calls[0][0]).toEqual({
+      category: 'recording',
+      action: 'recording.capture_resumed',
+      actorId: null,
+      actorType: 'system',
+      businessId: BIZ,
+      targetType: 'recording',
+      targetId: SESSION,
+      severity: 'notice',
+      source: 'system',
+      detail: {
+        recording_session_id: SESSION,
+        take_id: TAKE,
+        ext: 'webm',
+        segments_present: 5,
+        prefix_length: 5,
+        first_gap_seq: null,
+        declared_last_seq: null,
+        partial: true,
+        bytes: 15,
+        estimated_duration_seconds: 25,
+        trigger: 'cron',
+      },
+    })
+  })
+
+  it('a gap: only the prefix is written, and the row SAYS where the hole is', async () => {
+    seed({ seqs: [0, 1, 3], sizes: [4, 6, 100] })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(uploads[0].body.byteLength).toBe(10)
+    expect(auditFn.mock.calls[0][0].detail).toMatchObject({
+      segments_present: 3,
+      prefix_length: 2,
+      first_gap_seq: 2,
+      partial: true,
+      bytes: 10,
+      estimated_duration_seconds: 10,
+    })
+  })
+
+  // ⚖ THE RECEIPT IS DURABLE, AWAITED, AND A LOST ONE TURNS THE NIGHT RED
+  // (Greptile #850 point 1). The PUT put the take under its IMMUTABLE key, so
+  // every later night meets objectExists and skips: a receipt dropped here is
+  // dropped forever, and nothing retries it. The audio is genuinely rescued —
+  // so the rescue still counts — but the run must say the row is missing, and
+  // the route turns that into a 500 (api-assemble-auth.test.ts).
+  it('the receipt did not land: the object is still written, and the run counts auditLost', async () => {
+    const { rescueKey } = seed({ seqs: [0, 1] })
+    auditAnswer = { ok: false }
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    // The audio IS on the server — the loss is the row, never the rescue.
+    expect(uploads).toHaveLength(1)
+    expect(uploads[0].key).toBe(rescueKey)
+    expect(summary.assembled).toBe(1)
+    expect(summary.auditLost).toBe(1)
+    // Nothing was demoted into skipped: the rescue happened.
+    expect(Object.values(summary.skipped)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
+    // The emit was still ATTEMPTED — the console line is sink 1, and it is
+    // what carries the event into the log drain when core will not take it.
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    // And the failure is visible on its own line, ids only.
+    expect(console.warn).toHaveBeenCalledWith(
+      JSON.stringify({
+        evt: 'assembler_error',
+        stage: 'audit',
+        business_id: BIZ,
+        take_id: TAKE,
+        status: null,
+        statusCode: null,
+      }),
+    )
+  })
+
+  // The other half of the same rule: a run whose receipts all landed carries a
+  // zero, which is what lets the route answer 200.
+  it('two rescues with two landed receipts leave auditLost at zero', async () => {
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000a', seqs: [0] })
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000b', seqs: [0], rowId: SESSION2 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(2)
+    expect(summary.auditLost).toBe(0)
+    expect(auditFn).toHaveBeenCalledTimes(2)
+  })
+
+  it('a leaf that will not come down is an error — never a short object under the take’s key', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2] })
+    bodies.delete(`seg/${folder}/000001.webm`)
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('a folder with no seq 0 is not a take we can rebuild', async () => {
+    seed({ seqs: [1, 2] })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noSeq0).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it.each([
+    ['a plain 409', { status: 409, message: 'Duplicate' }],
+    ['a 400 with the code in the body', { status: 400, statusCode: '409', message: 'Duplicate' }],
+    ['the message alone', { message: 'The resource already exists' }],
+  ])('a duplicate refusal at the RESCUE key (%s) → nothing written, nothing audited', async (_l, error) => {
+    seed({ seqs: [0, 1] })
+    uploadAnswer = { error }
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.duplicate).toBe(1)
+    expect(summary.assembled).toBe(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('any other upload failure is an error — one warn line carrying NO key and NO storage message', async () => {
+    seed({ seqs: [0] })
+    uploadAnswer = { error: { status: 500, statusCode: '500', message: `Route PUT:/object/recordings/app_${BIZ}_${TAKE}.webm failed` } }
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(auditFn).not.toHaveBeenCalled()
+    const warned = (console.warn as jest.Mock).mock.calls.map((c) => String(c[0])).join('\n')
+    expect(warned).toContain('assembler_error')
+    expect(warned).not.toContain('.webm')
+    expect(warned).not.toContain('Route PUT')
+  })
+
+  // ⚖ the amendment. Core fences PUT /v1/recordings/:id behind a human actor
+  // and a cron has none, so this job settles the take on STORAGE and files the
+  // row — the duration is the save door's, with the staffer's own bearer.
+  it('never writes to core: the audio lands, the row is filed, and no core write is even reached for', async () => {
+    seed({ seqs: [0, 1] })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(uploads).toHaveLength(1)
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    // The fake's `update` throws on the mere reference (see its getter), so an
+    // empty list here is the proof — and the afterEach asserts it every case.
+    expect(coreWrites).toEqual([])
+    // …and the row it audits is the one it read, never one it wrote.
+    expect(auditFn.mock.calls[0][0].detail.recording_session_id).toBe(SESSION)
+  })
+})
+
+describe('the row', () => {
+  it('no row in the window → noRow, and nothing is invented', async () => {
+    seed({ seqs: [0], rowPointer: null })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  it('a row pointing at a DIFFERENT take is not this take’s row', async () => {
+    seed({ seqs: [0], rowPointer: `app_${BIZ}_${TAKE2}.webm` })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it('a core that will not answer is an error, never an assembly', async () => {
+    seed({ seqs: [0] })
+    listThrows = true
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it('leaves that disagree about the container are never guessed at', async () => {
+    const folder = `app_${BIZ}_${TAKE}`
+    addFolder(folder)
+    contents.set(`seg/${folder}`, [
+      { name: '000000.webm', id: 'a', created_at: OLD, metadata: { size: 4 } },
+      { name: '000001.mp4', id: 'b', created_at: OLD, metadata: { size: 4 } },
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.extMismatch).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+})
+
+describe('the row query is the class', () => {
+  // ⚖ D1's predicate lives in these options, and nothing pinned them: the fake
+  // used to hand back every seeded row whatever was asked, so dropping the
+  // status leg, the window or core's page cap all survived untouched.
+  it('asks core for exactly the class: UPLOADING, the −24 h/+6 h window around the OLDEST leaf, core’s max page', async () => {
+    seed({ seqs: [0, 1] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    // ⚖ ASYMMETRIC (ADDENDUM 9.2 M3). The row is minted when recording
+    // STARTS and the first leaf lands one flush later — unless the staffer
+    // paused inside that first window, which AUTO_STOP does not bound because
+    // it measures RECORDED, not wall, milliseconds. So the BEFORE side is a
+    // day and the AFTER side stays clock-skew allowance.
+    expect(listOpts[0]).toEqual({
+      status: 'UPLOADING',
+      from: new Date(Date.parse(OLD) - 24 * 60 * 60 * 1000).toISOString(),
+      to: new Date(Date.parse(OLD) + 6 * 60 * 60 * 1000).toISOString(),
+      page: 1,
+      page_size: 200,
+    })
+  })
+
+  // …and the window is a FENCE, not a pair of strings: the fake filters on it.
+  it('a row created 12 h before its first leaf is FOUND — a pause inside the first flush', async () => {
+    seed({
+      seqs: [0, 1],
+      rowCreatedAt: new Date(Date.parse(OLD) - 12 * 60 * 60 * 1000).toISOString(),
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(summary.skipped.noRow).toBe(0)
+  })
+
+  // ⚖ THE NAMED CEILING of that widening, pinned so it stays named: a pause
+  // longer than a day before the first flush leaves the row outside the query
+  // and the folder lands under noRow. Never a WRONG row — only an unfound one,
+  // and the segments stay where they are.
+  it('a row created 30 h before its first leaf is NOT found — noRow, the named ceiling', async () => {
+    seed({
+      seqs: [0, 1],
+      rowCreatedAt: new Date(Date.parse(OLD) - 30 * 60 * 60 * 1000).toISOString(),
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(summary.assembled).toBe(0)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it('a row on the SECOND page is still found — the take is not silently skipped', async () => {
+    // A busy tenant can have more than one page of UPLOADING rows in a 12-hour
+    // window; a paging break would read as noRow, silently, every night.
+    seed({ seqs: [0, 1] })
+    for (let i = 0; i < 3; i++) {
+      rowsByBusiness.get(BIZ)!.unshift({
+        id: `${SESSION2.slice(0, 23)}${i}${SESSION2.slice(24)}`,
+        business_id: BIZ,
+        audio_storage_path: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}.webm`,
+        duration_seconds: null,
+        status: 'UPLOADING',
+        store_id: null,
+        created_at: OLD,
+      })
+    }
+    rowPageSize = 2
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(listOpts.length).toBeGreaterThan(1)
+  })
+
+  it('a row the query would never return (its status moved on) is not this take’s row', async () => {
+    seed({ seqs: [0, 1], status: 'PROCESSING' })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+})
+
+describe('the audit row’s store', () => {
+  // The 監査ログ viewer FILTERS by store — a row keyed on an empty one is
+  // invisible to every store-scoped search (playback-url.ts's own fix round).
+  it('carries the row’s store when it has one', async () => {
+    seed({ seqs: [0], storeId: 'store-a' })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(auditFn.mock.calls[0][0].storeId).toBe('store-a')
+  })
+
+  it('is absent when the row has none — the shape every row carries today', async () => {
+    seed({ seqs: [0] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(auditFn.mock.calls[0][0].storeId).toBeUndefined()
+  })
+})
+
+describe('the bounds', () => {
+  it('no budget at all: the candidates are still counted, and nothing is touched', async () => {
+    seed({ seqs: [0] })
+    const summary = await runAssembler(deps(), { budgetMs: 0 })
+    expect(summary.budgetExhausted).toBe(true)
+    expect(summary.candidates).toBe(1)
+    expect(summary.assembled).toBe(0)
+    expect(uploads).toHaveLength(0)
+    // A budget stop is not a blind run: the walk SAW every folder.
+    expect(summary.walkComplete).toBe(true)
+  })
+
+  it(`stops at MAX_TAKES_PER_RUN (${MAX_TAKES_PER_RUN}) with budgetExhausted, and tomorrow begins at the next night’s golden point`, async () => {
+    for (let i = 0; i <= MAX_TAKES_PER_RUN; i++) {
+      const takeId = `0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`
+      seed({ takeId, seqs: [0] })
+      // Each take needs its own row id, or the fake's rows collide.
+      const rows = rowsByBusiness.get(BIZ)!
+      rows[rows.length - 1].id = `${SESSION.slice(0, 24)}${String(i).padStart(12, '0')}`
+    }
+    const summary = await runAssembler(deps(), { budgetMs: 600_000 })
+    expect(summary.candidates).toBe(MAX_TAKES_PER_RUN + 1)
+    expect(summary.assembled).toBe(MAX_TAKES_PER_RUN)
+    expect(summary.budgetExhausted).toBe(true)
+  })
+})
+
+describe('every container the grammar knows', () => {
+  // The key is composed as `audio/${ext}` — true for every member of the
+  // closed MIME map today, and the day one is added whose extension is not its
+  // subtype ('audio/mpeg' → 'mp3'), every take in that container would land in
+  // skipped.extMismatch silently, every night, forever.
+  it.each(['webm', 'mp4', 'ogg', 'wav'])('rebuilds a .%s take', async (ext) => {
+    seed({ seqs: [0, 1], ext })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(uploads[0].key).toBe(`rsc/app_${BIZ}_${TAKE}.${ext}`)
+    expect(uploads[0].opts.contentType).toBe(`audio/${ext}`)
+  })
+})
+
+describe('the estimate’s own constant', () => {
+  it('SEGMENT_NOMINAL_MS is the recorder’s TAKE_FLUSH_MS, read off its source', () => {
+    // The recorder module cannot be imported here (it reaches for MediaRecorder
+    // and the DOM at module scope), so the constant is read out of the file
+    // text — the same pin, without dragging a browser into a node suite.
+    // Resolved against THIS file, not process.cwd(): a run from anywhere but
+    // the repo root would otherwise fail on the path rather than the pin.
+    const src = readFileSync(join(__dirname, '../../lib/global-recorder.ts'), 'utf8')
+    const match = /const TAKE_FLUSH_MS = ([\d_]+)/.exec(src)
+    expect(match).not.toBeNull()
+    expect(Number(match![1].replace(/_/g, ''))).toBe(SEGMENT_NOMINAL_MS)
+  })
+})

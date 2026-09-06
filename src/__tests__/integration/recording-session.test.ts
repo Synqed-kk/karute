@@ -355,15 +355,22 @@ describe('startRecordingSession — the store rides along', () => {
     )
   })
 
-  it('sends null when the scope has no store — a business with none is a real answer', async () => {
+  // ⚖ ADDENDUM 10.1. Flipped (fix round 11): `degraded: false` here does not
+  // mean this scope named a store — a viewAll/floating caller with no
+  // active-store cookie falls to getPrimaryStoreId(), which swallows its own
+  // failure to null (actions/stores.ts:209-211). "Cannot name a store" has
+  // two spellings, and this one must refuse exactly like degraded — no row
+  // is minted null.
+  it('refuses to mint when the scope has no store — a null storeId refuses just like degraded', async () => {
     resolveStoreScope.mockResolvedValue({
       storeId: null,
       viewAll: true,
       allowedStoreIds: null,
       degraded: false,
     })
-    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
-    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
+    const res = await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 
   // ⚖ G1 (Greptile #849). `degraded` means the assignment lookup FAILED, and on

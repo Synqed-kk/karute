@@ -17,11 +17,24 @@
 // A minted key is the ONLY legitimate source of one (mintRecordingUploadUrl in
 // src/actions/recording-upload.ts and the upload-url facade twin compose it
 // byte-identically), so the grammar is matched POSITIVELY and anything else is
-// refused. Three shapes, ONE parser:
+// refused. Four shapes, ONE parser:
 //
 //     take     app_<businessId>_<lowercase uuid>.<ext>
 //     segment  seg/app_<businessId>_<lowercase uuid>/<6-digit seq>.<ext>
 //     staged   stg/<businessId>_<recordingSessionId>_<lowercase uuid>.<ext>
+//     rescue   rsc/app_<businessId>_<lowercase uuid>.<ext>
+//
+// ⚖ AND THE RESCUE IS THE TAKE KEY UNDER A PREFIX (⚖ Liam 2026-09-06, "b").
+// The nightly assembler rebuilds a dead device's take out of its segments, and
+// it used to write that rebuild under the take's OWN key — which meant a phone
+// that was merely PAUSED for two days came back to find its key occupied by a
+// shorter object, and its own finalize ended at a terminal `size_mismatch`
+// with the full audio stuck on the device. The rescue therefore lands BESIDE
+// the take, never on it: same body, one prefix further left, so the phone's own
+// key stays free for whoever comes back and nothing the device does can
+// mismatch. Readers prefer the phone's object and fall back to the rescue
+// (resolveTakeAudio, src/lib/recording/take-audio.ts) — one precedence, one
+// helper.
 //
 // ⚖ A STAGED COPY IS NAMED FOR ITS SESSION (PR4 fix round 7). The staged shape
 // is the discard's word-collection copy — the only object in this bucket that
@@ -51,6 +64,10 @@ const SEQ = /^[0-9]{6}$/
 const TAKE_PREFIX = 'app_'
 const SEGMENT_PREFIX = 'seg/'
 const STAGED_PREFIX = 'stg/'
+/** The nightly assembler's SIDE KEY — a take's rebuilt audio, one folder level
+ *  in, so the take's own key is never occupied by it (⚖ Liam 2026-09-06, "b").
+ *  Exported because the assembler's own docs and the resolver name the prefix. */
+export const RESCUE_PREFIX = 'rsc/'
 const UUID_LENGTH = 36
 /**
  * The CLOSED container map — the one place a recorder MIME becomes a key
@@ -65,13 +82,20 @@ const UUID_LENGTH = 36
  * was that function's source text. Object.create(null) means there are no
  * inherited members to find at all, whichever way and whatever case the map is
  * read in — the casing must never be what saves this.
+ *
+ * EXPORTED, read-only, so the `audio/<ext>` round trip the two …FromExt
+ * wrappers rest on is pinned against THE MAP ITSELF rather than against a
+ * typed-out copy of today's members (fix round 8). A fifth container is added
+ * here and the round-trip pins fail, which is what the docblock below promises.
  */
-const MIME_TO_EXT: Record<string, string> = Object.assign(Object.create(null), {
-  'audio/webm': 'webm',
-  'audio/mp4': 'mp4',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-})
+export const MIME_TO_EXT: Readonly<Record<string, string>> = Object.freeze(
+  Object.assign(Object.create(null), {
+    'audio/webm': 'webm',
+    'audio/mp4': 'mp4',
+    'audio/ogg': 'ogg',
+    'audio/wav': 'wav',
+  }),
+)
 /** Closed set, DERIVED from the map above so a container the mint composes and
  *  the grammar refuses cannot exist. */
 const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
@@ -80,6 +104,7 @@ export type ParsedRecordingKey =
   | { kind: 'take'; takeId: string; ext: string }
   | { kind: 'segment'; takeId: string; seq: number; ext: string }
   | { kind: 'staged'; recordingSessionId: string; ext: string }
+  | { kind: 'rescue'; takeId: string; ext: string }
 
 /** `<stem>.<ext>` split on the LAST dot, ext from the closed set or nothing. */
 function splitExtension(name: string): { stem: string; ext: string } | null {
@@ -87,6 +112,24 @@ function splitExtension(name: string): { stem: string; ext: string } | null {
   if (dot <= 0) return null
   const ext = name.slice(dot + 1)
   return EXTENSIONS.includes(ext) ? { stem: name.slice(0, dot), ext } : null
+}
+
+/**
+ * `app_<businessId>_<uuid>.<ext>` — the TAKE BODY, read once for the two kinds
+ * that carry it: the take itself, and the assembler's rescue of one under
+ * RESCUE_PREFIX. ONE code path, never a second regex: a rescue key differs from
+ * a take key by its prefix and by NOTHING ELSE, so if this ever drifts the two
+ * drift together or not at all.
+ *
+ * A slash in the body is refused for free — TAKE_UUID is anchored hex, so
+ * `rsc/app_<biz>_<uuid>/anything.webm` reads a stem with a separator in it and
+ * fails the test.
+ */
+function parseTakeBody(body: string, prefix: string): { takeId: string; ext: string } | null {
+  if (!body.startsWith(prefix)) return null
+  const parts = splitExtension(body.slice(prefix.length))
+  if (!parts || !TAKE_UUID.test(parts.stem)) return null
+  return { takeId: parts.stem, ext: parts.ext }
 }
 
 /**
@@ -140,10 +183,15 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
     return { kind: 'staged', recordingSessionId, ext: parts.ext }
   }
 
-  if (!key.startsWith(prefix)) return null
-  const parts = splitExtension(key.slice(prefix.length))
-  if (!parts || !TAKE_UUID.test(parts.stem)) return null
-  return { kind: 'take', takeId: parts.stem, ext: parts.ext }
+  if (key.startsWith(RESCUE_PREFIX)) {
+    // The take body, EXACTLY as the take branch below reads it — same helper,
+    // so the two kinds cannot disagree about what a take body is.
+    const body = parseTakeBody(key.slice(RESCUE_PREFIX.length), prefix)
+    return body === null ? null : { kind: 'rescue', ...body }
+  }
+
+  const body = parseTakeBody(key, prefix)
+  return body === null ? null : { kind: 'take', ...body }
 }
 
 /**
@@ -157,9 +205,46 @@ export function parseRecordingKey(key: unknown, businessId: string): ParsedRecor
  *
  * The extension set widened with the grammar (webm/mp4/ogg/wav — iOS negotiates
  * mp4, not webm); the tenant prefix and the uuid body are unchanged.
+ *
+ * ⚖ AND THE RESCUE KIND DID NOT WIDEN IT EITHER (⚖ Liam 2026-09-06, "b"). This
+ * is the ROW-POINTER fence — serverHoldsTakeRow, the take mint, finalize, and
+ * every door a CLIENT names a path at — and a row's pointer is always the
+ * phone's own key, never the assembler's side copy. A `rsc/` key reaching one
+ * of those is either a bug or a caller's invention, and both are refused here.
+ * The predicate for a SERVER-DERIVED audio path is the separate isOwnAudioKey.
  */
 export function isOwnRecordingKey(key: unknown, businessId: string): key is string {
   return parseRecordingKey(key, businessId)?.kind === 'take'
+}
+
+/**
+ * True when `key` is a whole take's AUDIO for `businessId` — the take's own
+ * object, OR the nightly job's rescue of it (⚖ ADDENDUM 9.1).
+ *
+ * TWO PREDICATES, AND WHICH ONE A DOOR MAY USE IS THE WHOLE POINT:
+ *
+ *   isOwnRecordingKey  the ROW-POINTER fence. 'take' alone. Every door where
+ *                      the path is a CLIENT'S CLAIM — the take mint, finalize,
+ *                      serverHoldsTakeRow, the enqueue doors, the transcribe
+ *                      route, the read-url action — keeps this one. No client
+ *                      ever needs to name a `rsc/` path, because the doors that
+ *                      reach one derive it from the row themselves.
+ *
+ *   isOwnAudioKey      ONLY for a SERVER-DERIVED audio path: the transcription
+ *                      worker's re-check of a payload the server wrote, and the
+ *                      discard door's karute audio path. Without it a rescued
+ *                      take could never be transcribed after somebody saved it,
+ *                      and a karute made from a rescue could never be
+ *                      discarded — the two doors that read AUDIO rather than a
+ *                      pointer.
+ *
+ * It is exactly as narrow as it needs to be: same tenant prefix inside, same
+ * closed container set, same anchored uuid. A segment, a staged copy and every
+ * other tenant's object are refused by both.
+ */
+export function isOwnAudioKey(key: unknown, businessId: string): key is string {
+  const kind = parseRecordingKey(key, businessId)?.kind
+  return kind === 'take' || kind === 'rescue'
 }
 
 /**
@@ -213,6 +298,69 @@ export function composeTakeKey(
     throw new Error('composed recording key failed its own grammar')
   }
   return { key, ext, contentType }
+}
+
+/**
+ * Compose the RESCUE key — where the nightly assembler puts a take it rebuilt
+ * out of the segments a dead device left behind (⚖ Liam 2026-09-06, "b").
+ *
+ * `rsc/` + exactly the take key, because the rescue IS that take's audio and
+ * anything else would need a second registry to say which take it belonged to.
+ * The prefix is the whole point: the take's own key stays FREE, so a phone that
+ * was only paused comes back, uploads, and finalizes at the size it declared —
+ * the `size_mismatch` strand this shape exists to remove.
+ *
+ * SAME SELF-CHECK CONTRACT as composeTakeKey: the composition is parsed with
+ * the SAME parser every fence uses, so the only key that ever leaves here is
+ * one the grammar reads back as this business's rescue. Reaching the throw
+ * means the composer and the grammar have drifted apart — a bug here, never
+ * caller input.
+ *
+ * NOTHING WIDENS AROUND IT: isOwnRecordingKey still means 'take' alone, so a
+ * rescue key cannot pass a row-pointer fence, and the job never writes core, so
+ * no row's pointer can ever carry one.
+ */
+export function composeRescueKey(
+  businessId: string,
+  takeId: unknown,
+  mimeType: unknown,
+): { key: string; ext: string; contentType: string } | null {
+  const take = composeTakeKey(businessId, takeId, mimeType)
+  if (take === null) return null
+  const key = `${RESCUE_PREFIX}${take.key}`
+  if (parseRecordingKey(key, businessId)?.kind !== 'rescue') {
+    throw new Error('composed rescue key failed its own grammar')
+  }
+  return { key, ext: take.ext, contentType: take.contentType }
+}
+
+/**
+ * THE ONE ext→key SPELLING (⚖ ADDENDUM 9.2 M2). The assembler reads a
+ * container off a folder's own leaf names — an EXTENSION, not a MIME — and the
+ * resolver every reader shares takes the same. `audio/<ext>` happens to be the
+ * inverse of MIME_TO_EXT for every member of that closed map today, and that
+ * coincidence is PINNED in the grammar's own suite; these two wrappers are the
+ * only place it is relied on, so if the map ever gains a member whose MIME is
+ * not `audio/<ext>` the round-trip pins fail and exactly two functions change.
+ *
+ * Null for a container the map does not know — the same refusal composeTakeKey
+ * makes, never a guessed key.
+ */
+export function composeTakeKeyFromExt(
+  businessId: string,
+  takeId: unknown,
+  ext: string,
+): { key: string; ext: string; contentType: string } | null {
+  return composeTakeKey(businessId, takeId, `audio/${ext}`)
+}
+
+/** The rescue twin of composeTakeKeyFromExt — same coincidence, same pin. */
+export function composeRescueKeyFromExt(
+  businessId: string,
+  takeId: unknown,
+  ext: string,
+): { key: string; ext: string; contentType: string } | null {
+  return composeRescueKey(businessId, takeId, `audio/${ext}`)
 }
 
 /**
@@ -344,6 +492,47 @@ export function isStagedKeyFor(
 ): key is string {
   const parsed = parseRecordingKey(key, businessId)
   return parsed?.kind === 'staged' && parsed.recordingSessionId === recordingSessionId
+}
+
+/**
+ * The tenant and take a `seg/` FOLDER name carries — tenant-blind, for the
+ * nightly assembler alone (src/lib/recording/assembler.ts), which walks the
+ * `seg/` tree with no tenant context exactly as /api/cleanup walks the root.
+ *
+ * SAME POSTURE AS looksLikeRecordingKey below: read the businessId back OUT of
+ * the name and ask THE ONE PARSER, rather than spelling the shape a second
+ * time where the two could drift. A folder name is not a key, so it is turned
+ * into the key its own seq-0 leaf WOULD carry and parsed as one — if that key
+ * does not read as this take's segment for the derived business, the name was
+ * never this shape.
+ *
+ * It widens NO fence: the assembler reaches an object only through
+ * composeTakeKey/parseRecordingKey afterwards, exactly as every other consumer
+ * does. What this answers is only "which tenant's take does this folder name
+ * claim to be" — the question a bucket-wide walk cannot ask any other way.
+ */
+export function parseSegmentFolder(name: unknown): { businessId: string; takeId: string } | null {
+  if (typeof name !== 'string' || !name.startsWith(TAKE_PREFIX)) return null
+  // app_<businessId>_<uuid>: the uuid is fixed-width and CLOSES the name (a
+  // folder carries no extension), so the businessId is exactly what lies
+  // between `app_` and the `_` that opens the uuid.
+  // `+ 2` = the separator plus at least one businessId character.
+  const idStart = name.length - UUID_LENGTH
+  if (idStart < TAKE_PREFIX.length + 2 || name[idStart - 1] !== '_') return null
+  const businessId = name.slice(TAKE_PREFIX.length, idStart - 1)
+  // A real businessId never contains a path separator — looksLikeRecordingKey's
+  // rule, for the same reason: a name that only parses because the derived id
+  // reopens the tenant prefix is not this shape, whatever the parser says.
+  if (businessId.includes('/')) return null
+  const takeId = name.slice(idStart)
+  // READ IT BACK OUT. The extension is any member of the closed set — the leaf
+  // this probes is synthetic and its container is not the question here; the
+  // REAL leaves' ext is read off the real listing by the caller.
+  const parsed = parseRecordingKey(
+    `${SEGMENT_PREFIX}${name}/000000.${EXTENSIONS[0]}`,
+    businessId,
+  )
+  return parsed?.kind === 'segment' && parsed.takeId === takeId ? { businessId, takeId } : null
 }
 
 /**
