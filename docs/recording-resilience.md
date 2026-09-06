@@ -89,8 +89,8 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   over leaves the phone's key free: it uploads its whole take and finalizes at
   the size it declared, and nothing is stuck. Both objects then exist, and every
   reader **prefers the phone's** — one precedence in one place
-  (`lib/recording/take-audio.ts`), used by the play button and the discard door
-  today and by the inbox's save door next. The 48-hour line now decides only
+  (`lib/recording/take-audio.ts`), used by the play button, the discard door and
+  — from this build — 録音履歴's own read and its save door. The 48-hour line now decides only
   *when* a rescue happens, never what it can break. The cost is one extra
   partial object per rescued take, which — like all audio here — is never
   deleted.
@@ -104,16 +104,26 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   やり直す」 door, and that is a separate decision, not this lane. It is still
   strictly better than what it replaced: nothing is stuck, no second karute
   appears, and the full recording is on the server either way.
-- **The rescued take's LENGTH will be written when a staffer saves it** — not
-  by the nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
-  (core D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`), and a 03:07 cron has
-  none, so the job settles the audio and records what it rebuilt. The next PR's
-  save door — **not built yet** — will write `duration_seconds` from the same
-  estimate with the staffer's own credentials. **Until then, and for any
-  rescued take nobody saves:** the row keeps a null duration, so 録音履歴 shows
-  no length for it. Nothing is lost by that — the audio is on the server and
-  the audit row carries the estimate — and closing it for good would take a
-  system actor in core.
+- **⚖ And a karute saved from 録音履歴 is not linked to a booking.** Which
+  appointment a recording belongs to is known only on the device that made it —
+  the inbox row carries no appointment id, by design (it carries metadata, never
+  a path or a booking), so the job the save door queues files the karute with no
+  booking on it. Nothing breaks; the record simply stands alone. Resolving the
+  day's booking server-side is a separate decision, not this lane.
+- **⚖ A rescued take's LENGTH is written by NOBODY here — not the job, and not
+  the save door either** (corrected 2026-09-07, after the side key). The nightly
+  job cannot: core fences `PUT /v1/recordings/:id` behind a human actor (core
+  D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`) and a 03:07 cron has none.
+  The save door *could*, and deliberately does not — because any duration on the
+  row makes `finalizedBefore` true, which would send the returning phone's own
+  finalize down the "already finalized" exit: a 15-second estimate left standing
+  on a 45-minute recording, a scrubber that lies, and no `capture_finalized` row
+  for the real arrival. So **the length stays null until the phone itself comes
+  back and writes the true one**, and playback is satisfied by the job-owned
+  status alone. For a rescued take nobody ever saves, and for one whose phone
+  never returns, the row keeps a null duration and 録音履歴 shows no length —
+  the audio is on the server and the audit row carries the estimate. Closing
+  that for good would take a system actor in core.
 - **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
   destroy a recording is gone — the worker's post-transcription delete, the
   facade transcribe route's `finally`, the web port's cleanup leg, the discard
@@ -131,11 +141,12 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   at 48 kbps is already ~43 MB against a 50 MB object cap.
 - **A pocketed or locked phone still suspends capture** — that is T4 (native
   background audio), not this lane.
-- **録音履歴 does not yet say any of this.** A staffer on a device that no
-  longer holds the take still reads 失敗 until the row learns to say "the
-  server holds part of this one" and offer 保存する; that is the inbox half,
-  built separately — and it is the same half that writes a rescued take's
-  length.
+- **録音履歴 now says it — but a rescued row still has no length.** From this
+  build a staffer on a device that no longer holds the take reads 復元可能 with
+  保存する when the server holds the audio, and 処理中「サーバーに音声が途中まで
+  届いています」 while only the segments are up. What it still cannot show is the
+  recording's length, for the reason two bullets above: nothing in this lane may
+  stamp one.
 
 The design, in full: record in rolling segments; **persist each locally as
 captured** (IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
