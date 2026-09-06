@@ -42,7 +42,15 @@ const revokeConsent = jest.fn(async () => undefined)
 const uploadPhoto = jest.fn(async () => ({ id: 'photo-1' }))
 const listPhotos = jest.fn(async () => ({ photos: [] as unknown[] }))
 const deletePhoto = jest.fn(async () => undefined)
-const fakeClient = { customers: { revokeConsent, uploadPhoto, listPhotos, deletePhoto } }
+/** The caller's store assignment, for the relearn gate's store half (fix
+ *  round 7). Default [] = floating → unrestricted, so every pre-existing case
+ *  is untouched. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
+const fakeClient = {
+  customers: { revokeConsent, uploadPhoto, listPhotos, deletePhoto },
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
+}
 // Relearn transcript read — spied so the owner-gate tests can distinguish
 // "gate refused before any read" from "read ran, nothing to relearn".
 jest.mock('@/lib/karute/synqed-records', () => ({
@@ -118,6 +126,7 @@ beforeEach(() => {
   // first, silently swapping its intended mock value.
   listPhotos.mockReset().mockResolvedValue({ photos: [] })
   capabilities.current = new Set(['customers.view'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
   staffRoster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
 })
@@ -578,6 +587,45 @@ describe('POST memory/relearn', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(false)
     expect(listSynqedKaruteRows).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AND THE STORE HALF (fix round 7; Greptile #848 review 2, point 2).
+  // 再学習 rebuilds from a customer's WHOLE history, which spans stores by
+  // construction — so the pair alone is not enough for a CLAMPED holder.
+  const rows = () =>
+    (jest.requireMock('@/lib/karute/synqed-records') as { listSynqedKaruteRows: jest.Mock })
+      .listSynqedKaruteRows
+  const relearn = (key: string) =>
+    memoryRelearn(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, 'Idempotency-Key': key } }),
+      route({ id: 'cust-1' }),
+    )
+
+  it('dev-tool gate: both keys but CLAMPED to one store → refused BEFORE any transcript read', async () => {
+    capabilities.current = new Set(['customers.view', 'business.manage', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await relearn('k-clamped')
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(false)
+    expect(rows()).not.toHaveBeenCalled()
+  })
+
+  it('dev-tool gate: both keys + an UNREADABLE assignment → refused (fails closed)', async () => {
+    capabilities.current = new Set(['customers.view', 'business.manage', 'recordings.viewAll'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const res = await relearn('k-degraded')
+    expect(res.status).toBe(200)
+    expect(rows()).not.toHaveBeenCalled()
+  })
+
+  it('dev-tool gate: both keys + stores.viewAll passes, and never consults an assignment', async () => {
+    capabilities.current = new Set([
+      'customers.view', 'business.manage', 'recordings.viewAll', 'stores.viewAll',
+    ])
+    const res = await relearn('k-viewall')
+    expect(res.status).toBe(200)
+    expect(rows()).toHaveBeenCalled()
+    expect(staffStoresGet).not.toHaveBeenCalled()
   })
 
   it('dev-tool gate: business.manage + recordings.viewAll passes the gate (read runs)', async () => {

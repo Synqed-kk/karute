@@ -22,7 +22,7 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities } from '@/lib/auth/require-permission'
-import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -115,9 +115,13 @@ export default async function KaruteDetailPage({
   // viewAll holder was an owner, and the owner preset carries stores.viewAll —
   // so a holder without store reach could not exist. The first named grantee is
   // that person, and this is the line that keeps her inside her own stores.
+  // ONE resolved scope, fed to BOTH the read predicate and the act predicate —
+  // they cannot disagree about which stores this viewer can see.
+  const allowedStoreIds =
+    storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
   const canViewAllRecordings = canViewAllInStore({
     canViewAll: holdsRecordingsViewAll,
-    allowedStoreIds: storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds,
+    allowedStoreIds,
     recordStoreId: karute.store_id,
   })
 
@@ -136,7 +140,15 @@ export default async function KaruteDetailPage({
     canViewTranscript({
       ownerStaffId: ownerProfileId,
       viewerStaffId,
-      canViewAll: holdsOwnerKeys(capabilities),
+      // ownerHandReach, not holdsOwnerKeys — the ACT door now obeys the store
+      // law too (⚖ 8/17; fix round 7), so the button and the door still cannot
+      // drift: a clamped both-keys manager sees no button on a store she
+      // cannot reach, and gets no 再生成 if she posts anyway.
+      canViewAll: ownerHandReach({
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        allowedStoreIds,
+        recordStoreId: karute.store_id,
+      }),
     })
 
   const customerId = karute.client_id ?? null

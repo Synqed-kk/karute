@@ -784,6 +784,33 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     expect(dto.staffCanRegenerate).toBe(false)
   })
 
+  // ⚖ THE FLAG FOLLOWS THE ACT DOOR'S STORE LAW TOO (fix round 7). The button
+  // and the door share one predicate, so a clamped both-keys manager gets
+  // neither: the transcript is withheld by the read clamp, and the flag is
+  // false by the act clamp — nothing shown that the server would refuse.
+  it('a CLAMPED both-keys viewer on an out-of-store karute → transcript withheld AND flag false', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the SAME viewer on an IN-store karute gets both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
   it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
     const dto = await dtoFor()
     expect(dto.transcript).toBeNull()

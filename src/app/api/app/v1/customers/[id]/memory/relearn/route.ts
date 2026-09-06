@@ -8,6 +8,9 @@ import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { ownerHandReach } from '@/lib/auth/recording-acl'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
+import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { relearnCustomerMemoryWithClient } from '@/actions/memory'
 import { featureAllowedForBusiness } from '@/lib/subscription/feature-gate'
@@ -47,7 +50,22 @@ export const POST = facadeHandler<Params>('customer.memory.relearn', async (ctx)
   // a person the owner gave BOTH keys by hand; granting business.manage ALONE
   // never re-opens bulk transcript access. Proven off the verified token; the
   // shared core fails closed without it.
-  const regenAllowed = holdsOwnerKeys(ctx.identity.capabilities)
+  // …and only for someone who can see every store: 再学習 rebuilds from a
+  // customer's WHOLE history, which spans stores by construction, so a
+  // store-clamped pair-holder is refused (⚖ 8/17; Greptile #848 review 2,
+  // point 2). Resolved only when the pair is held; `[]` fails closed.
+  const pair = holdsOwnerKeys(ctx.identity.capabilities)
+  const regenAllowed = ownerHandReach({
+    holdsOwnerKeys: pair,
+    allowedStoreIds: pair
+      ? await viewerAllowedStoreIds({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId),
+        })
+      : null,
+  })
   const result = await relearnCustomerMemoryWithClient(
     synqed,
     {

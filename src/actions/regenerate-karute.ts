@@ -8,7 +8,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -361,13 +361,20 @@ export async function regenerateKaruteWithClient(
      *  and keys on the pair; the READ doors stay on recordings.viewAll
      *  (⚖ 9/3 council; Greptile #848 point 1). */
     holdsOwnerKeys: boolean
+    /** The caller's store assignment, resolved by the caller exactly as the
+     *  READ doors resolve it (web resolveStoreScope · facade
+     *  viewerAllowedStoreIds). null = unrestricted; `[]` = degraded, fails
+     *  closed. The store compare happens HERE rather than at the callers,
+     *  because this is where the karute — and so its store — is known
+     *  (⚖ 8/17; Greptile #848 review 2, point 2). */
+    allowedStoreIds?: readonly string[] | null
     locale: string
     /** Facade Bearer path: the verified token's business id. Omitted on the
      *  cookie web path (featureAllowed resolves it). */
     businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, locale, businessId } = params
+  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, allowedStoreIds = null, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -389,7 +396,15 @@ export async function regenerateKaruteWithClient(
         ? await lookupProfileIdForSynqedStaffIdForBusiness(rawOwnerStaffId, businessId)
         : await lookupProfileIdForSynqedStaffId(rawOwnerStaffId)) ?? rawOwnerStaffId)
     : null
-  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: holdsOwnerKeys })) {
+  //    …AND ONLY WHERE THE CALLER CAN SEE: the owner's hand obeys the store law
+  //    the read doors already obey, so a clamped both-keys manager cannot
+  //    rewrite another branch's record. The recorder's own branch is untouched.
+  const reach = ownerHandReach({
+    holdsOwnerKeys,
+    allowedStoreIds,
+    recordStoreId: (record.store_id as string | null) ?? null,
+  })
+  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: reach })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
   }
 
@@ -499,6 +514,22 @@ export async function regenerateKaruteWithClient(
  *  RegenerateResult doesn't carry it back out, so adding it would mean either
  *  a second fetch or widening the return type; the packet said never add a
  *  fetch just for this, so detail stays ids/counts only (added/removed). */
+/** The caller's store assignment on the WEB transport, for the ACT doors in
+ *  this file. Mirrors the read doors' rule exactly (page.tsx · recording-
+ *  playback.ts): null = unrestricted (`stores.viewAll` or floating), and a
+ *  degraded or THROWN lookup arrives as `[]`, which fails the reach closed —
+ *  never widened into "every store" (⚖ 8/17 store isolation). */
+async function viewerScopeForActs(): Promise<readonly string[] | null> {
+  try {
+    const { resolveStoreScope } = await import('@/lib/auth/store-scope')
+    const scope = await resolveStoreScope()
+    return scope.degraded ? [] : scope.allowedStoreIds
+  } catch (err) {
+    console.warn('[regenerate-karute] store scope read failed — failing closed:', err)
+    return []
+  }
+}
+
 export async function regenerateKarute(karuteRecordId: string): Promise<RegenerateResult> {
   try {
     await requireCapability('records.write')
@@ -516,6 +547,9 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
       karuteRecordId,
       viewerStaffId,
       holdsOwnerKeys: holdsOwnerKeys(capabilities),
+      // The same scope the read doors resolve, resolved the same way
+      // (⚖ 8/17): degraded or thrown → [], which fails the reach closed.
+      allowedStoreIds: await viewerScopeForActs(),
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')

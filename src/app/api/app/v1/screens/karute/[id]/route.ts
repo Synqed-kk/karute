@@ -28,7 +28,7 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
-import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -128,16 +128,22 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // page's line. Resolved ONLY for a viewAll caller, and a failed assignment
     // read arrives as [] (fail closed), so an assignment blip narrows the grant
     // and never 502s the screen or hides a recorder's own transcript.
-    const canViewAllRecordings = canViewAllInStore({
-      canViewAll: holdsRecordingsViewAll,
-      allowedStoreIds: holdsRecordingsViewAll
+    // ONE resolved scope, fed to BOTH the read predicate and the act predicate
+    // — they cannot disagree about which stores this viewer can see. Resolved
+    // when EITHER can use it, and never for a caller holding neither key.
+    const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+    const allowedStoreIds =
+      holdsRecordingsViewAll || callerHoldsOwnerKeys
         ? await viewerAllowedStoreIds({
             synqed,
             authUserId: ctx.identity.authUserId,
             capabilities: ctx.identity.capabilities,
             selfStaffId: viewerStaffId,
           })
-        : null,
+        : null
+    const canViewAllRecordings = canViewAllInStore({
+      canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds,
       recordStoreId: karute.store_id,
     })
 
@@ -195,7 +201,11 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
         canViewTranscript({
           ownerStaffId: ownerProfileId,
           viewerStaffId,
-          canViewAll: holdsOwnerKeys(ctx.identity.capabilities),
+          canViewAll: ownerHandReach({
+            holdsOwnerKeys: callerHoldsOwnerKeys,
+            allowedStoreIds,
+            recordStoreId: karute.store_id,
+          }),
         }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,

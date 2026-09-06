@@ -352,6 +352,27 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     expect(built().staffCanRegenerate).toBe(false)
   })
 
+  // ⚖ THE FLAG FOLLOWS THE ACT DOOR'S STORE LAW TOO (fix round 7) — web twin.
+  it('a CLAMPED both-keys viewer on an out-of-store karute → flag false', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff', store_id: 'store-b',
+    }
+    grantedCaps.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the SAME viewer on an IN-store karute → true', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff', store_id: 'store-a',
+    }
+    grantedCaps.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
   it('a plain staffer on a colleague’s karute → false (unchanged from main)', async () => {
     colleaguesKarute()
     grantedCaps.current = new Set()
