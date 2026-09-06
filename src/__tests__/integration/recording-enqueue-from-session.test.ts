@@ -13,31 +13,24 @@ jest.mock('@/lib/recording/mint-take-url', () => ({
   objectExists: (key: string) => objectExists(key),
 }))
 
-/** The take's segment folder, as storage answers it. `leaves` is the list of
- *  file names in seq order; a null `error` is a good page. */
-const storageList = jest.fn(
-  async (
-    _folder: string,
-    _opts: unknown,
-  ): Promise<{ data: Array<{ name: string }> | null; error: unknown }> => ({
-    data: [],
-    error: null,
-  }),
-)
-jest.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({
-    storage: { from: () => ({ list: (f: string, o: unknown) => storageList(f, o) }) },
-  }),
-}))
-
 import {
   enqueueFromSessionWithClient,
   type EnqueueFromSessionInput,
 } from '@/lib/recording/enqueue-from-session'
-import { conformingKey, segmentKey, TAKE_UUID_FIXTURE } from './helpers/recording-key-fixtures'
+import {
+  conformingKey,
+  rescueKey,
+  segmentKey,
+  TAKE_UUID_FIXTURE,
+} from './helpers/recording-key-fixtures'
 
 const BIZ = 'biz-1'
 const OWN_KEY = conformingKey(BIZ)
+/** Where the nightly job puts a rescued take since amendment 9 — never the
+ *  phone's own key. `resolveTakeAudio` is NOT mocked here: the real
+ *  precedence runs over the one storage seam above, so these tests prove the
+ *  door reads the phone's copy first and the rescue only on a proven miss. */
+const RESCUE_KEY = rescueKey(BIZ)
 
 type Row = {
   id: string
@@ -121,10 +114,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   current.row = row()
   current.getError = null
-  objectExists.mockResolvedValue(true)
+  objectExists.mockImplementation(async (key: string) => key === OWN_KEY)
   enqueue.mockResolvedValue({ id: 'job-1', status: 'QUEUED' })
   recordingsUpdate.mockResolvedValue({})
-  storageList.mockResolvedValue({ data: [], error: null })
   customerGet.mockResolvedValue({ is_existing_customer: false, visit_count: 0, has_ticket_pack: false })
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
@@ -155,7 +147,8 @@ describe('the payload — the same job, with the path from the ROW', () => {
     const [call] = enqueue.mock.calls[0] as [{ payload: { audio_path: string } }]
     expect(call.payload.audio_path).toBe(OWN_KEY)
     // …and the object that was PROVED is the row's, not the smuggled one.
-    expect(objectExists).toHaveBeenCalledWith(OWN_KEY)
+    expect(objectExists).toHaveBeenNthCalledWith(1, OWN_KEY)
+    expect(objectExists).not.toHaveBeenCalledWith(`app_other-biz_${TAKE_UUID_FIXTURE}.webm`)
   })
 
   it('carries the appointment, locale and the row’s own duration when given', async () => {
@@ -169,13 +162,35 @@ describe('the payload — the same job, with the path from the ROW', () => {
     })
   })
 
-  it('a duration that could not be stamped ships as undefined, never as null', async () => {
+  it('a rescued row’s null duration ships as undefined, never as null', async () => {
     current.row = row({ duration_seconds: null })
-    storageList.mockResolvedValue({ data: [], error: null })
     await run()
     const [call] = enqueue.mock.calls[0] as [{ payload: Record<string, unknown> }]
     expect(call.payload.duration_seconds).toBeUndefined()
-    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('⚖ H3: THE RESCUE’S PATH is what the worker gets — the row’s pointer is not', async () => {
+    // The row keeps pointing at the phone's key for ever (the job never writes
+    // core), so the only place the rescue's key exists is the resolver's
+    // answer. Sending the pointer instead would hand the worker an object that
+    // is not there.
+    current.row = row({ duration_seconds: null })
+    objectExists.mockImplementation(async (key: string) => key === RESCUE_KEY)
+    await expect(run()).resolves.toMatchObject({ ok: true })
+    const [call] = enqueue.mock.calls[0] as [{ payload: { audio_path: string } }]
+    expect(call.payload.audio_path).toBe(RESCUE_KEY)
+    // The phone's own key was asked FIRST, and only its proven absence bought
+    // the second question.
+    expect(objectExists).toHaveBeenNthCalledWith(1, OWN_KEY)
+    expect(objectExists).toHaveBeenNthCalledWith(2, RESCUE_KEY)
+  })
+
+  it('when BOTH exist the phone’s whole take wins, and the rescue is not asked about', async () => {
+    objectExists.mockResolvedValue(true)
+    await expect(run()).resolves.toMatchObject({ ok: true })
+    const [call] = enqueue.mock.calls[0] as [{ payload: { audio_path: string } }]
+    expect(call.payload.audio_path).toBe(OWN_KEY)
+    expect(objectExists).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -196,7 +211,6 @@ describe('who may save it — the take doors’ own rule, restated here', () => 
     current.row = row({ staff_id: 'staff-B' })
     await expect(run()).resolves.toEqual({ error: 'forbidden' })
     expect(objectExists).not.toHaveBeenCalled()
-    expect(storageList).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -232,13 +246,13 @@ describe('is the audio actually there', () => {
     expect(objectExists).not.toHaveBeenCalled()
   })
 
-  it("⚖ D8': a row with NO duration is still saveable when the object is there", async () => {
-    // The rescued take: the nightly assembler wrote the object and could not
+  it("⚖ D8': a row with NO duration is still saveable when the audio is there", async () => {
+    // The rescued take: the nightly assembler wrote the audio and could not
     // write a length. `serverHoldsTakeRow` would refuse this exact row, which
     // is why the gate is the storage proof instead.
     current.row = row({ duration_seconds: null, status: 'UPLOADING' })
     await expect(run()).resolves.toMatchObject({ ok: true })
-    expect(objectExists).toHaveBeenCalledWith(OWN_KEY)
+    expect(objectExists).toHaveBeenNthCalledWith(1, OWN_KEY)
   })
 
   it.each([
@@ -251,15 +265,27 @@ describe('is the audio actually there', () => {
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  it('the bucket says the object is NOT there: no_audio, nothing queued', async () => {
+  it('NEITHER key holds it: no_audio, nothing queued', async () => {
     objectExists.mockResolvedValue(false)
     await expect(run()).resolves.toEqual({ error: 'no_audio' })
+    expect(objectExists).toHaveBeenCalledTimes(2)
     expect(enqueue).not.toHaveBeenCalled()
   })
 
   it("storage answers 'unknown': upstream — a blip must not read as lost audio", async () => {
     objectExists.mockResolvedValue('unknown')
     await expect(run()).resolves.toEqual({ error: 'upstream' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it("…and an 'unknown' at the PHONE's key never falls through to the rescue", async () => {
+    // Falling through would hand the staffer a PARTIAL take while the whole
+    // one sat there unread — a silent downgrade of somebody's recording.
+    objectExists.mockImplementation(async (key: string) =>
+      key === OWN_KEY ? 'unknown' : true,
+    )
+    await expect(run()).resolves.toEqual({ error: 'upstream' })
+    expect(objectExists).toHaveBeenCalledTimes(1)
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -311,93 +337,41 @@ describe('the revisit label cannot be smuggled past its guard', () => {
  * from the segments the recorder actually flushed and writes it ONCE, and the
  * save never depends on that write landing.
  */
-describe('the duration stamp', () => {
-  const leaves = (n: number, from = 0) =>
-    Array.from({ length: n }, (_, i) => ({ name: `${String(i + from).padStart(6, '0')}.webm` }))
-
-  beforeEach(() => {
+/**
+ * ⚖ THE DOOR STAMPS NO DURATION — EVER (ADDENDUM 9.2 H3, 2026-09-07).
+ *
+ * The D8' amendment had this door write the flush-window estimate, because the
+ * nightly job has no actor and core fences the write behind a human one. The
+ * side key made that wrong: the phone can still come back, and any duration on
+ * the row makes `finalizedBefore` true, which sends the returning device's
+ * finalize down the `already` exit — a 15-second length on a 45-minute
+ * recording, a scrubber that lies, and no capture_finalized row for the real
+ * arrival. So the length stays null until the phone itself writes the true one.
+ */
+describe('the duration is the row’s, and this door never writes one', () => {
+  it('a rescued row: saved, queued, and NOTHING is written to core', async () => {
     current.row = row({ duration_seconds: null })
-  })
-
-  it('stamps prefix × 5 s and carries the same number into the payload', async () => {
-    storageList.mockResolvedValue({ data: leaves(7), error: null })
-    await expect(run()).resolves.toMatchObject({ ok: true })
-    expect(recordingsUpdate).toHaveBeenCalledWith('sess-1', { duration_seconds: 35 })
-    const [call] = enqueue.mock.calls[0] as [{ payload: { duration_seconds?: number } }]
-    expect(call.payload.duration_seconds).toBe(35)
-  })
-
-  it('a GAP ends the prefix — the length is what the object can hold', async () => {
-    storageList.mockResolvedValue({
-      data: [...leaves(3), { name: '000009.webm' }, { name: '000010.webm' }],
-      error: null,
-    })
-    await run()
-    expect(recordingsUpdate).toHaveBeenCalledWith('sess-1', { duration_seconds: 15 })
-  })
-
-  it('a folder with no seq 0 stamps NOTHING — there is no prefix to measure', async () => {
-    storageList.mockResolvedValue({ data: leaves(4, 1), error: null })
+    objectExists.mockImplementation(async (key: string) => key === RESCUE_KEY)
     await expect(run()).resolves.toMatchObject({ ok: true })
     expect(recordingsUpdate).not.toHaveBeenCalled()
+    const [call] = enqueue.mock.calls[0] as [{ payload: { duration_seconds?: number } }]
+    expect(call.payload.duration_seconds).toBeUndefined()
   })
 
-  it('a row that ALREADY has a duration is never re-stamped', async () => {
+  it('a row that HAS a length still carries it, untouched', async () => {
     current.row = row({ duration_seconds: 1380 })
     await run()
     expect(recordingsUpdate).not.toHaveBeenCalled()
-    expect(storageList).not.toHaveBeenCalled()
     const [call] = enqueue.mock.calls[0] as [{ payload: { duration_seconds?: number } }]
     expect(call.payload.duration_seconds).toBe(1380)
   })
 
-  it('a FAILED listing never blocks the save — the job runs without a length', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    storageList.mockResolvedValue({ data: null, error: new Error('storage down') })
-    await expect(run()).resolves.toMatchObject({ ok: true })
-    expect(recordingsUpdate).not.toHaveBeenCalled()
-    // …and it says so, with ids only — never the key, never a body.
-    const line = String(warn.mock.calls[0][0])
-    expect(line).toContain('duration_stamp_failed')
-    expect(line).not.toContain(TAKE_UUID_FIXTURE)
-    warn.mockRestore()
-  })
-
-  it('a FAILED update never blocks the save either', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    storageList.mockResolvedValue({ data: leaves(2), error: null })
-    recordingsUpdate.mockRejectedValue(new Error('403 actor required'))
-    await expect(run()).resolves.toMatchObject({ ok: true })
-    const [call] = enqueue.mock.calls[0] as [{ payload: { duration_seconds?: number } }]
-    expect(call.payload.duration_seconds).toBeUndefined()
-    warn.mockRestore()
-  })
-
-  it('lists the take’s OWN folder, name-ascending, and updates through the passed client', async () => {
-    storageList.mockResolvedValue({ data: leaves(1), error: null })
+  it('no segment folder is listed for a length either — the door reads no seq at all', async () => {
+    // The listing that fed the estimate is gone with it. The only storage this
+    // door touches is the existence question, at most twice.
+    current.row = row({ duration_seconds: null })
     await run()
-    const [folder, opts] = storageList.mock.calls[0] as [string, { sortBy?: unknown }]
-    expect(folder).toBe(`seg/app_${BIZ}_${TAKE_UUID_FIXTURE}`)
-    expect(opts.sortBy).toEqual({ column: 'name', order: 'asc' })
-    // The update rides `synqed` — the caller's own bearer-scoped client, the
-    // only kind core admits for this write.
-    expect(recordingsUpdate).toHaveBeenCalledTimes(1)
-  })
-
-  it('pages through a long folder rather than stopping at the first page', async () => {
-    storageList
-      .mockResolvedValueOnce({ data: leaves(100), error: null })
-      .mockResolvedValueOnce({ data: leaves(20, 100), error: null })
-    await run()
-    expect(storageList).toHaveBeenCalledTimes(2)
-    expect(recordingsUpdate).toHaveBeenCalledWith('sess-1', { duration_seconds: 600 })
-  })
-
-  it('nothing is stamped for a row whose object is not there', async () => {
-    objectExists.mockResolvedValue(false)
-    await expect(run()).resolves.toEqual({ error: 'no_audio' })
-    expect(storageList).not.toHaveBeenCalled()
-    expect(recordingsUpdate).not.toHaveBeenCalled()
+    expect(objectExists.mock.calls.every(([k]) => k === OWN_KEY || k === RESCUE_KEY)).toBe(true)
   })
 })
 

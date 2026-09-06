@@ -12,14 +12,18 @@
 // recording session id and a customer id, and nothing a caller sends can point
 // this job at an object. Everything after that is the twins' own shape.
 //
-// ⚖ AND IT IS WHERE THE DURATION GETS STAMPED (D8' amendment, 2026-09-06).
-// Core fences `PUT /v1/recordings/:id` behind a HUMAN actor, so the nightly
-// assembler — a 03:07 cron with no actor — rebuilds the take's OBJECT and can
-// never write a length for it. This door is the first place after that rescue
-// where a real staffer's bearer is in hand, so the estimate is computed and
-// written here, once, while the row's duration is still null. It is
-// best-effort by design: a failed stamp must never cost the staffer the save
-// they actually asked for.
+// ⚖ AND IT STAMPS NO DURATION, EVER (ADDENDUM 9.2 H3, 2026-09-07). The
+// D8' amendment had this door write the flush-window estimate, because the
+// 03:07 cron has no actor and core fences `PUT /v1/recordings/:id` behind a
+// human one. The side key (amendment 9) makes that wrong: a rescued take's
+// phone can still come back, and `finalizedBefore` reads TRUE the moment any
+// duration is on the row — so a stamped estimate would send the returning
+// device's finalize down the `already` exit, leaving a 15-second length on a
+// 45-minute recording, a scrubber that lies and NO capture_finalized row for
+// the real arrival. So a rescued row's duration stays null until the phone
+// itself writes the true one. The job's own status is what playback's fence
+// reads; the inbox's length column is blank until then, and that is the
+// named, honest ceiling.
 //
 // NO 'use server': every function takes the tenant it is scoped to as an
 // argument, so as client-invokable actions these would take any caller's word
@@ -28,8 +32,7 @@
 import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { assertRecorderOwnsRow, statusOf } from '@/lib/recording/take-binding'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
-import { objectExists } from '@/lib/recording/mint-take-url'
-import { createServiceClient } from '@/lib/supabase/service'
+import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { FinalizeTakeActor } from '@/lib/recording/finalize-take'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
@@ -73,9 +76,10 @@ export type EnqueueFromSessionResult =
   /** `not_found` the session id is not this business's · `forbidden` it is not
    *  this actor's to act on · `discarded` a staff member deliberately threw
    *  this recording away and wrote why — TERMINAL, and the one refusal that
-   *  outranks everything · `no_audio` the server does not hold this take's
-   *  finalized object (the honest answer, and the one the row's own chip should
-   *  already have prevented the staffer from reaching) · `not_returning` the
+   *  outranks everything · `no_audio` the server holds this take at NEITHER key
+   *  — not the phone's object, not the rescue (the honest answer, and the one
+   *  the row's own chip should already have prevented the staffer from
+   *  reaching) · `not_returning` the
    *  revisit label cannot be true for this customer · `upstream` a moment in
    *  time — storage or core did not answer; the tap can be repeated. */
   | { error: 'not_found' | 'forbidden' | 'discarded' | 'no_audio' | 'not_returning' | 'upstream' }
@@ -91,7 +95,7 @@ export type EnqueueFromSessionResult =
  *      bucket. The tests assert storage was never touched on a refusal, so the
  *      order cannot quietly move (fix round 1, R4);
  *   3. the DISCARD ledger — a deliberate discard outranks everything;
- *   4. the key fence, then the one storage call that PROVES the object.
+ *   4. the key fence, then the storage calls that PROVE where the audio is.
  * A job queued against an object that is not in the bucket costs the worker a
  * fetch, three retries and a FAILED row — and leaves the staffer's row at 失敗
  * with no better story than before.
@@ -195,14 +199,21 @@ export async function enqueueFromSessionWithClient(
 
   // ⚖ STORAGE IS THE GATE, NOT THE ROW (D8'). `serverHoldsTakeRow` would be the
   // familiar question here, but it reads the row's DURATION — and a take the
-  // nightly assembler just rescued has an object and no duration, because core
+  // nightly assembler just rescued has audio and no duration, because core
   // fences that write behind a human actor. Asking the row would refuse the
-  // exact save this door exists for. One storage call answers it properly.
+  // exact save this door exists for.
+  //
+  // ⚖ AND THE AUDIO MAY BE AT EITHER OF TWO KEYS (amendment 9, Liam "b"): the
+  // phone's own object, or the rescue the nightly job sealed beside it. ONE
+  // resolver answers that for every reader in the repo, in one precedence —
+  // the phone's copy first, because it is the whole take and the rescue is by
+  // construction a prefix. It is asked with the PARSED take, so this door
+  // still keeps its own fence and cannot be pointed at a foreign key.
   // 'unknown' is not "no": a blip must leave the staffer able to tap again,
   // never tell them their recording is gone.
-  const exists = await objectExists(audioPath)
-  if (exists === 'unknown') return { error: 'upstream' }
-  if (!exists) return { error: 'no_audio' }
+  const resolved = await resolveTakeAudio(actor.businessId, parsed.takeId, parsed.ext)
+  if (resolved === 'unknown') return { error: 'upstream' }
+  if (resolved === 'absent') return { error: 'no_audio' }
 
   // Revisit eligibility BEFORE anything is persisted — the same rule, and the
   // same reasoning, as the /recordings/job facade route: processJob writes the
@@ -217,23 +228,24 @@ export async function enqueueFromSessionWithClient(
     if (eligibility === 'unknown') return { error: 'upstream' }
   }
 
-  // ⚖ THE DURATION, STAMPED HERE OR NOWHERE (D8'). Only while the row's is
-  // null — a stamped row already has a length nobody may overwrite — and only
-  // ever an ESTIMATE, from the segments the recorder actually flushed.
-  const durationSeconds =
-    row.duration_seconds ?? (await stampEstimatedDuration(synqed, actor, row.id, audioPath, parsed.ext))
-
   // The SAME payload the two existing doors build, field for field — one
-  // worker, one shape. The only line that differs is `audio_path`, and it is
-  // the line this door exists for.
+  // worker, one shape. The only line that differs is `audio_path`: it is
+  // whichever key the resolver just proved, which is the line this door exists
+  // for. A `rsc/` key passes the worker's own re-check because that fence asks
+  // isOwnAudioKey — the SERVER-DERIVED spelling — while every client-named
+  // door stays 'take'-only (ADDENDUM 9.1 H1).
+  //
+  // `duration_seconds` is whatever the ROW already carries and nothing else:
+  // null for a rescued take, and it stays null until the phone comes back and
+  // finalizes (H3 above). The worker treats it as it always has.
   const payload: RecordingJobPayload = {
     customer_id: input.customerId,
     staff_id: actor.jobStaffId,
     appointment_id: input.appointmentId ?? null,
     store_id: actor.storeId,
-    audio_path: audioPath,
+    audio_path: resolved.key,
     locale: input.locale ?? 'ja',
-    duration_seconds: durationSeconds ?? undefined,
+    duration_seconds: row.duration_seconds ?? undefined,
     outcome: input.outcome,
   }
 
@@ -248,95 +260,5 @@ export async function enqueueFromSessionWithClient(
   } catch (err) {
     console.error('[enqueueFromSession] enqueue failed:', err)
     return { error: 'upstream' }
-  }
-}
-
-/**
- * ⚖ THE FLUSH-WINDOW ESTIMATE, duplicated from src/lib/recording/assembler.ts
- * (PR-A); collapse to one import at rebase. PR-A is on a sibling branch, so
- * this PR must stand alone rather than depend on it.
- *
- * One segment per TAKE_FLUSH_MS (global-recorder.ts), so the prefix's length
- * IS the recording's length to within one flush — the same rough figure the
- * recovery banner and the inbox already show for an unfinished take. Bytes and
- * bitrate were rejected upstream: opus is VBR.
- */
-const SEGMENT_NOMINAL_MS = 5_000
-
-/** The longest run of seqs starting at 0. A gap ENDS it: what the object holds
- *  (and what the assembler could seal) is the contiguous prefix, never the
- *  count of leaves lying around after a hole. */
-export function longestPrefix(seqs: readonly number[]): number {
-  const present = new Set(seqs)
-  let n = 0
-  while (present.has(n)) n++
-  return n
-}
-
-/** How many pages of a take's segment folder are walked. 100 × 100 = 10,000
- *  segments ≈ 14 hours of audio at one flush per 5 s — far past the recorder's
- *  own limits, so the cap can only ever bite on a folder something else went
- *  wrong in. */
-const MAX_SEGMENT_PAGES = 100
-const SEGMENT_PAGE = 100
-
-/**
- * Write the estimated length onto the row — ONCE, and never at the cost of the
- * save.
- *
- * The whole function is best-effort by ruling: the staffer tapped 保存する, and
- * a storage hiccup or a core blip on a DERIVED number must not turn that into
- * a refusal. A failure logs ids only (⚖ 8/17 doc law — never the key, never a
- * body) and the job runs with no duration, exactly as it would have before
- * this stamp existed. Returns the value it wrote, or null.
- */
-async function stampEstimatedDuration(
-  synqed: Pick<SynqedClient, 'recordings'>,
-  actor: { businessId: string },
-  recordingId: string,
-  takeKey: string,
-  ext: string,
-): Promise<number | null> {
-  try {
-    // The folder IS the take key without its extension — composeSegmentKey
-    // builds `seg/app_<biz>_<take>/<seq>.<ext>` from the same two pieces, and
-    // the caller already proved the pointer's shape.
-    const folder = `seg/${takeKey.slice(0, takeKey.lastIndexOf('.'))}`
-    const storage = createServiceClient().storage.from('recordings')
-    const seqs: number[] = []
-    for (let page = 0; page < MAX_SEGMENT_PAGES; page++) {
-      const { data, error } = await storage.list(folder, {
-        limit: SEGMENT_PAGE,
-        offset: page * SEGMENT_PAGE,
-        sortBy: { column: 'name', order: 'asc' },
-      })
-      // A failed page also answers data null, and reading that as "the folder
-      // ended here" would stamp a length short of the audio. Give up on the
-      // stamp instead — a null duration is honest, a short one is not.
-      if (error) throw error
-      if (!data || data.length === 0) break
-      for (const f of data) {
-        if (f.name.endsWith(`.${ext}`)) seqs.push(Number(f.name.slice(0, -(ext.length + 1))))
-      }
-      if (data.length < SEGMENT_PAGE) break
-    }
-
-    const prefix = longestPrefix(seqs)
-    if (prefix === 0) return null
-    const durationSeconds = Math.round((prefix * SEGMENT_NOMINAL_MS) / 1000)
-    // The ACTOR-bearing client the caller passed: core admits this write from
-    // the recorder themself and from the owner's hand, and from no cron.
-    await synqed.recordings.update(recordingId, { duration_seconds: durationSeconds })
-    return durationSeconds
-  } catch (err) {
-    console.warn(
-      JSON.stringify({
-        evt: 'duration_stamp_failed',
-        businessId: actor.businessId,
-        recordingId,
-        err: String(err),
-      }),
-    )
-    return null
   }
 }
