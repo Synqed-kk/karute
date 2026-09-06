@@ -15,11 +15,10 @@
 import { headers } from 'next/headers'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { resolveStoreScope, viewerScopeForActs } from '@/lib/auth/store-scope'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
-import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
 import {
   enqueueFromSessionWithClient,
