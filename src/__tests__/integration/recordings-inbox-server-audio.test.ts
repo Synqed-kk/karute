@@ -27,6 +27,18 @@ jest.mock('@/lib/recording/take-audio', () => ({
   resolveTakeAudio: (b: string, t: string, e: string) => resolveTakeAudio(b, t, e),
 }))
 
+/** The service client the segments DEFAULT reaches for, mocked at its own
+ *  module — the twin of the resolver mock above. Without it the production
+ *  wiring of `listFirstSegment` (which folder string it builds, and in which
+ *  order it forwards its two same-typed arguments) is executed by nothing. */
+const storageList = jest.fn(async () => ({
+  data: [{ name: '000000.webm' }] as Array<{ name: string }> | null,
+  error: null as unknown,
+}))
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: () => ({ storage: { from: () => ({ list: storageList }) } }),
+}))
+
 import {
   makeSegmentsProbe,
   readRecordingsInbox,
@@ -575,6 +587,28 @@ describe('the DEFAULT resolver seam — the one wiring no injected probe covers'
       segmentsProbe: probe,
     })
     expect(resolveTakeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
+    expect(row.serverAudio).toBe('segments')
+  })
+
+  it('the SEGMENTS default lists the take’s own folder — business and take in place', async () => {
+    // The twin hole, one seam over. `listFirstSegment` forwards two same-typed
+    // strings into makeSegmentsProbe, so `(takeKey, businessId)` type-checks —
+    // and would make the seq-0 gate answer false for every take on the
+    // platform, silently, with nothing failing. The folder string carries the
+    // business id and the take id in fixed positions, so a transposed forward
+    // cannot produce it. Neither probe is injected here: this is the one test
+    // that runs the production wiring of both defaults.
+    recordings.current = [rec({ id: 's1' })]
+    const [row] = await readRecordingsInbox({
+      synqed: client,
+      staffId: 'staff-1',
+      businessId: BIZ,
+      now: NOW,
+    })
+    expect(storageList).toHaveBeenCalledWith(`seg/app_${BIZ}_${TAKE}`, {
+      limit: 1,
+      sortBy: { column: 'name', order: 'asc' },
+    })
     expect(row.serverAudio).toBe('segments')
   })
 })
