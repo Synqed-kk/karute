@@ -10,10 +10,10 @@
 //      are one answer: no_audio.
 //   2. THE ACL. Whoever may read the RAW TRANSCRIPT of this karute may hear its
 //      audio — canViewTranscript, on the SAME input the words use
-//      (`recordings.viewAll`, which this repo hard-strips to the owner). One
-//      rule, one place, literally: there is no second capability that reaches
-//      the sound. A record with no owner keeps its shared answer for the sound
-//      exactly as for the words.
+//      (`recordings.viewAll`: owner by preset, grantable per person by the
+//      owner only). One rule, one place, literally: there is no second
+//      capability that reaches the sound. A record with no owner keeps its
+//      shared answer for the sound exactly as for the words.
 //   3. AND ONLY THEN, THE OBJECT. Storage is asked whether the bytes are really
 //      there, because the fence's helper is a heuristic and its own header says
 //      so: a reasoned discard stamps a client-reported duration on the row with
@@ -54,7 +54,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -81,10 +81,19 @@ export interface PlaybackActor {
   /** The caller's verified tenant — the prefix the take key must carry. */
   businessId: string
   /** `recordings.viewAll` — the SAME input the raw transcript uses, and the
-   *  whole owner floor (fix round 2: `business.manage` is grantable and is not
-   *  a synonym for the owner in this repo; viewAll is stripped to owner-only at
-   *  the resolve chokepoint). Silently, per ⚖ 9/3 — no staff ping, no sentence. */
+   *  whole floor (fix round 2: `business.manage` is a different grantable row
+   *  and never reaches the sound; viewAll is owner by preset, grantable per
+   *  person by the owner only — still ONE capability, still the whole floor).
+   *  Silently, per ⚖ 9/3 — no staff ping, no sentence. */
   canViewAll: boolean
+  /** The stores this viewer is assigned to, or null when unrestricted
+   *  (`stores.viewAll`, or floating staff). The CALLER resolves it — web via
+   *  resolveStoreScope, facade via resolveStoreForRequest — and a degraded
+   *  lookup arrives as `[]`, which fails closed. Only the viewAll branch is
+   *  narrowed by it: a recorder's own take is untouched (⚖ 8/17 store
+   *  isolation; Greptile #848 point 2). The record's store id is NOT a caller
+   *  input — this door reads it off the row it already fetches. */
+  allowedStoreIds: readonly string[] | null
   source: 'web' | 'facade'
   requestId?: string
 }
@@ -116,7 +125,11 @@ export async function mintPlaybackUrlWithClient(
 ): Promise<MintPlaybackUrlResult> {
   // 1. The karute names the resource, and proves the tenancy: a business-scoped
   //    client reads a foreign id as 404 (packet-03 disc. #5).
-  let karute: { staff_id?: string | null; recording_session_id?: string | null }
+  let karute: {
+    staff_id?: string | null
+    store_id?: string | null
+    recording_session_id?: string | null
+  }
   try {
     karute = await synqed.karuteRecords.get(input.karuteId)
   } catch (err) {
@@ -158,11 +171,32 @@ export async function mintPlaybackUrlWithClient(
         actor.businessId,
       )) ?? karute.staff_id)
     : null
+  //    THE STORE HALF (⚖ 8/17 store isolation; Greptile #848 point 2): the
+  //    grant widens WHOSE recordings, never WHICH stores. Read here rather than
+  //    passed in, because the caller has not seen either object yet when it
+  //    builds the actor.
+  //
+  //    ⚠ THE KARUTE'S STORE, NOT THE ROW'S (fix round 4, blind round 2 F1).
+  //    `recordings` rows carry NO store_id in this repo — `recordings.create`
+  //    never sends one (session-mint.ts:174, the payload's own comment), the
+  //    SDK's update input has no such field, and a shipped route header states
+  //    it as fact for exactly this reason (recordings/inbox/route.ts:12-13:
+  //    "filtering by it would return an empty list for everyone"). Clamping on
+  //    the row therefore evaluated to the 全店舗/legacy branch for EVERY take in
+  //    the field — the sound door was open while the words door was shut on the
+  //    same karute. The karute's store IS written (resolveKaruteStoreId,
+  //    actions/karute.ts), and it is the same object the words door clamps on,
+  //    so both doors now answer one karute the same way. `?? row.store_id`
+  //    keeps the row's value if core ever starts stamping it.
   if (
     !canViewTranscript({
       ownerStaffId,
       viewerStaffId: actor.staffId,
-      canViewAll: actor.canViewAll,
+      canViewAll: canViewAllInStore({
+        canViewAll: actor.canViewAll,
+        allowedStoreIds: actor.allowedStoreIds,
+        recordStoreId: karute.store_id ?? row.store_id,
+      }),
     })
   ) {
     return { error: 'forbidden' }
@@ -222,7 +256,11 @@ export async function mintPlaybackUrlWithClient(
     actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
-    storeId: row.store_id ?? undefined,
+    // The KARUTE's store, same reason as the ACL above (fix round 4b): the
+    // recording row's column is never written, the karute's always is, and the
+    // audit viewer filters by store — so a row keyed on the empty one was
+    // invisible to every store-scoped search.
+    storeId: karute.store_id ?? row.store_id ?? undefined,
     targetType: 'recording',
     targetId: row.id,
     severity: 'notice',

@@ -78,13 +78,25 @@ const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 
+// ⚠ THE PRODUCTION SHAPE (fix round 4). The KARUTE carries the store
+// (resolveKaruteStoreId, actions/karute.ts, stamps it on every save); the
+// RECORDING ROW never does — `recordings.create` sends no store_id
+// (session-mint.ts:174) and the SDK's update input has no such field, which
+// recordings/inbox/route.ts:12-13 states as fact. The fixtures said the
+// opposite until now, and the store pins below were passing on a column the
+// field never writes.
 const KAR = {
-  current: { id: KARUTE_ID, staff_id: 'auth-user-1', recording_session_id: SESSION } as Record<string, unknown>,
+  current: {
+    id: KARUTE_ID,
+    staff_id: 'auth-user-1',
+    store_id: 'store-9' as string | null,
+    recording_session_id: SESSION,
+  } as Record<string, unknown>,
 }
 const ROW = {
   current: {
     id: SESSION,
-    store_id: 'store-9',
+    store_id: null as string | null,
     audio_storage_path: TAKE_KEY as string | null,
     duration_seconds: 742 as number | null,
     status: 'COMPLETED',
@@ -98,10 +110,32 @@ const recordingsGet = jest.fn(async (id: string) => {
   if (id !== SESSION) throw Object.assign(new Error('nope'), { status: 404 })
   return ROW.current
 })
+/** The FACADE's store-assignment read (resolveStoreForRequest → staffStores.get).
+ *  Default [] = floating staff, which resolves to "unrestricted within the
+ *  tenant" — so every pre-existing case is untouched. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   recordings: { get: (id: string) => recordingsGet(id) },
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-9' })) },
 }
+/** The WEB door's store primitive. Default: unrestricted, not degraded. */
+const webScope = {
+  current: {
+    storeId: null as string | null,
+    viewAll: true,
+    allowedStoreIds: null as string[] | null,
+    degraded: false,
+  },
+}
+const webScopeThrows = { current: false }
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => {
+    if (webScopeThrows.current) throw new Error('store scope read failed')
+    return webScope.current
+  }),
+}))
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/recordings/playback-url/route'
@@ -134,7 +168,7 @@ const req = (karuteId?: string) =>
 const mint = (actor: Partial<Parameters<typeof mintPlaybackUrlWithClient>[1]> = {}) =>
   mintPlaybackUrlWithClient(
     fakeClient as unknown as Parameters<typeof mintPlaybackUrlWithClient>[0],
-    { actorId: 'auth-user-1', staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, source: 'web', ...actor },
+    { actorId: 'auth-user-1', staffId: 'auth-user-1', businessId: 'business-1', canViewAll: false, allowedStoreIds: null, source: 'web', ...actor },
     { karuteId: KARUTE_ID },
   )
 
@@ -142,14 +176,17 @@ beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
   webCaps.current = new Set(['customers.view'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  webScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+  webScopeThrows.current = false
   webAuthUserId.current = 'auth-user-1'
   webStaffId.current = 'auth-user-1'
   canThrows.current = false
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   rosterThrows.current = false
   cardLookup.current = null
-  KAR.current = { id: KARUTE_ID, staff_id: 'auth-user-1', recording_session_id: SESSION }
-  ROW.current = { id: SESSION, store_id: 'store-9', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
+  KAR.current = { id: KARUTE_ID, staff_id: 'auth-user-1', store_id: 'store-9', recording_session_id: SESSION }
+  ROW.current = { id: SESSION, store_id: null, audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
   createSignedUrl.mockResolvedValue({
     data: { signedUrl: `https://proj.supabase.co/read/${TAKE_KEY}?token=t` },
     error: null,
@@ -379,6 +416,9 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
       business_id: 'business-1',
       target_type: 'recording',
       target_id: SESSION,
+      // The KARUTE's store, under the production shape (karute store-9, row
+      // null) — fix round 4b. Keyed on the row's empty column this line carried
+      // no store at all, and the audit viewer filters by store.
       store_id: 'store-9',
       severity: 'notice',
       break_glass: false,
@@ -567,5 +607,165 @@ describe('mintRecordingPlaybackUrl — the web door', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     expect(await mintRecordingPlaybackUrl(KARUTE_ID)).toEqual({ ok: false, error: 'upstream' })
     warn.mockRestore()
+  })
+})
+
+// ── ⚖ STORE REACH — the grant widens WHOSE recordings, never WHICH stores ────
+// Liam's store-isolation law 8/17; Greptile #848 point 2. `KAR.current.store_id`
+// is 'store-9' — the karute's own store, the ONLY store either door can read —
+// and the karute belongs to a colleague ('other-staff'), so every case below
+// rides the viewAll branch, the only branch this narrows.
+describe('the named grant hears only inside the viewer’s own stores', () => {
+  beforeEach(() => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff' }
+  })
+
+  // ── the body, one door, the whole matrix ──────────────────────────────────
+  it('unrestricted scope (stores.viewAll / floating) hears a colleague’s take in any store', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: null })
+    expect('url' in r).toBe(true)
+  })
+
+  it('a grantee assigned to the record’s own store hears it', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-9'] })
+    expect('url' in r).toBe(true)
+  })
+
+  it('…and a grantee assigned ELSEWHERE gets `forbidden` — the same withholding as no grant', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('a record with NO store — karute AND row both null — is heard by a clamped grantee (全店舗 / legacy)', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect('url' in r).toBe(true)
+  })
+
+  // ⚠ THE PIN THAT DIES IF THE CLAMP GOES BACK TO THE ROW (fix round 4, F1).
+  // This is the shape of EVERY take in the field: the karute names the store,
+  // the recording row's column is empty. Clamping on the row read that empty
+  // column as 全店舗 and handed a store-a grantee a store-9 colleague's audio —
+  // the words door was shut on the same karute the whole time.
+  it('production shape — the recording row carries no store_id; the clamp reads the KARUTE’s store: grantee in store-a, karute store-9, row null → forbidden', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-9' }
+    ROW.current = { ...ROW.current, store_id: null }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('…and the row’s value is still honoured if core ever starts stamping it (karute null, row store-9)', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: 'store-9' }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('a DEGRADED scope ([]) fails closed', async () => {
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: [] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('the RECORDER is untouched by any of it — her own take, a foreign scope', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    const r = await mint({ staffId: 'auth-user-1', canViewAll: false, allowedStoreIds: [] })
+    expect('url' in r).toBe(true)
+  })
+
+  // ── the FACADE transport resolves that scope for itself ───────────────────
+  it('facade: a grantee assigned to store-a is refused a store-9 take → 403', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(403)
+  })
+
+  it('facade: the same grantee assigned to store-9 hears it → 200', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-9'] })
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(200)
+  })
+
+  it('facade: stores.viewAll never consults an assignment at all', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(200)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, blind round 2
+  // F3). Core answers `{ store_ids: [] }` for an id it holds no rows for, which
+  // the floating branch reads as "works in every store" — so before the
+  // selfStaffId guard the phone door heard every store for a caller the roster
+  // could not place, while the web door already failed closed on it.
+  it('facade: a caller the ROSTER CANNOT PLACE fails the grant closed → 403', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    roster.current = []
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(403)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('facade: an UNREADABLE assignment fails the grant closed → 403, never widened', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(403)
+  })
+
+  // ── the WEB transport resolves it through resolveStoreScope ───────────────
+  it('web: a grantee assigned to store-a is refused a store-9 take', async () => {
+    webCaps.current = new Set(['customers.view', 'recordings.viewAll'])
+    webStaffId.current = 'someone-else'
+    webScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await expect(mintRecordingPlaybackUrl(KARUTE_ID)).resolves.toEqual({ ok: false, error: 'forbidden' })
+  })
+
+  it('web: the same grantee assigned to store-9 hears it', async () => {
+    webCaps.current = new Set(['customers.view', 'recordings.viewAll'])
+    webStaffId.current = 'someone-else'
+    webScope.current = { storeId: 'store-9', viewAll: false, allowedStoreIds: ['store-9'], degraded: false }
+    const r = await mintRecordingPlaybackUrl(KARUTE_ID)
+    expect(r.ok).toBe(true)
+  })
+
+  it('web: a DEGRADED scope fails the grant closed', async () => {
+    webCaps.current = new Set(['customers.view', 'recordings.viewAll'])
+    webStaffId.current = 'someone-else'
+    webScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
+    await expect(mintRecordingPlaybackUrl(KARUTE_ID)).resolves.toEqual({ ok: false, error: 'forbidden' })
+  })
+
+  it('web: a THROWN scope read fails the grant closed too', async () => {
+    webCaps.current = new Set(['customers.view', 'recordings.viewAll'])
+    webStaffId.current = 'someone-else'
+    webScopeThrows.current = true
+    await expect(mintRecordingPlaybackUrl(KARUTE_ID)).resolves.toEqual({ ok: false, error: 'forbidden' })
+  })
+})
+
+// ── ⚖ THE PLAY AUDIT ROW CARRIES THE KARUTE'S STORE (fix round 4b) ──────────
+// Same empty column the ACL stopped reading: `recordings.create` never writes
+// store_id, so a play row keyed on it was invisible to every store-scoped
+// audit search. The `??` chain keeps the row's value if core ever stamps it,
+// and a karute with no store still carries none — there is nothing to stamp.
+describe('recording.play — the audit row’s store', () => {
+  it('a karute with NO store and a row with none → the line carries no store', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
+    const lines = await auditLines(() => mint())
+    const play = lines.find((l) => l.action === 'recording.play')
+    expect(play).toBeDefined()
+    expect(play?.store_id ?? null).toBeNull()
+  })
+
+  it('…and the row’s value is still used if core ever starts stamping it', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: 'store-row' }
+    const lines = await auditLines(() => mint())
+    expect(lines.find((l) => l.action === 'recording.play')?.store_id).toBe('store-row')
   })
 })

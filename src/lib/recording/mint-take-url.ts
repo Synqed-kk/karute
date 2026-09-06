@@ -95,9 +95,21 @@ export interface MintTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key carries. */
   businessId: string
-  /** Holds `recordings.viewAll` (owner-only). Lets a manager reserve a take on
-   *  another staffer's session; everyone else is own-session only. */
-  canViewAll: boolean
+  /** The OWNER'S HAND — `business.manage` AND `recordings.viewAll` together
+   *  (holdsOwnerKeys, auth/permissions.ts). Lets such a caller reserve a take on
+   *  another staffer's session; everyone else is own-session only. The named
+   *  grant ALONE does NOT reach here: it grants hearing and reading, never
+   *  reserving (⚖ 9/3 council).
+   *
+   *  ⚖ AND DELIBERATELY NOT STORE-CLAMPED, THE STANDING EXCEPTION (9/6): no
+   *  store dimension exists at this layer — `recordings` rows carry no
+   *  store_id (session-mint.ts:174 says so in the create payload), and at
+   *  mint/bind time the karute that WOULD carry one does not exist yet. So the
+   *  pair here is the owner's explicit hand and nothing narrows it. The store
+   *  law is applied where a store can be known: the read doors (transcript ·
+   *  playback, via the linked karute) and the karute-level acts (regenerate ·
+   *  再学習). Recorded, not overlooked. */
+  holdsOwnerKeys: boolean
   source: 'web' | 'facade'
   requestId?: string
 }
@@ -596,17 +608,19 @@ export async function mintTakeUploadUrl(
     const denied = assertRecorderOwnsRow(row, actor)
     if (denied) return denied
     // ⚖ AND ONLY THE RECORDER THEMSELVES MAY STAGE (slice five fix round 4,
-    // G2). `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right
-    // for the TAKE mint — an owner reserving a colleague's take is a designed
-    // act there — and wrong here. Staging is something the RECORDER'S OWN
+    // G2). `assertRecorderOwnsRow` admits the OWNER'S HAND (holdsOwnerKeys —
+    // business.manage AND recordings.viewAll), which is right for the TAKE mint
+    // — an owner reserving a colleague's take is a designed act there — and
+    // wrong here. Staging is something the RECORDER'S OWN
     // DEVICE does: the discard word-collection reads the owner-gated take store
     // and nothing else in the app stages at all, so view-all has no legitimate
     // reach through this door. What it had instead was a lever: the staged key
     // is deterministic and immutable, so a view-all holder could mint a
     // colleague's key first, PUT anything, and that colleague's device would
     // meet a size mismatch for ever — its discard's words never landing, its
-    // device copy never releasable. A plain equality, `canViewAll` deliberately
-    // not consulted; the tenant half stays where it is, one line above.
+    // device copy never releasable. A plain equality, `holdsOwnerKeys`
+    // deliberately not consulted; the tenant half stays where it is, one line
+    // above.
     //
     // ⚖ THE CEILING, NAMED (P3, record only): the recorder can still pre-fill
     // their OWN session's key from outside the app. No audio is lost — the
@@ -951,9 +965,10 @@ export async function mintSegmentUploadUrls(
   if (denied) return denied
   // ⚖ AND ONLY THE RECORDER THEMSELVES MAY SEND SEGMENTS (fix round 1, K1 —
   // the staged door's own line, five hundred lines up, for the same reason).
-  // `assertRecorderOwnsRow` admits `recordings.viewAll`, which is right for the
-  // TAKE mint — an owner reserving a colleague's take is a designed act there,
-  // and finalize re-proves ownership and byte length behind it. Here it is
+  // `assertRecorderOwnsRow` admits the OWNER'S HAND (holdsOwnerKeys —
+  // business.manage AND recordings.viewAll), which is right for the TAKE mint —
+  // an owner reserving a colleague's take is a designed act there, and finalize
+  // re-proves ownership and byte length behind it. Here it is
   // wrong twice over. Nothing in the app pumps segments for a take it does not
   // hold: the pump runs on the RECORDING DEVICE, off the owner-gated take
   // store, and it is the only caller — so view-all buys this door no legitimate
@@ -964,7 +979,7 @@ export async function mintSegmentUploadUrls(
   // immutable, so the real device could never write that seq again; its next
   // pump would meet a length that is not its own and go terminally quiet for
   // the rest of the take; and the folder an assembler will one day build from
-  // would hold bytes nobody recorded. A plain equality, `canViewAll`
+  // would hold bytes nobody recorded. A plain equality, `holdsOwnerKeys`
   // deliberately not consulted; the tenant half stays where it is, one line
   // above.
   //

@@ -38,6 +38,25 @@ const grantedCaps = { current: new Set<string>() }
 const canMock = jest.fn(async (cap: string) => grantedCaps.current.has(cap))
 jest.mock('@/lib/auth/require-permission', () => ({
   can: (cap: string) => canMock(cap),
+  // The page also resolves the whole SET, for the 再生成 ACT gate (fix round 4,
+  // holdsOwnerKeys). Driven by the same handle, so a test grants once.
+  getMyCapabilities: jest.fn(async () => grantedCaps.current),
+}))
+// The page's store primitive (⚖ 8/17 store isolation). Default: unrestricted.
+const storeScope = {
+  current: {
+    storeId: null as string | null,
+    viewAll: true,
+    allowedStoreIds: null as string[] | null,
+    degraded: false,
+  },
+}
+const storeScopeThrows = { current: false }
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => {
+    if (storeScopeThrows.current) throw new Error('store scope read failed')
+    return storeScope.current
+  }),
 }))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),
@@ -99,6 +118,8 @@ beforeEach(() => {
     summary: null,
   })
   grantedCaps.current = new Set()
+  storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+  storeScopeThrows.current = false
   karuteRow.current = { client_id: 'cust-9', summary: null }
   recordingsGet.mockResolvedValue({
     id: 'sess-1',
@@ -214,5 +235,148 @@ describe('KaruteDetailPage — playback inputs (businessId · recordingRow)', ()
     recordingsGet.mockRejectedValue(new Error('boom'))
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ recordingRow: null }))
+  })
+})
+
+// ── ⚖ STORE REACH, WEB HALF (Liam's store-isolation law 8/17; Greptile #848
+// point 2). The grant widens WHOSE recordings, never WHICH stores — the page
+// resolves the viewer's assignment and hands the builder the NARROWED flag.
+// The facade half is pinned in app-api-karute-detail-screen.test.ts.
+describe('KaruteDetailPage — the named grant stays inside the viewer’s stores', () => {
+  const inStoreB = () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, store_id: 'store-b' }
+  }
+  const built = () => buildSpy.mock.calls[0][0] as { canViewAllRecordings: boolean }
+
+  it('a grantee assigned ELSEWHERE gets canViewAllRecordings false', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('…and the SAME grantee assigned to store-b gets true', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-b', viewAll: false, allowedStoreIds: ['store-b'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  it('an unrestricted scope (stores.viewAll / floating) reads any store', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  it('a DEGRADED scope fails the grant closed', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('a THROWN scope read fails closed and the PAGE still renders', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScopeThrows.current = true
+    const props = await viewPropsFromPage()
+    expect(props).toBeDefined()
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+})
+
+// ── ⚖ 再生成 — the WEB page hands the builder the SERVER'S answer (fix round 4)
+// The READ is `recordings.viewAll`; the ACT is the owner's two keys. A named
+// grantee reads a colleague's words and must NOT be shown a button the server
+// will refuse (blind round 2 F2 / L4 F2).
+describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)', () => {
+  const built = () => buildSpy.mock.calls[0][0] as { staffCanRegenerate: boolean }
+  const colleaguesKarute = () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff' }
+  }
+
+  it('a NAMED GRANTEE (recordings.viewAll alone) on a colleague’s karute → false', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  // `records.write` rides every preset that could hold these keys — the flag is
+  // the server's WHOLE gate (fix round 5), so the positive cases grant it too.
+  it('…and the OWNER’S HAND (both keys) on the same karute → true', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set(['records.write', 'recordings.viewAll', 'business.manage'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  it('the RECORDER keeps her own button with no RECORDING keys at all', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
+    grantedCaps.current = new Set(['records.write'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ THE WHOLE GATE, NOT HALF (fix round 5, delta F1). Both regenerate doors
+  // check `records.write` BEFORE the ACL, and the ACL passes every UNOWNED
+  // record — so on a legacy/manual karute the ACL alone said "yes" to a front
+  // desk that the server then refuses.
+  it('a FRONT DESK viewer (no records.write) on an UNOWNED karute → transcript shown, flag FALSE', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: null }
+    grantedCaps.current = new Set(['customers.view'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  // …and the OTHER half of the same gate: `records.write` is asked of EVERY
+  // viewer, the recorder included. She passes the ACL on the own-record branch
+  // and still gets no button without the write key — the case that separates
+  // the two halves, which the recorder-WITH-it case above cannot.
+  it('the RECORDER WITHOUT records.write on her OWN karute → transcript shown, flag FALSE', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
+    grantedCaps.current = new Set(['customers.view'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ THE FLAG FOLLOWS THE ACT DOOR'S STORE LAW TOO (fix round 7) — web twin.
+  it('a CLAMPED both-keys viewer on an out-of-store karute → flag false', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff', store_id: 'store-b',
+    }
+    grantedCaps.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the SAME viewer on an IN-store karute → true', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff', store_id: 'store-a',
+    }
+    grantedCaps.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  it('a plain staffer on a colleague’s karute → false (unchanged from main)', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
   })
 })

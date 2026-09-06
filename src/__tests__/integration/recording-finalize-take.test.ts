@@ -76,7 +76,7 @@ const synqed = { recordings: { get, create, update } } as never
 const actor = (over: Partial<FinalizeTakeActor> = {}): FinalizeTakeActor => ({
   staffId: 'staff-1',
   businessId: BIZ,
-  canViewAll: false,
+  holdsOwnerKeys: false,
   source: 'web',
   ...over,
 })
@@ -397,9 +397,9 @@ describe('finalizeTakeWithClient — the fences', () => {
     expectNoWrites()
   })
 
-  it('allows an owner (recordings.viewAll) to finalize a colleague’s session', async () => {
+  it('allows the OWNER’S HAND (both keys) to finalize a colleague’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    const res = await finalizeTakeWithClient(synqed, actor({ canViewAll: true }), input)
+    const res = await finalizeTakeWithClient(synqed, actor({ holdsOwnerKeys: true }), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalled()
   })

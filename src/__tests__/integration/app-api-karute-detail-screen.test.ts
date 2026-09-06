@@ -98,11 +98,17 @@ const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'http
 // version-gate tests below can resolve a real outcome row through this mock.
 type OutcomeRow = { outcome: string; reason: string | null; is_first_visit: boolean; decided_at: string | null; auto_decided: boolean }
 const outcomeGet = jest.fn(async (): Promise<OutcomeRow | null> => null)
+/** The store-assignment read behind the recording ACL's store half (⚖ 8/17).
+ *  Default [] = floating staff → unrestricted within the tenant, so every
+ *  pre-existing case is untouched. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
   karuteOutcomes: { get: outcomeGet },
   recordings: { get: (id: string) => recordingsGet(id) },
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -135,6 +141,7 @@ const req = (init: RequestInit = {}) => new Request('https://s/api/app/v1/screen
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
   synqedStaffRosterRejects.current = false
@@ -648,5 +655,165 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
     expect(karuteGet).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ STORE REACH AT THE DETAIL DOOR (Liam 8/17; Greptile #848 point 2) ──────
+// The karute belongs to a colleague and sits in store-b. A named grantee
+// assigned to store-a gets the SAME withholding as someone with no grant at
+// all — transcript null + transcriptRestricted, and recording null with it.
+describe('the named grant reads only inside the viewer’s own stores', () => {
+  const inStoreB = () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+  }
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a grantee assigned ELSEWHERE is refused the transcript AND the player', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and the SAME grantee assigned to store-b reads and hears it', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-b'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.recording?.audioPresent).toBe(true)
+  })
+
+  it('stores.viewAll (owner / manager preset) reads any store, and never consults an assignment', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, F3) — the
+  // detail door's half of the same guard.
+  it('a caller the ROSTER CANNOT PLACE fails the grant closed — restricted, no assignment read', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    roster.current = []
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.header).toBeDefined()
+  })
+
+  it('the RECORDER’s own transcript is untouched by any assignment', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1', store_id: 'store-b' }
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+})
+
+// ── ⚖ 再生成 — the FACADE hands the phone the SERVER'S answer (fix round 4) ──
+// Same law, the transport Liam actually uses. `KaruteDetailView` is the SAME
+// component the thin screen mounts, so an ungated button was on the phone too.
+describe('staffCanRegenerate — hide, never show-and-refuse', () => {
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a NAMED GRANTEE reads a colleague’s transcript and gets NO regenerate flag', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // `records.write` rides every preset that could hold these keys — the flag is
+  // the server's WHOLE gate (fix round 5), so the positive cases grant it too.
+  it('…and the OWNER’S HAND (both keys) gets it', async () => {
+    capabilities.current = new Set(['customers.view', 'records.write', 'recordings.viewAll', 'business.manage'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('the RECORDER keeps her own, with no RECORDING keys at all', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ THE WHOLE GATE, NOT HALF (fix round 5, delta F1) — the Bearer twin.
+  it('a FRONT DESK viewer (no records.write) on an UNOWNED karute → transcript shown, flag FALSE', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // …and the OTHER half of the same gate — the Bearer twin. The recorder
+  // passes the ACL on her own record and still gets no button without the
+  // write key; the recorder-WITH-it case above cannot separate the two halves.
+  it('the RECORDER WITHOUT records.write on her OWN karute → transcript shown, flag FALSE', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ THE FLAG FOLLOWS THE ACT DOOR'S STORE LAW TOO (fix round 7). The button
+  // and the door share one predicate, so a clamped both-keys manager gets
+  // neither: the transcript is withheld by the read clamp, and the flag is
+  // false by the act clamp — nothing shown that the server would refuse.
+  it('a CLAMPED both-keys viewer on an out-of-store karute → transcript withheld AND flag false', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the SAME viewer on an IN-store karute gets both', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-a' }
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.staffCanRegenerate).toBe(false)
   })
 })

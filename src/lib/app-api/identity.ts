@@ -25,7 +25,12 @@ import type { Capability } from '@/lib/auth/permissions'
 import { AppApiError } from './errors'
 
 export interface RequestIdentity {
-  /** Supabase auth user UUID (the JWT `sub`). Distinct from a synqed staff id. */
+  /** Supabase auth user UUID (the JWT `sub`) — and, for a PLACED member, the
+   *  same id the core roster carries as its staff `id`: resolveSelfStaffId
+   *  compares them directly (app-api/customer-facade.ts:99), as do
+   *  getCurrentUserStaffId (lib/staff.ts:263) and isRosterOwner
+   *  (actions/stores.ts:33). A caller the roster cannot place is refused where
+   *  it matters — viewerAllowedStoreIds returns [] (app-api/store-clamp.ts). */
   authUserId: string
   /** The tenant boundary — every downstream read/write is scoped to it. */
   businessId: string

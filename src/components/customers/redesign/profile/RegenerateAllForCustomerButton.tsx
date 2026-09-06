@@ -33,8 +33,9 @@ export function RegenerateAllForCustomerButton({
     'idle',
   )
   const [progress, setProgress] = useState({ done: 0, total: 0, failed: 0 })
-  // Owner-only (dev tool): the backing list action ships every raw transcript,
-  // and recordings are recorder-private. Default false = staff never see the
+  // Dev tool, gated to the owner, or a person the owner gave BOTH keys by hand
+  // (see actions/dev-tools.ts): the backing list action ships every raw
+  // transcript, and recordings are recorder-private. Default false = staff never see the
   // button; the server action refuses on its own regardless. Same gate + shape
   // as the 再学習 chip in CustomerMemoryCard.
   const [canRegen, setCanRegen] = useState(false)

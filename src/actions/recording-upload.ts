@@ -20,6 +20,7 @@
 // gate the upload-url facade twin and enqueueRecordingJob carry.
 
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -120,7 +121,7 @@ export async function mintRecordingUploadUrl(
       {
         staffId,
         businessId,
-        canViewAll: capabilities.has('recordings.viewAll'),
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
         source: 'web',
       },
       input,
@@ -169,7 +170,7 @@ export async function mintRecordingSegmentUrls(
       {
         staffId,
         businessId,
-        canViewAll: capabilities.has('recordings.viewAll'),
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
         source: 'web',
       },
       input,

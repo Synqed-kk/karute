@@ -3,11 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability, can } from '@/lib/auth/require-permission'
+import { requireCapability, getMyCapabilities } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -355,14 +356,30 @@ export async function regenerateKaruteWithClient(
   params: {
     karuteRecordId: string
     viewerStaffId: string | null
-    canViewAll: boolean
+    /** The OWNER'S HAND — holdsOwnerKeys (auth/permissions.ts), NOT the named
+     *  grant alone. Regenerating rewrites a colleague's record, so it is an ACT
+     *  and keys on the pair; the READ doors stay on recordings.viewAll
+     *  (⚖ 9/3 council; Greptile #848 point 1). */
+    holdsOwnerKeys: boolean
+    /** The caller's store assignment, resolved by the caller exactly as the
+     *  READ doors resolve it (web resolveStoreScope · facade
+     *  viewerAllowedStoreIds). null = unrestricted; `[]` = degraded, fails
+     *  closed. The store compare happens HERE rather than at the callers,
+     *  because this is where the karute — and so its store — is known
+     *  (⚖ 8/17; Greptile #848 review 2, point 2).
+     *
+     *  REQUIRED, deliberately (fix round 8): every other fail-closed shape in
+     *  this slice defaults to `[]`, and an optional param here would default a
+     *  forgetful third transport to UNRESTRICTED — fail-open, silently. The
+     *  type checker is the pin: omit it and the build breaks. */
+    allowedStoreIds: readonly string[] | null
     locale: string
     /** Facade Bearer path: the verified token's business id. Omitted on the
      *  cookie web path (featureAllowed resolves it). */
     businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, canViewAll, locale, businessId } = params
+  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, allowedStoreIds, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -372,7 +389,9 @@ export async function regenerateKaruteWithClient(
   }
 
   // Recording-privacy ACL server-gate (#4): withholding the transcript also
-  // withholds the regenerate — it reads the same raw text. Fail closed.
+  // withholds the regenerate — it reads the same raw text. Fail closed. The
+  // reach fed in is the OWNER'S HAND, never the named grant alone: a person the
+  // owner ticked may READ a colleague's transcript and never rewrite it.
   // Recorder-lock fix (⚖ Liam 8/22): record.staff_id may carry a synqed-core
   // staff CARD id rather than a profile id — translate before the compare,
   // `?? original` keeps profile-id-stamped rows and unlinked cards unchanged.
@@ -382,7 +401,15 @@ export async function regenerateKaruteWithClient(
         ? await lookupProfileIdForSynqedStaffIdForBusiness(rawOwnerStaffId, businessId)
         : await lookupProfileIdForSynqedStaffId(rawOwnerStaffId)) ?? rawOwnerStaffId)
     : null
-  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
+  //    …AND ONLY WHERE THE CALLER CAN SEE: the owner's hand obeys the store law
+  //    the read doors already obey, so a clamped both-keys manager cannot
+  //    rewrite another branch's record. The recorder's own branch is untouched.
+  const reach = ownerHandReach({
+    holdsOwnerKeys,
+    allowedStoreIds,
+    recordStoreId: (record.store_id as string | null) ?? null,
+  })
+  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: reach })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
   }
 
@@ -500,15 +527,19 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
     // top-level import drags next-intl ESM into every jest graph that touches
     // this module (regen-list-owner-gate.test.ts broke on exactly that).
     const { getLocale } = await import('next-intl/server')
-    const [viewerStaffId, canViewAll, locale] = await Promise.all([
+    const [viewerStaffId, capabilities, locale] = await Promise.all([
       getCurrentUserStaffId(),
-      can('recordings.viewAll'),
+      getMyCapabilities(),
       getLocale(),
     ])
     const result = await regenerateKaruteWithClient(synqed, {
       karuteRecordId,
       viewerStaffId,
-      canViewAll,
+      holdsOwnerKeys: holdsOwnerKeys(capabilities),
+      // The one shared spelling of the web act scope (auth/store-scope.ts);
+      // dynamic import — a top-level one drags the ESM-only SDK into this
+      // module's jest graph (repo convention, see actions/memory.ts).
+      allowedStoreIds: await (await import('@/lib/auth/store-scope')).viewerScopeForActs(),
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
@@ -545,8 +576,9 @@ export async function listCustomerKaruteForRegen(
 ): Promise<Array<{ id: string; transcript: string }>> {
   if (!customerId) return []
   // This is the ONE action that RETURNS raw transcripts (the whole history at
-  // once), and raw recordings are recorder-private — so it rides the owner dev
-  // key, same as 再学習 (memory.ts). Server-side twin of the UI gate: hiding
+  // once), and raw recordings are recorder-private — so it rides the same dev
+  // key pair as 再学習 (memory.ts): the owner, or a person the owner gave BOTH
+  // keys by hand (see actions/dev-tools.ts). Server-side twin of the UI gate: hiding
   // the 全カルテ再生成 button is never the only defense. Dynamic import mirrors
   // that gate — keeps the auth chain out of the module graph for callers that
   // never bulk-regen.

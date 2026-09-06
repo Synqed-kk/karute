@@ -28,6 +28,7 @@ const baseArgs: BuildKaruteDetailScreenArgs = {
   recordingRow: null,
   businessId: 'biz-1',
   staffCanReassignRecords: false,
+  staffCanRegenerate: true,
   contact: null,
   consentResult: null,
   customer: null,

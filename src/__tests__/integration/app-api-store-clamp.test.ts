@@ -1,7 +1,7 @@
 // Store clamp (packet 03 point 4) — the #441 cross-store/cross-tenant leak class.
 // Tenancy is proven FIRST (stores.get on a business-scoped client), then the
 // staff-assignment restriction applies. A store-id is an EXPLICIT request field.
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveStoreForRequest, viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import type { Capability } from '@/lib/auth/permissions'
 
 // The SDK's error shape, duck-built: @synqed-kk/client is ESM-only, so a
@@ -165,5 +165,46 @@ describe('store clamp', () => {
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps('stores.viewAll'), requestedStoreId: 'store-OTHER' }),
     ).rejects.toMatchObject({ code: 'store_forbidden', detail: { reason: 'store_header' } })
+  })
+})
+
+// ── ⚖ ONE ID SPACE, AND THE UNPLACEABLE CALLER NEVER REACHES THE LOOKUP ──────
+// Greptile #848 review 2, point 1 read `staffStores.get(authUserId)` as a
+// profile-id-into-staff-id mismatch. It is not: in this app the core roster's
+// staff `id` IS the auth user id for a PLACED member — resolveSelfStaffId
+// compares them directly (customer-facade.ts:99), getCurrentUserStaffId does
+// the same on the cookie path (staff.ts:263), isRosterOwner too (stores.ts:33),
+// and the WEB twin keys this very SDK method with that very id — resolveStoreScope
+// (store-scope.ts:90) → getStaffStoresStrict = synqed.staffStores.get(<auth id>)
+// (stores.ts:486-489); the facade caller does the same (screens/karute/[id]/route.ts:116-117). The case the review feared — an id the roster cannot
+// place, whose empty assignment would read as "floating, works everywhere" —
+// is refused BEFORE any lookup by the selfStaffId guard. This names it.
+describe('viewerAllowedStoreIds — an unplaceable caller is [] , never unrestricted', () => {
+  it('selfStaffId null (the roster could not place this auth id) → [] and NO assignment lookup', async () => {
+    const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
+    const synqed = { stores: { get: jest.fn() }, staffStores: { get: staffStoresGet } } as never
+    const allowed = await viewerAllowedStoreIds({
+      synqed,
+      authUserId: AUTH,
+      capabilities: caps('recordings.viewAll'),
+      selfStaffId: null,
+    })
+    expect(allowed).toEqual([])
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('…and a PLACED caller keys the lookup on that SAME id — one space, not two', async () => {
+    const staffStoresGet = jest.fn(async () => ({ store_ids: ['store-A'] }))
+    const synqed = { stores: { get: jest.fn() }, staffStores: { get: staffStoresGet } } as never
+    const allowed = await viewerAllowedStoreIds({
+      synqed,
+      authUserId: AUTH,
+      capabilities: caps('recordings.viewAll'),
+      // A DIFFERENT value from authUserId on purpose: if the helper ever keyed
+      // the lookup on selfStaffId instead, this assertion would catch it.
+      selfStaffId: 'placed-marker',
+    })
+    expect(allowed).toEqual(['store-A'])
+    expect(staffStoresGet).toHaveBeenCalledWith(AUTH)
   })
 })

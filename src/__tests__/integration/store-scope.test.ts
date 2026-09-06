@@ -21,6 +21,7 @@ jest.mock('@/actions/stores', () => ({
 
 import {
   resolveStoreScope,
+  viewerScopeForActs,
   menuStoresForScope,
   staffWriteInScope,
   customerLensFor,
@@ -309,5 +310,48 @@ describe('staffWriteInScope', () => {
     mockCaps.mockResolvedValue(caps())
     assign({ [ACTOR]: ['store-A'], 'staff-other': ['store-B'] })
     expect(await staffWriteInScope({ targetStaffId: 'staff-other', actorId: null })).toBe(false)
+  })
+})
+
+// ── ⚖ THE WEB ACT DOORS' SCOPE — one spelling, and it FAILS CLOSED ──────────
+// viewerScopeForActs is what regenerate · 再学習 · the dev tools resolve their
+// store reach with (⚖ 8/17). Unit-pinned here, against the REAL resolveStoreScope
+// and its real seams, because the doors' own suites mock the helper itself —
+// this is the only place its catch and its degraded arm are genuinely exercised.
+describe('viewerScopeForActs — the act doors’ scope', () => {
+  it('stores.viewAll → null (unrestricted), and no assignment is read', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    mockActive.mockResolvedValue('store-a')
+    await expect(viewerScopeForActs()).resolves.toBeNull()
+    expect(mockStores).not.toHaveBeenCalled()
+  })
+
+  it('floating staff (a genuine empty assignment) → null, the documented convention', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockResolvedValue('staff-1')
+    mockStores.mockResolvedValue([])
+    mockPrimary.mockResolvedValue('store-a')
+    await expect(viewerScopeForActs()).resolves.toBeNull()
+  })
+
+  it('clamped staff → exactly their assigned stores', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockResolvedValue('staff-1')
+    mockStores.mockResolvedValue(['store-a'])
+    mockActive.mockResolvedValue('store-a')
+    await expect(viewerScopeForActs()).resolves.toEqual(['store-a'])
+  })
+
+  it('a DEGRADED lookup (getStaffStoresStrict → null) → [] , never widened', async () => {
+    mockCaps.mockResolvedValue(caps())
+    mockStaffId.mockResolvedValue('staff-1')
+    mockStores.mockResolvedValue(null)
+    mockPrimary.mockResolvedValue('store-a')
+    await expect(viewerScopeForActs()).resolves.toEqual([])
+  })
+
+  it('a THROWN resolve → [] , never null — the arm M23 mutates', async () => {
+    mockCaps.mockRejectedValue(new Error('core down'))
+    await expect(viewerScopeForActs()).resolves.toEqual([])
   })
 })

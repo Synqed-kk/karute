@@ -28,6 +28,9 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 
@@ -113,12 +116,37 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const viewerStaffId = selfRow ? selfRow.id : null
     const viewerRole = (selfRow?.display_role ?? '') as string
-    const canViewAllRecordings = ctx.identity.capabilities.has('recordings.viewAll')
+    const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
+
+    // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+    // isolation law 8/17; Greptile #848 point 2) — the Bearer twin of the web
+    // page's line. Resolved ONLY for a viewAll caller, and a failed assignment
+    // read arrives as [] (fail closed), so an assignment blip narrows the grant
+    // and never 502s the screen or hides a recorder's own transcript.
+    // ONE resolved scope, fed to BOTH the read predicate and the act predicate
+    // — they cannot disagree about which stores this viewer can see. Resolved
+    // whenever the read grant is held: the PAIR IMPLIES IT (holdsOwnerKeys is
+    // `business.manage && recordings.viewAll`), so a both-keys caller always
+    // takes this branch and a caller holding neither key pays nothing.
+    const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+    const allowedStoreIds = holdsRecordingsViewAll
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+            selfStaffId: viewerStaffId,
+          })
+        : null
+    const canViewAllRecordings = canViewAllInStore({
+      canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds,
+      recordStoreId: karute.store_id,
+    })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
     // (not a Supabase profile id) into its profile id before the ACL compare
@@ -162,6 +190,25 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       recordingRow,
       businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
+      // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4) — the
+      // Bearer twin of the web page's line, the same server expression the
+      // regenerate route enforces. A named grantee reads a colleague's words
+      // and gets no 再生成 button; the recorder and the owner's hand keep theirs.
+      // The flag is the server's gate VERBATIM: `records.write` first, then
+      // the ACL — so a front-desk viewer on an unowned karute never sees a
+      // control the server refuses (the ACL alone passes every unowned record).
+      staffCanRegenerate:
+        ctx.identity.capabilities.has('records.write') &&
+        canViewTranscript({
+          ownerStaffId: ownerProfileId,
+          viewerStaffId,
+          canViewAll: ownerHandReach({
+            holdsOwnerKeys: callerHoldsOwnerKeys,
+            allowedStoreIds,
+            // `?? null` explicitly — see the web page's twin.
+            recordStoreId: karute.store_id ?? null,
+          }),
+        }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,

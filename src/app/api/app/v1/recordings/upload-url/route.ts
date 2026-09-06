@@ -29,6 +29,7 @@
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
@@ -86,7 +87,7 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   const actor = {
     staffId,
     businessId: ctx.identity.businessId,
-    canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
+    holdsOwnerKeys: holdsOwnerKeys(ctx.identity.capabilities),
     source: 'facade' as const,
     requestId: ctx.meta.requestId,
   }

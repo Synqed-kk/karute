@@ -21,7 +21,10 @@ import {
 } from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { can } from '@/lib/auth/require-permission'
+import { can, getMyCapabilities } from '@/lib/auth/require-permission'
+import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
@@ -45,9 +48,11 @@ export default async function KaruteDetailPage({
     allCustomers,
     outcome,
     viewerStaffId,
-    canViewAllRecordings,
+    holdsRecordingsViewAll,
+    storeScope,
     canReassign,
     businessId,
+    capabilities,
   ] = await Promise.all([
     getKaruteRecord(id),
     // Page to completion so the karute number resolves for an overflow customer.
@@ -56,14 +61,27 @@ export default async function KaruteDetailPage({
     ),
     getKaruteOutcome(id),
     // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
-    // may read every staff's raw recordings (owner/manager). Both independent
-    // of the karute, so fan them out in the same wave.
+    // may read every staff's raw recordings (the owner, or a person the owner
+    // named). Both independent of the karute, so fan them out in the same wave.
     getCurrentUserStaffId(),
     can('recordings.viewAll'),
+    // The viewer's store assignment (⚖ 8/17 store isolation; Greptile #848
+    // point 2). null = unrestricted (stores.viewAll / floating); a THROWN or
+    // degraded lookup becomes [] below and fails the grant closed — it never
+    // widens into "every store", and it never costs a recorder her own take.
+    resolveStoreScope().catch((err: unknown) => {
+      console.warn('[karute-detail] store scope read failed — failing closed', err)
+      return null
+    }),
     // F4: records.reassign gate — the 顧客を変更 entry point.
     can('records.reassign'),
     // The tenant the key grammar's take fence is checked against.
     getBusinessId(),
+    // The whole set, for the ACT gate below. `can()` resolves through the same
+    // per-request memo, so this costs no extra read — and asking for the SET
+    // rather than a second can() keeps `business.manage` out of the capability
+    // log this page keeps for the READ (it is never asked as its own question).
+    getMyCapabilities(),
   ])
   if (!karute) notFound()
 
@@ -92,6 +110,49 @@ export default async function KaruteDetailPage({
       karute.staff_profile_id)
     : null
 
+  // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+  // isolation law 8/17; Greptile #848 point 2). Before the named grant every
+  // viewAll holder was an owner, and the owner preset carries stores.viewAll —
+  // so a holder without store reach could not exist. The first named grantee is
+  // that person, and this is the line that keeps her inside her own stores.
+  // ONE resolved scope, fed to BOTH the read predicate and the act predicate —
+  // they cannot disagree about which stores this viewer can see.
+  const allowedStoreIds =
+    storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
+  const canViewAllRecordings = canViewAllInStore({
+    canViewAll: holdsRecordingsViewAll,
+    allowedStoreIds,
+    recordStoreId: karute.store_id,
+  })
+
+  // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
+  // `recordings.viewAll`; the ACT — rewriting a colleague's record — is the
+  // owner's two keys. This is the SERVER'S OWN expression, character for
+  // character (actions/regenerate-karute.ts:392), so the button and the action
+  // cannot drift: the recorder keeps her own button on the own-recording
+  // branch, the owner and any both-keys holder keep theirs, and a named
+  // grantee reads the words with no button at all.
+  // The flag is the server's gate VERBATIM: `records.write` first, then the
+  // ACL — so a front-desk viewer on an unowned karute never sees a control the
+  // server refuses (the ACL alone passes every unowned record).
+  const staffCanRegenerate =
+    capabilities.has('records.write') &&
+    canViewTranscript({
+      ownerStaffId: ownerProfileId,
+      viewerStaffId,
+      // ownerHandReach, not holdsOwnerKeys — the ACT door now obeys the store
+      // law too (⚖ 8/17; fix round 7), so the button and the door still cannot
+      // drift: a clamped both-keys manager sees no button on a store she
+      // cannot reach, and gets no 再生成 if she posts anyway.
+      canViewAll: ownerHandReach({
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        allowedStoreIds,
+        // `?? null` explicitly: a legacy karute shape can OMIT store_id, and an
+        // absent field must never be mistaken for the customer-wide mode.
+        recordStoreId: karute.store_id ?? null,
+      }),
+    })
+
   const customerId = karute.client_id ?? null
 
   // Customer contact + consent are both cached per-customer with their own tag
@@ -117,6 +178,7 @@ export default async function KaruteDetailPage({
     recordingRow,
     businessId,
     staffCanReassignRecords: canReassign,
+    staffCanRegenerate,
     contact,
     consentResult,
     customer,
@@ -162,6 +224,7 @@ export default async function KaruteDetailPage({
       transcriptRestricted={built.transcriptRestricted}
       recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
+      staffCanRegenerate={built.staffCanRegenerate}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).
