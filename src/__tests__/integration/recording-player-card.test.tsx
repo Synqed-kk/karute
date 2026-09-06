@@ -9,7 +9,7 @@
  *   · an OLD record shows no player and says NOTHING about one (F5);
  *   · a PROCESSING record shows the player already — the audio is safe (F6);
  *   · 再生時間 never appears beside a scrub bar that states the same length;
- *   · speeds are 1 → 1.5 → 2 → 3 and they reach the element;
+ *   · speeds are 1 → 1.5 → 2 and they reach the element;
  *   · recording always wins: a play tap mid-recording is refused, and a
  *     recorder that starts pauses the player;
  *   · nothing on the card says who may hear the take, and there is no download.
@@ -192,11 +192,11 @@ describe('the controls', () => {
   // ⚠ L2 F3 — the old pin ended on 1×, which is jsdom's DEFAULT, so both
   // playbackRate assignments could be deleted with the suite green. Every step
   // is asserted on the ELEMENT now.
-  it('the speed chip cycles 1 → 1.5 → 2 → 3 → 1 and every step reaches the element', () => {
+  it('the speed chip cycles 1 → 1.5 → 2 → 1 and every step reaches the element', () => {
     card()
     const chip = screen.getByRole('button', { name: '再生速度' })
     expect(chip.textContent).toBe('標準')
-    for (const [label, rate] of [['1.5倍', 1.5], ['2倍', 2], ['3倍', 3], ['標準', 1]] as const) {
+    for (const [label, rate] of [['1.5倍', 1.5], ['2倍', 2], ['標準', 1]] as const) {
       fireEvent.click(chip)
       expect(audioEl().playbackRate).toBe(rate)
       expect(chip.textContent).toBe(label)
@@ -233,7 +233,9 @@ describe('the controls', () => {
   })
 
   // ⚠ L4-3 (F7). WebKit may clamp above ~2×. The chip must state what the
-  // engine is RUNNING, not what we asked for.
+  // engine is RUNNING, not what we asked for. With 2倍 the top of the cycle the
+  // engine is modelled at a 1.5× ceiling, so a clamp is still exercised — the
+  // pin is the READBACK, never one particular ceiling.
   it('a clamping engine makes the chip state the EFFECTIVE rate', () => {
     card()
     const audio = audioEl()
@@ -241,15 +243,18 @@ describe('the controls', () => {
     Object.defineProperty(audio, 'playbackRate', {
       configurable: true,
       get: () => rate,
-      set: (v: number) => void (rate = Math.min(v, 2)), // an engine capped at 2×
+      set: (v: number) => void (rate = Math.min(v, 1.5)), // an engine capped at 1.5×
     })
     const chip = screen.getByRole('button', { name: '再生速度' })
     fireEvent.click(chip) // ask 1.5 → honoured
+    expect(audio.playbackRate).toBe(1.5)
     expect(chip.textContent).toBe('1.5倍')
-    fireEvent.click(chip) // ask 2 → honoured
-    expect(chip.textContent).toBe('2倍')
-    fireEvent.click(chip) // ask 3 → clamped to 2
-    expect(chip.textContent).toBe('2倍')
+    fireEvent.click(chip) // ask 2 → clamped to 1.5
+    expect(audio.playbackRate).toBe(1.5)
+    expect(chip.textContent).toBe('1.5倍')
+    fireEvent.click(chip) // wraps to index 0 → ask 1 → honoured
+    expect(audio.playbackRate).toBe(1)
+    expect(chip.textContent).toBe('標準')
   })
 
   // ⚠ L1 MEDIUM-2 (F10). A job-owned row can carry a null duration, and with
