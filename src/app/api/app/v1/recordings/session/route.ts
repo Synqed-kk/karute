@@ -88,6 +88,16 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   // read to the client as "carry on, the mint just failed", and the take would
   // be captured against a store this caller was refused. The inbox route places
   // its clamp for exactly this reason (recordings/inbox/route.ts).
+  //
+  // ⚖ AND SO DOES A LOOKUP FAILURE — an upstream blip here reads as 403, not
+  // 5xx, because that is the clamp's own fail-closed shape (store-clamp.ts:74
+  // and :109, both without the `store_header` marker, so the thin shell's
+  // stranded-pin self-heal correctly does not fire). It is NOT swallowed to
+  // `storeId: null`: under the ruled null rule an unstamped row is permanently
+  // OPEN at the take doors, so swallowing would turn a momentary blip into a
+  // permanent, invisible widening. Capture is not blocked either way — the
+  // client reads every non-2xx as a null mint, and the drain re-mints later
+  // with the CORRECT store.
   const clamp = await resolveStoreForRequest({
     synqed,
     authUserId: ctx.identity.authUserId,

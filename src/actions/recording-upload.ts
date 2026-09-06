@@ -176,25 +176,20 @@ export async function mintRecordingSegmentUrls(
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
-    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. Resolved ONLY
-    // when the pair is held (the playback action's idiom, src/actions/
-    // recording-playback.ts): a recorder acting on her OWN session never
-    // reaches the store leg, so an assignment blip must not cost her the take.
-    // One spelling of the web act scope — viewerScopeForActs; dynamic import,
-    // the repo convention (a top-level one drags the ESM-only SDK into this
-    // module's jest graph).
-    const pairHeld = holdsOwnerKeys(capabilities)
-    const allowedStoreIds = pairHeld
-      ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
-      : null
-
+    // ③ NO STORE REACH ON THIS DOOR, and none is resolved (fix round 1, L2 F2).
+    // Inert: the segment door refuses every non-own row two lines after
+    // assertRecorderOwnsRow (mint-take-url.ts:997), so a resolved scope here is
+    // a core round trip that changes no answer — once per segment batch, on the
+    // live-recording hot path. `null` reads as unrestricted, which is exactly
+    // what the stricter own-staff rule below it already enforces. The facade
+    // twin (recordings/upload-url/route.ts) does the same, per arm.
     return await mintSegmentUploadUrls(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
-        holdsOwnerKeys: pairHeld,
-        allowedStoreIds,
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        allowedStoreIds: null,
         source: 'web',
       },
       input,
