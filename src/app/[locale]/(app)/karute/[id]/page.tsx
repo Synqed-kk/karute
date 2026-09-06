@@ -92,16 +92,23 @@ export default async function KaruteDetailPage({
 
   // The recording behind this karute — the player's presence probe. Fired
   // alongside the customer wave below (it needs only the session id, which the
-  // karute read just gave us) and EVERY failure degrades to null: an accessory
-  // read that blipped must cost the player, never the whole karute (D-8, the
-  // photos precedent).
+  // karute read just gave us) and EVERY failure degrades: an accessory read
+  // that blipped must cost the player, never the whole karute (D-8, the photos
+  // precedent).
+  //
+  // ⚖ …BUT IT DEGRADES TO `'unreadable'`, NOT TO `null` (fix round 6, Greptile
+  // #849 review 2). Null is a record that NAMES no store, and a store we could
+  // not read is not a store that does not exist: collapsing the two handed a
+  // store-clamped grantee a colleague's transcript whenever this read blipped.
+  // The player still goes away (the builder is handed `null` below); the store
+  // question gets the honest answer — see readDoorStoreId (auth/recording-acl).
   const recordingSessionId = karute.recording_session_id
   const recordingPromise = recordingSessionId
     ? synqedPromise
         .then((synqed) => synqed.recordings.get(recordingSessionId))
         .catch((err: unknown) => {
           console.warn('[karute-detail] recording read failed — no player', err)
-          return null
+          return 'unreadable' as const
         })
     : Promise.resolve(null)
 
@@ -143,7 +150,11 @@ export default async function KaruteDetailPage({
   // nothing above needs it, so awaiting it here costs no extra call AND keeps
   // it off the critical path — awaiting it earlier made the three customer
   // reads wait behind one `recordings.get`.
-  const recordingRow = await recordingPromise
+  const recordingRead = await recordingPromise
+  // Everything BUT the store question wants a ROW or nothing: a read that
+  // failed is no row, so the player disappears exactly as it did before (fix
+  // round 6). Only the two store computations below see the sentinel.
+  const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
   // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
   // karute's own store leads; a karute that carries none inherits the RECORDING
   // row's, which since ③ names the branch the device was in. ONE spelling for
@@ -153,7 +164,7 @@ export default async function KaruteDetailPage({
   const canViewAllRecordings = canViewAllInStore({
     canViewAll: holdsRecordingsViewAll,
     allowedStoreIds,
-    recordStoreId: readDoorStoreId(karute, recordingRow),
+    recordStoreId: readDoorStoreId(karute, recordingRead),
   })
 
   // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
@@ -182,7 +193,7 @@ export default async function KaruteDetailPage({
         // SAME input as canViewAllRecordings above. Reading the karute alone
         // here let a clamped manager who could not READ this record still see
         // the 再生成 button on it — the wrong way round for the stronger door.
-        recordStoreId: readDoorStoreId(karute, recordingRow),
+        recordStoreId: readDoorStoreId(karute, recordingRead),
       }),
     })
 

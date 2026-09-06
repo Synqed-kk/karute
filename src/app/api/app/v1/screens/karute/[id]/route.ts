@@ -71,7 +71,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
   const recordingSessionId = (raw.recording_session_id as string | null) ?? null
 
   try {
-    const [staffList, allCustomers, outcome, gated, recordingRow] = await Promise.all([
+    const [staffList, allCustomers, outcome, gated, recordingRead] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Pre-ruled exception: outcome stays null-on-failure (product semantics).
@@ -103,11 +103,17 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       // The recording behind this karute — the player's presence probe (slice
       // ①). Page-parity graceful like photos above, and for the stronger
       // reason: an accessory read that blipped must cost the PLAYER, never 502
-      // the whole karute screen. A 404 (row swept) is the same null.
+      // the whole karute screen. A 404 (row swept) is the same answer.
+      //
+      // ⚖ …AND THE FAILURE IS `'unreadable'`, NOT `null` (fix round 6, Greptile
+      // #849 review 2) — the web page's twin. A store we could not read is not
+      // a record with no store: collapsing the two opened a null-store karute
+      // to a store-clamped grantee on every blip. The player still goes away;
+      // only the store question sees the sentinel (readDoorStoreId).
       recordingSessionId
         ? synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
             console.warn('[screens/karute] recording read failed — no player', err)
-            return null
+            return 'unreadable' as const
           })
         : Promise.resolve(null),
     ])
@@ -115,6 +121,10 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const customer = gated?.[0] ?? null
     const consent = gated?.[1] ?? null
     const photoRows = gated?.[2] ?? []
+    // Everything BUT the store question wants a ROW or nothing: a read that
+    // failed is no row, so the DTO's `recording` is null exactly as before (fix
+    // round 6). Only the two store computations below see the sentinel.
+    const recordingRow = recordingRead === 'unreadable' ? null : recordingRead
 
     // The caller's roster row: staff id (ACL viewer) + display role (coaching
     // panel gate). Keyed by the CONFIRMED auth user id — never client input.
@@ -156,7 +166,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const canViewAllRecordings = canViewAllInStore({
       canViewAll: holdsRecordingsViewAll,
       allowedStoreIds,
-      recordStoreId: readDoorStoreId(karute, recordingRow),
+      recordStoreId: readDoorStoreId(karute, recordingRead),
     })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
@@ -220,7 +230,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             // 4): the SAME input as canViewAllRecordings above. Reading the
             // karute alone here let a clamped manager who could not READ this
             // record still be handed the 再生成 control.
-            recordStoreId: readDoorStoreId(karute, recordingRow),
+            recordStoreId: readDoorStoreId(karute, recordingRead),
           }),
         }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,

@@ -771,17 +771,20 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     expect((await post()).status).toBe(200)
   })
 
-  // ⚠ THE NAMED CEILING (readDoorStoreId's docblock). A recording read that
-  // FAILED leaves the store unknown, which reads as "no store" — the pre-③
-  // answer, OPEN. It fails in the widening direction on purpose: refusing a
-  // 再生成 on a storage blip is the worse trade. Pinned so the choice is a
-  // decision, never a drift.
-  it('facade: an UNREADABLE recording row leaves the karute OPEN — the named ceiling', async () => {
+  // ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED HAND (fix round 6, Greptile
+  // #849 review 2). THIS CASE USED TO PIN THE OPPOSITE: a failed row read
+  // reading as "no store" — the pre-③ answer, OPEN — held as the accepted
+  // trade against refusing a 再生成 on a storage blip. It is the fail-open
+  // Greptile named, and the trade was wrong at the strongest door of the
+  // three: a store we could not READ is not a record with no store, and the
+  // cost of closing it is a refusal that lasts exactly as long as the blip.
+  it('facade: an UNREADABLE recording row REFUSES a store-a manager → 403, NO LLM', async () => {
     nullStoreKaruteWithRow('store-9')
     recordingsGet.mockRejectedValue(new Error('core down'))
     capabilities.current = new Set(BOTH)
     staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
-    expect((await post()).status).toBe(200)
+    expect((await post()).status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
   })
 
   it('web: the same NULL-store karute + store-9 row is refused there too', async () => {

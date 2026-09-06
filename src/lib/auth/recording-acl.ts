@@ -37,6 +37,10 @@ export function canViewTranscript(opts: {
  *
  *   - `allowedStoreIds === null` → unrestricted within the tenant
  *     (`stores.viewAll`, or floating staff assigned to no store) — hears anything.
+ *   - `recordStoreId === 'unreadable'` → the door's recording read FAILED, so
+ *     this record's store is UNKNOWN (⚖ fix round 6, Greptile #849 review 2).
+ *     Unknown is not 全店舗: a clamped viewer fails CLOSED, and an unrestricted
+ *     one still passes, because no store could have excluded her anyway.
  *   - `recordStoreId == null` → a 全店舗 / legacy record with no store to be
  *     outside of — hears it, exactly as the "no owner is shared" branch above.
  *   - otherwise the record's store must be one the viewer is assigned to.
@@ -50,10 +54,11 @@ export function canViewTranscript(opts: {
 export function canViewAllInStore(opts: {
   canViewAll: boolean
   allowedStoreIds: readonly string[] | null
-  recordStoreId: string | null | undefined
+  recordStoreId: string | null | undefined | 'unreadable'
 }): boolean {
   const { canViewAll, allowedStoreIds, recordStoreId } = opts
   if (!canViewAll) return false
+  if (recordStoreId === 'unreadable') return allowedStoreIds === null
   if (allowedStoreIds === null) return true
   if (recordStoreId == null) return true
   return allowedStoreIds.includes(recordStoreId)
@@ -90,15 +95,25 @@ export function canViewAllInStore(opts: {
  * and by construction: they run before any karute exists to ask, so they read
  * the row's column alone (take-binding.ts#assertRecorderOwnsRow).
  *
- * ⚠ NAMED CEILING — a recording read that FAILED arrives here as `null`. Both
- * words doors degrade the accessory read that way on purpose (an accessory blip
- * must cost the player, never the whole karute), and the server gate does the
- * same. So a null-store karute whose row could not be read stays OPEN — exactly
- * the answer every door gave before ③, and the direction we would rather not
- * fail in. It is the accepted trade: closing it would 502 a karute page, or
- * refuse a 再生成, on a storage blip. Closing it properly needs a sentinel the
- * clamp can never match, fed from the `.catch` at every door — a change to make
- * deliberately, not a hole to patch here.
+ * ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED VIEWER (fix round 6, Greptile
+ * #849 review 2). A recording read that FAILED arrives here as the VALUE
+ * `'unreadable'` — the `.catch` at all three doors returns it, the same
+ * sentinel-is-a-value idiom `ownerHandReach` uses one function down (and
+ * `packs.ts` / `auto-burn.ts` use elsewhere). It is NOT collapsed into `null`:
+ * null means "this record names no store", and a store we could not READ is
+ * not a store that does not exist. `canViewAllInStore` answers it in one line
+ * — an unrestricted viewer passes (no store could have excluded her), a
+ * clamped one fails CLOSED, on the words doors and the act doors alike.
+ *
+ * The round-4 ruling this replaces left the blip OPEN, to avoid 502ing a karute
+ * page over an accessory read. That was the wrong trade, and the page never
+ * needed it: the doors already have an honest answer for "you may not read
+ * this" — the transcript's RESTRICTED rendering, which costs no status code.
+ * So the whole remaining cost is one restricted render, for one clamped
+ * viewer, during one blip: the recorder's own record never reaches this leg,
+ * and an owner or preset manager carries `stores.viewAll`. The sound door pays
+ * nothing at all — it returns `upstream` on a failed row read, before it ever
+ * asks this question (playback-url.ts).
  */
 export function readDoorStoreId(
   /** The karute row. `store_id` is optional on the app's own view-model type
@@ -106,9 +121,15 @@ export function readDoorStoreId(
    *  explicitly null one here: this record names no store of its own, so ask
    *  the recording. */
   karute: { store_id?: string | null },
-  row: { store_id?: string | null } | null | undefined,
-): string | null {
-  return karute.store_id ?? row?.store_id ?? null
+  /** The recording row, `null` when there is none to read, or the value
+   *  `'unreadable'` when the door's own read FAILED — see the ⚖ paragraph
+   *  above. The row is consulted ONLY when the karute names no store, so an
+   *  unreadable row on a karute that HAS one changes nothing. */
+  row: { store_id?: string | null } | null | undefined | 'unreadable',
+): string | null | 'unreadable' {
+  if (karute.store_id != null) return karute.store_id
+  if (row === 'unreadable') return 'unreadable'
+  return row?.store_id ?? null
 }
 
 /**
@@ -126,8 +147,10 @@ export function readDoorStoreId(
  * Two shapes, because the two doors ask different questions:
  *   - RECORD-LEVEL (`recordStoreId` given, may be null): one karute, so the
  *     ordinary store compare applies — `canViewAllInStore`'s rules verbatim,
- *     including "a record with no store is 全店舗/legacy" and "degraded `[]`
- *     fails closed".
+ *     including "a record with no store is 全店舗/legacy", "degraded `[]`
+ *     fails closed", and (fix round 6) "an `'unreadable'` row fails closed for
+ *     a clamped hand" — the value `readDoorStoreId` hands over when the act
+ *     door's own recording read failed.
  *   - CUSTOMER-WIDE (`recordStoreId: 'customer-wide'`): 再学習 and the bulk list
  *     read a customer's WHOLE history, which spans stores by construction
  *     (the customer door is cross-store by Liam's 8/17 ruling). There is no
@@ -146,8 +169,10 @@ export function ownerHandReach(opts: {
    *  i.e. OPEN — so a legacy karute shape that simply omits `store_id` would
    *  have silently selected the customer-wide mode here and the open branch
    *  there. One spelling, no overlap: `'customer-wide'` picks the mode, and a
-   *  real record passes its store or an explicit `null`. */
-  recordStoreId: string | null | 'customer-wide'
+   *  real record passes its store, an explicit `null`, or `'unreadable'` when
+   *  the door could not read the row (fix round 6) — three distinct words, and
+   *  only the first picks a mode. */
+  recordStoreId: string | null | 'customer-wide' | 'unreadable'
 }): boolean {
   const { holdsOwnerKeys, allowedStoreIds, recordStoreId } = opts
   if (!holdsOwnerKeys) return false

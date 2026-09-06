@@ -416,18 +416,25 @@ export async function regenerateKaruteWithClient(
   //
   //    The row is fetched ONLY when the karute names no store of its own: the
   //    common case pays nothing, and the rare one pays a single read on an act
-  //    path that is about to run an LLM anyway. A FAILED fetch (or a karute
-  //    with no session at all) leaves the row unknown, which reads as "no
-  //    store" — the pre-③ answer, OPEN. Named ceiling: it fails in the widening
-  //    direction, and closing it would refuse a regenerate on a storage blip.
-  //    The same ceiling the read doors carry (readDoorStoreId's docblock).
+  //    path that is about to run an LLM anyway.
+  //
+  //    ⚖ A FAILED FETCH IS `'unreadable'`, AND IT CLOSES FOR A CLAMPED HAND
+  //    (fix round 6, Greptile #849 review 2). Until this round it read as "no
+  //    store" — the pre-③ answer, OPEN — so a storage blip on a null-store
+  //    karute let a store-limited both-keys manager rewrite another branch's
+  //    record. A store we could not READ is not a record with no store, and
+  //    this is the strongest of the doors (it rewrites), so it fails closed:
+  //    an owner or preset manager (stores.viewAll) is untouched, the recorder
+  //    never reaches this leg, and only a clamped hand is refused — for as long
+  //    as the blip lasts. A karute with no session at all is genuinely
+  //    store-less and stays `null` (open), which is not a failure at all.
   const karuteStoreId = (record.store_id as string | null) ?? null
   const recordingSessionId = (record.recording_session_id as string | null) ?? null
   const recordingRow =
     karuteStoreId === null && recordingSessionId
       ? await synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
-          console.warn('[regenerate] recording read failed — store unknown, treated as none', err)
-          return null
+          console.warn('[regenerate] recording read failed — store UNREADABLE, clamped hands refused', err)
+          return 'unreadable' as const
         })
       : null
   const reach = ownerHandReach({
