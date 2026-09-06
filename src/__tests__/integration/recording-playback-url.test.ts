@@ -416,6 +416,17 @@ describe('mintPlaybackUrlWithClient — the fence and the failures (claims 1 + h
 // door reads them in the one order every reader shares (resolveTakeAudio): the
 // device's own object first, always.
 describe('mintPlaybackUrlWithClient — the device’s object first, the rescue second', () => {
+  // ⚖ ADDENDUM 9.2 H3 — THE PRODUCTION SHAPE OF A RESCUED ROW. The save door
+  // stamps NO duration, ever, so a rescued row's `duration_seconds` stays null
+  // until the phone's own finalize writes the real one: such a row passes
+  // serverHoldsTakeRow on the isJobOwnedStatus leg ALONE, which is precisely
+  // the leg a rescue rides. The shared fixture's 742 s belongs to a phone that
+  // came back and finalized — a different case, and pinning the fence and the
+  // fallback on it would prove them only apart.
+  beforeEach(() => {
+    ROW.current = { ...ROW.current, duration_seconds: null, status: 'COMPLETED' }
+  })
+
   /** Bytes at these keys and nowhere else. */
   const onlyAt = (...keys: string[]) =>
     info.mockImplementation(async (key: string) =>
