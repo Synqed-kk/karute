@@ -86,7 +86,7 @@ const UUID_LENGTH = 36
  * EXPORTED, read-only, so the `audio/<ext>` round trip the two …FromExt
  * wrappers rest on is pinned against THE MAP ITSELF rather than against a
  * typed-out copy of today's members (fix round 8). A fifth container is added
- * here and exactly one pin fails, which is what the docblock below promises.
+ * here and the round-trip pins fail, which is what the docblock below promises.
  */
 export const MIME_TO_EXT: Readonly<Record<string, string>> = Object.freeze(
   Object.assign(Object.create(null), {
@@ -341,7 +341,7 @@ export function composeRescueKey(
  * inverse of MIME_TO_EXT for every member of that closed map today, and that
  * coincidence is PINNED in the grammar's own suite; these two wrappers are the
  * only place it is relied on, so if the map ever gains a member whose MIME is
- * not `audio/<ext>` exactly one pin fails and exactly two functions change.
+ * not `audio/<ext>` the round-trip pins fail and exactly two functions change.
  *
  * Null for a container the map does not know — the same refusal composeTakeKey
  * makes, never a guessed key.
