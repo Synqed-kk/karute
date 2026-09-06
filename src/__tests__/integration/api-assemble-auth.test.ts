@@ -13,9 +13,14 @@ import * as appHandler from '@/app/api/assemble/route'
 // recording-assembler.test.ts, and a route test that reached storage would be
 // testing the fake bucket twice.
 const runAssembler = jest.fn(async (_deps: unknown, _opts: { budgetMs: number }) => summary())
+/** `mock`-prefixed so jest's hoisting lets the factory below close over it. */
+let mockDepsThrow: Error | null = null
 jest.mock('@/lib/recording/assembler', () => ({
   runAssembler: (deps: unknown, opts: { budgetMs: number }) => runAssembler(deps, opts),
-  realAssemblerDeps: () => ({ coreFor: () => ({}), now: () => 0 }),
+  realAssemblerDeps: () => {
+    if (mockDepsThrow) throw mockDepsThrow
+    return { coreFor: () => ({}), now: () => 0 }
+  },
 }))
 
 const summary = (over: Record<string, unknown> = {}) => ({
@@ -40,6 +45,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   jest.clearAllMocks()
   process.env.CRON_SECRET = 'test-cron-secret'
+  mockDepsThrow = null
   runAssembler.mockImplementation(async () => summary())
 })
 
@@ -89,6 +95,26 @@ describe('GET /api/assemble auth', () => {
         expect(res.status).toBe(200)
         expect(runAssembler).toHaveBeenCalledTimes(1)
         expect(runAssembler.mock.calls[0][1]).toEqual({ budgetMs: 270_000 })
+      },
+    })
+  })
+})
+
+describe('GET /api/assemble — a job that cannot reach core says so', () => {
+  // realAssemblerDeps builds a core client up front precisely so a missing
+  // SYNQED_CORE_URL / _API_KEY is a 500 the scheduler can see, rather than a
+  // green 200 whose body reports skipped.error === candidates.
+  it('a missing core env is a 500 BEFORE any walk, never a green 200', async () => {
+    mockDepsThrow = new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'GET',
+          headers: { authorization: 'Bearer test-cron-secret' },
+        })
+        expect(res.status).toBe(500)
+        expect(runAssembler).not.toHaveBeenCalled()
       },
     })
   })

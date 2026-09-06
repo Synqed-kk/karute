@@ -34,12 +34,17 @@ type Entry = {
 }
 type ListAnswer = { data: Entry[] | null; error: { message: string } | null }
 
-/** prefix -> the pages that listing answers with, in order. A prefix with one
- *  page shorter than the limit still gets a terminating empty page, because
- *  the real walk advances by what a page RETURNED and only a zero-length page
- *  ends it. */
-const listings = new Map<string, ListAnswer[]>()
-const listCursor = new Map<string, number>()
+/** prefix -> everything under it, in name order. The fake serves it by
+ *  OFFSET, exactly as storage does, so a `limit: 1` peek and a paged walk of
+ *  the same prefix can both be modelled without a call-order trick. */
+const contents = new Map<string, Entry[]>()
+/** Prefixes whose CONTINUATION page fails — i.e. the walk was cut part-way
+ *  through, which is the only listing failure that matters (the first page
+ *  failing just answers nothing at all). */
+const cutListings = new Set<string>()
+/** Every list call, so a test can say what a folder COST as well as what it
+ *  answered. */
+const listCalls: { prefix: string; limit?: number; offset?: number }[] = []
 const bodies = new Map<string, Buffer>()
 const infos = new Map<string, { size?: number } | null>()
 const uploads: { key: string; body: Buffer; opts: { contentType?: string; upsert?: boolean } }[] = []
@@ -49,13 +54,15 @@ const emptyBucket = jest.fn(async () => ({ data: null, error: null }))
 
 const NOT_FOUND = { message: 'Object not found', status: 404, statusCode: '404' }
 
-const list = jest.fn(async (prefix: string, _opts: unknown): Promise<ListAnswer> => {
-  const pages = listings.get(prefix)
-  if (!pages) return { data: [], error: null }
-  const at = listCursor.get(prefix) ?? 0
-  listCursor.set(prefix, at + 1)
-  return pages[at] ?? { data: [], error: null }
-})
+const list = jest.fn(
+  async (prefix: string, opts: { limit?: number; offset?: number }): Promise<ListAnswer> => {
+    listCalls.push({ prefix, limit: opts?.limit, offset: opts?.offset })
+    const offset = opts?.offset ?? 0
+    if (cutListings.has(prefix) && offset > 0) return { data: null, error: { message: 'boom' } }
+    const all = contents.get(prefix) ?? []
+    return { data: all.slice(offset, offset + (opts?.limit ?? 100)), error: null }
+  },
+)
 const download = jest.fn(async (key: string) => {
   const body = bodies.get(key)
   if (!body) return { data: null, error: NOT_FOUND }
@@ -100,6 +107,7 @@ const BIZ2 = 'biz-2'
 const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
 const TAKE2 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
+const SESSION2 = '9d2e1b3c-5f4a-4e67-8b9c-0d1e2f3a4b5c'
 
 const NOW = Date.parse('2026-09-06T18:07:00.000Z')
 const OLD = new Date(NOW - ASSEMBLE_AFTER_MS - 60 * 60 * 1000).toISOString()
@@ -110,12 +118,21 @@ type Row = {
   audio_storage_path: string | null
   duration_seconds: number | null
   status: string
+  /** A born-reserved row carries no store (session-mint.ts sends none), so
+   *  null is the production shape — set it only where a test is about the
+   *  audit row's store leg. */
+  store_id: string | null
 }
 const rowsByBusiness = new Map<string, Row[]>()
 /** Every time anything reached for a core WRITE method. Must stay empty. */
 const coreWrites: string[] = []
 const listedBy: string[] = []
+/** The options the assembler asked core for — the row query's whole class
+ *  definition lives in them, so they are pinned rather than assumed. */
+const listOpts: unknown[] = []
 let listThrows = false
+/** Rows per PAGE, when a test is about paging. Default: everything on page 1. */
+let rowPageSize = 0
 
 // ⚖ READ-ONLY BY CONSTRUCTION. Core fences recording writes behind a human
 // actor and this job has none, so the fake offers `list` and NOTHING else:
@@ -124,11 +141,23 @@ let listThrows = false
 // back cannot pass this file by accident.
 const coreFor = jest.fn((businessId: string) => ({
   recordings: {
-    list: async (_opts: unknown) => {
+    list: async (opts: { status?: string; page?: number }) => {
       listedBy.push(businessId)
+      listOpts.push(opts)
       if (listThrows) throw new Error('core down')
-      const rows = rowsByBusiness.get(businessId) ?? []
-      return { recordings: rows, total: rows.length, page: 1, page_size: 200 }
+      // Core filters by status server-side; the fake does too, so a test can
+      // put a PROCESSING row behind the same pointer and see it not come back.
+      const all = (rowsByBusiness.get(businessId) ?? []).filter(
+        (r) => !opts?.status || r.status === opts.status,
+      )
+      if (rowPageSize === 0) return { recordings: all, total: all.length, page: 1, page_size: 200 }
+      const page = opts?.page ?? 1
+      return {
+        recordings: all.slice((page - 1) * rowPageSize, page * rowPageSize),
+        total: all.length,
+        page,
+        page_size: rowPageSize,
+      }
     },
     get update() {
       coreWrites.push(businessId)
@@ -147,8 +176,12 @@ function seed(opts: {
   ext?: string
   sizes?: number[]
   createdAt?: string
+  /** Per-leaf timestamps, when the test is about WHICH leaf decides the age. */
+  createdAts?: string[]
+  rowId?: string
   rowPointer?: string | null
   duration?: number | null
+  storeId?: string | null
   objectSize?: number | null
   status?: string
 }) {
@@ -156,42 +189,49 @@ function seed(opts: {
   const takeId = opts.takeId ?? TAKE
   const ext = opts.ext ?? 'webm'
   const folder = `app_${businessId}_${takeId}`
-  const created = opts.createdAt ?? OLD
   const leaves: Entry[] = opts.seqs.map((seq, i) => {
     const size = opts.sizes?.[i] ?? 10 + seq
-    const name = `${String(seq).padStart(6, '0')}.${Array.isArray(opts.ext) ? opts.ext[i] : ext}`
+    const name = `${String(seq).padStart(6, '0')}.${ext}`
     bodies.set(`seg/${folder}/${name}`, Buffer.alloc(size, seq + 1))
-    return { name, id: `obj-${folder}-${seq}`, created_at: created, metadata: { size } }
+    return {
+      name,
+      id: `obj-${folder}-${seq}`,
+      created_at: opts.createdAts?.[i] ?? opts.createdAt ?? OLD,
+      metadata: { size },
+    }
   })
   addFolder(folder)
-  listings.set(`seg/${folder}`, [{ data: leaves, error: null }, { data: [], error: null }])
+  contents.set(`seg/${folder}`, leaves)
   const key = `app_${businessId}_${takeId}.${ext}`
   if (opts.objectSize != null) infos.set(key, { size: opts.objectSize })
   const pointer = opts.rowPointer === undefined ? key : opts.rowPointer
+  const rowId = opts.rowId ?? (opts.takeId === TAKE2 ? SESSION2 : SESSION)
   if (pointer !== null) {
     const rows = rowsByBusiness.get(businessId) ?? []
     rows.push({
-      id: opts.takeId === TAKE2 ? `${SESSION}-2` : SESSION,
+      id: rowId,
       business_id: businessId,
       audio_storage_path: pointer,
       duration_seconds: opts.duration ?? null,
       status: opts.status ?? 'UPLOADING',
+      store_id: opts.storeId ?? null,
     })
     rowsByBusiness.set(businessId, rows)
   }
-  return { folder, key, leaves }
+  return { folder, key, leaves, rowId }
 }
 
 const rootFolders: Entry[] = []
 function addFolder(name: string) {
   rootFolders.push({ name, id: null, created_at: null, metadata: null })
-  listings.set('seg', [{ data: [...rootFolders], error: null }, { data: [], error: null }])
+  contents.set('seg', [...rootFolders])
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
-  listings.clear()
-  listCursor.clear()
+  contents.clear()
+  cutListings.clear()
+  listCalls.length = 0
   bodies.clear()
   infos.clear()
   uploads.length = 0
@@ -199,6 +239,8 @@ beforeEach(() => {
   rowsByBusiness.clear()
   coreWrites.length = 0
   listedBy.length = 0
+  listOpts.length = 0
+  rowPageSize = 0
   uploadAnswer = { error: null }
   listThrows = false
   jest.spyOn(console, 'info').mockImplementation(() => {})
@@ -256,15 +298,71 @@ describe('the walk', () => {
 
   it('a failed listing page reports walkComplete false — and the folders already walked are still processed', async () => {
     seed({ seqs: [0] })
-    // Page 1 came back with the folder; page 2 fails, so the rest of the tree
-    // was never seen. What WAS listed is still real work.
-    listings.set('seg', [
-      { data: [...rootFolders], error: null },
-      { data: null, error: { message: 'boom' } },
-    ])
+    // Page 1 came back with the folder; the CONTINUATION page fails, so the
+    // rest of the tree was never seen. What WAS listed is still real work.
+    cutListings.add('seg')
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.walkComplete).toBe(false)
     expect(summary.assembled).toBe(1)
+  })
+
+  // ⚖ THE GUARD BETWEEN A TRUNCATED LISTING AND A WRONG OBJECT. A half-listed
+  // folder rebuilt from would seal a SHORT object under the take's immutable
+  // key — and the next night meets it, skips, and nothing can ever replace it.
+  it('a folder whose own listing was cut is an error, never a rebuild from half a folder', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2] })
+    cutListings.add(`seg/${folder}`)
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // ⚖ R1: most folders in seg/ belong to takes that finished long ago, and
+  // they must not cost a full listing every night — that is what let the clock
+  // cut the walk in the same place forever.
+  it('a finished take costs ONE one-leaf listing and ONE probe — no full listing, no core call', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2], objectSize: 33 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    const folderCalls = listCalls.filter((c) => c.prefix === `seg/${folder}`)
+    expect(folderCalls).toEqual([{ prefix: `seg/${folder}`, limit: 1, offset: 0 }])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+  })
+
+  // ⚖ R1(b) THE ROTATION. Nothing carries a cursor between runs, so a walk
+  // that always began at index 0 would stop in the same place every night and
+  // never reach the tail — silently, because the route still answers 200.
+  it('a night cut by the clock starts somewhere else the next night, and wraps', async () => {
+    const takes = ['0f8c6c9a-3f2d-4a71-9b5e-000000000001', '0f8c6c9a-3f2d-4a71-9b5e-000000000002', '0f8c6c9a-3f2d-4a71-9b5e-000000000003']
+    takes.forEach((takeId, i) => seed({ takeId, seqs: [0], objectSize: 10, rowId: `${SESSION.slice(0, 23)}${i}${SESSION.slice(24)}` }))
+    // Day N and day N+1 land on different indexes of the same three folders…
+    const dayOf = (now: number) => Math.floor(now / 86_400_000) % 3
+    const first: string[] = []
+    for (const now of [NOW, NOW + 86_400_000, NOW + 2 * 86_400_000]) {
+      listCalls.length = 0
+      await runAssembler({ coreFor, now: () => now }, { budgetMs: 60_000 })
+      first.push(listCalls.find((c) => c.prefix !== 'seg')!.prefix)
+      expect(listCalls.find((c) => c.prefix !== 'seg')!.prefix).toBe(
+        `seg/app_${BIZ}_${takes[dayOf(now)]}`,
+      )
+    }
+    // …and over three days every folder has been reached first once: the wrap
+    // is what makes "a bucket too large for one night" cover in several.
+    expect(new Set(first).size).toBe(3)
+  })
+
+  it('the rotation WRAPS rather than running off the end', async () => {
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000a', seqs: [0] })
+    seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000b', seqs: [0], rowId: SESSION2 })
+    // Whatever day it is, both folders are visited exactly once.
+    for (const now of [NOW, NOW + 86_400_000]) {
+      listCalls.length = 0
+      const summary = await runAssembler({ coreFor, now: () => now }, { budgetMs: 60_000 })
+      expect(summary.candidates).toBe(2)
+      expect(new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)).size).toBe(2)
+    }
   })
 })
 
@@ -280,6 +378,37 @@ describe('the age gate — the newest segment is the last sign of the device', (
     seed({ seqs: [0], createdAt: new Date(NOW - 49 * 60 * 60 * 1000).toISOString() })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.assembled).toBe(1)
+  })
+
+  // ⚖ THE RULE, and the one the fixtures used to hide by stamping every leaf
+  // with the same timestamp: it is the LAST slice that says when the device
+  // was last heard from. Reading the first would seal a take that was still
+  // recording minutes ago — the self-inflicted strand D1 exists to avoid.
+  it('an old FIRST segment does not age a take whose LAST segment is minutes old', async () => {
+    seed({
+      seqs: [0, 1],
+      createdAts: [
+        new Date(NOW - 10 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date(NOW - 60 * 60 * 1000).toISOString(),
+      ],
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.young).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+
+  it.each([
+    ['one second younger than the threshold', 1000, 'young'],
+    ['one second older', -1000, 'candidate'],
+  ])('%s', async (_label, offset, verdict) => {
+    seed({ seqs: [0], createdAt: new Date(NOW - ASSEMBLE_AFTER_MS + offset).toISOString() })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    if (verdict === 'young') {
+      expect(summary.skipped.young).toBe(1)
+      expect(uploads).toHaveLength(0)
+    } else {
+      expect(summary.assembled).toBe(1)
+    }
   })
 
   it('an unparseable created_at reads as YOUNG, never as "old enough"', async () => {
@@ -383,6 +512,15 @@ describe('the assembly', () => {
     })
   })
 
+  it('a leaf that will not come down is an error — never a short object under the take’s key', async () => {
+    const { folder } = seed({ seqs: [0, 1, 2] })
+    bodies.delete(`seg/${folder}/000001.webm`)
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.error).toBe(1)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
   it('a folder with no seq 0 is not a take we can rebuild', async () => {
     seed({ seqs: [1, 2] })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
@@ -459,19 +597,73 @@ describe('the row', () => {
   it('leaves that disagree about the container are never guessed at', async () => {
     const folder = `app_${BIZ}_${TAKE}`
     addFolder(folder)
-    listings.set(`seg/${folder}`, [
-      {
-        data: [
-          { name: '000000.webm', id: 'a', created_at: OLD, metadata: { size: 4 } },
-          { name: '000001.mp4', id: 'b', created_at: OLD, metadata: { size: 4 } },
-        ],
-        error: null,
-      },
-      { data: [], error: null },
+    contents.set(`seg/${folder}`, [
+      { name: '000000.webm', id: 'a', created_at: OLD, metadata: { size: 4 } },
+      { name: '000001.mp4', id: 'b', created_at: OLD, metadata: { size: 4 } },
     ])
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.extMismatch).toBe(1)
     expect(uploads).toHaveLength(0)
+  })
+})
+
+describe('the row query is the class', () => {
+  // ⚖ D1's predicate lives in these options, and nothing pinned them: the fake
+  // used to hand back every seeded row whatever was asked, so dropping the
+  // status leg, the window or core's page cap all survived untouched.
+  it('asks core for exactly the class: UPLOADING, the ±6 h window around the OLDEST leaf, core’s max page', async () => {
+    seed({ seqs: [0, 1] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(listOpts[0]).toEqual({
+      status: 'UPLOADING',
+      from: new Date(Date.parse(OLD) - 6 * 60 * 60 * 1000).toISOString(),
+      to: new Date(Date.parse(OLD) + 6 * 60 * 60 * 1000).toISOString(),
+      page: 1,
+      page_size: 200,
+    })
+  })
+
+  it('a row on the SECOND page is still found — the take is not silently skipped', async () => {
+    // A busy tenant can have more than one page of UPLOADING rows in a 12-hour
+    // window; a paging break would read as noRow, silently, every night.
+    seed({ seqs: [0, 1] })
+    for (let i = 0; i < 3; i++) {
+      rowsByBusiness.get(BIZ)!.unshift({
+        id: `${SESSION2.slice(0, 23)}${i}${SESSION2.slice(24)}`,
+        business_id: BIZ,
+        audio_storage_path: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}.webm`,
+        duration_seconds: null,
+        status: 'UPLOADING',
+        store_id: null,
+      })
+    }
+    rowPageSize = 2
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(listOpts.length).toBeGreaterThan(1)
+  })
+
+  it('a row the query would never return (its status moved on) is not this take’s row', async () => {
+    seed({ seqs: [0, 1], status: 'PROCESSING' })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(uploads).toHaveLength(0)
+  })
+})
+
+describe('the audit row’s store', () => {
+  // The 監査ログ viewer FILTERS by store — a row keyed on an empty one is
+  // invisible to every store-scoped search (playback-url.ts's own fix round).
+  it('carries the row’s store when it has one', async () => {
+    seed({ seqs: [0], storeId: 'store-a' })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(auditFn.mock.calls[0][0].storeId).toBe('store-a')
+  })
+
+  it('is absent when the row has none — the shape every row carries today', async () => {
+    seed({ seqs: [0] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(auditFn.mock.calls[0][0].storeId).toBeUndefined()
   })
 })
 
@@ -499,6 +691,20 @@ describe('the bounds', () => {
     expect(summary.candidates).toBe(MAX_TAKES_PER_RUN + 1)
     expect(summary.assembled).toBe(MAX_TAKES_PER_RUN)
     expect(summary.budgetExhausted).toBe(true)
+  })
+})
+
+describe('every container the grammar knows', () => {
+  // The key is composed as `audio/${ext}` — true for every member of the
+  // closed MIME map today, and the day one is added whose extension is not its
+  // subtype ('audio/mpeg' → 'mp3'), every take in that container would land in
+  // skipped.extMismatch silently, every night, forever.
+  it.each(['webm', 'mp4', 'ogg', 'wav'])('rebuilds a .%s take', async (ext) => {
+    seed({ seqs: [0, 1], ext })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(uploads[0].key).toBe(`app_${BIZ}_${TAKE}.${ext}`)
+    expect(uploads[0].opts.contentType).toBe(`audio/${ext}`)
   })
 })
 
