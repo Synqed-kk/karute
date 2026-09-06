@@ -45,19 +45,22 @@ jest.mock('@/actions/recovery', () => ({
     redeemed: { appointmentIds: [], customerIds: [] },
   })),
 }))
+const currentConsent = () => ({
+  consent: {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    policy_version: (require('@/lib/consent') as typeof import('@/lib/consent'))
+      .RECORDING_CONSENT_POLICY_VERSION,
+    granted_at: '2026-08-01T00:00:00Z',
+  },
+})
+const mockGetConsent = jest.fn(async (_id: string): Promise<{ consent: unknown }> => currentConsent())
+const mockGrantConsent = jest.fn(async (_id: string, _o?: unknown) => ({ ok: true }) as { ok: boolean; error?: string })
 jest.mock('@/actions/customers', () => ({
   // CURRENT consent, on the REAL policy version — the save gate fails closed on
   // a stale one, which would silently divert every save below into the grant
   // dialog instead of the writer.
-  getCustomerConsent: jest.fn(async () => ({
-    consent: {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      policy_version: (require('@/lib/consent') as typeof import('@/lib/consent'))
-        .RECORDING_CONSENT_POLICY_VERSION,
-      granted_at: '2026-08-01T00:00:00Z',
-    },
-  })),
-  grantCustomerConsent: jest.fn(async () => ({ ok: true })),
+  getCustomerConsent: (id: string) => mockGetConsent(id),
+  grantCustomerConsent: (id: string, o?: unknown) => mockGrantConsent(id, o),
 }))
 jest.mock('@/actions/packs', () => ({
   createPackAction: jest.fn(),
@@ -190,14 +193,28 @@ jest.mock('@/lib/global-recorder', () => ({
   },
 }))
 const mockPipelineStart = jest.fn()
+/** Mutable so ONE test can put the page in the pipeline-error state — the
+ *  cheapest real route to a discard-reason dialog on this screen (R5's pin).
+ *  Every other test leaves it idle, which is what it was before. */
+const pipe = {
+  state: 'idle' as string,
+  error: null as string | null,
+  context: null as { takeId: string; recordingSessionId: string } | null,
+}
 jest.mock('@/lib/global-pipeline', () => ({
   globalPipeline: {
     version: 0,
-    state: 'idle',
+    get state() {
+      return pipe.state
+    },
     step: null,
     result: null,
-    error: null,
-    context: null,
+    get error() {
+      return pipe.error
+    },
+    get context() {
+      return pipe.context
+    },
     runId: 1,
     savedRecordId: null,
     subscribe: () => () => {},
@@ -284,6 +301,11 @@ beforeEach(() => {
   serverSessions = []
   serverThrows = false
   mockEnqueueFromSession.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
+  mockGetConsent.mockImplementation(async () => currentConsent())
+  mockGrantConsent.mockImplementation(async () => ({ ok: true }))
+  pipe.state = 'idle'
+  pipe.error = null
+  pipe.context = null
 })
 
 afterEach(() => {
@@ -663,5 +685,178 @@ describe('録音履歴 — saving from the server', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { toast } = require('sonner') as { toast: { error: jest.Mock } }
     expect(toast.error).toHaveBeenCalledWith('recording.recoverSaveFailed')
+  })
+})
+
+/**
+ * 録音履歴 — FIX ROUND 1: the gates around the server save, and what the
+ * staffer can SEE while it runs.
+ */
+describe('録音履歴 — the server save’s gates (③ fix round 1)', () => {
+  const OLD = () => new Date(NOW - 5 * 60 * MIN).toISOString()
+  const serverRow = (over: Partial<ServerSession> = {}) =>
+    session({ recordingSessionId: 'sess-srv', serverAudio: 'object', createdAt: OLD(), ...over })
+
+  /** A promise this test resolves by hand, so the reload can be held open. */
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    const promise = new Promise<T>((r) => {
+      resolve = r
+    })
+    return { promise, resolve }
+  }
+
+  it('⚖ R6: a SECOND tap during the in-flight reload does NOT enqueue twice', async () => {
+    const held = deferred<ServerSession[]>()
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    // The reload the save fires is held open; the latch must stay down with it.
+    const listMock = jest.requireMock('@/actions/recordings-inbox') as {
+      listRecordingsInbox: jest.Mock
+    }
+    listMock.listRecordingsInbox.mockImplementationOnce(() => held.promise)
+
+    const save = () =>
+      within(row('session:sess-srv')).getByText('recording.inbox.action.save')
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+
+    // …and the button says so: greyed, aria-busy, while the row is stale.
+    const btn = save().closest('button')!
+    expect(btn).toBeDisabled()
+    expect(btn.getAttribute('aria-busy')).toBe('true')
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+
+    // The reload lands; the row is fresh again and the button comes back.
+    await act(async () => {
+      held.resolve([])
+    })
+    await flush(20)
+  })
+
+  it('⚖ R5: NO server save starts while a discard is mid-commit', async () => {
+    // The take flow calls its discard latch "the whole seal — no save can start
+    // anywhere between a discard confirm and its landing". A third entry that
+    // ignored it would be a hole in that sentence. Driven through the real
+    // discard-reason gate, so the pin holds the SHARED ref, not a copy.
+    pipe.state = 'error'
+    pipe.error = 'empty-transcript'
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    const discard = jest.requireMock('@/actions/recording-discard') as {
+      discardRecordingWithReason: jest.Mock
+    }
+    const held = deferred<{ ok: true; receiptId: string; duplicate: boolean }>()
+    discard.discardRecordingWithReason.mockImplementationOnce(() => held.promise)
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardTakeAction'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'お客様が席を外したため録り直します' },
+      })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardReason.confirm'))
+    })
+    await flush(20)
+    // The discard's own server round trip is still open — the seal's window.
+    expect(discard.discardRecordingWithReason).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-srv')).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    // …and the consent read never even ran: the guard is the FIRST line.
+    expect(mockGetConsent).not.toHaveBeenCalled()
+
+    await act(async () => {
+      held.resolve({ ok: true, receiptId: 'row-1', duplicate: false })
+    })
+    await flush(20)
+  })
+
+  it('…and once the discard lands, the same tap goes through', async () => {
+    serverSessions = [serverRow()]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-srv')).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('⚖ R10a: a customer with NO current consent gets the dialog, not the door', async () => {
+    mockGetConsent.mockResolvedValue({ consent: null })
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-srv')).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    expect(mockGetConsent).toHaveBeenCalledWith('cust-1')
+    // The grant dialog is up, for THIS row's customer.
+    const confirm = screen.getByText('recording.consentConfirmButton')
+    expect(confirm).toBeInTheDocument()
+
+    // Granting it continues to the door — the tap is not spent.
+    await act(async () => {
+      fireEvent.click(confirm)
+    })
+    await flush(20)
+    expect(mockGrantConsent).toHaveBeenCalledWith('cust-1', { method: 'VERBAL' })
+    expect(mockEnqueueFromSession).toHaveBeenCalledWith({
+      recordingSessionId: 'sess-srv',
+      customerId: 'cust-1',
+      locale: 'ja',
+    })
+  })
+
+  it('⚖ R10a: an UNREADABLE consent fails closed — the dialog, never the door', async () => {
+    mockGetConsent.mockRejectedValue(new Error('core down'))
+    serverSessions = [serverRow()]
+    await renderPage()
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-srv')).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    expect(screen.getByText('recording.consentConfirmButton')).toBeInTheDocument()
+  })
+
+  it('⚖ R10b: a FAILED job on a server row still offers 再試行, and it reaches the door', async () => {
+    serverSessions = [serverRow({ jobStatus: 'FAILED', jobLastError: 'CONSENT_REQUIRED' })]
+    await renderPage()
+
+    const r = row('session:sess-srv')
+    expect(r.dataset.state).toBe('failed')
+    // The affordance is 再試行, not 保存する — the row already tried once.
+    await act(async () => {
+      fireEvent.click(within(r).getByText('recording.inbox.action.retry'))
+    })
+    await flush(20)
+
+    expect(mockEnqueueFromSession).toHaveBeenCalledWith({
+      recordingSessionId: 'sess-srv',
+      customerId: 'cust-1',
+      locale: 'ja',
+    })
+    expect(mockPipelineStart).not.toHaveBeenCalled()
   })
 })

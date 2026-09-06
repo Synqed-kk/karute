@@ -36,6 +36,11 @@ export interface RecordingsInboxCardProps {
   onOpenRecord: (row: InboxRow) => void
   /** 保存する / 再試行 — hand this take's audio to the recovery save. */
   onSaveTake: (row: InboxRow) => void
+  /** The session whose SERVER save is in flight (build 23 slice ③, fix round
+   *  1). Its one button greys out until the row has been re-read — without it
+   *  the tap changed nothing on screen, and a second tap fired a second
+   *  enqueue. Null/absent = nothing in flight, which is the ordinary case. */
+  savingSessionId?: string | null
   /** The viewer's OWN discards this month (⚖ 8/25 ruling B, staff half).
    *  A LABELLED PLAIN FACT in muted type — never a badge, a threshold or a
    *  colour: Liam's rule is that this number must never make someone hesitate
@@ -88,6 +93,7 @@ export function RecordingsInboxCard({
   customerNameById,
   onOpenRecord,
   onSaveTake,
+  savingSessionId,
   myDiscardsThisMonth,
 }: RecordingsInboxCardProps) {
   const t = useTranslations('recording.inbox')
@@ -253,7 +259,17 @@ export function RecordingsInboxCard({
                       <button
                         type="button"
                         onClick={action.run}
-                        className={action.className}
+                        // In flight → this row's one action is spent until the
+                        // list has been re-read. `disabled` carries the a11y
+                        // half by itself (aria-disabled is implied), and
+                        // `aria-busy` says WHY rather than just "no".
+                        disabled={
+                          !!savingSessionId && savingSessionId === row.recordingSessionId
+                        }
+                        aria-busy={
+                          !!savingSessionId && savingSessionId === row.recordingSessionId
+                        }
+                        className={`${action.className} disabled:opacity-60`}
                       >
                         {action.Icon && <action.Icon size={13} aria-hidden="true" />}
                         {t(action.labelKey as 'action.open')}

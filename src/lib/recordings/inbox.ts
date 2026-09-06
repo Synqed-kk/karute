@@ -377,13 +377,25 @@ export function deriveInboxRows(input: {
     }
 
     if (s.jobStatus === 'FAILED') {
+      // ⚖ A SPENT AFFORDANCE IS NOT A LOST RECORDING (fix round 1, R10b). A
+      // server-audio row whose job failed — consent, an empty transcript, a
+      // Deepgram outage — used to become permanently inert: no take on this
+      // device meant `canRetry: false`, and the derivation stopped offering
+      // 保存する the moment a job row existed. The audio is still on the
+      // server, and core re-arms a FAILED job per session, so 再試行 reaches
+      // the same door again. The reason stays the SERVER's (the more specific
+      // fact about what went wrong); only the affordance comes back.
       rows.push({
         ...base,
         state: 'failed',
         // The SAME mapping PipelineErrorCard uses — one honest string for the
         // one error core names, generic for everything else.
         reason: s.jobLastError === 'EMPTY_TRANSCRIPT' ? 'emptyTranscript' : 'genericFailure',
-        canRetry: !!take,
+        canRetry: !!take || s.serverAudio === 'object',
+        // The flag means "the save comes from the SERVER", so it is set only
+        // when this device holds nothing — a take on the device still routes
+        // 再試行 down the take path, exactly as it did before.
+        serverAudio: !take && s.serverAudio === 'object' ? true : undefined,
       })
       continue
     }

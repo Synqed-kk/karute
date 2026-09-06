@@ -765,15 +765,18 @@ describe('録音履歴 — server-held audio (③)', () => {
     expect(row.reason).toBe('transcribing')
   })
 
-  it('a deliberate 破棄 outranks both — a thrown-away take is never re-offered', () => {
-    const [row] = fold([
-      session({ recordingSessionId: 's1', discardedByStaff: true, serverAudio: 'object', createdAt: OLD() }),
-    ])
-    expect(row.state).toBe('discarded')
-    expect(row.reason).toBeNull()
-    expect(row.serverAudio).toBeUndefined()
-    expect(needsAttention(row)).toBe(false)
-  })
+  it.each(['object', 'segments'] as const)(
+    'a deliberate 破棄 outranks %s — a thrown-away take is never re-offered',
+    (serverAudio) => {
+      const [row] = fold([
+        session({ recordingSessionId: 's1', discardedByStaff: true, serverAudio, createdAt: OLD() }),
+      ])
+      expect(row.state).toBe('discarded')
+      expect(row.reason).toBeNull()
+      expect(row.serverAudio).toBeUndefined()
+      expect(needsAttention(row)).toBe(false)
+    },
+  )
 
   it('a value this build has never heard of falls through to today’s behaviour', () => {
     // Phones run a BAKED bundle; the DTO ships this as a plain string on
@@ -812,5 +815,77 @@ describe('録音履歴 — server-held audio (③)', () => {
     ])
     // The 復元可能 row and nothing else: 処理中 is not an action, 保存済み is done.
     expect(countNeedsAttention(rows)).toBe(1)
+  })
+})
+
+/**
+ * ⚖ R10b — A SPENT AFFORDANCE IS NOT A LOST RECORDING (fix round 1).
+ *
+ * A server-audio row whose job FAILS used to become permanently inert: no take
+ * on this device meant `canRetry: false`, so the card offered nothing, and the
+ * audio sat on the server unreachable from 録音履歴 forever. Core re-arms a
+ * FAILED job per session, so 再試行 can reach the same door again.
+ */
+describe('録音履歴 — a failed job on a server-held recording (③ fix round 1)', () => {
+  const OLD = () => new Date(NOW - SESSION_UNSETTLED_GRACE_MS - 60 * MIN).toISOString()
+
+  it('keeps 再試行 and the server flag when the device holds nothing', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        jobStatus: 'FAILED',
+        jobLastError: 'CONSENT_REQUIRED',
+        serverAudio: 'object',
+        createdAt: OLD(),
+      }),
+    ])
+    expect(row.state).toBe('failed')
+    // The SERVER's reason survives — it is the more specific fact.
+    expect(row.reason).toBe('genericFailure')
+    expect(row.canRetry).toBe(true)
+    expect(row.serverAudio).toBe(true)
+    expect(row.takeId).toBeNull()
+    // Counted, because `failed && canRetry` is one of the three arms it always
+    // had — no predicate widened.
+    expect(needsAttention(row)).toBe(true)
+  })
+
+  it('a FAILED row with NO server audio is inert exactly as before', () => {
+    const [row] = fold([session({ recordingSessionId: 's1', jobStatus: 'FAILED', createdAt: OLD() })])
+    expect(row.canRetry).toBe(false)
+    expect(row.serverAudio).toBeUndefined()
+    expect(needsAttention(row)).toBe(false)
+  })
+
+  it('a local take still owns the retry — the flag stays off so the take path runs', () => {
+    const [row] = fold(
+      [session({ recordingSessionId: 's1', jobStatus: 'FAILED', serverAudio: 'object', createdAt: OLD() })],
+      [take({ takeId: 't1', recordingSessionId: 's1' })],
+    )
+    expect(row.canRetry).toBe(true)
+    expect(row.takeId).toBe('t1')
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it("'segments' does NOT resurrect a failed row — there is nothing whole to save", () => {
+    const [row] = fold([
+      session({ recordingSessionId: 's1', jobStatus: 'FAILED', serverAudio: 'segments', createdAt: OLD() }),
+    ])
+    expect(row.canRetry).toBe(false)
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it('an EMPTY_TRANSCRIPT failure keeps its own honest reason', () => {
+    const [row] = fold([
+      session({
+        recordingSessionId: 's1',
+        jobStatus: 'FAILED',
+        jobLastError: 'EMPTY_TRANSCRIPT',
+        serverAudio: 'object',
+        createdAt: OLD(),
+      }),
+    ])
+    expect(row.reason).toBe('emptyTranscript')
+    expect(row.canRetry).toBe(true)
   })
 })
