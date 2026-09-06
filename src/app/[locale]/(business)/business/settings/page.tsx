@@ -7,7 +7,9 @@
 // locale can drift between the two renders, and no data access exists on the
 // client at all.
 //
-// ⚖ NOTHING HERE WRITES TO THE PRODUCT'S OWN DATA, AND THE PAGE SAYS SO ONCE.
+// Reserve card colour is now a narrowly authorized live setting. Its section
+// states this explicitly; the remaining settings below are still demo-only.
+// ⚖ THE OTHER SETTINGS DO NOT WRITE TO PRODUCT DATA.
 // Every control is live and every save commits — inside this screen. The page's
 // サンプルデータ dateline and ONE footnote per store section carry that fact;
 // 自分の表示設定 is the single exception and it is a designed one, saving to this

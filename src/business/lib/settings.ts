@@ -130,7 +130,7 @@ export function accessFor(role: string, rules: AccessRules): SettingsAccess {
  *  `self` = 「個人スコープ、権限ゲートなし」 (fable-settings-colors.html's own
  *  comment, and the same shape as 自分の音声登録). A self section is the reader's
  *  own preference: nobody's permission is involved, so no permission can hide it. */
-export type SectionScope = 'store' | 'self'
+export type SectionScope = 'store' | 'self' | 'business'
 
 export interface RailEntry {
   id: string
@@ -179,6 +179,7 @@ export const RAIL: readonly RailEntry[] = [
   { id: 'recording', group: 'Karute設定', label: '録音設定', scope: 'store', needs: null },
   { id: 'coaching', group: 'Karute設定', label: 'コーチング', scope: 'store', needs: 'settings.manage' },
   { id: 'sync', group: 'Karute設定', label: '予約同期', scope: 'store', needs: 'settings.manage' },
+  { id: 'reserve-card-color', group: 'Reserve設定', label: '会員カードの色', scope: 'business', needs: 'business.manage' },
   { id: 'reserve-acceptance', group: 'Reserve設定', label: 'Reserve 受付', scope: 'store', needs: 'settings.manage' },
   { id: 'notifications', group: 'Reserve設定', label: '通知', scope: 'store', needs: 'settings.manage' },
   // canon gates スタッフ管理 on staff.manage OR staff.invite; the room takes the
