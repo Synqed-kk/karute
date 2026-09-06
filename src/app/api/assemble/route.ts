@@ -40,8 +40,8 @@ export async function GET(request: Request) {
   // each reach at least that many cover the whole tree within
   // ceil(N / ROTATION_STRIDE) nights — and a slower night still advances the
   // start by the stride, so what it skipped is reached when the walk comes
-  // round (at most N nights: the stride is PRIME, so the start lands on every
-  // index rather than on a gcd lattice). Closing that exactly would take a
-  // resume cursor. That is what makes this 200 honest.
+  // round (at most N nights, except the named residual: a folder count that
+  // is itself a multiple of ROTATION_STRIDE). Closing that exactly would take
+  // a resume cursor. That is what makes this 200 honest.
   return NextResponse.json(summary, { status: summary.walkComplete ? 200 : 500 })
 }

@@ -153,7 +153,7 @@ describe('GET /api/assemble — the status is the run’s own honesty', () => {
     })
   })
 
-  it('a budget stop is a 200 — the walk saw every candidate, and tomorrow continues', async () => {
+  it('a budget stop is a 200 with budgetExhausted, and tomorrow starts a stride further round', async () => {
     runAssembler.mockImplementation(async () =>
       summary({ budgetExhausted: true, candidates: 40, assembled: 20 }),
     )

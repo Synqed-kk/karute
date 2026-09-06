@@ -435,9 +435,10 @@ describe('the walk', () => {
 
   // ⚖ WHY THE STRIDE IS PRIME. The start positions are the multiples of
   // gcd(stride, N), so a stride sharing a factor with the folder count only
-  // ever reaches N/gcd of the indexes — and one that DIVIDES N never moves the
-  // start at all. The folders in the band nothing walks are reported as a green
-  // 200 forever, which is the exact pathology the rotation exists to prevent.
+  // ever lands on N/gcd starts — with a shared factor the start leaves a band
+  // nothing ever walks, and a folder count that DIVIDES the stride pins the
+  // start at 0 forever. Either way it is the exact pathology the rotation
+  // exists to prevent.
   it('a stride sharing a factor with N freezes on a lattice; a coprime one walks every folder', async () => {
     const names = Array.from(
       { length: 8 },
@@ -835,7 +836,7 @@ describe('the bounds', () => {
     expect(summary.walkComplete).toBe(true)
   })
 
-  it(`stops at MAX_TAKES_PER_RUN (${MAX_TAKES_PER_RUN}) and says tomorrow continues`, async () => {
+  it(`stops at MAX_TAKES_PER_RUN (${MAX_TAKES_PER_RUN}) with budgetExhausted, and tomorrow starts a stride further round`, async () => {
     for (let i = 0; i <= MAX_TAKES_PER_RUN; i++) {
       const takeId = `0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`
       seed({ takeId, seqs: [0] })
