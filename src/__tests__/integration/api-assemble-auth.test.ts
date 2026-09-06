@@ -49,6 +49,23 @@ beforeEach(() => {
   runAssembler.mockImplementation(async () => summary())
 })
 
+describe('GET /api/assemble — the route’s own constants', () => {
+  // The 270 s budget is measured against THIS number, and the route test
+  // doubles the assembler module — so without these two lines a maxDuration
+  // lowered to 30 would survive the whole battery while the budget silently
+  // outran the wall.
+  it('declares maxDuration 300 — the wall the 270 s budget is cut against', () => {
+    expect(appHandler.maxDuration).toBe(300)
+  })
+
+  it('exports GET and nothing else — a cron reads, it is never posted to', () => {
+    expect(typeof appHandler.GET).toBe('function')
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+      expect((appHandler as unknown as Record<string, unknown>)[method]).toBeUndefined()
+    }
+  })
+})
+
 describe('GET /api/assemble auth', () => {
   it('401s with no Authorization header — never touches the bucket', async () => {
     await testApiHandler({

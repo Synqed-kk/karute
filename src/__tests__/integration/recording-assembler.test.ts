@@ -368,6 +368,43 @@ describe('the walk', () => {
     expect(seen.size).toBe(10)
   })
 
+  // ⚖ THE PEEK'S FALLBACK. The cheap pair reads the container off the FIRST
+  // name a `name asc` listing returns, which is seq 000000 — unless something
+  // sorts before it. `.` is 0x2E and `0` is 0x30, so a dotfile does exactly
+  // that (storage's own `.emptyFolderPlaceholder` is one). The peek answers
+  // null there and the folder is read whole instead, which is the path the
+  // docblock designs for and nothing exercised.
+  it('a folder whose first entry is a dotfile is read whole, and still rebuilt', async () => {
+    const { folder, key } = seed({ seqs: [0, 1], ext: 'mp4' })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    // The real container came from the first PARSEABLE leaf, not the dotfile.
+    expect(uploads[0].key).toBe(key)
+    expect(uploads[0].opts.contentType).toBe('audio/mp4')
+    // …and it cost the full listing, not the one-leaf peek alone.
+    expect(listCalls.filter((c) => c.prefix === `seg/${folder}`).length).toBeGreaterThan(1)
+  })
+
+  it('a folder with nothing parseable in it is skipped without a probe or a core call', async () => {
+    const folder = `app_${BIZ}_${TAKE}`
+    addFolder(folder)
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      { name: 'notes.txt', id: 'n', created_at: OLD, metadata: { size: 3 } },
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noSeq0).toBe(1)
+    // No key could be composed, so storage was never asked about one and core
+    // was never opened — the folder is junk, and junk is cleanup's business.
+    expect(info).not.toHaveBeenCalled()
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+  })
+
   it('the rotation WRAPS rather than running off the end', async () => {
     seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000a', seqs: [0] })
     seed({ takeId: '0f8c6c9a-3f2d-4a71-9b5e-00000000000b', seqs: [0], rowId: SESSION2 })
