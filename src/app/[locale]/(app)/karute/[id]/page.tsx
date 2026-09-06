@@ -124,18 +124,32 @@ export default async function KaruteDetailPage({
   // they cannot disagree about which stores this viewer can see.
   const allowedStoreIds =
     storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
+
+  const customerId = karute.client_id ?? null
+
+  // Customer contact + consent are both cached per-customer with their own tag
+  // invalidation. Photos are NOT awaited here; they're streamed in via a
+  // Suspense boundary below so the shell paints first.
+  const [contact, consentResult, customer] = customerId
+    ? await Promise.all([
+        getCustomerContact(customerId),
+        getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+        getCustomer(customerId).catch(() => null),
+      ])
+    : [null, null, null]
+
+  // The recording row, awaited BESIDE the customer wave rather than ahead of it
+  // (③ fix round 4). It has been in flight since the top of this function, and
+  // nothing above needs it, so awaiting it here costs no extra call AND keeps
+  // it off the critical path — awaiting it earlier made the three customer
+  // reads wait behind one `recordings.get`.
+  const recordingRow = await recordingPromise
   // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
   // karute's own store leads; a karute that carries none inherits the RECORDING
   // row's, which since ③ names the branch the device was in. ONE spelling for
-  // all three read doors (readDoorStoreId, auth/recording-acl.ts), so the words
-  // door and the sound door can never disagree about one karute — neither
-  // show-and-refuse, nor open where the row knows better.
-  //
-  // Awaited HERE rather than at its old spot below: the read is already in
-  // flight (it was started at the top of this function), so moving the await up
-  // costs no extra call — it only makes the row available to the store
-  // question, which now needs it.
-  const recordingRow = await recordingPromise
+  // all three read doors — and, since fix round 4, for the act doors beside them
+  // (readDoorStoreId, auth/recording-acl.ts), so the words door, the sound door
+  // and the 再生成 button can never disagree about one karute.
   const canViewAllRecordings = canViewAllInStore({
     canViewAll: holdsRecordingsViewAll,
     allowedStoreIds,
@@ -172,18 +186,6 @@ export default async function KaruteDetailPage({
       }),
     })
 
-  const customerId = karute.client_id ?? null
-
-  // Customer contact + consent are both cached per-customer with their own tag
-  // invalidation. Photos are NOT awaited here; they're streamed in via a
-  // Suspense boundary below so the shell paints first.
-  const [contact, consentResult, customer] = customerId
-    ? await Promise.all([
-        getCustomerContact(customerId),
-        getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
-        getCustomer(customerId).catch(() => null),
-      ])
-    : [null, null, null]
   // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
   // and thin can never derive a different view-model from the same raw wave.
   const built = buildKaruteDetailScreen({

@@ -188,13 +188,22 @@ export async function startRecordingSessionWithClient(
   //     minted before this round keeps a null the take doors read as OPEN.
   //   · WHERE DOES THE KARUTE BELONG? — still the karute's own resolver
   //     (resolveKaruteStoreId, actions/karute.ts), which may pick the booking's
-  //     store later. The two can differ, and both are true. ⚖ The READ doors
-  //     ignore this column entirely — the karute's own store is their one truth
-  //     (playback-url.ts:206, and the two words doors beside it). This column
-  //     gates the TAKE doors, where no karute exists yet to ask
-  //     (take-binding.ts#assertRecorderOwnsRow). The only other reader is the
-  //     `recording.play` AUDIT line, which falls back to it as a report filter,
-  //     never as an access decision.
+  //     store later. The two can differ, and both are true.
+  //     ⚖ WHO READS THIS COLUMN, AND WHERE IT SITS IN THE ORDER (③ fix round 4,
+  //     the ruling R1′ settled):
+  //       – the READ doors (transcript on the web page and the facade screen
+  //         route, sound on playback-url) take the KARUTE's store FIRST and this
+  //         column SECOND — one spelling, `readDoorStoreId` in
+  //         auth/recording-acl.ts. A karute that names no store of its own
+  //         inherits the branch the device was actually in.
+  //       – the ACT doors (the two 再生成 button flags and the server gate in
+  //         actions/regenerate-karute.ts) take exactly the same pair, in the
+  //         same order: an act is never more permissive than the read.
+  //       – the TAKE doors take this column ALONE
+  //         (take-binding.ts#assertRecorderOwnsRow) — they run before any karute
+  //         exists to ask, which is why there is nothing to put first.
+  //       – the `recording.play` AUDIT line shares the read doors' expression as
+  //         a report filter, never as an access decision.
   // Sent on BOTH paths — a store-less absent-take row would be a second shape
   // for the same fact.
   const recording = await synqed.recordings.create({

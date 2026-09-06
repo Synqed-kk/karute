@@ -76,11 +76,29 @@ export function canViewAllInStore(opts: {
  * Both null = a genuinely unlabelled record — 全店舗 / legacy, OPEN, the same
  * word `canViewAllInStore` uses one function down.
  *
- * ONE INPUT, THREE DOORS, and that is the whole point of it living here: the
- * transcript (web page · facade screen route) and the sound (playback-url) must
- * answer one karute the SAME way. A door that read only the karute would open
- * where its sibling closed — show-and-refuse, which the page's own rule
+ * ONE INPUT, THREE READ DOORS, and that is the whole point of it living here:
+ * the transcript (web page · facade screen route) and the sound (playback-url)
+ * must answer one karute the SAME way. A door that read only the karute would
+ * open where its sibling closed — show-and-refuse, which the page's own rule
  * forbids; a door that read only the row would close on every pre-③ karute.
+ *
+ * ⚖ AND THE ACT DOORS TOO (③ fix round 4). The three 再生成 doors — the two
+ * button flags (karute/[id]/page.tsx · screens/karute/[id]/route.ts) and the
+ * server gate (actions/regenerate-karute.ts) — compare this same value, because
+ * an act is never more permissive than the read: someone who cannot READ this
+ * record must not be able to rewrite it. The TAKE doors are the one exception,
+ * and by construction: they run before any karute exists to ask, so they read
+ * the row's column alone (take-binding.ts#assertRecorderOwnsRow).
+ *
+ * ⚠ NAMED CEILING — a recording read that FAILED arrives here as `null`. Both
+ * words doors degrade the accessory read that way on purpose (an accessory blip
+ * must cost the player, never the whole karute), and the server gate does the
+ * same. So a null-store karute whose row could not be read stays OPEN — exactly
+ * the answer every door gave before ③, and the direction we would rather not
+ * fail in. It is the accepted trade: closing it would 502 a karute page, or
+ * refuse a 再生成, on a storage blip. Closing it properly needs a sentinel the
+ * clamp can never match, fed from the `.catch` at every door — a change to make
+ * deliberately, not a hole to patch here.
  */
 export function readDoorStoreId(
   /** The karute row. `store_id` is optional on the app's own view-model type
