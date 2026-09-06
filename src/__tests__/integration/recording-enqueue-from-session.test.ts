@@ -451,6 +451,27 @@ describe('a deliberate discard outranks everything', () => {
     warn.mockRestore()
   })
 
+  it('⚖ R1: a row it cannot READ refuses too — "unreadable" is never "not discarded"', async () => {
+    // This check's polarity is the OPPOSITE of hasStaffDiscard's next door: that
+    // one needs a discard to EXIST before it writes, so a field core stopped
+    // sending makes it refuse. This one needs the ledger EMPTY before it saves,
+    // so the same missing field would let the save through, over a recording
+    // somebody threw away with a written reason. The fixtures drop the fields
+    // the way a proxy or an SDK rename would — one each.
+    listDiscards.mockResolvedValue({
+      events: [{ id: 'disc-1', source: 'STAFF' } as unknown as DiscardEvent],
+    })
+    await expect(run()).resolves.toEqual({ error: 'upstream' })
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+
+    listDiscards.mockResolvedValue({
+      events: [{ id: 'disc-1', recording_session_id: 'sess-1' } as unknown as DiscardEvent],
+    })
+    await expect(run()).resolves.toEqual({ error: 'upstream' })
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
   it('the fence runs AFTER ownership — a colleague learns nothing from it', async () => {
     current.row = row({ staff_id: 'staff-B' })
     await expect(run()).resolves.toEqual({ error: 'forbidden' })

@@ -150,16 +150,32 @@ export async function enqueueFromSessionWithClient(
   // strips an unknown param — a bare count would turn ONE reasoned discard
   // anywhere in the business into a 409 on EVERY server save in that salon,
   // silently and green, because a fake that implements the filter cannot see
-  // it. Fail-closed, so nothing unlawful is written; it would just kill this
-  // slice's one affordance for every staffer in the tenant with nothing on
-  // screen or in the log to say why.
+  // it. That count refused too much; it never wrote anything unlawful.
+  //
+  // ⚖ AND THE CHECK'S POLARITY IS THE OPPOSITE OF ITS SIBLING'S, SO IT NEEDS
+  // ITS OWN GUARD (fix round 3, R1). `hasStaffDiscard` next door requires a
+  // discard to EXIST before it writes, so a field core stopped sending makes
+  // that door refuse. This one requires a discard to be ABSENT before it
+  // saves, so the SAME missing field would let the save through — over a
+  // recording a staff member threw away with a written reason, which is the
+  // one outcome this fence exists to prevent. A row whose
+  // `recording_session_id` or `source` is not a string is not an answer about
+  // anything, so it takes the `upstream` exit the throw arm takes and the
+  // staffer can tap again: "we could not read it" is never "not discarded"
+  // either. It cannot fire while the SDK's shape holds (RecordingDiscardEvent
+  // has both fields required today), which is what makes it cheap to keep.
   try {
     const discards = await synqed.recordingDiscards.list({
       recording_session_id: input.recordingSessionId,
       source: 'STAFF',
       page_size: 1,
     })
-    const hit = (discards?.events ?? []).some(
+    const events = discards?.events ?? []
+    const unreadable = events.some(
+      (e) => typeof e?.recording_session_id !== 'string' || typeof e?.source !== 'string',
+    )
+    if (unreadable) return { error: 'upstream' }
+    const hit = events.some(
       (e) => e?.source === 'STAFF' && e.recording_session_id === input.recordingSessionId,
     )
     if (hit) return { error: 'discarded' }
