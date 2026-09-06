@@ -416,11 +416,10 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
       business_id: 'business-1',
       target_type: 'recording',
       target_id: SESSION,
-      // The audit line still reads the ROW's store (playback-url.ts:258), which
-      // production never writes — so it carries none. Recorded as-is in fix
-      // round 4 rather than silently re-pointed at the karute: the ACL was the
-      // packet's subject, the audit row's store is a separate call.
-      store_id: null,
+      // The KARUTE's store, under the production shape (karute store-9, row
+      // null) — fix round 4b. Keyed on the row's empty column this line carried
+      // no store at all, and the audit viewer filters by store.
+      store_id: 'store-9',
       severity: 'notice',
       break_glass: false,
       source: 'web',
@@ -745,5 +744,28 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     webStaffId.current = 'someone-else'
     webScopeThrows.current = true
     await expect(mintRecordingPlaybackUrl(KARUTE_ID)).resolves.toEqual({ ok: false, error: 'forbidden' })
+  })
+})
+
+// ── ⚖ THE PLAY AUDIT ROW CARRIES THE KARUTE'S STORE (fix round 4b) ──────────
+// Same empty column the ACL stopped reading: `recordings.create` never writes
+// store_id, so a play row keyed on it was invisible to every store-scoped
+// audit search. The `??` chain keeps the row's value if core ever stamps it,
+// and a karute with no store still carries none — there is nothing to stamp.
+describe('recording.play — the audit row’s store', () => {
+  it('a karute with NO store and a row with none → the line carries no store', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
+    const lines = await auditLines(() => mint())
+    const play = lines.find((l) => l.action === 'recording.play')
+    expect(play).toBeDefined()
+    expect(play?.store_id ?? null).toBeNull()
+  })
+
+  it('…and the row’s value is still used if core ever starts stamping it', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: 'store-row' }
+    const lines = await auditLines(() => mint())
+    expect(lines.find((l) => l.action === 'recording.play')?.store_id).toBe('store-row')
   })
 })

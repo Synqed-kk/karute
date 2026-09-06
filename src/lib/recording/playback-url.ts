@@ -256,7 +256,11 @@ export async function mintPlaybackUrlWithClient(
     actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
-    storeId: row.store_id ?? undefined,
+    // The KARUTE's store, same reason as the ACL above (fix round 4b): the
+    // recording row's column is never written, the karute's always is, and the
+    // audit viewer filters by store — so a row keyed on the empty one was
+    // invisible to every store-scoped search.
+    storeId: karute.store_id ?? row.store_id ?? undefined,
     targetType: 'recording',
     targetId: row.id,
     severity: 'notice',
