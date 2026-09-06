@@ -395,10 +395,47 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // slice left 55 B, which is not headroom, and correcting that is this entry's
 // other job.
 //
+// RAISED 2026-09-06 for THE NIGHTLY RESCUE (build 23 slice ③) — one entry for
+// the whole slice, ⚖ 8/25 + 9/4: 2,049,700 → 2,053,000. The method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist).
+//
+// What is in the phone for the bytes: 録音履歴 stops guessing about audio it
+// cannot see. A recording whose device walked out of signal used to sit there
+// saying 「この録音は保存されませんでした」 for as long as anyone looked at it —
+// while the server was in fact holding most of it, and while a nightly job was
+// on its way to rebuild the rest. Now the row says which of the two is true:
+// 処理中「サーバーに音声が途中まで届いています（数日以内に保存できるように
+// なります）」 while only the pieces are up there, and 復元可能「サーバーに音声が
+// 残っています（未保存・途中までの場合があります）」 once the whole object is —
+// with the same solid 保存する the staffer already knows, going through a new
+// server-side door that derives the audio's location from the recording row
+// itself (nothing on the wire names a file, ever), proves the bytes are really
+// in the bucket, stamps the length the nightly job is not allowed to write, and
+// then runs the ordinary transcription the phone would have run. A device that
+// still holds the recording keeps winning: the complete copy is always the one
+// offered.
+//
+// Measured at this PR's tip, the CI/release way: en 130,424 · index 983,170 ·
+// vendor 937,743 = 2,051,337 B — 1,637 B over the 2,049,700 ceiling, which is
+// the breach this raise answers. The base 3ee1cdf8d on main measures
+// en 130,251 · index 981,263 · vendor 937,743 = 2,049,257 B, so this PR costs
+// the phone +2,080 B: two message strings in both catalogs, the fold's two new
+// branches, the handler's server-save path with its own picker mount, and the
+// phone port's entry for the new door.
+//
+// The new ceiling is sized for the WHOLE slice, not just this PR, because the
+// other two land beside it: PR-A (the nightly assembler) adds +119 B of i18n
+// labels its own totality gate demands, and PR-B (the store stamp) is
+// server-side but for a few lines at the take doors. So 2,053,000 leaves
+// 1,663 B of headroom at this tip, 1,544 B once A's labels land, and the rest
+// is B's allowance plus the rebase. Whatever is left after those three is the
+// next thing's problem, and it should have to come back and say what it is.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_049_700
+const BUDGET_BYTES = 2_053_000
 
 let dir
 try {
