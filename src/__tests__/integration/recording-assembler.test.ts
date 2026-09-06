@@ -616,6 +616,29 @@ describe('the walk', () => {
     expect(auditFn).not.toHaveBeenCalled()
   })
 
+  // ⚖ THE SECOND CHEAP PAIR'S OTHER ARM. The sibling above drives `where ===
+  // 'rescue'` at this same post-listing site; `where === 'main'` there is the
+  // more common case — the phone's own object already exists — and had no
+  // test, so a mutant deleting only that arm survived: a folder whose peek
+  // could not name the container but whose PHONE object is present would be
+  // rebuilt anyway, writing a duplicate rescue and filing a spurious
+  // capture_resumed for a take the device already delivered.
+  it('a dotfile folder whose PHONE object is there → skipped.objectExists, after the listing', async () => {
+    const { folder, key } = seed({ seqs: [0, 1], ext: 'mp4', objectSize: 21 })
+    contents.set(`seg/${folder}`, [
+      { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
+      ...contents.get(`seg/${folder}`)!,
+    ])
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    // Only the phone's own key is probed — `probeTake` returns 'main' before
+    // it ever asks about the rescue key.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
   it('a folder with nothing parseable in it is skipped without a probe or a core call', async () => {
     const folder = `app_${BIZ}_${TAKE}`
     addFolder(folder)
