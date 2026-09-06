@@ -112,11 +112,16 @@ type Row = {
   status: string
 }
 const rowsByBusiness = new Map<string, Row[]>()
-const updates: { businessId: string; id: string; input: unknown }[] = []
+/** Every time anything reached for a core WRITE method. Must stay empty. */
+const coreWrites: string[] = []
 const listedBy: string[] = []
-let updateThrows: Error | null = null
 let listThrows = false
 
+// ⚖ READ-ONLY BY CONSTRUCTION. Core fences recording writes behind a human
+// actor and this job has none, so the fake offers `list` and NOTHING else:
+// `update` is a getter that throws, which fails on the mere REFERENCE — a
+// call, a spread, even a `typeof` probe. A regression that brings the stamp
+// back cannot pass this file by accident.
 const coreFor = jest.fn((businessId: string) => ({
   recordings: {
     list: async (_opts: unknown) => {
@@ -125,10 +130,9 @@ const coreFor = jest.fn((businessId: string) => ({
       const rows = rowsByBusiness.get(businessId) ?? []
       return { recordings: rows, total: rows.length, page: 1, page_size: 200 }
     },
-    update: async (id: string, input: unknown) => {
-      if (updateThrows) throw updateThrows
-      updates.push({ businessId, id, input })
-      return {}
+    get update() {
+      coreWrites.push(businessId)
+      throw new Error('the assembler must never write to core')
     },
   },
 })) as unknown as AssemblerDeps['coreFor']
@@ -193,20 +197,22 @@ beforeEach(() => {
   uploads.length = 0
   rootFolders.length = 0
   rowsByBusiness.clear()
-  updates.length = 0
+  coreWrites.length = 0
   listedBy.length = 0
   uploadAnswer = { error: null }
-  updateThrows = null
   listThrows = false
   jest.spyOn(console, 'info').mockImplementation(() => {})
   jest.spyOn(console, 'warn').mockImplementation(() => {})
 })
 
-// ⚖ THE INVARIANT of this whole job, asserted after every case rather than in
-// the one test that happens to be about it: it only ever ADDS.
+// ⚖ THE TWO INVARIANTS of this whole job, asserted after every case rather
+// than in the one test that happens to be about each: it only ever ADDS, and
+// it only ever adds TO STORAGE. The duration is written by the save door,
+// which has the actor core requires; this job never touches a core row.
 afterEach(() => {
   expect(storageRemove).not.toHaveBeenCalled()
   expect(emptyBucket).not.toHaveBeenCalled()
+  expect(coreWrites).toEqual([])
 })
 
 describe('longestPrefix — the contiguous run from zero, and the first hole', () => {
@@ -233,10 +239,11 @@ describe('the walk', () => {
     expect(summary.assembled).toBe(2)
     expect(coreFor).toHaveBeenCalledWith(BIZ)
     expect(coreFor).toHaveBeenCalledWith(BIZ2)
-    // Every core read and write went to the client of the folder's OWN tenant
-    // — a single shared client would have listed biz-1 twice.
-    expect(new Set(listedBy)).toEqual(new Set([BIZ, BIZ2]))
-    expect(updates.map((u) => u.businessId).sort()).toEqual([BIZ, BIZ2])
+    // Every core read went to the client of the folder's OWN tenant — a single
+    // shared client would have listed biz-1 twice and biz-2 never.
+    expect(listedBy.sort()).toEqual([BIZ, BIZ2])
+    // …and each rescue is audited under the tenant whose folder it came out of.
+    expect(auditFn.mock.calls.map((c) => c[0].businessId).sort()).toEqual([BIZ, BIZ2])
   })
 
   it('skips a junk folder in silence and still does the real one', async () => {
@@ -293,35 +300,30 @@ describe('the object probe', () => {
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.error).toBe(1)
     expect(uploads).toHaveLength(0)
-    expect(updates).toHaveLength(0)
     expect(auditFn).not.toHaveBeenCalled()
   })
 
-  it('object already there + duration null + size EQUAL to the prefix → stamp only, no upload', async () => {
-    seed({ seqs: [0, 1], sizes: [10, 11], objectSize: 21 })
+  // ⚖ the amendment's disjoint meaning: the audio is already on the server —
+  // rescued on an earlier night, or finalized by the device itself. This is
+  // ALSO what makes the job idempotent: exactly one audit row per rescued
+  // take, because the second night meets the object and stops here.
+  it('object already at the key → skipped.objectExists, no upload, no audit, and core is never even read', async () => {
+    seed({ seqs: [0, 1], objectSize: 21 })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
-    expect(summary.stamped).toBe(1)
-    expect(summary.assembled).toBe(0)
     expect(summary.skipped.objectExists).toBe(1)
+    expect(summary.assembled).toBe(0)
     expect(uploads).toHaveLength(0)
-    expect(updates).toEqual([{ businessId: BIZ, id: SESSION, input: { duration_seconds: 10 } }])
-    expect(auditFn).toHaveBeenCalledTimes(1)
-  })
-
-  it('object already there at a DIFFERENT size is the device’s own whole take — left alone', async () => {
-    seed({ seqs: [0, 1], sizes: [10, 11], objectSize: 999 })
-    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
-    expect(summary.skipped.deviceReturned).toBe(1)
-    expect(uploads).toHaveLength(0)
-    expect(updates).toHaveLength(0)
     expect(auditFn).not.toHaveBeenCalled()
+    // Answered before the core read: a healthy tenant's finished takes cost
+    // one storage probe a night, not a core page.
+    expect(listedBy).toEqual([])
   })
 
   it('a row somebody already settled is left alone', async () => {
-    seed({ seqs: [0, 1], objectSize: 21, duration: 300 })
+    seed({ seqs: [0, 1], duration: 300 })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.settled).toBe(1)
-    expect(updates).toHaveLength(0)
+    expect(uploads).toHaveLength(0)
     expect(auditFn).not.toHaveBeenCalled()
   })
 })
@@ -339,7 +341,6 @@ describe('the assembly', () => {
     expect(uploads[0].body).toEqual(
       Buffer.concat([0, 1, 2, 3, 4].map((seq) => Buffer.alloc(seq + 1, seq + 1))),
     )
-    expect(updates).toEqual([{ businessId: BIZ, id: SESSION, input: { duration_seconds: 25 } }])
     expect(auditFn).toHaveBeenCalledTimes(1)
     expect(auditFn.mock.calls[0][0]).toEqual({
       category: 'recording',
@@ -361,8 +362,7 @@ describe('the assembly', () => {
         declared_last_seq: null,
         partial: true,
         bytes: 15,
-        duration_seconds: 25,
-        duration_estimated: true,
+        estimated_duration_seconds: 25,
         trigger: 'cron',
       },
     })
@@ -379,7 +379,7 @@ describe('the assembly', () => {
       first_gap_seq: 2,
       partial: true,
       bytes: 10,
-      duration_seconds: 10,
+      estimated_duration_seconds: 10,
     })
   })
 
@@ -399,7 +399,7 @@ describe('the assembly', () => {
     uploadAnswer = { error }
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.deviceReturned).toBe(1)
-    expect(updates).toHaveLength(0)
+    expect(summary.assembled).toBe(0)
     expect(auditFn).not.toHaveBeenCalled()
   })
 
@@ -415,13 +415,20 @@ describe('the assembly', () => {
     expect(warned).not.toContain('Route PUT')
   })
 
-  it('a stamp that does not land files NO audit row (the object stays for the next run)', async () => {
-    seed({ seqs: [0] })
-    updateThrows = Object.assign(new Error('Unauthorized'), { status: 401 })
+  // ⚖ the amendment. Core fences PUT /v1/recordings/:id behind a human actor
+  // and a cron has none, so this job settles the take on STORAGE and files the
+  // row — the duration is the save door's, with the staffer's own bearer.
+  it('never writes to core: the audio lands, the row is filed, and no core write is even reached for', async () => {
+    seed({ seqs: [0, 1] })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
-    expect(summary.skipped.error).toBe(1)
+    expect(summary.assembled).toBe(1)
     expect(uploads).toHaveLength(1)
-    expect(auditFn).not.toHaveBeenCalled()
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    // The fake's `update` throws on the mere reference (see its getter), so an
+    // empty list here is the proof — and the afterEach asserts it every case.
+    expect(coreWrites).toEqual([])
+    // …and the row it audits is the one it read, never one it wrote.
+    expect(auditFn.mock.calls[0][0].detail.recording_session_id).toBe(SESSION)
   })
 })
 
@@ -431,7 +438,7 @@ describe('the row', () => {
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.noRow).toBe(1)
     expect(uploads).toHaveLength(0)
-    expect(updates).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
   })
 
   it('a row pointing at a DIFFERENT take is not this take’s row', async () => {

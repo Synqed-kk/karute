@@ -21,7 +21,6 @@ jest.mock('@/lib/recording/assembler', () => ({
 const summary = (over: Record<string, unknown> = {}) => ({
   candidates: 0,
   assembled: 0,
-  stamped: 0,
   partial: 0,
   skipped: {
     young: 0,
