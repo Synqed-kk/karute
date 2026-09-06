@@ -119,12 +119,26 @@ export async function resolveStoreForRequest(args: {
  * take. `[]` carries exactly that: no store reach, everything else unchanged.
  * `requestedStoreId: null` — these routes carry no store-id header, and the
  * call is purely for the viewAll / assignment / fail-closed resolution.
+ *
+ * ⚠ AN UNPLACEABLE CALLER IS `[]`, NOT "UNRESTRICTED" (fix round 4, blind
+ * round 2 F3). Web's twin already fails closed there: store-scope.ts:89-91
+ * reads a null staff id as `degraded`, which both web callers map to `[]`. The
+ * facade could not, because core answers `{ store_ids: [] }` for an id it holds
+ * no rows for — indistinguishable from genuinely floating staff — so an id the
+ * roster cannot place fell through to the floating branch and heard every
+ * store. `ensureStaffWriteInScope` below already guards this exact case with
+ * the roster oracle; this read guards it with the self id its callers already
+ * hold, so no new lookup is charged.
  */
 export async function viewerAllowedStoreIds(args: {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
   authUserId: string
   capabilities: Set<Capability>
+  /** The caller's RESOLVED roster identity. Null = the roster could not place
+   *  them, which is not "no assignment" — it is "we could not look". */
+  selfStaffId: string | null
 }): Promise<readonly string[] | null> {
+  if (!args.selfStaffId) return []
   try {
     const { allowedStoreIds } = await resolveStoreForRequest({
       ...args,

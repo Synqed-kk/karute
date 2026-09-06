@@ -68,6 +68,7 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
             synqed,
             authUserId: ctx.identity.authUserId,
             capabilities: ctx.identity.capabilities,
+            selfStaffId: staffId,
           })
         : null,
       source: 'facade',

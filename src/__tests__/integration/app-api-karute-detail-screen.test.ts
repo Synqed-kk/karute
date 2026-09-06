@@ -705,6 +705,18 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
   })
 
+  // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, F3) — the
+  // detail door's half of the same guard.
+  it('a caller the ROSTER CANNOT PLACE fails the grant closed — restricted, no assignment read', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    roster.current = []
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
   it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {
     inStoreB()
     capabilities.current = new Set(['customers.view', 'recordings.viewAll'])

@@ -44,8 +44,8 @@ export function canViewTranscript(opts: {
  * A DEGRADED scope lookup arrives here as `[]` and fails closed — the menus
  * precedent: an unreadable assignment is never widened into "every store".
  *
- * Own recordings and unowned records never reach this: they pass on
- * `canViewTranscript`'s first two branches, which this narrows only the third of.
+ * Own recordings and unowned records never reach this: they pass on the
+ * unowned and own-recording branches; this narrows only the `canViewAll` branch.
  */
 export function canViewAllInStore(opts: {
   canViewAll: boolean

@@ -135,6 +135,7 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             synqed,
             authUserId: ctx.identity.authUserId,
             capabilities: ctx.identity.capabilities,
+            selfStaffId: viewerStaffId,
           })
         : null,
       recordStoreId: karute.store_id,

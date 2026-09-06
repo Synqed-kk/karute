@@ -696,6 +696,20 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     expect(staffStoresGet).not.toHaveBeenCalled()
   })
 
+  // ⚖ AN UNPLACEABLE CALLER IS NOT FLOATING STAFF (fix round 4, blind round 2
+  // F3). Core answers `{ store_ids: [] }` for an id it holds no rows for, which
+  // the floating branch reads as "works in every store" — so before the
+  // selfStaffId guard the phone door heard every store for a caller the roster
+  // could not place, while the web door already failed closed on it.
+  it('facade: a caller the ROSTER CANNOT PLACE fails the grant closed → 403', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    roster.current = []
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await GET(req(KARUTE_ID), route)
+    expect(res.status).toBe(403)
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
   it('facade: an UNREADABLE assignment fails the grant closed → 403, never widened', async () => {
     capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
     staffStoresGet.mockRejectedValue(new Error('core down'))
