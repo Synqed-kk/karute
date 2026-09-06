@@ -17,6 +17,7 @@
 
 import type { Recording } from '@synqed-kk/client'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import { ownerHandReach } from '@/lib/auth/recording-acl'
 
 /** Core's HTTP status, duck-typed — the same structural check the rest of this
  *  family uses rather than an instanceof across module instances. */
@@ -168,20 +169,52 @@ export function serverHoldsTakeRow<T extends HeldTakeRow>(
  * READ grant, and binding a colleague's session is an ACT (⚖ 9/3 council;
  * Greptile #848 point 1).
  *
- * ⚖ AND DELIBERATELY NOT STORE-CLAMPED, THE STANDING EXCEPTION (9/6): no store
- * dimension exists at this layer — `recordings` rows carry no store_id
- * (session-mint.ts:174), and at bind time the karute that WOULD carry one does
- * not exist yet. The store law is applied where a store can be known: the read
- * doors and the karute-level acts (regenerate · 再学習). Recorded, not overlooked.
+ * ⚖ AND THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE (slice three
+ * ③, closing the 9/6 standing exception). That exception existed because
+ * `recordings` rows carried no store: there was no dimension to apply the store
+ * law to at this layer. As of ③ there is one — session-mint.ts stamps the
+ * actor's active store on every row it creates — so the owner's-hand branch
+ * asks the same question `ownerHandReach` already asks at the read doors and
+ * the karute-level acts. ONE predicate, no second spelling.
+ *
+ * ⚖ THE NULL RULE, RULED BY FABLE (never re-decided here): a row whose
+ * `store_id` is null — every row minted BEFORE ③, and `UpdateRecordingInput`
+ * carries no store_id so none of them can ever be backfilled — is OPEN on this
+ * leg. It is the same word `canViewAllInStore` already uses for a legacy
+ * karute: "a record with no store to be outside of". Failing closed would
+ * strand every pre-③ take's owner's-hand rescue and buy nothing, because a
+ * clamped pair-holder could not reach any of those takes before this PR either.
+ * Fail-open here re-opens nothing new: an own-session act never reaches this
+ * branch at all.
+ *
+ * A DEGRADED scope arrives as `[]` and fails closed on a STAMPED row, exactly
+ * as it does everywhere else — an unreadable assignment is never widened into
+ * "every store".
  *
  * Returns the refusal itself rather than a boolean, so
  * the two doors answer a foreign row with the identical error object.
  */
 export function assertRecorderOwnsRow(
-  row: Pick<Recording, 'business_id' | 'staff_id'>,
-  actor: { staffId: string | null; businessId: string; holdsOwnerKeys: boolean },
+  row: Pick<Recording, 'business_id' | 'staff_id' | 'store_id'>,
+  actor: {
+    staffId: string | null
+    businessId: string
+    holdsOwnerKeys: boolean
+    /** The stores this actor is assigned to, or null when unrestricted
+     *  (`stores.viewAll`, or floating staff). REQUIRED so a door that forgot to
+     *  resolve it fails to COMPILE rather than silently reaching every branch. */
+    allowedStoreIds: readonly string[] | null
+  },
 ): { error: 'forbidden' } | null {
   if (row.business_id !== actor.businessId) return { error: 'forbidden' }
-  if (row.staff_id !== actor.staffId && !actor.holdsOwnerKeys) return { error: 'forbidden' }
-  return null
+  if (row.staff_id === actor.staffId) return null
+  // A colleague's row. `ownerHandReach` answers false for a non-holder on its
+  // own first line, so this is the whole owner's-hand question in one call.
+  return ownerHandReach({
+    holdsOwnerKeys: actor.holdsOwnerKeys,
+    allowedStoreIds: actor.allowedStoreIds,
+    recordStoreId: row.store_id ?? null,
+  })
+    ? null
+    : { error: 'forbidden' }
 }

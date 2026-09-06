@@ -101,15 +101,22 @@ export interface MintTakeActor {
    *  grant ALONE does NOT reach here: it grants hearing and reading, never
    *  reserving (⚖ 9/3 council).
    *
-   *  ⚖ AND DELIBERATELY NOT STORE-CLAMPED, THE STANDING EXCEPTION (9/6): no
-   *  store dimension exists at this layer — `recordings` rows carry no
-   *  store_id (session-mint.ts:174 says so in the create payload), and at
-   *  mint/bind time the karute that WOULD carry one does not exist yet. So the
-   *  pair here is the owner's explicit hand and nothing narrows it. The store
-   *  law is applied where a store can be known: the read doors (transcript ·
-   *  playback, via the linked karute) and the karute-level acts (regenerate ·
-   *  再学習). Recorded, not overlooked. */
+   *  ⚖ AND ONLY WHERE THE PERSON CAN SEE (slice three ③). Recording rows now
+   *  carry the store the device was in (session-mint.ts), so the owner's-hand
+   *  branch obeys the same store law as every other act door —
+   *  `ownerHandReach`, one predicate, checked inside assertRecorderOwnsRow.
+   *  ⚖ THE NULL RULE (Fable's, not this door's to change): a row minted BEFORE
+   *  ③ carries no store and stays OPEN on that leg — "a record with no store
+   *  to be outside of", the same word the read doors use for a legacy karute.
+   *  A degraded scope (`[]`) fails closed on a STAMPED row. This CLOSES the
+   *  9/6 standing exception; nothing here widens. */
   holdsOwnerKeys: boolean
+  /** The stores this actor is assigned to, or null when unrestricted
+   *  (`stores.viewAll`, or floating staff). REQUIRED, so a door that forgot to
+   *  resolve it fails to COMPILE. Callers resolve it ONLY when
+   *  `holdsOwnerKeys` is true (the playback action's idiom) — an assignment
+   *  blip must never cost a recorder her own take. */
+  allowedStoreIds: readonly string[] | null
   source: 'web' | 'facade'
   requestId?: string
 }

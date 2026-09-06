@@ -20,7 +20,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   getMyCapabilities: () => getMyCapabilities(),
 }))
 const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
+// ③ …and the ACT REACH it now does resolve, but ONLY when the caller holds the
+// owner's pair. Default null = unrestricted (`stores.viewAll` or floating
+// staff) — the shape every case below already assumed.
+const viewerScopeForActs = jest.fn(async (): Promise<readonly string[] | null> => null)
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+  viewerScopeForActs: () => viewerScopeForActs(),
+}))
 // A jest.fn, not a bare async literal: the capability gate must run BEFORE the
 // tenant fence, and "the fence never asked who the caller is" is the only
 // evidence of that ordering (storage-not-reached also holds if the gate is last).
@@ -222,6 +229,7 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getMyCapabilities.mockImplementation(async () => new Set(['records.write']))
   resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
+  viewerScopeForActs.mockImplementation(async () => null)
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
   info.mockImplementation(async (key: string) =>

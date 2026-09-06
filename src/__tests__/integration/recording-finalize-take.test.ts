@@ -77,6 +77,9 @@ const actor = (over: Partial<FinalizeTakeActor> = {}): FinalizeTakeActor => ({
   staffId: 'staff-1',
   businessId: BIZ,
   holdsOwnerKeys: false,
+  // ③ Unrestricted by default (`stores.viewAll` or floating staff) — the shape
+  // every case here already assumed. The store leg's own cases set it.
+  allowedStoreIds: null,
   source: 'web',
   ...over,
 })

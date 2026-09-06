@@ -33,6 +33,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
@@ -84,10 +85,28 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // the roster identity resolved above. A null staffId can only reach the
   // server-named path, which binds nothing; the shared core still refuses to
   // write anything without one.
+  // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. The Bearer twin
+  // of web's viewerScopeForActs, and the same call the regenerate/relearn act
+  // routes already make (karute/[id]/regenerate/route.ts). Resolved ONLY when
+  // the pair is held: a recorder acting on her OWN session never reaches the
+  // store leg, so an assignment blip must not cost her the take. It reads the
+  // ASSIGNMENT, never the `store-id` header — a phone-set pin can neither
+  // widen nor narrow the owner's hand.
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
+  const allowedStoreIds = callerHoldsOwnerKeys
+    ? await viewerAllowedStoreIds({
+        synqed,
+        authUserId: ctx.identity.authUserId,
+        capabilities: ctx.identity.capabilities,
+        selfStaffId: staffId,
+      })
+    : null
+
   const actor = {
     staffId,
     businessId: ctx.identity.businessId,
-    holdsOwnerKeys: holdsOwnerKeys(ctx.identity.capabilities),
+    holdsOwnerKeys: callerHoldsOwnerKeys,
+    allowedStoreIds,
     source: 'facade' as const,
     requestId: ctx.meta.requestId,
   }

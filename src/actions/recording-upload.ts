@@ -115,13 +115,25 @@ export async function mintRecordingUploadUrl(
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. Resolved ONLY
+    // when the pair is held (the playback action's idiom, src/actions/
+    // recording-playback.ts): a recorder acting on her OWN session never
+    // reaches the store leg, so an assignment blip must not cost her the take.
+    // One spelling of the web act scope — viewerScopeForActs; dynamic import,
+    // the repo convention (a top-level one drags the ESM-only SDK into this
+    // module's jest graph).
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld
+      ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+      : null
 
     return await mintTakeUploadUrl(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
-        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
         source: 'web',
       },
       input,
@@ -164,13 +176,25 @@ export async function mintRecordingSegmentUrls(
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. Resolved ONLY
+    // when the pair is held (the playback action's idiom, src/actions/
+    // recording-playback.ts): a recorder acting on her OWN session never
+    // reaches the store leg, so an assignment blip must not cost her the take.
+    // One spelling of the web act scope — viewerScopeForActs; dynamic import,
+    // the repo convention (a top-level one drags the ESM-only SDK into this
+    // module's jest graph).
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld
+      ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+      : null
 
     return await mintSegmentUploadUrls(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
-        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
         source: 'web',
       },
       input,
