@@ -1363,7 +1363,15 @@ describe('the 配置ガイド rail', () => {
     expect(rail.text.match(/windowsEatenBy\(/g)).toHaveLength(2)
     // Each call names the list its own sentence is entitled to: ✓ the survivors,
     // △ and the refusal the windows the placement eats.
-    expect(pinnedLine(INT, "    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)")).toBe(true)
+    //
+    // ⚖ NUDGE-GUARD FIX 1 (§F1) — and the 守れます builder is handed its list by the
+    // CALLER, because the ✓ branch decided on the engine's pocket and a MOVE decided
+    // on the honest lane lists: reading the pocket inside printed a bare
+    // 「新規90分の空きを守れます」 over a lane holding none. Both call sites are
+    // spelled here, so a route that re-crosses the frames reds.
+    expect(pinnedLine(INT, "    const held = protectedWindowsClause(after, input.protectedDur)")).toBe(true)
+    expect(pinnedLines(INT, "const sentence = keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)")).toBe(1)
+    expect(INT.match(/keptSentence\(afterStarts, afterStarts\.length === 0\)/g)).toHaveLength(2)
     expect(pinnedLines(INT, "windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),")).toBe(2)
     expect(pinnedLine(INT, "const atRisk =")).toBe(true)
     // ⚖ 90 fix round 2 (F1) — and only when the placement actually COSTS a
@@ -1824,8 +1832,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       return s
     }
     const CODE = codeOnly(SRC)
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],')
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
@@ -1883,9 +1891,22 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
-    // …and there are exactly TWO mentions of `bedDoor(` in the file, counted
-    // over code: the exported declaration and that one call. A second call is a
-    // second door, which is the disease this family exists to remove.
+    // …and there are exactly THREE mentions of `bedDoor(` in the file, counted
+    // over code: the exported declaration and its two NAMED callers. A call
+    // nobody named is a second door, which is the disease this family exists to
+    // remove.
+    //
+    // ⚠ THE COUNT MOVED 2 → 3 AT NUDGE-GUARD FIX 1, AND THE PACKET DID NOT NAME
+    // THIS PIN — recorded for ratification, not absorbed (…/nextround/
+    // PKT-NUDGE-FIX1.md §F2, whose fix is spelled as a `bedDoor(…, null)` call).
+    // The before-list needs 「could a NEW placement start here, with the moving
+    // card lifted」, and `bedDoor` cannot say it from one call site: `askerId:
+    // null` always reads `views.world`, and an askerId reaches `worldMinusHand`
+    // only when it IS the frame's hand — false at the confirm surface, which is
+    // the surface Liam photographed. So the second caller is the ruled one, and
+    // it is `newClientDoorMinus`, anchored below.
+    expect({ liftedDoorCallers: pinnedLines(SRC, 'return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)') })
+      .toEqual({ liftedDoorCallers: 1 })
     //
     // ⚖ BREAKER-827 §DELTA 3 S3 — AND EXACTLY ONE of those two DEFINES it. The
     // shim shape one paragraph down works on any name a slice calls; `bedDoor`
@@ -1895,7 +1916,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect({
       bedDoorMentions: (CODE.match(/bedDoor\(/g) ?? []).length,
       bedDoorDefinitions: (CODE.match(/\b(?:function|const|let|var|class)\s+bedDoor\b/g) ?? []).length,
-    }).toEqual({ bedDoorMentions: 2, bedDoorDefinitions: 1 })
+    }).toEqual({ bedDoorMentions: 3, bedDoorDefinitions: 1 })
 
     // ⚖ BREAKER-827 §DELTA 3 S2 (BLOCKER) — AND THE GATE'S NAME IS BOUND IN
     // EXACTLY ONE PLACE. Every pin above reads a NAME and none of them said
@@ -2047,7 +2068,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
     const rail = sliceLines(
       '? guardRailsFor(boardLanes, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],',
     )
     expect(rail.lines).toEqual([
       '? guardRailsFor(boardLanes, {',
@@ -2063,7 +2084,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'placementFeasible: bedDoorFor(handId),',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
       'resting: restingFor(handId),',
-      'restingWindowFeasible: bedDoorFor(handId),',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,',
       '})',
       ': [],',
     ])
@@ -2072,7 +2093,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the caller's own exclusion and the board it was handed.
     const verdict = sliceLines(
       '? guardVerdictAt(lanes, laneKey, start, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],',
     )
     expect(verdict.lines).toEqual([
       '? guardVerdictAt(lanes, laneKey, start, {',
@@ -2088,7 +2109,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'placementFeasible: bedDoorFor(excludeId, lanes),',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
       'resting: restingFor(excludeId),',
-      'restingWindowFeasible: bedDoorFor(excludeId, lanes),',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,',
       '})',
       ': null,',
     ])
@@ -2292,7 +2313,17 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // wrapper's half: it walks the door it was GIVEN, and it is pinned that it
     // cannot name this screen or `bedTruthViews` to find another one
     // (selling-engine-doors.test.ts §1). One door, every walk still named.
-    expect(SRC.split('bedViewsFor(').length - 1).toBe(3)
+    //
+    // ⚠ MIGRATED AGAIN at NUDGE-GUARD FIX 1, 3 → 4, AND THE PACKET DID NOT NAME
+    // THIS PIN — recorded for ratification, not absorbed (…/nextround/
+    // PKT-NUDGE-FIX1.md §F2). The fourth walk is the before-list's own: the
+    // world with the MOVING card lifted, which is not the frame's book whenever
+    // the mover is not the live hand — the confirm surface, i.e. the surface
+    // Liam photographed. The invariant is what it always was: ONE door, and
+    // every walk through it named. This one is named here and anchored to the
+    // memo it lives in.
+    expect(SRC.split('bedViewsFor(').length - 1).toBe(4)
+    expect({ liftedWalk: pinnedLines(SRC, ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand') }).toEqual({ liftedWalk: 1 })
     expect(SRC).not.toContain('bedViewsFor(committedLanes')
     expect(SRC).toContain('gateOn: SELLING_ENGINE_LAW,')
     expect(SRC).toContain('bookOf: bedViewsFor,')
@@ -12430,7 +12461,9 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
   const on = (laneKey: string, start: number, dur: number) => ({ laneKey, start, dur })
 
   /** `warnFaceFor`'s input, with the board's own price frame — the same objects
-   *  TodayScreen composes at :1341-1345, so the ¥ here is the screen's ¥. */
+   *  TodayScreen composes at :1435-1440, so the ¥ here is the screen's ¥.
+   *  `listPrice` is the LANE's own (`BoardLane.listPrice`); a scene that types one
+   *  the lane does not carry prices a run the product would never make. */
   const warnInput = (cell: RailCell | null, listPrice = 7000): Parameters<typeof warnFaceFor>[0] => ({
     rows: [], cell, override: null, level: 'allow-warned', holdToConfirm: true,
     targetLaneMine: true, operatorName: '見本 あずさ', listPrice,
@@ -12481,24 +12514,39 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     return built
   }
   const DEMO_NOW = 804
+  const LEDGER_FRAME = { openMin: HOURS.open, closeMin: HOURS.close, nowMin: DEMO_NOW }
+  /** ⚖ NUDGE-GUARD FIX 1 §F2 — THE BEFORE-LIST'S DOOR, built the way the screen
+   *  builds it (`newClientDoorMinus`, TodayScreen): 「could a NEW placement start
+   *  here, with the moving card lifted」 — the hypothetical asker on the world MINUS
+   *  that card. NOT `doors(lanes, excludeId, …)`, which asks 「may THIS booking go
+   *  here」 and binds the mover's own 個室のみ tag. */
+  const liftedDoor = (lanes: BoardLane[], excludeId: string | null): RailInput['restingWindowFeasible'] => {
+    const lifted = bedViewsFor(lanes, LEDGER_FRAME, excludeId).worldMinusHand
+    return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)
+  }
   /** Clone a booking's cards to a new span, on every lane it sits on. */
   const movedTo = (lanes: BoardLane[], caseId: string, s: number, e: number): BoardLane[] =>
     lanes.map((l) => ({ ...l, items: l.items.map((i) => (i.caseId === caseId ? { ...i, ...place(s, e, HOURS) } as BoardItem : i)) }))
   const withoutCard = (lanes: BoardLane[], caseId: string): BoardLane[] =>
     lanes.map((l) => ({ ...l, items: l.items.filter((i) => i.caseId !== caseId) }))
-  /** TodayScreen :2127-2151 — `verdictAt`'s every field, including the two the
-   *  round adds: the committed baseline and the door its before-list is read
-   *  through (`bedDoorFor(excludeId, lanes)`, the same one `placementFeasible` uses). */
+  /** TodayScreen `verdictAt` — every field, including the two the round adds: the
+   *  committed baseline and the before-list's own window door.
+   *
+   *  ⚖ FIX 1 (L1-4) — `handId` is the FRAME's live hand, which the two `bedDoorFor`
+   *  doors close over, and it is NOT the asker: it is NULL on the confirm surface
+   *  (`pendingGuardRow`) and the card itself on the rail. Both legs are run wherever
+   *  the answer could differ. The before-list's door lifts the MOVER either way. */
   const demoInput = (
     lanes: BoardLane[], dur: number, excludeId: string | null,
     guard: RailInput['guard'], doors: BedDoor,
     resting: RailInput['resting'],
+    handId: string | null = excludeId,
   ): RailInput => ({
     open: HOURS.open, close: HOURS.close, stepMin: 30, dur, protectedDur: 90,
     nowMinute: DEMO_NOW, locked: [], guard, excludeId,
-    placementFeasible: doors(lanes, excludeId, excludeId),
-    protectedWindowFeasible: doors(lanes, null, excludeId),
-    resting, restingWindowFeasible: doors(lanes, excludeId, excludeId),
+    placementFeasible: doors(lanes, excludeId, handId),
+    protectedWindowFeasible: doors(lanes, null, handId),
+    resting, restingWindowFeasible: liftedDoor(lanes, excludeId),
   })
 
 
@@ -12662,12 +12710,17 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(warnFaceFor(warnInput(c2today, 7700)).impact.yen).toBe('約¥12,500')
 
     // A REAL loss on the same board stays exactly as loud as it is:
-    // あかり c-03, committed 16:00–16:30, asked 17:30 → 1 window, ¥12,710.
+    // あかり c-03, committed 16:00–16:30, asked 17:30 → 1 window.
+    // ⚖ FIX 1 §F3 — priced at c-03's OWN 定価, read off the board. The ¥12,710 this
+    // pinned before came from a typed 7700; c-03 charges 7000 and the desk reads
+    // ¥11,550 (…/nextround/BLIND-NUDGE-f14f7294f/LENS-4-drift.md F4).
     const ak = movedTo(lanes, 'apt-28', 1050, 1080)
+    const c03 = lanes.find((l) => l.key === 'c-03')!.listPrice
+    expect(c03).toBe(7000)
     const ca = guardVerdictAt(ak, 'c-03', 1050, demoInput(ak, 30, 'apt-28', guard, doors, on('c-03', 960, 30)))!
     expect(ca.label).toBe('△17:30')
     expect(lossOf(ca)).toBe(1)
-    expect(warnFaceFor(warnInput(ca, 7700)).impact.yen).toBe('約¥12,710')
+    expect(warnFaceFor(warnInput(ca, c03)).impact.yen).toBe('約¥11,550')
     // …and p-06 committed 18:00–19:00 asked 17:00 keeps its refusal and its ¥12,500.
     const f8 = movedTo(movedTo(lanes, 'apt-29', 840, 900), 'apt-33', 1020, 1080)
     const cf = guardVerdictAt(f8, 'p-06', 1020, demoInput(f8, 60, 'apt-33', guard, doors, on('p-06', 1080, 60)))!
@@ -12676,37 +12729,61 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(warnFaceFor(warnInput(cf, 7700)).impact.yen).toBe('約¥12,500')
   })
 
-  it('I9 — THE C1 SWEEP: 222 (origin, asked) pairs on p-06, no silent-but-costly and no amber-but-costless', async () => {
-    // ⚖ R2 ruling 3 — judging the BEFORE-list on the AFTER-world's rooms erases
-    // the very window a move destroys. The door that lifts the moving card's own
-    // room hold is the fix, and this is the sweep that proved it (lens 3 RUN8).
+  it('I18 — THE TAGGED SWEEP: apt-29 (個室のみ) AND apt-33, both handId wirings, 4×385 pairs — no silent-but-costly, no amber-but-costless, no bare 守れます', async () => {
+    // ⚖ R2 ruling 3 + FIX 1 §F2 — judging the BEFORE-list through the MOVER'S OWN
+    // landing door binds its 個室のみ tag, so on a room-bound card the honest before
+    // collapsed and a move that really killed a 新規 window went quiet. I9's sweep
+    // could not see it: it swept apt-33 (plain) over origins that exclude 14:00 and
+    // asks that start at 15:00, which is outside the band the defect lives in. This
+    // is I9's scene list, widened to the tagged card, to a 14:00 origin, to
+    // 14:00–18:30, and run at BOTH `handId` wirings — the confirm surface's is null,
+    // the rail's is the hand (…/nextround/BLIND-NUDGE-f14f7294f/LENS-1-engineer.md
+    // L1-1/L1-3/L1-4 · LENS-2-breaker.md B-1 · LENS-4-drift.md F1).
+    //
+    // A BLOCKED cell is not a silent approval — the board refuses the drop — so the
+    // silent count is over cells the operator can actually place, which is the
+    // breaker's own criterion. Truth is the whole board's `protectedCapacityOf`.
     const { lanes, guard, doors } = await demoBoard()
-    const base = movedTo(lanes, 'apt-29', 840, 900)
-    const origins = [900, 930, 990, 1020, 1032, 1080]
+    const withNagi = movedTo(lanes, 'apt-29', 840, 900)
+    const origins = [840, 900, 930, 990, 1020, 1032, 1080]
     const starts: number[] = []
-    for (let s = 900; s <= 1080; s += 5) starts.push(s)
-    const truthOf = (b: BoardLane[]) => protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null))
+    for (let s = 840; s <= 1110; s += 5) starts.push(s)
+    const truths = new Map<string, number>()
+    const truthOf = (b: BoardLane[], key: string) => {
+      let t = truths.get(key)
+      if (t === undefined) { t = protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null)); truths.set(key, t) }
+      return t
+    }
     const faceOf = (c: RailCell | null) => warnFaceFor(warnInput(c, 7700)).face
-    const sweep = (live: boolean) => {
-      let silent = 0, amber = 0, pairs = 0
+    const sweep = (id: string, base: BoardLane[], tag: string, handId: string | null, live: boolean) => {
+      let silent = 0, amber = 0, bare = 0, pairs = 0
       for (const o of origins) {
-        const truthNow = truthOf(movedTo(base, 'apt-33', o, o + 60))
+        const truthNow = truthOf(movedTo(base, id, o, o + 60), `${tag}|${o}`)
         for (const s of starts) {
-          const board = movedTo(base, 'apt-33', s, s + 60)
-          const cell = guardVerdictAt(board, 'p-06', s, demoInput(board, 60, 'apt-33', guard, doors, live ? on('p-06', o, 60) : null))
+          const board = movedTo(base, id, s, s + 60)
+          const cell = guardVerdictAt(board, 'p-06', s, demoInput(board, 60, id, guard, doors, live ? on('p-06', o, 60) : null, handId))
           const face = faceOf(cell)
-          const truthAfter = truthOf(board)
+          const truthAfter = truthOf(board, `${tag}|ask${s}`)
           pairs += 1
-          if (face === 'clean' && truthAfter < truthNow) silent += 1
+          if (cell != null && cell.state !== 'blocked' && face === 'clean' && truthAfter < truthNow) silent += 1
           if (face === 'warn' && truthAfter >= truthNow) amber += 1
+          // I16d — no zero-loss row may promise a window it cannot name.
+          if (cell != null && cell.sentence === '新規90分の空きを守れます') bare += 1
         }
       }
-      return { pairs, silent, amber }
+      return { pairs, silent, amber, bare }
     }
-    expect(sweep(true)).toEqual({ pairs: 222, silent: 0, amber: 0 })
-    // …and the same sweep on today's baseline, which is the size of the defect:
-    // 102 of 222 moves light the amber face over a change that costs nothing.
-    expect(sweep(false)).toEqual({ pairs: 222, silent: 0, amber: 102 })
+    const CLEAN = { pairs: 385, silent: 0, amber: 0, bare: 0 }
+    // apt-33 on I9's own base (なぎ committed 14:00), then the TAGGED card itself.
+    expect(sweep('apt-33', withNagi, 'k', null, true)).toEqual(CLEAN)
+    expect(sweep('apt-33', withNagi, 'k', 'apt-33', true)).toEqual(CLEAN)
+    expect(sweep('apt-29', lanes, 'n', null, true)).toEqual(CLEAN)
+    expect(sweep('apt-29', lanes, 'n', 'apt-29', true)).toEqual(CLEAN)
+    // …and the same sweeps on today's baseline, which is the size of what was wrong:
+    // the plain card lights 102 ambers over moves that cost nothing, and the tagged
+    // card is quiet over 3 that do cost while warning over 4 that do not.
+    expect(sweep('apt-33', withNagi, 'k', null, false)).toEqual({ pairs: 385, silent: 0, amber: 102, bare: 0 })
+    expect(sweep('apt-29', lanes, 'n', null, false)).toEqual({ pairs: 385, silent: 3, amber: 4, bare: 0 })
   })
 
   it('I10 — a CROSS-POCKET move is the whole-lane delta (committed 10:00–11:00, asked 15:20 past a 13:30 break)', () => {
@@ -12784,7 +12861,6 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([0, 1])
     expect(cell.impact!.capacityBefore - cell.impact!.capacityAfter).toBe(-1)
     expect(lossOf(cell)).toBe(0)
-    expect(lossOf(cell)).toBeGreaterThanOrEqual(0)
   })
 
   it('I15 — a zero-loss cell keeps ONLY the engine\'s safe offers: there is nothing to reduce', () => {
@@ -12813,6 +12889,103 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(moved.alternativeKind).toBeNull()
   })
 
+  it('I16a — a zero-loss MOVE onto a lane that holds NO protected window says so, instead of promising one', async () => {
+    // ⚖ FIX 1 §F1 — the empty arm used to be decided by the ENGINE's lifted pocket
+    // while the route had decided on the honest lane lists, so a lane holding
+    // nothing printed a bare 「新規90分の空きを守れます」. The caller names its own
+    // lists now, and the honest 0 speaks the ✓ branch's own empty sentence.
+    const tight = pocketLane([card('C1', 845, 905)], { window: { from: 840, until: 930 }, untilLabel: '15:30' })
+    const cell = at(tight, 845, { resting: on('p-01', 850, 60) })!
+    expect(cell.state).toBe('degraded')
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([0, 0])
+    expect(lossOf(cell)).toBe(0)
+    expect(cell.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
+    // …and on the product's own board: なぎ committed 15:00, asked 14:45.
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 885, 945)
+    const live = guardVerdictAt(board, 'p-06', 885, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 900, 60), null))!
+    expect(live.state).toBe('degraded')
+    expect([live.impact!.capacityBefore, live.impact!.capacityAfter]).toEqual([0, 0])
+    expect(live.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
+    expect(warnFaceFor(warnInput(live, 7700)).face).toBe('clean')
+  })
+
+  it('I16b — the 守れます clause is the HONEST after-list: a nudge across a 休憩 names the windows in BOTH pockets', () => {
+    // The sentence used to name `v.protectedWindowsAfter` — the LANDING pocket —
+    // while the count beside it was the whole lane, so a two-pocket lane promised
+    // to protect fewer windows than its own data carried.
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(810, 840, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [brk, card('C1', 920, 980)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const cell = guardVerdictAt(board, 'p-01', 920, IN({ resting: on('p-01', 600, 60) }))!
+    expect(lossOf(cell)).toBe(0)
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([3, 3])
+    expect(cell.impact!.windowsAfter).toEqual([600, 690, 980])
+    // two of the three survive in the pocket BEFORE the 13:30 break, and the card
+    // lands at 15:20 in the pocket after it — so a pocket-framed clause could not
+    // have named them.
+    expect(cell.sentence).toBe('10:00〜11:30・11:30〜13:00・16:20〜17:50の新規90分の空きを守れます')
+    expect(cell.sentence).toBe(`${protectedWindowsClause(cell.impact!.windowsAfter, 90)}の新規90分の空きを守れます`)
+  })
+
+  it('I16c — the ✓ branch is untouched: every safe cell is byte-identical with and without a committed baseline', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    const strip = (resting: RailInput['resting']) =>
+      guardRailsFor(board, IN({ resting }))[0].cells.filter((c) => c.state === 'safe')
+    const withBaseline = strip(on('p-01', 850, 60))
+    expect(withBaseline.length).toBeGreaterThan(0)
+    expect(withBaseline).toEqual(strip(null))
+    // the clause arm is really exercised here, not only the empty one
+    expect(withBaseline.some((c) => c.sentence.endsWith('の新規90分の空きを守れます'))).toBe(true)
+  })
+
+  it('I17 — the TAGGED card (個室のみ) prices its real loss again: なぎ committed 14:00, asked 15:00 / 14:45', async () => {
+    // Liam's own card. The before-list is 「could a NEW placement start here, with
+    // なぎ lifted」; asked through なぎ's OWN landing door it inherited her 個室のみ
+    // tag, the before collapsed to 0 and the ¥ vanished off a real loss.
+    const { lanes, guard, doors } = await demoBoard()
+    for (const handId of [null, 'apt-29'] as const) {
+      for (const asked of [900, 885]) {
+        const board = movedTo(lanes, 'apt-29', asked, asked + 60)
+        const cell = guardVerdictAt(board, 'p-06', asked, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 840, 60), handId))!
+        expect({ asked, state: cell.state, code: cell.impact!.code, loss: lossOf(cell) })
+          .toEqual({ asked, state: 'blocked', code: 'R-REP', loss: 1 })
+        expect(cell.sentence).toBe('ここに置くと15:00〜16:30の新規（90分）が入らなくなります')
+        const face = warnFaceFor(warnInput(cell, 7700))
+        expect(face.face).toBe('warn')
+        expect(face.impact.yen).toBe('約¥11,740')
+        expect(face.commit!.kind).toBe('hold')
+        expect(face.commit!.label).toBe('長押しで注意して配置')
+      }
+    }
+    // I17c — and the fix's own promise is unchanged: the 14:05→14:00 nudge on the
+    // board that reproduces the shot is still quiet, at both wirings.
+    const s1 = withoutCard(movedTo(lanes, 'apt-29', 840, 900), 'apt-26')
+    for (const handId of [null, 'apt-29'] as const) {
+      const quiet = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, on('p-06', 845, 60), handId))!
+      expect({ handId, label: quiet.label, loss: lossOf(quiet), sentence: quiet.sentence })
+        .toEqual({ handId, label: '△14:00', loss: 0, sentence: '15:00〜16:30の新規90分の空きを守れます' })
+      expect(warnFaceFor(warnInput(quiet, 7700)).face).toBe('clean')
+    }
+  })
+
+  it('I17d — the same door was PRE-EXISTINGLY under-counting a LOUD cell: committed 13:00 → asked 15:00 costs two windows, not one', async () => {
+    // Not a regression this branch introduced — the tip was loud here and simply
+    // wrong about the size (LENS-2-breaker.md §OTHER LITTLE BUGS, `wrong-number-
+    // when-loud = 4`, identical before and after the branch). The honest door
+    // fixes it too, and the number now matches the whole board's own drop.
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 900, 960)
+    const truthBefore = protectedCapacityOf(movedTo(lanes, 'apt-29', 780, 840), demoInput(movedTo(lanes, 'apt-29', 780, 840), 60, null, guard, doors, null))
+    const truthAfter = protectedCapacityOf(board, demoInput(board, 60, null, guard, doors, null))
+    expect([truthBefore, truthAfter]).toEqual([4, 2])
+    const cell = guardVerdictAt(board, 'p-06', 900, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 780, 60), null))!
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([2, 0])
+    expect(lossOf(cell)).toBe(2)
+    expect(cell.sentence).toBe('ここに置くと14:00〜15:30・15:30〜17:00の新規（90分）が入らなくなります')
+    const face = warnFaceFor(warnInput(cell, 7700))
+    expect(face.impact.tail).toBe('が2枠から0枠に減ります（2枠分・約¥23,480）。')
+  })
+
   it('I14 — every new name is SPELLED ONCE, and the at-rest lane count is the capacity book\'s own', () => {
     const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     const SCREEN = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
@@ -12835,5 +13008,42 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const engine = createGapGuard(GUARD)
     const pockets = freePockets({ from: 840, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], null) })
     expect(laneWindowsWith(engine, pockets, null, {}).length).toBe(protectedCapacityOf(board, input))
+  })
+
+  it('I14b — …and the identity holds with a REAL ctx and a REAL placement, which is where it bites', async () => {
+    // ⚖ LENS-4-drift.md F3 — I14's closing line ran only with `placement = null` and
+    // an EMPTY ctx, the one pair of arguments for which the walk degenerates to the
+    // plain before-list. The non-null arm through a real door IS the round's new
+    // machinery, and it is the arm the tip got wrong. Every other staff lane is
+    // locked so the book answers for p-06 alone.
+    const { lanes, guard, doors } = await demoBoard()
+    const others = lanes.filter((l) => l.group === 'staff' && l.key !== 'p-06').map((l) => l.key)
+    const engine = createGapGuard(guard)
+    const p06 = (b: BoardLane[]) => b.find((l) => l.key === 'p-06')!
+    const committed = movedTo(lanes, 'apt-29', 840, 900)
+    const bookOf = (b: BoardLane[]) => protectedCapacityOf(b, { ...demoInput(b, 60, null, guard, doors, null), locked: others })
+    const pocketsOf = (b: BoardLane[], lift: string | null) => freePockets({
+      from: p06(b).window!.from, until: p06(b).window!.until,
+      close: HOURS.close, now: DEMO_NOW, occupied: laneSpans(p06(b), lift),
+    })
+    const ctxOf = (b: BoardLane[], door: RailInput['protectedWindowFeasible']) =>
+      ({ now: DEMO_NOW, protectedWindowFeasible: (s: number, d: number) => door!(p06(b), s, d) })
+    // (a) at rest, through the board's own door: the walk IS the book.
+    expect(laneWindowsWith(engine, pocketsOf(committed, null), null, ctxOf(committed, doors(committed, null, null))).length)
+      .toBe(bookOf(committed))
+    for (const asked of [845, 885, 900, 990]) {
+      const board = movedTo(lanes, 'apt-29', asked, asked + 60)
+      const lifted = pocketsOf(board, 'apt-29')
+      // (b) THE BEFORE-LIST: the lane with なぎ put back at her committed span, judged
+      // through the lifted new-client door, IS the capacity book on the committed
+      // board — 1. Through her own landing door it reads 0, which is the defect.
+      expect({ asked, walk: laneWindowsWith(engine, lifted, { start: 840, dur: 60 }, ctxOf(board, liftedDoor(board, 'apt-29'))).length })
+        .toEqual({ asked, walk: bookOf(committed) })
+      expect(laneWindowsWith(engine, lifted, { start: 840, dur: 60 }, ctxOf(board, doors(board, 'apt-29', null))).length).toBe(0)
+      // (c) THE AFTER-LIST: the same walk with the card at the ask IS the book on the
+      // board where the card is at the ask.
+      expect({ asked, walk: laneWindowsWith(engine, lifted, { start: asked, dur: 60 }, ctxOf(board, doors(board, null, null))).length })
+        .toEqual({ asked, walk: bookOf(board) })
+    }
   })
 })

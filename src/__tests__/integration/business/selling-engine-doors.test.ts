@@ -765,9 +765,15 @@ describe('1 — the round gate', () => {
     // on the screen and still at the boundary; it is handed to the wrapper as a
     // bare parameter value instead of spelling a ternary here. Same decision,
     // same count, one home fewer.
+    // ⚖ MIGRATED AGAIN at NUDGE-GUARD FIX 1, WITH the decision: 5 → 7. The
+    // before-list's own window door joined the other two at both call sites, and
+    // it is gated exactly as they are — an ungated before-door beside a gated
+    // after-door is two lists from two frames (…/nextround/PKT-NUDGE-FIX1.md §F2,
+    // …/nextround/BLIND-NUDGE-f14f7294f/LENS-1-engineer.md L1-5). Both new reads
+    // are whole-line anchored below, so the count is not carrying them alone.
     const screen = SRC('TodayScreen.tsx')
     const reads = [...codeOnly(screen).matchAll(/SELLING_ENGINE_LAW/g)].length
-    expect(reads).toBe(5)
+    expect(reads).toBe(7)
     // ⚖ D1 — and the number does not move when `codeOnly` learns about block
     // comments: all five reads are code, none of the six raw occurrences the
     // pre-armour count saw ever sat inside a block the new filter removes.
@@ -787,6 +793,8 @@ describe('1 — the round gate', () => {
       'gateOn: SELLING_ENGINE_LAW,',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(handId) : undefined,',
+      'restingWindowFeasible: SELLING_ENGINE_LAW ? newClientDoorMinus(excludeId, lanes) : undefined,',
     ]) {
       expect({ line, has: pinnedLine(screen, line) }).toEqual({ line, has: true })
     }
@@ -812,8 +820,8 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],')
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor, newClientDoorMinus],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor, newClientDoorMinus],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
