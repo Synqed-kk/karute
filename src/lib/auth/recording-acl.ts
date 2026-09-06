@@ -60,6 +60,40 @@ export function canViewAllInStore(opts: {
 }
 
 /**
+ * ⚖ WHICH STORE A READ DOOR JUDGES A KARUTE BY — one spelling, three doors
+ * (R1′, slice three ③ fix round 3; Greptile #849 point 2).
+ *
+ * The KARUTE's own store is where the record lives, and it leads: it is what
+ * `resolveKaruteStoreId` (actions/karute.ts) writes on every save, and what the
+ * audit viewer and the karute list already filter by.
+ *
+ * A karute that carries NONE — a store-less booking, a saver whose own scope
+ * resolved to no store — inherits the RECORDING's store, which since ③ names
+ * the branch the device was actually in (session-mint.ts). Without that
+ * fallback a null-store karute reads as 全店舗 while its row plainly says
+ * `store-9`, and a grantee clamped to `store-a` hears another branch's audio.
+ *
+ * Both null = a genuinely unlabelled record — 全店舗 / legacy, OPEN, the same
+ * word `canViewAllInStore` uses one function down.
+ *
+ * ONE INPUT, THREE DOORS, and that is the whole point of it living here: the
+ * transcript (web page · facade screen route) and the sound (playback-url) must
+ * answer one karute the SAME way. A door that read only the karute would open
+ * where its sibling closed — show-and-refuse, which the page's own rule
+ * forbids; a door that read only the row would close on every pre-③ karute.
+ */
+export function readDoorStoreId(
+  /** The karute row. `store_id` is optional on the app's own view-model type
+   *  (KaruteWithRelations), and an ABSENT column means the same thing as an
+   *  explicitly null one here: this record names no store of its own, so ask
+   *  the recording. */
+  karute: { store_id?: string | null },
+  row: { store_id?: string | null } | null | undefined,
+): string | null {
+  return karute.store_id ?? row?.store_id ?? null
+}
+
+/**
  * THE ACT DOORS' STORE LAW — the owner's two keys reach only where the person
  * can see, exactly as the named grant does (⚖ Liam's store-isolation law 8/17;
  * Greptile #848 review 2, point 2).

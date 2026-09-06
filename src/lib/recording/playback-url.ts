@@ -54,7 +54,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
-import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript, readDoorStoreId } from '@/lib/auth/recording-acl'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -176,26 +176,24 @@ export async function mintPlaybackUrlWithClient(
   //    passed in, because the caller has not seen either object yet when it
   //    builds the actor.
   //
-  //    ⚠ ⚖ THE KARUTE'S STORE IS THIS DOOR'S ONE TRUTH (fix round 4, blind
-  //    round 2 F1; RE-RULED slice three ③ fix round 1). The KARUTE's own column
-  //    decides, and nothing else: `resolveKaruteStoreId` (actions/karute.ts)
-  //    writes it, and it is the SAME object the words doors clamp on
-  //    (karute/[id]/page.tsx · screens/karute/[id]/route.ts, both
-  //    `recordStoreId: karute.store_id`). One input, one answer — so the words
-  //    door and the sound door can never disagree about one karute, and the
-  //    page's "HIDE, NEVER SHOW-AND-REFUSE" rule stays true.
+  //    ⚠ ⚖ R1′ — THE KARUTE'S STORE LEADS, THE ROW'S IS THE FALLBACK (fix
+  //    round 4, blind round 2 F1; ③ fix round 1 R1; RE-RULED ③ fix round 3,
+  //    Greptile #849 point 2 — R1′ supersedes R1). ONE spelling for all three
+  //    read doors: `readDoorStoreId` (auth/recording-acl.ts), used here and at
+  //    both words doors (karute/[id]/page.tsx · screens/karute/[id]/route.ts).
   //
-  //    ⚖ AND NOT THE RECORDING ROW'S, even though ③ now stamps one. That store
-  //    is a SESSION-level fact — where the device was — and it gates the
-  //    SESSION-level doors, where no karute exists yet to ask: reserve, bind
-  //    and finalize a take (take-binding.ts#assertRecorderOwnsRow). Falling
-  //    back to it here would let a karute with no store of its own be judged by
-  //    the row while the words doors judged it open, and the player would
-  //    render on a tap that could only fail.
+  //    Why both halves are needed. Reading the ROW ALONE was the original bug:
+  //    the column was empty for every take in the field, so the clamp took the
+  //    全店舗/legacy branch and the sound door stood open while the words door
+  //    was shut. Reading the KARUTE ALONE was the fix round 1 overcorrection:
+  //    a karute with no store of its own (a store-less booking) read as 全店舗
+  //    while its row plainly named store-9, so a grantee clamped to store-a
+  //    could hear another branch's audio. Karute first, row second, both null =
+  //    genuinely unlabelled = open — closed AND consistent.
   //
-  //    (Reading the ROW ALONE was the original bug: the column was empty for
-  //    every take in the field, so the clamp took the 全店舗/legacy branch and
-  //    the sound door stood open while the words door was shut.)
+  //    Because all three doors take the same input, they cannot disagree about
+  //    one karute: no show-and-refuse (the page's own rule), and no door open
+  //    where its sibling is shut.
   if (
     !canViewTranscript({
       ownerStaffId,
@@ -203,7 +201,7 @@ export async function mintPlaybackUrlWithClient(
       canViewAll: canViewAllInStore({
         canViewAll: actor.canViewAll,
         allowedStoreIds: actor.allowedStoreIds,
-        recordStoreId: karute.store_id,
+        recordStoreId: readDoorStoreId(karute, row),
       }),
     })
   ) {
@@ -264,13 +262,12 @@ export async function mintPlaybackUrlWithClient(
     actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
-    // The KARUTE's store first, then the ROW's (fix round 4b): the audit viewer
-    // filters by store, so a line keyed on an empty column was invisible to
-    // every store-scoped search. ⚖ The fallback stays HERE and only here: this
-    // is a filter on a report, never an access decision — the ACL above keys on
-    // the karute alone. A karute with no store still lands on the store the
-    // device was in, which is the honest answer for a search.
-    storeId: karute.store_id ?? row.store_id ?? undefined,
+    // The KARUTE's store first, then the ROW's (fix round 4b) — the SAME chain
+    // the ACL above now takes (readDoorStoreId), so the line a search finds and
+    // the decision that let it happen agree by construction. `?? undefined`
+    // because the audit field is optional and a genuinely unlabelled record has
+    // no store to stamp.
+    storeId: readDoorStoreId(karute, row) ?? undefined,
     targetType: 'recording',
     targetId: row.id,
     severity: 'notice',

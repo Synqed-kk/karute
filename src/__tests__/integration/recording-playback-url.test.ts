@@ -83,10 +83,11 @@ const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 // every save). The RECORDING ROW carries one only since ③ — the mint stamps the
 // actor's active store (session-mint.ts:199) and `UpdateRecordingInput` still
 // has no such field, so every row minted BEFORE ③ is null for ever.
-// ⚖ Both shapes are production now, and at THIS door only one of them is read:
-// the KARUTE's. The row's store gates the take doors (reserve · bind ·
-// finalize), where no karute exists yet — never a read door, so the words door
-// and the sound door can never disagree about one karute.
+// ⚖ Both shapes are production now, and this door reads them in ONE order
+// (readDoorStoreId, auth/recording-acl.ts): the karute's store leads, the row's
+// is the fallback, both null = unlabelled = open. The same order at all three
+// read doors, so the words door and the sound door can never disagree about one
+// karute — neither show-and-refuse, nor open where the row knows better.
 const KAR = {
   current: {
     id: KARUTE_ID,
@@ -658,16 +659,22 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     expect(r).toEqual({ error: 'forbidden' })
   })
 
-  // ⚖ THE OTHER HALF OF THE SAME RULE (③ fix round 1). The row's store is LIVE
-  // now, and this door still does not read it. A karute with no store of its
-  // own is OPEN here — exactly as the two words doors read it
-  // (karute/[id]/page.tsx · screens/karute/[id]/route.ts, both
-  // `recordStoreId: karute.store_id`) — because one karute must get one answer
-  // from both doors. Put `?? row.store_id` back and this goes red: the player
-  // would render on a karute whose every tap is refused.
-  it('karute null, row store-9 → OPEN — the karute’s store decides at the read doors; the row’s store gates the take doors only', async () => {
+  // ⚖ THE OTHER HALF OF THE SAME RULE (③ fix round 1 R1, RE-RULED fix round 3
+  // R1′ — Greptile #849 point 2). The row's store is LIVE now, and this door
+  // reads it AS THE FALLBACK. A karute with no store of its own would otherwise
+  // read as 全店舗 while its row plainly names store-9, and a grantee clamped to
+  // store-a would hear another branch's audio. All three read doors take the
+  // same input (readDoorStoreId), so all three refuse this together.
+  it('the recording row’s store closes a null-store karute at every read door (karute null, row store-9, grantee in store-a → forbidden)', async () => {
     KAR.current = { ...KAR.current, store_id: null }
     ROW.current = { ...ROW.current, store_id: 'store-9' }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, open', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
     const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
     expect('url' in r).toBe(true)
   })

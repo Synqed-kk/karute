@@ -28,7 +28,12 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
-import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import {
+  canViewAllInStore,
+  canViewTranscript,
+  ownerHandReach,
+  readDoorStoreId,
+} from '@/lib/auth/recording-acl'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -142,10 +147,16 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
             selfStaffId: viewerStaffId,
           })
         : null
+    // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
+    // karute's own store leads; a karute that carries none inherits the RECORDING
+    // row's, which since ③ names the branch the device was in. ONE spelling for
+    // all three read doors (readDoorStoreId, auth/recording-acl.ts), so the words
+    // door and the sound door can never disagree about one karute — neither
+    // show-and-refuse, nor open where the row knows better.
     const canViewAllRecordings = canViewAllInStore({
       canViewAll: holdsRecordingsViewAll,
       allowedStoreIds,
-      recordStoreId: karute.store_id,
+      recordStoreId: readDoorStoreId(karute, recordingRow),
     })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id

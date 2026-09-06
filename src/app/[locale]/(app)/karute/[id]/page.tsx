@@ -22,7 +22,12 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities } from '@/lib/auth/require-permission'
-import { canViewAllInStore, canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import {
+  canViewAllInStore,
+  canViewTranscript,
+  ownerHandReach,
+  readDoorStoreId,
+} from '@/lib/auth/recording-acl'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -119,10 +124,22 @@ export default async function KaruteDetailPage({
   // they cannot disagree about which stores this viewer can see.
   const allowedStoreIds =
     storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds
+  // ⚖ R1′ — WHICH STORE JUDGES THIS KARUTE (③ fix round 3; Greptile #849). The
+  // karute's own store leads; a karute that carries none inherits the RECORDING
+  // row's, which since ③ names the branch the device was in. ONE spelling for
+  // all three read doors (readDoorStoreId, auth/recording-acl.ts), so the words
+  // door and the sound door can never disagree about one karute — neither
+  // show-and-refuse, nor open where the row knows better.
+  //
+  // Awaited HERE rather than at its old spot below: the read is already in
+  // flight (it was started at the top of this function), so moving the await up
+  // costs no extra call — it only makes the row available to the store
+  // question, which now needs it.
+  const recordingRow = await recordingPromise
   const canViewAllRecordings = canViewAllInStore({
     canViewAll: holdsRecordingsViewAll,
     allowedStoreIds,
-    recordStoreId: karute.store_id,
+    recordStoreId: readDoorStoreId(karute, recordingRow),
   })
 
   // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
@@ -165,8 +182,6 @@ export default async function KaruteDetailPage({
         getCustomer(customerId).catch(() => null),
       ])
     : [null, null, null]
-  const recordingRow = await recordingPromise
-
   // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
   // and thin can never derive a different view-model from the same raw wave.
   const built = buildKaruteDetailScreen({
