@@ -35,6 +35,18 @@
 // the returning device's finalize into a terminal `size_mismatch` — a strand
 // we inflicted. Two days of silence is where "gone" becomes the likelier truth.
 //
+// ⚖ NAMED CEILING — THE RETURNING DEVICE. Once a take is sealed here the key
+// is spoken for, and a phone that comes back at ANY later time meets the
+// object: its finalize compares byte lengths, they differ (it holds the last
+// flush the segments never got), and it ends at a terminal `size_mismatch`
+// (finalize-take.ts) — that take then reads 要対応 with 再試行 on the phone.
+// The audio is not lost either way: the full copy stays on the device and the
+// prefix is on the server. The same arithmetic reaches a take left PAUSED for
+// days, which flushes nothing and never reaches the recorder's 2-hour
+// auto-stop (that measures recorded time, not wall time), so the age gate
+// reads it as gone. Both are the price of sealing with no declaration of how
+// long a take was meant to be; a last-seq declared at stop is the upgrade.
+//
 // WHAT IT NEVER CLAIMS (design D2). Today's main carries NO declaration of how
 // long a take was — FinalizeTakeSchema has no lastSeq, so the device never
 // tells the server how many segments it meant to send. So every object this

@@ -59,7 +59,9 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   server job both read *that* object — there is no second staging upload.
 - **A take the device never sent is drained at the next launch** (#835), so a
   phone that comes back finishes its own recording rather than waiting for
-  anyone to notice.
+  anyone to notice — *unless the nightly job below has already rebuilt that
+  take*, in which case the phone's own copy can no longer be secured under the
+  same key (see the ceiling two bullets down).
 - **And a device that never comes back no longer keeps the audio** — a nightly
   job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
   take from the segments it left behind, once they have gone 48 hours
@@ -70,15 +72,31 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   estimated to run. Two days, not two hours, because the device's own drain is
   faster than we are and sealing early would strand the take it was about to
   finish.
-- **The rescued take's LENGTH is written when a staffer saves it**, not by the
-  nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
+- **⚖ The price of sealing without a declaration — the returning device.**
+  Nothing tells the server how long a take was meant to be, so what the nightly
+  job writes is the segments it can see, and the take's key is immutable. Once
+  it has sealed one, a phone that turns up *at any later time* — a week later,
+  out of a drawer — meets that object: its own finalize compares byte lengths,
+  they differ (it holds the last flush the segments never got), and it ends at
+  a terminal `size_mismatch`, so that take reads 要対応 with 再試行 on the
+  phone. **The full audio is not lost** — it stays on the device, and the
+  server holds the rebuilt prefix — but the phone can no longer complete it
+  itself. The same arithmetic reaches one live case: a take left **paused** for
+  days never flushes another segment, and the recorder's 2-hour auto-stop
+  measures recorded time, not wall time, so the age gate reads it as gone.
+  Both close the same way, and that is the upgrade: have the device declare its
+  last segment at stop, so the server can tell a finished take from a silent
+  one instead of inferring it from age.
+- **The rescued take's LENGTH will be written when a staffer saves it** — not
+  by the nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
   (core D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`), and a 03:07 cron has
-  none — so the job settles the audio and records what it rebuilt, and the save
-  door writes `duration_seconds` from the same estimate with the staffer's own
-  credentials. **Named ceiling:** a rescued take nobody saves keeps a null
-  duration, so 録音履歴 shows no length for it until somebody does. Nothing is
-  lost by that — the audio is on the server and the audit row carries the
-  estimate — and closing it would take a system actor in core.
+  none, so the job settles the audio and records what it rebuilt. The next PR's
+  save door — **not built yet** — will write `duration_seconds` from the same
+  estimate with the staffer's own credentials. **Until then, and for any
+  rescued take nobody saves:** the row keeps a null duration, so 録音履歴 shows
+  no length for it. Nothing is lost by that — the audio is on the server and
+  the audit row carries the estimate — and closing it for good would take a
+  system actor in core.
 - **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
   destroy a recording is gone — the worker's post-transcription delete, the
   facade transcribe route's `finally`, the web port's cleanup leg, the discard
