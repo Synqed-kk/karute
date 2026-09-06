@@ -10,13 +10,23 @@
 // the other. That is what this does, once a night, for a device that has been
 // silent for two days.
 //
-// ⚖ IT ONLY EVER ADDS. It reads the segments, concatenates the longest
-// CONTIGUOUS prefix from seq 0, and PUTs the result under the key the row
-// already reserved with `upsert: false`. Nothing is deleted — not a segment
-// after it is read, not an object it did not write (audio is never deleted;
+// ⚖ IT ONLY EVER ADDS, AND ONLY TO STORAGE. It reads the segments,
+// concatenates the longest CONTIGUOUS prefix from seq 0, PUTs the result under
+// the key the row already reserved with `upsert: false`, and files one audit
+// row saying what it rebuilt. Nothing is deleted — not a segment after it is
+// read, not an object it did not write (audio is never deleted;
 // scripts/audit/check-audio-never-deleted.mjs is the machine behind that rule).
 // A duplicate refusal on the PUT means the device came back and sealed its own
 // take first: this skips, silently, and writes nothing at all.
+//
+// ⚖ AND IT NEVER WRITES TO CORE (amendment 2026-09-06). Core fences
+// `PUT /v1/recordings/:id` behind a HUMAN actor (core D10,
+// docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94; src/lib/synqed/client.ts:54-57),
+// and a 03:07 cron has none — inventing one for a job is exactly what that
+// fence exists to forbid. So the take's DURATION is written by the door that
+// does have an actor: the save-from-server door a staffer taps, carrying their
+// own bearer. This job rebuilds the audio and says so; the row learns its
+// length when somebody saves the recording.
 //
 // WHY 48 HOURS AND NOT THE INBOX'S 3 (design D1). The device's own drain
 // retries every minute the app is open (owed-drain, launch-drain), and a phone
@@ -55,7 +65,10 @@ export const ASSEMBLE_AFTER_MS = 48 * 60 * 60 * 1000
 /** The recorder flushes one segment per TAKE_FLUSH_MS (src/lib/global-recorder
  *  .ts) — pinned equal by recording-assembler.test.ts, because this number is
  *  the whole basis of the estimated duration and a drift would silently
- *  mis-time every rescued take. */
+ *  mis-time every rescued take.
+ *  EXPORTED for the save-from-server door, which computes the SAME estimate
+ *  when it writes the duration (it has the actor this job does not) — one
+ *  number, never two spellings of it. Same reason `longestPrefix` is exported. */
 export const SEGMENT_NOMINAL_MS = 5_000
 
 /** How many takes one night may seal. A 90-minute take is ~1,000 objects
@@ -101,9 +114,11 @@ export interface AssemblerSkipped {
   /** The newest segment is younger than ASSEMBLE_AFTER_MS — the device may
    *  still come back and secure the whole take itself. */
   young: number
-  /** The object was ALREADY at the row's key, so nothing was rebuilt from
-   *  segments and the run went straight to the stamp half. NOT disjoint from
-   *  the outcomes below: it counts the entry, not the ending. */
+  /** The object is ALREADY at the row's key — this take has either been
+   *  rescued on an earlier night or finalized by its own device. Either way
+   *  the audio is on the server and there is nothing to rebuild. Disjoint
+   *  from every other outcome, and the ordinary case for a healthy tenant
+   *  whose finished takes still have their segments beside them. */
   objectExists: number
   /** No core row anywhere in the window reserved this exact key. Never invent
    *  one — a folder with no row is somebody else's problem to explain. */
@@ -127,10 +142,8 @@ export interface AssemblerSkipped {
 export interface AssemblerSummary {
   /** Folders in `seg/` that parse as a take folder — the denominator. */
   candidates: number
-  /** Objects newly written from segments. */
+  /** Objects newly written from segments — one audit row each. */
   assembled: number
-  /** Takes whose object was already there and whose row this run stamped. */
-  stamped: number
   /** Rescues filed as `partial: true` — which, on today's main, is every one
    *  of them (design D2: no declaration of a take's length exists). */
   partial: number
@@ -148,9 +161,13 @@ export interface AssemblerSummary {
 export interface AssemblerDeps {
   /** A BUSINESS-SCOPED core client per tenant, built once per run per business
    *  by the caller. The folder names are the only source of a tenant here, and
-   *  every core call for a take goes through the client for ITS OWN business —
-   *  never one client reused across folders. */
-  coreFor(businessId: string): Pick<SynqedClient, 'recordings'>
+   *  every core read for a take goes through the client for ITS OWN business —
+   *  never one client reused across folders.
+   *  READ-ONLY BY TYPE: `list` is the only method this job may reach for. Core
+   *  refuses a recording write from an actor-less caller anyway, but the type
+   *  is what makes "the assembler never writes to core" checkable rather than
+   *  merely true today. */
+  coreFor(businessId: string): { recordings: Pick<SynqedClient['recordings'], 'list'> }
   /** The clock, injectable so age arithmetic is testable without waiting two
    *  days for it. */
   now(): number
@@ -187,8 +204,6 @@ export interface StrandedTake {
   /** The row that reserved this key: id only — nothing else is read from it
    *  after the walk classified it. */
   rowId: string
-  /** The object was already standing at the key when the walk looked. */
-  objectAlreadyThere: boolean
 }
 
 /** `{ ok }` on a path that filed an audit row; `{ error }` on every path that
@@ -196,14 +211,13 @@ export interface StrandedTake {
  *  load-bearing here: the audit-emission walker (CP7) reads a bare string
  *  return as an unaudited exit, which is exactly what a rescue that files no
  *  row must never look like by accident. */
-export type AssembleResult =
-  | { ok: 'assembled' | 'stamped' }
-  | { error: 'deviceReturned' | 'error' }
+export type AssembleResult = { ok: 'assembled' } | { error: 'deviceReturned' | 'error' }
 
 /**
  * THE CONTIGUOUS PREFIX FROM ZERO, and the first hole after it.
  *
- * Pure, and exported for its own tests. A seq that landed after a gap is real
+ * Pure, and exported for its own tests AND for the save-from-server door,
+ * which recomputes the same estimate when it stamps the duration. A seq that landed after a gap is real
  * on storage and stays there — it simply cannot be part of the take, because
  * what a concatenation promises is that everything up to its end is present
  * and in order. Same rule the pump's `landedUpTo` mark obeys.
@@ -350,7 +364,7 @@ function readLeaves(
  * to this query and lands under `noRow`. Named residual, not a silent one.
  */
 async function findReservingRow(
-  core: Pick<SynqedClient, 'recordings'>,
+  core: { recordings: Pick<SynqedClient['recordings'], 'list'> },
   key: string,
   oldestLeafMs: number,
 ): Promise<Recording | null> {
@@ -397,90 +411,49 @@ async function downloadPrefix(take: StrandedTake): Promise<Buffer | null> {
 }
 
 /**
- * ONE stranded take, in the two idempotent halves design D3 splits it into.
+ * ONE stranded take: rebuild its audio, and say so.
  *
- * (1) ENSURE THE OBJECT — download the prefix, concatenate, PUT it under the
- *     row's own key with `upsert: false`. A duplicate refusal means the device
- *     came back and sealed its own take: skip, no audit row, no stamp.
- * (2) ENSURE THE STAMP — write the estimated duration, then file the ONE
- *     `recording.capture_resumed` row.
+ * Download the contiguous prefix, concatenate it, and PUT the result under the
+ * key the row already reserved with `upsert: false` — so this PUT is a CREATE,
+ * and a refusal is information rather than a problem. A duplicate refusal means
+ * the device came back and sealed its own take first: skip, write nothing,
+ * file nothing. Any other refusal is a moment in time; the next night asks
+ * again, and the walk's own `objectExists` check keeps a rescued take from
+ * being rescued twice.
  *
- * Split because a run that dies between them must finish on the next tick. The
- * STAMP-ONLY entry (the object is already there) is fenced by a size equality:
- * the object must weigh exactly what this prefix weighs, which is what proves
- * it IS this concatenation. A different size is the device's own whole take
- * with its finalize in flight — left alone, because that finalize stamps the
- * REAL duration and files capture_finalized.
+ * The audit row is filed the instant the object lands, because that IS the
+ * event: the server rebuilt this take's audio out of the pieces a dead device
+ * left behind. It says how many segments there were, how many of them are in
+ * the object, where the first hole is, and that the length it reports is an
+ * ESTIMATE — nothing on today's main declares how long a take was meant to be
+ * (design D2), so completeness is never claimed.
  *
- * ⚠ THE STAMP CANNOT LAND FROM A CRON ON TODAY'S CORE. `PUT /v1/recordings/:id`
- * has been actor-gated since 2026-09-04 (core #81, docs/actor-auth-contract.md
- * G1 — pinned in actor-bearer-forwarding.test.ts, whose RED PIN is a
- * token-less newSynqedClient making exactly this call), and a 03:07 job has no
- * human actor to forward. Half (1) still lands the object; half (2) throws,
- * counts as `error`, files NO audit row, and re-enters through the size-equal
- * STAMP-ONLY path on the next night — so nothing is lost or double-written,
- * and the day core admits a system actor the rescue completes itself. Reported
- * to Fable with the build; not worked around here, because inventing an actor
- * for a system write is a core decision, not this file's.
+ * ⚖ NO CORE WRITE HERE (amendment 2026-09-06). The duration is not stamped by
+ * this job: core fences `PUT /v1/recordings/:id` behind a human actor (core
+ * D10, docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94) and a cron has none. The
+ * save-from-server door writes it, with the staffer's own bearer, from the
+ * same estimate — SEGMENT_NOMINAL_MS and longestPrefix are exported for it.
+ * NAMED CEILING: a rescued take nobody saves keeps a null duration.
  */
-export async function assembleStrandedTake(
-  deps: AssemblerDeps,
-  take: StrandedTake,
-): Promise<AssembleResult> {
-  let bytes: number
-  if (take.objectAlreadyThere) {
-    // The size the segments add up to — the only thing that can say whether
-    // the object standing at the key is this prefix's concatenation.
-    let sum = 0
-    for (const leaf of take.prefix) {
-      if (leaf.size === null) {
-        warnAssembler('leaf_size_unknown', take.businessId, take.takeId)
-        return { error: 'error' }
-      }
-      sum += leaf.size
-    }
-    const { data, error } = await bucket().info(take.key)
-    if (error || !data || typeof data.size !== 'number') {
-      warnAssembler('object_size', take.businessId, take.takeId, error)
-      return { error: 'error' }
-    }
-    if (data.size !== sum) return { error: 'deviceReturned' }
-    bytes = sum
-  } else {
-    const body = await downloadPrefix(take)
-    if (body === null) return { error: 'error' }
-    // upsert:false, so this PUT is a CREATE: the take's key is immutable and a
-    // second writer is refused rather than allowed to overwrite the first.
-    const { error } = await createServiceClient()
-      .storage.from('recordings')
-      .upload(take.key, body, { contentType: take.contentType, upsert: false })
-    if (error) {
-      if (isDuplicateRefusal(error)) return { error: 'deviceReturned' }
-      warnAssembler('upload', take.businessId, take.takeId, error)
-      return { error: 'error' }
-    }
-    bytes = body.byteLength
-  }
-
-  // The estimate, and it is declared as one in the row below. Bytes-over-
-  // bitrate was rejected: the recorder negotiates Opus VBR, so a byte count
-  // says nothing exact about seconds — while the flush window is a constant
-  // this repo owns and pins.
-  const durationSeconds = Math.floor((take.prefix.length * SEGMENT_NOMINAL_MS) / 1000)
-  try {
-    // Status is NOT written: the row is UPLOADING already, and every other
-    // status belongs to the job pipeline (take-binding.ts#isJobOwnedStatus).
-    await deps
-      .coreFor(take.businessId)
-      .recordings.update(take.rowId, { duration_seconds: durationSeconds })
-  } catch (err) {
-    // NO audit row on this path, deliberately: a capture_resumed row for a
-    // duration that never landed would be a record of something that did not
-    // happen. The object is on storage and the next run re-enters at the
-    // stamp half.
-    warnAssembler('stamp', take.businessId, take.takeId, err)
+export async function assembleStrandedTake(take: StrandedTake): Promise<AssembleResult> {
+  const body = await downloadPrefix(take)
+  if (body === null) return { error: 'error' }
+  // upsert:false, so this PUT is a CREATE: the take's key is immutable and a
+  // second writer is refused rather than allowed to overwrite the first.
+  const { error } = await createServiceClient()
+    .storage.from('recordings')
+    .upload(take.key, body, { contentType: take.contentType, upsert: false })
+  if (error) {
+    if (isDuplicateRefusal(error)) return { error: 'deviceReturned' }
+    warnAssembler('upload', take.businessId, take.takeId, error)
     return { error: 'error' }
   }
+
+  // The estimate, declared as one by its own key name. Bytes-over-bitrate was
+  // rejected: the recorder negotiates Opus VBR, so a byte count says nothing
+  // exact about seconds — while the flush window is a constant this repo owns
+  // and pins.
+  const estimatedDurationSeconds = Math.floor((take.prefix.length * SEGMENT_NOMINAL_MS) / 1000)
 
   // ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no path: the ids
   // below carry everything the key would have said, honestly.
@@ -505,18 +478,15 @@ export async function assembleStrandedTake(
       segments_present: take.segmentsPresent,
       prefix_length: take.prefix.length,
       first_gap_seq: take.firstGapSeq,
-      // Nothing on today's main declares how long a take was meant to be, so
-      // `partial` is true for every rescue and this is null for every one.
       declared_last_seq: null,
       partial: true,
-      bytes,
-      duration_seconds: durationSeconds,
-      duration_estimated: true,
+      bytes: body.byteLength,
+      estimated_duration_seconds: estimatedDurationSeconds,
       trigger: 'cron',
     },
     source: 'system',
   })
-  return { ok: take.objectAlreadyThere ? 'stamped' : 'assembled' }
+  return { ok: 'assembled' }
 }
 
 /**
@@ -541,7 +511,6 @@ export async function runAssembler(
   const summary: AssemblerSummary = {
     candidates: 0,
     assembled: 0,
-    stamped: 0,
     partial: 0,
     skipped: {
       young: 0,
@@ -573,8 +542,8 @@ export async function runAssembler(
 
   // One client per business per run: the folders arrive interleaved and a
   // client built per folder would be a fresh one per take.
-  const clients = new Map<string, Pick<SynqedClient, 'recordings'>>()
-  const coreFor = (businessId: string): Pick<SynqedClient, 'recordings'> => {
+  const clients = new Map<string, { recordings: Pick<SynqedClient['recordings'], 'list'> }>()
+  const coreFor = (businessId: string): { recordings: Pick<SynqedClient['recordings'], 'list'> } => {
     const existing = clients.get(businessId)
     if (existing) return existing
     const made = deps.coreFor(businessId)
@@ -583,7 +552,7 @@ export async function runAssembler(
   }
 
   for (const { folder, businessId, takeId } of folders) {
-    if (deps.now() >= deadline || summary.assembled + summary.stamped >= MAX_TAKES_PER_RUN) {
+    if (deps.now() >= deadline || summary.assembled >= MAX_TAKES_PER_RUN) {
       summary.budgetExhausted = true
       break
     }
@@ -632,6 +601,16 @@ export async function runAssembler(
       summary.skipped.error++
       continue
     }
+    if (exists) {
+      // The audio is already on the server: this take was rescued on an
+      // earlier night, or its own device finalized it. Either way there is
+      // nothing to rebuild, and this is what makes the whole job idempotent —
+      // exactly one audit row per rescued take, by construction. Answered
+      // BEFORE the core read, so a healthy tenant's finished takes cost one
+      // storage probe a night and not a single core call.
+      summary.skipped.objectExists++
+      continue
+    }
 
     const oldest = Math.min(...leaves.map((l) => l.createdAtMs))
     let row: Recording | null
@@ -650,14 +629,15 @@ export async function runAssembler(
       continue
     }
     if (row.duration_seconds !== null) {
+      // Somebody has settled this row — a reasoned discard stamps a duration
+      // too (discard.ts), and a settled row is not a stranded take.
       summary.skipped.settled++
       continue
     }
-    if (exists) summary.skipped.objectExists++
 
     const { prefix, firstGap } = longestPrefix(leaves.map((l) => l.seq))
     const bySeq = new Map(leaves.map((l) => [l.seq, l]))
-    const result = await assembleStrandedTake(deps, {
+    const result = await assembleStrandedTake({
       businessId,
       takeId,
       folder,
@@ -668,14 +648,12 @@ export async function runAssembler(
       prefix: prefix.map((seq) => bySeq.get(seq)!),
       firstGapSeq: firstGap,
       rowId: row.id,
-      objectAlreadyThere: exists,
     })
     if ('error' in result) {
       summary.skipped[result.error]++
       continue
     }
-    if (result.ok === 'assembled') summary.assembled++
-    else summary.stamped++
+    summary.assembled++
     // Every rescue this job can file is partial: nothing declares a take's
     // length (design D2), so completeness is never claimed.
     summary.partial++
@@ -687,10 +665,11 @@ export async function runAssembler(
 
 /** The real seam. Everything above takes its core client and its clock from
  *  here, so the tests never reach a network and this is the one place a live
- *  client is built. Storage is reached through createServiceClient at the call
- *  sites (the family's own idiom: finalize-take.ts, mint-take-url.ts), which
- *  is what keeps the bucket write lexically inside the audited symbol where
- *  the audit-coverage registry can see it. */
+ *  client is built. The client is handed out READ-NARROWED (`list` only) —
+ *  this job never writes to core. Storage is reached through
+ *  createServiceClient at the call sites (the family's own idiom:
+ *  finalize-take.ts, mint-take-url.ts), which is what keeps the bucket write
+ *  lexically inside the audited symbol where the coverage registry sees it. */
 export function realAssemblerDeps(): AssemblerDeps {
   return {
     coreFor: (businessId: string) => newSynqedClient(businessId),
