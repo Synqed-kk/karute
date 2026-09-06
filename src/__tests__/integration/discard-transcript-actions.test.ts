@@ -204,6 +204,11 @@ const mockGetMyCapabilities = getMyCapabilities as jest.Mock
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const OWN_PATH = 'app_business-1_11111111-2222-3333-4444-555555555555.webm'
 const FOREIGN_PATH = 'app_business-9_11111111-2222-3333-4444-555555555555.webm'
+/** ⚖ THE SIDE KEY (Liam 2026-09-06, "b") — the nightly job's rebuild of this
+ *  take, beside it and never on it. The door RESOLVES to this; no caller names
+ *  it. `rsc/` of a FOREIGN take is this tenant's business only in shape. */
+const RESCUE_PATH = `rsc/${OWN_PATH}`
+const FOREIGN_RESCUE = `rsc/${FOREIGN_PATH}`
 /** This session's OWN staged copy — the one claim the door honours in place of
  *  the row's pointer (stg/<businessId>_<session>_<uuid>.<ext>). */
 const OWN_STAGED = `stg/business-1_${SESSION}_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.webm`
@@ -428,13 +433,16 @@ describe('the tenant fence on a client-supplied storage key', () => {
     it('the staged path is signed and transcribed when the reserved key is empty', async () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       mockBucket.missing.add(OWN_PATH)
+      mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
         expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
       )
-      // The row's own key is the only thing the door probed — never the
-      // caller's claim, which no caller may use this door to ask about.
-      expect(mockBucket.probed).toEqual([OWN_PATH])
+      // The row's own take and its rescue are the only things the door probed
+      // — never the caller's claim, which no caller may use this door to ask
+      // about. Both, because the pointer being empty is no longer the end of
+      // the question (⚖ Liam 2026-09-06, "b").
+      expect(mockBucket.probed).toEqual([OWN_PATH, RESCUE_PATH])
     })
 
     it('…and a duration on the row does not make it finalized — the DISCARD wrote that', async () => {
@@ -456,13 +464,16 @@ describe('the tenant fence on a client-supplied storage key', () => {
       )
     })
 
-    it('storage that cannot ANSWER keeps the pointer — a probe that cannot read is not an answer', async () => {
+    // ⚖ AN UNANSWERABLE PROBE IS `failed`, NEVER `forbidden` (ADDENDUM 9.2 H4).
+    // It used to keep the pointer and sign it, which signed a key that might
+    // hold nothing; and refusing a staffer her own discard because storage
+    // blipped would be a permission answer nobody has. `failed` is retryable,
+    // which is what a blip deserves.
+    it('storage that cannot ANSWER is `failed` — retryable, never forbidden, never signed', async () => {
       recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       mockBucket.unreachable = true
-      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
-      expect(mockRunTranscription).toHaveBeenCalledWith(
-        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
-      )
+      await expect(staged({ audioPath: STAGED })).resolves.toEqual({ error: 'failed' })
+      expect(mockRunTranscription).not.toHaveBeenCalled()
     })
 
     it('the ordinary discard names the pointer itself and pays for NO probe', async () => {
@@ -486,6 +497,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
     it('an empty reservation does NOT let a colleague’s take stand in', async () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       mockBucket.missing.add(OWN_PATH)
+      mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ error: 'forbidden' })
       expect(mockRunTranscription).not.toHaveBeenCalled()
     })
@@ -493,7 +505,60 @@ describe('the tenant fence on a client-supplied storage key', () => {
     it('…nor a staged copy belonging to another session', async () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       mockBucket.missing.add(OWN_PATH)
+      mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: OTHER_STAGED })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+  })
+
+  // ⚖ THE RESCUED KARUTE CAN BE DISCARDED (ADDENDUM 9.1 + 9.2 H4, Liam
+  // 2026-09-06 "b"). A recording rebuilt by the nightly job has its audio at
+  // `rsc/<the take key>` while the ROW still points at the take's own key,
+  // which holds nothing. Under a bare objectExists(pointer) that read false and
+  // every such karute answered `forbidden` — a state nobody decided. The door
+  // resolves through the same precedence every reader shares instead.
+  describe('a RESCUED take’s audio', () => {
+    it('discards over the rescue key when the pointer’s object is absent', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: RESCUE_PATH })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${RESCUE_PATH}` } }),
+      )
+      expect(mockBucket.probed).toEqual([OWN_PATH, RESCUE_PATH])
+    })
+
+    // …and the order is the same one everywhere: a phone that came back after
+    // the rescue put its WHOLE take at the pointer, and that is what wins.
+    it('the phone’s own object still wins when it is there', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      await expect(staged({ audioPath: RESCUE_PATH })).resolves.toEqual({ ok: true })
+      expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
+      )
+      // ONE probe: the rescue was never asked about.
+      expect(mockBucket.probed).toEqual([OWN_PATH])
+    })
+
+    // The TENANT fence did not widen with the kind: a `rsc/` key is only ever
+    // this business's, and a foreign one dies before anything is read.
+    it('a FOREIGN rescue key is refused before anything is read', async () => {
+      recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
+      mockBucket.missing.add(OWN_PATH)
+      await expect(staged({ audioPath: FOREIGN_RESCUE })).resolves.toEqual({ error: 'forbidden' })
+      expect(mockBucket.probed).toEqual([])
+      expect(mockRunTranscription).not.toHaveBeenCalled()
+    })
+
+    // And the ROW-POINTER check stays take-only: a row that somehow carried a
+    // rescue key is refused at the fence the pointer has always had.
+    it('a row whose POINTER is a rescue key is refused — the pointer fence is unchanged', async () => {
+      recordingRow = {
+        duration_seconds: 62,
+        customer_id: 'cust-1',
+        audio_storage_path: RESCUE_PATH,
+      }
+      await expect(staged({ audioPath: RESCUE_PATH })).resolves.toEqual({ error: 'forbidden' })
       expect(mockRunTranscription).not.toHaveBeenCalled()
     })
   })

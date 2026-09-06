@@ -211,6 +211,36 @@ export function isOwnRecordingKey(key: unknown, businessId: string): key is stri
 }
 
 /**
+ * True when `key` is a whole take's AUDIO for `businessId` — the take's own
+ * object, OR the nightly job's rescue of it (⚖ ADDENDUM 9.1).
+ *
+ * TWO PREDICATES, AND WHICH ONE A DOOR MAY USE IS THE WHOLE POINT:
+ *
+ *   isOwnRecordingKey  the ROW-POINTER fence. 'take' alone. Every door where
+ *                      the path is a CLIENT'S CLAIM — the take mint, finalize,
+ *                      serverHoldsTakeRow, the enqueue doors, the transcribe
+ *                      route, the read-url action — keeps this one. No client
+ *                      ever needs to name a `rsc/` path, because the doors that
+ *                      reach one derive it from the row themselves.
+ *
+ *   isOwnAudioKey      ONLY for a SERVER-DERIVED audio path: the transcription
+ *                      worker's re-check of a payload the server wrote, and the
+ *                      discard door's karute audio path. Without it a rescued
+ *                      take could never be transcribed after somebody saved it,
+ *                      and a karute made from a rescue could never be
+ *                      discarded — the two doors that read AUDIO rather than a
+ *                      pointer.
+ *
+ * It is exactly as narrow as it needs to be: same tenant prefix inside, same
+ * closed container set, same anchored uuid. A segment, a staged copy and every
+ * other tenant's object are refused by both.
+ */
+export function isOwnAudioKey(key: unknown, businessId: string): key is string {
+  const kind = parseRecordingKey(key, businessId)?.kind
+  return kind === 'take' || kind === 'rescue'
+}
+
+/**
  * The recorder's negotiated container, normalized: `audio/webm;codecs=opus` is
  * audio/webm, so the codec parameters are stripped before the lookup. Null for
  * anything outside the closed map — a door REFUSES an unknown container rather

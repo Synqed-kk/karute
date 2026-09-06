@@ -123,6 +123,7 @@ import { startRecordingSession } from '@/actions/recordings'
 import {
   parseRecordingKey,
   isOwnRecordingKey,
+  isOwnAudioKey,
   isStagedKeyFor,
   looksLikeRecordingKey,
   parseSegmentFolder,
@@ -1659,6 +1660,45 @@ describe('composeRescueKey — the side key beside the take', () => {
     expect(isOwnRecordingKey(rescue.key, 'biz-1')).toBe(false)
     expect(isOwnRecordingKey(rescue.key, 'biz-2')).toBe(false)
     expect(isStagedKeyFor(rescue.key, 'biz-1', SESSION_UUID)).toBe(false)
+  })
+})
+
+// ⚖ TWO PREDICATES, AND WHICH DOOR MAY USE WHICH (ADDENDUM 9.1). The row-
+// POINTER fence stays 'take' alone at every surface a CLIENT names a path at;
+// isOwnAudioKey is for a SERVER-DERIVED audio path only — the transcription
+// worker's payload re-check and the discard door's karute audio path, the two
+// places that read AUDIO rather than a pointer. Without it a rescued take could
+// never be transcribed and a karute made from one could never be discarded.
+describe('isOwnAudioKey — take OR rescue, and nothing else', () => {
+  const rescue = () => composeRescueKey('biz-1', UUID, 'audio/webm')!.key
+  const take = () => composeTakeKey('biz-1', UUID, 'audio/webm')!.key
+
+  it.each([
+    ['this tenant’s take', () => take(), true],
+    ['this tenant’s rescue', () => rescue(), true],
+    ['this tenant’s segment', () => composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key, false],
+    ['this tenant’s staged copy', () => composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key, false],
+    ['another tenant’s take', () => composeTakeKey('biz-2', UUID, 'audio/webm')!.key, false],
+    ['another tenant’s rescue', () => composeRescueKey('biz-2', UUID, 'audio/webm')!.key, false],
+    ['a string-shaped non-string', () => IMPOSTOR, false],
+  ])('%s', (_label, key, expected) => {
+    expect(isOwnAudioKey(key(), 'biz-1')).toBe(expected)
+  })
+
+  // The two predicates differ in EXACTLY one place, and this is it.
+  it('is isOwnRecordingKey plus the rescue kind — no other difference', () => {
+    for (const key of [
+      take(),
+      rescue(),
+      composeSegmentKey('biz-1', UUID, 0, 'audio/webm')!.key,
+      composeStagedKey('biz-1', SESSION_UUID, 'audio/webm')!.key,
+      composeTakeKey('biz-2', UUID, 'audio/webm')!.key,
+      'nonsense',
+    ]) {
+      expect(isOwnAudioKey(key, 'biz-1')).toBe(
+        isOwnRecordingKey(key, 'biz-1') || key === rescue(),
+      )
+    }
   })
 })
 

@@ -137,6 +137,29 @@ describe('deleteRecordingSessionWithClient — ownership', () => {
     expect(del).not.toHaveBeenCalled()
   })
 
+  // ⚖ THE RESCUED ROW IS SAFE HERE, AND THIS IS WHY IT MATTERS (ADDENDUM 9.2
+  // M4, Liam 2026-09-06 "b"). A `rsc/` object is findable ONLY through a live
+  // row — nothing else on the server names it, and the capture_resumed audit
+  // row carries the ids to reach it by hand. So this refusal is what keeps a
+  // rescued take reachable at all. It is refused by the STATUS leg, before any
+  // probe: a rescued row is UPLOADING, which is already past RECORDING. No code
+  // changed for this; the pin is here so nothing can quietly change it.
+  it('a RESCUED-shaped row is refused before any probe — the rescue stays reachable', async () => {
+    get.mockResolvedValue({
+      ...ROW_WITH_AUDIO,
+      // UPLOADING, no duration, the pointer set — and, on storage, nothing at
+      // the pointer and a rebuilt object at `rsc/` beside it.
+      status: 'UPLOADING',
+      duration_seconds: null,
+    })
+    mockObjectExists.mockImplementation(async (key: string) => key.startsWith('rsc/'))
+    await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
+      error: 'has_audio',
+    })
+    expect(mockObjectExists).not.toHaveBeenCalled()
+    expect(del).not.toHaveBeenCalled()
+  })
+
   it('a row with NO status is the same unknown — kept', async () => {
     get.mockResolvedValue({ ...MY_ROW, status: undefined })
     await expect(deleteRecordingSessionWithClient(client, actor, 'sess-1')).resolves.toEqual({
