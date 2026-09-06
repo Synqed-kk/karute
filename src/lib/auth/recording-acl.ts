@@ -24,3 +24,37 @@ export function canViewTranscript(opts: {
   if (canViewAll) return true
   return viewerStaffId != null && viewerStaffId === ownerStaffId
 }
+
+/**
+ * The grant widens WHOSE recordings, never WHICH stores (⚖ Liam's store-
+ * isolation law 8/17; Greptile #848 point 2).
+ *
+ * `recordings.viewAll` used to imply store reach for free, because before the
+ * named grant its only holders were owners — and the owner preset carries
+ * `stores.viewAll`. The first named grantee is the first person to hold the one
+ * without the other, so the viewAll branch of `canViewTranscript` now has to be
+ * asked the store question first.
+ *
+ *   - `allowedStoreIds === null` → unrestricted within the tenant
+ *     (`stores.viewAll`, or floating staff assigned to no store) — hears anything.
+ *   - `recordStoreId == null` → a 全店舗 / legacy record with no store to be
+ *     outside of — hears it, exactly as the "no owner is shared" branch above.
+ *   - otherwise the record's store must be one the viewer is assigned to.
+ *
+ * A DEGRADED scope lookup arrives here as `[]` and fails closed — the menus
+ * precedent: an unreadable assignment is never widened into "every store".
+ *
+ * Own recordings and unowned records never reach this: they pass on
+ * `canViewTranscript`'s first two branches, which this narrows only the third of.
+ */
+export function canViewAllInStore(opts: {
+  canViewAll: boolean
+  allowedStoreIds: readonly string[] | null
+  recordStoreId: string | null | undefined
+}): boolean {
+  const { canViewAll, allowedStoreIds, recordStoreId } = opts
+  if (!canViewAll) return false
+  if (allowedStoreIds === null) return true
+  if (recordStoreId == null) return true
+  return allowedStoreIds.includes(recordStoreId)
+}

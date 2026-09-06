@@ -105,6 +105,38 @@ export async function resolveStoreForRequest(args: {
 }
 
 /**
+ * The caller's store assignment for a RECORDING read — the Bearer twin of web's
+ * `resolveStoreScope().allowedStoreIds` (src/actions/recording-playback.ts).
+ *
+ * `null` = unrestricted within the tenant (`stores.viewAll`, or floating staff
+ * assigned to no store). `[]` = the assignment could not be read, which the
+ * recording ACL FAILS CLOSED on — never widened into "every store" (⚖ Liam's
+ * store-isolation law 8/17; Greptile #848 point 2).
+ *
+ * It swallows resolveStoreForRequest's fail-closed THROW on purpose: that throw
+ * is right for a write, and wrong for this read — a blipped assignment lookup
+ * must narrow the named grant, never 403 a karute screen or a recorder's own
+ * take. `[]` carries exactly that: no store reach, everything else unchanged.
+ * `requestedStoreId: null` — these routes carry no store-id header, and the
+ * call is purely for the viewAll / assignment / fail-closed resolution.
+ */
+export async function viewerAllowedStoreIds(args: {
+  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  authUserId: string
+  capabilities: Set<Capability>
+}): Promise<readonly string[] | null> {
+  try {
+    const { allowedStoreIds } = await resolveStoreForRequest({
+      ...args,
+      requestedStoreId: null,
+    })
+    return allowedStoreIds
+  } catch {
+    return []
+  }
+}
+
+/**
  * Staff WRITE store clamp for the facade twins (PATCH + DELETE /staff/[id],
  * POST /staff/[id]/avatar) — the Bearer twin of storeScopeError in
  * src/actions/staff.ts. Throws `store_forbidden` when the target staff works

@@ -98,11 +98,17 @@ const listPhotos = jest.fn(async () => ({ photos: [{ id: 'p1', signed_url: 'http
 // version-gate tests below can resolve a real outcome row through this mock.
 type OutcomeRow = { outcome: string; reason: string | null; is_first_visit: boolean; decided_at: string | null; auto_decided: boolean }
 const outcomeGet = jest.fn(async (): Promise<OutcomeRow | null> => null)
+/** The store-assignment read behind the recording ACL's store half (⚖ 8/17).
+ *  Default [] = floating staff → unrestricted within the tenant, so every
+ *  pre-existing case is untouched. */
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
 const fakeClient = {
   karuteRecords: { get: (id: string) => karuteGet(id) },
   customers: { getConsent, listPhotos },
   karuteOutcomes: { get: outcomeGet },
   recordings: { get: (id: string) => recordingsGet(id) },
+  staffStores: { get: (id: string) => staffStoresGet(id) },
+  stores: { get: jest.fn(async () => ({ id: 'store-b' })) },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -135,6 +141,7 @@ const req = (init: RequestInit = {}) => new Request('https://s/api/app/v1/screen
 beforeEach(() => {
   jest.clearAllMocks()
   capabilities.current = new Set(['customers.view'])
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   synqedStaffRoster.current = []
   synqedStaffRosterRejects.current = false
@@ -648,5 +655,68 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
     expect(karuteGet).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ STORE REACH AT THE DETAIL DOOR (Liam 8/17; Greptile #848 point 2) ──────
+// The karute belongs to a colleague and sits in store-b. A named grantee
+// assigned to store-a gets the SAME withholding as someone with no grant at
+// all — transcript null + transcriptRestricted, and recording null with it.
+describe('the named grant reads only inside the viewer’s own stores', () => {
+  const inStoreB = () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: 'store-b' }
+  }
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a grantee assigned ELSEWHERE is refused the transcript AND the player', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and the SAME grantee assigned to store-b reads and hears it', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-b'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.recording?.audioPresent).toBe(true)
+  })
+
+  it('stores.viewAll (owner / manager preset) reads any store, and never consults an assignment', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(staffStoresGet).not.toHaveBeenCalled()
+  })
+
+  it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('an UNREADABLE assignment fails the grant closed — restricted, never widened, and the screen still renders', async () => {
+    inStoreB()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const dto = await dtoFor()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.header).toBeDefined()
+  })
+
+  it('the RECORDER’s own transcript is untouched by any assignment', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1', store_id: 'store-b' }
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
   })
 })

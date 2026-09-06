@@ -28,6 +28,8 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { canViewAllInStore } from '@/lib/auth/recording-acl'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
 
@@ -113,12 +115,29 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const viewerStaffId = selfRow ? selfRow.id : null
     const viewerRole = (selfRow?.display_role ?? '') as string
-    const canViewAllRecordings = ctx.identity.capabilities.has('recordings.viewAll')
+    const holdsRecordingsViewAll = ctx.identity.capabilities.has('recordings.viewAll')
 
     const customerName = customerId
       ? allCustomers.customers.find((c) => c.id === customerId)?.name ?? null
       : null
     const karute = mapSynqedKaruteRecord(raw, customerName)
+
+    // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+    // isolation law 8/17; Greptile #848 point 2) — the Bearer twin of the web
+    // page's line. Resolved ONLY for a viewAll caller, and a failed assignment
+    // read arrives as [] (fail closed), so an assignment blip narrows the grant
+    // and never 502s the screen or hides a recorder's own transcript.
+    const canViewAllRecordings = canViewAllInStore({
+      canViewAll: holdsRecordingsViewAll,
+      allowedStoreIds: holdsRecordingsViewAll
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+          })
+        : null,
+      recordStoreId: karute.store_id,
+    })
 
     // Recorder-lock fix (⚖ Liam 8/22): translate a synqed-core staff CARD id
     // (not a Supabase profile id) into its profile id before the ACL compare

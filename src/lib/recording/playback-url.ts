@@ -54,7 +54,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -86,6 +86,14 @@ export interface PlaybackActor {
    *  person by the owner only — still ONE capability, still the whole floor).
    *  Silently, per ⚖ 9/3 — no staff ping, no sentence. */
   canViewAll: boolean
+  /** The stores this viewer is assigned to, or null when unrestricted
+   *  (`stores.viewAll`, or floating staff). The CALLER resolves it — web via
+   *  resolveStoreScope, facade via resolveStoreForRequest — and a degraded
+   *  lookup arrives as `[]`, which fails closed. Only the viewAll branch is
+   *  narrowed by it: a recorder's own take is untouched (⚖ 8/17 store
+   *  isolation; Greptile #848 point 2). The record's store id is NOT a caller
+   *  input — this door reads it off the row it already fetches. */
+  allowedStoreIds: readonly string[] | null
   source: 'web' | 'facade'
   requestId?: string
 }
@@ -159,11 +167,19 @@ export async function mintPlaybackUrlWithClient(
         actor.businessId,
       )) ?? karute.staff_id)
     : null
+  //    THE STORE HALF (⚖ 8/17 store isolation; Greptile #848 point 2): the
+  //    grant widens WHOSE recordings, never WHICH stores. `row.store_id` is the
+  //    session's own store — read here rather than passed in, because the
+  //    caller has not seen the row yet when it builds the actor.
   if (
     !canViewTranscript({
       ownerStaffId,
       viewerStaffId: actor.staffId,
-      canViewAll: actor.canViewAll,
+      canViewAll: canViewAllInStore({
+        canViewAll: actor.canViewAll,
+        allowedStoreIds: actor.allowedStoreIds,
+        recordStoreId: row.store_id,
+      }),
     })
   ) {
     return { error: 'forbidden' }

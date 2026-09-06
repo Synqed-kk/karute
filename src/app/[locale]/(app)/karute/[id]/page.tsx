@@ -22,6 +22,8 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
+import { canViewAllInStore } from '@/lib/auth/recording-acl'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
@@ -45,7 +47,8 @@ export default async function KaruteDetailPage({
     allCustomers,
     outcome,
     viewerStaffId,
-    canViewAllRecordings,
+    holdsRecordingsViewAll,
+    storeScope,
     canReassign,
     businessId,
   ] = await Promise.all([
@@ -60,6 +63,14 @@ export default async function KaruteDetailPage({
     // named). Both independent of the karute, so fan them out in the same wave.
     getCurrentUserStaffId(),
     can('recordings.viewAll'),
+    // The viewer's store assignment (⚖ 8/17 store isolation; Greptile #848
+    // point 2). null = unrestricted (stores.viewAll / floating); a THROWN or
+    // degraded lookup becomes [] below and fails the grant closed — it never
+    // widens into "every store", and it never costs a recorder her own take.
+    resolveStoreScope().catch((err: unknown) => {
+      console.warn('[karute-detail] store scope read failed — failing closed', err)
+      return null
+    }),
     // F4: records.reassign gate — the 顧客を変更 entry point.
     can('records.reassign'),
     // The tenant the key grammar's take fence is checked against.
@@ -91,6 +102,17 @@ export default async function KaruteDetailPage({
     ? ((await lookupProfileIdForSynqedStaffId(karute.staff_profile_id)) ??
       karute.staff_profile_id)
     : null
+
+  // THE GRANT WIDENS WHOSE RECORDINGS, NEVER WHICH STORES (⚖ Liam's store-
+  // isolation law 8/17; Greptile #848 point 2). Before the named grant every
+  // viewAll holder was an owner, and the owner preset carries stores.viewAll —
+  // so a holder without store reach could not exist. The first named grantee is
+  // that person, and this is the line that keeps her inside her own stores.
+  const canViewAllRecordings = canViewAllInStore({
+    canViewAll: holdsRecordingsViewAll,
+    allowedStoreIds: storeScope === null || storeScope.degraded ? [] : storeScope.allowedStoreIds,
+    recordStoreId: karute.store_id,
+  })
 
   const customerId = karute.client_id ?? null
 

@@ -167,7 +167,9 @@ export function buildKaruteDetailScreen(
   // on the SAME input: whoever may read the raw transcript of this karute may
   // hear its audio, and nobody else.
   //
-  // ⚠ THE FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2). It used to OR
+  // ⚠ THE CAPABILITY FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2) —
+  // and the CALLER narrows it by the viewer's store reach before it arrives
+  // (canViewAllInStore, auth/recording-acl.ts; ⚖ 8/17 store isolation). It used to OR
   // in `business.manage` as a proxy for "the owner", which was wrong in this
   // repo: `recordings.viewAll` is owner by preset and grantable per person by
   // the OWNER ONLY (⚖ 9/3 named grant, 2026-09-06) — still ONE capability,

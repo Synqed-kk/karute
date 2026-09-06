@@ -39,6 +39,22 @@ const canMock = jest.fn(async (cap: string) => grantedCaps.current.has(cap))
 jest.mock('@/lib/auth/require-permission', () => ({
   can: (cap: string) => canMock(cap),
 }))
+// The page's store primitive (⚖ 8/17 store isolation). Default: unrestricted.
+const storeScope = {
+  current: {
+    storeId: null as string | null,
+    viewAll: true,
+    allowedStoreIds: null as string[] | null,
+    degraded: false,
+  },
+}
+const storeScopeThrows = { current: false }
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => {
+    if (storeScopeThrows.current) throw new Error('store scope read failed')
+    return storeScope.current
+  }),
+}))
 jest.mock('@/lib/customers/list-all', () => ({
   listAllCustomers: jest.fn(async () => ({ customers: [] })),
 }))
@@ -99,6 +115,8 @@ beforeEach(() => {
     summary: null,
   })
   grantedCaps.current = new Set()
+  storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+  storeScopeThrows.current = false
   karuteRow.current = { client_id: 'cust-9', summary: null }
   recordingsGet.mockResolvedValue({
     id: 'sess-1',
@@ -214,5 +232,64 @@ describe('KaruteDetailPage — playback inputs (businessId · recordingRow)', ()
     recordingsGet.mockRejectedValue(new Error('boom'))
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(buildSpy).toHaveBeenCalledWith(expect.objectContaining({ recordingRow: null }))
+  })
+})
+
+// ── ⚖ STORE REACH, WEB HALF (Liam's store-isolation law 8/17; Greptile #848
+// point 2). The grant widens WHOSE recordings, never WHICH stores — the page
+// resolves the viewer's assignment and hands the builder the NARROWED flag.
+// The facade half is pinned in app-api-karute-detail-screen.test.ts.
+describe('KaruteDetailPage — the named grant stays inside the viewer’s stores', () => {
+  const inStoreB = () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, store_id: 'store-b' }
+  }
+  const built = () => buildSpy.mock.calls[0][0] as { canViewAllRecordings: boolean }
+
+  it('a grantee assigned ELSEWHERE gets canViewAllRecordings false', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('…and the SAME grantee assigned to store-b gets true', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-b', viewAll: false, allowedStoreIds: ['store-b'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  it('an unrestricted scope (stores.viewAll / floating) reads any store', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  it('a DEGRADED scope fails the grant closed', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: null, viewAll: false, allowedStoreIds: null, degraded: true }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('a THROWN scope read fails closed and the PAGE still renders', async () => {
+    inStoreB()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScopeThrows.current = true
+    const props = await viewPropsFromPage()
+    expect(props).toBeDefined()
+    expect(built().canViewAllRecordings).toBe(false)
+  })
+
+  it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
   })
 })

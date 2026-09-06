@@ -23,6 +23,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { mintPlaybackUrlWithClient } from '@/lib/recording/playback-url'
 import { PlaybackUrlDTO } from '@/lib/app-api/recording-playback-dto'
 
@@ -47,15 +48,28 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'the staff roster is unavailable')
   }
 
+  const synqed = newSynqedClient(businessId)
+  const canViewAll = ctx.identity.capabilities.has('recordings.viewAll')
+
   const result = await mintPlaybackUrlWithClient(
-    newSynqedClient(businessId),
+    synqed,
     {
       // WHO is asking (the confirmed auth user) vs WHICH roster identity the
       // ACL compares — always both, never one standing in for the other.
       actorId: ctx.identity.authUserId,
       staffId,
       businessId,
-      canViewAll: ctx.identity.capabilities.has('recordings.viewAll'),
+      canViewAll,
+      // The grant widens WHOSE recordings, never WHICH stores (⚖ 8/17 store
+      // isolation; Greptile #848 point 2). Resolved ONLY for a viewAll caller,
+      // and a failed assignment read arrives as [] — fail closed, never widened.
+      allowedStoreIds: canViewAll
+        ? await viewerAllowedStoreIds({
+            synqed,
+            authUserId: ctx.identity.authUserId,
+            capabilities: ctx.identity.capabilities,
+          })
+        : null,
       source: 'facade',
       requestId: ctx.meta.requestId,
     },
