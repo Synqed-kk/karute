@@ -773,11 +773,15 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     expect(dto.staffCanRegenerate).toBe(false)
   })
 
-  it('…and the RECORDER (records.write) on her own karute → true', async () => {
+  // …and the OTHER half of the same gate — the Bearer twin. The recorder
+  // passes the ACL on her own record and still gets no button without the
+  // write key; the recorder-WITH-it case above cannot separate the two halves.
+  it('the RECORDER WITHOUT records.write on her OWN karute → transcript shown, flag FALSE', async () => {
     KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
-    capabilities.current = new Set(['customers.view', 'records.write'])
+    capabilities.current = new Set(['customers.view'])
     const dto = await dtoFor()
-    expect(dto.staffCanRegenerate).toBe(true)
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
   })
 
   it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {

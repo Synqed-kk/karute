@@ -341,11 +341,15 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     expect(built().staffCanRegenerate).toBe(false)
   })
 
-  it('…and the RECORDER (records.write) on her own karute → true', async () => {
+  // …and the OTHER half of the same gate: `records.write` is asked of EVERY
+  // viewer, the recorder included. She passes the ACL on the own-record branch
+  // and still gets no button without the write key — the case that separates
+  // the two halves, which the recorder-WITH-it case above cannot.
+  it('the RECORDER WITHOUT records.write on her OWN karute → transcript shown, flag FALSE', async () => {
     karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
-    grantedCaps.current = new Set(['records.write'])
+    grantedCaps.current = new Set(['customers.view'])
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
-    expect(built().staffCanRegenerate).toBe(true)
+    expect(built().staffCanRegenerate).toBe(false)
   })
 
   it('a plain staffer on a colleague’s karute → false (unchanged from main)', async () => {
