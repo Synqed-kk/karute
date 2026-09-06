@@ -12724,12 +12724,26 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(perPocket.sentence).toBe('ここに置くと14:00〜15:30・15:30〜17:00の新規（90分）が入らなくなります')
   })
 
-  it('I11 — an origin straddling `now` on a 70-minute lane window does not throw and costs nothing', () => {
-    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 830, 890)], window: { from: 830, until: 900 }, untilLabel: '15:00' })]
-    const cell = guardVerdictAt(board, 'p-01', 830, IN({ nowMinute: 804, resting: on('p-01', 790, 60) }))!
-    expect(cell.state).toBe('safe')
+  it('I11 — a committed origin that CLIPS its pocket still counts: straddling `now`, and straddling the pocket\'s own edge', () => {
+    // (a) the lane window is {830, 70} and the origin runs back past `now` 804 —
+    // no throw, and a nudge inside it costs nothing.
+    const tiny = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 830, 890)], window: { from: 830, until: 900 }, untilLabel: '15:00' })]
+    const clipped = guardVerdictAt(tiny, 'p-01', 830, IN({ nowMinute: 804, resting: on('p-01', 790, 60) }))!
+    expect(clipped.state).toBe('safe')
+    expect(lossOf(clipped)).toBe(0)
+    expect(clipped.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
+
+    // (b) THE PART THAT DECIDES THE PREDICATE. A committed origin at 13:20–14:30
+    // hangs out of the 14:00–17:00 pocket it partly fills. It is HALF-OPEN OVERLAP
+    // that says the pocket is affected by it — containment would answer "the origin
+    // is not in here", count the pocket as untouched, and invent a 2→1 loss out of a
+    // move that costs nothing.
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 840, 900)], window: { from: 840, until: 1020 }, untilLabel: '17:00' })]
+    const cell = guardVerdictAt(board, 'p-01', 840, IN({ resting: on('p-01', 800, 70) }))!
+    expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([1, 1])
     expect(lossOf(cell)).toBe(0)
-    expect(cell.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
+    expect(cell.state).toBe('degraded')
+    expect(warnFaceFor(warnInput(cell)).face).toBe('clean')
   })
 
   it('I12 — the ceilings, pinned as BEHAVIOUR: C2 strict ignores the baseline, C4 a creation has none', () => {
@@ -12781,9 +12795,22 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // the consult popover strips 「・損を減らす」 off the row it renders, and a
     // zero-loss row can never carry a least-loss offer to disagree with it
     expect(guardCheckRow(zero)!.label).not.toContain('損を減らす')
-    // a least-loss kind is dropped rather than shown under a costless move
-    const leastLoss = { ...zero, alternativeKind: 'least-loss' as const }
-    expect(lossOf(leastLoss)).toBe(0)
+  })
+
+  it('I15b — a LEAST-LOSS offer is dropped from a costless move: Liam\'s own なぎ cell, where the engine ranks 14:40', async () => {
+    // The engine's own answer at this start is `least-loss` (14:40 loses less than
+    // 14:00 does on the lifted lane). Once the move is measured against the
+    // committed day it loses nothing at all — and an offer that promises to REDUCE
+    // a loss under a row that has none is the contradiction ⚖ R2 ruling 6 names.
+    const { lanes, guard, doors } = await demoBoard()
+    const s1 = withoutCard(movedTo(lanes, 'apt-29', 840, 900), 'apt-26')
+    const today = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, null))!
+    expect(today.alternatives).toEqual([880])
+    expect(today.alternativeKind).toBe('least-loss')
+    const moved = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    expect(lossOf(moved)).toBe(0)
+    expect(moved.alternatives).toEqual([])
+    expect(moved.alternativeKind).toBeNull()
   })
 
   it('I14 — every new name is SPELLED ONCE, and the at-rest lane count is the capacity book\'s own', () => {
