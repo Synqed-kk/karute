@@ -128,11 +128,16 @@ export default async function KaruteDetailPage({
   // cannot drift: the recorder keeps her own button on the own-recording
   // branch, the owner and any both-keys holder keep theirs, and a named
   // grantee reads the words with no button at all.
-  const staffCanRegenerate = canViewTranscript({
-    ownerStaffId: ownerProfileId,
-    viewerStaffId,
-    canViewAll: holdsOwnerKeys(capabilities),
-  })
+  // The flag is the server's gate VERBATIM: `records.write` first, then the
+  // ACL — so a front-desk viewer on an unowned karute never sees a control the
+  // server refuses (the ACL alone passes every unowned record).
+  const staffCanRegenerate =
+    capabilities.has('records.write') &&
+    canViewTranscript({
+      ownerStaffId: ownerProfileId,
+      viewerStaffId,
+      canViewAll: holdsOwnerKeys(capabilities),
+    })
 
   const customerId = karute.client_id ?? null
 

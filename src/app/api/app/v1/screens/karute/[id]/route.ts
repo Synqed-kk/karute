@@ -187,11 +187,16 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       // Bearer twin of the web page's line, the same server expression the
       // regenerate route enforces. A named grantee reads a colleague's words
       // and gets no 再生成 button; the recorder and the owner's hand keep theirs.
-      staffCanRegenerate: canViewTranscript({
-        ownerStaffId: ownerProfileId,
-        viewerStaffId,
-        canViewAll: holdsOwnerKeys(ctx.identity.capabilities),
-      }),
+      // The flag is the server's gate VERBATIM: `records.write` first, then
+      // the ACL — so a front-desk viewer on an unowned karute never sees a
+      // control the server refuses (the ACL alone passes every unowned record).
+      staffCanRegenerate:
+        ctx.identity.capabilities.has('records.write') &&
+        canViewTranscript({
+          ownerStaffId: ownerProfileId,
+          viewerStaffId,
+          canViewAll: holdsOwnerKeys(ctx.identity.capabilities),
+        }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,

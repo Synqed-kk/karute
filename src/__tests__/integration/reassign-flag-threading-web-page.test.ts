@@ -314,16 +314,36 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     expect(built().staffCanRegenerate).toBe(false)
   })
 
+  // `records.write` rides every preset that could hold these keys — the flag is
+  // the server's WHOLE gate (fix round 5), so the positive cases grant it too.
   it('…and the OWNER’S HAND (both keys) on the same karute → true', async () => {
     colleaguesKarute()
-    grantedCaps.current = new Set(['recordings.viewAll', 'business.manage'])
+    grantedCaps.current = new Set(['records.write', 'recordings.viewAll', 'business.manage'])
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(true)
   })
 
-  it('the RECORDER keeps her own button with no keys at all', async () => {
+  it('the RECORDER keeps her own button with no RECORDING keys at all', async () => {
     karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
-    grantedCaps.current = new Set()
+    grantedCaps.current = new Set(['records.write'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ THE WHOLE GATE, NOT HALF (fix round 5, delta F1). Both regenerate doors
+  // check `records.write` BEFORE the ACL, and the ACL passes every UNOWNED
+  // record — so on a legacy/manual karute the ACL alone said "yes" to a front
+  // desk that the server then refuses.
+  it('a FRONT DESK viewer (no records.write) on an UNOWNED karute → transcript shown, flag FALSE', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: null }
+    grantedCaps.current = new Set(['customers.view'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the RECORDER (records.write) on her own karute → true', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
+    grantedCaps.current = new Set(['records.write'])
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(true)
   })

@@ -749,14 +749,33 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     expect(dto.staffCanRegenerate).toBe(false)
   })
 
+  // `records.write` rides every preset that could hold these keys — the flag is
+  // the server's WHOLE gate (fix round 5), so the positive cases grant it too.
   it('…and the OWNER’S HAND (both keys) gets it', async () => {
-    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'business.manage'])
+    capabilities.current = new Set(['customers.view', 'records.write', 'recordings.viewAll', 'business.manage'])
     const dto = await dtoFor()
     expect(dto.staffCanRegenerate).toBe(true)
   })
 
-  it('the RECORDER keeps her own, with no keys at all', async () => {
+  it('the RECORDER keeps her own, with no RECORDING keys at all', async () => {
     KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ THE WHOLE GATE, NOT HALF (fix round 5, delta F1) — the Bearer twin.
+  it('a FRONT DESK viewer (no records.write) on an UNOWNED karute → transcript shown, flag FALSE', async () => {
+    KAR.current = { ...KAR.current, staff_id: null }
+    capabilities.current = new Set(['customers.view'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the RECORDER (records.write) on her own karute → true', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view', 'records.write'])
     const dto = await dtoFor()
     expect(dto.staffCanRegenerate).toBe(true)
   })
