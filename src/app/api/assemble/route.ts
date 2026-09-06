@@ -36,10 +36,12 @@ export async function GET(request: Request) {
   // whole tree must not record as a green one — /api/cleanup's rule. A BUDGET
   // stop is different and stays a 200: the walk saw every candidate and tonight
   // simply ended. The next run starts ROTATION_STRIDE folders further along the
-  // same list (the walk strides by a night's reach and wraps), so a night that
-  // reaches at least that many covers the whole tree within
-  // ceil(N / ROTATION_STRIDE) nights — a slower night leaves a gap that later
-  // nights drift over, and closing that exactly would take a resume cursor.
-  // That is what makes this 200 honest.
+  // same list (the walk strides by a night's reach and wraps), so nights that
+  // each reach at least that many cover the whole tree within
+  // ceil(N / ROTATION_STRIDE) nights — and a slower night still advances the
+  // start by the stride, so what it skipped is reached when the walk comes
+  // round (at most N nights: the stride is PRIME, so the start lands on every
+  // index rather than on a gcd lattice). Closing that exactly would take a
+  // resume cursor. That is what makes this 200 honest.
   return NextResponse.json(summary, { status: summary.walkComplete ? 200 : 500 })
 }

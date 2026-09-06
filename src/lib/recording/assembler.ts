@@ -86,8 +86,9 @@ export const SEGMENT_NOMINAL_MS = 5_000
 /** How many takes one night may seal. A 90-minute take is ~1,000 objects
  *  (~32 MB); twenty of those fit the route's budget on hnd1 with room, and the
  *  field's worst night is a handful. A run that hits it reports
- *  `budgetExhausted`, and tomorrow's run — which starts ROTATION_STRIDE
- *  folders further along the same rotating list — takes the next ones. */
+ *  `budgetExhausted`, and tomorrow's run starts a stride further round and
+ *  reaches them when the walk comes round — NOT tomorrow, which begins
+ *  ROTATION_STRIDE folders past the ones tonight stopped short of. */
 export const MAX_TAKES_PER_RUN = 20
 
 /** Stop STARTING a rebuild with less than this much of the budget left. The
@@ -99,27 +100,52 @@ export const MAX_TAKES_PER_RUN = 20
  *  the next night meets it and skips.
  *  It ends the WALK, not just the rebuild: a run that can no longer start one
  *  has nothing left worth classifying tonight, and the folders it did not
- *  reach are exactly what tomorrow's stride is for. */
+ *  reach wait for the rotation to come round — not for tomorrow, which starts
+ *  a stride further on. */
 const TAKE_RESERVE_MS = 30_000
 
 /** One day in ms — the rotation's period (see runAssembler). */
 const DAY_MS = 86_400_000
 
 /** How far the walk's starting point moves each night: ONE NIGHT'S REACH,
- *  estimated — not one folder.
+ *  estimated — not one folder, and PRIME on purpose.
  *
  *  The arithmetic. A folder whose take is already on the server costs the
  *  cheap pair: one `list` with limit 1 and one `objectExists`. Two same-region
  *  round trips at ~60 ms each is ~120 ms a folder, so 270 s reaches roughly
- *  2,250 of them; 2,000 is that number rounded down, so the stride under-
- *  claims rather than over-claims.
+ *  2,250 of them; 1,999 is under that, so the stride under-claims rather than
+ *  over-claims.
+ *
+ *  THE COVERAGE PROPERTY, which the prime does not change. In unbounded index
+ *  space night d covers [d·S, d·S + K), and while every night in the window
+ *  reaches K ≥ S those runs abut or overlap — so their union is ONE contiguous
+ *  run, and any run of N consecutive integers hits every residue mod N. Every
+ *  folder is therefore visited within `ceil((N − K) / S) + 1` nights, which is
+ *  `ceil(N / S)` at K = S and better when a night reaches more. The modulus
+ *  never enters that proof, which is why N not being a multiple of the stride
+ *  is safe.
+ *
+ *  WHY PRIME. The start positions are the multiples of `gcd(stride, N)`, so a
+ *  stride sharing a factor with the folder count only ever visits `N / gcd` of
+ *  the indexes — and a stride that DIVIDES N (2,000 against 6,000 folders)
+ *  never moves the start at all, which is the exact pathology the rotation
+ *  exists to prevent. `seg/` only ever grows (nothing deletes a segment, by
+ *  law), so N passes through every such value on its way up. A prime shares a
+ *  factor with nothing but its own multiples, so the start walks EVERY index;
+ *  the residual is N a multiple of 1,999.
+ *
+ *  AND WHAT A SLOW NIGHT REALLY COSTS. A night that reaches fewer than the
+ *  stride still advances the start by the stride, so the folders it skipped are
+ *  reached when the walk comes round — at most N nights, not on the
+ *  ceil(N / S) schedule. Closing that exactly is the resume cursor named at the
+ *  rotation itself.
  *
  *  WHY IT IS NOT 1. Stepping the start by one folder a night moves the covered
  *  WINDOW by one folder a night, so a folder just past tonight's reach waits
  *  N − reach nights, not N / reach. At 6,000 folders that is ~600 nights, and
  *  every comment promising "a few nights" would be wrong by two orders of
  *  magnitude. Striding by a night's reach makes the promise true. */
-export const ROTATION_STRIDE = 2_000
+export const ROTATION_STRIDE = 1_999
 
 /** Downloads in flight at once while rebuilding one take. Four, not the whole
  *  prefix: this runs at 03:07 against a bucket nobody is recording into, so it
@@ -199,8 +225,8 @@ export interface AssemblerSummary {
   /** True when the run stopped on its own time/count bound with candidates
    *  left. Distinct from walkComplete on purpose: the walk SAW them, tonight
    *  simply ended, and tomorrow's run begins ROTATION_STRIDE folders further
-   *  along the same list (circularly), so a night that reaches at least that
-   *  many covers everything within ceil(N / ROTATION_STRIDE) nights. A 200,
+   *  along the same list (circularly), so nights that each reach at least that
+   *  many cover everything within ceil(N / ROTATION_STRIDE) nights. A 200,
    *  not a 500. */
   budgetExhausted: boolean
 }
@@ -624,10 +650,12 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * cursor, so beginning at index 0 every night would re-walk the same leading
  * folders forever and never reach the tail — silently, since the route's 200
  * hides it. The start moves ROTATION_STRIDE folders a night and the walk is
- * circular, so a night that reaches at least that many covers everything
- * within ceil(N / ROTATION_STRIDE) nights; a slower night leaves a gap that
- * later nights drift over. The exact fix, named at the rotation itself, is a
- * resume cursor.
+ * circular, so nights that each reach at least that many cover everything
+ * within ceil(N / ROTATION_STRIDE) nights; a slower night still advances the
+ * start by the stride, so what it skipped is reached when the walk comes round
+ * — at most N nights, because a PRIME stride puts the start on every index
+ * rather than on the gcd lattice. The exact fix, named at the rotation itself,
+ * is a resume cursor.
  */
 export async function runAssembler(
   deps: AssemblerDeps,
@@ -684,10 +712,12 @@ export async function runAssembler(
   // and never reach the tail. Today's start is `dayNumber × ROTATION_STRIDE`,
   // and the walk is circular.
   //
-  // THE PROPERTY, HONESTLY: when a night reaches at least ROTATION_STRIDE
-  // folders, every folder is visited within ceil(N / ROTATION_STRIDE) nights.
-  // A slower night leaves a gap behind it, which later nights drift over
-  // rather than close on a schedule.
+  // THE PROPERTY, HONESTLY: while every night in the window reaches at least
+  // ROTATION_STRIDE folders, every folder is visited within
+  // ceil(N / ROTATION_STRIDE) nights. A slower night still advances the start
+  // by the stride, so the folders it skipped are reached when the walk comes
+  // round — at most N nights, because the stride is PRIME and the start
+  // therefore lands on every index instead of on the gcd(stride, N) lattice.
   // ponytail: a stateless stride, because there is nowhere to keep a cursor;
   // the exact fix — every folder visited on a known night, gap or no gap — is
   // a resume cursor, and that is the upgrade path.
