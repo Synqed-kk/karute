@@ -113,9 +113,14 @@ export interface MintTakeActor {
   holdsOwnerKeys: boolean
   /** The stores this actor is assigned to, or null when unrestricted
    *  (`stores.viewAll`, or floating staff). REQUIRED, so a door that forgot to
-   *  resolve it fails to COMPILE. Callers resolve it ONLY when
-   *  `holdsOwnerKeys` is true (the playback action's idiom) — an assignment
-   *  blip must never cost a recorder her own take. */
+   *  decide it fails to COMPILE.
+   *
+   *  ⚖ RESOLVED ONLY WHERE THE LEG CAN MATTER (③ fix round 1): on the TAKE arm,
+   *  and there only when `holdsOwnerKeys` is true (the playback action's idiom
+   *  — an assignment blip must never cost a recorder her own take). The SEGMENT
+   *  and STAGED doors pass `null` outright, pair or no pair: each runs a
+   *  stricter own-staff line after the shared predicate (:997 · :636), so a
+   *  resolved reach there is a core round trip that can change no answer. */
   allowedStoreIds: readonly string[] | null
   source: 'web' | 'facade'
   requestId?: string

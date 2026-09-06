@@ -84,10 +84,8 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // its own key, and attributes both the reservation and the take_named row to
   // the roster identity resolved above. A null staffId can only reach the
   // server-named path, which binds nothing; the shared core still refuses to
-  // write anything without one.
-  // The actor comes from the VERIFIED Bearer identity, never the body. The one
-  // field that depends on WHICH act this is — the store reach — is added per
-  // arm below.
+  // write anything without one. The one field that depends on WHICH act this
+  // is — the store reach — is added per arm below.
   const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
   const actor = {
     staffId,

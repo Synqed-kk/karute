@@ -153,8 +153,10 @@ export async function mintRecordingUploadUrl(
  * same three cookie-derived identities (a caller names neither its tenant, nor
  * itself, nor its reach), same shared body, same never-throws contract with
  * every failure folded into the one retryable `upstream`. The two acts differ
- * only in which shared body they call — everything that makes calling one safe
- * makes calling the other safe.
+ * in which shared body they call and — since ③ fix round 1 — in whether the
+ * store reach is resolved at all (see the ③ note in the body below: this door
+ * passes null, because its own-staff line makes a reach inert). Everything
+ * that makes calling one safe makes calling the other safe.
  *
  * A SEPARATE EXPORT rather than a branch inside the mint above, because the two
  * answer DIFFERENT result unions: a caller that asked for segments and got a

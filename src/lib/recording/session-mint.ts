@@ -188,8 +188,13 @@ export async function startRecordingSessionWithClient(
   //     minted before this round keeps a null the take doors read as OPEN.
   //   · WHERE DOES THE KARUTE BELONG? — still the karute's own resolver
   //     (resolveKaruteStoreId, actions/karute.ts), which may pick the booking's
-  //     store later. The two can differ, and both are true; the read doors
-  //     already prefer the karute's (`karute.store_id ?? row.store_id`).
+  //     store later. The two can differ, and both are true. ⚖ The READ doors
+  //     ignore this column entirely — the karute's own store is their one truth
+  //     (playback-url.ts:206, and the two words doors beside it). This column
+  //     gates the TAKE doors, where no karute exists yet to ask
+  //     (take-binding.ts#assertRecorderOwnsRow). The only other reader is the
+  //     `recording.play` AUDIT line, which falls back to it as a report filter,
+  //     never as an access decision.
   // Sent on BOTH paths — a store-less absent-take row would be a second shape
   // for the same fact.
   const recording = await synqed.recordings.create({
