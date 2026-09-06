@@ -58,14 +58,14 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   core row points at it (`lib/recording/secure-take.ts`). Transcription and the
   server job both read *that* object — there is no second staging upload.
 - **Every session row is born in a store.** The recording carries the store it
-  was made in, and the server never persists a store-less *new* row whatever the
-  client sent: the facade mint stamps the request's own `store-id` lens when one
-  rode it (proven to be this caller's first) and otherwise the business's
-  primary store — the same store the shell seeds its own lens to on first boot,
-  so the two answers agree by construction. A store lookup that cannot answer is
-  a fail-closed 403, never a null stamp; capture is unaffected either way,
-  because the client reads any non-2xx as "no session id" and the drain re-mints
-  later.
+  was made in, and both doors refuse rather than persist a store-less *new* row
+  whatever the client sent: the facade mint stamps the request's own `store-id`
+  lens when one rode it (proven to be this caller's first) and otherwise the
+  business's primary store — the same store the shell seeds its own lens to on
+  first boot, so the two answers agree by construction. A store lookup that
+  cannot answer is a fail-closed 403 on the facade, or a null mint (no row) on
+  the web action; capture is unaffected either way, because the client reads any
+  non-2xx / null id as "no session id" and the drain re-mints later.
 - **A take the device never sent is drained at the next launch** (#835), so a
   phone that comes back finishes its own recording rather than waiting for
   anyone to notice — and it can *always* finish it, whenever it turns up,
