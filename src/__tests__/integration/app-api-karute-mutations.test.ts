@@ -92,7 +92,17 @@ const webScope = {
     degraded: false,
   },
 }
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: jest.fn(async () => webScope.current) }))
+/** The web act doors call viewerScopeForActs (auth/store-scope.ts); its own
+ *  fail-closed behaviour is unit-pinned in store-scope.test.ts against the real
+ *  seams. Here it is the SEAM: what the door does with each answer. */
+const webScopeThrows = { current: false }
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => webScope.current),
+  viewerScopeForActs: jest.fn(async () => {
+    if (webScopeThrows.current) return []
+    return webScope.current.degraded ? [] : webScope.current.allowedStoreIds
+  }),
+}))
 const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
   stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
@@ -155,6 +165,7 @@ beforeEach(() => {
   capabilities.current = new Set(['records.write'])
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   webScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+  webScopeThrows.current = false
   roster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
   REC.current = { id: '00000000-0000-4000-8000-000000000007', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }

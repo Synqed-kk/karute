@@ -76,7 +76,7 @@ export function canViewAllInStore(opts: {
  *     ordinary store compare applies — `canViewAllInStore`'s rules verbatim,
  *     including "a record with no store is 全店舗/legacy" and "degraded `[]`
  *     fails closed".
- *   - CUSTOMER-WIDE (`recordStoreId` omitted): 再学習 and the bulk regen list
+ *   - CUSTOMER-WIDE (`recordStoreId: 'customer-wide'`): 再学習 and the bulk list
  *     read a customer's WHOLE history, which spans stores by construction
  *     (the customer door is cross-store by Liam's 8/17 ruling). There is no
  *     single record to compare, so only an UNRESTRICTED scope passes —
@@ -89,10 +89,16 @@ export function canViewAllInStore(opts: {
 export function ownerHandReach(opts: {
   holdsOwnerKeys: boolean
   allowedStoreIds: readonly string[] | null
-  recordStoreId?: string | null
+  /** REQUIRED, and the sentinel is a VALUE, not an absent field (fix round 8).
+   *  `canViewAllInStore` reads `undefined` as "no store to be outside of" —
+   *  i.e. OPEN — so a legacy karute shape that simply omits `store_id` would
+   *  have silently selected the customer-wide mode here and the open branch
+   *  there. One spelling, no overlap: `'customer-wide'` picks the mode, and a
+   *  real record passes its store or an explicit `null`. */
+  recordStoreId: string | null | 'customer-wide'
 }): boolean {
   const { holdsOwnerKeys, allowedStoreIds, recordStoreId } = opts
   if (!holdsOwnerKeys) return false
-  if (recordStoreId === undefined) return allowedStoreIds === null
+  if (recordStoreId === 'customer-wide') return allowedStoreIds === null
   return canViewAllInStore({ canViewAll: true, allowedStoreIds, recordStoreId })
 }

@@ -147,7 +147,9 @@ export default async function KaruteDetailPage({
       canViewAll: ownerHandReach({
         holdsOwnerKeys: holdsOwnerKeys(capabilities),
         allowedStoreIds,
-        recordStoreId: karute.store_id,
+        // `?? null` explicitly: a legacy karute shape can OMIT store_id, and an
+        // absent field must never be mistaken for the customer-wide mode.
+        recordStoreId: karute.store_id ?? null,
       }),
     })
 

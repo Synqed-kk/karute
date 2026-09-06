@@ -22,7 +22,12 @@ const scope = {
     degraded: false,
   },
 }
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: jest.fn(async () => scope.current) }))
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => scope.current),
+  viewerScopeForActs: jest.fn(async () =>
+    scope.current.degraded ? [] : scope.current.allowedStoreIds,
+  ),
+}))
 
 import { canUseDevRegen } from '@/actions/dev-tools'
 

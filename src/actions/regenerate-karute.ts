@@ -366,15 +366,20 @@ export async function regenerateKaruteWithClient(
      *  viewerAllowedStoreIds). null = unrestricted; `[]` = degraded, fails
      *  closed. The store compare happens HERE rather than at the callers,
      *  because this is where the karute — and so its store — is known
-     *  (⚖ 8/17; Greptile #848 review 2, point 2). */
-    allowedStoreIds?: readonly string[] | null
+     *  (⚖ 8/17; Greptile #848 review 2, point 2).
+     *
+     *  REQUIRED, deliberately (fix round 8): every other fail-closed shape in
+     *  this slice defaults to `[]`, and an optional param here would default a
+     *  forgetful third transport to UNRESTRICTED — fail-open, silently. The
+     *  type checker is the pin: omit it and the build breaks. */
+    allowedStoreIds: readonly string[] | null
     locale: string
     /** Facade Bearer path: the verified token's business id. Omitted on the
      *  cookie web path (featureAllowed resolves it). */
     businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, allowedStoreIds = null, locale, businessId } = params
+  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, allowedStoreIds, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -514,22 +519,6 @@ export async function regenerateKaruteWithClient(
  *  RegenerateResult doesn't carry it back out, so adding it would mean either
  *  a second fetch or widening the return type; the packet said never add a
  *  fetch just for this, so detail stays ids/counts only (added/removed). */
-/** The caller's store assignment on the WEB transport, for the ACT doors in
- *  this file. Mirrors the read doors' rule exactly (page.tsx · recording-
- *  playback.ts): null = unrestricted (`stores.viewAll` or floating), and a
- *  degraded or THROWN lookup arrives as `[]`, which fails the reach closed —
- *  never widened into "every store" (⚖ 8/17 store isolation). */
-async function viewerScopeForActs(): Promise<readonly string[] | null> {
-  try {
-    const { resolveStoreScope } = await import('@/lib/auth/store-scope')
-    const scope = await resolveStoreScope()
-    return scope.degraded ? [] : scope.allowedStoreIds
-  } catch (err) {
-    console.warn('[regenerate-karute] store scope read failed — failing closed:', err)
-    return []
-  }
-}
-
 export async function regenerateKarute(karuteRecordId: string): Promise<RegenerateResult> {
   try {
     await requireCapability('records.write')
@@ -547,9 +536,10 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
       karuteRecordId,
       viewerStaffId,
       holdsOwnerKeys: holdsOwnerKeys(capabilities),
-      // The same scope the read doors resolve, resolved the same way
-      // (⚖ 8/17): degraded or thrown → [], which fails the reach closed.
-      allowedStoreIds: await viewerScopeForActs(),
+      // The one shared spelling of the web act scope (auth/store-scope.ts);
+      // dynamic import — a top-level one drags the ESM-only SDK into this
+      // module's jest graph (repo convention, see actions/memory.ts).
+      allowedStoreIds: await (await import('@/lib/auth/store-scope')).viewerScopeForActs(),
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')

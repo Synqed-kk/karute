@@ -22,8 +22,8 @@ export async function canUseDevRegen(): Promise<boolean> {
     // Dynamic import — repo convention (see actions/memory.ts): a top-level
     // import of store-scope drags the ESM-only SDK into every jest graph that
     // touches this module (dev-regen-key.test.ts breaks on exactly that).
-    const { resolveStoreScope } = await import('@/lib/auth/store-scope')
-    const [caps, scope] = await Promise.all([getMyCapabilities(), resolveStoreScope()])
+    const { viewerScopeForActs } = await import('@/lib/auth/store-scope')
+    const [caps, allowedStoreIds] = await Promise.all([getMyCapabilities(), viewerScopeForActs()])
     // BOTH keys, not just the dev key: these tools read raw transcripts. ONE
     // spelling of the pair for the whole repo — holdsOwnerKeys (auth/permissions.ts)
     // carries the reasoning; granting business.manage ALONE never re-opens bulk
@@ -34,7 +34,8 @@ export async function canUseDevRegen(): Promise<boolean> {
     // lookup arrives as [] and fails closed, same rule as the read doors.
     return ownerHandReach({
       holdsOwnerKeys: holdsOwnerKeys(caps),
-      allowedStoreIds: scope.degraded ? [] : scope.allowedStoreIds,
+      allowedStoreIds,
+      recordStoreId: 'customer-wide',
     })
   } catch {
     // Fail closed: if capabilities can't be read, no dev tools.

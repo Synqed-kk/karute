@@ -65,6 +65,9 @@ export const POST = facadeHandler<Params>('customer.memory.relearn', async (ctx)
           selfStaffId: await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId),
         })
       : null,
+    // 再学習 rebuilds from a customer's whole history — there is no single
+    // record to compare, so only an unrestricted scope passes.
+    recordStoreId: 'customer-wide',
   })
   const result = await relearnCustomerMemoryWithClient(
     synqed,

@@ -130,10 +130,11 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     // and never 502s the screen or hides a recorder's own transcript.
     // ONE resolved scope, fed to BOTH the read predicate and the act predicate
     // — they cannot disagree about which stores this viewer can see. Resolved
-    // when EITHER can use it, and never for a caller holding neither key.
+    // whenever the read grant is held: the PAIR IMPLIES IT (holdsOwnerKeys is
+    // `business.manage && recordings.viewAll`), so a both-keys caller always
+    // takes this branch and a caller holding neither key pays nothing.
     const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
-    const allowedStoreIds =
-      holdsRecordingsViewAll || callerHoldsOwnerKeys
+    const allowedStoreIds = holdsRecordingsViewAll
         ? await viewerAllowedStoreIds({
             synqed,
             authUserId: ctx.identity.authUserId,
@@ -204,7 +205,8 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
           canViewAll: ownerHandReach({
             holdsOwnerKeys: callerHoldsOwnerKeys,
             allowedStoreIds,
-            recordStoreId: karute.store_id,
+            // `?? null` explicitly — see the web page's twin.
+            recordStoreId: karute.store_id ?? null,
           }),
         }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
