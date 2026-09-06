@@ -134,6 +134,7 @@ import {
   composeTakeKeyFromExt,
   composeRescueKeyFromExt,
   extFromMime,
+  MIME_TO_EXT,
 } from '@/lib/recording/key-grammar'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import type { MintTakeUrlInput, MintTakeUrlResult } from '@/lib/recording/mint-take-url'
@@ -1708,19 +1709,24 @@ describe('isOwnAudioKey — take OR rescue, and nothing else', () => {
 // this is where it is pinned: the day a member's MIME is not `audio/<ext>`
 // exactly, this table fails and the two wrappers below are what change.
 describe('composeTakeKeyFromExt / composeRescueKeyFromExt — the ext round trip', () => {
-  const EXTS = ['webm', 'mp4', 'ogg', 'wav'] as const
+  // THE MAP ITSELF is the table (fix round 8). Both halves used to be typed-out
+  // copies of today's four members, so the very drift the docblock promises to
+  // catch — a member whose MIME is not `audio/<ext>` — added itself to the map
+  // and left every pin green.
+  it.each(Object.entries(MIME_TO_EXT))(
+    '`%s` is exactly `audio/` + its own extension (%s)',
+    (mimeType, ext) => {
+      expect(mimeType).toBe(`audio/${ext}`)
+      expect(extFromMime(mimeType)).toBe(ext)
+    },
+  )
 
-  it.each(EXTS)('`audio/%s` is the inverse of MIME_TO_EXT for %s', (ext) => {
-    expect(extFromMime(`audio/${ext}`)).toBe(ext)
-  })
-
-  it('every container the mint can compose is reachable from its own extension', () => {
-    // Derived from the composer rather than a typed-out list, so a fifth
-    // container cannot be added to the map and forgotten here.
-    for (const mimeType of ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav']) {
+  it('every container IN THE MAP round-trips through both wrappers, never null', () => {
+    for (const [mimeType, ext] of Object.entries(MIME_TO_EXT)) {
       const take = composeTakeKey('biz-1', UUID, mimeType)!
-      expect(composeTakeKeyFromExt('biz-1', UUID, take.ext)).toEqual(take)
-      expect(composeRescueKeyFromExt('biz-1', UUID, take.ext)).toEqual(
+      expect(take.ext).toBe(ext)
+      expect(composeTakeKeyFromExt('biz-1', UUID, ext)).toEqual(take)
+      expect(composeRescueKeyFromExt('biz-1', UUID, ext)).toEqual(
         composeRescueKey('biz-1', UUID, mimeType),
       )
     }

@@ -82,8 +82,13 @@ const UUID_LENGTH = 36
  * was that function's source text. Object.create(null) means there are no
  * inherited members to find at all, whichever way and whatever case the map is
  * read in — the casing must never be what saves this.
+ *
+ * EXPORTED, read-only, so the `audio/<ext>` round trip the two …FromExt
+ * wrappers rest on is pinned against THE MAP ITSELF rather than against a
+ * typed-out copy of today's members (fix round 8). A fifth container is added
+ * here and exactly one pin fails, which is what the docblock below promises.
  */
-const MIME_TO_EXT: Record<string, string> = Object.assign(Object.create(null), {
+export const MIME_TO_EXT: Readonly<Record<string, string>> = Object.assign(Object.create(null), {
   'audio/webm': 'webm',
   'audio/mp4': 'mp4',
   'audio/ogg': 'ogg',
