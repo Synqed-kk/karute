@@ -86,8 +86,8 @@ export const SEGMENT_NOMINAL_MS = 5_000
 /** How many takes one night may seal. A 90-minute take is ~1,000 objects
  *  (~32 MB); twenty of those fit the route's budget on hnd1 with room, and the
  *  field's worst night is a handful. A run that hits it reports
- *  `budgetExhausted`, and tomorrow's run — which starts further along the same
- *  rotating list — takes the next ones. */
+ *  `budgetExhausted`, and tomorrow's run — which starts ROTATION_STRIDE
+ *  folders further along the same rotating list — takes the next ones. */
 export const MAX_TAKES_PER_RUN = 20
 
 /** Stop STARTING a rebuild with less than this much of the budget left. The
@@ -96,12 +96,30 @@ export const MAX_TAKES_PER_RUN = 20
  *  downloading plus one large PUT. Admitting one at 269 s would have the
  *  function killed at the 300 s wall mid-PUT, and storage may still complete
  *  that PUT server-side — leaving an object no run will ever audit, because
- *  the next night meets it and skips. Cheap folders keep being walked; only
- *  the expensive act is held back. */
+ *  the next night meets it and skips.
+ *  It ends the WALK, not just the rebuild: a run that can no longer start one
+ *  has nothing left worth classifying tonight, and the folders it did not
+ *  reach are exactly what tomorrow's stride is for. */
 const TAKE_RESERVE_MS = 30_000
 
 /** One day in ms — the rotation's period (see runAssembler). */
 const DAY_MS = 86_400_000
+
+/** How far the walk's starting point moves each night: ONE NIGHT'S REACH,
+ *  estimated — not one folder.
+ *
+ *  The arithmetic. A folder whose take is already on the server costs the
+ *  cheap pair: one `list` with limit 1 and one `objectExists`. Two same-region
+ *  round trips at ~60 ms each is ~120 ms a folder, so 270 s reaches roughly
+ *  2,250 of them; 2,000 is that number rounded down, so the stride under-
+ *  claims rather than over-claims.
+ *
+ *  WHY IT IS NOT 1. Stepping the start by one folder a night moves the covered
+ *  WINDOW by one folder a night, so a folder just past tonight's reach waits
+ *  N − reach nights, not N / reach. At 6,000 folders that is ~600 nights, and
+ *  every comment promising "a few nights" would be wrong by two orders of
+ *  magnitude. Striding by a night's reach makes the promise true. */
+export const ROTATION_STRIDE = 2_000
 
 /** Downloads in flight at once while rebuilding one take. Four, not the whole
  *  prefix: this runs at 03:07 against a bucket nobody is recording into, so it
@@ -180,9 +198,10 @@ export interface AssemblerSummary {
   walkComplete: boolean
   /** True when the run stopped on its own time/count bound with candidates
    *  left. Distinct from walkComplete on purpose: the walk SAW them, tonight
-   *  simply ended, and tomorrow's run begins at a different index of the same
-   *  list (the rotation), so what tonight missed is reached within a few
-   *  nights. A 200, not a 500. */
+   *  simply ended, and tomorrow's run begins ROTATION_STRIDE folders further
+   *  along the same list (circularly), so a night that reaches at least that
+   *  many covers everything within ceil(N / ROTATION_STRIDE) nights. A 200,
+   *  not a 500. */
   budgetExhausted: boolean
 }
 
@@ -601,16 +620,18 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * object is genuinely absent pays for the whole listing, the age arithmetic,
  * the core page and the rebuild.
  *
- * AND THE START ROTATES. A run cut by the clock keeps no cursor, so beginning
- * at index 0 every night would re-walk the same leading folders forever and
- * never reach the tail — silently, since the route's 200 hides it. Starting at
- * today's index and walking circularly covers a bucket too large for one night
- * over several nights instead. The ceiling that remains is named at the
- * rotation itself: past a few nights' reach, this wants a resume cursor.
+ * AND THE START ROTATES BY A NIGHT'S REACH. A run cut by the clock keeps no
+ * cursor, so beginning at index 0 every night would re-walk the same leading
+ * folders forever and never reach the tail — silently, since the route's 200
+ * hides it. The start moves ROTATION_STRIDE folders a night and the walk is
+ * circular, so a night that reaches at least that many covers everything
+ * within ceil(N / ROTATION_STRIDE) nights; a slower night leaves a gap that
+ * later nights drift over. The exact fix, named at the rotation itself, is a
+ * resume cursor.
  */
 export async function runAssembler(
   deps: AssemblerDeps,
-  opts: { budgetMs: number },
+  opts: { budgetMs: number; rotationStride?: number },
 ): Promise<AssemblerSummary> {
   const deadline = deps.now() + opts.budgetMs
   const summary: AssemblerSummary = {
@@ -656,16 +677,22 @@ export async function runAssembler(
     return made
   }
 
-  // ROTATE THE START. Every folder in `seg/` costs at least the cheap pair
-  // above, `seg/` only ever grows (nothing deletes a segment, by law), and a
-  // run cut by the clock has no cursor to resume from — so a walk that always
-  // began at index 0 would stop in the same place every night and never reach
-  // the tail. Starting at today's index and walking CIRCULARLY means a bucket
-  // too large for one night is covered over several, deterministically and
-  // with no new state to keep.
-  // ponytail: day-number rotation; a tenant whose tree outgrows a few nights'
-  // reach needs a resume cursor, and that is the upgrade path.
-  const startIndex = folders.length === 0 ? 0 : Math.floor(deps.now() / DAY_MS) % folders.length
+  // ROTATE THE START BY A NIGHT'S REACH. Every folder in `seg/` costs at least
+  // the cheap pair above, `seg/` only ever grows (nothing deletes a segment,
+  // by law), and a run cut by the clock has no cursor to resume from — so a
+  // walk that always began at index 0 would stop in the same place every night
+  // and never reach the tail. Today's start is `dayNumber × ROTATION_STRIDE`,
+  // and the walk is circular.
+  //
+  // THE PROPERTY, HONESTLY: when a night reaches at least ROTATION_STRIDE
+  // folders, every folder is visited within ceil(N / ROTATION_STRIDE) nights.
+  // A slower night leaves a gap behind it, which later nights drift over
+  // rather than close on a schedule.
+  // ponytail: a stateless stride, because there is nowhere to keep a cursor;
+  // the exact fix — every folder visited on a known night, gap or no gap — is
+  // a resume cursor, and that is the upgrade path.
+  const stride = opts.rotationStride ?? ROTATION_STRIDE
+  const startIndex = folders.length === 0 ? 0 : (Math.floor(deps.now() / DAY_MS) * stride) % folders.length
 
   for (let i = 0; i < folders.length; i++) {
     const { folder, businessId, takeId } = folders[(startIndex + i) % folders.length]

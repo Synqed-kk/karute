@@ -331,26 +331,41 @@ describe('the walk', () => {
     expect(uploads).toHaveLength(0)
   })
 
-  // ⚖ R1(b) THE ROTATION. Nothing carries a cursor between runs, so a walk
-  // that always began at index 0 would stop in the same place every night and
-  // never reach the tail — silently, because the route still answers 200.
-  it('a night cut by the clock starts somewhere else the next night, and wraps', async () => {
-    const takes = ['0f8c6c9a-3f2d-4a71-9b5e-000000000001', '0f8c6c9a-3f2d-4a71-9b5e-000000000002', '0f8c6c9a-3f2d-4a71-9b5e-000000000003']
-    takes.forEach((takeId, i) => seed({ takeId, seqs: [0], objectSize: 10, rowId: `${SESSION.slice(0, 23)}${i}${SESSION.slice(24)}` }))
-    // Day N and day N+1 land on different indexes of the same three folders…
-    const dayOf = (now: number) => Math.floor(now / 86_400_000) % 3
-    const first: string[] = []
-    for (const now of [NOW, NOW + 86_400_000, NOW + 2 * 86_400_000]) {
+  // ⚖ THE ROTATION, AND THE PROPERTY IT ACTUALLY BUYS. Nothing carries a cursor
+  // between runs, so a walk that always began at index 0 would stop in the same
+  // place every night and never reach the tail — silently, because the route
+  // still answers 200. Stepping the start by ONE folder a night is barely
+  // better: the covered WINDOW moves by one, so a folder just past tonight's
+  // reach waits N − reach nights. The start therefore strides by a night's
+  // REACH, which is what makes "within ceil(N / stride) nights" true.
+  it('strides by a night’s reach: ten folders, four a night, all ten seen in three nights', async () => {
+    // Ten finished folders — each costs the cheap pair and nothing more, so
+    // one clock tick per folder is the whole per-folder cost.
+    const ids = Array.from({ length: 10 }, (_, i) => `0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}`)
+    ids.forEach((takeId, i) =>
+      seed({ takeId, seqs: [0], objectSize: 10, rowId: `${SESSION.slice(0, 23)}${i}${SESSION.slice(24)}` }),
+    )
+    const DAY = 86_400_000
+    const seen = new Set<string>()
+    for (let day = 0; day < 3; day++) {
       listCalls.length = 0
-      await runAssembler({ coreFor, now: () => now }, { budgetMs: 60_000 })
-      first.push(listCalls.find((c) => c.prefix !== 'seg')!.prefix)
-      expect(listCalls.find((c) => c.prefix !== 'seg')!.prefix).toBe(
-        `seg/app_${BIZ}_${takes[dayOf(now)]}`,
+      // A clock that advances 1 s per read. Two reads are fixed (the deadline
+      // and the day the start is taken from), then one per folder — so a 6 s
+      // budget admits exactly four folders.
+      let tick = 0
+      const now = () => day * DAY + tick++ * 1000
+      const summary = await runAssembler(
+        { coreFor, now },
+        { budgetMs: 6_000, rotationStride: 4 },
       )
+      expect(summary.budgetExhausted).toBe(true)
+      const visited = listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)
+      expect(visited).toHaveLength(4)
+      visited.forEach((v) => seen.add(v))
     }
-    // …and over three days every folder has been reached first once: the wrap
-    // is what makes "a bucket too large for one night" cover in several.
-    expect(new Set(first).size).toBe(3)
+    // Every folder reached inside ceil(10 / 4) = 3 nights. A one-step rotation
+    // would have covered {s..s+3} ∪ {s+1..s+4} ∪ {s+2..s+5} — six of ten.
+    expect(seen.size).toBe(10)
   })
 
   it('the rotation WRAPS rather than running off the end', async () => {
