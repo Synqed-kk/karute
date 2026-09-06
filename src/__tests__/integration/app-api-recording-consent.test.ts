@@ -91,6 +91,8 @@ beforeEach(() => {
   capabilities.current = new Set(['customers.view', 'records.write'])
   getUser.fn.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
+  staffStoresGet.mockImplementation(async () => ({ store_ids: [] }))
+  storesGet.mockImplementation(async (id: string) => ({ id }))
 })
 
 describe('GET consent', () => {
@@ -156,6 +158,70 @@ describe('POST consent grant', () => {
     const res = await grantPOST(jreq({ ...auth, ...idem }, { method: 'VERBAL' }), route())
     expect(res.status).toBe(401)
     expect(grantConsent).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ THE STORE THE DEVICE IS IN (slice three ③) ───────────────────────────
+// The row now carries the store the caller is working in — the Bearer twin of
+// the web action's active store, resolved by the same clamp the job route uses.
+// The clamp runs BEFORE the fail-open try: a store this caller may not use is a
+// 403, never a 200 {id:null} that would let the take be captured against it.
+describe('POST recordings/session mint — the store rides along', () => {
+  const idem = { 'idempotency-key': 'idem-1' }
+
+  it('sends the CLAMP’s store — the `store-id` header, proven to be the caller’s', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem, 'store-id': 'store-a' }, { customerId: 'cust-1' }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-a' }),
+    )
+  })
+
+  it('falls back to the caller’s first assigned store when no header is sent', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a', 'store-b'] })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-a' }),
+    )
+  })
+
+  it('null when there is no store to name — floating staff, no header', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: [] })
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
+  })
+
+  it('a store-id OUTSIDE the caller’s assignment → 403, and NO row is created', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem, 'store-id': 'store-9' }, { customerId: 'cust-1' }),
+      noRoute,
+    )
+    expect(res.status).toBe(403)
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('a store-id from ANOTHER TENANT → 403, and NO row is created', async () => {
+    storesGet.mockRejectedValue(Object.assign(new Error('nope'), { status: 404 }))
+    const res = await mintPOST(
+      jreq({ ...auth, ...idem, 'store-id': 'store-x' }, { customerId: 'cust-1' }),
+      noRoute,
+    )
+    expect(res.status).toBe(403)
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('an UNREADABLE assignment fails closed → 403, and NO row is created', async () => {
+    staffStoresGet.mockRejectedValue(new Error('core down'))
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(403)
+    expect(recordingsCreate).not.toHaveBeenCalled()
   })
 })
 

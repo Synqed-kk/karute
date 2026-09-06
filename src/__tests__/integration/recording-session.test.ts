@@ -85,6 +85,11 @@ beforeEach(() => {
     customer_id: 'cust-1',
     staff_id: 'staff-from-appt',
   }))
+  // mockReset, not just mockResolvedValue: the oracle case below queues a
+  // mockResolvedValueOnce it deliberately never consumes (it asserts `info` is
+  // never called), and clearAllMocks does not drain a once-queue — the leftover
+  // answered "this key already holds bytes" for the next test that probed.
+  info.mockReset()
   info.mockResolvedValue({ data: null, error: notFoundError })
   resolveStoreScope.mockImplementation(async () => ({
     storeId: 'store-1',
@@ -309,5 +314,74 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     const res = await startRecordingSession({ customerId: 'cust-1', takeId: TAKE, mimeType: 'audio/webm' })
     expect(res).toBeNull()
     expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ THE STORE THE DEVICE WAS IN (slice three ③) ──────────────────────────
+// The row now carries the store the actor was working in — the SAME value
+// enqueueRecordingJob stamps on the job payload, so one recording never gives
+// two answers to "which branch was this". Written at CREATE only: the SDK's
+// update input has no store_id, so every row minted before ③ stays null for
+// ever, and the take doors read that null as open.
+describe('startRecordingSession — the store rides along', () => {
+  it('sends the caller’s ACTIVE store, on the absent-take path', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
+  })
+
+  it('…and on the born-reserved path, beside the take’s key', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+    })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', audio_storage_path: KEY }),
+    )
+  })
+
+  it('sends null when the scope has no store — a business with none is a real answer', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
+  })
+
+  it('never invents one — the value is the SCOPE’s, never the argument’s', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+      // A caller-supplied store: this is a 'use server' export, so the argument
+      // is caller JSON however it is typed. It must not reach the payload.
+      ...({ storeId: 'store-elsewhere' } as object),
+    })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
   })
 })

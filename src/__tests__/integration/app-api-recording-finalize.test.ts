@@ -54,6 +54,10 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. Null is the PRODUCTION shape for every row
+   *  minted before ③ and can never be filled afterwards, so it is the default;
+   *  only the store-leg cases below set it. */
+  store_id: string | null
 }
 /** The state the MINT leaves behind — see the beforeEach: the finalize door only
  *  ever meets a row that already reserved its take's key (fix round 4). */
@@ -64,6 +68,7 @@ const ROW: Row = {
   status: 'UPLOADING',
   audio_storage_path: null,
   duration_seconds: null,
+  store_id: null,
 }
 const recordingsGet = jest.fn(async (_id: string): Promise<Row> => ROW)
 const recordingsUpdate = jest.fn(async (id: string, _i: unknown): Promise<Row> => ({ ...ROW, id }))
@@ -543,5 +548,85 @@ describe('the named grant reserves and finalizes NOTHING on a colleague’s sess
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
+  })
+})
+
+// ── ⚖ THE STORE LEG ON THE BEARER TRANSPORT (slice three ③) ────────────────
+// The owner's hand reaches only where the person can see, on the phone exactly
+// as on the web. The clamped pair-holder is the one person this changes, and
+// only on a colleague's row that carries a store — a row minted since ③. The
+// caller's REACH comes from the ASSIGNMENT (staffStores), never the `store-id`
+// header, so a phone-set pin can neither widen nor narrow it.
+describe('the store leg — a clamped pair-holder on a colleague’s take', () => {
+  const bothKeys = () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
+    fakeClient.staffStores.get.mockResolvedValue({ store_ids: ['store-a'] } as never)
+  }
+
+  it('mint: another store’s STAMPED row → 403, nothing signed', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: null,
+      store_id: 'store-9',
+    })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(createSignedUploadUrl).not.toHaveBeenCalled()
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('mint: a PRE-③ row carries no store and still mints → 200', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: null,
+      store_id: null,
+    })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(recordingsUpdate).toHaveBeenCalled()
+  })
+
+  it('finalize: another store’s STAMPED row → 403, nothing written', async () => {
+    bothKeys()
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: KEY,
+      store_id: 'store-9',
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('finalize: a PRE-③ row carries no store and still finalizes → 200', async () => {
+    bothKeys()
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'staff-2',
+      audio_storage_path: KEY,
+      store_id: null,
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+  })
+
+  it('the RECORDER never pays for it — her own take, and the assignment is never read', async () => {
+    capabilities.current = new Set(['records.write'])
+    recordingsGet.mockResolvedValue({
+      ...ROW,
+      staff_id: 'auth-user-1',
+      audio_storage_path: KEY,
+      store_id: 'store-9',
+    })
+    const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
   })
 })

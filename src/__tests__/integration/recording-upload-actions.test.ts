@@ -52,6 +52,10 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. Null is the PRODUCTION shape for every row
+   *  minted before ③ and can never be filled afterwards, so it is the default;
+   *  only the store-leg cases set it. */
+  store_id: string | null
 }
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const row = (over: Partial<Row> = {}): Row => ({
@@ -61,6 +65,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   status: 'RECORDING',
   audio_storage_path: null,
   duration_seconds: null,
+  store_id: null,
   ...over,
 })
 const get = jest.fn(async (_id: string): Promise<Row> => row())
@@ -746,6 +751,59 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     const res = await mintOk(named)
     expect(res.recordingSessionId).toBe(SESSION)
     expect(update).toHaveBeenCalled()
+  })
+
+  // ── ⚖ THE STORE LEG (slice three ③) ─────────────────────────────────────
+  // The owner's hand now stops at the stores that person can see. The ONLY
+  // person this changes is a CLAMPED pair-holder — a branch manager the owner
+  // hand-granted both keys — and only on a colleague's row that carries a
+  // store, which means a row minted since ③.
+  describe('a clamped pair-holder', () => {
+    const bothKeys = () =>
+      getMyCapabilities.mockResolvedValue(
+        new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+      )
+
+    it('is refused a colleague’s take STAMPED with another store — nothing bound', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+      await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+      expectNoBinding()
+    })
+
+    it('…and still reserves on a colleague’s PRE-③ row, which carries no store', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: null }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(update).toHaveBeenCalled()
+    })
+
+    it('…and on a row stamped with a store she IS assigned to', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-a' }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+    })
+
+    it('a DEGRADED scope ([]) fails closed on a STAMPED row', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue([])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+      await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+      expectNoBinding()
+    })
+
+    it('the RECORDER never pays for it — her own take, and the scope is never read', async () => {
+      viewerScopeForActs.mockResolvedValue([])
+      get.mockResolvedValue(row({ staff_id: 'staff-1', store_id: 'store-9' }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(viewerScopeForActs).not.toHaveBeenCalled()
+    })
   })
 
   // ⚖ THE NAMED GRANTEE TWIN (9/3 council; Greptile #848 point 1). The grant is

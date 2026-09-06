@@ -207,9 +207,11 @@ export function assertRecorderOwnsRow(
   },
 ): { error: 'forbidden' } | null {
   if (row.business_id !== actor.businessId) return { error: 'forbidden' }
+  // Her OWN session passes on the line below and never meets the store leg at
+  // all. Everything after it is a COLLEAGUE'S row — and ownerHandReach answers
+  // false for a non-holder on its own first line, so the tail is the whole
+  // owner's-hand question in one call.
   if (row.staff_id === actor.staffId) return null
-  // A colleague's row. `ownerHandReach` answers false for a non-holder on its
-  // own first line, so this is the whole owner's-hand question in one call.
   return ownerHandReach({
     holdsOwnerKeys: actor.holdsOwnerKeys,
     allowedStoreIds: actor.allowedStoreIds,
