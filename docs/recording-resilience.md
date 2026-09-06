@@ -145,7 +145,7 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   build a staffer on a device that no longer holds the take reads 復元可能 with
   保存する when the server holds the audio, and 処理中「サーバーに音声が途中まで
   届いています」 while only the segments are up. What it still cannot show is the
-  recording's length, for the reason two bullets above: nothing in this lane may
+  recording's length, for the reason the **LENGTH** bullet above gives: nothing in this lane may
   stamp one.
 
 The design, in full: record in rolling segments; **persist each locally as
