@@ -68,7 +68,29 @@ export async function startRecordingSession(input: {
     // swallow their own failures to null (actions/stores.ts). Dynamic import,
     // the repo convention for this module (see actions/regenerate-karute.ts):
     // a top-level one drags the ESM-only SDK into this module's jest graph.
-    const { storeId } = await (await import('@/lib/auth/store-scope')).resolveStoreScope()
+    const scope = await (await import('@/lib/auth/store-scope')).resolveStoreScope()
+    // ⚖ A DEGRADED SCOPE MUST NOT STAMP (Greptile #849 G1). `degraded` means the
+    // assignment lookup FAILED, and on that path resolveStoreScope still returns
+    // a storeId — the active-store COOKIE (or the primary store) with nothing to
+    // check it against (store-scope.ts:90-106). Before ③ stamping an unverified
+    // store was harmless bookkeeping; now the column GATES an act, and the ruled
+    // null rule makes an unstamped row OPEN at the take doors FOR EVER
+    // (UpdateRecordingInput has no store_id to backfill). Either way — a wrong
+    // store or a null one — a row born from a lookup we could not read is a
+    // permanent authorization fact we cannot vouch for.
+    //
+    // So: refuse, the way the facade twin's clamp already 403s on the same
+    // unresolved assignment (store-clamp.ts:109). Here the refusal is this
+    // door's own fail-OPEN null — no session id, capture is NOT blocked, and
+    // the drain re-mints through this same door later with a store that reads.
+    // `stores.viewAll` holders never reach it: resolveStoreScope returns at
+    // store-scope.ts:71-81 without consulting an assignment at all, so no owner
+    // or preset manager can be refused by this line.
+    if (scope.degraded) {
+      console.warn('[startRecordingSession] store assignment unreadable — no session minted')
+      return null
+    }
+    const storeId = scope.storeId
     const res = await startRecordingSessionWithClient(synqed, {
       ...input,
       selfStaffId: staffId,

@@ -366,6 +366,56 @@ describe('startRecordingSession — the store rides along', () => {
     expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
   })
 
+  // ⚖ G1 (Greptile #849). `degraded` means the assignment lookup FAILED, and on
+  // that path the resolver still hands back a store — the active-store COOKIE,
+  // unchecked. Stamping it would write an authorization fact we cannot vouch
+  // for, and stamping null would write a row the take doors leave open for
+  // ever. Refuse instead: the door's own fail-open null, capture unblocked, the
+  // drain re-mints later through the same door.
+  it('refuses to mint at all on a DEGRADED scope — no row is created, and the caller gets the fail-open null', async () => {
+    resolveStoreScope.mockResolvedValue({
+      // the shape store-scope.ts actually returns on a failed lookup: a real
+      // storeId (the cookie / primary) beside degraded: true.
+      storeId: 'store-from-cookie',
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const res = await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('…on the born-reserved path too — a degraded scope never reserves a key either', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const res = await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+    })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('…while a HEALTHY scope stamps as before — the refusal is the degraded flag, not the store', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
+  })
+
   it('never invents one — the value is the SCOPE’s, never the argument’s', async () => {
     resolveStoreScope.mockResolvedValue({
       storeId: 'store-ginza',
