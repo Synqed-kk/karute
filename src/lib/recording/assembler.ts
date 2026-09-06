@@ -338,14 +338,12 @@ export interface StrandedTake {
   takeId: string
   /** `app_<biz>_<take>` — the folder under `seg/`. */
   folder: string
-  /** The row's own reserved pointer — the DEVICE'S key, composed through the
-   *  grammar. Nothing is ever written here: it is the value the walk matched
-   *  `row.audio_storage_path` against, kept so the match fence and the upload
-   *  target are visibly two different things. */
-  key: string
-  /** …and where the rebuild actually goes: `rsc/` + the key above (⚖ Liam
-   *  2026-09-06, "b"). Beside the take, never on it, so a phone that was only
-   *  paused comes back to a free key. */
+  /** Where the rebuild goes: `rsc/` + the device's own key (⚖ Liam 2026-09-06,
+   *  "b"). Beside the take, never on it, so a phone that was only paused comes
+   *  back to a free key. The device's key itself is NOT carried here: the walk
+   *  matches `row.audio_storage_path` against it inside findReservingRow, long
+   *  before this struct exists, and a field nothing reads is a field that
+   *  cannot be trusted to mean anything. */
   rescueKey: string
   contentType: string
   ext: string
@@ -606,6 +604,14 @@ function readLeaves(
  * object was read by the worker, so a job-owned row is by construction not a
  * stranded take — which is also why a row that has left UPLOADING is invisible
  * to this query and lands under `noRow`. Named residual, not a silent one.
+ *
+ * ⚠ `from`/`to` BINDING `created_at` IS AN EXTERNAL CONTRACT, not a fact this
+ * repo can prove: the SDK types them as bare strings and there is no core-side
+ * doc in the tree. The one live corroboration is src/lib/recordings/inbox-read
+ * .ts:161, which sends `from = now − INBOX_WINDOW_MS` and then renders each
+ * row's own `created_at` (:185) — shipped behaviour that would be visibly
+ * wrong if core bound those to anything else. The window tests below prove
+ * this function sends the right strings, never that core reads them that way.
  */
 async function findReservingRow(
   core: { recordings: Pick<SynqedClient['recordings'], 'list'> },
@@ -1010,7 +1016,6 @@ export async function runAssembler(
       businessId,
       takeId,
       folder,
-      key: composed.key,
       rescueKey: rescue.key,
       contentType: composed.contentType,
       ext: composed.ext,
