@@ -40,10 +40,12 @@
  *    fences the duration write behind a human actor, so no cron can stamp one —
  *    while a reasoned DISCARD stamps a duration with no object behind it at
  *    all. So neither the presence nor the absence of a duration is evidence
- *    here, and the pointer's object is asked about directly, every time. The
- *    one raw fact the derivation reads — the storage pointer — stays in a LOCAL
- *    map and never reaches the returned rows: this read's output is the
- *    facade's wire shape, and that shape carries metadata only.
+ *    here: the take's segment folder is listed, and only a folder holding seq 0
+ *    is asked where its audio is — the phone's own object first, the nightly
+ *    rescue beside it (amendment 9). The one raw fact the derivation reads —
+ *    the storage pointer — stays in a LOCAL map and never reaches the returned
+ *    rows: this read's output is the facade's wire shape, and that shape
+ *    carries metadata only.
  */
 
 import type { SynqedClient } from '@synqed-kk/client'
@@ -157,15 +159,27 @@ async function readStaffDiscardedSessions(
 export type SegmentsProbe = (businessId: string, takeKey: string) => Promise<boolean | 'unknown'>
 
 /**
- * Is the take's own finalized OBJECT in the bucket?
+ * WHERE THIS TAKE'S AUDIO ACTUALLY IS — the phone's own object, the nightly
+ * rescue beside it, or neither.
  *
- * ⚖ THE PROOF, NOT THE ROW (D8' amendment). A take the nightly assembler
- * rebuilt has its object and no duration — core fences `recordings.update`
- * behind a human actor, so the cron cannot stamp one and the row's own
+ * ⚖ THE PROOF, NOT THE ROW (D8' amendment). A take the assembler rebuilt has
+ * bytes and a duration that is still null — core fences `recordings.update`
+ * behind a human actor, so no cron can stamp one — and the row's own
  * `finalizedBefore` reads false for exactly the rescue this feature exists to
  * surface. Storage is the only honest witness.
+ *
+ * ⚖ AND THE RESCUE LIVES AT ITS OWN KEY (amendment 9, Liam "b"). Since the
+ * assembler stopped writing under the take's own key there are two places to
+ * look, in one fixed precedence, and `resolveTakeAudio` is that precedence's
+ * ONE home — asked here through a seam so the suites can answer it without a
+ * bucket. The INBOX does not care which of the two answered: 保存する saves
+ * whatever the server holds, and the door resolves the path again for itself.
  */
-export type ObjectProbe = (takeKey: string) => Promise<boolean | 'unknown'>
+export type TakeAudioProbe = (
+  businessId: string,
+  takeId: string,
+  ext: string,
+) => Promise<{ key: string; rescued: boolean } | 'absent' | 'unknown'>
 
 /** The one storage call each probe makes, as a seam. Both PRODUCTION probes are
  *  built over one of these rather than reaching for a client themselves — the
@@ -175,7 +189,6 @@ type ListFn = (
   folder: string,
   opts: { limit: number; sortBy: { column: string; order: string } },
 ) => Promise<{ data: Array<{ name: string }> | null; error: unknown }>
-type ExistsFn = (key: string) => Promise<boolean | 'unknown'>
 
 /** The REAL segments probe, over whatever `list` it is handed. Exported for its
  *  own tests; the default below hands it the service client's. */
@@ -212,19 +225,12 @@ export function makeSegmentsProbe(list: ListFn): SegmentsProbe {
   }
 }
 
-/** The REAL object probe, over whatever existence check it is handed. It adds
- *  nothing to `objectExists` — which is the point: one home for the question,
- *  and a seam a test can hold. */
-export function makeObjectProbe(exists: ExistsFn): ObjectProbe {
-  return (takeKey) => exists(takeKey)
-}
-
-const probeObject: ObjectProbe = async (takeKey) => {
-  // Lazy for the same reason the segment default is: mint-take-url's graph
+const probeTakeAudio: TakeAudioProbe = async (businessId, takeId, ext) => {
+  // Lazy for the same reason the segment default is: the resolver's graph
   // reaches the service client and the SDK, and nothing that injects its own
   // probe should have to load either.
-  const { objectExists } = await import('@/lib/recording/mint-take-url')
-  return makeObjectProbe(objectExists)(takeKey)
+  const { resolveTakeAudio } = await import('@/lib/recording/take-audio')
+  return resolveTakeAudio(businessId, takeId, ext)
 }
 
 const listFirstSegment: SegmentsProbe = async (businessId, takeKey) => {
@@ -251,9 +257,10 @@ export interface InboxReadDeps {
    *  place that decides WHEN to ask. Default = the service-client listing
    *  above. */
   segmentsProbe?: SegmentsProbe
-  /** How the 'object' half is answered — the storage proof (D8'). Injected for
-   *  the same reason. */
-  objectProbe?: ObjectProbe
+  /** How the 'object' half is answered — the phone's object or the rescue
+   *  beside it, through the ONE resolver every reader shares. Injected for the
+   *  same reason. */
+  takeAudioProbe?: TakeAudioProbe
   /** The two probe budgets, overridable ONLY so a test can make them diverge
    *  (fix round 2, R3 — see MAX_AUDIO_PROBES above). Production never passes
    *  them; both defaults are the constants. */
@@ -303,7 +310,7 @@ export async function readRecordingsInbox({
   businessId,
   now,
   segmentsProbe = listFirstSegment,
-  objectProbe = probeObject,
+  takeAudioProbe = probeTakeAudio,
   maxJobProbes = MAX_JOB_PROBES,
   maxAudioProbes = MAX_AUDIO_PROBES,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
@@ -421,7 +428,7 @@ export async function readRecordingsInbox({
     )
   } else {
     await deriveServerAudio(rows, pointerBySession, probedSessions, businessId, now.getTime(), {
-      objectProbe,
+      takeAudioProbe,
       segmentsProbe,
       maxAudioProbes,
     })
@@ -450,21 +457,33 @@ export async function readRecordingsInbox({
  *  · the pointer parses as THIS business's take;
  *  · the row is past the unsettled grace, below which it already reads 処理中.
  *
- * ⚖ STORAGE IS THE ONLY WITNESS (D8', hardened in fix round 1 R1). Every
- * candidate gets the `objectExists` proof — there is no duration fast path,
- * because a duration is NOT proof that an object exists: discard.ts's
- * stampRecordingDuration writes a client-reported length with no object behind
- * it at all (take-binding.ts says so in capitals). Trusting it would paint
- * 復元可能 + 保存する over nothing, the door would answer no_audio, and the
- * 要対応 count would be one a staffer could never clear.
- *  · `true` → 'object'. That is the rescue this feature exists for.
- *  · `false`, and only then, one segment listing → 'segments' or nothing.
- *  · `'unknown'` from either → nothing. A blip is not evidence in either
- *    direction, and the row keeps exactly today's behaviour.
+ * ⚖ STORAGE IS THE ONLY WITNESS (D8', hardened in fix round 1 R1). There is no
+ * duration fast path, because a duration is NOT proof that an object exists:
+ * discard.ts's stampRecordingDuration writes a client-reported length with no
+ * object behind it at all (take-binding.ts says so in capitals). Trusting it
+ * would paint 復元可能 + 保存する over nothing, the door would answer no_audio,
+ * and the 要対応 count would be one a staffer could never clear.
  *
- * Both probes share ONE cap and ONE pool, for the same reason the job probes
- * have theirs: a genuinely broken tenant must not turn one inbox read into
- * hundreds of storage round trips. Newest-first, and the drop is logged.
+ * ⚖ AND THE SEGMENT FOLDER IS ASKED FIRST (amendment 9's ADDENDUM 9.2, M1).
+ * The rescue lives at its own key now, and a folder with no seq 0 was never
+ * rescued and never can be — so the cheap listing that already answers the
+ * 'segments' half is also the gate on asking about audio at all:
+ *  · seq 0 present → `resolveTakeAudio`: a key (the phone's object OR the
+ *    rescue — the inbox does not care which) → 'object'; 'absent' →
+ *    'segments'; 'unknown' → nothing.
+ *  · anything else from the listing → nothing at all, and no second call.
+ *  · 'unknown' from either probe → nothing. A blip is not evidence in either
+ *    direction, and the row keeps exactly today's behaviour.
+ * NAMED COST of that order: a take shorter than one flush window has no
+ * segments to list, so its finished object is not offered here — it reads as
+ * it did before this build. Nothing is claimed that cannot be saved.
+ *
+ * THE HONEST CALL COUNT: up to THREE storage calls per candidate row — the
+ * listing, then the phone's key, then the rescue's — and the cap below bounds
+ * the CANDIDATES, not the calls. One pool, one cap, for the same reason the
+ * job probes have theirs: a genuinely broken tenant must not turn one inbox
+ * read into hundreds of storage round trips. Newest-first, and the drop is
+ * logged.
  */
 async function deriveServerAudio(
   rows: readonly InboxServerSession[],
@@ -476,9 +495,9 @@ async function deriveServerAudio(
   probedSessions: ReadonlySet<string>,
   businessId: string,
   nowMs: number,
-  deps: { objectProbe: ObjectProbe; segmentsProbe: SegmentsProbe; maxAudioProbes: number },
+  deps: { takeAudioProbe: TakeAudioProbe; segmentsProbe: SegmentsProbe; maxAudioProbes: number },
 ): Promise<void> {
-  const candidates: Array<{ row: InboxServerSession; key: string }> = []
+  const candidates: Array<{ row: InboxServerSession; key: string; takeId: string; ext: string }> = []
   for (const row of rows) {
     if (row.karuteRecordId || row.discardedByStaff) continue
     if (!probedSessions.has(row.recordingSessionId)) continue
@@ -487,10 +506,13 @@ async function deriveServerAudio(
     const key = pointerBySession.get(row.recordingSessionId)
     if (!key) continue
     // The take fence, not merely "parses": a segment leaf, a staged copy and
-    // another tenant's key are all false here however the row reads.
-    if (parseRecordingKey(key, businessId)?.kind !== 'take') continue
+    // another tenant's key are all false here however the row reads. What it
+    // yields — the take id and the container — is also what the resolver takes,
+    // so the fence and the question can never be about two different takes.
+    const parsed = parseRecordingKey(key, businessId)
+    if (parsed?.kind !== 'take') continue
     if (nowMs - Date.parse(row.createdAt) <= SESSION_UNSETTLED_GRACE_MS) continue
-    candidates.push({ row, key })
+    candidates.push({ row, key, takeId: parsed.takeId, ext: parsed.ext })
   }
 
   if (candidates.length > deps.maxAudioProbes) {
@@ -508,14 +530,13 @@ async function deriveServerAudio(
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
       for (let i = next++; i < probeList.length; i = next++) {
-        const { row, key } = probeList[i]
-        const object = await deps.objectProbe(key)
-        if (object === 'unknown') continue
-        if (object) {
-          row.serverAudio = 'object'
-          continue
-        }
-        if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+        const { row, key, takeId, ext } = probeList[i]
+        // The listing FIRST, and it is a gate as well as a fact: no seq 0, no
+        // rescue is possible, so nothing else is asked (ADDENDUM 9.2 M1).
+        if ((await deps.segmentsProbe(businessId, key)) !== true) continue
+        const audio = await deps.takeAudioProbe(businessId, takeId, ext)
+        if (audio === 'unknown') continue
+        row.serverAudio = audio === 'absent' ? 'segments' : 'object'
       }
     }),
   )

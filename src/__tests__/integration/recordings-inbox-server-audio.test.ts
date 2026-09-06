@@ -18,11 +18,10 @@ jest.mock('@/lib/customers/cached', () => ({
 }))
 
 import {
-  makeObjectProbe,
   makeSegmentsProbe,
   readRecordingsInbox,
-  type ObjectProbe,
   type SegmentsProbe,
+  type TakeAudioProbe,
 } from '@/lib/recordings/inbox-read'
 import { SESSION_UNSETTLED_GRACE_MS } from '@/lib/recordings/inbox'
 import { RecordingsInboxDTO } from '@/lib/app-api/recordings-inbox-dto'
@@ -83,7 +82,17 @@ const client = {
 } as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
 
 const probe = jest.fn<ReturnType<SegmentsProbe>, Parameters<SegmentsProbe>>(async () => true)
-const objectProbe = jest.fn<ReturnType<ObjectProbe>, Parameters<ObjectProbe>>(async () => false)
+/** The resolver seam (amendment 9). `'absent'` by default = the segments are
+ *  in the folder and no audio has been sealed yet — the stranded take on any
+ *  night before its rescue. */
+const takeAudio = jest.fn<ReturnType<TakeAudioProbe>, Parameters<TakeAudioProbe>>(
+  async () => 'absent',
+)
+/** What the resolver answers when the bytes are at the phone's OWN key… */
+const PHONE = { key: KEY, rescued: false } as const
+/** …and when only the nightly rescue holds them, at the side key. To the inbox
+ *  these two are the same news: the server has audio for this session. */
+const RESCUE = { key: `rsc/${KEY}`, rescued: true } as const
 
 const read = (over: Partial<Parameters<typeof readRecordingsInbox>[0]> = {}) =>
   readRecordingsInbox({
@@ -92,7 +101,7 @@ const read = (over: Partial<Parameters<typeof readRecordingsInbox>[0]> = {}) =>
     businessId: BIZ,
     now: NOW,
     segmentsProbe: probe,
-    objectProbe,
+    takeAudioProbe: takeAudio,
     ...over,
   })
 
@@ -102,7 +111,7 @@ beforeEach(() => {
   karuteRows.current = []
   discardEvents.current = []
   probe.mockImplementation(async () => true)
-  objectProbe.mockImplementation(async () => false)
+  takeAudio.mockImplementation(async () => 'absent')
   discardList.mockImplementation(async () => ({
     events: discardEvents.current,
     total: discardEvents.current.length,
@@ -115,56 +124,81 @@ beforeEach(() => {
 })
 
 describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () => {
-  it('THE RESCUE: no duration, but the object is in the bucket → object', async () => {
-    // Exactly the take the nightly assembler rebuilt: it wrote the object and
-    // could NOT write a length (core fences that behind a human actor). The old
-    // finalizedBefore reading would have called this row unfinalized and shown
-    // 失敗 — the bug this amendment closes.
-    objectProbe.mockResolvedValue(true)
+  it('THE RESCUE: no duration, and the audio is at the SIDE key → object', async () => {
+    // Exactly the take the nightly assembler rebuilt: it wrote the object — at
+    // its own `rsc/` key since amendment 9 — and could NOT write a length (core
+    // fences that behind a human actor). The old finalizedBefore reading would
+    // have called this row unfinalized and shown 失敗, and a bare objectExists
+    // on the POINTER would answer false for it: the rescue is not there.
+    takeAudio.mockResolvedValue(RESCUE)
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('object')
-    expect(objectProbe).toHaveBeenCalledWith(KEY)
-    // No object → no segment listing. One call, not two.
-    expect(probe).not.toHaveBeenCalled()
+    // Asked as the PARSED take — the business, the take id and the container —
+    // never as the pointer string the row happens to carry.
+    expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
+    // …and the folder listing came FIRST (ADDENDUM 9.2 M1).
+    expect(probe).toHaveBeenCalledWith(BIZ, KEY)
+  })
+
+  it('the PHONE’s own object is the same news to the inbox — object, no flag', async () => {
+    // The take a phone finalized at stop and then died before 録音を使用. The
+    // resolver prefers this key; the row says only that the server has audio.
+    takeAudio.mockResolvedValue(PHONE)
+    recordings.current = [rec({ id: 's1' })]
+    const [row] = await read()
+    expect(row.serverAudio).toBe('object')
+    expect(JSON.stringify(row)).not.toContain('rescued')
+  })
+
+  it('⚖ M1: NO seq 0 → the resolver is never asked at all', async () => {
+    // A folder without seq 0 was never rescued and never can be, so the cheap
+    // listing is the gate on asking about audio: no second and third call.
+    probe.mockResolvedValue(false)
+    recordings.current = [rec({ id: 's1' })]
+    const [row] = await read()
+    expect(row.serverAudio).toBeUndefined()
+    expect(takeAudio).not.toHaveBeenCalled()
   })
 
   it('⚖ R1: a DURATION IS NOT A PROOF — a stamped row is still probed', async () => {
     // discard.ts's stampRecordingDuration writes a client-reported length with
     // NO object behind it, so trusting the duration would paint 復元可能 over
     // nothing. Storage is the only witness, for every candidate.
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     recordings.current = [rec({ id: 's1', duration_seconds: 1380 })]
     const [row] = await read()
     expect(row.serverAudio).toBe('object')
-    expect(objectProbe).toHaveBeenCalledWith(KEY)
+    expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
   })
 
-  it('⚖ R1: duration SET but the object ABSENT is NOT object, and is not counted', async () => {
+  it('⚖ R1: duration SET but NO audio anywhere is never object, and is not counted', async () => {
     // The reasoned-discard shape exactly. Before the fix this row read 復元可能
     // with a live 保存する, the door answered no_audio, and the 要対応 count was
-    // one a staffer could never clear.
-    objectProbe.mockResolvedValue(false)
-    probe.mockResolvedValue(false)
+    // one a staffer could never clear. Neither key holds bytes, so the honest
+    // answer is what the folder holds — segments, 処理中, uncounted.
+    takeAudio.mockResolvedValue('absent')
     recordings.current = [rec({ id: 's1', duration_seconds: 1380 })]
     const [row] = await read()
-    expect(row.serverAudio).toBeUndefined()
+    expect(row.serverAudio).toBe('segments')
     const { deriveInboxRows, countNeedsAttention } =
       jest.requireActual<typeof import('@/lib/recordings/inbox')>('@/lib/recordings/inbox')
     const folded = deriveInboxRows({ sessions: [row], takes: [], now: NOW.getTime() })
     expect(countNeedsAttention(folded)).toBe(0)
   })
 
-  it("the object probe answering 'unknown' leaves the row alone — and asks nothing else", async () => {
-    objectProbe.mockResolvedValue('unknown')
+  it("the resolver answering 'unknown' leaves the row alone", async () => {
+    // A blip at the phone's key stops the whole question in take-audio.ts —
+    // falling through to the rescue would hand the staffer the PARTIAL object
+    // while the real take sat there unseen.
+    takeAudio.mockResolvedValue('unknown')
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(probe).not.toHaveBeenCalled()
   })
 
   it('a pointer that is not THIS business’s take is never probed at all', async () => {
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     recordings.current = [
       rec({ id: 'other-tenant', audio_storage_path: `app_biz-2_${TAKE}.webm` }),
       rec({ id: 'a-segment', audio_storage_path: `seg/app_${BIZ}_${TAKE}/000000.webm` }),
@@ -173,14 +207,15 @@ describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () =
     ]
     const rows = await read()
     expect(rows.map((r) => r.serverAudio)).toEqual([undefined, undefined, undefined, undefined])
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
+    expect(probe).not.toHaveBeenCalled()
   })
 
   it('a duration-set row BELOW the grace is still nothing — the row reads 処理中', async () => {
     recordings.current = [rec({ id: 's1', duration_seconds: 1380, created_at: iso(30) })]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
   })
 })
 
@@ -189,8 +224,8 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('segments')
-    expect(objectProbe).toHaveBeenCalledWith(KEY)
     expect(probe).toHaveBeenCalledWith(BIZ, KEY)
+    expect(takeAudio).toHaveBeenCalledWith(BIZ, TAKE, 'webm')
   })
 
   it('BELOW the grace nothing is probed — the row already reads 処理中', async () => {
@@ -203,7 +238,7 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
   it('exactly AT the grace is still not probed (>, matching the fold’s <=)', async () => {
     recordings.current = [rec({ id: 's1', created_at: new Date(NOW.getTime() - SESSION_UNSETTLED_GRACE_MS).toISOString() })]
     await read()
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
     expect(probe).not.toHaveBeenCalled()
   })
 
@@ -234,8 +269,8 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
       }),
     )
     await read()
-    expect(objectProbe).toHaveBeenCalledTimes(100)
     expect(probe).toHaveBeenCalledTimes(100)
+    expect(takeAudio).toHaveBeenCalledTimes(100)
     const asked = new Set(probe.mock.calls.map((c) => c[1]))
     expect(asked.has(`app_${BIZ}_${takeOf(0)}.webm`)).toBe(true)
     expect(asked.has(`app_${BIZ}_${takeOf(99)}.webm`)).toBe(true)
@@ -254,7 +289,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     karuteRows.current = [{ id: 'rec-1', recording_session_id: 's1' }]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
   })
 
   it('a discarded session is skipped — the fold outranks this anyway', async () => {
@@ -262,7 +297,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     discardEvents.current = [{ recording_session_id: 's1' }]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
   })
 
   it.each(['QUEUED', 'RUNNING', 'DONE'])(
@@ -273,7 +308,7 @@ describe('the rows the derivation deliberately never asks about', () => {
       const [row] = await read()
       expect(row.jobStatus).toBe(status)
       expect(row.serverAudio).toBeUndefined()
-      expect(objectProbe).not.toHaveBeenCalled()
+      expect(takeAudio).not.toHaveBeenCalled()
     },
   )
 
@@ -282,7 +317,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     // to make the row permanently inert: no take on this device meant no
     // 再試行, and the derivation stopped offering anything the moment a job row
     // existed. The audio is still on the server, and core re-arms per session.
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     recordings.current = [rec({ id: 's1' })]
     jobProbe.mockResolvedValue({ status: 'FAILED', last_error: 'CONSENT_REQUIRED' })
     const [row] = await read()
@@ -297,7 +332,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     const [row] = await read()
     expect(row.jobProbeFailed).toBe(true)
     expect(row.serverAudio).toBeUndefined()
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 })
@@ -337,7 +372,7 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
   })
 
   it('the DTO parse keeps serverAudio and nothing else new', async () => {
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     recordings.current = [rec({ id: 's1', duration_seconds: 1380 })]
     const parsed = RecordingsInboxDTO.parse({ sessions: await read() })
     expect(parsed.sessions[0].serverAudio).toBe('object')
@@ -379,7 +414,7 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
 describe('rows past the job-probe cap are never derived', () => {
   it('⚖ the oldest, un-probed session is not asked about and never reads 復元可能', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     const takeOf = (i: number) => `4f9b2c1e-8a7d-4e0f-b3c6-${String(i).padStart(12, '0')}`
     // ⚖ THE TWO CAPS MUST DIVERGE (fix round 2, R3). The first cut of this pin
     // pushed 101 rows over BOTH caps, which are the same number and sort the
@@ -403,11 +438,11 @@ describe('rows past the job-probe cap are never derived', () => {
     const oldest = rows.find((r) => r.recordingSessionId === 's2')!
     expect(oldest.jobStatus).toBeNull()
     expect(oldest.serverAudio).toBeUndefined()
-    const asked = new Set(objectProbe.mock.calls.map((c) => c[0]))
-    expect(asked.has(`app_${BIZ}_${takeOf(2)}.webm`)).toBe(false)
+    const asked = new Set(takeAudio.mock.calls.map((c) => c[1]))
+    expect(asked.has(takeOf(2))).toBe(false)
     // The two that WERE probed are derived as usual — and NOTHING else is
     // asked about, which is the assertion the audio cap used to reproduce.
-    expect(objectProbe).toHaveBeenCalledTimes(2)
+    expect(takeAudio).toHaveBeenCalledTimes(2)
     warn.mockRestore()
   })
 })
@@ -422,12 +457,12 @@ describe('rows past the job-probe cap are never derived', () => {
 describe('a degraded discard ledger stands the whole derivation down', () => {
   it('no row reads serverAudio, and storage is never asked', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     discardList.mockRejectedValue(new Error('core down'))
     recordings.current = [rec({ id: 's1' }), rec({ id: 's2', duration_seconds: 1380 })]
     const rows = await read()
     expect(rows.map((r) => r.serverAudio)).toEqual([undefined, undefined])
-    expect(objectProbe).not.toHaveBeenCalled()
+    expect(takeAudio).not.toHaveBeenCalled()
     expect(probe).not.toHaveBeenCalled()
     // …and it says so, once.
     expect(
@@ -437,7 +472,7 @@ describe('a degraded discard ledger stands the whole derivation down', () => {
   })
 
   it('a READABLE ledger derives as usual — the guard is the failure, not the read', async () => {
-    objectProbe.mockResolvedValue(true)
+    takeAudio.mockResolvedValue(PHONE)
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('object')
@@ -503,18 +538,5 @@ describe('makeSegmentsProbe — the real rule, over a fake list', () => {
     const list = jest.fn(async () => leaf('000000.webm'))
     await expect(makeSegmentsProbe(list)(BIZ, key)).resolves.toBe(false)
     expect(list).not.toHaveBeenCalled()
-  })
-})
-
-describe('makeObjectProbe — the pointer, verbatim', () => {
-  it('forwards the key it was given and returns the answer unchanged', async () => {
-    const exists = jest.fn(async () => true as const)
-    await expect(makeObjectProbe(exists)(KEY)).resolves.toBe(true)
-    expect(exists).toHaveBeenCalledWith(KEY)
-  })
-
-  it("passes 'unknown' straight through", async () => {
-    const exists = jest.fn(async () => 'unknown' as const)
-    await expect(makeObjectProbe(exists)(KEY)).resolves.toBe('unknown')
   })
 })
