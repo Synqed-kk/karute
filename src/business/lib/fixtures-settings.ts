@@ -552,8 +552,8 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
 //
 // ⚠ AND `business.manage` IS REAL AND GRANTABLE — capability #2, owner-only BY
 // DEFAULT rather than by nature (`permissions.ts:16`, excluded from the manager
-// preset at `:76`, and carried through by `effectiveCapabilities()` whenever an
-// explicit per-staff override holds it). The first cut said it
+// preset at `:76`, and NOT stripped for non-owners by `effectiveCapabilities()`
+// at `:124-146`, unlike `recordings.viewAll` which IS). The first cut said it
 // 「is not a store's to grant」 and left it out of the grid on that reasoning.
 // It is in the grid now, and the 事業構成 boundary sentence says how it is
 // handed out.
@@ -617,8 +617,7 @@ export const rulebook: Rulebook = {
     { token: 'records.delete', label: 'カルテ・顧客の削除' },
     { token: 'records.reassign', label: 'カルテの付け替え' },
     { token: 'records.write', label: 'カルテの記録' },
-    // mirrors messages/ja.json cap_recordings_viewAll — moves with it
-    { token: 'recordings.viewAll', label: '他スタッフの録音の再生・文字起こしの閲覧' },
+    { token: 'recordings.viewAll', label: '全スタッフの録音の閲覧' },
     { token: 'analytics.viewAll', label: '売上分析の閲覧（店舗全体）' },
     { token: 'stores.viewAll', label: '全店舗の閲覧' },
     { token: 'alerts.manage', label: '離客・回数券のお知らせの操作' },

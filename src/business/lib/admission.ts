@@ -10,10 +10,6 @@
 // (require-permission → getStaffList → @/lib/staff) reaches synqed-core, and
 // territory must be incapable of that, not merely not-doing-it. The owner leg
 // returns in the DOOR / reconnect PR with the capability source it needs.
-// ⚠ AND IT MUST NOT RETURN AS THAT PAIR: the pair is no longer owner-IDENTITY-
-// proof (recordings.viewAll is grantable per person since 2026-09-06, ⚖ 9/3
-// council), so the returning owner leg keys on IDENTITY — permission_role =
-// 'owner' — never on that pair.
 //
 // DOOR-LITE (⚖ Liam 2026-08-19, path B): the play-phase person-leg is
 // `user.id === grant.granted_by` — the grants row already carries the uuid, so

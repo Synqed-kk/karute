@@ -93,8 +93,9 @@ export type Capability =
   | 'analytics.viewAll'
   | 'billing.manage'
   /** ⚠ REAL, AND GRANTABLE. `permissions.ts:16` — owner-only by DEFAULT (it is
-   *  excluded from the manager preset at `:76`), never by nature: an explicit
-   *  per-staff override carrying it resolves as-is. The 事業構成 boundary
+   *  excluded from the manager preset at `:76`), never by nature: nothing
+   *  strips it from an explicit per-staff grant the way `effectiveCapabilities`
+   *  strips `recordings.viewAll` for non-owners (`:137`). The 事業構成 boundary
    *  sentence says how it is handed out, instead of the room claiming it cannot
    *  be. */
   | 'business.manage'

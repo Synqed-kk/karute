@@ -371,10 +371,11 @@ function boundaryLineFor(entry: RailEntry, role: string): string {
   // first cut's reading of canon's staff MOCK, which lists eight tokens and not
   // this one. The product's own list has eighteen and `business.manage` is #2
   // (`src/lib/auth/permissions.ts:16`): owner-only BY DEFAULT — excluded from
-  // the manager preset at `:76` — and grantable per staff member, since an
-  // explicit per-staff override carrying it resolves as-is. Telling a manager
-  // that a permission cannot be handed out, when it can, is the room closing a
-  // door that is open.
+  // the manager preset at `:76` — and grantable per staff member, since nothing
+  // strips it from an explicit grant the way `effectiveCapabilities()` strips
+  // `recordings.viewAll` for non-owners (`:137`). Telling a manager that a
+  // permission cannot be handed out, when it can, is the room closing a door
+  // that is open.
   if (entry.needs === 'business.manage') {
     return `${entry.label}を変えられるのは「事業の管理」の権限を持つ人です（標準ではオーナーだけ）。${role}の権限では開けません。この権限は、スタッフ管理の権限の一覧から配れます。`
   }
@@ -1256,9 +1257,8 @@ function recording(base: SectionBase, ctx: Ctx, d: StoreDials): SettingsSection 
         // ⚖ S17 · C5 — the dial stands exactly as Liam ruled it on 8/30 (default
         // private), and its 詳しく now tells the truth of TODAY: nothing saves
         // this value yet, and what actually decides who may read a transcript is
-        // Karute's `recordings.viewAll` capability, which the owner holds by
-        // preset and can grant to a NAMED staff member (⚖ 9/3, 2026-09-06;
-        // `src/lib/auth/permissions.ts:31-36`). Saying so is the
+        // Karute's `recordings.viewAll` capability, which is owner-only by
+        // default (`src/lib/auth/permissions.ts:31-36`). Saying so is the
         // difference between a dial that is ahead of its wire and a dial that
         // lies about what it is doing.
         row('recording.row-transcript', '文字起こしの公開範囲', 'スタッフの録音から起こした文字を、店長・オーナーも読めるようにするかどうかです。', [
