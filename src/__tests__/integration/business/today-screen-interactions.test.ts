@@ -1364,7 +1364,7 @@ describe('the 配置ガイド rail', () => {
     // Each call names the list its own sentence is entitled to: ✓ the survivors,
     // △ and the refusal the windows the placement eats.
     expect(pinnedLine(INT, "    const held = protectedWindowsClause(v.protectedWindowsAfter, input.protectedDur)")).toBe(true)
-    expect(pinnedLines(INT, "windowsEatenBy(v.protectedWindowsBefore, input.protectedDur, start, input.dur),")).toBe(2)
+    expect(pinnedLines(INT, "windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),")).toBe(2)
     expect(pinnedLine(INT, "const atRisk =")).toBe(true)
     // ⚖ 90 fix round 2 (F1) — and only when the placement actually COSTS a
     // window: a 0枠減 degraded verdict gets the un-clause'd sentence.
@@ -1824,8 +1824,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       return s
     }
     const CODE = codeOnly(SRC)
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],')
     const mask = uniqueSlice('? reservedMaskFor({', '[boardLanes, hours.close, props.sell.nowMinute, props.guard.config, props.guard.mode, ledger, releasedHere, handId],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'placementFeasible: bedDoorFor(handId),'],
@@ -2047,7 +2047,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // 2 · THE RAIL'S INPUT — the dials, the exclusion, and both doors.
     const rail = sliceLines(
       '? guardRailsFor(boardLanes, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],',
     )
     expect(rail.lines).toEqual([
       '? guardRailsFor(boardLanes, {',
@@ -2062,6 +2062,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'excludeId: handId,',
       'placementFeasible: bedDoorFor(handId),',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,',
+      'resting: restingFor(handId),',
+      'restingWindowFeasible: bedDoorFor(handId),',
       '})',
       ': [],',
     ])
@@ -2070,7 +2072,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // the caller's own exclusion and the board it was handed.
     const verdict = sliceLines(
       '? guardVerdictAt(lanes, laneKey, start, {',
-      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],',
+      '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],',
     )
     expect(verdict.lines).toEqual([
       '? guardVerdictAt(lanes, laneKey, start, {',
@@ -2085,6 +2087,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'excludeId,',
       'placementFeasible: bedDoorFor(excludeId, lanes),',
       'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,',
+      'resting: restingFor(excludeId),',
+      'restingWindowFeasible: bedDoorFor(excludeId, lanes),',
       '})',
       ': null,',
     ])
@@ -2095,8 +2099,8 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // notice. Shorthand keys (`locked,`, `dur,`, `excludeId,`) are not in it,
     // which is why the number is smaller than the array — both are measured.
     for (const [where, code, want] of [
-      ['rail', rail.code, 10],
-      ['verdict', verdict.code, 8],
+      ['rail', rail.code, 12],
+      ['verdict', verdict.code, 10],
     ] as const) {
       expect({ where, keys: (code.match(/^\s+\w+: /gm) ?? []).length }).toEqual({ where, keys: want })
     }
@@ -2177,6 +2181,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "priceFactSets,",
       "proxyTimeLabel,",
       "restCueStarts,",
+      "restingSpanFor,",
       "warnFaceFor,",
       "holdClock,",
       "holdResumeAt,",
@@ -9787,7 +9792,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // own trigger now reads it too. Three readers, ONE definition (⚖ 54): the
     // screen imports it and holds no spelling of its own.
     expect(INT).toContain('export const lossOf = (c: RailCell | null): number =>\n'
-      + "  c == null || c.state === 'safe' || c.impact == null ? 0 : c.impact.capacityBefore - c.impact.capacityAfter")
+      + "  c == null || c.state === 'safe' || c.impact == null ? 0 : Math.max(0, c.impact.capacityBefore - c.impact.capacityAfter)")
     expect(INT.match(/const lossOf = /g)).toHaveLength(1)
     expect(SRC).not.toContain('const lossOf = ')
     expect(SRC).toContain('  lossOf,\n')

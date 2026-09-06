@@ -812,8 +812,8 @@ describe('1 — the round gate', () => {
       expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
       return s
     }
-    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor],')
-    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor],')
+    const rail = uniqueSlice('? guardRailsFor(boardLanes, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, handId, railDur, bedDoorFor, restingFor],')
+    const verdict = uniqueSlice('? guardVerdictAt(lanes, laneKey, start, {', '[guardOn, boardLanes, hours, props.guard, props.sell.nowMinute, locked, bedDoorFor, restingFor],')
     for (const [where, call, line] of [
       ['rail', rail.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null) : undefined,'],
       ['verdict', verdict.text, 'protectedWindowFeasible: SELLING_ENGINE_LAW ? bedDoorFor(null, lanes) : undefined,'],
