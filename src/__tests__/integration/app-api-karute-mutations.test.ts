@@ -106,10 +106,10 @@ jest.mock('@/lib/auth/store-scope', () => ({
  *  fixture leaves `recording_session_id` unset, so this mock stays untouched
  *  by them; the store-law cases below opt in. */
 const REC_ROW = { current: { id: 'sess-1', store_id: null as string | null } }
-const recordingsGet = jest.fn(async () => REC_ROW.current)
+const recordingsGet = jest.fn(async (_id: string) => REC_ROW.current)
 const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
-  recordings: { get: () => recordingsGet() },
+  recordings: { get: (id: string) => recordingsGet(id) },
   stores: { get: jest.fn(async () => ({ id: 'store-a' })) },
   karuteRecords: {
     get: (id: string) => recGet(id),
@@ -750,6 +750,7 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     expect(res.status).toBe(403)
     expect(runExtract).not.toHaveBeenCalled()
     expect(addEntry).not.toHaveBeenCalled()
+    expect(recordingsGet).toHaveBeenCalledWith('sess-1')
   })
 
   // The KARUTE leads — and the row is not even read, which is the whole reason

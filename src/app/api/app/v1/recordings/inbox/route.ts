@@ -11,7 +11,7 @@
 //     see is refused (403) before any read, per the store-isolation law. The
 //     clamped id is still NOT used as a filter — and since slice three ③ that
 //     is a RULING, not a shortage: rows minted from ③ on DO carry a store_id
-//     (session-mint.ts:199), and this read stays ACTOR-scoped anyway. A
+//     (session-mint.ts:213), and this read stays ACTOR-scoped anyway. A
 //     staffer's own recordings are hers across every branch she has worked in,
 //     so the clamp here is a refusal gate on the store she asked for, never a
 //     lens on the rows. Actor scoping is strictly NARROWER than a store lens:
