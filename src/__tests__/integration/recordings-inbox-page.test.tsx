@@ -1029,3 +1029,149 @@ describe('録音履歴 — the server save’s latch (③ fix round 2)', () => {
     expect(mockEnqueueFromSession).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * 録音履歴 — FIX ROUND 3: the latch belongs to the CARD, and the grant is a
+ * second await.
+ *
+ * `serverSavingRef` is ONE boolean for the whole page, so while row A's save is
+ * in flight row B's 保存する is refused at the handler's first guard — and until
+ * this round it stayed solid, enabled and completely silent about it. A phone
+ * that walked out of signal usually strands more than one recording, so two
+ * 復元可能 rows is the ordinary shape of this card, not the exotic one.
+ *
+ * The second half is the grant: the door is reached from the consent dialog
+ * through another facade round trip, and the seal can close across it exactly
+ * as it can across the consent read.
+ */
+describe('録音履歴 — the server save’s latch, card-wide (③ fix round 3)', () => {
+  const OLD = () => new Date(NOW - 5 * 60 * MIN).toISOString()
+  const serverRow = (id: string, over: Partial<ServerSession> = {}) =>
+    session({ recordingSessionId: id, serverAudio: 'object', createdAt: OLD(), ...over })
+  const saveIn = (key: string) => within(row(key)).getByText('recording.inbox.action.save')
+  const btn = (key: string) => saveIn(key).closest('button')!
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    const promise = new Promise<T>((r) => {
+      resolve = r
+    })
+    return { promise, resolve }
+  }
+
+  it('⚖ R2: one save in flight greys EVERY save arm — only the busy row is aria-busy', async () => {
+    const held = deferred<{ consent: unknown }>()
+    mockGetConsent.mockImplementationOnce(() => held.promise)
+    serverSessions = [
+      serverRow('sess-a'),
+      serverRow('sess-b'),
+      session({ recordingSessionId: 'sess-saved', karuteRecordId: 'rec-1' }),
+    ]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(saveIn('session:sess-a'))
+    })
+    await flush(20)
+
+    expect(btn('session:sess-a')).toBeDisabled()
+    expect(btn('session:sess-a').getAttribute('aria-busy')).toBe('true')
+    // The neighbour is UNAVAILABLE, not busy — it has no save of its own.
+    expect(btn('session:sess-b')).toBeDisabled()
+    expect(btn('session:sess-b').getAttribute('aria-busy')).toBe('false')
+    // …and 開く is untouched: reading a saved record is not a save.
+    const open = within(row('session:sess-saved'))
+      .getByText('recording.inbox.action.open')
+      .closest('button')!
+    expect(open).not.toBeDisabled()
+
+    // The tap that used to be swallowed in silence now cannot happen at all.
+    await act(async () => {
+      fireEvent.click(saveIn('session:sess-b'))
+    })
+    await flush(20)
+    expect(mockGetConsent).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    // The one save still lands, and the card comes back.
+    await act(async () => {
+      held.resolve(currentConsent())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+    expect(btn('session:sess-b')).not.toBeDisabled()
+  })
+
+  it('⚖ R4: a discard confirm landing during the consent GRANT stands the save down', async () => {
+    // startServerSave re-reads the seal after the consent READ, but on the
+    // dialog path the door is reached from handleGrantServerConsent, one more
+    // facade round trip later. Not reachable through the UI (the consent
+    // dialog's backdrop fences the discard button on device), but
+    // confirmDiscardReason's comment claims this door makes no unguarded await
+    // and a post-await recheck was deleted there on that claim's strength.
+    pipe.state = 'error'
+    pipe.error = 'empty-transcript'
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
+    mockGetConsent.mockResolvedValue({ consent: null })
+    serverSessions = [serverRow('sess-srv')]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(saveIn('session:sess-srv'))
+    })
+    await flush(20)
+
+    // The grant round trip is held open.
+    const grant = deferred<{ ok: boolean; error?: string }>()
+    mockGrantConsent.mockImplementationOnce(() => grant.promise)
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.consentConfirmButton'))
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    // The staffer discards the banner's take while the grant is in the air.
+    const discard = jest.requireMock('@/actions/recording-discard') as {
+      discardRecordingWithReason: jest.Mock
+    }
+    const landing = deferred<{ ok: true; receiptId: string; duplicate: boolean }>()
+    discard.discardRecordingWithReason.mockImplementationOnce(() => landing.promise)
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardTakeAction'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'お客様が席を外したため録り直します' },
+      })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardReason.confirm'))
+    })
+    await flush(20)
+    expect(discard.discardRecordingWithReason).toHaveBeenCalledTimes(1)
+
+    // The grant comes back mid-discard: the save stands down at the re-check.
+    await act(async () => {
+      grant.resolve({ ok: true })
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    await act(async () => {
+      landing.resolve({ ok: true, receiptId: 'row-1', duplicate: false })
+    })
+    await flush(20)
+  })
+
+  it('⚖ R5: the solid 保存する neutralises its hover fill while it is greyed', async () => {
+    // Tailwind's `hover:` is not gated on `:disabled`, so without the second
+    // class the button the staffer just pressed keeps the colour of a live
+    // control for the whole save. Nothing in the accent contract suite looks at
+    // the disabled variant, so the next sweep would drop it silently.
+    serverSessions = [serverRow('sess-srv')]
+    await renderPage()
+    const className = btn('session:sess-srv').className
+    expect(className).toContain('hover:bg-primary-hover')
+    expect(className).toContain('disabled:hover:bg-primary')
+  })
+})

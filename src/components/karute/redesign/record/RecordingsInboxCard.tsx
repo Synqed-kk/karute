@@ -39,7 +39,18 @@ export interface RecordingsInboxCardProps {
   /** The session whose SERVER save is in flight (build 23 slice ③, fix round
    *  1). Its one button greys out until the row has been re-read — without it
    *  the tap changed nothing on screen, and a second tap fired a second
-   *  enqueue. Null/absent = nothing in flight, which is the ordinary case. */
+   *  enqueue. Null/absent = nothing in flight, which is the ordinary case.
+   *
+   *  ⚖ AND IT GREYS THE NEIGHBOURS TOO (fix round 3, R2). The page holds ONE
+   *  latch for the whole card, so while this row's save is in flight the save
+   *  on the row NEXT DOOR is refused at the handler's first guard — silently,
+   *  with no toast and no chip change. A device that walked out of signal
+   *  usually strands more than one recording, so two rows offering 保存する is
+   *  the ordinary shape here, not the exotic one: the staffer would tap both,
+   *  see both stay solid, and walk away believing both were queued. Only the
+   *  save/retry arms are locked — 開く and 確認する have nothing to do with a
+   *  save in flight — and only THIS row keeps `aria-busy`: the others are not
+   *  busy, they are unavailable. */
   savingSessionId?: string | null
   /** The viewer's OWN discards this month (⚖ 8/25 ruling B, staff half).
    *  A LABELLED PLAIN FACT in muted type — never a badge, a threshold or a
@@ -145,6 +156,8 @@ export function RecordingsInboxCard({
         labelKey: check ? 'action.check' : 'action.open',
         className: check ? WASH_BTN : QUIET_BTN,
         Icon: check ? Eye : undefined,
+        // Opening a saved record has nothing to do with a save in flight.
+        blocksOnSave: false,
         run: () => onOpenRecord(row),
       }
     }
@@ -153,6 +166,10 @@ export function RecordingsInboxCard({
         labelKey: 'action.save',
         className: SOLID_BTN,
         Icon: Save,
+        // ⚖ R2 (fix round 3) — routes through the page's ONE server-save latch,
+        // so it is unavailable while ANY server save is running, not just this
+        // row's. See savingSessionId's docblock above.
+        blocksOnSave: true,
         run: () => onSaveTake(row),
       }
     }
@@ -161,6 +178,7 @@ export function RecordingsInboxCard({
         labelKey: 'action.retry',
         className: QUIET_BTN,
         Icon: undefined,
+        blocksOnSave: true,
         run: () => onSaveTake(row),
       }
     }
@@ -264,13 +282,14 @@ export function RecordingsInboxCard({
                       <button
                         type="button"
                         onClick={action.run}
-                        // In flight → this row's one action is spent until the
-                        // list has been re-read. `disabled` carries the a11y
-                        // half by itself (aria-disabled is implied), and
-                        // `aria-busy` says WHY rather than just "no".
-                        disabled={
-                          !!savingSessionId && savingSessionId === row.recordingSessionId
-                        }
+                        // In flight → EVERY save/retry arm is spent until the
+                        // list has been re-read, because the page holds one
+                        // latch for the whole card (fix round 3, R2).
+                        // `disabled` carries the a11y half by itself
+                        // (aria-disabled is implied), and `aria-busy` says WHY
+                        // rather than just "no" — so it stays on the one row
+                        // that is actually busy.
+                        disabled={!!savingSessionId && action.blocksOnSave}
                         aria-busy={
                           !!savingSessionId && savingSessionId === row.recordingSessionId
                         }

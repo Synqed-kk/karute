@@ -1156,8 +1156,9 @@ export function RecordPageView({
       // that does not route through startRecoveryFlow — startServerSave, for a
       // row whose audio is on the server and not on this device — and it reads
       // the same ref for the same reason (fix round 1, R5) AND re-reads it
-      // after its own consent round trip, which is the only await it makes
-      // before the door (fix round 2, R2). So the sentence above holds across
+      // after EACH of the two awaits it makes before the door — its own consent
+      // round trip (fix round 2, R2) and, on the dialog path, the consent GRANT
+      // (fix round 3, R4). So the sentence above holds across
       // both. So a save can exist at this gate only if it
       // started BEFORE this confirm call began, which this pre-await check
       // already catches on the live ref. A dedicated post-await recheck was
@@ -2091,10 +2092,12 @@ export function RecordPageView({
    *  small state rather than overloading `consentFlow`, which is a frozen
    *  RecoveryFlow a server row can never produce.
    *
-   *  It INHERITS the latch startServerSave took (R2) and hands it straight to
-   *  the door — so the row stays greyed from the tap, through the dialog, to
-   *  the reload. A refusal here leaves the dialog (and the latch) up for the
-   *  staffer to answer or cancel; cancel is the release. */
+   *  It INHERITS the latch startServerSave took (R2) and hands it to the door
+   *  once it has re-read the seal across the grant's own await (R4) — so the
+   *  row stays greyed from the tap, through the dialog, to the reload, and a
+   *  discard that lands mid-grant stands the save down instead. A refusal here
+   *  leaves the dialog (and the latch) up for the staffer to answer or cancel;
+   *  cancel is the release. */
   async function handleGrantServerConsent() {
     const pending = serverConsent
     if (!pending || consentSubmitting) return
@@ -2115,6 +2118,18 @@ export function RecordPageView({
       return
     }
     setServerConsent(null)
+    // ⚖ THE GRANT IS A SECOND AWAIT BEFORE THE DOOR (fix round 3, R4). On a
+    // phone it is another facade round trip, and the seal can close across it
+    // exactly as it can across the consent read — so the same two refs are
+    // re-read here rather than trusting startServerSave's check from before
+    // the dialog went up. Not reachable through the UI today (the consent
+    // dialog's own backdrop is what fences it), but confirmDiscardReason's
+    // comment claims this door makes no unguarded await, and that sentence is
+    // load-bearing: a post-await recheck was deleted there on its strength.
+    if (discardReasonSubmittingRef.current || recoverySavingRef.current) {
+      releaseServerSave()
+      return
+    }
     await runServerSave(pending.row, pending.customerId)
   }
 
