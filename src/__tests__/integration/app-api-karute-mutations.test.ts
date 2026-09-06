@@ -787,6 +787,36 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     expect(runExtract).not.toHaveBeenCalled()
   })
 
+  it('facade: …but an UNRESTRICTED hand (stores.viewAll) still rewrites it → 200', async () => {
+    nullStoreKaruteWithRow('store-9')
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set([...BOTH, 'stores.viewAll'])
+    expect((await post()).status).toBe(200)
+  })
+
+  // The recorder passes on the own-recording branch, which never reaches the
+  // store leg — a storage blip cannot cost her her own 再生成.
+  it('facade: …and the RECORDER’s own record is rewritten through the same blip → 200', async () => {
+    nullStoreKaruteWithRow('store-9')
+    REC.current = { ...REC.current, staff_id: 'auth-user-1' }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set(['records.write'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+  })
+
+  // …and a karute that NAMES a store never asks the row at all, so a throwing
+  // read changes nothing. This is the guard itself, pinned against the throw
+  // rather than only against a resolving row.
+  it('facade: a karute WITH a store never reads the row — a throwing read changes nothing → 200', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff', store_id: 'store-a', recording_session_id: 'sess-1' }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+    expect(recordingsGet).not.toHaveBeenCalled()
+  })
+
   it('web: the same NULL-store karute + store-9 row is refused there too', async () => {
     nullStoreKaruteWithRow('store-9')
     capabilities.current = new Set(BOTH)

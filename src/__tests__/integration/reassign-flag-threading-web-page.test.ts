@@ -257,7 +257,8 @@ describe('KaruteDetailPage — the named grant stays inside the viewer’s store
   const inStoreB = () => {
     karuteRow.current = { client_id: 'cust-9', summary: null, store_id: 'store-b' }
   }
-  const built = () => buildSpy.mock.calls[0][0] as { canViewAllRecordings: boolean }
+  const built = () =>
+    buildSpy.mock.calls[0][0] as { canViewAllRecordings: boolean; recordingRow: unknown }
 
   it('a grantee assigned ELSEWHERE gets canViewAllRecordings false', async () => {
     inStoreB()
@@ -366,6 +367,52 @@ describe('KaruteDetailPage — the named grant stays inside the viewer’s store
   })
 
   it('a record with NO store is read by a clamped grantee (全店舗 / legacy)', async () => {
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  // ── ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED VIEWER (fix round 6,
+  // Greptile #849 review 2). ONE fixture, pinned at all three doors: the karute
+  // names NO store, and the recording read THROWS. Until this round the throw
+  // collapsed into `null` — "this record names no store" — and a store-clamped
+  // grantee was handed a colleague's transcript on every blip. The page must
+  // still RENDER: the honest answer is the restricted transcript, not a 502.
+  const nullStoreKaruteWithUnreadableRow = () => {
+    karuteRow.current = {
+      client_id: 'cust-9',
+      summary: null,
+      staff_profile_id: 'other-staff',
+      store_id: null,
+      recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+  }
+
+  it('an UNREADABLE row closes a null-store karute for a CLAMPED grantee — and the page still renders', async () => {
+    nullStoreKaruteWithUnreadableRow()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    const props = await viewPropsFromPage()
+    expect(props).toBeDefined()
+    expect(built().canViewAllRecordings).toBe(false)
+    // …and the player still goes away exactly as it did before: the sentinel
+    // never reaches the builder, only the store question.
+    expect(built().recordingRow).toBeNull()
+  })
+
+  it('…and an UNRESTRICTED viewer reads it as before — no store could have excluded her', async () => {
+    nullStoreKaruteWithUnreadableRow()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().canViewAllRecordings).toBe(true)
+  })
+
+  it('…and the KARUTE still leads when it has one — a store-a karute is untouched by the throw', async () => {
+    nullStoreKaruteWithUnreadableRow()
+    karuteRow.current = { ...karuteRow.current, store_id: 'store-a' }
     grantedCaps.current = new Set(['recordings.viewAll'])
     storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
@@ -496,6 +543,35 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
       store_id: null, recording_session_id: 'sess-1',
     }
     clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED HAND TOO (fix round 6). The
+  // act door takes the same value the read door takes, so the same blip that
+  // withholds the transcript withholds the button — nothing shown that the
+  // server gate would refuse (app-api-karute-mutations).
+  it('a NULL-store karute whose recording row cannot be READ → no button for a store-a manager', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff',
+      store_id: null, recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  // …and the RECORDER never reaches the store leg at all — she passes on the
+  // own-recording branch, so a blip cannot cost her her own button.
+  it('the RECORDER on her OWN null-store karute keeps her button through an unreadable row', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1',
+      store_id: null, recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    grantedCaps.current = new Set(['records.write'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(true)
   })

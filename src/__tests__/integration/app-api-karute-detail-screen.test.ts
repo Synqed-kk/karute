@@ -758,6 +758,52 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     staffStoresGet.mockRejectedValue(new Error('core down'))
     expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
   })
+
+  // ── ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED VIEWER (fix round 6,
+  // Greptile #849 review 2) — the Bearer twin. ONE fixture at all three doors:
+  // the karute names NO store and the recording read THROWS. Until this round
+  // the throw collapsed into `null` ("this record names no store") and a
+  // clamped grantee was handed a colleague's transcript on every blip. The
+  // screen must still 200: the honest answer is transcriptRestricted, not 502.
+  const unreadableRow = () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+  }
+
+  it('an UNREADABLE row closes a null-store karute for a CLAMPED grantee — and the screen still 200s', async () => {
+    unreadableRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.recording).toBeNull()
+  })
+
+  it('…and an UNRESTRICTED viewer (stores.viewAll) reads it as before', async () => {
+    unreadableRow()
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'stores.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('…and the RECORDER reads her own through the same blip — she never meets the store leg', async () => {
+    unreadableRow()
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    capabilities.current = new Set(['customers.view'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
+
+  it('…and the KARUTE still leads when it has one — a store-a karute is untouched by the throw', async () => {
+    unreadableRow()
+    KAR.current = { ...KAR.current, store_id: 'store-a' }
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
+  })
 })
 
 // ── ⚖ 再生成 — the FACADE hands the phone the SERVER'S answer (fix round 4) ──
@@ -878,6 +924,21 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     const dto = await dtoFor()
     expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  // ⚖ AN UNREADABLE ROW IS CLOSED FOR A CLAMPED HAND TOO (fix round 6). One
+  // case, so the DTO cannot withhold the words while still offering the button.
+  it('a NULL-store karute whose recording row cannot be READ → transcript withheld AND no control', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(new Error('core down'))
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.transcriptRestricted).toBe(true)
+    expect(dto.staffCanRegenerate).toBe(false)
   })
 
   it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
