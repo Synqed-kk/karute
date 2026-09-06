@@ -4,8 +4,9 @@
 //   - never target the account owner (permissions PUT)
 //   - no-escalation-by-delta: a caller can only grant a capability they hold
 //     themselves (permissions PUT)
-//   - audit.view grants are owner-only, even when the caller nominally holds
-//     the capability via an override (permissions PUT)
+//   - audit.view / sync.view / recordings.viewAll grants are owner-only, even
+//     when the caller nominally holds the capability via an override
+//     (permissions PUT)
 //   - staff-stores PUT is owner-only (STRICTER than staff.manage — a
 //     requireOwner mirror, elevated to a standard facade 403)
 //   - staff-stores GET carries a staff.manage FLOOR — a deliberate
@@ -54,13 +55,17 @@ jest.mock('@/lib/staff', () => ({
 // target row, then — only when granting audit.view — the caller's own row).
 let selectResults: Array<Record<string, unknown> | null> = []
 let updateError: { message: string } | null = null
+/** The LAST payload handed to .update() — the only way to see what actually
+ *  landed in `permissions` (null = follows the preset, array = customized). */
+let lastUpdate: Record<string, unknown> | null = null
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () =>
       ({ data: selectResults.shift() ?? null })
-    ;(builder as { update: unknown }).update = () => {
+    ;(builder as { update: unknown }).update = (payload: Record<string, unknown>) => {
+      lastUpdate = payload
       const chain: Record<string, unknown> = {}
       chain.eq = () => chain
       chain.then = (resolve: (v: unknown) => unknown) => resolve({ error: updateError })
@@ -117,6 +122,7 @@ beforeEach(() => {
   ])
   selectResults = []
   updateError = null
+  lastUpdate = null
   staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
   staffStoresSet.mockResolvedValue({})
 })
@@ -269,6 +275,117 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
+  // ── 全スタッフの録音 (recordings.viewAll) — the named grant, ⚖ 9/3 council.
+  // The exact pair-shape of the audit.view / sync.view cases above: the ADD is
+  // owner-only even for a caller who holds the capability, the owner's grant
+  // lands in the stored override, and the audit row's detail says which way it
+  // moved. The resolve chokepoint no longer strips it, so THIS gate is the
+  // only hand it can come from.
+
+  it('recordings.viewAll grant is owner-only: a non-owner caller holding it via override is refused, no write, no audit row', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant recording access/i)
+    })
+    expect(lastUpdate).toBeNull()
+    expect(lines).toHaveLength(0)
+  })
+
+  it("the OWNER can grant recordings.viewAll: the stored override carries it and the audit row's detail says recordings_view_all: 'granted'", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // The tick STICKS — the whole point of removing the resolve-time strip.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: ['recordings.viewAll'] })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'settings.permissions_change',
+      target_id: 'staff-9',
+      detail: { recordings_view_all: 'granted' },
+    })
+  })
+
+  it("the OWNER unticking it stores null when the rest matches the preset, and the detail says 'revoked'", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'recordings.viewAll']))
+    // Target currently HOLDS the grant through a stored override.
+    selectResults = [
+      { id: 'staff-9', display_role: 'stylist', permission_role: 'custom', permissions: ['recordings.viewAll'] },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', { permissionRole: 'custom', capabilities: [] }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    // Untick → requested == the custom preset (empty) → stored null → gone.
+    expect(lastUpdate).toEqual({ permission_role: 'custom', permissions: null })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: { recordings_view_all: 'revoked' } })
+  })
+
+  it("a manager keeping a colleague's existing grant untouched is not a grant (passes, and the detail omits the flag)", async () => {
+    // Keeping what the target already holds is not an ADD — the same posture
+    // audit.view and sync.view already have. The flag rides the CHANGE only.
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // a manager, no viewAll
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      {
+        id: 'staff-9',
+        display_role: 'stylist',
+        permission_role: 'custom',
+        permissions: ['recordings.viewAll', 'customers.view'],
+      },
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['recordings.viewAll', 'customers.view'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).not.toHaveProperty('recordings_view_all')
   })
 
   it('the OWNER can grant audit.view — happy path, one settings.permissions_change row, source facade', async () => {
