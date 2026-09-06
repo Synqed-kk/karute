@@ -55,10 +55,25 @@ export async function startRecordingSession(input: {
     // is a key to compose, so a start with no take makes exactly the calls it
     // made before this round.
     const businessId = input.takeId ? await getBusinessId() : null
+    // THE STORE THE DEVICE IS IN (slice three ③) — the SAME value
+    // enqueueRecordingJob already stamps on the job payload
+    // (actions/recording-jobs.ts), so one recording never carries two answers
+    // to "which branch was this". Read off the cookie session, never the
+    // argument, exactly like businessId above.
+    //
+    // It adds no new failure mode to this door: `requireCapability` above has
+    // already resolved (and React-cached) the capabilities and the staff id
+    // this scope reads, the active store is a cookie, and the two core lookups
+    // it can still make — getPrimaryStoreId and getStaffStoresStrict — both
+    // swallow their own failures to null (actions/stores.ts). Dynamic import,
+    // the repo convention for this module (see actions/regenerate-karute.ts):
+    // a top-level one drags the ESM-only SDK into this module's jest graph.
+    const { storeId } = await (await import('@/lib/auth/store-scope')).resolveStoreScope()
     const res = await startRecordingSessionWithClient(synqed, {
       ...input,
       selfStaffId: staffId,
       businessId,
+      storeId,
     })
     // A take id or container this server will not store, a key already spoken
     // for (`exists`), or storage failing to answer (`upstream`) — every

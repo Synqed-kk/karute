@@ -114,6 +114,14 @@ export async function startRecordingSessionWithClient(
     takeId?: string | null
     /** The recorder's negotiated container, for the key's extension. */
     mimeType?: string | null
+    /** THE STORE THIS RECORDING WAS MADE IN — the actor's ACTIVE store at mint,
+     *  the SAME value the job payload has always stamped (web
+     *  `resolveStoreScope().storeId`, facade `resolveStoreForRequest(...)
+     *  .storeId`). REQUIRED, never optional: both doors must decide it, and a
+     *  door that forgot would silently mint a store-less row that the take
+     *  doors then read as open. `null` is a real answer — a business with no
+     *  stores, or an actor whose scope resolves to none. */
+    storeId: string | null
   },
 ): Promise<StartRecordingSessionResult> {
   // THE FENCES, composed BEFORE anything is created: a key this server would
@@ -171,13 +179,24 @@ export async function startRecordingSessionWithClient(
     reservation = { audio_storage_path: composed.key, status: 'UPLOADING' }
   }
 
-  // No store_id: saveKaruteRecord's create() call doesn't send one either.
-  // The spread is EMPTY on the absent-take path — the payload is the same three
-  // keys, byte for byte, as before this round.
+  // THE STORE RIDES ALONG (slice three ③). Two questions, two answers:
+  //   · WHERE WAS THE DEVICE? — this row's `store_id`, the actor's active store
+  //     at mint, resolved by each door from its own session (never a body
+  //     field) and identical to the store the job payload already stamps. It is
+  //     written HERE and nowhere else: `UpdateRecordingInput` carries no
+  //     store_id, so the stamp is forward-only by construction and every row
+  //     minted before this round keeps a null the take doors read as OPEN.
+  //   · WHERE DOES THE KARUTE BELONG? — still the karute's own resolver
+  //     (resolveKaruteStoreId, actions/karute.ts), which may pick the booking's
+  //     store later. The two can differ, and both are true; the read doors
+  //     already prefer the karute's (`karute.store_id ?? row.store_id`).
+  // Sent on BOTH paths — a store-less absent-take row would be a second shape
+  // for the same fact.
   const recording = await synqed.recordings.create({
     staff_id: staffId,
     customer_id: input.customerId ?? null,
     appointment_id: input.appointmentId ?? null,
+    store_id: input.storeId,
     ...reservation,
   })
   return { id: recording.id }

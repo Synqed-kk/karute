@@ -129,6 +129,7 @@ describe('the production error shape, through the chain it broke', () => {
         businessId: 'biz-1',
         takeId: TAKE,
         mimeType: 'audio/webm',
+        storeId: null,
       },
     )
     expect(res).toEqual({ id: 'session-1' })

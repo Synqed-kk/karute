@@ -57,6 +57,20 @@ jest.mock('@/lib/supabase/service', () => ({
 // mocked anyway so importing the module never touches next/server's `after`.
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
+// ③ THE STORE THE DEVICE IS IN. The web door reads the actor's active store
+// (the same value enqueueRecordingJob stamps) and sends it on the create. A
+// jest.fn so the payload pins below can prove the door forwards THIS value and
+// never invents one.
+const resolveStoreScope = jest.fn(async () => ({
+  storeId: 'store-1' as string | null,
+  viewAll: true,
+  allowedStoreIds: null as string[] | null,
+  degraded: false,
+}))
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+}))
+
 import { startRecordingSession } from '@/actions/recordings'
 import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
 
@@ -72,6 +86,12 @@ beforeEach(() => {
     staff_id: 'staff-from-appt',
   }))
   info.mockResolvedValue({ data: null, error: notFoundError })
+  resolveStoreScope.mockImplementation(async () => ({
+    storeId: 'store-1',
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  }))
 })
 
 describe('startRecordingSession', () => {
@@ -82,6 +102,7 @@ describe('startRecordingSession', () => {
       staff_id: 'staff-1',
       customer_id: 'cust-1',
       appointment_id: 'appt-1',
+      store_id: 'store-1',
     })
     expect(res).toEqual({ id: 'session-1' })
   })
@@ -125,11 +146,6 @@ describe('startRecordingSession', () => {
     expect(res).toBeNull()
   })
 
-  it('sends no store_id — mirrors saveKaruteRecord, which never sends one either', async () => {
-    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
-    const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
-    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
-  })
 })
 
 // ── BORN RESERVED (fix round 10) ────────────────────────────────────────────
@@ -143,7 +159,14 @@ const KEY = `app_biz-1_${TAKE}.webm`
 const core = (over: Record<string, unknown> = {}) =>
   startRecordingSessionWithClient(
     { recordings: { create: recordingsCreate }, appointments: { get: apptGet } } as never,
-    { customerId: 'cust-1', appointmentId: null, selfStaffId: 'staff-1', businessId: 'biz-1', ...over },
+    {
+      customerId: 'cust-1',
+      appointmentId: null,
+      selfStaffId: 'staff-1',
+      businessId: 'biz-1',
+      storeId: null,
+      ...over,
+    },
   )
 
 describe('startRecordingSession — the row is BORN carrying the take’s key', () => {
@@ -158,6 +181,7 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
       staff_id: 'staff-1',
       customer_id: 'cust-1',
       appointment_id: 'appt-1',
+      store_id: 'store-1',
       audio_storage_path: KEY,
       status: 'UPLOADING',
     })
@@ -179,10 +203,15 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     )
   })
 
-  it('an absent take is byte-identical to before: three keys, and the tenant is never even asked', async () => {
+  it('an absent take reserves nothing, and the tenant is never even asked', async () => {
     await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
     const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
-    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
+    expect(Object.keys(payload).sort()).toEqual([
+      'appointment_id',
+      'customer_id',
+      'staff_id',
+      'store_id',
+    ])
     expect(getBusinessId).not.toHaveBeenCalled()
   })
 

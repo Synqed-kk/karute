@@ -37,10 +37,19 @@ const grantConsent = jest.fn(async () => ({ id: 'consent-1' }))
 const recordingsCreate = jest.fn(async (_input: unknown) => ({ id: 'rec-1' }))
 const customersGet = jest.fn(async (id: string) => { if (id !== 'cust-1') throw Object.assign(new Error('x'), { status: 404 }); return { id, name: 'Y' } })
 const getConsent = jest.fn(async () => ({ consent: { granted_at: '2026-05-01T00:00:00Z' } }))
+// ③ The session mint now stamps the caller's store, so its route runs the
+// store clamp first (recordings/session/route.ts). Floating staff (an empty
+// assignment) = unrestricted within the tenant, which is what every case in
+// this file is about: the clamp passes and the mint's own contract is the
+// subject. `stores.get` answers the tenancy probe for a supplied store-id.
+const staffStoresGet = jest.fn(async (_id: string) => ({ store_ids: [] as string[] }))
+const storesGet = jest.fn(async (id: string) => ({ id }))
 const fakeClient = {
   customers: { get: customersGet, getConsent, grantConsent },
   appointments: { get: jest.fn(async () => ({ staff_id: 'appt-staff' })) },
   recordings: { create: recordingsCreate },
+  staffStores: { get: staffStoresGet },
+  stores: { get: storesGet },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -211,7 +220,12 @@ describe('POST recordings/session mint', () => {
   it('an absent take still mints the walk-in row — no key, no status', async () => {
     await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
     const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
-    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
+    expect(Object.keys(payload).sort()).toEqual([
+      'appointment_id',
+      'customer_id',
+      'staff_id',
+      'store_id',
+    ])
   })
   // A refused take is the ONE thing this door does not fail open on: a 200
   // {id:null} would tell the caller "carry on" about a key it has to fix.
