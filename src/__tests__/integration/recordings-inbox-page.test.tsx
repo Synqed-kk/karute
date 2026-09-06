@@ -218,6 +218,8 @@ type ServerSession = {
   jobStatus: string | null
   jobProbeFailed: boolean
   jobLastError: string | null
+  /** Build 23 slice ③ — what the server holds for this session's audio. */
+  serverAudio?: 'segments' | 'object' | null
 }
 let serverSessions: ServerSession[] = []
 let serverThrows = false
@@ -225,6 +227,17 @@ jest.mock('@/actions/recordings-inbox', () => ({
   listRecordingsInbox: jest.fn(async () => {
     if (serverThrows) throw new Error('core down')
     return serverSessions
+  }),
+}))
+
+// Slice ③ — the save-from-server door. The port is the seam both worlds go
+// through, so mocking it here is mocking exactly what the page depends on.
+const mockEnqueueFromSession = jest.fn(
+  async (_i: unknown): Promise<unknown> => ({ ok: true, jobId: 'job-1', status: 'QUEUED' }),
+)
+jest.mock('@/lib/ports/recording-port', () => ({
+  getRecordingPipelinePort: () => ({
+    enqueueJobFromSession: (i: unknown) => mockEnqueueFromSession(i),
   }),
 }))
 
@@ -270,6 +283,7 @@ beforeEach(() => {
   stored = []
   serverSessions = []
   serverThrows = false
+  mockEnqueueFromSession.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
 })
 
 afterEach(() => {
@@ -525,5 +539,129 @@ describe('録音履歴 — honesty when a half is missing', () => {
     ]
     await renderPage()
     expect(within(row('session:sess-1')).getByText('recording.inbox.unsetCustomer')).toBeInTheDocument()
+  })
+})
+
+/**
+ * 録音履歴 — 保存する ON A ROW WHOSE AUDIO IS ON THE SERVER (build 23 slice ③).
+ *
+ * The claims a unit test cannot make: that this row's button reaches the NEW
+ * door (not the take flow), with THIS row's session, and that a row that still
+ * has a take on the device goes the old way, untouched.
+ */
+describe('録音履歴 — saving from the server', () => {
+  const OLD = () => new Date(NOW - 5 * 60 * MIN).toISOString()
+
+  it('a bound server row saves straight through the new door — no take flow', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'sess-srv', serverAudio: 'object', createdAt: OLD() }),
+    ]
+    await renderPage()
+
+    const r = row('session:sess-srv')
+    expect(r.dataset.state).toBe('recoverable')
+    expect(within(r).getByText('recording.inbox.reason.serverAudio')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(within(r).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    expect(mockEnqueueFromSession).toHaveBeenCalledWith({
+      recordingSessionId: 'sess-srv',
+      customerId: 'cust-1',
+      locale: 'ja',
+    })
+    // The take flow is never entered: no blob, no pipeline, no take touched.
+    expect(mockPipelineStart).not.toHaveBeenCalled()
+    expect(mockSettleTakeAfterSave).not.toHaveBeenCalled()
+  })
+
+  it('an UNBOUND server row opens the picker, and the pick carries the door', async () => {
+    serverSessions = [
+      session({
+        recordingSessionId: 'sess-walkin',
+        customerId: null,
+        serverAudio: 'object',
+        createdAt: OLD(),
+      }),
+    ]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(
+        within(row('session:sess-walkin')).getByText('recording.inbox.action.save'),
+      )
+    })
+    await flush(20)
+    // Nothing is queued on the tap alone — the picker IS the save's first step.
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    // The picker's search box is ON for a row with no binding (⚖ 8/21 ⑥).
+    const searchBox = screen.getByRole('combobox')
+    await act(async () => {
+      fireEvent.change(searchBox, { target: { value: '佐藤' } })
+    })
+    await flush(20)
+    await act(async () => {
+      fireEvent.click(screen.getByText('佐藤 美咲'))
+    })
+    await flush(20)
+
+    expect(mockEnqueueFromSession).toHaveBeenCalledWith({
+      recordingSessionId: 'sess-walkin',
+      customerId: 'cust-1',
+      locale: 'ja',
+    })
+  })
+
+  it('a row that STILL has the take takes the old path — the local copy wins', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'sess-both', serverAudio: 'object', createdAt: OLD() }),
+    ]
+    stored = [take({ takeId: 'take-1', recordingSessionId: 'sess-both' })]
+    await renderPage()
+
+    const r = row('session:sess-both')
+    expect(within(r).getByText('recording.inbox.reason.localAudio')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(within(r).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    expect(mockPipelineStart).toHaveBeenCalledTimes(1)
+  })
+
+  it('a segments row is 処理中 and offers NOTHING to press', async () => {
+    serverSessions = [
+      session({ recordingSessionId: 'sess-part', serverAudio: 'segments', createdAt: OLD() }),
+    ]
+    await renderPage()
+
+    const r = row('session:sess-part')
+    expect(r.dataset.state).toBe('processing')
+    expect(within(r).getByText('recording.inbox.reason.partialOnServer')).toBeInTheDocument()
+    expect(within(r).queryByText('recording.inbox.action.save')).not.toBeInTheDocument()
+    // …and it is not in 要対応: there is nothing for a human to do yet.
+    expect(within(inbox()).queryByText('recording.inbox.needsAttention')).not.toBeInTheDocument()
+  })
+
+  it('a refused save says so, and the row is re-read either way', async () => {
+    mockEnqueueFromSession.mockResolvedValue({ error: 'no_audio' })
+    serverSessions = [
+      session({ recordingSessionId: 'sess-srv', serverAudio: 'object', createdAt: OLD() }),
+    ]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(within(row('session:sess-srv')).getByText('recording.inbox.action.save'))
+    })
+    await flush(20)
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { toast } = require('sonner') as { toast: { error: jest.Mock } }
+    expect(toast.error).toHaveBeenCalledWith('recording.recoverSaveFailed')
   })
 })

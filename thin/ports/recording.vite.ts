@@ -19,6 +19,10 @@ import type {
   RecordingJobStatusView,
 } from '@/actions/recording-jobs'
 import type {
+  EnqueueFromSessionInput,
+  EnqueueFromSessionResult,
+} from '@/lib/recording/enqueue-from-session'
+import type {
   FinalizeTakeInput,
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
@@ -426,6 +430,41 @@ export const viteRecordingPort: RecordingPipelinePort = {
       return { error: err?.error?.message ?? `Enqueue failed (${res.status})` }
     }
     return body as { ok: true; jobId: string; status: string }
+  },
+  async enqueueJobFromSession(input: EnqueueFromSessionInput): Promise<EnqueueFromSessionResult> {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/job/from-session', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // Same derivation as enqueueJob above. A stable per-session key would
+        // buy nothing here: core's enqueue is already idempotent per recording
+        // session (it re-arms rather than minting a second job), and the door
+        // bounds this header at the trust boundary expecting the 36-char uuid
+        // every other client sends.
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(input),
+    })
+    const body = (await res.json().catch(() => null)) as
+      | { ok: true; jobId: string; status: string }
+      | { error?: { code?: string } }
+      | null
+    if (!res.ok || !body || !('ok' in body)) {
+      // The facade names its refusal in `error.code` (forbidden / not_found /
+      // validation / upstream_unavailable). Mapped onto the shared body's own
+      // closed union so both arms answer the caller in one vocabulary; anything
+      // that named nothing — a proxy page, an auth blip — is `upstream`, the
+      // retryable arm.
+      const code = (body as { error?: { code?: string } } | null)?.error?.code
+      if (code === 'forbidden') return { error: 'forbidden' }
+      // The door answers 404 for BOTH "no such session" and "the server does
+      // not hold this audio", deliberately: which of the two is not the
+      // caller's business, and the row says the same thing either way — there
+      // is nothing here to save. One code out.
+      if (code === 'not_found') return { error: 'not_found' }
+      return { error: 'upstream' }
+    }
+    return body
   },
   async mintPlaybackUrl(karuteId: string) {
     const res = await getDataPort().apiFetch(

@@ -32,6 +32,7 @@ import {
 import { drainOwedTakes } from '@/lib/recording/owed-drain'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
@@ -1783,6 +1784,18 @@ export function RecordPageView({
   // Synchronous single-flight for the whole recovery save (state reads stale
   // mid-tick — same reason resolvingOutcomeRef is a ref).
   const recoverySavingRef = useRef(false)
+  // ⚖ THE SERVER SAVE KEEPS ITS OWN LATCH (build 23 slice ③). It shares nothing
+  // with the recovery flow above — no offer, no take, no money legs, no
+  // dialogs — so it must not take the latch that greys the banner and gates
+  // every one of those. It only READS recoverySavingRef, to refuse starting
+  // while a take-based save is under way.
+  const serverSavingRef = useRef(false)
+  /** An UNBOUND server-audio row waiting for its customer (slice ③). Its own
+   *  state, deliberately not `repointOpen`: that picker renders off the take
+   *  flow's frozen `offer` and its exit continues the take flow. A row with no
+   *  take has no offer, so reusing it would mean teaching the take flow about
+   *  a save that never enters it. */
+  const [serverSaveRow, setServerSaveRow] = useState<InboxRow | null>(null)
   // A SECOND, narrower latch for the popup's own 保存: the outer one spans the
   // whole flow (it is what greys the banner), so feeding it to the dialog's
   // `saving` prop would leave the dialog's own button disabled from the moment
@@ -1903,7 +1916,18 @@ export function RecordPageView({
    * picker `handleRecoverySaveTap` opens, whose exit continues the save.
    */
   function handleInboxSaveTake(row: InboxRow) {
-    if (recoverySavingRef.current || !row.takeId) return
+    if (recoverySavingRef.current) return
+    // ⚖ NO TAKE ON THIS DEVICE (build 23 slice ③). The audio is on the SERVER,
+    // so there is nothing here to promote into the recovery offer and nothing
+    // for the flow below to freeze: this row goes through its own door. Bound
+    // → straight there; unbound → the picker IS the save's first step, the same
+    // shape the banner uses for a take with no binding.
+    if (!row.takeId) {
+      if (!row.serverAudio || !row.recordingSessionId) return
+      if (row.customerId) void startServerSave(row, row.customerId)
+      else setServerSaveRow(row)
+      return
+    }
     const wanted = row.takeId
     void (async () => {
       // Re-read rather than trusting the rendered row: the take may have been
@@ -1933,6 +1957,43 @@ export function RecordPageView({
       if (dest) setPendingStart(dest)
       else setRepointOpen(true)
     })()
+  }
+
+  /**
+   * 保存する on a row whose audio is on the SERVER (build 23 slice ③).
+   *
+   * One call, and deliberately nothing else: the door reads the session row,
+   * proves the object is really in the bucket, derives the storage path from
+   * that row and queues the ordinary worker job. What comes back on screen is
+   * the job — the next fold reads it as 処理中「サーバーで文字起こし中」 and the
+   * row lands at 保存済み when the worker is done. No new save writer exists
+   * here, and none is added: this is the SAME pipeline every server-path
+   * recording already goes through, entered from the row instead of from a
+   * device that just stopped recording.
+   *
+   * No success toast, on purpose — the row itself is the report, and a second
+   * one would claim the karute exists when what exists is a queued job.
+   */
+  async function startServerSave(row: InboxRow, customerId: string) {
+    if (serverSavingRef.current || recoverySavingRef.current || !row.recordingSessionId) return
+    serverSavingRef.current = true
+    try {
+      const result = await getRecordingPipelinePort().enqueueJobFromSession({
+        recordingSessionId: row.recordingSessionId,
+        customerId,
+        locale,
+      })
+      // The same honest surface the take-based save uses for its own refusals.
+      // Every arm of the door's union is a settled answer, never a throw, so
+      // one message covers all of them: the row is re-read either way and says
+      // what actually happened.
+      if ('error' in result) toast.error(t('recoverSaveFailed'))
+    } catch {
+      toast.error(t('recoverSaveFailed'))
+    } finally {
+      serverSavingRef.current = false
+      void loadInbox()
+    }
   }
 
   /** A-1 ① — FREEZE, then run. Everything downstream takes this object as an
@@ -3471,6 +3532,44 @@ export function RecordPageView({
                 customers.find((c) => c.id === id)?.name || t('recoverCustomerUnknown'),
               appointmentId: null,
             })
+          }}
+        />
+      )}
+
+      {/* ⚖ お客様を選んで保存する, for a row whose audio is on the SERVER and
+          carries no customer (build 23 slice ③).
+
+          The SAME picker in the SAME repoint variant as the block above — and
+          deliberately its own mount, not the same one. That block renders off
+          `offer`, the take flow's frozen recovery offer, and its exit
+          (repointTo) continues the take flow; a server row has no take, so it
+          has no offer, and reusing that state would mean teaching the take
+          flow's invariants about a save that never enters it.
+
+          `pinned={null}` is what turns the search box ON (⚖ 8/21 doctrine ⑥):
+          this row has no original binding for the day restriction to anchor
+          on, exactly like an unbound take. `bookings={[]}` because the day's
+          bookings live on the take flow's own facts fetch — the staffer types
+          the name, which is the same trust tier the walk-in pick-at-review
+          path has always had over the same `customers` prop. */}
+      {serverSaveRow && (
+        <RecordCustomerPickerDialog
+          variant="repoint"
+          customers={customers}
+          bookings={[]}
+          pinned={null}
+          dayLabel={formatCompactDateJst(new Date(serverSaveRow.startedAt), locale)}
+          cancelLabel={tc('cancel')}
+          onClose={() => setServerSaveRow(null)}
+          onSelectBooking={(booking) => {
+            const row = serverSaveRow
+            setServerSaveRow(null)
+            if (booking.customerId) void startServerSave(row, booking.customerId)
+          }}
+          onSelectCustomer={(id) => {
+            const row = serverSaveRow
+            setServerSaveRow(null)
+            void startServerSave(row, id)
           }}
         />
       )}
