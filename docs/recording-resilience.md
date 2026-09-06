@@ -57,7 +57,8 @@ Raising the storage limit does **not** fix any of these — the fix is architect
 - **The whole take is secured at STOP**, to its own server-composed key, and the
   core row points at it (`lib/recording/secure-take.ts`). Transcription and the
   server job both read *that* object — there is no second staging upload.
-- **Every session row is born in a store.** The recording carries the store it
+- **Every session row minted since slice ③ is born in a store** (older rows
+  carry none, and the take doors read that as open). The recording carries the store it
   was made in, and both doors refuse rather than persist a store-less *new* row
   whatever the client sent: the facade mint stamps the request's own `store-id`
   lens when one rode it (proven to be this caller's first) and otherwise the
