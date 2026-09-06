@@ -456,7 +456,14 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // that named nothing — a proxy page, an auth blip — is `upstream`, the
       // retryable arm.
       const code = (body as { error?: { code?: string } } | null)?.error?.code
-      if (code === 'forbidden') return { error: 'forbidden' }
+      // ALL THREE 403 CODES ARE ONE REFUSAL (fix round 4, R4). The port's own
+      // contract is "403 → forbidden", and the store clamp runs BEFORE the
+      // shared body on this route, so `store_forbidden` is reachable here;
+      // `tenant_forbidden` is normalised the same way by FACADE_CODE_TO_MINT in
+      // this very file. Leaving them to fall through would have called a
+      // terminal refusal retryable.
+      if (code === 'forbidden' || code === 'store_forbidden' || code === 'tenant_forbidden')
+        return { error: 'forbidden' }
       // 409 — a staff member deliberately discarded this recording. Terminal,
       // and worth keeping distinct from the retryable arms: no amount of
       // tapping changes a decision somebody already made and explained.

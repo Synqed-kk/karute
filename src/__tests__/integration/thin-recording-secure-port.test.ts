@@ -766,7 +766,16 @@ describe('enqueueJobFromSession — the phone’s save-from-server door', () => 
 
   it.each([
     ['forbidden', 403, 'forbidden'],
+    // The store clamp runs before the shared body on this route, so this 403
+    // is real here; `tenant_forbidden` is the same refusal from the mint's own
+    // table in this file. Both are terminal, not retryable.
+    ['store_forbidden', 403, 'forbidden'],
+    ['tenant_forbidden', 403, 'forbidden'],
     ['not_found', 404, 'not_found'],
+    // 409 — the one arm whose whole point is that it is TERMINAL: a staff
+    // member threw this recording away and wrote why. Tapping again cannot
+    // change that, so it must never be mapped onto a retryable code.
+    ['conflict', 409, 'discarded'],
     ['validation', 400, 'upstream'],
     ['upstream_unavailable', 502, 'upstream'],
   ])('a %s refusal comes back SETTLED as %s → %s', async (code, status, mapped) => {
