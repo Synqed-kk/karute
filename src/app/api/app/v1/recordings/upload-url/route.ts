@@ -33,6 +33,7 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { extractBearer } from '@/lib/app-api/identity'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { mintSegmentUploadUrls, mintTakeUploadUrl } from '@/lib/recording/mint-take-url'
 import { UploadUrlMintSchema } from '@/lib/app-api/record-schemas'
 
@@ -83,14 +84,32 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // its own key, and attributes both the reservation and the take_named row to
   // the roster identity resolved above. A null staffId can only reach the
   // server-named path, which binds nothing; the shared core still refuses to
-  // write anything without one.
+  // write anything without one. The one field that depends on WHICH act this
+  // is — the store reach — is added per arm below.
+  const callerHoldsOwnerKeys = holdsOwnerKeys(ctx.identity.capabilities)
   const actor = {
     staffId,
     businessId: ctx.identity.businessId,
-    holdsOwnerKeys: holdsOwnerKeys(ctx.identity.capabilities),
+    holdsOwnerKeys: callerHoldsOwnerKeys,
     source: 'facade' as const,
     requestId: ctx.meta.requestId,
   }
+  // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. The Bearer twin
+  // of web's viewerScopeForActs, and the same call the regenerate/relearn act
+  // routes already make (karute/[id]/regenerate/route.ts). Resolved ONLY when
+  // the pair is held: a recorder acting on her OWN session never reaches the
+  // store leg, so an assignment blip must not cost her the take. It reads the
+  // ASSIGNMENT, never the `store-id` header — a phone-set pin can neither
+  // widen nor narrow the owner's hand.
+  const reach = async (): Promise<readonly string[] | null> =>
+    callerHoldsOwnerKeys
+      ? await viewerAllowedStoreIds({
+          synqed,
+          authUserId: ctx.identity.authUserId,
+          capabilities: ctx.identity.capabilities,
+          selfStaffId: staffId,
+        })
+      : null
   // ⚖ THE THIRD ACT (slice five packet C, D6). A body carrying `seqs` asks for
   // this take's SEGMENT keys — the bytes that reach the server while the
   // recording is still running. Branched HERE, before either body runs, because
@@ -98,9 +117,16 @@ export const POST = facadeHandler('recordings.uploadUrl', async (ctx) => {
   // get one where it asked for the other. The schema already proved a `seqs`
   // body carries a takeId (so `named` above is true and the roster gate ran)
   // and never carries `stagedFor`.
+  //
+  // ⚖ AND THE REACH IS RESOLVED PER ARM (③ fix round 1, L2 F2). The SEGMENT arm
+  // passes null and asks core nothing: inert — the segment door refuses every
+  // non-own row two lines after assertRecorderOwnsRow
+  // (mint-take-url.ts:997), so a resolved scope there is a round trip that
+  // changes no answer, once per segment batch, on the live-recording hot path
+  // this route's own header (:64-67) exists to protect.
   const minted = parsed.data.seqs
-    ? await mintSegmentUploadUrls(synqed, actor, parsed.data)
-    : await mintTakeUploadUrl(synqed, actor, parsed.data)
+    ? await mintSegmentUploadUrls(synqed, { ...actor, allowedStoreIds: null }, parsed.data)
+    : await mintTakeUploadUrl(synqed, { ...actor, allowedStoreIds: await reach() }, parsed.data)
   if ('error' in minted) {
     if (minted.error === 'upstream') {
       throw new AppApiError('upstream_unavailable', 'could not mint an upload URL')

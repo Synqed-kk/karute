@@ -78,13 +78,16 @@ const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 
-// ⚠ THE PRODUCTION SHAPE (fix round 4). The KARUTE carries the store
-// (resolveKaruteStoreId, actions/karute.ts, stamps it on every save); the
-// RECORDING ROW never does — `recordings.create` sends no store_id
-// (session-mint.ts:174) and the SDK's update input has no such field, which
-// recordings/inbox/route.ts:12-13 states as fact. The fixtures said the
-// opposite until now, and the store pins below were passing on a column the
-// field never writes.
+// ⚠ THE PRODUCTION SHAPE (fix round 4, restated at slice three ③). The KARUTE
+// carries the store (resolveKaruteStoreId, actions/karute.ts, stamps it on
+// every save). The RECORDING ROW carries one only since ③ — the mint stamps the
+// actor's active store (session-mint.ts:199) and `UpdateRecordingInput` still
+// has no such field, so every row minted BEFORE ③ is null for ever.
+// ⚖ Both shapes are production now, and this door reads them in ONE order
+// (readDoorStoreId, auth/recording-acl.ts): the karute's store leads, the row's
+// is the fallback, both null = unlabelled = open. The same order at all three
+// read doors, so the words door and the sound door can never disagree about one
+// karute — neither show-and-refuse, nor open where the row knows better.
 const KAR = {
   current: {
     id: KARUTE_ID,
@@ -644,22 +647,36 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
   })
 
   // ⚠ THE PIN THAT DIES IF THE CLAMP GOES BACK TO THE ROW (fix round 4, F1).
-  // This is the shape of EVERY take in the field: the karute names the store,
-  // the recording row's column is empty. Clamping on the row read that empty
-  // column as 全店舗 and handed a store-a grantee a store-9 colleague's audio —
-  // the words door was shut on the same karute the whole time.
-  it('production shape — the recording row carries no store_id; the clamp reads the KARUTE’s store: grantee in store-a, karute store-9, row null → forbidden', async () => {
+  // This is every take minted BEFORE slice three ③: the karute names the store,
+  // the recording row's column is empty, and it can never be filled. Clamping
+  // on the row read that empty column as 全店舗 and handed a store-a grantee a
+  // store-9 colleague's audio — the words door was shut on the same karute the
+  // whole time. The pin stands unchanged: the karute's store decides.
+  it('a PRE-③ row carries no store_id; the clamp reads the KARUTE’s store: grantee in store-a, karute store-9, row null → forbidden', async () => {
     KAR.current = { ...KAR.current, store_id: 'store-9' }
     ROW.current = { ...ROW.current, store_id: null }
     const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
     expect(r).toEqual({ error: 'forbidden' })
   })
 
-  it('…and the row’s value is still honoured if core ever starts stamping it (karute null, row store-9)', async () => {
+  // ⚖ THE OTHER HALF OF THE SAME RULE (③ fix round 1 R1, RE-RULED fix round 3
+  // R1′ — Greptile #849 point 2). The row's store is LIVE now, and this door
+  // reads it AS THE FALLBACK. A karute with no store of its own would otherwise
+  // read as 全店舗 while its row plainly names store-9, and a grantee clamped to
+  // store-a would hear another branch's audio. All three read doors take the
+  // same input (readDoorStoreId), so all three refuse this together.
+  it('the recording row’s store closes a null-store karute at every read door (karute null, row store-9, grantee in store-a → forbidden)', async () => {
     KAR.current = { ...KAR.current, store_id: null }
     ROW.current = { ...ROW.current, store_id: 'store-9' }
     const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
     expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('…and BOTH null is genuinely unlabelled — 全店舗/legacy, open', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect('url' in r).toBe(true)
   })
 
   it('a DEGRADED scope ([]) fails closed', async () => {
@@ -748,10 +765,14 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
 })
 
 // ── ⚖ THE PLAY AUDIT ROW CARRIES THE KARUTE'S STORE (fix round 4b) ──────────
-// Same empty column the ACL stopped reading: `recordings.create` never writes
-// store_id, so a play row keyed on it was invisible to every store-scoped
-// audit search. The `??` chain keeps the row's value if core ever stamps it,
-// and a karute with no store still carries none — there is nothing to stamp.
+// A play row keyed on the RECORDING row alone was invisible to every
+// store-scoped audit search, because before slice three ③ that column was empty
+// for every take in the field. The `??` chain puts the karute's store first and
+// falls back to the row's — null on a pre-③ row, the minted store since ③.
+// ⚖ THE FALLBACK LIVES HERE AND NOWHERE ELSE (③ fix round 1): this is a FILTER
+// on a report, never an access decision, so a karute with no store still lands
+// the line on the store the device was in, which is what a search wants. The
+// ACL above deliberately does NOT do this — see its own comment.
 describe('recording.play — the audit row’s store', () => {
   it('a karute with NO store and a row with none → the line carries no store', async () => {
     KAR.current = { ...KAR.current, store_id: null }
@@ -762,7 +783,7 @@ describe('recording.play — the audit row’s store', () => {
     expect(play?.store_id ?? null).toBeNull()
   })
 
-  it('…and the row’s value is still used if core ever starts stamping it', async () => {
+  it('…and the row’s own store is used when the karute has none — LIVE since ③', async () => {
     KAR.current = { ...KAR.current, store_id: null }
     ROW.current = { ...ROW.current, store_id: 'store-row' }
     const lines = await auditLines(() => mint())

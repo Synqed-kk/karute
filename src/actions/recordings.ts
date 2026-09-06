@@ -55,10 +55,47 @@ export async function startRecordingSession(input: {
     // is a key to compose, so a start with no take makes exactly the calls it
     // made before this round.
     const businessId = input.takeId ? await getBusinessId() : null
+    // THE STORE THE DEVICE IS IN (slice three ③) — the SAME value
+    // enqueueRecordingJob already stamps on the job payload
+    // (actions/recording-jobs.ts), so one recording never carries two answers
+    // to "which branch was this". Read off the cookie session, never the
+    // argument, exactly like businessId above.
+    //
+    // It adds no new failure mode to this door: `requireCapability` above has
+    // already resolved (and React-cached) the capabilities and the staff id
+    // this scope reads, the active store is a cookie, and the two core lookups
+    // it can still make — getPrimaryStoreId and getStaffStoresStrict — both
+    // swallow their own failures to null (actions/stores.ts). Dynamic import,
+    // the repo convention for this module (see actions/regenerate-karute.ts):
+    // a top-level one drags the ESM-only SDK into this module's jest graph.
+    const scope = await (await import('@/lib/auth/store-scope')).resolveStoreScope()
+    // ⚖ A DEGRADED SCOPE MUST NOT STAMP (Greptile #849 G1). `degraded` means the
+    // assignment lookup FAILED, and on that path resolveStoreScope still returns
+    // a storeId — the active-store COOKIE (or the primary store) with nothing to
+    // check it against (store-scope.ts:90-106). Before ③ stamping an unverified
+    // store was harmless bookkeeping; now the column GATES an act, and the ruled
+    // null rule makes an unstamped row OPEN at the take doors FOR EVER
+    // (UpdateRecordingInput has no store_id to backfill). Either way — a wrong
+    // store or a null one — a row born from a lookup we could not read is a
+    // permanent authorization fact we cannot vouch for.
+    //
+    // So: refuse, the way the facade twin's clamp already 403s on the same
+    // unresolved assignment (store-clamp.ts:109). Here the refusal is this
+    // door's own fail-OPEN null — no session id, capture is NOT blocked, and
+    // the drain re-mints through this same door later with a store that reads.
+    // `stores.viewAll` holders never reach it: resolveStoreScope returns at
+    // store-scope.ts:71-81 without consulting an assignment at all, so no owner
+    // or preset manager can be refused by this line.
+    if (scope.degraded) {
+      console.warn('[startRecordingSession] store assignment unreadable — no session minted')
+      return null
+    }
+    const storeId = scope.storeId
     const res = await startRecordingSessionWithClient(synqed, {
       ...input,
       selfStaffId: staffId,
       businessId,
+      storeId,
     })
     // A take id or container this server will not store, a key already spoken
     // for (`exists`), or storage failing to answer (`upstream`) — every
@@ -81,9 +118,13 @@ export async function startRecordingSession(input: {
  * check, the idempotency and the single audit row.
  *
  * Every identity the core needs is resolved HERE, from the cookie session:
- * a caller cannot name its own business, staff or reach. NO store: finalize
- * never mints a row any more (the mint binds the take to one first), so it has
- * no store to choose — see actions/recording-upload.ts#mintRecordingUploadUrl.
+ * a caller cannot name its own business, staff or reach. Finalize still CHOOSES
+ * no store — it never mints a row any more (the mint binds the take to one
+ * first), so it has none to pick. What it DOES need since slice three ③ is the
+ * caller's own store REACH: finalizing a colleague's take is the owner's hand,
+ * and the owner's hand stops at the stores that person can see. Resolved only
+ * when the pair is held, so an assignment blip never costs a recorder her own
+ * take. Same wording as the facade twin (recordings/finalize/route.ts).
  *
  * NEVER THROWS. Finalize runs on the stop path, and a thrown finalize would
  * put an error dialog between the staffer and a take whose audio is already
@@ -104,12 +145,25 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. Resolved ONLY
+    // when the pair is held (the playback action's idiom, src/actions/
+    // recording-playback.ts): a recorder acting on her OWN session never
+    // reaches the store leg, so an assignment blip must not cost her the take.
+    // One spelling of the web act scope — viewerScopeForActs; dynamic import,
+    // the repo convention (a top-level one drags the ESM-only SDK into this
+    // module's jest graph).
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld
+      ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+      : null
+
     return await finalizeTakeWithClient(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
-        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
         source: 'web',
       },
       input,

@@ -8,7 +8,8 @@ import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
-import { canViewTranscript, ownerHandReach } from '@/lib/auth/recording-acl'
+import { canViewTranscript, ownerHandReach, readDoorStoreId } from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -25,7 +26,10 @@ import type { EntryAuthor } from '@synqed-kk/client'
 
 type SynqedRecordsClient = Pick<
   Awaited<ReturnType<typeof getSynqedClient>>,
-  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings'
+  // `recordings` since ③ fix round 4: the store gate below falls back to the
+  // RECORDING row's store when the karute carries none, exactly as the read
+  // doors do — and it is read here, only when it is needed.
+  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings' | 'recordings'
 >
 
 type SynqedCategory =
@@ -404,10 +408,43 @@ export async function regenerateKaruteWithClient(
   //    …AND ONLY WHERE THE CALLER CAN SEE: the owner's hand obeys the store law
   //    the read doors already obey, so a clamped both-keys manager cannot
   //    rewrite another branch's record. The recorder's own branch is untouched.
+  //
+  //    ⚖ AN ACT IS NEVER MORE PERMISSIVE THAN THE READ (③ fix round 4). The
+  //    read doors compare `readDoorStoreId` — the karute's store, then the
+  //    RECORDING row's — so this gate must compare the same thing, or the
+  //    person who cannot READ this record could still rewrite it, which is the
+  //    wrong way round for the stronger door.
+  //
+  //    The row is fetched ONLY when the karute names no store of its own: the
+  //    common case pays nothing, and the rare one pays a single read on an act
+  //    path that is about to run an LLM anyway.
+  //
+  //    ⚖ A FAILED FETCH IS `'unreadable'`, AND IT CLOSES FOR A CLAMPED HAND
+  //    (fix round 6, Greptile #849 review 2). Until this round it read as "no
+  //    store" — the pre-③ answer, OPEN — so a storage blip on a null-store
+  //    karute let a store-limited both-keys manager rewrite another branch's
+  //    record. A store we could not READ is not a record with no store, and
+  //    this is the strongest of the doors (it rewrites), so it fails closed:
+  //    an owner or preset manager (stores.viewAll) is untouched, the recorder
+  //    never reaches this leg, and only a clamped hand is refused — for as long
+  //    as the blip lasts. A karute with no session at all is genuinely
+  //    store-less and stays `null` (open), which is not a failure at all.
+  const karuteStoreId = (record.store_id as string | null) ?? null
+  const recordingSessionId = (record.recording_session_id as string | null) ?? null
+  // A 404 — the row was swept — is the same null as no session; anything else
+  // is 'unreadable' (a definite no is a no; only an unknown closes).
+  const recordingRow =
+    karuteStoreId === null && recordingSessionId
+      ? await synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+          if (statusOf(err) === 404) return null
+          console.warn('[regenerate] recording read failed — store UNREADABLE, clamped hands refused', err)
+          return 'unreadable' as const
+        })
+      : null
   const reach = ownerHandReach({
     holdsOwnerKeys,
     allowedStoreIds,
-    recordStoreId: (record.store_id as string | null) ?? null,
+    recordStoreId: readDoorStoreId({ store_id: karuteStoreId }, recordingRow),
   })
   if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: reach })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')

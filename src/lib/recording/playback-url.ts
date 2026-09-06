@@ -54,7 +54,7 @@
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { audit } from '@/lib/audit'
-import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript, readDoorStoreId } from '@/lib/auth/recording-acl'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { serverHoldsTakeRow } from '@/lib/recording/take-binding'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -176,18 +176,24 @@ export async function mintPlaybackUrlWithClient(
   //    passed in, because the caller has not seen either object yet when it
   //    builds the actor.
   //
-  //    ⚠ THE KARUTE'S STORE, NOT THE ROW'S (fix round 4, blind round 2 F1).
-  //    `recordings` rows carry NO store_id in this repo — `recordings.create`
-  //    never sends one (session-mint.ts:174, the payload's own comment), the
-  //    SDK's update input has no such field, and a shipped route header states
-  //    it as fact for exactly this reason (recordings/inbox/route.ts:12-13:
-  //    "filtering by it would return an empty list for everyone"). Clamping on
-  //    the row therefore evaluated to the 全店舗/legacy branch for EVERY take in
-  //    the field — the sound door was open while the words door was shut on the
-  //    same karute. The karute's store IS written (resolveKaruteStoreId,
-  //    actions/karute.ts), and it is the same object the words door clamps on,
-  //    so both doors now answer one karute the same way. `?? row.store_id`
-  //    keeps the row's value if core ever starts stamping it.
+  //    ⚠ ⚖ R1′ — THE KARUTE'S STORE LEADS, THE ROW'S IS THE FALLBACK (fix
+  //    round 4, blind round 2 F1; ③ fix round 1 R1; RE-RULED ③ fix round 3,
+  //    Greptile #849 point 2 — R1′ supersedes R1). ONE spelling for all three
+  //    read doors: `readDoorStoreId` (auth/recording-acl.ts), used here and at
+  //    both words doors (karute/[id]/page.tsx · screens/karute/[id]/route.ts).
+  //
+  //    Why both halves are needed. Reading the ROW ALONE was the original bug:
+  //    the column was empty for every take in the field, so the clamp took the
+  //    全店舗/legacy branch and the sound door stood open while the words door
+  //    was shut. Reading the KARUTE ALONE was the fix round 1 overcorrection:
+  //    a karute with no store of its own (a store-less booking) read as 全店舗
+  //    while its row plainly named store-9, so a grantee clamped to store-a
+  //    could hear another branch's audio. Karute first, row second, both null =
+  //    genuinely unlabelled = open — closed AND consistent.
+  //
+  //    Because all three doors take the same input, they cannot disagree about
+  //    one karute: no show-and-refuse (the page's own rule), and no door open
+  //    where its sibling is shut.
   if (
     !canViewTranscript({
       ownerStaffId,
@@ -195,7 +201,7 @@ export async function mintPlaybackUrlWithClient(
       canViewAll: canViewAllInStore({
         canViewAll: actor.canViewAll,
         allowedStoreIds: actor.allowedStoreIds,
-        recordStoreId: karute.store_id ?? row.store_id,
+        recordStoreId: readDoorStoreId(karute, row),
       }),
     })
   ) {
@@ -256,11 +262,12 @@ export async function mintPlaybackUrlWithClient(
     actorId: actor.actorId,
     actorType: 'staff',
     businessId: actor.businessId,
-    // The KARUTE's store, same reason as the ACL above (fix round 4b): the
-    // recording row's column is never written, the karute's always is, and the
-    // audit viewer filters by store — so a row keyed on the empty one was
-    // invisible to every store-scoped search.
-    storeId: karute.store_id ?? row.store_id ?? undefined,
+    // The KARUTE's store first, then the ROW's (fix round 4b) — the SAME chain
+    // the ACL above now takes (readDoorStoreId), so the line a search finds and
+    // the decision that let it happen agree by construction. `?? undefined`
+    // because the audit field is optional and a genuinely unlabelled record has
+    // no store to stamp.
+    storeId: readDoorStoreId(karute, row) ?? undefined,
     targetType: 'recording',
     targetId: row.id,
     severity: 'notice',

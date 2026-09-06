@@ -34,6 +34,7 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import { finalizeTakeWithClient, type FinalizeTakeActor } from '@/lib/recording/finalize-take'
+import { assertRecorderOwnsRow } from '@/lib/recording/take-binding'
 import { TAKE_UUID_FIXTURE as TAKE } from './helpers/recording-key-fixtures'
 
 const BIZ = 'biz-1'
@@ -55,6 +56,11 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. `null` is the PRODUCTION shape for every
+   *  row minted before ③ and can never be filled in afterwards, so it is the
+   *  default here; the store-leg cases below set it when the case is about a
+   *  stamped row. */
+  store_id: string | null
 }
 /** The state the MINT leaves behind: this take's key reserved, UPLOADING, and
  *  no duration yet — the one thing finalize is here to add. */
@@ -65,6 +71,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   status: 'UPLOADING',
   audio_storage_path: KEY,
   duration_seconds: null,
+  store_id: null,
   ...over,
 })
 
@@ -77,6 +84,9 @@ const actor = (over: Partial<FinalizeTakeActor> = {}): FinalizeTakeActor => ({
   staffId: 'staff-1',
   businessId: BIZ,
   holdsOwnerKeys: false,
+  // ③ Unrestricted by default (`stores.viewAll` or floating staff) — the shape
+  // every case here already assumed. The store leg's own cases set it.
+  allowedStoreIds: null,
   source: 'web',
   ...over,
 })
@@ -503,5 +513,146 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
     const res = await finalizeTakeWithClient(synqed, actor(), input)
     expect(res).toEqual({ ok: true, recordingSessionId: SESSION })
     expect(update).toHaveBeenCalledWith(SESSION, { duration_seconds: 42, status: 'UPLOADING' })
+  })
+})
+
+// ── ⚖ THE STORE LEG AT THE TAKE DOORS (slice three ③) ──────────────────────
+// The ONE predicate both take doors ask, on its own. Before ③ a recording row
+// carried no store, so the owner's hand reached every branch; now it reaches
+// only where the person can see — and a row with NO store stays open, because
+// there is no store for it to be outside of (Fable's null rule, D7).
+describe('assertRecorderOwnsRow — the store leg', () => {
+  const OWN = { staffId: 'staff-1', businessId: BIZ }
+  // Typed, not cast: this is the one PR whose census IS the compiler, so a
+  // fixture override must stay checked against the row shape it just changed.
+  const rowOf = (
+    over: Partial<{ business_id: string; staff_id: string; store_id: string | null }> = {},
+  ) => ({
+    business_id: BIZ,
+    staff_id: 'staff-1',
+    store_id: null as string | null,
+    ...over,
+  })
+
+  it('(a) her OWN session → allowed, whatever the stores say', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: false,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toBeNull()
+  })
+
+  it('(b) a colleague’s row, the owner’s hand, UNRESTRICTED scope → allowed', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('(c) a CLAMPED pair-holder on another store’s stamped row → forbidden', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('(d) pre-③ rows carry no store and stay open — the null rule', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toBeNull()
+  })
+
+  it('(e) a DEGRADED scope ([]) fails closed on a STAMPED row', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: 'store-9' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: [],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('(f) no owner’s hand → forbidden however wide the scope', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ staff_id: 'staff-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: false,
+        allowedStoreIds: null,
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  it('the TENANT half is unchanged and asked first', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', store_id: null }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: null,
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  // …and with a store the actor DOES hold, so the store leg would say yes. A
+  // mutant that asked the tenant only when the store leg had already failed
+  // stays green on the case above and dies here.
+  it('…even when the store leg would have passed — another tenant is refused first', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', staff_id: 'staff-2', store_id: 'store-a' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+})
+
+// ── THE FINALIZE DOOR, through the shared body ─────────────────────────────
+describe('finalizeTakeWithClient — a clamped pair-holder', () => {
+  const clamped = actor({ holdsOwnerKeys: true, allowedStoreIds: ['store-a'] })
+
+  it('is refused a colleague’s take STAMPED with another store — nothing written', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({ error: 'forbidden' })
+    expectNoWrites()
+  })
+
+  it('…and still finalizes a colleague’s PRE-③ take, which carries no store', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: null }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({
+      ok: true,
+      recordingSessionId: SESSION,
+    })
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('…and a take stamped with a store she IS assigned to', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-a' }))
+    expect(await finalizeTakeWithClient(synqed, clamped, input)).toEqual({
+      ok: true,
+      recordingSessionId: SESSION,
+    })
+  })
+
+  it('her OWN take is untouched by the clamp — a foreign store on her own row', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-1', store_id: 'store-9' }))
+    expect(
+      await finalizeTakeWithClient(
+        synqed,
+        actor({ holdsOwnerKeys: false, allowedStoreIds: [] }),
+        input,
+      ),
+    ).toEqual({ ok: true, recordingSessionId: SESSION })
   })
 })

@@ -57,6 +57,20 @@ jest.mock('@/lib/supabase/service', () => ({
 // mocked anyway so importing the module never touches next/server's `after`.
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 
+// ③ THE STORE THE DEVICE IS IN. The web door reads the actor's active store
+// (the same value enqueueRecordingJob stamps) and sends it on the create. A
+// jest.fn so the payload pins below can prove the door forwards THIS value and
+// never invents one.
+const resolveStoreScope = jest.fn(async () => ({
+  storeId: 'store-1' as string | null,
+  viewAll: true,
+  allowedStoreIds: null as string[] | null,
+  degraded: false,
+}))
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+}))
+
 import { startRecordingSession } from '@/actions/recordings'
 import { startRecordingSessionWithClient } from '@/lib/recording/session-mint'
 
@@ -71,7 +85,18 @@ beforeEach(() => {
     customer_id: 'cust-1',
     staff_id: 'staff-from-appt',
   }))
+  // mockReset, not just mockResolvedValue: the oracle case below queues a
+  // mockResolvedValueOnce it deliberately never consumes (it asserts `info` is
+  // never called), and clearAllMocks does not drain a once-queue — the leftover
+  // answered "this key already holds bytes" for the next test that probed.
+  info.mockReset()
   info.mockResolvedValue({ data: null, error: notFoundError })
+  resolveStoreScope.mockImplementation(async () => ({
+    storeId: 'store-1',
+    viewAll: true,
+    allowedStoreIds: null,
+    degraded: false,
+  }))
 })
 
 describe('startRecordingSession', () => {
@@ -82,6 +107,7 @@ describe('startRecordingSession', () => {
       staff_id: 'staff-1',
       customer_id: 'cust-1',
       appointment_id: 'appt-1',
+      store_id: 'store-1',
     })
     expect(res).toEqual({ id: 'session-1' })
   })
@@ -125,11 +151,6 @@ describe('startRecordingSession', () => {
     expect(res).toBeNull()
   })
 
-  it('sends no store_id — mirrors saveKaruteRecord, which never sends one either', async () => {
-    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
-    const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
-    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
-  })
 })
 
 // ── BORN RESERVED (fix round 10) ────────────────────────────────────────────
@@ -143,7 +164,14 @@ const KEY = `app_biz-1_${TAKE}.webm`
 const core = (over: Record<string, unknown> = {}) =>
   startRecordingSessionWithClient(
     { recordings: { create: recordingsCreate }, appointments: { get: apptGet } } as never,
-    { customerId: 'cust-1', appointmentId: null, selfStaffId: 'staff-1', businessId: 'biz-1', ...over },
+    {
+      customerId: 'cust-1',
+      appointmentId: null,
+      selfStaffId: 'staff-1',
+      businessId: 'biz-1',
+      storeId: null,
+      ...over,
+    },
   )
 
 describe('startRecordingSession — the row is BORN carrying the take’s key', () => {
@@ -158,6 +186,7 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
       staff_id: 'staff-1',
       customer_id: 'cust-1',
       appointment_id: 'appt-1',
+      store_id: 'store-1',
       audio_storage_path: KEY,
       status: 'UPLOADING',
     })
@@ -179,10 +208,15 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     )
   })
 
-  it('an absent take is byte-identical to before: three keys, and the tenant is never even asked', async () => {
+  it('an absent take reserves nothing, and the tenant is never even asked', async () => {
     await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
     const [payload] = recordingsCreate.mock.calls[0] as [Record<string, unknown>]
-    expect(Object.keys(payload).sort()).toEqual(['appointment_id', 'customer_id', 'staff_id'])
+    expect(Object.keys(payload).sort()).toEqual([
+      'appointment_id',
+      'customer_id',
+      'staff_id',
+      'store_id',
+    ])
     expect(getBusinessId).not.toHaveBeenCalled()
   })
 
@@ -280,5 +314,124 @@ describe('startRecordingSession — the row is BORN carrying the take’s key', 
     const res = await startRecordingSession({ customerId: 'cust-1', takeId: TAKE, mimeType: 'audio/webm' })
     expect(res).toBeNull()
     expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+})
+
+// ── ⚖ THE STORE THE DEVICE WAS IN (slice three ③) ──────────────────────────
+// The row now carries the store the actor was working in — the SAME value
+// enqueueRecordingJob stamps on the job payload, so one recording never gives
+// two answers to "which branch was this". Written at CREATE only: the SDK's
+// update input has no store_id, so every row minted before ③ stays null for
+// ever, and the take doors read that null as open.
+describe('startRecordingSession — the store rides along', () => {
+  it('sends the caller’s ACTIVE store, on the absent-take path', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
+  })
+
+  it('…and on the born-reserved path, beside the take’s key', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+    })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza', audio_storage_path: KEY }),
+    )
+  })
+
+  it('sends null when the scope has no store — a business with none is a real answer', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: true,
+      allowedStoreIds: null,
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(expect.objectContaining({ store_id: null }))
+  })
+
+  // ⚖ G1 (Greptile #849). `degraded` means the assignment lookup FAILED, and on
+  // that path the resolver still hands back a store — the active-store COOKIE,
+  // unchecked. Stamping it would write an authorization fact we cannot vouch
+  // for, and stamping null would write a row the take doors leave open for
+  // ever. Refuse instead: the door's own fail-open null, capture unblocked, the
+  // drain re-mints later through the same door.
+  it('refuses to mint at all on a DEGRADED scope — no row is created, and the caller gets the fail-open null', async () => {
+    resolveStoreScope.mockResolvedValue({
+      // the shape store-scope.ts actually returns on a failed lookup: a real
+      // storeId (the cookie / primary) beside degraded: true.
+      storeId: 'store-from-cookie',
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const res = await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('…on the born-reserved path too — a degraded scope never reserves a key either', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: null,
+      degraded: true,
+    })
+    const res = await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: null,
+      takeId: TAKE,
+      mimeType: 'audio/webm',
+    })
+    expect(res).toBeNull()
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
+
+  it('…while a HEALTHY scope stamps as before — the refusal is the degraded flag, not the store', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({ customerId: 'cust-1', appointmentId: 'appt-1' })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
+  })
+
+  it('never invents one — the value is the SCOPE’s, never the argument’s', async () => {
+    resolveStoreScope.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+      degraded: false,
+    })
+    await startRecordingSession({
+      customerId: 'cust-1',
+      appointmentId: 'appt-1',
+      // A caller-supplied store: this is a 'use server' export, so the argument
+      // is caller JSON however it is typed. It must not reach the payload.
+      ...({ storeId: 'store-elsewhere' } as object),
+    })
+    expect(recordingsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-ginza' }),
+    )
   })
 })

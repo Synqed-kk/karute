@@ -115,13 +115,25 @@ export async function mintRecordingUploadUrl(
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE. Resolved ONLY
+    // when the pair is held (the playback action's idiom, src/actions/
+    // recording-playback.ts): a recorder acting on her OWN session never
+    // reaches the store leg, so an assignment blip must not cost her the take.
+    // One spelling of the web act scope — viewerScopeForActs; dynamic import,
+    // the repo convention (a top-level one drags the ESM-only SDK into this
+    // module's jest graph).
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld
+      ? await (await import('@/lib/auth/store-scope')).viewerScopeForActs()
+      : null
 
     return await mintTakeUploadUrl(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
-        holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
         source: 'web',
       },
       input,
@@ -141,8 +153,10 @@ export async function mintRecordingUploadUrl(
  * same three cookie-derived identities (a caller names neither its tenant, nor
  * itself, nor its reach), same shared body, same never-throws contract with
  * every failure folded into the one retryable `upstream`. The two acts differ
- * only in which shared body they call — everything that makes calling one safe
- * makes calling the other safe.
+ * in which shared body they call and — since ③ fix round 1 — in whether the
+ * store reach is resolved at all (see the ③ note in the body below: this door
+ * passes null, because its own-staff line makes a reach inert). Everything
+ * that makes calling one safe makes calling the other safe.
  *
  * A SEPARATE EXPORT rather than a branch inside the mint above, because the two
  * answer DIFFERENT result unions: a caller that asked for segments and got a
@@ -164,13 +178,20 @@ export async function mintRecordingSegmentUrls(
       getCurrentUserStaffId(),
       getMyCapabilities(),
     ])
-
+    // ③ NO STORE REACH ON THIS DOOR, and none is resolved (fix round 1, L2 F2).
+    // Inert: the segment door refuses every non-own row two lines after
+    // assertRecorderOwnsRow (mint-take-url.ts:997), so a resolved scope here is
+    // a core round trip that changes no answer — once per segment batch, on the
+    // live-recording hot path. `null` reads as unrestricted, which is exactly
+    // what the stricter own-staff rule below it already enforces. The facade
+    // twin (recordings/upload-url/route.ts) does the same, per arm.
     return await mintSegmentUploadUrls(
       newSynqedClient(businessId, await getCurrentAccessToken()),
       {
         staffId,
         businessId,
         holdsOwnerKeys: holdsOwnerKeys(capabilities),
+        allowedStoreIds: null,
         source: 'web',
       },
       input,

@@ -20,7 +20,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
   getMyCapabilities: () => getMyCapabilities(),
 }))
 const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
+// ③ …and the ACT REACH it now does resolve, but ONLY when the caller holds the
+// owner's pair. Default null = unrestricted (`stores.viewAll` or floating
+// staff) — the shape every case below already assumed.
+const viewerScopeForActs = jest.fn(async (): Promise<readonly string[] | null> => null)
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+  viewerScopeForActs: () => viewerScopeForActs(),
+}))
 // A jest.fn, not a bare async literal: the capability gate must run BEFORE the
 // tenant fence, and "the fence never asked who the caller is" is the only
 // evidence of that ordering (storage-not-reached also holds if the gate is last).
@@ -45,6 +52,10 @@ type Row = {
   status: string
   audio_storage_path: string | null
   duration_seconds: number | null
+  /** ③ The store the device was in. Null is the PRODUCTION shape for every row
+   *  minted before ③ and can never be filled afterwards, so it is the default;
+   *  only the store-leg cases set it. */
+  store_id: string | null
 }
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const row = (over: Partial<Row> = {}): Row => ({
@@ -54,6 +65,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   status: 'RECORDING',
   audio_storage_path: null,
   duration_seconds: null,
+  store_id: null,
   ...over,
 })
 const get = jest.fn(async (_id: string): Promise<Row> => row())
@@ -222,6 +234,7 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getMyCapabilities.mockImplementation(async () => new Set(['records.write']))
   resolveStoreScope.mockImplementation(async () => ({ storeId: 'store-9' }))
+  viewerScopeForActs.mockImplementation(async () => null)
   getBusinessId.mockImplementation(async () => 'biz-1')
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
   info.mockImplementation(async (key: string) =>
@@ -740,6 +753,59 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     expect(update).toHaveBeenCalled()
   })
 
+  // ── ⚖ THE STORE LEG (slice three ③) ─────────────────────────────────────
+  // The owner's hand now stops at the stores that person can see. The ONLY
+  // person this changes is a CLAMPED pair-holder — a branch manager the owner
+  // hand-granted both keys — and only on a colleague's row that carries a
+  // store, which means a row minted since ③.
+  describe('a clamped pair-holder', () => {
+    const bothKeys = () =>
+      getMyCapabilities.mockResolvedValue(
+        new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+      )
+
+    it('is refused a colleague’s take STAMPED with another store — nothing bound', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+      await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+      expectNoBinding()
+    })
+
+    it('…and still reserves on a colleague’s PRE-③ row, which carries no store', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: null }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(update).toHaveBeenCalled()
+    })
+
+    it('…and on a row stamped with a store she IS assigned to', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue(['store-a'])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-a' }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+    })
+
+    it('a DEGRADED scope ([]) fails closed on a STAMPED row', async () => {
+      bothKeys()
+      viewerScopeForActs.mockResolvedValue([])
+      get.mockResolvedValue(row({ staff_id: 'staff-2', store_id: 'store-9' }))
+      await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+      expectNoBinding()
+    })
+
+    it('the RECORDER never pays for it — her own take, and the scope is never read', async () => {
+      viewerScopeForActs.mockResolvedValue([])
+      get.mockResolvedValue(row({ staff_id: 'staff-1', store_id: 'store-9' }))
+      const res = await mintOk(named)
+      expect(res.recordingSessionId).toBe(SESSION)
+      expect(viewerScopeForActs).not.toHaveBeenCalled()
+    })
+  })
+
   // ⚖ THE NAMED GRANTEE TWIN (9/3 council; Greptile #848 point 1). The grant is
   // a READ grant: a person the owner ticked for 全スタッフの録音 may HEAR and
   // READ a colleague's recording, and reserving a take on that colleague's
@@ -887,6 +953,21 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     // even composed, so the door is not an existence oracle over it either.
     expect(info).not.toHaveBeenCalled()
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
+  })
+
+  // ⚠ THE HALF THE OWN-STAFF RULE DOES NOT COVER (③ fix round 1, L2 F3). The
+  // line below the shared predicate refuses a colleague, so a mutant that
+  // DELETED assertRecorderOwnsRow here would still refuse one — and silently
+  // take the ROW-LEVEL TENANT fence with it. Belt (the client is already
+  // business-scoped), but the take mint has this pin and its two siblings did
+  // not.
+  it('refuses a session row belonging to another business — the tenant half, not the staff half', async () => {
+    get.mockResolvedValue(row({ business_id: 'biz-2', staff_id: 'staff-1' }))
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
   })
 
   it('…while the take mint KEEPS its owner reach — the two doors differ on purpose', async () => {
@@ -1243,6 +1324,31 @@ describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fen
     // "…while the take mint KEEPS its owner reach", above.)
     expect(info).not.toHaveBeenCalled()
     expectNoBinding()
+  })
+
+  // ⚠ THE HALF THE OWN-STAFF RULE DOES NOT COVER (③ fix round 1, L2 F3) — the
+  // staged door's twin, for the same reason: delete assertRecorderOwnsRow here
+  // and the line below it still refuses a colleague, so nothing would notice
+  // that the ROW-LEVEL TENANT fence went with it.
+  it('refuses a session row belonging to another business — the tenant half, not the staff half', async () => {
+    get.mockResolvedValue(row({ business_id: 'biz-2', staff_id: 'staff-1', audio_storage_path: OWN }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  // ③ FIX ROUND 1 (L2 F1/F2): this door resolves NO store reach, even for a
+  // pair-holder. It cannot use one — the own-staff rule two lines below the
+  // shared predicate refuses every non-own row regardless — and reading it
+  // would be a core round trip per segment batch on the live-recording hot
+  // path. Put the resolve back and this goes red.
+  it('never reads the act scope — not even for the owner’s hand, on the recording hot path', async () => {
+    reserved()
+    getMyCapabilities.mockResolvedValue(
+      new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+    )
+    await segmentsOk()
+    expect(viewerScopeForActs).not.toHaveBeenCalled()
   })
 
   it('…while the recorder themselves is unchanged — same capability, own row', async () => {

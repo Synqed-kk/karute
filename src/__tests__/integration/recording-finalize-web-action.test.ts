@@ -31,7 +31,14 @@ jest.mock('@/lib/staff', () => ({
 // Still mocked, still asserted NOT to matter: finalizeTake must not reach for a
 // store it no longer has any use for (fix round 4).
 const resolveStoreScope = jest.fn(async () => ({ storeId: 'store-9' as string | null }))
-jest.mock('@/lib/auth/store-scope', () => ({ resolveStoreScope: () => resolveStoreScope() }))
+// ③ …and the ACT REACH it now does resolve, but ONLY when the caller holds the
+// owner's pair. Default null = unrestricted (`stores.viewAll` or floating
+// staff) — the shape every case below already assumed.
+const viewerScopeForActs = jest.fn(async (): Promise<readonly string[] | null> => null)
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScope(),
+  viewerScopeForActs: () => viewerScopeForActs(),
+}))
 jest.mock('@/lib/audit-web', () => ({ resolveWebAuditContext: jest.fn() }))
 
 const CLIENT = { recordings: {} }
@@ -130,6 +137,25 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
     await finalizeTake(input)
     expect(actorPassed()).not.toHaveProperty('storeId')
     expect(resolveStoreScope).not.toHaveBeenCalled()
+  })
+
+  // ③ …and it resolves the caller's REACH, which is a different question: a
+  // finalize on a COLLEAGUE's take is the owner's hand, and the owner's hand
+  // now stops at the stores that person can see. Asked only when the pair is
+  // held, so an assignment blip can never cost a recorder her own take.
+  it('resolves the act scope ONLY for a pair-holder — a plain recorder never pays for it', async () => {
+    await finalizeTake(input)
+    expect(viewerScopeForActs).not.toHaveBeenCalled()
+    expect(actorPassed().allowedStoreIds).toBeNull()
+
+    finalizeTakeWithClient.mockClear()
+    getMyCapabilities.mockResolvedValue(
+      new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+    )
+    viewerScopeForActs.mockResolvedValue(['store-a'])
+    await finalizeTake(input)
+    expect(viewerScopeForActs).toHaveBeenCalledTimes(1)
+    expect(actorPassed().allowedStoreIds).toEqual(['store-a'])
   })
 
   // ⚖ 9/3 council + Greptile #848 point 1: finalizing a COLLEAGUE's take is an

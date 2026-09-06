@@ -84,6 +84,7 @@ jest.mock('@synqed-kk/client', () => {
       listSegments: (id: string) => Promise<unknown>
     }
     recordingDiscards: { list: (input: unknown) => Promise<unknown>; create: (input: unknown) => Promise<unknown> }
+    staffStores: { get: (id: string) => Promise<{ store_ids: string[] }> }
     audit: { list: (input: unknown) => Promise<unknown>; log: (input: unknown) => Promise<unknown> }
     constructor(config: { baseUrl: string; apiKey: string; businessId: string }) {
       this.baseUrl = config.baseUrl
@@ -110,6 +111,11 @@ jest.mock('@synqed-kk/client', () => {
         list: (input: unknown) => this.fetch('/audit', { method: 'POST', body: JSON.stringify(input) }),
         log: (input: unknown) => this.fetch('/audit', { method: 'POST', body: JSON.stringify(input) }),
       }
+      // ③ The session route resolves the caller's store before the mint. Off
+      // the wire on purpose: this file's subject is which bearer the RECORDING
+      // writes carry, and a clamp read would only add noise to fetchCalls.
+      // Empty assignment = floating staff = unrestricted within the tenant.
+      this.staffStores = { get: async (_id: string) => ({ store_ids: [] }) }
     }
     // Real SynqedClient.fetch's own shape (dist/client.js): base headers,
     // then the caller's own headers spread LAST — the same order
