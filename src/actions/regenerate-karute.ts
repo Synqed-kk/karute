@@ -9,6 +9,7 @@ import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { canViewTranscript, ownerHandReach, readDoorStoreId } from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
 import {
   lookupProfileIdForSynqedStaffId,
   lookupProfileIdForSynqedStaffIdForBusiness,
@@ -430,9 +431,12 @@ export async function regenerateKaruteWithClient(
   //    store-less and stays `null` (open), which is not a failure at all.
   const karuteStoreId = (record.store_id as string | null) ?? null
   const recordingSessionId = (record.recording_session_id as string | null) ?? null
+  // A 404 — the row was swept — is the same null as no session; anything else
+  // is 'unreadable' (a definite no is a no; only an unknown closes).
   const recordingRow =
     karuteStoreId === null && recordingSessionId
       ? await synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+          if (statusOf(err) === 404) return null
           console.warn('[regenerate] recording read failed — store UNREADABLE, clamped hands refused', err)
           return 'unreadable' as const
         })

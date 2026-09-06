@@ -28,6 +28,7 @@ import {
   ownerHandReach,
   readDoorStoreId,
 } from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -107,6 +108,10 @@ export default async function KaruteDetailPage({
     ? synqedPromise
         .then((synqed) => synqed.recordings.get(recordingSessionId))
         .catch((err: unknown) => {
+          // A 404 — the row was swept — is the same null as no session;
+          // anything else is 'unreadable' (a definite no is a no; only an
+          // unknown closes).
+          if (statusOf(err) === 404) return null
           console.warn('[karute-detail] recording read failed — no player', err)
           return 'unreadable' as const
         })

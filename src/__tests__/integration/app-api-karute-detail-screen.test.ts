@@ -804,6 +804,21 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
     expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
   })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept —
+  // the same "no store info anywhere" as a karute with no session at all — so
+  // it reads OPEN even for a clamped grantee, unlike a genuine throw above.
+  it('a 404 (SWEPT row) reads as null-store — OPEN even for a CLAMPED grantee', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.transcriptRestricted).toBe(false)
+  })
 })
 
 // ── ⚖ 再生成 — the FACADE hands the phone the SERVER'S answer (fix round 4) ──
@@ -939,6 +954,21 @@ describe('staffCanRegenerate — hide, never show-and-refuse', () => {
     expect(dto.transcript).toBeNull()
     expect(dto.transcriptRestricted).toBe(true)
     expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept,
+  // which is the same "no store info" as no session at all — transcript
+  // visible AND control shown.
+  it('a 404 (SWEPT row) reads as no store → transcript visible AND control shown', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'other-staff', store_id: null }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set([
+      'customers.view', 'records.write', 'business.manage', 'recordings.viewAll',
+    ])
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(true)
   })
 
   it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {

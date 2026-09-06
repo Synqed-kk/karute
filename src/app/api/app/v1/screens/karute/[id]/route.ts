@@ -34,6 +34,7 @@ import {
   ownerHandReach,
   readDoorStoreId,
 } from '@/lib/auth/recording-acl'
+import { statusOf } from '@/lib/recording/take-binding'
 import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
@@ -103,15 +104,19 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       // The recording behind this karute — the player's presence probe (slice
       // ①). Page-parity graceful like photos above, and for the stronger
       // reason: an accessory read that blipped must cost the PLAYER, never 502
-      // the whole karute screen. A 404 (row swept) is the same answer.
+      // the whole karute screen. A 404 — the row was swept — is the same null
+      // as no session; anything else is 'unreadable'.
       //
       // ⚖ …AND THE FAILURE IS `'unreadable'`, NOT `null` (fix round 6, Greptile
       // #849 review 2) — the web page's twin. A store we could not read is not
       // a record with no store: collapsing the two opened a null-store karute
       // to a store-clamped grantee on every blip. The player still goes away;
-      // only the store question sees the sentinel (readDoorStoreId).
+      // only the store question sees the sentinel (readDoorStoreId). A 404 is
+      // a definite no, not an unknown, so it is exempt (a definite no is a no;
+      // only an unknown closes).
       recordingSessionId
         ? synqed.recordings.get(recordingSessionId).catch((err: unknown) => {
+            if (statusOf(err) === 404) return null
             console.warn('[screens/karute] recording read failed — no player', err)
             return 'unreadable' as const
           })

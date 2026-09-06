@@ -787,6 +787,18 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     expect(runExtract).not.toHaveBeenCalled()
   })
 
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept —
+  // the same "no store info anywhere" as a karute with no session at all — so
+  // the gate stays OPEN for a clamped manager, unlike a genuine throw above.
+  it('facade: a 404 (SWEPT row) reads as no store — regenerate proceeds for a store-a manager too', async () => {
+    nullStoreKaruteWithRow('store-9')
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    capabilities.current = new Set(BOTH)
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-a'] })
+    expect((await post()).status).toBe(200)
+    expect(runExtract).toHaveBeenCalled()
+  })
+
   it('facade: …but an UNRESTRICTED hand (stores.viewAll) still rewrites it → 200', async () => {
     nullStoreKaruteWithRow('store-9')
     recordingsGet.mockRejectedValue(new Error('core down'))

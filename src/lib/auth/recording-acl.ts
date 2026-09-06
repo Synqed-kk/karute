@@ -121,10 +121,12 @@ export function readDoorStoreId(
    *  explicitly null one here: this record names no store of its own, so ask
    *  the recording. */
   karute: { store_id?: string | null },
-  /** The recording row, `null` when there is none to read, or the value
-   *  `'unreadable'` when the door's own read FAILED — see the ⚖ paragraph
-   *  above. The row is consulted ONLY when the karute names no store, so an
-   *  unreadable row on a karute that HAS one changes nothing. */
+  /** The recording row, `null` when there is none to read (no session, OR a
+   *  404 — the row was swept: a definite no is a no), or the value
+   *  `'unreadable'` when the door's own read FAILED for any other reason —
+   *  see the ⚖ paragraph above. Only an unknown closes. The row is consulted
+   *  ONLY when the karute names no store, so an unreadable row on a karute
+   *  that HAS one changes nothing. */
   row: { store_id?: string | null } | null | undefined | 'unreadable',
 ): string | null | 'unreadable' {
   if (karute.store_id != null) return karute.store_id

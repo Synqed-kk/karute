@@ -418,6 +418,26 @@ describe('KaruteDetailPage — the named grant stays inside the viewer’s store
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().canViewAllRecordings).toBe(true)
   })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept —
+  // that is the same "no store info anywhere" as a karute with no session at
+  // all, so it stays OPEN even for a clamped grantee, unlike a genuine throw.
+  it('a 404 (SWEPT row) reads as null-store — OPEN even for a CLAMPED grantee', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9',
+      summary: null,
+      staff_profile_id: 'other-staff',
+      store_id: null,
+      recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
+    const props = await viewPropsFromPage()
+    expect(props).toBeDefined()
+    expect(built().canViewAllRecordings).toBe(true)
+    expect(built().recordingRow).toBeNull()
+  })
 })
 
 // ── ⚖ 再生成 — the WEB page hands the builder the SERVER'S answer (fix round 4)
@@ -560,6 +580,19 @@ describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)'
     clampedBothKeys()
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  // ⚖ A 404 IS A DEFINITE NO, NOT AN UNKNOWN (MED-1 fix). The row was swept,
+  // which is the same "no store info" as no session at all — button shown.
+  it('a 404 (SWEPT row) reads as no store → button shown for a store-a manager too', async () => {
+    karuteRow.current = {
+      client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff',
+      store_id: null, recording_session_id: 'sess-1',
+    }
+    recordingsGet.mockRejectedValue(Object.assign(new Error('not found'), { status: 404 }))
+    clampedBothKeys()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
   })
 
   // …and the RECORDER never reaches the store leg at all — she passes on the
