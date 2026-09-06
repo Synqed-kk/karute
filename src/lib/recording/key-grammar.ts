@@ -88,12 +88,14 @@ const UUID_LENGTH = 36
  * typed-out copy of today's members (fix round 8). A fifth container is added
  * here and exactly one pin fails, which is what the docblock below promises.
  */
-export const MIME_TO_EXT: Readonly<Record<string, string>> = Object.assign(Object.create(null), {
-  'audio/webm': 'webm',
-  'audio/mp4': 'mp4',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-})
+export const MIME_TO_EXT: Readonly<Record<string, string>> = Object.freeze(
+  Object.assign(Object.create(null), {
+    'audio/webm': 'webm',
+    'audio/mp4': 'mp4',
+    'audio/ogg': 'ogg',
+    'audio/wav': 'wav',
+  }),
+)
 /** Closed set, DERIVED from the map above so a container the mint composes and
  *  the grammar refuses cannot exist. */
 const EXTENSIONS: readonly string[] = Object.values(MIME_TO_EXT)
