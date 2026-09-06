@@ -5,7 +5,7 @@
 | **Status** | Building — capture T0 shipped (#170, #171); T1's capture path is now shipped end to end (segments as they complete, the launch drain, the nightly assembler) with one decision still open (bitrate, below); T2–T4 to build |
 | **Audience** | Anthony + whoever owns the recording pipeline |
 | **Owners** | Liam (product) · Anthony (engineering) |
-| **Updated** | 2026-09-06 |
+| **Updated** | 2026-09-07 |
 
 ## Why this matters (the principle)
 
@@ -59,48 +59,41 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   server job both read *that* object — there is no second staging upload.
 - **A take the device never sent is drained at the next launch** (#835), so a
   phone that comes back finishes its own recording rather than waiting for
-  anyone to notice — *unless the nightly job below has already rebuilt that
-  take*, in which case the phone's own copy can no longer be secured under the
-  same key (see the ceiling two bullets down).
+  anyone to notice — and it can *always* finish it, whenever it turns up,
+  because the nightly job below never occupies the key it will need.
 - **And a device that never comes back no longer keeps the audio** — a nightly
   job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
   take from the segments it left behind, once they have gone 48 hours
   untouched. It concatenates the contiguous run from the first segment, ADDS
-  the result under the key the take's own row already reserved, and files one
-  `recording.capture_resumed` audit row that says plainly how many segments
-  there were, where the first hole is, and how long the rebuilt audio is
-  estimated to run. Two days, not two hours, because the device's own drain is
-  faster than we are and sealing early would strand the take it was about to
-  finish.
-- **⚖ The price of sealing without a declaration — the returning device.**
-  Nothing tells the server how long a take was meant to be, so what the nightly
-  job writes is the segments it can see, and the take's key is immutable. Once
-  it has sealed one, a phone that turns up *at any later time* — a week later,
-  out of a drawer — meets that object: its own finalize compares byte lengths,
-  they differ (it holds the last flush the segments never got), and it ends at
-  a terminal `size_mismatch`, so that take reads 要対応 with 再試行 on the
-  phone. **The full audio is not lost** — it stays on the device, and the
-  server holds the rebuilt prefix — but the phone can no longer complete it
-  itself.
-- **⚖ The live case inside that ceiling — the paused phone.** A staffer who
-  paused a take two days ago on a perfectly healthy phone looks *exactly* like
-  a phone that died mid-take: no new segment, the row still `UPLOADING`, no
-  duration, and the recorder's 2-hour auto-stop measures *recorded* time, not
-  wall time, so it never fires on a pause. Nothing on the server separates the
-  two — no take declares itself finished, and none reports itself still open —
-  so the nightly job seals the paused take's prefix, and when that phone
-  resumes and finalizes it meets the object, the byte counts differ, and it
-  ends at the same terminal `size_mismatch`, with its fuller audio stranded on
-  the device. **This is a real cost and it cannot be closed server-side.** Two
-  closes exist, both a decision rather than a detail: **(a)** the device
-  re-mints under a *fresh take id* when its finalize meets `size_mismatch`
-  after a rescue, so the fuller copy gets a key of its own — a small
-  phone-side change; or **(b)** the rescue writes to a *side key* that never
-  occupies the device's own, leaving the take's key free for whoever comes back
-  — a redesign touching the nightly job, the save door and the read doors.
-  Until one is chosen, 48 hours of silence is the honest line and this
-  paragraph is the disclosure. A last segment declared at stop would close the
-  whole family at the root, and remains the standing upgrade.
+  the result **beside** the take — at `rsc/<the take's own key>`, never on it —
+  and files one `recording.capture_resumed` audit row that says plainly how many
+  segments there were, where the first hole is, and how long the rebuilt audio
+  is estimated to run. Two days, not two hours, because the device's own drain
+  is faster than we are and there is nothing to gain by spending a rebuild on a
+  take that is about to arrive whole.
+- **⚖ The rescue is a SIDE key, and that is what closes the returning phone**
+  (Liam's ruling, 2026-09-06). It used to write under the take's own key, which
+  meant a phone turning up later — out of a drawer, or simply *un-paused* — met
+  an object it could not replace, and its own finalize ended at a terminal
+  `size_mismatch` with the fuller audio stuck on the device. Writing one prefix
+  over leaves the phone's key free: it uploads its whole take and finalizes at
+  the size it declared, and nothing is stuck. Both objects then exist, and every
+  reader **prefers the phone's** — one precedence in one place
+  (`lib/recording/take-audio.ts`), used by the play button and the discard door
+  today and by the inbox's save door next. The 48-hour line now decides only
+  *when* a rescue happens, never what it can break. The cost is one extra
+  partial object per rescued take, which — like all audio here — is never
+  deleted.
+- **⚖ What the side key does NOT close — the words.** A karute somebody saved
+  from a rescue was transcribed from the rebuilt prefix, and it keeps those
+  words for good: no door in the app re-transcribes an existing record
+  (`regenerate-karute.ts` reads the record's own transcript, never the audio).
+  So when the phone returns, its fuller take becomes *playable* — the play
+  button signs it automatically — without becoming *written*. The staffer sees a
+  normal saved karute, not 要対応. The honest close is a 「音声から文字起こしを
+  やり直す」 door, and that is a separate decision, not this lane. It is still
+  strictly better than what it replaced: nothing is stuck, no second karute
+  appears, and the full recording is on the server either way.
 - **The rescued take's LENGTH will be written when a staffer saves it** — not
   by the nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
   (core D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`), and a 03:07 cron has
