@@ -125,7 +125,11 @@ export async function mintPlaybackUrlWithClient(
 ): Promise<MintPlaybackUrlResult> {
   // 1. The karute names the resource, and proves the tenancy: a business-scoped
   //    client reads a foreign id as 404 (packet-03 disc. #5).
-  let karute: { staff_id?: string | null; recording_session_id?: string | null }
+  let karute: {
+    staff_id?: string | null
+    store_id?: string | null
+    recording_session_id?: string | null
+  }
   try {
     karute = await synqed.karuteRecords.get(input.karuteId)
   } catch (err) {
@@ -168,9 +172,22 @@ export async function mintPlaybackUrlWithClient(
       )) ?? karute.staff_id)
     : null
   //    THE STORE HALF (⚖ 8/17 store isolation; Greptile #848 point 2): the
-  //    grant widens WHOSE recordings, never WHICH stores. `row.store_id` is the
-  //    session's own store — read here rather than passed in, because the
-  //    caller has not seen the row yet when it builds the actor.
+  //    grant widens WHOSE recordings, never WHICH stores. Read here rather than
+  //    passed in, because the caller has not seen either object yet when it
+  //    builds the actor.
+  //
+  //    ⚠ THE KARUTE'S STORE, NOT THE ROW'S (fix round 4, blind round 2 F1).
+  //    `recordings` rows carry NO store_id in this repo — `recordings.create`
+  //    never sends one (session-mint.ts:174, the payload's own comment), the
+  //    SDK's update input has no such field, and a shipped route header states
+  //    it as fact for exactly this reason (recordings/inbox/route.ts:12-13:
+  //    "filtering by it would return an empty list for everyone"). Clamping on
+  //    the row therefore evaluated to the 全店舗/legacy branch for EVERY take in
+  //    the field — the sound door was open while the words door was shut on the
+  //    same karute. The karute's store IS written (resolveKaruteStoreId,
+  //    actions/karute.ts), and it is the same object the words door clamps on,
+  //    so both doors now answer one karute the same way. `?? row.store_id`
+  //    keeps the row's value if core ever starts stamping it.
   if (
     !canViewTranscript({
       ownerStaffId,
@@ -178,7 +195,7 @@ export async function mintPlaybackUrlWithClient(
       canViewAll: canViewAllInStore({
         canViewAll: actor.canViewAll,
         allowedStoreIds: actor.allowedStoreIds,
-        recordStoreId: row.store_id,
+        recordStoreId: karute.store_id ?? row.store_id,
       }),
     })
   ) {

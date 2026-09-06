@@ -78,13 +78,25 @@ const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const TAKE = '11111111-1111-4111-8111-111111111111'
 const TAKE_KEY = `app_business-1_${TAKE}.mp4`
 
+// ⚠ THE PRODUCTION SHAPE (fix round 4). The KARUTE carries the store
+// (resolveKaruteStoreId, actions/karute.ts, stamps it on every save); the
+// RECORDING ROW never does — `recordings.create` sends no store_id
+// (session-mint.ts:174) and the SDK's update input has no such field, which
+// recordings/inbox/route.ts:12-13 states as fact. The fixtures said the
+// opposite until now, and the store pins below were passing on a column the
+// field never writes.
 const KAR = {
-  current: { id: KARUTE_ID, staff_id: 'auth-user-1', recording_session_id: SESSION } as Record<string, unknown>,
+  current: {
+    id: KARUTE_ID,
+    staff_id: 'auth-user-1',
+    store_id: 'store-9' as string | null,
+    recording_session_id: SESSION,
+  } as Record<string, unknown>,
 }
 const ROW = {
   current: {
     id: SESSION,
-    store_id: 'store-9',
+    store_id: null as string | null,
     audio_storage_path: TAKE_KEY as string | null,
     duration_seconds: 742 as number | null,
     status: 'COMPLETED',
@@ -173,8 +185,8 @@ beforeEach(() => {
   roster.current = [{ id: 'auth-user-1', full_name: '田中', display_role: 'practitioner' }]
   rosterThrows.current = false
   cardLookup.current = null
-  KAR.current = { id: KARUTE_ID, staff_id: 'auth-user-1', recording_session_id: SESSION }
-  ROW.current = { id: SESSION, store_id: 'store-9', audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
+  KAR.current = { id: KARUTE_ID, staff_id: 'auth-user-1', store_id: 'store-9', recording_session_id: SESSION }
+  ROW.current = { id: SESSION, store_id: null, audio_storage_path: TAKE_KEY, duration_seconds: 742, status: 'COMPLETED' }
   createSignedUrl.mockResolvedValue({
     data: { signedUrl: `https://proj.supabase.co/read/${TAKE_KEY}?token=t` },
     error: null,
@@ -404,7 +416,11 @@ describe('mintPlaybackUrlWithClient — ONE row per mint (claim 4)', () => {
       business_id: 'business-1',
       target_type: 'recording',
       target_id: SESSION,
-      store_id: 'store-9',
+      // The audit line still reads the ROW's store (playback-url.ts:258), which
+      // production never writes — so it carries none. Recorded as-is in fix
+      // round 4 rather than silently re-pointed at the karute: the ACL was the
+      // packet's subject, the audit row's store is a separate call.
+      store_id: null,
       severity: 'notice',
       break_glass: false,
       source: 'web',
@@ -596,9 +612,10 @@ describe('mintRecordingPlaybackUrl — the web door', () => {
 })
 
 // ── ⚖ STORE REACH — the grant widens WHOSE recordings, never WHICH stores ────
-// Liam's store-isolation law 8/17; Greptile #848 point 2. `ROW.current.store_id`
-// is 'store-9', and the karute belongs to a colleague ('other-staff'), so every
-// case below rides the viewAll branch — the only branch this narrows.
+// Liam's store-isolation law 8/17; Greptile #848 point 2. `KAR.current.store_id`
+// is 'store-9' — the karute's own store, the ONLY store either door can read —
+// and the karute belongs to a colleague ('other-staff'), so every case below
+// rides the viewAll branch, the only branch this narrows.
 describe('the named grant hears only inside the viewer’s own stores', () => {
   beforeEach(() => {
     KAR.current = { ...KAR.current, staff_id: 'other-staff' }
@@ -620,10 +637,30 @@ describe('the named grant hears only inside the viewer’s own stores', () => {
     expect(r).toEqual({ error: 'forbidden' })
   })
 
-  it('a record with NO store is heard by a clamped grantee (全店舗 / legacy)', async () => {
-    ROW.current = { ...ROW.current, store_id: null as unknown as string }
+  it('a record with NO store — karute AND row both null — is heard by a clamped grantee (全店舗 / legacy)', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: null }
     const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
     expect('url' in r).toBe(true)
+  })
+
+  // ⚠ THE PIN THAT DIES IF THE CLAMP GOES BACK TO THE ROW (fix round 4, F1).
+  // This is the shape of EVERY take in the field: the karute names the store,
+  // the recording row's column is empty. Clamping on the row read that empty
+  // column as 全店舗 and handed a store-a grantee a store-9 colleague's audio —
+  // the words door was shut on the same karute the whole time.
+  it('production shape — the recording row carries no store_id; the clamp reads the KARUTE’s store: grantee in store-a, karute store-9, row null → forbidden', async () => {
+    KAR.current = { ...KAR.current, store_id: 'store-9' }
+    ROW.current = { ...ROW.current, store_id: null }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
+  })
+
+  it('…and the row’s value is still honoured if core ever starts stamping it (karute null, row store-9)', async () => {
+    KAR.current = { ...KAR.current, store_id: null }
+    ROW.current = { ...ROW.current, store_id: 'store-9' }
+    const r = await mint({ staffId: 'someone-else', canViewAll: true, allowedStoreIds: ['store-a'] })
+    expect(r).toEqual({ error: 'forbidden' })
   })
 
   it('a DEGRADED scope ([]) fails closed', async () => {
