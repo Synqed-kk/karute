@@ -523,7 +523,11 @@ describe('finalizeTakeWithClient — idempotency and the terminal statuses', () 
 // there is no store for it to be outside of (Fable's null rule, D7).
 describe('assertRecorderOwnsRow — the store leg', () => {
   const OWN = { staffId: 'staff-1', businessId: BIZ }
-  const rowOf = (over: Partial<{ staff_id: string; store_id: string | null }> = {}) => ({
+  // Typed, not cast: this is the one PR whose census IS the compiler, so a
+  // fixture override must stay checked against the row shape it just changed.
+  const rowOf = (
+    over: Partial<{ business_id: string; staff_id: string; store_id: string | null }> = {},
+  ) => ({
     business_id: BIZ,
     staff_id: 'staff-1',
     store_id: null as string | null,
@@ -592,10 +596,23 @@ describe('assertRecorderOwnsRow — the store leg', () => {
 
   it('the TENANT half is unchanged and asked first', () => {
     expect(
-      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', store_id: null } as never), {
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', store_id: null }), {
         ...OWN,
         holdsOwnerKeys: true,
         allowedStoreIds: null,
+      }),
+    ).toEqual({ error: 'forbidden' })
+  })
+
+  // …and with a store the actor DOES hold, so the store leg would say yes. A
+  // mutant that asked the tenant only when the store leg had already failed
+  // stays green on the case above and dies here.
+  it('…even when the store leg would have passed — another tenant is refused first', () => {
+    expect(
+      assertRecorderOwnsRow(rowOf({ business_id: 'biz-2', staff_id: 'staff-2', store_id: 'store-a' }), {
+        ...OWN,
+        holdsOwnerKeys: true,
+        allowedStoreIds: ['store-a'],
       }),
     ).toEqual({ error: 'forbidden' })
   })

@@ -955,6 +955,21 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
     expect(createSignedUploadUrl).not.toHaveBeenCalled()
   })
 
+  // ⚠ THE HALF THE OWN-STAFF RULE DOES NOT COVER (③ fix round 1, L2 F3). The
+  // line below the shared predicate refuses a colleague, so a mutant that
+  // DELETED assertRecorderOwnsRow here would still refuse one — and silently
+  // take the ROW-LEVEL TENANT fence with it. Belt (the client is already
+  // business-scoped), but the take mint has this pin and its two siblings did
+  // not.
+  it('refuses a session row belonging to another business — the tenant half, not the staff half', async () => {
+    get.mockResolvedValue(row({ business_id: 'biz-2', staff_id: 'staff-1' }))
+    await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
+      error: 'forbidden',
+    })
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
   it('…while the take mint KEEPS its owner reach — the two doors differ on purpose', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: null }))
     getMyCapabilities.mockResolvedValue(new Set(['records.write', 'business.manage', 'recordings.viewAll']))
@@ -1309,6 +1324,31 @@ describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fen
     // "…while the take mint KEEPS its owner reach", above.)
     expect(info).not.toHaveBeenCalled()
     expectNoBinding()
+  })
+
+  // ⚠ THE HALF THE OWN-STAFF RULE DOES NOT COVER (③ fix round 1, L2 F3) — the
+  // staged door's twin, for the same reason: delete assertRecorderOwnsRow here
+  // and the line below it still refuses a colleague, so nothing would notice
+  // that the ROW-LEVEL TENANT fence went with it.
+  it('refuses a session row belonging to another business — the tenant half, not the staff half', async () => {
+    get.mockResolvedValue(row({ business_id: 'biz-2', staff_id: 'staff-1', audio_storage_path: OWN }))
+    await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
+    expect(info).not.toHaveBeenCalled()
+    expectNoBinding()
+  })
+
+  // ③ FIX ROUND 1 (L2 F1/F2): this door resolves NO store reach, even for a
+  // pair-holder. It cannot use one — the own-staff rule two lines below the
+  // shared predicate refuses every non-own row regardless — and reading it
+  // would be a core round trip per segment batch on the live-recording hot
+  // path. Put the resolve back and this goes red.
+  it('never reads the act scope — not even for the owner’s hand, on the recording hot path', async () => {
+    reserved()
+    getMyCapabilities.mockResolvedValue(
+      new Set(['records.write', 'business.manage', 'recordings.viewAll']),
+    )
+    await segmentsOk()
+    expect(viewerScopeForActs).not.toHaveBeenCalled()
   })
 
   it('…while the recorder themselves is unchanged — same capability, own row', async () => {

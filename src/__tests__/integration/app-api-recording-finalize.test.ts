@@ -125,6 +125,12 @@ beforeEach(() => {
   recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
   held.clear()
   createSignedUploadUrl.mockImplementation(fakeCreateSignedUploadUrl(held, uploadUrl))
+  // ③ The two clamp doubles: jest.clearAllMocks() clears CALLS, not
+  // implementations, so a case that sets a persistent assignment would leak a
+  // clamped scope into every test declared after it. Floating (empty) is the
+  // shape every case outside the store-leg describe assumes.
+  fakeClient.staffStores.get.mockResolvedValue({ store_ids: [] } as never)
+  fakeClient.stores.get.mockResolvedValue({ id: 'store-1' } as never)
 })
 
 describe('POST recordings/upload-url — the fenced mint', () => {
@@ -548,6 +554,47 @@ describe('the named grant reserves and finalizes NOTHING on a colleague’s sess
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
     const res = await finalizePOST(jreq(auth, finalizeBody), noRoute)
     expect(res.status).toBe(200)
+  })
+})
+
+// ── ⚖ WHO PAYS FOR THE REACH (slice three ③, fix round 1 — L2 F1/F2) ───────
+// The store reach is resolved ONLY where it can change an answer: a caller
+// holding the owner's pair, on the TAKE arm. A plain recorder never pays for
+// it, and neither does the SEGMENT arm — the segment door refuses every non-own
+// row two lines after the shared predicate, so a scope there is a core round
+// trip per batch on the live-recording hot path this route's header protects.
+describe('the act scope is resolved only where it can matter', () => {
+  const bothKeys = () =>
+    (capabilities.current = new Set([
+      'records.write',
+      'business.manage',
+      'recordings.viewAll',
+    ]))
+
+  it('a named take by a caller WITHOUT the pair asks core for no assignment', async () => {
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
+  })
+
+  it('…and the SAME caller WITH the pair does — the take arm is where it counts', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: null })
+    const res = await mintPOST(jreq(auth, mintBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('a SEGMENT body asks for no assignment even WITH the pair — the hot path stays cold', async () => {
+    bothKeys()
+    info.mockResolvedValue(objectFree)
+    recordingsGet.mockResolvedValue({ ...ROW, audio_storage_path: KEY })
+    const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
+    expect(res.status).toBe(200)
+    expect(fakeClient.staffStores.get).not.toHaveBeenCalled()
   })
 })
 

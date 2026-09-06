@@ -306,7 +306,7 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
       expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
     })
 
-    // FIX ROUND 1 — the row is BORN RESERVED (session-mint.ts:171), so a key
+    // FIX ROUND 1 — the row is BORN RESERVED (session-mint.ts:179), so a key
     // with no receipt behind it is a take still on the DEVICE. A player there
     // could only ever answer 「再生できませんでした」.
     it('a RESERVED-but-not-secured row (UPLOADING, no duration) → recording:null', async () => {

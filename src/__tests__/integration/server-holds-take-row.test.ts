@@ -3,9 +3,9 @@
  * "does the server actually HOLD this take's audio?", shared by the card's
  * presence (detail-screen.ts) and the playback mint (playback-url.ts).
  *
- * THE BUG IT CLOSES. The recording row is BORN RESERVED: session-mint.ts:171
+ * THE BUG IT CLOSES. The recording row is BORN RESERVED: session-mint.ts:179
  * creates it with `{ audio_storage_path, status: 'UPLOADING' }`, and
- * mint-take-url.ts:479-480 writes the same on a legacy row — both BEFORE a
+ * mint-take-url.ts:497-499 writes the same on a legacy row — both BEFORE a
  * single byte exists. So a pointer on the row means "this row claimed this
  * key", never "the bytes are here". Reading it as presence put a player on a
  * take still sitting on the device (secure retrying, or gone with the phone),

@@ -96,9 +96,13 @@ export async function startRecordingSession(input: {
  * check, the idempotency and the single audit row.
  *
  * Every identity the core needs is resolved HERE, from the cookie session:
- * a caller cannot name its own business, staff or reach. NO store: finalize
- * never mints a row any more (the mint binds the take to one first), so it has
- * no store to choose — see actions/recording-upload.ts#mintRecordingUploadUrl.
+ * a caller cannot name its own business, staff or reach. Finalize still CHOOSES
+ * no store — it never mints a row any more (the mint binds the take to one
+ * first), so it has none to pick. What it DOES need since slice three ③ is the
+ * caller's own store REACH: finalizing a colleague's take is the owner's hand,
+ * and the owner's hand stops at the stores that person can see. Resolved only
+ * when the pair is held, so an assignment blip never costs a recorder her own
+ * take. Same wording as the facade twin (recordings/finalize/route.ts).
  *
  * NEVER THROWS. Finalize runs on the stop path, and a thrown finalize would
  * put an error dialog between the staffer and a take whose audio is already
