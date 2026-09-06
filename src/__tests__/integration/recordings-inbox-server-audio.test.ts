@@ -503,6 +503,57 @@ describe('a degraded discard ledger stands the whole derivation down', () => {
 })
 
 /**
+ * ⚖ R1 (fix round 4) — A PROBE THAT THROWS COSTS ONE ROW, NEVER THE SCREEN.
+ *
+ * Every other test here answers a probe with a VALUE. Both PRODUCTION probes
+ * can reject instead: `listFirstSegment` builds the service client outside
+ * `makeSegmentsProbe`'s own try, so a missing or rotated SUPABASE env throws on
+ * construction, and `resolveTakeAudio` throws by design when a key fails its
+ * grammar. Without a guard that rejection escapes Promise.all, escapes
+ * readRecordingsInbox, and the WHOLE 録音履歴 server half goes dark for that
+ * render — a 502 at the facade, 「サーバー側の読み込みに失敗」 on the web —
+ * which is the exact opposite of the derivation's own rule that a probe we
+ * could not ask leaves the row as it was.
+ */
+describe('a probe that REJECTS takes its own row down and nothing else', () => {
+  const takeOf = (i: number) => `4f9b2c1e-8a7d-4e0f-b3c6-${String(i).padStart(12, '0')}`
+  const threeRows = () =>
+    [0, 1, 2].map((i) =>
+      rec({ id: `s${i}`, audio_storage_path: `app_${BIZ}_${takeOf(i)}.webm` }),
+    )
+
+  it('the RESOLVER throwing on two rows leaves those two alone; the third still derives', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordings.current = threeRows()
+    takeAudio.mockImplementation(async (_b, takeId) => {
+      if (takeId === takeOf(2)) return PHONE
+      throw new Error('boom')
+    })
+    const rows = await read()
+    expect(rows.map((r) => r.serverAudio)).toEqual([undefined, undefined, 'object'])
+    expect(
+      warn.mock.calls.some((c) => String(c[0]).includes('server-audio probe failed for s0')),
+    ).toBe(true)
+    warn.mockRestore()
+  })
+
+  it('the LISTING throwing does the same — the healthy row still reads segments', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    recordings.current = threeRows()
+    probe.mockImplementation(async (_b, key) => {
+      if (key === `app_${BIZ}_${takeOf(2)}.webm`) return true
+      throw new Error('storage dark')
+    })
+    const rows = await read()
+    expect(rows.map((r) => r.serverAudio)).toEqual([undefined, undefined, 'segments'])
+    expect(
+      warn.mock.calls.some((c) => String(c[0]).includes('server-audio probe failed for s1')),
+    ).toBe(true)
+    warn.mockRestore()
+  })
+})
+
+/**
  * ⚖ R2 — THE PRODUCTION PROBES THEMSELVES.
  *
  * Until fix round 1 these were defaults nothing could call: every test injected

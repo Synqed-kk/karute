@@ -541,16 +541,36 @@ async function deriveServerAudio(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
       for (let i = next++; i < probeList.length; i = next++) {
         const { row, key, takeId, ext } = probeList[i]
-        // THE PHONE'S KEY FIRST (ADDENDUM 9.4), because a whole object needs no
-        // segments behind it. Only a proven 'absent' buys the listing, and the
-        // listing now gates the RESCUE half alone.
-        const audio = await deps.takeAudioProbe(businessId, takeId, ext)
-        if (audio === 'unknown') continue
-        if (audio !== 'absent') {
-          row.serverAudio = 'object'
+        // ⚖ ONE ROW'S BAD LUCK IS NOT THE WHOLE SCREEN'S (fix round 4, R1).
+        // Both production probes can THROW, not just answer 'unknown':
+        // listFirstSegment builds the service client outside makeSegmentsProbe's
+        // own try (a missing or rotated SUPABASE env throws on construction),
+        // and resolveTakeAudio throws by design when a key fails its grammar. A
+        // rejection here escapes Promise.all and takes the whole 録音履歴 server
+        // half down with it — a 502 at the facade, 「サーバー側の読み込みに失敗」
+        // on the web — which is the opposite of the rule this loop is written to:
+        // a probe we could not ask leaves the row EXACTLY as it was. The job
+        // probe next door already degrades this way.
+        try {
+          // THE PHONE'S KEY FIRST (ADDENDUM 9.4), because a whole object needs
+          // no segments behind it. Only a proven 'absent' buys the listing, and
+          // the listing now gates the RESCUE half alone.
+          const audio = await deps.takeAudioProbe(businessId, takeId, ext)
+          if (audio === 'unknown') continue
+          if (audio !== 'absent') {
+            row.serverAudio = 'object'
+            continue
+          }
+          if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+        } catch (err) {
+          // A probe we could not ask is not an answer: the row keeps today's
+          // behaviour and the next render asks again.
+          console.warn(
+            `[recordings-inbox] server-audio probe failed for ${row.recordingSessionId}:`,
+            err,
+          )
           continue
         }
-        if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
       }
     }),
   )
