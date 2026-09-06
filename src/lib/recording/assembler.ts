@@ -41,11 +41,29 @@
 // flush the segments never got), and it ends at a terminal `size_mismatch`
 // (finalize-take.ts) — that take then reads 要対応 with 再試行 on the phone.
 // The audio is not lost either way: the full copy stays on the device and the
-// prefix is on the server. The same arithmetic reaches a take left PAUSED for
-// days, which flushes nothing and never reaches the recorder's 2-hour
-// auto-stop (that measures recorded time, not wall time), so the age gate
-// reads it as gone. Both are the price of sealing with no declaration of how
-// long a take was meant to be; a last-seq declared at stop is the upgrade.
+// prefix is on the server.
+//
+// ⚖ AND THE CEILING HAS A LIVE CASE THIS JOB CANNOT SEE — THE PAUSED PHONE
+// (named plainly, 2026-09-07, Greptile #850 point 3). A staffer who paused a
+// take two days ago on a phone that is fine, and a phone that died mid-take,
+// look IDENTICAL from here: no new segment, the row still UPLOADING, no
+// duration, and the recorder's 2-hour auto-stop measures RECORDED time, not
+// wall time, so it never fires on a pause. There is no server-side signal that
+// separates them — nothing declares a take finished, and nothing reports a
+// take still open — so the age gate reads the paused one as gone and seals its
+// prefix under the take's own immutable key. When that phone resumes and
+// finalizes, it meets the object, the byte counts differ, and it ends at the
+// terminal `size_mismatch` above with its fuller audio stuck on the device.
+// This is a REAL cost, not a theoretical one, and it is not closable inside
+// this file. Two closes exist, both outside this PR and both a decision rather
+// than a detail: (a) the DEVICE re-mints under a fresh take id when its
+// finalize meets `size_mismatch` after a rescue, so the fuller copy gets a key
+// of its own — a small phone-side change; or (b) the rescue writes to a SIDE
+// key that never occupies the device's own, leaving the take's key free for
+// whoever comes back — a redesign touching this job, the save door and the
+// read doors. Until one is chosen, 48 hours of silence is the honest line and
+// this paragraph is the disclosure. (Also see docs/recording-resilience.md's
+// T1 section, which carries the same two closes for a non-engineer reader.)
 //
 // WHAT IT NEVER CLAIMS (design D2). Today's main carries NO declaration of how
 // long a take was — FinalizeTakeSchema has no lastSeq, so the device never

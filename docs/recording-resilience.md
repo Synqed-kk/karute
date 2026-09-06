@@ -81,12 +81,26 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   a terminal `size_mismatch`, so that take reads 要対応 with 再試行 on the
   phone. **The full audio is not lost** — it stays on the device, and the
   server holds the rebuilt prefix — but the phone can no longer complete it
-  itself. The same arithmetic reaches one live case: a take left **paused** for
-  days never flushes another segment, and the recorder's 2-hour auto-stop
-  measures recorded time, not wall time, so the age gate reads it as gone.
-  Both close the same way, and that is the upgrade: have the device declare its
-  last segment at stop, so the server can tell a finished take from a silent
-  one instead of inferring it from age.
+  itself.
+- **⚖ The live case inside that ceiling — the paused phone.** A staffer who
+  paused a take two days ago on a perfectly healthy phone looks *exactly* like
+  a phone that died mid-take: no new segment, the row still `UPLOADING`, no
+  duration, and the recorder's 2-hour auto-stop measures *recorded* time, not
+  wall time, so it never fires on a pause. Nothing on the server separates the
+  two — no take declares itself finished, and none reports itself still open —
+  so the nightly job seals the paused take's prefix, and when that phone
+  resumes and finalizes it meets the object, the byte counts differ, and it
+  ends at the same terminal `size_mismatch`, with its fuller audio stranded on
+  the device. **This is a real cost and it cannot be closed server-side.** Two
+  closes exist, both a decision rather than a detail: **(a)** the device
+  re-mints under a *fresh take id* when its finalize meets `size_mismatch`
+  after a rescue, so the fuller copy gets a key of its own — a small
+  phone-side change; or **(b)** the rescue writes to a *side key* that never
+  occupies the device's own, leaving the take's key free for whoever comes back
+  — a redesign touching the nightly job, the save door and the read doors.
+  Until one is chosen, 48 hours of silence is the honest line and this
+  paragraph is the disclosure. A last segment declared at stop would close the
+  whole family at the root, and remains the standing upgrade.
 - **The rescued take's LENGTH will be written when a staffer saves it** — not
   by the nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
   (core D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`), and a 03:07 cron has
