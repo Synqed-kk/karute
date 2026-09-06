@@ -394,9 +394,12 @@ export async function transcribeAndPersistDiscardWithClient(
     //
     // Asked ONLY when the caller named a DIFFERENT key: the ordinary discard
     // sends the finalized key itself, so there is nothing to decide and nothing
-    // to pay for. A probe that cannot READ is not an answer ('unknown'), so the
-    // pointer keeps winning — fail closed, exactly like the mint's own use of
-    // it. B5 is untouched: a colleague's FINISHED take has an object, so a row
+    // to pay for. A probe that cannot READ is not an answer ('unknown') — and
+    // since ADDENDUM 9.2 H4 it no longer keeps the pointer either: the arm
+    // below returns `failed`, which is retryable, rather than signing a key
+    // nobody has confirmed holds anything. The full reason is in the ⚖ block
+    // at the end of this comment.
+    // B5 is untouched: a colleague's FINISHED take has an object, so a row
     // pointing at one still wins over any claim, and `input.audioPath` cleared
     // the SAME isOwnRecordingKey fence at the top of this function before
     // anything here read it.

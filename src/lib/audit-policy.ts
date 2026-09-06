@@ -176,9 +176,12 @@ export const AUDITED_CORES: {
   // save door instead). The walk driver runAssembler is deliberately NOT
   // listed: it performs no write of its own and returns a summary whenever
   // there is nothing old enough to rescue. Every path here that writes nothing
-  // (the device sealed its own key first; a leaf would not come down) returns
-  // an { error } before the emit — a rescue that files a row for audio it did
-  // not actually settle would be the one lie this job must never tell.
+  // (a concurrent run already wrote the rescue; a leaf would not come down)
+  // returns an { error } before the emit — a rescue that files a row for audio
+  // it did not actually settle would be the one lie this job must never tell.
+  // ⚖ Liam 2026-09-06 "b": no device ever writes `rsc/`, so "the device sealed
+  // its own key first" is no longer one of those paths — a folder whose phone
+  // came back is skipped by the walk, long before this symbol is called.
   { file: 'src/lib/recording/assembler.ts', symbols: ['assembleStrandedTake'] },
   // The play-button mint (build 23 slice ①) — its ONE success return is
   // dominated by the recording.play emit; every refusal is an { error } literal

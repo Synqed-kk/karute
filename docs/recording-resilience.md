@@ -48,7 +48,7 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   capture is still one blob (T1 removes it).
 
 ### T1 — Local-first segmented capture (the real fix) — shipped, one decision open
-**Where it actually stands (2026-09-06, capture-pipeline lane):**
+**Where it actually stands (2026-09-07, capture-pipeline lane):**
 - **Local persistence is live.** Takes are held in IndexedDB as ~5 s segments
   and survive a crash, a kill, and a dead battery (`lib/karute/take-store.ts`).
 - **The segments go up as they complete** (#836, `lib/recording/segment-uploader

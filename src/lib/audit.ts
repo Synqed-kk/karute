@@ -986,7 +986,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
   assemble: {
     kind: 'mutation',
     justification:
-      "coveredBy assembleStrandedTake's recording.capture_resumed emit, ONE row per take actually sealed (verified at source). The walk driver runAssembler is deliberately NOT the citation — it returns a summary whenever there is nothing old enough to rescue, which is a correct outcome, not an unaudited write. Every path that writes nothing (the device beat us to its own key; a leaf would not come down) returns before the emit and files nothing, by design. It writes no core row at all — the client it is handed is narrowed to `list`.",
+      "coveredBy assembleStrandedTake's recording.capture_resumed emit, ONE row per take actually sealed (verified at source). The walk driver runAssembler is deliberately NOT the citation — it returns a summary whenever there is nothing old enough to rescue, which is a correct outcome, not an unaudited write. Every path that writes nothing (a concurrent run already wrote the rescue; a leaf would not come down) returns before the emit and files nothing, by design — no device ever writes the `rsc/` key this job uploads to (⚖ Liam 2026-09-06 \"b\"), so the walk, not this symbol, is where a returning phone is skipped. It writes no core row at all — the client it is handed is narrowed to `list`.",
     dated: '2026-09-06',
     coveredBy: 'src/lib/recording/assembler.ts#assembleStrandedTake',
   },
