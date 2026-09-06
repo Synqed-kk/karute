@@ -2,6 +2,7 @@
 
 import { getBusinessId, getCurrentAccessToken, getCurrentUserStaffId } from '@/lib/staff'
 import { can, getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { deleteRecordingSessionWithClient } from '@/lib/recording/session-cleanup'
@@ -108,7 +109,7 @@ export async function finalizeTake(input: FinalizeTakeInput): Promise<FinalizeTa
       {
         staffId,
         businessId,
-        canViewAll: capabilities.has('recordings.viewAll'),
+        holdsOwnerKeys: holdsOwnerKeys(capabilities),
         source: 'web',
       },
       input,

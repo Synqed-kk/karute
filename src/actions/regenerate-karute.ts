@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability, can } from '@/lib/auth/require-permission'
+import { requireCapability, getMyCapabilities } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { AppApiError } from '@/lib/app-api/errors'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
@@ -355,14 +356,18 @@ export async function regenerateKaruteWithClient(
   params: {
     karuteRecordId: string
     viewerStaffId: string | null
-    canViewAll: boolean
+    /** The OWNER'S HAND — holdsOwnerKeys (auth/permissions.ts), NOT the named
+     *  grant alone. Regenerating rewrites a colleague's record, so it is an ACT
+     *  and keys on the pair; the READ doors stay on recordings.viewAll
+     *  (⚖ 9/3 council; Greptile #848 point 1). */
+    holdsOwnerKeys: boolean
     locale: string
     /** Facade Bearer path: the verified token's business id. Omitted on the
      *  cookie web path (featureAllowed resolves it). */
     businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, canViewAll, locale, businessId } = params
+  const { karuteRecordId, viewerStaffId, holdsOwnerKeys, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -372,7 +377,9 @@ export async function regenerateKaruteWithClient(
   }
 
   // Recording-privacy ACL server-gate (#4): withholding the transcript also
-  // withholds the regenerate — it reads the same raw text. Fail closed.
+  // withholds the regenerate — it reads the same raw text. Fail closed. The
+  // reach fed in is the OWNER'S HAND, never the named grant alone: a person the
+  // owner ticked may READ a colleague's transcript and never rewrite it.
   // Recorder-lock fix (⚖ Liam 8/22): record.staff_id may carry a synqed-core
   // staff CARD id rather than a profile id — translate before the compare,
   // `?? original` keeps profile-id-stamped rows and unlinked cards unchanged.
@@ -382,7 +389,7 @@ export async function regenerateKaruteWithClient(
         ? await lookupProfileIdForSynqedStaffIdForBusiness(rawOwnerStaffId, businessId)
         : await lookupProfileIdForSynqedStaffId(rawOwnerStaffId)) ?? rawOwnerStaffId)
     : null
-  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
+  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll: holdsOwnerKeys })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
   }
 
@@ -500,15 +507,15 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
     // top-level import drags next-intl ESM into every jest graph that touches
     // this module (regen-list-owner-gate.test.ts broke on exactly that).
     const { getLocale } = await import('next-intl/server')
-    const [viewerStaffId, canViewAll, locale] = await Promise.all([
+    const [viewerStaffId, capabilities, locale] = await Promise.all([
       getCurrentUserStaffId(),
-      can('recordings.viewAll'),
+      getMyCapabilities(),
       getLocale(),
     ])
     const result = await regenerateKaruteWithClient(synqed, {
       karuteRecordId,
       viewerStaffId,
-      canViewAll,
+      holdsOwnerKeys: holdsOwnerKeys(capabilities),
       locale,
     })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')

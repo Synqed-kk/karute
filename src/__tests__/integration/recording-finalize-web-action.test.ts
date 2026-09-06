@@ -132,12 +132,18 @@ describe('finalizeTake (web action) — the identity is the SESSION’s, never t
     expect(resolveStoreScope).not.toHaveBeenCalled()
   })
 
+  // ⚖ 9/3 council + Greptile #848 point 1: finalizing a COLLEAGUE's take is an
+  // ACT, so the actor's reach is the owner's HAND (business.manage AND
+  // recordings.viewAll), never the named grant alone. The middle row is the
+  // grantee twin — a person the owner ticked for hearing gets no write reach.
   it.each([
-    ['an owner holding recordings.viewAll', ['records.write', 'recordings.viewAll'], true],
-    ['a practitioner without it', ['records.write'], false],
-  ])('canViewAll follows the capability set: %s', async (_label, caps, expected) => {
+    ['the owner’s hand (both keys)', ['records.write', 'business.manage', 'recordings.viewAll'], true],
+    ['a NAMED GRANTEE (recordings.viewAll alone)', ['records.write', 'recordings.viewAll'], false],
+    ['business.manage alone', ['records.write', 'business.manage'], false],
+    ['a practitioner with neither', ['records.write'], false],
+  ])('holdsOwnerKeys follows the capability set: %s', async (_label, caps, expected) => {
     getMyCapabilities.mockResolvedValue(new Set(caps))
     await finalizeTake(input)
-    expect(actorPassed().canViewAll).toBe(expected)
+    expect(actorPassed().holdsOwnerKeys).toBe(expected)
   })
 })

@@ -225,8 +225,8 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   // a deterministic, immutable key, owner reach here was a pre-fill lever: mint
   // the colleague's key first, PUT anything, and their device meets a size
   // mismatch for ever. The route's existing `forbidden` mapping carries it.
-  it('…and an owner with recordings.viewAll gets the SAME 403 on this door', async () => {
-    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+  it('…and the OWNER’S OWN KEYS get the SAME 403 on this door', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2' })
     const res = await mintPOST(jreq(auth, { stagedFor: SESSION }), noRoute)
     expect(res.status).toBe(403)
@@ -264,8 +264,8 @@ describe('POST recordings/upload-url — the fenced mint', () => {
   // has not reached, PUT anything, and that take's pump meets a length that is
   // not its own and goes terminally quiet. The pump runs on the recording
   // device alone, so nothing legitimate is lost by closing it.
-  it('…and an owner with recordings.viewAll gets a 403 on a colleague’s segments', async () => {
-    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+  it('…and the OWNER’S OWN KEYS get a 403 on a colleague’s segments', async () => {
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     recordingsGet.mockResolvedValue({ ...ROW, staff_id: 'staff-2', audio_storage_path: KEY })
     const res = await mintPOST(jreq(auth, { ...mintBody, seqs: [0, 1] }), noRoute)
     expect(res.status).toBe(403)

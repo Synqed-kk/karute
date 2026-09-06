@@ -152,6 +152,22 @@ export function can(caps: Set<Capability>, capability: Capability): boolean {
   return caps.has(capability)
 }
 
+/**
+ * THE OWNER-HAND PREDICATE — the owner, or a person the owner gave BOTH keys
+ * by hand. `business.manage` rides no non-owner preset and `recordings.viewAll`
+ * spreads only from the owner's hand (the owner-granted-only ADD gate in
+ * actions/permissions.ts), so this pair is what every WRITE-side or dev-tool
+ * consumer keys on.
+ *
+ * The READ doors (transcript, playback) key on `recordings.viewAll` ALONE —
+ * that is the named grant, and it grants nothing else: a person the owner
+ * ticked may HEAR and READ a colleague's recording, never reserve, finalize or
+ * regenerate one (⚖ 9/3 council; Greptile #848 point 1).
+ */
+export function holdsOwnerKeys(caps: Set<Capability>): boolean {
+  return caps.has('business.manage') && caps.has('recordings.viewAll')
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Ask AI access — ONE shared rule for every entry point (H0, 2026-07-30).
 //

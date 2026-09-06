@@ -7,6 +7,7 @@
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { relearnCustomerMemoryWithClient } from '@/actions/memory'
 import { featureAllowedForBusiness } from '@/lib/subscription/feature-gate'
@@ -46,9 +47,7 @@ export const POST = facadeHandler<Params>('customer.memory.relearn', async (ctx)
   // a person the owner gave BOTH keys by hand; granting business.manage ALONE
   // never re-opens bulk transcript access. Proven off the verified token; the
   // shared core fails closed without it.
-  const regenAllowed =
-    ctx.identity.capabilities.has('business.manage') &&
-    ctx.identity.capabilities.has('recordings.viewAll')
+  const regenAllowed = holdsOwnerKeys(ctx.identity.capabilities)
   const result = await relearnCustomerMemoryWithClient(
     synqed,
     {

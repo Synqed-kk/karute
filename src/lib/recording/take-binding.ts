@@ -162,16 +162,18 @@ export function serverHoldsTakeRow<T extends HeldTakeRow>(
  *
  * Core's GET is BUSINESS-scoped only, so BOTH halves are checked here: the
  * tenant (belt — the client is already business-scoped) and the recorder. A
- * staffer may bind their OWN session; only a `recordings.viewAll` holder (the
- * owner, or a person the owner named) may bind a colleague's. Returns the
- * refusal itself rather than a boolean, so the
- * two doors answer a foreign row with the identical error object.
+ * staffer may bind their OWN session; only the OWNER'S HAND — the owner, or a
+ * person the owner gave BOTH keys (holdsOwnerKeys, auth/permissions.ts) — may
+ * bind a colleague's. NOT `recordings.viewAll` alone: the named grant is a
+ * READ grant, and binding a colleague's session is an ACT (⚖ 9/3 council;
+ * Greptile #848 point 1). Returns the refusal itself rather than a boolean, so
+ * the two doors answer a foreign row with the identical error object.
  */
 export function assertRecorderOwnsRow(
   row: Pick<Recording, 'business_id' | 'staff_id'>,
-  actor: { staffId: string | null; businessId: string; canViewAll: boolean },
+  actor: { staffId: string | null; businessId: string; holdsOwnerKeys: boolean },
 ): { error: 'forbidden' } | null {
   if (row.business_id !== actor.businessId) return { error: 'forbidden' }
-  if (row.staff_id !== actor.staffId && !actor.canViewAll) return { error: 'forbidden' }
+  if (row.staff_id !== actor.staffId && !actor.holdsOwnerKeys) return { error: 'forbidden' }
   return null
 }

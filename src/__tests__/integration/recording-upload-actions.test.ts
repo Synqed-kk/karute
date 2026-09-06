@@ -732,12 +732,24 @@ describe('mintRecordingUploadUrl — the take is bound before the caller ever ge
     expectNoBinding()
   })
 
-  it('lets an owner (recordings.viewAll) reserve on a colleague’s session', async () => {
+  it('lets the OWNER’S HAND (both keys) reserve on a colleague’s session', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'business.manage', 'recordings.viewAll']))
     const res = await mintOk(named)
     expect(res.recordingSessionId).toBe(SESSION)
     expect(update).toHaveBeenCalled()
+  })
+
+  // ⚖ THE NAMED GRANTEE TWIN (9/3 council; Greptile #848 point 1). The grant is
+  // a READ grant: a person the owner ticked for 全スタッフの録音 may HEAR and
+  // READ a colleague's recording, and reserving a take on that colleague's
+  // session is an ACT. Refused exactly like any other non-owner — same error,
+  // nothing bound.
+  it('…but a NAMED GRANTEE (recordings.viewAll alone) is refused — the grant is read-only', async () => {
+    get.mockResolvedValue(row({ staff_id: 'staff-2' }))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    await expect(mintRecordingUploadUrl(named)).resolves.toEqual({ error: 'forbidden' })
+    expectNoBinding()
   })
 
   it('refuses a row already bound to a DIFFERENT take — reserved_elsewhere', async () => {
@@ -865,9 +877,9 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
   // first, PUT anything, and that colleague's device would meet a size mismatch
   // for ever — its discard's words never landing, its device copy never
   // releasable.
-  it('…and NOT even with recordings.viewAll — staging is the recorder’s alone', async () => {
+  it('…and NOT even with the OWNER’S OWN KEYS — staging is the recorder’s alone', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2' }))
-    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'business.manage', 'recordings.viewAll']))
     await expect(mintRecordingUploadUrl({ stagedFor: SESSION })).resolves.toEqual({
       error: 'forbidden',
     })
@@ -879,7 +891,7 @@ describe('mintRecordingUploadUrl({ stagedFor }) — the staged copy names its se
 
   it('…while the take mint KEEPS its owner reach — the two doors differ on purpose', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: null }))
-    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'business.manage', 'recordings.viewAll']))
     const res = await mintOk(NAMED)
     expect(res.path).toBe(OWN)
   })
@@ -1221,9 +1233,9 @@ describe('mintRecordingSegmentUrls — the segment door reserves NOTHING and fen
   // rest of the take; and the folder an assembler will one day build from would
   // hold bytes nobody recorded. The take is never lost by it — the whole-take
   // secure at stop is independent — but the new guarantee is.
-  it('…and NOT even with recordings.viewAll — the segments are the recorder’s alone', async () => {
+  it('…and NOT even with the OWNER’S OWN KEYS — the segments are the recorder’s alone', async () => {
     get.mockResolvedValue(row({ staff_id: 'staff-2', audio_storage_path: OWN }))
-    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'recordings.viewAll']))
+    getMyCapabilities.mockResolvedValue(new Set(['records.write', 'business.manage', 'recordings.viewAll']))
     await expect(mintRecordingSegmentUrls(SEGS)).resolves.toEqual({ error: 'forbidden' })
     // Nothing probed and nothing signed: the refusal lands before a single key
     // is asked about, so the door is not an existence oracle over the folder

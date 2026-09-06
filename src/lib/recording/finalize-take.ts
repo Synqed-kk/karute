@@ -59,10 +59,12 @@ export interface FinalizeTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key must carry. */
   businessId: string
-  /** Holds `recordings.viewAll` (owner by preset, grantable per person by the
-   *  owner only). Lets such a holder finalize a take recorded on another
-   *  staffer's session; everyone else is own-session only. */
-  canViewAll: boolean
+  /** The OWNER'S HAND — `business.manage` AND `recordings.viewAll` together
+   *  (holdsOwnerKeys, auth/permissions.ts). Lets such a caller finalize a take
+   *  recorded on another staffer's session; everyone else is own-session only.
+   *  The named grant ALONE does NOT reach here: it grants hearing and reading,
+   *  never finalizing (⚖ 9/3 council). */
+  holdsOwnerKeys: boolean
   source: 'web' | 'facade'
   requestId?: string
 }

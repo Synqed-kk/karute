@@ -50,7 +50,10 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
   // regenerateKarute-only imports (the facade route never calls these).
   requireCapability: jest.fn(async () => undefined),
-  can: jest.fn(async () => true),
+  // The web wrapper resolves the caller's whole set and asks holdsOwnerKeys —
+  // regenerating a COLLEAGUE's record is an ACT, so it keys on the owner's hand
+  // rather than the named grant (⚖ 9/3 council; Greptile #848 point 1).
+  getMyCapabilities: jest.fn(async () => capabilities.current),
 }))
 
 // The record drives the ACL (staff_id) + tenancy (get throws 404 for foreign id).
@@ -204,12 +207,25 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('ACL: a recordings.viewAll caller regenerates any staff’s record → 200', async () => {
+  it('ACL: the OWNER’S HAND (both keys) regenerates any staff’s record → 200', async () => {
     REC.current = { ...REC.current, staff_id: 'other-staff' }
-    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    capabilities.current = new Set(['records.write', 'business.manage', 'recordings.viewAll'])
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
     expect(res.status).toBe(200)
     expect(addEntry).toHaveBeenCalled()
+  })
+
+  // ⚖ THE NAMED GRANTEE TWIN (9/3 council; Greptile #848 point 1). Regenerating
+  // REWRITES a colleague's record off the same raw transcript — an ACT, not a
+  // read — so the read-only grant buys no reach here. Same 403, same silence.
+  it('ACL: a NAMED GRANTEE (recordings.viewAll alone) is refused → 403, NO LLM, NO write', async () => {
+    REC.current = { ...REC.current, staff_id: 'other-staff' }
+    capabilities.current = new Set(['records.write', 'recordings.viewAll'])
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('00000000-0000-4000-8000-000000000007'))
+    expect(res.status).toBe(403)
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(addEntry).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('recorder-lock fix: a CARD-id owner translates to the caller’s profile id → 200 (Change 4 pin)', async () => {
