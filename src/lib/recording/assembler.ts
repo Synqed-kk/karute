@@ -12,12 +12,24 @@
 //
 // ⚖ IT ONLY EVER ADDS, AND ONLY TO STORAGE. It reads the segments,
 // concatenates the longest CONTIGUOUS prefix from seq 0, PUTs the result under
-// the key the row already reserved with `upsert: false`, and files one audit
-// row saying what it rebuilt. Nothing is deleted — not a segment after it is
-// read, not an object it did not write (audio is never deleted;
-// scripts/audit/check-audio-never-deleted.mjs is the machine behind that rule).
-// A duplicate refusal on the PUT means the device came back and sealed its own
-// take first: this skips, silently, and writes nothing at all.
+// the RESCUE key beside the take (`rsc/app_<biz>_<take>.<ext>`, key-grammar.ts)
+// with `upsert: false`, and files one audit row saying what it rebuilt. Nothing
+// is deleted — not a segment after it is read, not an object it did not write
+// (audio is never deleted; scripts/audit/check-audio-never-deleted.mjs is the
+// machine behind that rule). A duplicate refusal on the PUT is a concurrent run
+// or a blipped probe, never the device — no device writes `rsc/` — and this
+// skips, silently, writing nothing at all.
+//
+// ⚖ AND IT NEVER OCCUPIES THE DEVICE'S OWN KEY (⚖ Liam 2026-09-06, "b"). It
+// used to seal the rebuild under the key the row reserved, and that is what
+// made a PAUSED phone indistinguishable from a dead one COSTLY rather than
+// merely ambiguous: the paused take's key was taken, and the phone's own
+// finalize ended at a terminal `size_mismatch` with the full audio stuck on the
+// device. Writing beside the take instead leaves that key free for whoever
+// comes back, so a resuming phone uploads and finalizes at the size it declared
+// and nothing is stuck. Both objects may then exist; every reader prefers the
+// phone's (resolveTakeAudio, take-audio.ts). The cost is one extra partial
+// object per rescued take, which is never deleted.
 //
 // ⚖ AND IT NEVER WRITES TO CORE (amendment 2026-09-06). Core fences
 // `PUT /v1/recordings/:id` behind a HUMAN actor (core D10,
@@ -30,40 +42,30 @@
 //
 // WHY 48 HOURS AND NOT THE INBOX'S 3 (design D1). The device's own drain
 // retries every minute the app is open (owed-drain, launch-drain), and a phone
-// that comes back within two days secures the WHOLE take itself. Sealing
-// earlier would put a PARTIAL object under the take's immutable key and turn
-// the returning device's finalize into a terminal `size_mismatch` — a strand
-// we inflicted. Two days of silence is where "gone" becomes the likelier truth.
+// that comes back within two days secures the WHOLE take itself — so rescuing
+// earlier would spend a download and a PUT on a take that was about to arrive
+// whole. Two days of silence is where "gone" becomes the likelier truth. Note
+// what this number NO LONGER decides: since the rescue moved off the take's own
+// key it can no longer break anything a returning device does, so 48 h chooses
+// only WHEN a rescue happens, never what it costs.
 //
-// ⚖ NAMED CEILING — THE RETURNING DEVICE. Once a take is sealed here the key
-// is spoken for, and a phone that comes back at ANY later time meets the
-// object: its finalize compares byte lengths, they differ (it holds the last
-// flush the segments never got), and it ends at a terminal `size_mismatch`
-// (finalize-take.ts) — that take then reads 要対応 with 再試行 on the phone.
-// The audio is not lost either way: the full copy stays on the device and the
-// prefix is on the server.
-//
-// ⚖ AND THE CEILING HAS A LIVE CASE THIS JOB CANNOT SEE — THE PAUSED PHONE
-// (named plainly, 2026-09-07, Greptile #850 point 3). A staffer who paused a
-// take two days ago on a phone that is fine, and a phone that died mid-take,
-// look IDENTICAL from here: no new segment, the row still UPLOADING, no
-// duration, and the recorder's 2-hour auto-stop measures RECORDED time, not
-// wall time, so it never fires on a pause. There is no server-side signal that
-// separates them — nothing declares a take finished, and nothing reports a
-// take still open — so the age gate reads the paused one as gone and seals its
-// prefix under the take's own immutable key. When that phone resumes and
-// finalizes, it meets the object, the byte counts differ, and it ends at the
-// terminal `size_mismatch` above with its fuller audio stuck on the device.
-// This is a REAL cost, not a theoretical one, and it is not closable inside
-// this file. Two closes exist, both outside this PR and both a decision rather
-// than a detail: (a) the DEVICE re-mints under a fresh take id when its
-// finalize meets `size_mismatch` after a rescue, so the fuller copy gets a key
-// of its own — a small phone-side change; or (b) the rescue writes to a SIDE
-// key that never occupies the device's own, leaving the take's key free for
-// whoever comes back — a redesign touching this job, the save door and the
-// read doors. Until one is chosen, 48 hours of silence is the honest line and
-// this paragraph is the disclosure. (Also see docs/recording-resilience.md's
-// T1 section, which carries the same two closes for a non-engineer reader.)
+// ⚖ THE PAUSED PHONE, AND WHY IT IS NO LONGER A CEILING (⚖ Liam 2026-09-06,
+// "b", after Greptile #850 point 3). A staffer who paused a take two days ago
+// on a phone that is fine, and a phone that died mid-take, look IDENTICAL from
+// here: no new segment, the row still UPLOADING, no duration. The recorder's
+// 2-hour auto-stop does not separate them either — it measures RECORDED
+// milliseconds, not wall time (global-recorder.ts), so a take can sit paused
+// indefinitely without it ever firing. There is no server-side signal that
+// tells the two apart, and this job does not need one any more: it writes
+// BESIDE the take, so the paused phone resumes to find its own key free,
+// uploads its whole take, and finalizes at the size it declared. Both objects
+// then exist, readers take the phone's, and the only cost is one extra partial
+// object. What DOES remain, named: a karute somebody saved off the rescue keeps
+// the partial transcript it was made from — no door in the repo re-transcribes
+// (regenerate-karute.ts reads the record's own words), so the phone's fuller
+// audio becomes playable without becoming written. A "transcribe again from the
+// audio" door is the close, and it is a separate decision. (docs/recording-
+// resilience.md's T1 section carries the same, for a non-engineer reader.)
 //
 // WHAT IT NEVER CLAIMS (design D2). Today's main carries NO declaration of how
 // long a take was — FinalizeTakeSchema has no lastSeq, so the device never
@@ -82,7 +84,12 @@ import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { auditDurable } from '@/lib/audit'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { createServiceClient } from '@/lib/supabase/service'
-import { composeTakeKey, parseRecordingKey, parseSegmentFolder } from '@/lib/recording/key-grammar'
+import {
+  composeRescueKeyFromExt,
+  composeTakeKeyFromExt,
+  parseRecordingKey,
+  parseSegmentFolder,
+} from '@/lib/recording/key-grammar'
 import { objectExists } from '@/lib/recording/mint-take-url'
 import { newSynqedClient } from '@/lib/synqed/client'
 
@@ -196,11 +203,26 @@ const MAX_PAGES = 100
 const ROW_PAGE_SIZE = 200
 
 /** How far either side of the OLDEST segment the row's own `created_at` may
- *  sit. A session is minted at start and its first segment lands seconds
- *  later; the 2-hour AUTO_STOP (global-recorder.ts) bounds any pause inside a
- *  take, so six hours each way is far past anything a real take can do while
- *  keeping the listing small. */
-const ROW_WINDOW_MS = 6 * 60 * 60 * 1000
+ *  sit — ASYMMETRIC, because the two directions bound different things
+ *  (⚖ ADDENDUM 9.2 M3).
+ *
+ *  BEFORE: the row is minted the moment recording STARTS and the first segment
+ *  lands one flush window later — UNLESS the staffer paused inside that first
+ *  window, in which case the row can be arbitrarily older than its own first
+ *  leaf. This used to read "the 2-hour AUTO_STOP bounds any pause", which is
+ *  FALSE: AUTO_STOP measures RECORDED milliseconds, not wall time
+ *  (global-recorder.ts), so it never fires on a pause at all. Twenty-four hours
+ *  covers every pause anyone plausibly resumes from while keeping the listing
+ *  bounded.
+ *
+ *  AFTER: nothing creates the row after its own segments, so six hours is pure
+ *  clock-skew allowance.
+ *
+ *  NAMED CEILING: a take paused for more than 24 h BEFORE its first flush is
+ *  not found by this query and lands under `skipped.noRow` — never a wrong row,
+ *  only an unfound one, and the segments stay for a later fix. */
+const ROW_WINDOW_BEFORE_MS = 24 * 60 * 60 * 1000
+const ROW_WINDOW_AFTER_MS = 6 * 60 * 60 * 1000
 
 /** The tree the segment pump writes into — the ONE prefix this job walks. */
 const SEGMENT_ROOT = 'seg'
@@ -212,12 +234,22 @@ export interface AssemblerSkipped {
   /** The newest segment is younger than ASSEMBLE_AFTER_MS — the device may
    *  still come back and secure the whole take itself. */
   young: number
-  /** The object is ALREADY at the row's key — this take has either been
-   *  rescued on an earlier night or finalized by its own device. Either way
-   *  the audio is on the server and there is nothing to rebuild. Disjoint
-   *  from every other outcome, and the ordinary case for a healthy tenant
-   *  whose finished takes still have their segments beside them. */
+  /** The DEVICE'S OWN object is at the take's key — the phone finalized this
+   *  take itself, at stop or on a later drain. The whole recording is on the
+   *  server and there is nothing to rebuild. The ordinary case for a healthy
+   *  tenant, whose finished takes still have their segments beside them. */
   objectExists: number
+  /** The RESCUE object is already there: this take was rebuilt on an earlier
+   *  night and the phone has not returned since. Disjoint from `objectExists`
+   *  on purpose — that one means the device came through, this one means it
+   *  has not — and the rescue is written once and never rewritten.
+   *
+   *  A COUNTER IS ENOUGH (⚖ ADDENDUM 9.2 M5): the visibility a staffer needs
+   *  is her own 録音履歴 row, which reads 復元可能 with 保存する once PR-C
+   *  lands, and the receipt an operator needs is the `capture_resumed` audit
+   *  row this job filed the night it rebuilt the take. Neither of those wants a
+   *  nightly re-announcement of a take already rescued. */
+  rescued: number
   /** No core row anywhere in the window reserved this exact key. Never invent
    *  one — a folder with no row is somebody else's problem to explain. */
   noRow: number
@@ -229,10 +261,12 @@ export interface AssemblerSkipped {
   noSeq0: number
   /** The folder's leaves disagree about the container. Never guessed at. */
   extMismatch: number
-  /** The device beat us to its own key (a duplicate refusal on the PUT), or
-   *  the object standing there is not this prefix's concatenation. Nothing
-   *  written, nothing audited. */
-  deviceReturned: number
+  /** The PUT was refused as a duplicate: something already holds the rescue
+   *  key. Not the device — no device ever writes `rsc/` — so this is a
+   *  concurrent run of this same job, or a probe that read 'absent' on a blip.
+   *  Nothing written, nothing audited; the object that IS there was written by
+   *  the same code from the same segments. */
+  duplicate: number
   /** Storage or core would not answer. Retried on the next night's run. */
   error: number
 }
@@ -245,9 +279,9 @@ export interface AssemblerSummary {
   /** Rescues whose object LANDED but whose receipt did not: the durable
    *  capture_resumed row came back unwritten (`ok: false` — core refused, or
    *  the sink is not configured). The audio IS rescued and still counts under
-   *  `assembled`; what is missing is the row that explains it, and the take's
-   *  key is now occupied, so every later night meets `objectExists` and no run
-   *  ever retries the receipt on its own. That is why any count above zero
+   *  `assembled`; what is missing is the row that explains it, and the rescue
+   *  key is now occupied, so every later night meets `skipped.rescued` and no
+   *  run ever retries the receipt on its own. That is why any count above zero
    *  turns the run's HTTP status red (route.ts): a rescue with no receipt must
    *  never read as a green night. The console line — sink 1, emitted by the
    *  same call — still carries the event into the log drain, so the trail is
@@ -304,8 +338,15 @@ export interface StrandedTake {
   takeId: string
   /** `app_<biz>_<take>` — the folder under `seg/`. */
   folder: string
-  /** The row's own reserved pointer, composed through composeTakeKey. */
+  /** The row's own reserved pointer — the DEVICE'S key, composed through the
+   *  grammar. Nothing is ever written here: it is the value the walk matched
+   *  `row.audio_storage_path` against, kept so the match fence and the upload
+   *  target are visibly two different things. */
   key: string
+  /** …and where the rebuild actually goes: `rsc/` + the key above (⚖ Liam
+   *  2026-09-06, "b"). Beside the take, never on it, so a phone that was only
+   *  paused comes back to a free key. */
+  rescueKey: string
   contentType: string
   ext: string
   /** How many leaves the folder holds, gaps and all. */
@@ -336,7 +377,7 @@ export interface StrandedTake {
  *  audio is on the server either way, and the receipt is a separate promise
  *  that either landed or did not. Folding a lost receipt into `{ error }`
  *  would report the rescue as not having happened, which is the opposite lie. */
-export type AssembleResult = { ok: 'assembled'; auditLost: boolean } | { error: 'deviceReturned' | 'error' }
+export type AssembleResult = { ok: 'assembled'; auditLost: boolean } | { error: 'duplicate' | 'error' }
 
 /**
  * THE CONTIGUOUS PREFIX FROM ZERO, and the first hole after it.
@@ -486,13 +527,39 @@ async function probeObject(key: string): Promise<'exists' | 'absent' | 'error'> 
   return answer === 'unknown' ? 'error' : answer ? 'exists' : 'absent'
 }
 
-/** The finalized key for a folder's take in a given container, or null when
- *  the container is one the closed map does not know. `audio/<ext>` is its own
- *  inverse for every member of that map today (webm · mp4 · ogg · wav), pinned
- *  by recording-assembler.test.ts; composeTakeKey is the fence either way —
- *  a container it cannot resolve composes nothing rather than a guessed key. */
-function takeKeyFor(businessId: string, takeId: string, ext: string) {
-  return composeTakeKey(businessId, takeId, `audio/${ext}`)
+/**
+ * WHERE THIS TAKE'S AUDIO ALREADY IS — the walk's ONE spelling, for its two
+ * call sites (⚖ Liam 2026-09-06, "b").
+ *
+ * The two sites differ only in how they learned the container (the cheap peek,
+ * or the folder's first real leaf), so folding the probes here keeps one order
+ * rather than two copies of it — and the order is the whole rule: the phone's
+ * own key FIRST, and the rescue asked about only when that one is proven
+ * absent. A finished take therefore still costs exactly one probe a night; only
+ * a phone-absent folder pays for the second.
+ *
+ * `'absent'` is BOTH proven missing — the one answer that means "rebuild this".
+ * `'error'` is any probe that could not answer, and it is never read as free:
+ * writing on an unanswerable probe is how a duplicate 409 gets manufactured.
+ *
+ * The composition cannot fail here: both wrappers validate the same take id
+ * against the same closed container map, and the caller has already composed
+ * the take key from this same ext before it calls. A null is therefore a
+ * grammar/composer drift, and it answers 'error' rather than throwing into a
+ * walk that has no catch around this line.
+ */
+async function probeTake(
+  businessId: string,
+  takeId: string,
+  ext: string,
+): Promise<'main' | 'rescue' | 'absent' | 'error'> {
+  const main = composeTakeKeyFromExt(businessId, takeId, ext)
+  const rescue = composeRescueKeyFromExt(businessId, takeId, ext)
+  if (main === null || rescue === null) return 'error'
+  const own = await probeObject(main.key)
+  if (own !== 'absent') return own === 'exists' ? 'main' : 'error'
+  const side = await probeObject(rescue.key)
+  return side === 'exists' ? 'rescue' : side
 }
 
 /**
@@ -545,8 +612,8 @@ async function findReservingRow(
   key: string,
   oldestLeafMs: number,
 ): Promise<Recording | null> {
-  const from = new Date(oldestLeafMs - ROW_WINDOW_MS).toISOString()
-  const to = new Date(oldestLeafMs + ROW_WINDOW_MS).toISOString()
+  const from = new Date(oldestLeafMs - ROW_WINDOW_BEFORE_MS).toISOString()
+  const to = new Date(oldestLeafMs + ROW_WINDOW_AFTER_MS).toISOString()
   const rows = await paginateDedupe(
     (page) =>
       core.recordings
@@ -591,12 +658,17 @@ async function downloadPrefix(take: StrandedTake): Promise<Buffer | null> {
  * ONE stranded take: rebuild its audio, and say so.
  *
  * Download the contiguous prefix, concatenate it, and PUT the result under the
- * key the row already reserved with `upsert: false` — so this PUT is a CREATE,
- * and a refusal is information rather than a problem. A duplicate refusal means
- * the device came back and sealed its own take first: skip, write nothing,
- * file nothing. Any other refusal is a moment in time; the next night asks
- * again, and the walk's own `objectExists` check keeps a rescued take from
- * being rescued twice.
+ * take's RESCUE key with `upsert: false` — beside the device's own key, never
+ * on it (⚖ Liam 2026-09-06, "b"), so the phone that was merely paused finds its
+ * key free when it resumes.
+ *
+ * `upsert: false` still makes this PUT a CREATE, and a refusal is still
+ * information — but it says something different now. No device ever writes
+ * `rsc/`, so a duplicate here is a concurrent run of this same job or a probe
+ * that read 'absent' on a blip: `duplicate`, skip, write nothing, file nothing.
+ * Whatever stands there was written by this same code from these same segments.
+ * Any other refusal is a moment in time; the next night asks again, and the
+ * walk's own rescue probe keeps a rescued take from being rescued twice.
  *
  * The audit row is filed the instant the object lands, because that IS the
  * event: the server rebuilt this take's audio out of the pieces a dead device
@@ -618,13 +690,14 @@ async function downloadPrefix(take: StrandedTake): Promise<Buffer | null> {
 export async function assembleStrandedTake(take: StrandedTake): Promise<AssembleResult> {
   const body = await downloadPrefix(take)
   if (body === null) return { error: 'error' }
-  // upsert:false, so this PUT is a CREATE: the take's key is immutable and a
-  // second writer is refused rather than allowed to overwrite the first.
+  // THE RESCUE KEY, not the row's pointer — the take's own key stays free for
+  // the device. upsert:false, so this PUT is a CREATE: the rescue is written
+  // once and a second writer is refused rather than allowed to overwrite it.
   const { error } = await createServiceClient()
     .storage.from('recordings')
-    .upload(take.key, body, { contentType: take.contentType, upsert: false })
+    .upload(take.rescueKey, body, { contentType: take.contentType, upsert: false })
   if (error) {
-    if (isDuplicateRefusal(error)) return { error: 'deviceReturned' }
+    if (isDuplicateRefusal(error)) return { error: 'duplicate' }
     warnAssembler('upload', take.businessId, take.takeId, error)
     return { error: 'error' }
   }
@@ -643,11 +716,11 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
   // `{ ok: false }` (forwardToCore swallows and counts). So `ok` is the whole
   // question, and there is nothing here to catch.
   //
-  // Why this and not fire-and-forget audit(): the object is under the take's
-  // IMMUTABLE key the moment the PUT lands, so every later night meets
-  // `objectExists` and skips. A dropped row is therefore permanent — nothing
-  // retries it, and the take's audio would exist with nobody able to say what
-  // rebuilt it. The run reports the loss instead of hiding it.
+  // Why this and not fire-and-forget audit(): the object is at the rescue key
+  // the moment the PUT lands, so every later night meets the RESCUE PROBE and
+  // skips (`skipped.rescued`). A dropped row is therefore permanent — nothing
+  // retries it, and the take's rebuilt audio would exist with nobody able to
+  // say what rebuilt it. The run reports the loss instead of hiding it.
   //
   // ⚖ 8/17 doc law — IDS, NUMBERS AND FLAGS ONLY. No key, no path: the ids
   // below carry everything the key would have said, honestly.
@@ -706,10 +779,12 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * WHAT A FOLDER COSTS. Most folders in `seg/` belong to takes that finished
  * long ago — segments outlive every take that ever recorded, because nothing
  * deletes them — so the common path is deliberately the cheapest: ONE `list`
- * with `limit: 1` (the container) and ONE `objectExists` (is it already on the
- * server), then `continue`. No full listing, no core call. Only a folder whose
- * object is genuinely absent pays for the whole listing, the age arithmetic,
- * the core page and the rebuild.
+ * with `limit: 1` (the container) and ONE `objectExists` (did the device put
+ * its own take on the server), then `continue`. No full listing, no core call.
+ * A folder whose device object is ABSENT pays for one more probe — the rescue
+ * key, which says whether an earlier night already rebuilt this take — and only
+ * a folder that fails both pays for the whole listing, the age arithmetic, the
+ * core page and the rebuild.
  *
  * AND THE START MOVES TO THE DAY'S GOLDEN-RATIO POINT. A run cut by the clock
  * keeps no cursor, so beginning at index 0 every night would re-walk the same
@@ -739,11 +814,12 @@ export async function runAssembler(
     skipped: {
       young: 0,
       objectExists: 0,
+      rescued: 0,
       noRow: 0,
       settled: 0,
       noSeq0: 0,
       extMismatch: 0,
-      deviceReturned: 0,
+      duplicate: 0,
       error: 0,
     },
     auditLost: 0,
@@ -800,24 +876,34 @@ export async function runAssembler(
     }
 
     // THE CHEAP PAIR, FIRST. One `list` with limit 1 to learn the container,
-    // one `objectExists` to ask whether the take is already on the server. A
-    // finished take — which is most of them, since segments outlive every take
-    // that ever recorded — costs exactly those two calls a night and never
-    // reaches core at all.
+    // one `objectExists` to ask whether the DEVICE'S own take is already on the
+    // server. A finished take — which is most of them, since segments outlive
+    // every take that ever recorded — costs exactly those two calls a night and
+    // never reaches core at all.
+    //
+    // AND ONE MORE PROBE ONLY WHEN THE PHONE'S OBJECT IS ABSENT (⚖ Liam
+    // 2026-09-06, "b"): the rescue key, which says whether an earlier night
+    // already rebuilt this take. That third call is paid for only by a folder
+    // whose device has not come through — never by a healthy tenant's finished
+    // takes. See probeTake for the order and what each answer means.
     const peeked = await peekExt(folder, businessId, takeId)
     if (peeked === 'error') {
       summary.skipped.error++
       continue
     }
-    let composed = peeked === null ? null : takeKeyFor(businessId, takeId, peeked)
+    let composed = peeked === null ? null : composeTakeKeyFromExt(businessId, takeId, peeked)
     if (composed) {
-      const probe = await probeObject(composed.key)
-      if (probe === 'error') {
+      const where = await probeTake(businessId, takeId, composed.ext)
+      if (where === 'error') {
         summary.skipped.error++
         continue
       }
-      if (probe === 'exists') {
+      if (where === 'main') {
         summary.skipped.objectExists++
+        continue
+      }
+      if (where === 'rescue') {
+        summary.skipped.rescued++
         continue
       }
     }
@@ -828,7 +914,8 @@ export async function runAssembler(
     if (!listing.complete) {
       // A HALF-LISTED folder must never be rebuilt from: the missing tail
       // would read as a gap, and the short object it produced would go under
-      // the take's immutable key where nothing can replace it.
+      // the RESCUE key, which is written once and never rewritten — so the next
+      // night would meet it and skip, and nothing could ever replace it.
       summary.skipped.error++
       continue
     }
@@ -843,18 +930,22 @@ export async function runAssembler(
     }
 
     if (composed === null) {
-      composed = takeKeyFor(businessId, takeId, leaves[0].ext)
+      composed = composeTakeKeyFromExt(businessId, takeId, leaves[0].ext)
       if (composed === null) {
         summary.skipped.extMismatch++
         continue
       }
-      const probe = await probeObject(composed.key)
-      if (probe === 'error') {
+      const where = await probeTake(businessId, takeId, composed.ext)
+      if (where === 'error') {
         summary.skipped.error++
         continue
       }
-      if (probe === 'exists') {
+      if (where === 'main') {
         summary.skipped.objectExists++
+        continue
+      }
+      if (where === 'rescue') {
+        summary.skipped.rescued++
         continue
       }
     }
@@ -903,6 +994,16 @@ export async function runAssembler(
       break
     }
 
+    // The side key the rebuild goes to. Composed from the SAME container the
+    // pointer match above used, so the two keys are the same take's by
+    // construction; a null cannot happen (composed proves the container is in
+    // the closed map) and reads as an ext the grammar refuses if it ever does.
+    const rescue = composeRescueKeyFromExt(businessId, takeId, composed.ext)
+    if (rescue === null) {
+      summary.skipped.extMismatch++
+      continue
+    }
+
     const { prefix, firstGap } = longestPrefix(leaves.map((l) => l.seq))
     const bySeq = new Map(leaves.map((l) => [l.seq, l]))
     const result = await assembleStrandedTake({
@@ -910,6 +1011,7 @@ export async function runAssembler(
       takeId,
       folder,
       key: composed.key,
+      rescueKey: rescue.key,
       contentType: composed.contentType,
       ext: composed.ext,
       segmentsPresent: leaves.length,

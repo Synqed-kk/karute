@@ -39,9 +39,10 @@ export async function GET(request: Request) {
   // says so with a 500.
   //
   // A LOST RECEIPT (⚖ 2026-09-07) — an object was written and its durable
-  // capture_resumed row was not. The audio is rescued, but its key is now
-  // occupied, so every later night skips it and nothing retries the row on its
-  // own. Cleanup's rule extended: a rescue with no receipt is not a green run.
+  // capture_resumed row was not. The audio is rescued, but the RESCUE key it
+  // landed at is now occupied, so every later night meets it and skips, and
+  // nothing retries the row on its own. Cleanup's rule extended: a rescue with
+  // no receipt is not a green run.
   //
   // A BUDGET stop is different and stays a 200: the walk saw every candidate
   // and tonight simply ended. The next run starts at a different point on the

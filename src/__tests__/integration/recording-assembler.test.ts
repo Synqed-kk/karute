@@ -4,9 +4,9 @@
  *   1. the PREFIX rule: bytes are the contiguous run from seq 0 and nothing
  *      after a gap, concatenated in seq order;
  *   2. the AGE gate: a take younger than 48 h is left for its own device;
- *   3. the two idempotent halves — an object already at the key is adopted
- *      ONLY when it weighs exactly what the prefix weighs, and a device that
- *      beat us to its own key is skipped in silence;
+ *   3. ⚖ THE SIDE KEY (Liam 2026-09-06, "b"): the rebuild goes BESIDE the
+ *      take, never on it, so a paused phone comes back to a free key — and the
+ *      walk asks the rescue key only when the device's own object is absent;
  *   4. the ONE audit row, with the exact detail keys design D5 names, and NO
  *      row on any path that wrote nothing;
  *   5. every folder is opened with ITS OWN tenant's core client;
@@ -135,6 +135,10 @@ type Row = {
    *  null is the production shape — set it only where a test is about the
    *  audit row's store leg. */
   store_id: string | null
+  /** When the SESSION was minted. Core filters its list by this, and the fake
+   *  below does too, so the row-lookup WINDOW is a real fence in these tests
+   *  rather than a pair of strings nobody reads. */
+  created_at: string
 }
 const rowsByBusiness = new Map<string, Row[]>()
 /** Every time anything reached for a core WRITE method. Must stay empty. */
@@ -154,14 +158,19 @@ let rowPageSize = 0
 // back cannot pass this file by accident.
 const coreFor = jest.fn((businessId: string) => ({
   recordings: {
-    list: async (opts: { status?: string; page?: number }) => {
+    list: async (opts: { status?: string; page?: number; from?: string; to?: string }) => {
       listedBy.push(businessId)
       listOpts.push(opts)
       if (listThrows) throw new Error('core down')
-      // Core filters by status server-side; the fake does too, so a test can
-      // put a PROCESSING row behind the same pointer and see it not come back.
+      // Core filters by status AND by the created_at window server-side; the
+      // fake does both, so a test can put a PROCESSING row behind the same
+      // pointer and see it not come back — and so the row window is a fence
+      // these tests actually cross rather than a pair of unread strings.
       const all = (rowsByBusiness.get(businessId) ?? []).filter(
-        (r) => !opts?.status || r.status === opts.status,
+        (r) =>
+          (!opts?.status || r.status === opts.status) &&
+          (!opts?.from || r.created_at >= opts.from) &&
+          (!opts?.to || r.created_at <= opts.to),
       )
       if (rowPageSize === 0) return { recordings: all, total: all.length, page: 1, page_size: 200 }
       const page = opts?.page ?? 1
@@ -181,6 +190,12 @@ const coreFor = jest.fn((businessId: string) => ({
 
 const deps = (): AssemblerDeps => ({ coreFor, now: () => NOW })
 
+/** The oldest leaf's timestamp, or OLD when nothing readable is there. */
+function oldestLeafIso(leaves: Entry[]): string {
+  const ms = Math.min(...leaves.map((l) => Date.parse(l.created_at ?? '')))
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : OLD
+}
+
 /** A take folder + its leaves, wired into the fake bucket. */
 function seed(opts: {
   businessId?: string
@@ -195,7 +210,13 @@ function seed(opts: {
   rowPointer?: string | null
   duration?: number | null
   storeId?: string | null
+  /** Bytes at the DEVICE'S own key — the phone finalized its take. */
   objectSize?: number | null
+  /** Bytes at the RESCUE key — an earlier night already rebuilt this take. */
+  rescueObjectSize?: number | null
+  /** The row's own `created_at`. Defaults to the OLDEST leaf's, which is what
+   *  every case but the row-window ones wants. */
+  rowCreatedAt?: string
   status?: string
 }) {
   const businessId = opts.businessId ?? BIZ
@@ -216,7 +237,11 @@ function seed(opts: {
   addFolder(folder)
   contents.set(`seg/${folder}`, leaves)
   const key = `app_${businessId}_${takeId}.${ext}`
+  // ⚖ THE SIDE KEY (Liam 2026-09-06, "b") — where the rebuild goes, beside the
+  // device's own key and never on it.
+  const rescueKey = `rsc/${key}`
   if (opts.objectSize != null) infos.set(key, { size: opts.objectSize })
+  if (opts.rescueObjectSize != null) infos.set(rescueKey, { size: opts.rescueObjectSize })
   const pointer = opts.rowPointer === undefined ? key : opts.rowPointer
   const rowId = opts.rowId ?? (opts.takeId === TAKE2 ? SESSION2 : SESSION)
   if (pointer !== null) {
@@ -228,10 +253,15 @@ function seed(opts: {
       duration_seconds: opts.duration ?? null,
       status: opts.status ?? 'UPLOADING',
       store_id: opts.storeId ?? null,
+      // The row is minted when recording STARTS, so its default here is the
+      // oldest leaf's own timestamp — the shape every case but the window ones
+      // is about. A leaf whose timestamp is unreadable (the age gate's own
+      // case) falls back to OLD: that test never reaches the row query.
+      created_at: opts.rowCreatedAt ?? oldestLeafIso(leaves),
     })
     rowsByBusiness.set(businessId, rows)
   }
-  return { folder, key, leaves, rowId }
+  return { folder, key, rescueKey, leaves, rowId }
 }
 
 const rootFolders: Entry[] = []
@@ -551,7 +581,7 @@ describe('the walk', () => {
   // null there and the folder is read whole instead, which is the path the
   // docblock designs for and nothing exercised.
   it('a folder whose first entry is a dotfile is read whole, and still rebuilt', async () => {
-    const { folder, key } = seed({ seqs: [0, 1], ext: 'mp4' })
+    const { folder, rescueKey } = seed({ seqs: [0, 1], ext: 'mp4' })
     contents.set(`seg/${folder}`, [
       { name: '.emptyFolderPlaceholder', id: 'ph', created_at: OLD, metadata: { size: 0 } },
       ...contents.get(`seg/${folder}`)!,
@@ -559,7 +589,7 @@ describe('the walk', () => {
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.assembled).toBe(1)
     // The real container came from the first PARSEABLE leaf, not the dotfile.
-    expect(uploads[0].key).toBe(key)
+    expect(uploads[0].key).toBe(rescueKey)
     expect(uploads[0].opts.contentType).toBe('audio/mp4')
     // …and it cost the full listing, not the one-leaf peek alone.
     expect(listCalls.filter((c) => c.prefix === `seg/${folder}`).length).toBeGreaterThan(1)
@@ -676,6 +706,49 @@ describe('the object probe', () => {
     expect(listedBy).toEqual([])
   })
 
+  // ⚖ THE SIDE KEY'S OWN PROBE (Liam 2026-09-06, "b"). A take rescued on an
+  // earlier night whose phone has still not returned: its own key is empty and
+  // the rescue key is not. That is a DIFFERENT fact from "the device came
+  // through", so it gets its own counter — and it must cost nothing more than
+  // the probe, because the rescue is written once and never rewritten.
+  it('the rescue is already there → skipped.rescued, no listing, no core call, no upload, no audit', async () => {
+    const { folder } = seed({ seqs: [0, 1], rescueObjectSize: 21 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.rescued).toBe(1)
+    expect(summary.skipped.objectExists).toBe(0)
+    expect(summary.assembled).toBe(0)
+    // The one-leaf peek and nothing more: no full listing of the folder.
+    expect(listCalls.filter((c) => c.prefix === `seg/${folder}`)).toEqual([
+      { prefix: `seg/${folder}`, limit: 1, offset: 0 },
+    ])
+    expect(listedBy).toEqual([])
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // …and the other side of the order: when the DEVICE'S own object is there,
+  // the rescue key is never asked about at all. Reading it first — or reading
+  // it as well — would spend a probe a night on every finished take in the
+  // bucket, which is the cost the cheap pair exists to avoid.
+  it('the device’s own object wins, and the rescue key is NEVER probed', async () => {
+    const { key, rescueKey } = seed({ seqs: [0, 1], objectSize: 21, rescueObjectSize: 9 })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.objectExists).toBe(1)
+    expect(summary.skipped.rescued).toBe(0)
+    // ONE probe, and it was the phone's key.
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key])
+    expect(info).not.toHaveBeenCalledWith(rescueKey)
+    expect(uploads).toHaveLength(0)
+    expect(auditFn).not.toHaveBeenCalled()
+  })
+
+  // The order itself, read off the calls: the phone's key, THEN the rescue.
+  it('probes the phone’s key first and the rescue second, in that order', async () => {
+    const { key, rescueKey } = seed({ seqs: [0] })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(info.mock.calls.map((c) => c[0])).toEqual([key, rescueKey])
+  })
+
   it('a row somebody already settled is left alone', async () => {
     seed({ seqs: [0, 1], duration: 300 })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
@@ -687,14 +760,19 @@ describe('the object probe', () => {
 
 describe('the assembly', () => {
   it('a contiguous take: the object is the concat in SEQ ORDER, upsert false, one audit row', async () => {
-    const { key } = seed({ seqs: [0, 1, 2, 3, 4], sizes: [1, 2, 3, 4, 5] })
+    const { key, rescueKey } = seed({ seqs: [0, 1, 2, 3, 4], sizes: [1, 2, 3, 4, 5] })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.assembled).toBe(1)
     expect(summary.partial).toBe(1)
     // The receipt landed, so the night is clean — the route reads this.
     expect(summary.auditLost).toBe(0)
     expect(uploads).toHaveLength(1)
-    expect(uploads[0].key).toBe(key)
+    // ⚖ BESIDE THE TAKE, NEVER ON IT (Liam 2026-09-06, "b") — all three facts,
+    // because "starts with rsc/" alone would pass for the wrong take's key and
+    // "is not the pointer" alone would pass for any stray key at all.
+    expect(uploads[0].key).toBe(rescueKey)
+    expect(uploads[0].key.startsWith('rsc/')).toBe(true)
+    expect(uploads[0].key).not.toBe(key)
     expect(uploads[0].opts).toEqual({ contentType: 'audio/webm', upsert: false })
     // Byte for byte, in seq order: each leaf is filled with (seq + 1).
     expect(uploads[0].body).toEqual(
@@ -749,16 +827,16 @@ describe('the assembly', () => {
   // so the rescue still counts — but the run must say the row is missing, and
   // the route turns that into a 500 (api-assemble-auth.test.ts).
   it('the receipt did not land: the object is still written, and the run counts auditLost', async () => {
-    const { key } = seed({ seqs: [0, 1] })
+    const { rescueKey } = seed({ seqs: [0, 1] })
     auditAnswer = { ok: false }
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     // The audio IS on the server — the loss is the row, never the rescue.
     expect(uploads).toHaveLength(1)
-    expect(uploads[0].key).toBe(key)
+    expect(uploads[0].key).toBe(rescueKey)
     expect(summary.assembled).toBe(1)
     expect(summary.auditLost).toBe(1)
     // Nothing was demoted into skipped: the rescue happened.
-    expect(Object.values(summary.skipped)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    expect(Object.values(summary.skipped)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
     // The emit was still ATTEMPTED — the console line is sink 1, and it is
     // what carries the event into the log drain when core will not take it.
     expect(auditFn).toHaveBeenCalledTimes(1)
@@ -806,11 +884,11 @@ describe('the assembly', () => {
     ['a plain 409', { status: 409, message: 'Duplicate' }],
     ['a 400 with the code in the body', { status: 400, statusCode: '409', message: 'Duplicate' }],
     ['the message alone', { message: 'The resource already exists' }],
-  ])('the device beat us to its own key (%s) → nothing written, nothing audited', async (_l, error) => {
+  ])('a duplicate refusal at the RESCUE key (%s) → nothing written, nothing audited', async (_l, error) => {
     seed({ seqs: [0, 1] })
     uploadAnswer = { error }
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
-    expect(summary.skipped.deviceReturned).toBe(1)
+    expect(summary.skipped.duplicate).toBe(1)
     expect(summary.assembled).toBe(0)
     expect(auditFn).not.toHaveBeenCalled()
   })
@@ -885,16 +963,47 @@ describe('the row query is the class', () => {
   // ⚖ D1's predicate lives in these options, and nothing pinned them: the fake
   // used to hand back every seeded row whatever was asked, so dropping the
   // status leg, the window or core's page cap all survived untouched.
-  it('asks core for exactly the class: UPLOADING, the ±6 h window around the OLDEST leaf, core’s max page', async () => {
+  it('asks core for exactly the class: UPLOADING, the −24 h/+6 h window around the OLDEST leaf, core’s max page', async () => {
     seed({ seqs: [0, 1] })
     await runAssembler(deps(), { budgetMs: 60_000 })
+    // ⚖ ASYMMETRIC (ADDENDUM 9.2 M3). The row is minted when recording
+    // STARTS and the first leaf lands one flush later — unless the staffer
+    // paused inside that first window, which AUTO_STOP does not bound because
+    // it measures RECORDED, not wall, milliseconds. So the BEFORE side is a
+    // day and the AFTER side stays clock-skew allowance.
     expect(listOpts[0]).toEqual({
       status: 'UPLOADING',
-      from: new Date(Date.parse(OLD) - 6 * 60 * 60 * 1000).toISOString(),
+      from: new Date(Date.parse(OLD) - 24 * 60 * 60 * 1000).toISOString(),
       to: new Date(Date.parse(OLD) + 6 * 60 * 60 * 1000).toISOString(),
       page: 1,
       page_size: 200,
     })
+  })
+
+  // …and the window is a FENCE, not a pair of strings: the fake filters on it.
+  it('a row created 12 h before its first leaf is FOUND — a pause inside the first flush', async () => {
+    seed({
+      seqs: [0, 1],
+      rowCreatedAt: new Date(Date.parse(OLD) - 12 * 60 * 60 * 1000).toISOString(),
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.assembled).toBe(1)
+    expect(summary.skipped.noRow).toBe(0)
+  })
+
+  // ⚖ THE NAMED CEILING of that widening, pinned so it stays named: a pause
+  // longer than a day before the first flush leaves the row outside the query
+  // and the folder lands under noRow. Never a WRONG row — only an unfound one,
+  // and the segments stay where they are.
+  it('a row created 30 h before its first leaf is NOT found — noRow, the named ceiling', async () => {
+    seed({
+      seqs: [0, 1],
+      rowCreatedAt: new Date(Date.parse(OLD) - 30 * 60 * 60 * 1000).toISOString(),
+    })
+    const summary = await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(summary.skipped.noRow).toBe(1)
+    expect(summary.assembled).toBe(0)
+    expect(uploads).toHaveLength(0)
   })
 
   it('a row on the SECOND page is still found — the take is not silently skipped', async () => {
@@ -909,6 +1018,7 @@ describe('the row query is the class', () => {
         duration_seconds: null,
         status: 'UPLOADING',
         store_id: null,
+        created_at: OLD,
       })
     }
     rowPageSize = 2
@@ -977,7 +1087,7 @@ describe('every container the grammar knows', () => {
     seed({ seqs: [0, 1], ext })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.assembled).toBe(1)
-    expect(uploads[0].key).toBe(`app_${BIZ}_${TAKE}.${ext}`)
+    expect(uploads[0].key).toBe(`rsc/app_${BIZ}_${TAKE}.${ext}`)
     expect(uploads[0].opts.contentType).toBe(`audio/${ext}`)
   })
 })

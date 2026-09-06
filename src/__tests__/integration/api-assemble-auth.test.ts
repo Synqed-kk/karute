@@ -31,11 +31,12 @@ const summary = (over: Record<string, unknown> = {}) => ({
   skipped: {
     young: 0,
     objectExists: 0,
+    rescued: 0,
     noRow: 0,
     settled: 0,
     noSeq0: 0,
     extMismatch: 0,
-    deviceReturned: 0,
+    duplicate: 0,
     error: 0,
   },
   auditLost: 0,
