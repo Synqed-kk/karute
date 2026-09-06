@@ -167,14 +167,14 @@ export function buildKaruteDetailScreen(
   // on the SAME input: whoever may read the raw transcript of this karute may
   // hear its audio, and nobody else.
   //
-  // ⚠ THE OWNER FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2). It used
-  // to OR in `business.manage` as a proxy for "the owner", which was wrong in
-  // this repo: `recordings.viewAll` is hard-stripped from every non-owner at
-  // the resolve chokepoint (permissions.ts) and hidden from the toggle list, so
-  // it already IS the owner — while `business.manage` is a grantable row
-  // labelled 「店舗の削除・譲渡」. An owner ticking that for a manager silently
-  // handed them every staffer's AUDIO while the words stayed withheld: the
-  // exact inversion the recorder-private ruling exists to prevent.
+  // ⚠ THE FLOOR IS `recordings.viewAll`, FULL STOP (fix round 2). It used to OR
+  // in `business.manage` as a proxy for "the owner", which was wrong in this
+  // repo: `recordings.viewAll` is owner by preset and grantable per person by
+  // the OWNER ONLY (⚖ 9/3 named grant, 2026-09-06) — still ONE capability,
+  // still the whole floor — while `business.manage` is a separately grantable
+  // row labelled 「店舗の削除・譲渡」. An owner ticking THAT for a manager
+  // silently handed them every staffer's AUDIO while the words stayed withheld:
+  // the exact inversion the recorder-private ruling exists to prevent.
   //
   // ⚠ A KEY ON THE ROW IS NOT AUDIO (fix round 1). The row is BORN RESERVED:
   // session-mint.ts stamps `audio_storage_path` when the row is created, before

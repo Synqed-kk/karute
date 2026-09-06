@@ -162,8 +162,9 @@ export function serverHoldsTakeRow<T extends HeldTakeRow>(
  *
  * Core's GET is BUSINESS-scoped only, so BOTH halves are checked here: the
  * tenant (belt — the client is already business-scoped) and the recorder. A
- * staffer may bind their OWN session; only an owner (recordings.viewAll) may
- * bind a colleague's. Returns the refusal itself rather than a boolean, so the
+ * staffer may bind their OWN session; only a `recordings.viewAll` holder (the
+ * owner, or a person the owner named) may bind a colleague's. Returns the
+ * refusal itself rather than a boolean, so the
  * two doors answer a foreign row with the identical error object.
  */
 export function assertRecorderOwnsRow(

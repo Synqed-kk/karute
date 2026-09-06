@@ -10,10 +10,10 @@
 //      are one answer: no_audio.
 //   2. THE ACL. Whoever may read the RAW TRANSCRIPT of this karute may hear its
 //      audio — canViewTranscript, on the SAME input the words use
-//      (`recordings.viewAll`, which this repo hard-strips to the owner). One
-//      rule, one place, literally: there is no second capability that reaches
-//      the sound. A record with no owner keeps its shared answer for the sound
-//      exactly as for the words.
+//      (`recordings.viewAll`: owner by preset, grantable per person by the
+//      owner only). One rule, one place, literally: there is no second
+//      capability that reaches the sound. A record with no owner keeps its
+//      shared answer for the sound exactly as for the words.
 //   3. AND ONLY THEN, THE OBJECT. Storage is asked whether the bytes are really
 //      there, because the fence's helper is a heuristic and its own header says
 //      so: a reasoned discard stamps a client-reported duration on the row with
@@ -81,9 +81,10 @@ export interface PlaybackActor {
   /** The caller's verified tenant — the prefix the take key must carry. */
   businessId: string
   /** `recordings.viewAll` — the SAME input the raw transcript uses, and the
-   *  whole owner floor (fix round 2: `business.manage` is grantable and is not
-   *  a synonym for the owner in this repo; viewAll is stripped to owner-only at
-   *  the resolve chokepoint). Silently, per ⚖ 9/3 — no staff ping, no sentence. */
+   *  whole floor (fix round 2: `business.manage` is a different grantable row
+   *  and never reaches the sound; viewAll is owner by preset, grantable per
+   *  person by the owner only — still ONE capability, still the whole floor).
+   *  Silently, per ⚖ 9/3 — no staff ping, no sentence. */
   canViewAll: boolean
   source: 'web' | 'facade'
   requestId?: string

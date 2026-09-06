@@ -59,8 +59,9 @@ export interface FinalizeTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key must carry. */
   businessId: string
-  /** Holds `recordings.viewAll` (owner-only). Lets a manager finalize a take
-   *  recorded on another staffer's session; everyone else is own-session only. */
+  /** Holds `recordings.viewAll` (owner by preset, grantable per person by the
+   *  owner only). Lets such a holder finalize a take recorded on another
+   *  staffer's session; everyone else is own-session only. */
   canViewAll: boolean
   source: 'web' | 'facade'
   requestId?: string

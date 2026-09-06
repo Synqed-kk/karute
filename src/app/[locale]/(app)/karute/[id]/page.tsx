@@ -56,8 +56,8 @@ export default async function KaruteDetailPage({
     ),
     getKaruteOutcome(id),
     // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
-    // may read every staff's raw recordings (owner/manager). Both independent
-    // of the karute, so fan them out in the same wave.
+    // may read every staff's raw recordings (the owner, or a person the owner
+    // named). Both independent of the karute, so fan them out in the same wave.
     getCurrentUserStaffId(),
     can('recordings.viewAll'),
     // F4: records.reassign gate — the 顧客を変更 entry point.

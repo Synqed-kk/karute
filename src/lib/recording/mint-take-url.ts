@@ -95,8 +95,9 @@ export interface MintTakeActor {
   staffId: string | null
   /** The caller's verified tenant — the prefix the composed key carries. */
   businessId: string
-  /** Holds `recordings.viewAll` (owner-only). Lets a manager reserve a take on
-   *  another staffer's session; everyone else is own-session only. */
+  /** Holds `recordings.viewAll` (owner by preset, grantable per person by the
+   *  owner only). Lets such a holder reserve a take on another staffer's
+   *  session; everyone else is own-session only. */
   canViewAll: boolean
   source: 'web' | 'facade'
   requestId?: string

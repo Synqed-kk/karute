@@ -1,8 +1,10 @@
 /**
  * canUseDevRegen requires BOTH the dev key (business.manage) and the transcript
- * key (recordings.viewAll). recordings.viewAll is strip-protected owner-only,
- * so the AND pins the dev tools (再学習, 全カルテ再生成) to the owner identity:
- * granting business.manage to a non-owner never re-opens raw-transcript access.
+ * key (recordings.viewAll). recordings.viewAll spreads only from the owner's
+ * hand (⚖ 9/3 named grant) and business.manage rides no non-owner preset, so
+ * the AND means the owner, or a person the owner gave BOTH keys by hand:
+ * granting business.manage ALONE never re-opens raw-transcript access. It is
+ * no longer a proxy for the owner IDENTITY — see business/lib/admission.ts.
  */
 
 jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn() }))

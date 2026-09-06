@@ -377,7 +377,7 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // costs the phone +9,482 B in total — the feature plus six review rounds, three
 // of which were correctness fixes rather than new surface. What the bytes
 // bought: a staffer hears a session again from inside the same 文字起こし card
-// the words live in (play/pause, ±15 s, 標準/1.5/2/3倍, a scrub bar) over a
+// the words live in (play/pause, ±15 s, 標準/1.5/2倍, a scrub bar) over a
 // signed url the server mints on the FIRST tap and only after proving, by the
 // same rule that governs the words, that this viewer may hear this take and
 // that the bytes are really in the bucket; recording always wins, across the

@@ -40,8 +40,8 @@ export async function mintRecordingPlaybackUrl(
       // WHO is asking, vs WHICH roster identity the ACL compares — always both.
       resolveUserId(),
       getCurrentUserStaffId(),
-      // The whole owner floor: `recordings.viewAll` is stripped to owner-only
-      // at the resolve chokepoint, so it IS the owner (fix round 2).
+      // The whole floor: `recordings.viewAll` — owner by preset, grantable per
+      // person by the owner only — and nothing else (fix round 2).
       can('recordings.viewAll'),
     ])
     if (!businessId) return { ok: false, error: 'forbidden' }

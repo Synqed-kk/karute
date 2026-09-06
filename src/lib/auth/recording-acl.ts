@@ -9,7 +9,8 @@
  * by `ownerStaffId`.
  *
  *   - the recording staff always sees their own,
- *   - a supervisory role (recordings.viewAll → owner/manager) sees everyone's,
+ *   - a recordings.viewAll holder (the owner, or a person the owner named)
+ *     sees everyone's,
  *   - a record with NO owner (legacy / manual karute with no staff_id) is shared
  *     — there's no one to protect, and hiding it would strand old transcripts.
  */

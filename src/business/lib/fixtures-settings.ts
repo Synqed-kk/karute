@@ -552,8 +552,8 @@ export const businessProfiles: ReadonlyArray<{ value: string; label: string }> =
 //
 // ⚠ AND `business.manage` IS REAL AND GRANTABLE — capability #2, owner-only BY
 // DEFAULT rather than by nature (`permissions.ts:16`, excluded from the manager
-// preset at `:76`, and NOT stripped for non-owners by `effectiveCapabilities()`
-// at `:124-146`, unlike `recordings.viewAll` which IS). The first cut said it
+// preset at `:76`, and carried through by `effectiveCapabilities()` whenever an
+// explicit per-staff override holds it). The first cut said it
 // 「is not a store's to grant」 and left it out of the grid on that reasoning.
 // It is in the grid now, and the 事業構成 boundary sentence says how it is
 // handed out.

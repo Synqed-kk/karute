@@ -6,8 +6,9 @@
 // on getStaffPermissions/setStaffPermissions. The PUT additionally carries all
 // three invariants moved INTO setStaffPermissionsCore so web and facade can
 // never diverge: never target the owner, no-escalation-by-delta (a caller can
-// only grant a capability they hold themselves), and audit.view grants are
-// owner-only (Liam ruling 7/17). callerStaffId is the confirmed Bearer auth
+// only grant a capability they hold themselves), and audit.view / sync.view /
+// recordings.viewAll grants are owner-only (Liam rulings 7/17 · 7/24 · ⚖ 9/3).
+// callerStaffId is the confirmed Bearer auth
 // user id directly (profiles.id === auth.users.id, no extra roster lookup
 // needed — businessIdForUser already proved this identity is an active member
 // of this business during identity resolution).

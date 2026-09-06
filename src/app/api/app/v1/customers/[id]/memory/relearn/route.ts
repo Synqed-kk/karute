@@ -40,10 +40,12 @@ export const POST = facadeHandler<Params>('customer.memory.relearn', async (ctx)
     ctx.identity.businessId,
     'customerMemoryAutoExtract',
   )
-  // 再学習 is owner-only (Liam 2026-07-16): SAME two keys as canUseDevRegen
-  // (dev-tools.ts) — recordings.viewAll is strip-protected owner-only, so the
-  // pair pins relearn to the owner identity. Proven off the verified token;
-  // the shared core fails closed without it.
+  // 再学習 is dev-tool-gated (Liam 2026-07-16): SAME two keys as canUseDevRegen
+  // (dev-tools.ts) — recordings.viewAll spreads only from the owner's hand and
+  // business.manage rides no non-owner preset, so the pair means the owner, or
+  // a person the owner gave BOTH keys by hand; granting business.manage ALONE
+  // never re-opens bulk transcript access. Proven off the verified token; the
+  // shared core fails closed without it.
   const regenAllowed =
     ctx.identity.capabilities.has('business.manage') &&
     ctx.identity.capabilities.has('recordings.viewAll')
