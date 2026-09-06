@@ -31,13 +31,27 @@
  *    probe per row: recordingDiscards.list has no date or session-set filter,
  *    so the only shapes available are "everything" or "one session at a time",
  *    and the latter would be a second N+1 across the WHOLE window rather than
- *    the residue. Sessions carrying a STAFF row render as 破棄済み.
+ *    the residue. Sessions carrying a STAFF row render as 復元可能/破棄済み.
+ *  - WHAT THE SERVER HOLDS (`serverAudio`, build 23 slice ③) is derived at the
+ *    very end, for record-less sessions with no job. The 'object' half is FREE
+ *    — the row's own pointer and duration answer it — and only the 'segments'
+ *    half costs one storage listing, on the narrow cohort that could plausibly
+ *    be mid-rescue (no duration, past the unsettled grace). The row facts it
+ *    reads (the storage pointer, the status) stay in a LOCAL map and never
+ *    reach the returned rows: this read's output is the facade's wire shape,
+ *    and that shape carries metadata only.
  */
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
-import { INBOX_WINDOW_MS, type InboxServerSession } from './inbox'
+import { parseRecordingKey } from '@/lib/recording/key-grammar'
+import { finalizedBefore } from '@/lib/recording/take-binding'
+import {
+  INBOX_WINDOW_MS,
+  SESSION_UNSETTLED_GRACE_MS,
+  type InboxServerSession,
+} from './inbox'
 
 /**
  * BOTH list endpoints this file calls REJECT a page_size above 200 — they do
@@ -103,6 +117,43 @@ async function readStaffDiscardedSessions(
   return discarded
 }
 
+/**
+ * Does the server hold this take's SEGMENTS — is seq 000000 in its folder?
+ *
+ * The cheapest honest read there is: ONE listing of the take's own folder,
+ * limit 1, name ascending. Seq 0 present means the recorder's very first flush
+ * landed, which is exactly what the nightly assembler needs to seal a prefix;
+ * a folder whose first leaf is anything else has no prefix to assemble and the
+ * row must not claim one. `'unknown'` on any storage trouble — a blip is not
+ * an answer, and the caller leaves the row exactly as it was.
+ */
+export type SegmentsProbe = (businessId: string, takeKey: string) => Promise<boolean | 'unknown'>
+
+const listFirstSegment: SegmentsProbe = async (businessId, takeKey) => {
+  const parsed = parseRecordingKey(takeKey, businessId)
+  if (parsed?.kind !== 'take') return false
+  try {
+    // Lazy, so the supabase client stays out of this module's graph for every
+    // caller that injects its own probe (and out of the suites that do).
+    const { createServiceClient } = await import('@/lib/supabase/service')
+    // The folder IS the take key without its extension — composeSegmentKey
+    // builds `seg/app_<biz>_<take>/<seq>.<ext>` from the same two pieces the
+    // pointer carries, and parseRecordingKey above already proved the shape.
+    const folder = takeKey.slice(0, takeKey.lastIndexOf('.'))
+    const { data, error } = await createServiceClient()
+      .storage.from('recordings')
+      .list(`seg/${folder}`, { limit: 1, sortBy: { column: 'name', order: 'asc' } })
+    if (error) {
+      console.warn('[recordings-inbox] segment probe failed:', error)
+      return 'unknown'
+    }
+    return data?.[0]?.name === `000000.${parsed.ext}`
+  } catch (err) {
+    console.warn('[recordings-inbox] segment probe failed:', err)
+    return 'unknown'
+  }
+}
+
 export interface InboxReadDeps {
   synqed: Pick<
     SynqedClient,
@@ -114,6 +165,11 @@ export interface InboxReadDeps {
    *  getBusinessId(), the Bearer arm from its verified token identity. */
   businessId: string
   now: Date
+  /** How the 'segments' half of `serverAudio` is answered. Injected so the
+   *  suites can answer it without a bucket — and so this read stays the ONE
+   *  place that decides WHEN to ask. Default = the service-client listing
+   *  above. */
+  segmentsProbe?: SegmentsProbe
 }
 
 /**
@@ -157,6 +213,7 @@ export async function readRecordingsInbox({
   staffId,
   businessId,
   now,
+  segmentsProbe = listFirstSegment,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
@@ -177,6 +234,23 @@ export async function readRecordingsInbox({
   const recordBySession = new Map<string, string>()
   for (const r of records) {
     if (r.recording_session_id) recordBySession.set(r.recording_session_id, r.id)
+  }
+
+  /** The row facts the `serverAudio` derivation below reads, and that the WIRE
+   *  must never carry: the storage POINTER above all (the DTO's rule — metadata
+   *  only, no audio path), plus the `status` the DTO has no field for. Kept
+   *  here rather than on the row so what this function RETURNS stays exactly
+   *  the shape it returned before this build. */
+  const takeFacts = new Map<
+    string,
+    { audio_storage_path: string | null; duration_seconds: number | null; status: string }
+  >()
+  for (const s of sessions) {
+    takeFacts.set(s.id, {
+      audio_storage_path: s.audio_storage_path ?? null,
+      duration_seconds: s.duration_seconds ?? null,
+      status: s.status,
+    })
   }
 
   const rows: InboxServerSession[] = sessions.map((s) => ({
@@ -245,5 +319,88 @@ export async function readRecordingsInbox({
     }),
   )
 
+  await deriveServerAudio(rows, takeFacts, businessId, now.getTime(), segmentsProbe)
+
   return fillCustomerNames(rows, businessId)
+}
+
+/**
+ * WHAT THE SERVER HOLDS, for the rows where it can still matter (slice ③).
+ *
+ * ONLY the sessions the fold's no-job branch will actually reach: no record,
+ * no discard, and a DEFINITIVE "no job" (a 404). A row with a job — or with a
+ * probe that failed, or a status this build never heard of — is answered
+ * higher up in the fold, so deriving this for it would buy a storage call and
+ * change nothing on screen.
+ *
+ * The two halves cost very different things, which is why they are separate:
+ *  · 'object' is FREE. `finalizedBefore` is the same question the take doors
+ *    ask (take-binding.ts) and the row answers it alone — a pointer that
+ *    parses as THIS business's take, a duration, and a status the recorder has
+ *    left behind. That covers the assembled take and the take a phone
+ *    finalized at stop before it died: the same news either way.
+ *  · 'segments' costs ONE listing, so it is asked only where it could
+ *    plausibly be true and the answer changes the row: no duration at all
+ *    (nobody has ever settled this row) and past the unsettled grace, below
+ *    which the row already reads 処理中 and nothing would move.
+ *
+ * Capped and newest-first for the same reason the job probes are: the oldest
+ * rows of a genuinely broken tenant keep today's behaviour rather than
+ * spending a bounded run on them. Logged, never silent.
+ */
+async function deriveServerAudio(
+  rows: readonly InboxServerSession[],
+  takeFacts: ReadonlyMap<
+    string,
+    { audio_storage_path: string | null; duration_seconds: number | null; status: string }
+  >,
+  businessId: string,
+  nowMs: number,
+  probe: SegmentsProbe,
+): Promise<void> {
+  const needsProbe: Array<{ row: InboxServerSession; key: string }> = []
+  for (const row of rows) {
+    if (row.karuteRecordId || row.discardedByStaff) continue
+    if (row.jobStatus !== null || row.jobProbeFailed) continue
+    const facts = takeFacts.get(row.recordingSessionId)
+    const key = facts?.audio_storage_path
+    if (!facts || !key) continue
+    // The take fence, not merely "parses": a segment leaf, a staged copy and
+    // another tenant's key are all false here however the row reads.
+    if (parseRecordingKey(key, businessId)?.kind !== 'take') continue
+    if (finalizedBefore(facts)) {
+      row.serverAudio = 'object'
+      continue
+    }
+    if (
+      facts.duration_seconds === null &&
+      nowMs - Date.parse(row.createdAt) > SESSION_UNSETTLED_GRACE_MS
+    ) {
+      needsProbe.push({ row, key })
+    }
+  }
+
+  if (needsProbe.length > MAX_JOB_PROBES) {
+    console.warn(
+      `[recordings-inbox] ${needsProbe.length - MAX_JOB_PROBES} oldest unsettled sessions ` +
+        'left un-probed for server segments (cap reached)',
+    )
+  }
+  // `rows` is the server list's own order, so re-sort to the residue's
+  // newest-first rule before the cap decides who is dropped.
+  const probes = needsProbe
+    .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
+    .slice(0, MAX_JOB_PROBES)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
+      for (let i = next++; i < probes.length; i = next++) {
+        const { row, key } = probes[i]
+        // 'unknown' leaves the row untouched on purpose: a storage blip is not
+        // evidence that the server holds nothing, and claiming 処理中 off one
+        // would be the same lie in the other direction.
+        if ((await probe(businessId, key)) === true) row.serverAudio = 'segments'
+      }
+    }),
+  )
 }

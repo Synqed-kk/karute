@@ -134,6 +134,32 @@ export interface InboxServerSession {
    * ledger read per derivation pass, never a per-row probe.
    */
   discardedByStaff?: boolean
+  /**
+   * WHAT THE SERVER HOLDS for this session's audio, when it holds anything
+   * (build 23 slice ③). Derived by the shared read (inbox-read.ts) for
+   * record-less sessions only; this module never asks storage anything.
+   *
+   *   'object'   — the take's own finalized object is on the server and no job
+   *                has touched it. Either the nightly assembler sealed a
+   *                stranded take, or a phone finalized at stop and then died
+   *                before 録音を使用. Same news to a staffer either way: the
+   *                whole audio the server received is there, and unsaved.
+   *   'segments' — only PART of it is there, as the take's segment folder, and
+   *                the nightly job will finish what it can.
+   *
+   * NO PATH AND NO KEY EVER RIDES WITH IT (recordings-inbox-dto.ts's own rule:
+   * metadata only). The value says WHETHER, never WHERE — the save door
+   * derives the storage path from the ROW, server-side, and would refuse a
+   * client-named one anyway.
+   *
+   * Optional/nullish on purpose, the `discardedByStaff` idiom above: absent =
+   * an older server that never derived it, which the fold treats exactly as
+   * today. And the DTO ships it as a PLAIN STRING for `jobStatus`'s reason —
+   * an enum would blank every baked phone the day a third value lands — so a
+   * value that is not one of these two literals reaches the fold typed as one
+   * and is narrowed to "absent" by the same `===` comparisons.
+   */
+  serverAudio?: 'segments' | 'object' | null
 }
 
 /** One device-local take (lib/karute/take-store). Audio is guaranteed: the
