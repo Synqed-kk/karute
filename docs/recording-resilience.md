@@ -2,10 +2,10 @@
 
 | | |
 | --- | --- |
-| **Status** | Building — capture T0 shipped (#170, #171); T1 is the live capture-pipeline lane (see below); T2–T4 + the server-side processing pipeline to build |
+| **Status** | Building — capture T0 shipped (#170, #171); T1's capture path is now shipped end to end (segments as they complete, the launch drain, the nightly assembler) with one decision still open (bitrate, below); T2–T4 to build |
 | **Audience** | Anthony + whoever owns the recording pipeline |
 | **Owners** | Liam (product) · Anthony (engineering) |
-| **Updated** | 2026-09-04 |
+| **Updated** | 2026-09-06 |
 
 ## Why this matters (the principle)
 
@@ -47,26 +47,49 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   **not** save a pocketed/locked phone (T4) and the 2h ceiling exists only because
   capture is still one blob (T1 removes it).
 
-### T1 — Local-first segmented capture (the real fix) — in build
-**Where it actually stands (2026-09-04, capture-pipeline lane):**
+### T1 — Local-first segmented capture (the real fix) — shipped, one decision open
+**Where it actually stands (2026-09-06, capture-pipeline lane):**
 - **Local persistence is live.** Takes are held in IndexedDB as ~5 s segments
   and survive a crash, a kill, and a dead battery (`lib/karute/take-store.ts`).
+- **The segments go up as they complete** (#836, `lib/recording/segment-uploader
+  .ts`) — every ~5 s, while the recording is still running. What the device had
+  is no longer only on the device.
 - **The whole take is secured at STOP**, to its own server-composed key, and the
-  core row points at it (PR3, `lib/recording/secure-take.ts`). Transcription and
-  the server job both read *that* object — there is no second staging upload.
+  core row points at it (`lib/recording/secure-take.ts`). Transcription and the
+  server job both read *that* object — there is no second staging upload.
+- **A take the device never sent is drained at the next launch** (#835), so a
+  phone that comes back finishes its own recording rather than waiting for
+  anyone to notice.
+- **And a device that never comes back no longer keeps the audio** — a nightly
+  job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
+  take from the segments it left behind, once they have gone 48 hours
+  untouched. It concatenates the contiguous run from the first segment, ADDS
+  the result under the key the take's own row already reserved, and files one
+  `recording.capture_resumed` audit row that says plainly how many segments
+  there were, where the first hole is, and that the duration is an estimate.
+  Two days, not two hours, because the device's own drain is faster than we are
+  and sealing early would strand the take it was about to finish.
 - **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
   destroy a recording is gone — the worker's post-transcription delete, the
   facade transcribe route's `finally`, the web port's cleanup leg, the discard
   janitor, the `removeRecordingObject` server action, and the hour-old bucket
   sweep (which now only *reports*). `deleteTake` refuses a take the server has
   not received, and session cleanup refuses a row that still points at audio.
-  Enforced in CI by `scripts/audit/check-audio-never-deleted.mjs`; the one
-  exemption is voice-enrolment revocation, fenced to its own key prefix.
-- **Still to come (PR5):** uploading segments *as they complete* rather than at
-  stop, the launch drain that finishes takes a dead device never sent, and the
-  daily assembler that rebuilds a take from segments for a device that never
-  returns. Until then the ceiling is honest: a take stopped offline stays on the
-  device until the record page can secure it.
+  The assembler is held to the same rule: it reads segments and adds an object,
+  and removes nothing at all. Enforced in CI by
+  `scripts/audit/check-audio-never-deleted.mjs`; the one exemption is
+  voice-enrolment revocation, fenced to its own key prefix.
+
+**What T1 still does NOT cover — so it is not "done":**
+- **Bitrate stays 48 kbps** (T0's number). Whether to raise it is still an OPEN
+  decision, and it is the bucket cap that has to answer first — a 2-hour take
+  at 48 kbps is already ~43 MB against a 50 MB object cap.
+- **A pocketed or locked phone still suspends capture** — that is T4 (native
+  background audio), not this lane.
+- **録音履歴 does not yet say any of this.** A staffer on a device that no
+  longer holds the take still reads 失敗 until the row learns to say "the
+  server holds part of this one" and offer 保存する; that is the inbox half,
+  built separately.
 
 The design, in full: record in rolling segments; **persist each locally as
 captured** (IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
