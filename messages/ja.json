@@ -3422,7 +3422,7 @@
     "cap_records_delete": "記録の削除",
     "cap_records_reassign": "カルテの顧客変更",
     "cap_records_write": "録音・カルテ編集",
-    "cap_recordings_viewAll": "全スタッフの録音を閲覧",
+    "cap_recordings_viewAll": "他スタッフの録音の再生・文字起こしの閲覧",
     "cap_analytics_viewAll": "全店舗の分析",
     "cap_stores_viewAll": "全店舗の閲覧",
     "cap_alerts_manage": "アラートの管理",
