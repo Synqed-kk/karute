@@ -21,8 +21,9 @@ import {
 } from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { can } from '@/lib/auth/require-permission'
-import { canViewAllInStore } from '@/lib/auth/recording-acl'
+import { can, getMyCapabilities } from '@/lib/auth/require-permission'
+import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
@@ -51,6 +52,7 @@ export default async function KaruteDetailPage({
     storeScope,
     canReassign,
     businessId,
+    capabilities,
   ] = await Promise.all([
     getKaruteRecord(id),
     // Page to completion so the karute number resolves for an overflow customer.
@@ -75,6 +77,11 @@ export default async function KaruteDetailPage({
     can('records.reassign'),
     // The tenant the key grammar's take fence is checked against.
     getBusinessId(),
+    // The whole set, for the ACT gate below. `can()` resolves through the same
+    // per-request memo, so this costs no extra read — and asking for the SET
+    // rather than a second can() keeps `business.manage` out of the capability
+    // log this page keeps for the READ (it is never asked as its own question).
+    getMyCapabilities(),
   ])
   if (!karute) notFound()
 
@@ -114,6 +121,19 @@ export default async function KaruteDetailPage({
     recordStoreId: karute.store_id,
   })
 
+  // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4). The READ is
+  // `recordings.viewAll`; the ACT — rewriting a colleague's record — is the
+  // owner's two keys. This is the SERVER'S OWN expression, character for
+  // character (actions/regenerate-karute.ts:392), so the button and the action
+  // cannot drift: the recorder keeps her own button on the own-recording
+  // branch, the owner and any both-keys holder keep theirs, and a named
+  // grantee reads the words with no button at all.
+  const staffCanRegenerate = canViewTranscript({
+    ownerStaffId: ownerProfileId,
+    viewerStaffId,
+    canViewAll: holdsOwnerKeys(capabilities),
+  })
+
   const customerId = karute.client_id ?? null
 
   // Customer contact + consent are both cached per-customer with their own tag
@@ -139,6 +159,7 @@ export default async function KaruteDetailPage({
     recordingRow,
     businessId,
     staffCanReassignRecords: canReassign,
+    staffCanRegenerate,
     contact,
     consentResult,
     customer,
@@ -184,6 +205,7 @@ export default async function KaruteDetailPage({
       transcriptRestricted={built.transcriptRestricted}
       recording={built.recording}
       staffCanReassignRecords={built.staffCanReassignRecords}
+      staffCanRegenerate={built.staffCanRegenerate}
       // fallback=null, not a skeleton: the card is now only-when-photos, so a
       // photo-shaped placeholder would flash a box that then vanishes on every
       // karute with no linked photos (Liam 8/10, mock frame C).

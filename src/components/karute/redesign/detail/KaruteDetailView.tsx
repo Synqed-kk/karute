@@ -58,6 +58,11 @@ export interface KaruteDetailViewProps {
   /** F4: records.reassign gate — hides the 顧客を変更 entry point entirely
    *  for staff without the capability (hide, never show-and-refuse). */
   staffCanReassignRecords: boolean
+  /** The 再生成 gate — the SERVER's answer, not "can I read the words". A
+   *  named grantee sees a colleague's transcript and may not rewrite it, so
+   *  the button is hidden for her rather than shown and refused
+   *  (⚖ 9/3 named grant; fix round 4). Absent = hidden. */
+  staffCanRegenerate?: boolean
 }
 
 export function KaruteDetailView({
@@ -80,6 +85,7 @@ export function KaruteDetailView({
   suggestedMessageSlot,
   outcome,
   staffCanReassignRecords,
+  staffCanRegenerate,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -140,7 +146,7 @@ export function KaruteDetailView({
               entries={entries}
               karuteRecordId={karuteId}
               headerAction={
-                transcript ? (
+                transcript && staffCanRegenerate ? (
                   <RegenerateEntriesButton karuteRecordId={karuteId} />
                 ) : null
               }

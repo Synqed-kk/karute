@@ -720,3 +720,38 @@ describe('the named grant reads only inside the viewer’s own stores', () => {
     expect((await dtoFor()).transcript).toBe('RAW TRANSCRIPT TEXT')
   })
 })
+
+// ── ⚖ 再生成 — the FACADE hands the phone the SERVER'S answer (fix round 4) ──
+// Same law, the transport Liam actually uses. `KaruteDetailView` is the SAME
+// component the thin screen mounts, so an ungated button was on the phone too.
+describe('staffCanRegenerate — hide, never show-and-refuse', () => {
+  const dtoFor = async () => {
+    const res = await GET(req({ headers: auth }), routeFor(KARUTE_UUID))
+    return res.json()
+  }
+
+  it('a NAMED GRANTEE reads a colleague’s transcript and gets NO regenerate flag', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll'])
+    const dto = await dtoFor()
+    expect(dto.transcript).toBe('RAW TRANSCRIPT TEXT')
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the OWNER’S HAND (both keys) gets it', async () => {
+    capabilities.current = new Set(['customers.view', 'recordings.viewAll', 'business.manage'])
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('the RECORDER keeps her own, with no keys at all', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    const dto = await dtoFor()
+    expect(dto.staffCanRegenerate).toBe(true)
+  })
+
+  it('a plain staffer on a colleague’s karute → false, and no transcript either', async () => {
+    const dto = await dtoFor()
+    expect(dto.transcript).toBeNull()
+    expect(dto.staffCanRegenerate).toBe(false)
+  })
+})

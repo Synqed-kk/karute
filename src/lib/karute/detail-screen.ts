@@ -93,6 +93,12 @@ export interface KaruteDetailScreen {
   /** F4: records.reassign gate — the 顧客を変更 entry point. Additive field,
    *  same staffCanDeletePhotos threading pattern (RecordPageView.tsx). */
   staffCanReassignRecords: boolean
+  /** May this viewer actually RUN 再生成 on this karute — the server's own
+   *  answer, resolved by the caller (⚖ 9/3 named grant; fix round 4). Seeing
+   *  the transcript no longer implies it: the READ is `recordings.viewAll`,
+   *  the ACT is the owner's two keys, so a named grantee reads a colleague's
+   *  words and may not rewrite them. Hide the control, never show-and-refuse. */
+  staffCanRegenerate: boolean
 }
 
 export interface BuildKaruteDetailScreenArgs {
@@ -119,6 +125,11 @@ export interface BuildKaruteDetailScreenArgs {
    *  ctx.identity.capabilities.has()) — same threading chokepoint as the
    *  recording-privacy inputs above. */
   staffCanReassignRecords: boolean
+  /** The 再生成 gate, resolved by the caller with the SERVER'S OWN predicate —
+   *  `canViewTranscript({ …, canViewAll: holdsOwnerKeys(caps) })`, the exact
+   *  expression actions/regenerate-karute.ts enforces — so the button and the
+   *  action cannot drift apart. */
+  staffCanRegenerate: boolean
   /** customerId-gated wave-2 results — null when the karute has no linked client. */
   contact: Contact | null
   consentResult: { consent: unknown } | null
@@ -138,6 +149,7 @@ export function buildKaruteDetailScreen(
     recordingRow,
     businessId,
     staffCanReassignRecords,
+    staffCanRegenerate,
     contact,
     consentResult,
     customer,
@@ -152,8 +164,11 @@ export function buildKaruteDetailScreen(
 
   // Recording privacy (#4): the raw transcript is private to the recording
   // staffer — only they (or a recordings.viewAll role) see the text. A record
-  // with no owner (legacy/manual) is shared. Withholding the transcript also
-  // hides the regenerate action, which reads the same raw text.
+  // with no owner (legacy/manual) is shared. Withholding the transcript still
+  // hides the regenerate action — but SHOWING it no longer means the act is
+  // allowed: `staffCanRegenerate` carries the server's own answer, because the
+  // READ is `recordings.viewAll` and the ACT is the owner's two keys
+  // (⚖ 9/3 named grant; fix round 4).
   const ownerStaffId = karute.staff_profile_id ?? null
   const canSeeTranscript = canViewTranscript({
     ownerStaffId,
@@ -256,5 +271,6 @@ export function buildKaruteDetailScreen(
     transcriptRestricted,
     recording,
     staffCanReassignRecords,
+    staffCanRegenerate,
   }
 }

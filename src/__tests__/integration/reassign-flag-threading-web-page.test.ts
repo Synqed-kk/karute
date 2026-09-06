@@ -38,6 +38,9 @@ const grantedCaps = { current: new Set<string>() }
 const canMock = jest.fn(async (cap: string) => grantedCaps.current.has(cap))
 jest.mock('@/lib/auth/require-permission', () => ({
   can: (cap: string) => canMock(cap),
+  // The page also resolves the whole SET, for the 再生成 ACT gate (fix round 4,
+  // holdsOwnerKeys). Driven by the same handle, so a test grants once.
+  getMyCapabilities: jest.fn(async () => grantedCaps.current),
 }))
 // The page's store primitive (⚖ 8/17 store isolation). Default: unrestricted.
 const storeScope = {
@@ -291,5 +294,44 @@ describe('KaruteDetailPage — the named grant stays inside the viewer’s store
     storeScope.current = { storeId: 'store-a', viewAll: false, allowedStoreIds: ['store-a'], degraded: false }
     await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
     expect(built().canViewAllRecordings).toBe(true)
+  })
+})
+
+// ── ⚖ 再生成 — the WEB page hands the builder the SERVER'S answer (fix round 4)
+// The READ is `recordings.viewAll`; the ACT is the owner's two keys. A named
+// grantee reads a colleague's words and must NOT be shown a button the server
+// will refuse (blind round 2 F2 / L4 F2).
+describe('KaruteDetailPage — staffCanRegenerate (hide, never show-and-refuse)', () => {
+  const built = () => buildSpy.mock.calls[0][0] as { staffCanRegenerate: boolean }
+  const colleaguesKarute = () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'other-staff' }
+  }
+
+  it('a NAMED GRANTEE (recordings.viewAll alone) on a colleague’s karute → false', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set(['recordings.viewAll'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
+  })
+
+  it('…and the OWNER’S HAND (both keys) on the same karute → true', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set(['recordings.viewAll', 'business.manage'])
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  it('the RECORDER keeps her own button with no keys at all', async () => {
+    karuteRow.current = { client_id: 'cust-9', summary: null, staff_profile_id: 'staff-1' }
+    grantedCaps.current = new Set()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(true)
+  })
+
+  it('a plain staffer on a colleague’s karute → false (unchanged from main)', async () => {
+    colleaguesKarute()
+    grantedCaps.current = new Set()
+    await KaruteDetailPage({ params: Promise.resolve({ id: 'k-1', locale: 'ja' }) })
+    expect(built().staffCanRegenerate).toBe(false)
   })
 })

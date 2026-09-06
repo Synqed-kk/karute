@@ -133,6 +133,12 @@ export const KaruteDetailScreenDTO = z.object({
    *  (same edit-layer Wave 2 compat rule as author/version above); an absent
    *  value hides the action, never shows-and-refuses. */
   staffCanReassignRecords: z.boolean().optional(),
+  /** The 再生成 gate (⚖ 9/3 named grant; fix round 4). Optional for the same
+   *  compat reason: a cached facade payload minted before this field existed
+   *  must still parse, and an absent value HIDES the action — never
+   *  shows-and-refuses. Seeing the transcript is no longer the same question:
+   *  the READ is `recordings.viewAll`, the ACT is the owner's two keys. */
+  staffCanRegenerate: z.boolean().optional(),
 })
 
 export type KaruteDetailScreenDTOType = z.infer<typeof KaruteDetailScreenDTO>

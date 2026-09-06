@@ -28,7 +28,8 @@ import { getCustomerWithClient } from '@/lib/customers/queries'
 import { getKaruteOutcomeWithClient, OLD_SHELL_OUTCOMES } from '@/lib/karute/outcome'
 import { mapSynqedKaruteRecord } from '@/lib/supabase/karute'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
-import { canViewAllInStore } from '@/lib/auth/recording-acl'
+import { canViewAllInStore, canViewTranscript } from '@/lib/auth/recording-acl'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { viewerAllowedStoreIds } from '@/lib/app-api/store-clamp'
 import { lookupProfileIdForSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { scopeKarutePhotos } from '@/lib/karute/scoped-photos'
@@ -181,6 +182,15 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
       recordingRow,
       businessId,
       staffCanReassignRecords: ctx.identity.capabilities.has('records.reassign'),
+      // ⚠ HIDE, NEVER SHOW-AND-REFUSE (⚖ 9/3 named grant; fix round 4) — the
+      // Bearer twin of the web page's line, the same server expression the
+      // regenerate route enforces. A named grantee reads a colleague's words
+      // and gets no 再生成 button; the recorder and the owner's hand keep theirs.
+      staffCanRegenerate: canViewTranscript({
+        ownerStaffId: ownerProfileId,
+        viewerStaffId,
+        canViewAll: holdsOwnerKeys(ctx.identity.capabilities),
+      }),
       contact: customer ? { phone: customer.phone, email: customer.email } : null,
       consentResult: consent ? { consent: consent.consent ?? null } : null,
       customer,
