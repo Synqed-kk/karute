@@ -85,7 +85,7 @@ const client = {
 const probe = jest.fn<ReturnType<SegmentsProbe>, Parameters<SegmentsProbe>>(async () => true)
 const objectProbe = jest.fn<ReturnType<ObjectProbe>, Parameters<ObjectProbe>>(async () => false)
 
-const read = () =>
+const read = (over: Partial<Parameters<typeof readRecordingsInbox>[0]> = {}) =>
   readRecordingsInbox({
     synqed: client,
     staffId: 'staff-1',
@@ -93,6 +93,7 @@ const read = () =>
     now: NOW,
     segmentsProbe: probe,
     objectProbe,
+    ...over,
   })
 
 beforeEach(() => {
@@ -376,12 +377,17 @@ describe('nothing about WHERE the audio is reaches the wire', () => {
  * pipeline exists to avoid.
  */
 describe('rows past the job-probe cap are never derived', () => {
-  it('the oldest, un-probed session is not asked about and never reads 復元可能', async () => {
+  it('⚖ the oldest, un-probed session is not asked about and never reads 復元可能', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     objectProbe.mockResolvedValue(true)
     const takeOf = (i: number) => `4f9b2c1e-8a7d-4e0f-b3c6-${String(i).padStart(12, '0')}`
-    // 101 record-less sessions, newest first by index; the job probe takes 100.
-    recordings.current = Array.from({ length: 101 }, (_, i) =>
+    // ⚖ THE TWO CAPS MUST DIVERGE (fix round 2, R3). The first cut of this pin
+    // pushed 101 rows over BOTH caps, which are the same number and sort the
+    // same way — so the audio cap dropped the oldest row for its own, unrelated
+    // reason and every assertion still passed with the fence removed. The
+    // mutant survived a cold battery run. Here the JOB cap is two and the audio
+    // cap is its default 100, so an excluded row has exactly one explanation.
+    recordings.current = Array.from({ length: 3 }, (_, i) =>
       rec({
         id: `s${i}`,
         created_at: iso(SESSION_UNSETTLED_GRACE_MS / MIN + 60 + i),
@@ -390,17 +396,18 @@ describe('rows past the job-probe cap are never derived', () => {
     )
     // …and the un-probed one is the very row whose job is LIVE.
     jobProbe.mockImplementation(async (id?: string) => {
-      if (id === 's100') return { status: 'QUEUED', last_error: null }
+      if (id === 's2') return { status: 'QUEUED', last_error: null }
       throw Object.assign(new Error('no job'), { status: 404 })
     })
-    const rows = await read()
-    const oldest = rows.find((r) => r.recordingSessionId === 's100')!
+    const rows = await read({ maxJobProbes: 2 })
+    const oldest = rows.find((r) => r.recordingSessionId === 's2')!
     expect(oldest.jobStatus).toBeNull()
     expect(oldest.serverAudio).toBeUndefined()
     const asked = new Set(objectProbe.mock.calls.map((c) => c[0]))
-    expect(asked.has(`app_${BIZ}_${takeOf(100)}.webm`)).toBe(false)
-    // The 100 that WERE probed are derived as usual.
-    expect(objectProbe).toHaveBeenCalledTimes(100)
+    expect(asked.has(`app_${BIZ}_${takeOf(2)}.webm`)).toBe(false)
+    // The two that WERE probed are derived as usual — and NOTHING else is
+    // asked about, which is the assertion the audio cap used to reproduce.
+    expect(objectProbe).toHaveBeenCalledTimes(2)
     warn.mockRestore()
   })
 })

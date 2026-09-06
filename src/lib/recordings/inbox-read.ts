@@ -87,7 +87,14 @@ const PROBE_CONCURRENCY = 6
  *  ponytail: since R3 the candidate set is a SUBSET of the job-probed rows, so
  *  at equal numbers this cap can never bite — the job cap dominates it. It
  *  stays because that is a coincidence of the two constants, not a property:
- *  raise MAX_JOB_PROBES alone and this is the only thing bounding storage. */
+ *  raise MAX_JOB_PROBES alone and this is the only thing bounding storage.
+ *
+ *  ⚖ …and that coincidence made R3's own pin VACUOUS (fix round 2, R3). With
+ *  both caps equal AND sorted the same way, a fixture one row over the job cap
+ *  is dropped by the AUDIO cap too, so removing the job-cap fence changed no
+ *  assertion — the mutant survived a cold battery run. Both numbers are
+ *  overridable through InboxReadDeps for that reason, so a test can make them
+ *  diverge and leave exactly one explanation for an excluded row. */
 const MAX_AUDIO_PROBES = MAX_JOB_PROBES
 
 /** Pages of the discard ledger read per pass. Discards are rare by nature, so
@@ -247,6 +254,11 @@ export interface InboxReadDeps {
   /** How the 'object' half is answered — the storage proof (D8'). Injected for
    *  the same reason. */
   objectProbe?: ObjectProbe
+  /** The two probe budgets, overridable ONLY so a test can make them diverge
+   *  (fix round 2, R3 — see MAX_AUDIO_PROBES above). Production never passes
+   *  them; both defaults are the constants. */
+  maxJobProbes?: number
+  maxAudioProbes?: number
 }
 
 /**
@@ -292,6 +304,8 @@ export async function readRecordingsInbox({
   now,
   segmentsProbe = listFirstSegment,
   objectProbe = probeObject,
+  maxJobProbes = MAX_JOB_PROBES,
+  maxAudioProbes = MAX_AUDIO_PROBES,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
@@ -345,18 +359,18 @@ export async function readRecordingsInbox({
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
   if (residue.length > 0) {
     console.info(
-      `[recordings-inbox] job probes: ${Math.min(residue.length, MAX_JOB_PROBES)} of ` +
+      `[recordings-inbox] job probes: ${Math.min(residue.length, maxJobProbes)} of ` +
         `${residue.length} record-less sessions (${sessions.length} in window)`,
     )
   }
-  if (residue.length > MAX_JOB_PROBES) {
+  if (residue.length > maxJobProbes) {
     console.warn(
-      `[recordings-inbox] ${residue.length - MAX_JOB_PROBES} oldest record-less sessions ` +
+      `[recordings-inbox] ${residue.length - maxJobProbes} oldest record-less sessions ` +
         'left unprobed (cap reached)',
     )
   }
 
-  const probes = residue.slice(0, MAX_JOB_PROBES)
+  const probes = residue.slice(0, maxJobProbes)
   /** ⚖ WHO WAS ACTUALLY ASKED (fix round 1, R3). A row past the cap keeps
    *  `jobStatus: null, jobProbeFailed: false` — the exact shape of a real 404 —
    *  so without this set the server-audio derivation would read "never asked"
@@ -409,6 +423,7 @@ export async function readRecordingsInbox({
     await deriveServerAudio(rows, pointerBySession, probedSessions, businessId, now.getTime(), {
       objectProbe,
       segmentsProbe,
+      maxAudioProbes,
     })
   }
 
@@ -461,7 +476,7 @@ async function deriveServerAudio(
   probedSessions: ReadonlySet<string>,
   businessId: string,
   nowMs: number,
-  probes: { objectProbe: ObjectProbe; segmentsProbe: SegmentsProbe },
+  deps: { objectProbe: ObjectProbe; segmentsProbe: SegmentsProbe; maxAudioProbes: number },
 ): Promise<void> {
   const candidates: Array<{ row: InboxServerSession; key: string }> = []
   for (const row of rows) {
@@ -478,9 +493,9 @@ async function deriveServerAudio(
     candidates.push({ row, key })
   }
 
-  if (candidates.length > MAX_AUDIO_PROBES) {
+  if (candidates.length > deps.maxAudioProbes) {
     console.warn(
-      `[recordings-inbox] ${candidates.length - MAX_AUDIO_PROBES} oldest unsettled sessions ` +
+      `[recordings-inbox] ${candidates.length - deps.maxAudioProbes} oldest unsettled sessions ` +
         'left un-probed for server audio (cap reached)',
     )
   }
@@ -488,19 +503,19 @@ async function deriveServerAudio(
   // newest-first rule before the cap decides who is dropped.
   const probeList = candidates
     .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
-    .slice(0, MAX_AUDIO_PROBES)
+    .slice(0, deps.maxAudioProbes)
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
       for (let i = next++; i < probeList.length; i = next++) {
         const { row, key } = probeList[i]
-        const object = await probes.objectProbe(key)
+        const object = await deps.objectProbe(key)
         if (object === 'unknown') continue
         if (object) {
           row.serverAudio = 'object'
           continue
         }
-        if ((await probes.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+        if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
       }
     }),
   )

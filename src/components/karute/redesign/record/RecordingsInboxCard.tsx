@@ -81,8 +81,13 @@ const CHIP_CLASS: Record<InboxState, string> = {
 const QUIET_BTN = 'rounded-lg px-1 py-0.5 text-[12.5px] font-semibold text-primary'
 const WASH_BTN =
   'inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-primary bg-primary/8 px-3 text-[12.5px] font-semibold text-primary'
+// `disabled:hover:bg-primary` is not decoration: Tailwind's `hover:` is not
+// gated on `:disabled`, and iOS Safari applies :hover on tap and KEEPS it until
+// the next tap elsewhere. Without it the button the staffer just pressed holds
+// the pressed fill for the whole save — greyed by opacity, but wearing the
+// colour of a live control (fix round 2, R5).
 const SOLID_BTN =
-  'inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover'
+  'inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-primary px-3 text-[12.5px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:hover:bg-primary'
 
 export function RecordingsInboxCard({
   rows,

@@ -416,26 +416,36 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // still holds the recording keeps winning: the complete copy is always the one
 // offered.
 //
-// Measured at this PR's tip, the CI/release way, AFTER fix round 1:
-// en 130,422 · index 984,147 · vendor 937,743 = 2,052,312 B. The base
-// 3ee1cdf8d on main measures en 130,251 · index 981,263 · vendor 937,743 =
-// 2,049,257 B, so this PR costs the phone +3,055 B.
+// Measured at this PR's tip, the CI/release way, AFTER fix round 2:
+// en 130,422 · index 984,321 · vendor 937,743 = 2,052,486 B. All three figures
+// below were taken in ONE environment, each from a cold `rm -rf thin/dist`
+// build under the env extracted from ci.yml's own gate step, and each
+// reproduced twice:
+//   · base 3ee1cdf8d on main — en 130,251 · index 981,263 · vendor 937,743
+//     = 2,049,257 B
+//   · fix round 1 (19db4c223) — en 130,422 · index 984,147 · vendor 937,743
+//     = 2,052,312 B
+//   · this tip — 2,052,486 B
+// So the PR costs the phone +3,229 B, of which fix round 2 is +174 B.
 //
 // Where those bytes went. The build itself was +2,080 B (2,051,337 B at the
 // pre-review tip): two message strings in both catalogs, the fold's two new
 // branches, the handler's server-save path with its own picker mount, and the
-// phone port's entry for the new door. Fix round 1 added +975 B on top, and
-// every one of them is a refusal the first cut did not make — the consent gate
-// before the door, the discard guard the take flow already honoured, the
-// in-flight latch that survives the reload, the row's button greying out while
-// it does, the failed-job row keeping its 再試行, and the new door's own
-// refusal codes reaching the phone.
+// phone port's entry for the new door. Fix round 1 added +975 B, and every one
+// of them is a refusal the first cut did not make — the consent gate before the
+// door, the discard guard the take flow already honoured, the in-flight latch
+// that survives the reload, the row's button greying out while it does, the
+// failed-job row keeping its 再試行, and the new door's own refusal codes
+// reaching the phone. Fix round 2's +174 B is the same kind of thing, smaller:
+// the save's latch moved to the tap and held across the consent round trip, the
+// seal re-checked after it, the store handing a mid-flight caller a promise it
+// can follow, and the greyed button losing its hover fill.
 //
 // The ceiling is sized for the WHOLE slice, not just this PR, because the other
 // two land beside it: PR-A (the nightly assembler) adds +119 B of i18n labels
 // its own totality gate demands, and PR-B (the store stamp) is server-side but
-// for a few lines at the take doors. So 2,054,000 leaves 1,688 B of headroom at
-// this tip and 1,569 B once A's labels land — the rest is B's allowance plus
+// for a few lines at the take doors. So 2,054,000 leaves 1,514 B of headroom at
+// this tip and 1,395 B once A's labels land — the rest is B's allowance plus
 // the rebase. Whatever is left after those three is the next thing's problem,
 // and it should have to come back and say what it is.
 //
