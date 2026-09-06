@@ -90,11 +90,18 @@ export async function resolveStoreForRequest(args: {
   //    that equality everywhere: resolveSelfStaffId returns the auth id iff
   //    `staffList.some((s) => s.id === authUserId)` (app-api/customer-facade.ts:99),
   //    getCurrentUserStaffId does the same on the cookie path (lib/staff.ts:263),
-  //    and isRosterOwner compares the same way (actions/stores.ts:33). Web's own
-  //    assignment resolver calls `staffStores.get(s.id)` with `s` off that very
-  //    roster (auth/store-scope.ts:294), so both transports key this lookup on
-  //    the same space. A caller the roster CANNOT place never reaches this line:
-  //    viewerAllowedStoreIds returns [] before it (see its own guard below).
+  //    and isRosterOwner compares the same way (actions/stores.ts:33). The WEB
+  //    twin keys this very SDK method with that very id: resolveStoreScope
+  //    (auth/store-scope.ts:90) passes `getCurrentUserStaffId()` — the auth id —
+  //    to getStaffStoresStrict, which is `synqed.staffStores.get(<auth id>)`
+  //    (actions/stores.ts:486-489); the facade's own caller does the same
+  //    (screens/karute/[id]/route.ts:116-117). So both transports key this
+  //    lookup on ONE space.
+  //    A caller the roster CANNOT place never reaches this line ON THE
+  //    RECORDING-READ PATH — viewerAllowedStoreIds returns [] first (its guard
+  //    below). The staff-write and export callers DO reach it, and fail closed
+  //    their own way (ensureStaffWriteInScope's roster oracle ·
+  //    resolveExportStoreId's refusal).
   let assigned: string[]
   try {
     assigned = (await synqed.staffStores.get(authUserId)).store_ids
@@ -129,8 +136,10 @@ export async function resolveStoreForRequest(args: {
  * is right for a write, and wrong for this read — a blipped assignment lookup
  * must narrow the named grant, never 403 a karute screen or a recorder's own
  * take. `[]` carries exactly that: no store reach, everything else unchanged.
- * `requestedStoreId: null` — these routes carry no store-id header, and the
- * call is purely for the viewAll / assignment / fail-closed resolution.
+ * `requestedStoreId: null` — the clamp deliberately IGNORES any store-id the
+ * caller sent; the ASSIGNMENT is the basis, so a phone-set pin can neither
+ * widen nor narrow the grant. The call is purely for the viewAll / assignment /
+ * fail-closed resolution.
  *
  * ⚠ AN UNPLACEABLE CALLER IS `[]`, NOT "UNRESTRICTED" (fix round 4, blind
  * round 2 F3). Web's twin already fails closed there: store-scope.ts:89-91
@@ -185,9 +194,9 @@ export async function viewerAllowedStoreIds(args: {
  * would buy nothing (and on the pin/voice routes it would be the SECOND such
  * read in one request). `businessId` rides the args to reach that oracle.
  *
- * `requestedStoreId: null` deliberately: these routes carry no `store-id`
- * header, and the clamp is called purely for its viewAll / assignment /
- * fail-closed resolution. The throw carries no `reason: 'store_header'` — this
+ * `requestedStoreId: null` deliberately: the clamp IGNORES any `store-id` the
+ * caller sent — the assignment is the basis — and is called purely for its
+ * viewAll / assignment / fail-closed resolution. The throw carries no `reason: 'store_header'` — this
  * is resource ownership (the caller's pin is fine, the row isn't), the same
  * class as the karute route's "this booking belongs to a store…".
  *

@@ -174,8 +174,9 @@ describe('store clamp', () => {
 // staff `id` IS the auth user id for a PLACED member — resolveSelfStaffId
 // compares them directly (customer-facade.ts:99), getCurrentUserStaffId does
 // the same on the cookie path (staff.ts:263), isRosterOwner too (stores.ts:33),
-// and web's own resolver calls staffStores.get(s.id) off that roster
-// (store-scope.ts:294). The case the review feared — an id the roster cannot
+// and the WEB twin keys this very SDK method with that very id — resolveStoreScope
+// (store-scope.ts:90) → getStaffStoresStrict = synqed.staffStores.get(<auth id>)
+// (stores.ts:486-489); the facade caller does the same (screens/karute/[id]/route.ts:116-117). The case the review feared — an id the roster cannot
 // place, whose empty assignment would read as "floating, works everywhere" —
 // is refused BEFORE any lookup by the selfStaffId guard. This names it.
 describe('viewerAllowedStoreIds — an unplaceable caller is [] , never unrestricted', () => {

@@ -166,7 +166,15 @@ export function serverHoldsTakeRow<T extends HeldTakeRow>(
  * person the owner gave BOTH keys (holdsOwnerKeys, auth/permissions.ts) — may
  * bind a colleague's. NOT `recordings.viewAll` alone: the named grant is a
  * READ grant, and binding a colleague's session is an ACT (⚖ 9/3 council;
- * Greptile #848 point 1). Returns the refusal itself rather than a boolean, so
+ * Greptile #848 point 1).
+ *
+ * ⚖ AND DELIBERATELY NOT STORE-CLAMPED, THE STANDING EXCEPTION (9/6): no store
+ * dimension exists at this layer — `recordings` rows carry no store_id
+ * (session-mint.ts:174), and at bind time the karute that WOULD carry one does
+ * not exist yet. The store law is applied where a store can be known: the read
+ * doors and the karute-level acts (regenerate · 再学習). Recorded, not overlooked.
+ *
+ * Returns the refusal itself rather than a boolean, so
  * the two doors answer a foreign row with the identical error object.
  */
 export function assertRecorderOwnsRow(
