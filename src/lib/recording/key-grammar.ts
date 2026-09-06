@@ -347,6 +347,47 @@ export function isStagedKeyFor(
 }
 
 /**
+ * The tenant and take a `seg/` FOLDER name carries — tenant-blind, for the
+ * nightly assembler alone (src/lib/recording/assembler.ts), which walks the
+ * `seg/` tree with no tenant context exactly as /api/cleanup walks the root.
+ *
+ * SAME POSTURE AS looksLikeRecordingKey below: read the businessId back OUT of
+ * the name and ask THE ONE PARSER, rather than spelling the shape a second
+ * time where the two could drift. A folder name is not a key, so it is turned
+ * into the key its own seq-0 leaf WOULD carry and parsed as one — if that key
+ * does not read as this take's segment for the derived business, the name was
+ * never this shape.
+ *
+ * It widens NO fence: the assembler reaches an object only through
+ * composeTakeKey/parseRecordingKey afterwards, exactly as every other consumer
+ * does. What this answers is only "which tenant's take does this folder name
+ * claim to be" — the question a bucket-wide walk cannot ask any other way.
+ */
+export function parseSegmentFolder(name: unknown): { businessId: string; takeId: string } | null {
+  if (typeof name !== 'string' || !name.startsWith(TAKE_PREFIX)) return null
+  // app_<businessId>_<uuid>: the uuid is fixed-width and CLOSES the name (a
+  // folder carries no extension), so the businessId is exactly what lies
+  // between `app_` and the `_` that opens the uuid.
+  // `+ 2` = the separator plus at least one businessId character.
+  const idStart = name.length - UUID_LENGTH
+  if (idStart < TAKE_PREFIX.length + 2 || name[idStart - 1] !== '_') return null
+  const businessId = name.slice(TAKE_PREFIX.length, idStart - 1)
+  // A real businessId never contains a path separator — looksLikeRecordingKey's
+  // rule, for the same reason: a name that only parses because the derived id
+  // reopens the tenant prefix is not this shape, whatever the parser says.
+  if (businessId.includes('/')) return null
+  const takeId = name.slice(idStart)
+  // READ IT BACK OUT. The extension is any member of the closed set — the leaf
+  // this probes is synthetic and its container is not the question here; the
+  // REAL leaves' ext is read off the real listing by the caller.
+  const parsed = parseRecordingKey(
+    `${SEGMENT_PREFIX}${name}/000000.${EXTENSIONS[0]}`,
+    businessId,
+  )
+  return parsed?.kind === 'segment' && parsed.takeId === takeId ? { businessId, takeId } : null
+}
+
+/**
  * Tenant-BLIND shape check, for /api/cleanup alone: it lists the bucket root
  * with no tenant context, so it cannot name the business a key must belong to.
  *

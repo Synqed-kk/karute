@@ -125,6 +125,7 @@ import {
   isOwnRecordingKey,
   isStagedKeyFor,
   looksLikeRecordingKey,
+  parseSegmentFolder,
   composeTakeKey,
   composeSegmentKey,
   composeStagedKey,
@@ -1886,5 +1887,53 @@ describe('parseRecordingKey — two shapes, one grammar', () => {
     expect(looksLikeRecordingKey(`stg/other-biz_${SESSION_UUID}_${UUID}.webm`)).toBe(true)
     expect(looksLikeRecordingKey(`stg/biz-1_${UUID}.webm`)).toBe(false)
     expect(looksLikeRecordingKey(`stg/a/b_${SESSION_UUID}_${UUID}.webm`)).toBe(false)
+  })
+
+  // ⚖ THE FOLDER NAME, TENANT-BLIND (build 23 slice ③, the assembler). The
+  // nightly job walks `seg/` with no tenant context, so it has to read the
+  // business back out of a FOLDER name — and then ask the one parser, exactly
+  // as looksLikeRecordingKey does for a key.
+  describe('parseSegmentFolder — the assembler reads the tenant off the folder', () => {
+    it('reads the businessId and the take out of a real folder name', () => {
+      expect(parseSegmentFolder(`app_biz-1_${UUID}`)).toEqual({
+        businessId: 'biz-1',
+        takeId: UUID,
+      })
+      // Tenant-blind on purpose: ANY businessId shape it can read back out
+      // counts, exactly like looksLikeRecordingKey — the walk has no tenant
+      // to compare against.
+      expect(parseSegmentFolder(`app_other-biz_${UUID}`)).toEqual({
+        businessId: 'other-biz',
+        takeId: UUID,
+      })
+    })
+
+    it.each([
+      ['an uppercase uuid', `app_biz-1_${UUID.toUpperCase()}`],
+      ['a businessId carrying a path separator', `app_a/b_${UUID}`],
+      ['a traversal body', `app_../../evil_${UUID}`],
+      ['no app_ prefix', `biz-1_${UUID}`],
+      ['the seg/ prefix included', `seg/app_biz-1_${UUID}`],
+      ['a ROOT take name (it carries an extension)', `app_biz-1_${UUID}.webm`],
+      ['an empty businessId', `app__${UUID}`],
+      ['a truncated uuid', `app_biz-1_${UUID.slice(0, 20)}`],
+      ['a leaf, not a folder', `app_biz-1_${UUID}/000000.webm`],
+    ])('refuses %s', (_label, name) => {
+      expect(parseSegmentFolder(name)).toBeNull()
+    })
+
+    it('refuses a string-shaped non-string before it calls a method on it', () => {
+      expect(parseSegmentFolder(IMPOSTOR)).toBeNull()
+    })
+
+    it('what it reads back is what the ONE parser reads out of that folder’s own leaf', () => {
+      const parsed = parseSegmentFolder(`app_biz-1_${UUID}`)!
+      expect(parseRecordingKey(`seg/app_biz-1_${UUID}/000003.mp4`, parsed.businessId)).toEqual({
+        kind: 'segment',
+        takeId: parsed.takeId,
+        seq: 3,
+        ext: 'mp4',
+      })
+    })
   })
 })
