@@ -119,8 +119,10 @@ export async function startRecordingSessionWithClient(
      *  `resolveStoreScope().storeId`, facade `resolveStoreForRequest(...)
      *  .storeId`). REQUIRED, never optional: both doors must decide it, and a
      *  door that forgot would silently mint a store-less row that the take
-     *  doors then read as open. `null` is a real answer — a business with no
-     *  stores, or an actor whose scope resolves to none. */
+     *  doors then read as open. Since ⚖ amendment 10 / addendum 10.1 NEITHER door
+     *  passes `null` any more — the facade 403s (store-clamp.ts:335) and the web
+     *  action returns its fail-open null (actions/recordings.ts:101). The type
+     *  keeps `| null` because the core column and every pre-③ row still do. */
     storeId: string | null
   },
 ): Promise<StartRecordingSessionResult> {
