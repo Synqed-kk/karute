@@ -94,6 +94,12 @@ export const POST = facadeHandler('recordings.job.enqueueFromSession', async (ct
     if (result.error === 'not_found') {
       throw new AppApiError('not_found', 'recording not found in this business')
     }
+    // A deliberate discard is a settled human decision, not a missing thing and
+    // not a permission — 409, so a client can tell "somebody threw this away"
+    // from "it is not yours" and from "it is not there".
+    if (result.error === 'discarded') {
+      throw new AppApiError('conflict', 'that recording was discarded by a staff member')
+    }
     if (result.error === 'no_audio') {
       throw new AppApiError('not_found', 'the server does not hold this recording’s audio')
     }

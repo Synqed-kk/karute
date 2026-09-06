@@ -35,7 +35,10 @@ import type { FinalizeTakeActor } from '@/lib/recording/finalize-take'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
-type Core = Pick<SynqedClient, 'recordings' | 'recordingJobs' | 'customers' | 'packs' | 'karuteRecords'>
+type Core = Pick<
+  SynqedClient,
+  'recordings' | 'recordingJobs' | 'customers' | 'packs' | 'karuteRecords' | 'recordingDiscards'
+>
 
 /**
  * WHO is asking, plus the two ids only the DOOR can resolve.
@@ -68,22 +71,38 @@ export interface EnqueueFromSessionInput {
 export type EnqueueFromSessionResult =
   | { ok: true; jobId: string; status: string }
   /** `not_found` the session id is not this business's · `forbidden` it is not
-   *  this actor's to act on · `no_audio` the server does not hold this take's
+   *  this actor's to act on · `discarded` a staff member deliberately threw
+   *  this recording away and wrote why — TERMINAL, and the one refusal that
+   *  outranks everything · `no_audio` the server does not hold this take's
    *  finalized object (the honest answer, and the one the row's own chip should
    *  already have prevented the staffer from reaching) · `not_returning` the
    *  revisit label cannot be true for this customer · `upstream` a moment in
    *  time — storage or core did not answer; the tap can be repeated. */
-  | { error: 'not_found' | 'forbidden' | 'no_audio' | 'not_returning' | 'upstream' }
+  | { error: 'not_found' | 'forbidden' | 'discarded' | 'no_audio' | 'not_returning' | 'upstream' }
 
 /**
  * Enqueue the normal worker job against the audio the SERVER holds for this
  * session.
  *
- * The order of refusals is deliberate: identity first (cheapest, and it settles
- * the caller), then the row's own claim that a take is there, then the one
- * storage call that PROVES it. A job queued against an object that is not in
- * the bucket costs the worker a fetch, three retries and a FAILED row — and
- * leaves the staffer's row at 失敗 with no better story than before.
+ * The order of refusals is deliberate, and it is load-bearing:
+ *   1. identity — cheapest, and it settles the caller;
+ *   2. OWNERSHIP, before any storage question. A 404-vs-403 split decided after
+ *      a probe would tell a caller whether a COLLEAGUE's take object is in the
+ *      bucket. The tests assert storage was never touched on a refusal, so the
+ *      order cannot quietly move (fix round 1, R4);
+ *   3. the DISCARD ledger — a deliberate discard outranks everything;
+ *   4. the key fence, then the one storage call that PROVES the object.
+ * A job queued against an object that is not in the bucket costs the worker a
+ * fetch, three retries and a FAILED row — and leaves the staffer's row at 失敗
+ * with no better story than before.
+ *
+ * ⚠ PR-B REBASE: `EnqueueFromSessionActor extends FinalizeTakeActor`, and PR-B
+ * makes `allowedStoreIds: readonly string[] | null` REQUIRED on that shape, so
+ * BOTH callers below will fail to compile — deliberately. RESOLVE the reach
+ * exactly as the finalize callers do (web: viewerScopeForActs, only when
+ * holdsOwnerKeys; facade: store-clamp's viewerAllowedStoreIds). Typing
+ * `allowedStoreIds: null` to silence the error would read as UNCLAMPED under
+ * D7's null rule and silently widen the owner's hand on a store-stamped row.
  */
 export async function enqueueFromSessionWithClient(
   synqed: Core,
@@ -108,6 +127,31 @@ export async function enqueueFromSessionWithClient(
   // finalize or re-point a colleague's take: own session, or the owner's hand.
   const denied = assertRecorderOwnsRow(row, actor)
   if (denied) return denied
+
+  // ⚖ A DELIBERATE DISCARD OUTRANKS EVERYTHING (fix round 1, R9a; A2-3).
+  //
+  // Asked HERE rather than read off the display row's `discardedByStaff`,
+  // because that flag is documented to fail OPEN twice over: the ledger read
+  // degrades to an empty set on any error, and it is capped at 20 pages. A
+  // discard leaves the audio exactly where it was (⚖ audio is never deleted,
+  // and an ordinary discard keeps the TAKE key), so a blind pass would let this
+  // door write a karute from a recording a staff member threw away with a
+  // written reason — the G9 outcome the fold's first branch exists to make
+  // structurally impossible. One bounded read, on a rare act, with a real
+  // session filter.
+  //
+  // A THROW REFUSES. "We could not check" is never "not discarded" here.
+  try {
+    const discards = await synqed.recordingDiscards.list({
+      recording_session_id: input.recordingSessionId,
+      source: 'STAFF',
+      page_size: 1,
+    })
+    if ((discards?.events?.length ?? 0) > 0) return { error: 'discarded' }
+  } catch (err) {
+    console.warn('[enqueueFromSession] discard ledger unreadable:', err)
+    return { error: 'upstream' }
+  }
 
   // THE PATH COMES FROM HERE AND NOWHERE ELSE, and this is also the key fence:
   // a `stg/` staged copy, a segment leaf and another tenant's key all fail to

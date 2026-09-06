@@ -38,10 +38,12 @@ type Row = {
 }
 const current = { row: null as Row | null }
 const recordingsGet = jest.fn(async (_id: string) => current.row)
+const listDiscards = jest.fn(async (): Promise<{ events: Array<{ id: string }> }> => ({ events: [] }))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => ({
     recordingJobs: { enqueue },
     recordings: { get: recordingsGet },
+    recordingDiscards: { list: listDiscards },
   }),
 }))
 
@@ -68,6 +70,7 @@ beforeEach(() => {
   enqueue.mockImplementation(async () => ({ id: 'job-1', status: 'QUEUED' }))
   capabilities.current = new Set(['records.write'])
   objectExists.mockResolvedValue(true)
+  listDiscards.mockResolvedValue({ events: [] })
   current.row = {
     id: 'sess-1',
     business_id: 'biz-1',

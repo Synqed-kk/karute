@@ -457,6 +457,10 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // retryable arm.
       const code = (body as { error?: { code?: string } } | null)?.error?.code
       if (code === 'forbidden') return { error: 'forbidden' }
+      // 409 — a staff member deliberately discarded this recording. Terminal,
+      // and worth keeping distinct from the retryable arms: no amount of
+      // tapping changes a decision somebody already made and explained.
+      if (code === 'conflict') return { error: 'discarded' }
       // The door answers 404 for BOTH "no such session" and "the server does
       // not hold this audio", deliberately: which of the two is not the
       // caller's business, and the row says the same thing either way — there

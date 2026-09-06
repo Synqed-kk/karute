@@ -50,6 +50,9 @@ type Row = {
 const current = { row: null as Row | null }
 const recordingsGet = jest.fn(async (_id: string) => current.row)
 const jobsEnqueue = jest.fn(async (_a: unknown) => ({ id: 'job-1', status: 'QUEUED' }))
+const listDiscards = jest.fn(
+  async (_o: unknown): Promise<{ events: Array<{ id: string }> }> => ({ events: [] }),
+)
 const storesGet = jest.fn(async (id: string) => ({ id }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
@@ -60,6 +63,7 @@ const fakeClient = {
   customers: { get: jest.fn() },
   packs: { listPacks: jest.fn(async () => []) },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
+  recordingDiscards: { list: listDiscards },
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
@@ -106,6 +110,7 @@ beforeEach(() => {
     status: 'UPLOADING',
   }
   objectExists.mockResolvedValue(true)
+  listDiscards.mockResolvedValue({ events: [] })
   jobsEnqueue.mockResolvedValue({ id: 'job-1', status: 'QUEUED' })
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   storesGet.mockImplementation(async (id: string) => ({ id }))
@@ -171,11 +176,31 @@ describe('POST recordings/job/from-session', () => {
     expect(recordingsGet).not.toHaveBeenCalled()
   })
 
-  it("a colleague's session without the owner's hand → 403", async () => {
+  it("a colleague's session without the owner's hand → 403, storage NEVER touched", async () => {
+    // ⚖ R4 — the order pin on the Bearer transport: a 404-vs-403 split decided
+    // after the probe would answer "is a colleague's take in the bucket".
     current.row = { ...current.row!, staff_id: 'auth-user-2' }
     const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
     expect(res.status).toBe(403)
+    expect(objectExists).not.toHaveBeenCalled()
     expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a STAFF-discarded session → 409, and nothing is queued (R9a)', async () => {
+    listDiscards.mockResolvedValue({ events: [{ id: 'disc-1' }] })
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(409)
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('an unreadable discard ledger → 502, never a save', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    listDiscards.mockRejectedValue(new Error('core down'))
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(502)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('no object in the bucket → 404, and nothing is queued', async () => {

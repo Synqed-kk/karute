@@ -319,8 +319,14 @@ export interface RecordingPipelinePort {
    * reach one body, so the phone and the web page cannot drift into different
    * rules about who may save a recording.
    *
-   * NEVER throws on a refusal: `forbidden` / `not_found` / `no_audio` /
-   * `upstream` are settled answers the row shows once.
+   * NEVER throws on a refusal. The shared body's closed union is
+   * `forbidden` / `not_found` / `discarded` / `no_audio` / `not_returning` /
+   * `upstream`, and the two arms agree on the TYPE but not on every value: the
+   * web arm returns the body's answer verbatim, while the thin arm collapses
+   * what the facade tells it (403 → forbidden, 409 → discarded, 404 →
+   * not_found for both "no such session" and "no audio", everything else →
+   * upstream) — deliberately, with its own comment saying why. `not_returning`
+   * is unreachable from either arm today: no caller sends an `outcome`.
    */
   enqueueJobFromSession(input: EnqueueFromSessionInput): Promise<EnqueueFromSessionResult>
   /**

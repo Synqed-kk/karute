@@ -48,7 +48,10 @@ type Row = {
   status: string
 }
 /** The PRODUCTION shape of a row this door is meant to act on: born reserved,
- *  finalized (duration + a status the recorder left behind), no job yet. */
+ *  finalized (duration + a status the recorder left behind), no job yet.
+ *  `UPLOADING` WITH a duration is production, not a phantom: finalize re-writes
+ *  UPLOADING when it stamps (D1). Since fix round 1's R1 the duration is not
+ *  read by the derivation at all, so no case here turns on it. */
 const row = (over: Partial<Row> = {}): Row => ({
   id: 'sess-1',
   business_id: BIZ,
@@ -73,6 +76,10 @@ const customerGet = jest.fn(async () => ({
 }))
 const listPacks = jest.fn(async (): Promise<Array<{ status: string; kind: string }>> => [])
 const listKaruteRecords = jest.fn(async () => ({ karute_records: [] as Array<{ id: string }> }))
+/** The discard ledger, asked per session by the door's own fence (R9a). */
+const listDiscards = jest.fn(
+  async (_opts: unknown): Promise<{ events: Array<{ id: string }> }> => ({ events: [] }),
+)
 
 const synqed = {
   recordings: { get: recordingsGet, update: recordingsUpdate },
@@ -80,6 +87,7 @@ const synqed = {
   customers: { get: customerGet },
   packs: { listPacks },
   karuteRecords: { list: listKaruteRecords },
+  recordingDiscards: { list: listDiscards },
 } as unknown as Parameters<typeof enqueueFromSessionWithClient>[0]
 
 const actor = (over: Partial<Parameters<typeof enqueueFromSessionWithClient>[1]> = {}) => ({
@@ -106,6 +114,7 @@ beforeEach(() => {
   customerGet.mockResolvedValue({ is_existing_customer: false, visit_count: 0, has_ticket_pack: false })
   listPacks.mockResolvedValue([])
   listKaruteRecords.mockResolvedValue({ karute_records: [] })
+  listDiscards.mockResolvedValue({ events: [] })
 })
 
 describe('the payload — the same job, with the path from the ROW', () => {
@@ -166,15 +175,21 @@ describe('who may save it — the take doors’ own rule, restated here', () => 
     await expect(run(actor({ holdsOwnerKeys: true }))).resolves.toMatchObject({ ok: true })
   })
 
-  it('a colleague’s session WITHOUT it: forbidden, nothing queued', async () => {
+  it('a colleague’s session WITHOUT it: forbidden, and storage is NEVER touched', async () => {
+    // ⚖ R4 — the ORDER is the pin. Move assertRecorderOwnsRow below the probe
+    // and a caller learns, from a 404 vs a 403, whether a colleague's take
+    // object is in the bucket. An existence oracle over someone else's takes.
     current.row = row({ staff_id: 'staff-B' })
     await expect(run()).resolves.toEqual({ error: 'forbidden' })
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(storageList).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
   })
 
-  it('another tenant’s row: forbidden even with the owner’s hand', async () => {
+  it('another tenant’s row: forbidden even with the owner’s hand, storage untouched', async () => {
     current.row = row({ business_id: 'biz-2' })
     await expect(run(actor({ holdsOwnerKeys: true }))).resolves.toEqual({ error: 'forbidden' })
+    expect(objectExists).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
   })
 
@@ -344,7 +359,7 @@ describe('the duration stamp', () => {
     warn.mockRestore()
   })
 
-  it('the folder it lists is the take’s own, and it uses the ACTOR’s client', async () => {
+  it('lists the take’s OWN folder, name-ascending, and updates through the passed client', async () => {
     storageList.mockResolvedValue({ data: leaves(1), error: null })
     await run()
     const [folder, opts] = storageList.mock.calls[0] as [string, { sortBy?: unknown }]
@@ -369,5 +384,48 @@ describe('the duration stamp', () => {
     await expect(run()).resolves.toEqual({ error: 'no_audio' })
     expect(storageList).not.toHaveBeenCalled()
     expect(recordingsUpdate).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * ⚖ THE DISCARD FENCE (fix round 1, R9a).
+ *
+ * A discard leaves the audio exactly where it was — nothing deletes recording
+ * audio, and an ordinary discard keeps the take's own key — so nothing about
+ * STORAGE can tell this door that a staff member threw the recording away. The
+ * display row's `discardedByStaff` cannot be trusted for it either: that flag
+ * comes from a ledger read documented to fail OPEN. So the door asks, itself,
+ * on the one session, before it looks at the bucket.
+ */
+describe('a deliberate discard outranks everything', () => {
+  it('a STAFF-discarded session is refused, and storage is never asked', async () => {
+    listDiscards.mockResolvedValue({ events: [{ id: 'disc-1' }] })
+    await expect(run()).resolves.toEqual({ error: 'discarded' })
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('the fence asks for THIS session, STAFF rows only, one page', async () => {
+    await run()
+    expect(listDiscards).toHaveBeenCalledWith({
+      recording_session_id: 'sess-1',
+      source: 'STAFF',
+      page_size: 1,
+    })
+  })
+
+  it('an unreadable ledger REFUSES — "could not check" is never "not discarded"', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    listDiscards.mockRejectedValue(new Error('core down'))
+    await expect(run()).resolves.toEqual({ error: 'upstream' })
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('the fence runs AFTER ownership — a colleague learns nothing from it', async () => {
+    current.row = row({ staff_id: 'staff-B' })
+    await expect(run()).resolves.toEqual({ error: 'forbidden' })
+    expect(listDiscards).not.toHaveBeenCalled()
   })
 })
