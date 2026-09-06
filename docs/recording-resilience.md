@@ -66,9 +66,19 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   untouched. It concatenates the contiguous run from the first segment, ADDS
   the result under the key the take's own row already reserved, and files one
   `recording.capture_resumed` audit row that says plainly how many segments
-  there were, where the first hole is, and that the duration is an estimate.
-  Two days, not two hours, because the device's own drain is faster than we are
-  and sealing early would strand the take it was about to finish.
+  there were, where the first hole is, and how long the rebuilt audio is
+  estimated to run. Two days, not two hours, because the device's own drain is
+  faster than we are and sealing early would strand the take it was about to
+  finish.
+- **The rescued take's LENGTH is written when a staffer saves it**, not by the
+  nightly job. Core fences `PUT /v1/recordings/:id` behind a human actor
+  (core D10, `docs/backlog/LIAM_FULL_DUMP_BACKLOG.md:94`), and a 03:07 cron has
+  none — so the job settles the audio and records what it rebuilt, and the save
+  door writes `duration_seconds` from the same estimate with the staffer's own
+  credentials. **Named ceiling:** a rescued take nobody saves keeps a null
+  duration, so 録音履歴 shows no length for it until somebody does. Nothing is
+  lost by that — the audio is on the server and the audit row carries the
+  estimate — and closing it would take a system actor in core.
 - **⚖ Retention is LIVE: audio is never deleted.** Every code path that could
   destroy a recording is gone — the worker's post-transcription delete, the
   facade transcribe route's `finally`, the web port's cleanup leg, the discard
@@ -89,7 +99,8 @@ Raising the storage limit does **not** fix any of these — the fix is architect
 - **録音履歴 does not yet say any of this.** A staffer on a device that no
   longer holds the take still reads 失敗 until the row learns to say "the
   server holds part of this one" and offer 保存する; that is the inbox half,
-  built separately.
+  built separately — and it is the same half that writes a rescued take's
+  length.
 
 The design, in full: record in rolling segments; **persist each locally as
 captured** (IndexedDB / OPFS) and upload as it completes. A crash/kill/dead-battery loses *at
