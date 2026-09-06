@@ -95,13 +95,11 @@ const webScope = {
 /** The web act doors call viewerScopeForActs (auth/store-scope.ts); its own
  *  fail-closed behaviour is unit-pinned in store-scope.test.ts against the real
  *  seams. Here it is the SEAM: what the door does with each answer. */
-const webScopeThrows = { current: false }
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => webScope.current),
-  viewerScopeForActs: jest.fn(async () => {
-    if (webScopeThrows.current) return []
-    return webScope.current.degraded ? [] : webScope.current.allowedStoreIds
-  }),
+  viewerScopeForActs: jest.fn(async () =>
+    webScope.current.degraded ? [] : webScope.current.allowedStoreIds,
+  ),
 }))
 const fakeClient = {
   staffStores: { get: (id: string) => staffStoresGet(id) },
@@ -165,7 +163,6 @@ beforeEach(() => {
   capabilities.current = new Set(['records.write'])
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   webScope.current = { storeId: null, viewAll: true, allowedStoreIds: null, degraded: false }
-  webScopeThrows.current = false
   roster.current = [{ id: 'auth-user-1', full_name: '田中' }]
   revoked.current = false
   REC.current = { id: '00000000-0000-4000-8000-000000000007', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }
@@ -718,20 +715,11 @@ describe('regenerate — the owner’s hand honours the store law', () => {
     expect(runExtract).not.toHaveBeenCalled()
   })
 
-  // ⚖ THE THROWN ARM (fix round 8, L2 R3 F1). The web pins only ever exercised
-  // `degraded === true`; resolveStoreScope can also THROW (it awaits four
-  // helpers, none null-safe), and fail-open there would hand a clamped
-  // both-keys manager every branch's 再生成 during a core blip. The helper's own
-  // catch is unit-pinned in store-scope.test.ts; this is the DOOR's half.
-  it('web: a THROWN scope read fails the reach closed', async () => {
-    colleaguesKaruteInStoreB()
-    capabilities.current = new Set(BOTH)
-    webScopeThrows.current = true
-    await expect(regenerateKarute(ID)).resolves.toEqual({
-      error: 'You cannot regenerate a recording you are not allowed to view.',
-    })
-    expect(runExtract).not.toHaveBeenCalled()
-  })
+  // ⚖ THE THROWN ARM IS NOT PINNABLE HERE, ON PURPOSE (fix round 9). The door
+  // never sees a throw: viewerScopeForActs catches it and answers `[]`, so a
+  // "thrown" case at this level would run the DEGRADED case above under another
+  // name. The real arm is unit-pinned in store-scope.test.ts against the real
+  // seams ("a THROWN resolve → [] , never null"), which is where M23 kills.
 
   it('the RECORDER’s own record is untouched by any of it', async () => {
     REC.current = { ...REC.current, staff_id: 'auth-user-1', store_id: 'store-b' }

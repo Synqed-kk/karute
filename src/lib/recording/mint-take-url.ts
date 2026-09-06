@@ -99,7 +99,8 @@ export interface MintTakeActor {
    *  (holdsOwnerKeys, auth/permissions.ts). Lets such a caller reserve a take on
    *  another staffer's session; everyone else is own-session only. The named
    *  grant ALONE does NOT reach here: it grants hearing and reading, never
-   *  reserving (⚖ 9/3 council).   *
+   *  reserving (⚖ 9/3 council).
+   *
    *  ⚖ AND DELIBERATELY NOT STORE-CLAMPED, THE STANDING EXCEPTION (9/6): no
    *  store dimension exists at this layer — `recordings` rows carry no
    *  store_id (session-mint.ts:174 says so in the create payload), and at
