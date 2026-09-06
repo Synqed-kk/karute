@@ -617,7 +617,8 @@ export const rulebook: Rulebook = {
     { token: 'records.delete', label: 'カルテ・顧客の削除' },
     { token: 'records.reassign', label: 'カルテの付け替え' },
     { token: 'records.write', label: 'カルテの記録' },
-    { token: 'recordings.viewAll', label: '全スタッフの録音の閲覧' },
+    // mirrors messages/ja.json cap_recordings_viewAll — moves with it
+    { token: 'recordings.viewAll', label: '他スタッフの録音の再生・文字起こしの閲覧' },
     { token: 'analytics.viewAll', label: '売上分析の閲覧（店舗全体）' },
     { token: 'stores.viewAll', label: '全店舗の閲覧' },
     { token: 'alerts.manage', label: '離客・回数券のお知らせの操作' },

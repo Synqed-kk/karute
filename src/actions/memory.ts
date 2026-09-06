@@ -165,14 +165,16 @@ export async function relearnCustomerMemoryWithClient(
     businessId: string | null
     locale: string
     planAllowed: boolean
-    /** Owner-only gate (Liam 2026-07-16) — see the fail-closed check below. */
+    /** Dev-tool gate (Liam 2026-07-16): the owner, or a person the owner gave
+     *  BOTH keys by hand (see actions/dev-tools.ts). Fail-closed check below. */
     regenAllowed: boolean
   },
   customerId: string,
 ): Promise<{ ok: boolean; items: number; locked?: boolean }> {
   if (!customerId) return { ok: false, items: 0 }
-  // 再学習 is owner-only (Liam 2026-07-16): its cost scales with the customer's
-  // ENTIRE session history and it reads raw transcripts. The gate is an
+  // 再学習 is gated to the owner, or a person the owner gave BOTH keys by hand
+  // (see actions/dev-tools.ts) — Liam 2026-07-16: its cost scales with the
+  // customer's ENTIRE session history and it reads raw transcripts. The gate is an
   // EXPLICIT caller-proven flag because the two worlds prove it differently —
   // cookie path: canUseDevRegen() (dev-tools.ts); Bearer facade: the SAME two
   // capability keys off the verified token. Fail closed here so no caller can

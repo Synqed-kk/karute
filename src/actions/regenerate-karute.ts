@@ -545,8 +545,9 @@ export async function listCustomerKaruteForRegen(
 ): Promise<Array<{ id: string; transcript: string }>> {
   if (!customerId) return []
   // This is the ONE action that RETURNS raw transcripts (the whole history at
-  // once), and raw recordings are recorder-private — so it rides the owner dev
-  // key, same as 再学習 (memory.ts). Server-side twin of the UI gate: hiding
+  // once), and raw recordings are recorder-private — so it rides the same dev
+  // key pair as 再学習 (memory.ts): the owner, or a person the owner gave BOTH
+  // keys by hand (see actions/dev-tools.ts). Server-side twin of the UI gate: hiding
   // the 全カルテ再生成 button is never the only defense. Dynamic import mirrors
   // that gate — keeps the auth chain out of the module graph for callers that
   // never bulk-regen.

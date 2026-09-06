@@ -8,10 +8,10 @@
 // never diverge: never target the owner, no-escalation-by-delta (a caller can
 // only grant a capability they hold themselves), and audit.view / sync.view /
 // recordings.viewAll grants are owner-only (Liam rulings 7/17 · 7/24 · ⚖ 9/3).
-// callerStaffId is the confirmed Bearer auth
-// user id directly (profiles.id === auth.users.id, no extra roster lookup
-// needed — businessIdForUser already proved this identity is an active member
-// of this business during identity resolution).
+// callerStaffId is the confirmed Bearer auth user id directly (profiles.id ===
+// auth.users.id, no extra roster lookup needed — businessIdForUser already
+// proved this identity is an active member of this business during identity
+// resolution).
 //
 // Business-result passthrough: both cores' own result shape rides the 2xx
 // body VERBATIM (RPC-style, same class as stores.update/org-settings PATCH) —

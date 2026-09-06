@@ -473,8 +473,9 @@ function MemoryTrustBadge({
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [pending, startTransition] = useTransition()
-  // 再学習 is owner-only (dev tool — its cost scales with the customer's whole
-  // session history). Default false = staff see the plain trust chip.
+  // 再学習 is a dev tool (its cost scales with the customer's whole session
+  // history), gated to the owner, or a person the owner gave BOTH keys by hand
+  // (see actions/dev-tools.ts). Default false = staff see the plain trust chip.
   const [canRelearn, setCanRelearn] = useState(false)
   useEffect(() => {
     let alive = true

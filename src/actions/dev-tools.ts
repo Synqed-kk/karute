@@ -2,9 +2,10 @@
 
 // 再学習 (memory relearn) is a dev tool, not a product feature (Liam ruling
 // 2026-07-15/16): each press re-reads the customer's ENTIRE transcript history,
-// so cost scales with session count. Only the owner account keeps the trigger;
-// everyone else sees the plain trust chip. `business.manage` is owner-only by
-// default, which makes it the right key in the current single-tenant world; at
+// so cost scales with session count. The trigger belongs to the owner, or to a
+// person the owner gave BOTH keys by hand (the pair checked below); everyone
+// else sees the plain trust chip. `business.manage` rides no non-owner preset,
+// which makes it the right key in the current single-tenant world; at
 // multi-tenant GA customer businesses lose the button entirely per the same
 // ruling. Server-side enforcement inside relearnCustomerMemoryAction lands
 // after the parked re-wrap stack merges (that file is stack-owned).

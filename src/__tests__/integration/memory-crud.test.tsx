@@ -82,7 +82,7 @@ describe('memory CRUD wiring', () => {
     fireEvent.click(screen.getByText('削除'))
     expect(actions.deleteMemoryItemAction).toHaveBeenCalledWith('m1')
   })
-  it('再学習 chip is a plain badge for non-owners (owner-only dev tool)', async () => {
+  it('再学習 chip is a plain badge without the dev-tool key pair (canUseDevRegen false)', async () => {
     mount()
     // canUseDevRegen mock resolves false → the chip must render as a <span>,
     // never a clickable relearn trigger.
