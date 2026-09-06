@@ -411,10 +411,10 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // with the same solid 保存する the staffer already knows, going through a new
 // server-side door that derives the audio's location from the recording row
 // itself (nothing on the wire names a file, ever), proves the bytes are really
-// in the bucket, stamps the length the nightly job is not allowed to write, and
-// then runs the ordinary transcription the phone would have run. A device that
-// still holds the recording keeps winning: the complete copy is always the one
-// offered.
+// in the bucket — at the take's own key or at the nightly job's rescue of it —
+// and then runs the ordinary transcription the phone would have run. A device
+// that still holds the recording keeps winning: the complete copy is always the
+// one offered, on the phone and in the bucket.
 //
 // Measured at this PR's tip, the CI/release way, AFTER fix round 3:
 // en 130,422 · index 984,398 · vendor 937,743 = 2,052,563 B. Every figure below
@@ -464,6 +464,22 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // this tip and 1,318 B once A's labels land — the rest is B's allowance plus
 // the rebase. Whatever is left after those three is the next thing's problem,
 // and it should have to come back and say what it is.
+//
+// REBASED 2026-09-07 onto a main that now CARRIES A AND B (14666699b), and the
+// ceiling does not move — 2,054,000 stands. Measured the same way, cold, twice,
+// byte-identical both runs:
+//   · base 14666699b (the merged nightly assembler + store stamp) — en 130,310 ·
+//     index 981,323 · vendor 937,743 = 2,049,376 B
+//   · this tip — en 130,481 · index 984,458 · vendor 937,743 = 2,052,682 B
+// So C still costs the phone +3,306 B, the same figure it cost on the old base.
+// The rebase moved two things in opposite directions and they cancelled: the
+// door now asks the ONE resolver both PRs share instead of probing the pointer
+// itself, and the duration stamp left the door altogether (a rescued take's
+// length stays null until the phone that made it comes back and writes the real
+// one — ADDENDUM 9.2 H3). A's +119 B of i18n labels are in the base above now
+// rather than predicted, so the headroom this entry forecast — 1,318 B once A
+// landed — is measured rather than promised: 1,318 B exactly. B is server-side
+// and costs the phone nothing.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
