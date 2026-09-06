@@ -263,7 +263,7 @@ import {
   RecordPageView,
   type RecordPageViewProps,
 } from '@/components/karute/redesign/record/RecordPageView'
-import { resetInbox } from '@/lib/recordings/inbox-store'
+import { loadInbox, resetInbox } from '@/lib/recordings/inbox-store'
 
 function take(over: Partial<StoredTake> & { takeId: string }): StoredTake {
   return {
@@ -858,5 +858,174 @@ describe('録音履歴 — the server save’s gates (③ fix round 1)', () => {
       locale: 'ja',
     })
     expect(mockPipelineStart).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 録音履歴 — FIX ROUND 2: the latch is taken at the TAP, and held to the end.
+ *
+ * Round 1 took it inside runServerSave — after the consent read, which on a
+ * phone is a facade round trip and is the first thing every tap does. So the
+ * invisible window R6 was written to close was still open at full width on
+ * 100% of taps, and it released early whenever the reload behind it met a read
+ * that was already running. Both are pinned here, plus the seal's other side.
+ */
+describe('録音履歴 — the server save’s latch (③ fix round 2)', () => {
+  const OLD = () => new Date(NOW - 5 * 60 * MIN).toISOString()
+  const serverRow = (over: Partial<ServerSession> = {}) =>
+    session({ recordingSessionId: 'sess-srv', serverAudio: 'object', createdAt: OLD(), ...over })
+  const save = () => within(row('session:sess-srv')).getByText('recording.inbox.action.save')
+  const saveBtn = () => save().closest('button')!
+
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    const promise = new Promise<T>((r) => {
+      resolve = r
+    })
+    return { promise, resolve }
+  }
+
+  it('⚖ R2: the row greys from the TAP, and a second tap buys no second consent read', async () => {
+    const held = deferred<{ consent: unknown }>()
+    mockGetConsent.mockImplementationOnce(() => held.promise)
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+
+    // The consent round trip is still open — and the row already says so.
+    expect(mockGetConsent).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+    expect(saveBtn()).toBeDisabled()
+    expect(saveBtn().getAttribute('aria-busy')).toBe('true')
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockGetConsent).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    // …and the one tap still lands.
+    await act(async () => {
+      held.resolve(currentConsent())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('⚖ R2: a discard confirm landing DURING the consent read stands the save down', async () => {
+    // R5 checked the seal before the await only, so a discard that committed
+    // while we were asking about consent sailed straight into the door. The
+    // take flow calls the two guards together "the whole seal"; this is the
+    // half of that sentence the server save was missing.
+    pipe.state = 'error'
+    pipe.error = 'empty-transcript'
+    pipe.context = { takeId: 'take-1', recordingSessionId: 'sess-other' }
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    const consent = deferred<{ consent: unknown }>()
+    mockGetConsent.mockImplementationOnce(() => consent.promise)
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockGetConsent).toHaveBeenCalledTimes(1)
+
+    // The staffer discards the banner's take while the consent read is open.
+    const discard = jest.requireMock('@/actions/recording-discard') as {
+      discardRecordingWithReason: jest.Mock
+    }
+    const landing = deferred<{ ok: true; receiptId: string; duplicate: boolean }>()
+    discard.discardRecordingWithReason.mockImplementationOnce(() => landing.promise)
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardTakeAction'))
+    })
+    await act(async () => {
+      fireEvent.change(screen.getByRole('textbox'), {
+        target: { value: 'お客様が席を外したため録り直します' },
+      })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('recording.discardReason.confirm'))
+    })
+    await flush(20)
+    expect(discard.discardRecordingWithReason).toHaveBeenCalledTimes(1)
+
+    // Consent comes back mid-discard: the save stands down at the re-check.
+    await act(async () => {
+      consent.resolve(currentConsent())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
+
+    await act(async () => {
+      landing.resolve({ ok: true, receiptId: 'row-1', duplicate: false })
+    })
+    await flush(20)
+  })
+
+  it('⚖ R2: a reload that meets a read ALREADY RUNNING still holds the latch', async () => {
+    const held = deferred<ServerSession[]>()
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    const listMock = jest.requireMock('@/actions/recordings-inbox') as {
+      listRecordingsInbox: jest.Mock
+    }
+    listMock.listRecordingsInbox.mockImplementationOnce(() => held.promise)
+    // A poll or a pipeline settle starts a read before the tap, so the save's
+    // own reload takes loadInbox's single-flight path. That path used to
+    // resolve on the spot: the row re-enabled over a list that had not changed
+    // and a second tap enqueued again.
+    await act(async () => {
+      void loadInbox()
+    })
+    await flush(20)
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+    expect(saveBtn()).toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    expect(mockEnqueueFromSession).toHaveBeenCalledTimes(1)
+
+    // The read that was already running lands; the trailing re-run behind it
+    // is the one the latch was actually waiting for.
+    await act(async () => {
+      held.resolve([])
+    })
+    await flush(20)
+  })
+
+  it('⚖ R2: cancelling the consent dialog releases the row rather than wedging it', async () => {
+    mockGetConsent.mockResolvedValue({ consent: null })
+    serverSessions = [serverRow()]
+    await renderPage()
+
+    await act(async () => {
+      fireEvent.click(save())
+    })
+    await flush(20)
+    // The dialog is up and the row is still held — it is the same save.
+    expect(saveBtn()).toBeDisabled()
+
+    const buttons = screen.getByText('recording.consentConfirmButton').closest('div')!
+    await act(async () => {
+      fireEvent.click(within(buttons).getByText('common.cancel'))
+    })
+    await flush(20)
+    expect(saveBtn()).not.toBeDisabled()
+    expect(mockEnqueueFromSession).not.toHaveBeenCalled()
   })
 })

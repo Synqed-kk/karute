@@ -119,6 +119,39 @@ describe('FX-2 — a refresh during a fold is deferred, not dropped', () => {
     await loadInbox()
     expect(listRecordingsInbox).toHaveBeenCalledTimes(2)
   })
+
+  it('⚖ R2: a mid-fold caller gets a promise it can FOLLOW, not one already resolved', async () => {
+    // The server save holds a UI latch until its reload settles. On the
+    // single-flight path that reload used to resolve on the same tick: the
+    // row re-enabled over a list that had not changed yet and a second tap
+    // enqueued again. What the caller must wait for is the TRAILING re-run —
+    // the only read that has seen its own write.
+    const first = deferred<Session[]>()
+    listRecordingsInbox.mockReturnValueOnce(first.promise)
+    listRecordingsInbox.mockResolvedValue([
+      session({ recordingSessionId: 's1', karuteRecordId: 'rec-1' }),
+    ])
+
+    const started = loadInbox()
+    await flush()
+
+    let settled = false
+    const follower = loadInbox().then(() => {
+      settled = true
+    })
+    await flush()
+    expect(settled).toBe(false)
+
+    first.resolve([]) // the pre-write world
+    await started
+    await follower
+    await flush()
+
+    expect(settled).toBe(true)
+    // …and the state it settled on is the FRESH fold, not the stale one.
+    expect(getInboxState().rows).toHaveLength(1)
+    expect(getInboxState().rows[0].state).toBe('saved')
+  })
 })
 
 describe('FX-3 — the bounded poll for processing rows', () => {

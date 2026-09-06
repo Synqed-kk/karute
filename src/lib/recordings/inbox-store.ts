@@ -69,6 +69,19 @@ let loading = false
  *  trailing re-run, never a loop: the flag is cleared before the re-run
  *  starts, so N concurrent calls cost exactly one follow-up fold. */
 let pendingReload = false
+/** The fold currently running, so a caller that arrives mid-flight gets a
+ *  promise it can FOLLOW instead of one that has already resolved.
+ *
+ *  ⚖ fix round 2, R2. The server save holds a UI latch (the row greys, the one
+ *  button disables) until `loadInbox()` settles. On the early return below that
+ *  used to be the same tick: the row re-enabled still showing 復元可能 + 保存する,
+ *  and a second tap enqueued again. Concurrent calls are the normal case here
+ *  (this module's own docblock says so — three consumers' mount effects, the
+ *  90 s poll and the settle subscription), so that was a real race, not a
+ *  theoretical one. This promise covers the in-flight fold AND the trailing
+ *  re-run it spawns, which is the one that has actually seen the caller's
+ *  write — the caller waits for a FRESH list, never a stale one. */
+let inFlight: Promise<void> | null = null
 /** Bumped on every sign-out wipe so an in-flight fetch can't write the
  *  PREVIOUS user's sessions into a shared salon device. Same discipline as
  *  chrome-store's epoch / globalPipeline's runId. */
@@ -184,11 +197,22 @@ async function readServerSessions() {
  * are the normal case — and the one that matters most (a pipeline settle) is
  * precisely the one that used to be thrown away mid-load.
  */
-export async function loadInbox(): Promise<void> {
+export function loadInbox(): Promise<void> {
   if (loading) {
     pendingReload = true
-    return
+    // Never a bare early return: see `inFlight` above. Its `?? resolve()` is
+    // only reachable if `loading` were true with nothing running, which
+    // resetInbox makes impossible — it clears the flag as it wipes.
+    return inFlight ?? Promise.resolve()
   }
+  const run = runInbox().finally(() => {
+    if (inFlight === run) inFlight = null
+  })
+  inFlight = run
+  return run
+}
+
+async function runInbox(): Promise<void> {
   loading = true
   const myEpoch = epoch
   armPipelineWatch()
@@ -217,10 +241,12 @@ export async function loadInbox(): Promise<void> {
       loading = false
       // A refresh that arrived mid-fold runs now, once. Cleared BEFORE the
       // re-run so the re-run's own concurrent callers can set it again without
-      // this one looping.
+      // this one looping. AWAITED since fix round 2 (R2) so `inFlight` — and
+      // with it every latch following this fold — spans the trailing re-run
+      // too; the mid-flight caller's own write is only visible in THAT one.
       if (pendingReload) {
         pendingReload = false
-        void loadInbox()
+        await loadInbox()
       }
     }
   }
