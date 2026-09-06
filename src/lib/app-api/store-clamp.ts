@@ -83,6 +83,18 @@ export async function resolveStoreForRequest(args: {
   // 3. Resolve the caller's assignment. A THROWN lookup is UNKNOWN, not floating:
   //    fail closed rather than fall through to "works everywhere" (the old
   //    fail-OPEN bug where missing/errored read as every-store).
+  //
+  //    ⚠ `authUserId` IS THE ROSTER'S STAFF ID HERE — one id space, not two
+  //    (Greptile #848 review 2, point 1). In this app the core roster's staff
+  //    `id` is the auth user id for every PLACED member, and the repo relies on
+  //    that equality everywhere: resolveSelfStaffId returns the auth id iff
+  //    `staffList.some((s) => s.id === authUserId)` (app-api/customer-facade.ts:99),
+  //    getCurrentUserStaffId does the same on the cookie path (lib/staff.ts:263),
+  //    and isRosterOwner compares the same way (actions/stores.ts:33). Web's own
+  //    assignment resolver calls `staffStores.get(s.id)` with `s` off that very
+  //    roster (auth/store-scope.ts:294), so both transports key this lookup on
+  //    the same space. A caller the roster CANNOT place never reaches this line:
+  //    viewerAllowedStoreIds returns [] before it (see its own guard below).
   let assigned: string[]
   try {
     assigned = (await synqed.staffStores.get(authUserId)).store_ids
