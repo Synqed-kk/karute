@@ -36,6 +36,9 @@ type Row = {
   id: string
   business_id: string
   staff_id: string
+  /** PR-B's stamp: where the DEVICE was when it recorded. Null on every row
+   *  minted before slice ③, which D7 reads as open. */
+  store_id: string | null
   audio_storage_path: string | null
   duration_seconds: number | null
   status: string
@@ -49,6 +52,7 @@ const row = (over: Partial<Row> = {}): Row => ({
   id: 'sess-1',
   business_id: BIZ,
   staff_id: 'staff-A',
+  store_id: null,
   audio_storage_path: OWN_KEY,
   duration_seconds: 1380,
   status: 'UPLOADING',
@@ -191,6 +195,38 @@ describe('the payload — the same job, with the path from the ROW', () => {
     const [call] = enqueue.mock.calls[0] as [{ payload: { audio_path: string } }]
     expect(call.payload.audio_path).toBe(OWN_KEY)
     expect(objectExists).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * ⚖ R10 (fix round 4) — THE KARUTE IS BORN IN THE RECORDING'S STORE.
+ *
+ * The saver's active scope is not where the recording happened. On an owner's-
+ * hand save the row knows better than the actor does: since PR-B it carries the
+ * store the device was in. Stamping the caller's store instead files a store-9
+ * recording's karute in store-1, where the staff who made it can never see it —
+ * the exact outcome the store-isolation law exists to prevent.
+ */
+describe('the karute carries the RECORDING’s store, not the saver’s', () => {
+  it('a row stamped store-9, rescued by an unrestricted owner sitting in store-1', async () => {
+    current.row = row({ staff_id: 'staff-B', store_id: 'store-9' })
+    await expect(run(actor({ holdsOwnerKeys: true }))).resolves.toMatchObject({ ok: true })
+    const [call] = enqueue.mock.calls[0] as [{ payload: { store_id: string | null } }]
+    expect(call.payload.store_id).toBe('store-9')
+  })
+
+  it('a pre-③ row with NO store falls back to the caller’s own scope', async () => {
+    current.row = row({ store_id: null })
+    await run()
+    const [call] = enqueue.mock.calls[0] as [{ payload: { store_id: string | null } }]
+    expect(call.payload.store_id).toBe('store-1')
+  })
+
+  it('the STAFF id is still the saver’s — attribution happens at enqueue', async () => {
+    current.row = row({ staff_id: 'staff-B', store_id: 'store-9' })
+    await run(actor({ holdsOwnerKeys: true }))
+    const [call] = enqueue.mock.calls[0] as [{ payload: { staff_id: string } }]
+    expect(call.payload.staff_id).toBe('synqed-staff-A')
   })
 })
 

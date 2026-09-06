@@ -238,11 +238,19 @@ export async function enqueueFromSessionWithClient(
   // `duration_seconds` is whatever the ROW already carries and nothing else:
   // null for a rescued take, and it stays null until the phone comes back and
   // finalizes (H3 above). The worker treats it as it always has.
+  //
+  // ⚖ AND THE STORE IS THE RECORDING'S, NOT THE SAVER'S (fix round 4, R10).
+  // Since PR-B the row carries the store the DEVICE was in when it recorded
+  // (D7), which is the honest witness — an owner in store-1 rescuing a store-9
+  // recording must not create that karute in store-1, invisible to the staff
+  // who made it under the store-isolation law. The caller's own scope stays the
+  // fallback for pre-③ rows, whose store nobody stamped. `staff_id` is NOT
+  // treated the same way: attribution-at-enqueue is the twins' own rule.
   const payload: RecordingJobPayload = {
     customer_id: input.customerId,
     staff_id: actor.jobStaffId,
     appointment_id: input.appointmentId ?? null,
-    store_id: actor.storeId,
+    store_id: row.store_id ?? actor.storeId,
     audio_path: resolved.key,
     locale: input.locale ?? 'ja',
     duration_seconds: row.duration_seconds ?? undefined,
