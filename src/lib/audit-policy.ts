@@ -72,6 +72,7 @@ export const AUDIT_ACTIONS = [
   'privacy.voice_enroll',
   'privacy.voice_revoke',
   'recording.capture_finalized',
+  'recording.capture_resumed',
   'recording.capture_unlinked',
   'recording.discard',
   'recording.play',
@@ -165,6 +166,20 @@ export const AUDITED_CORES: {
   // It no longer creates rows at all: fix round 4 moved the minting to
   // mint-take-url.ts, where the take is bound before any byte exists.
   { file: 'src/lib/recording/finalize-take.ts', symbols: ['finalizeTakeWithClient'] },
+  // The nightly assembler (build 23 slice ③) — the take a dead device never
+  // came back for, rebuilt from its segments. Both of its writes sit inside
+  // this ONE symbol alongside the emit: the bucket PUT
+  // (storage.recordings.upload) and the duration stamp (recordings.update),
+  // so neither needs an SDK_WRITE_ALLOWLIST row — the same shape
+  // finalizeTakeWithClient above has. The walk driver runAssembler is
+  // deliberately NOT listed: it performs no write of its own and returns a
+  // summary whenever there is nothing old enough to rescue. Every path here
+  // that writes nothing (the device sealed its own key first; the object
+  // standing there is not this prefix's concatenation; the stamp did not
+  // land) returns an { error } before the emit — a rescue that files a row
+  // for audio it did not actually settle would be the one lie this job must
+  // never tell.
+  { file: 'src/lib/recording/assembler.ts', symbols: ['assembleStrandedTake'] },
   // The play-button mint (build 23 slice ①) — its ONE success return is
   // dominated by the recording.play emit; every refusal is an { error } literal
   // that returns before it. It performs no SDK/storage WRITE at all
