@@ -250,6 +250,26 @@ describe('who may save it — the take doors’ own rule, restated here', () => 
     expect(enqueue).not.toHaveBeenCalled()
   })
 
+  it('the owner’s hand stops at her REACH: a store-9 row against a store-1 reach', async () => {
+    // ⚖ R3 (fix round 4) — the store leg pinned at the layer that actually
+    // calls assertRecorderOwnsRow. Until now every owner's-hand case in this
+    // suite ran with a null store on the row, i.e. D7's open arm, so the
+    // refusal itself was proved only one level up.
+    current.row = row({ staff_id: 'staff-B', store_id: 'store-9' })
+    await expect(
+      run(actor({ holdsOwnerKeys: true, allowedStoreIds: ['store-1'] })),
+    ).resolves.toEqual({ error: 'forbidden' })
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('…and reaches a row stamped INSIDE it', async () => {
+    current.row = row({ staff_id: 'staff-B', store_id: 'store-1' })
+    await expect(
+      run(actor({ holdsOwnerKeys: true, allowedStoreIds: ['store-1'] })),
+    ).resolves.toMatchObject({ ok: true })
+  })
+
   it('another tenant’s row: forbidden even with the owner’s hand, storage untouched', async () => {
     current.row = row({ business_id: 'biz-2' })
     await expect(run(actor({ holdsOwnerKeys: true }))).resolves.toEqual({ error: 'forbidden' })

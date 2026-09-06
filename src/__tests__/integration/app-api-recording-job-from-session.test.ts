@@ -43,6 +43,9 @@ type Row = {
   id: string
   business_id: string
   staff_id: string
+  /** PR-B's stamp: the store the DEVICE was in. Null on every pre-③ row, which
+   *  D7 reads as open. */
+  store_id: string | null
   audio_storage_path: string | null
   duration_seconds: number | null
   status: string
@@ -114,6 +117,7 @@ beforeEach(() => {
     id: 'sess-1',
     business_id: BIZ,
     staff_id: 'auth-user-1',
+    store_id: null,
     audio_storage_path: OWN_KEY,
     duration_seconds: 1380,
     status: 'UPLOADING',
@@ -193,6 +197,43 @@ describe('POST recordings/job/from-session', () => {
     expect(res.status).toBe(403)
     expect(objectExists).not.toHaveBeenCalled()
     expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  // ⚖ THE OWNER'S HAND REACHES ONLY WHERE SHE CAN SEE — on THIS transport too
+  // (fix round 4, R3). The web arm has had this pin since the rebase; the
+  // Bearer arm had none, so typing `allowedStoreIds: null` here to satisfy the
+  // compiler would have shipped green while reading as UNCLAMPED under D7. The
+  // reach comes from the staff ASSIGNMENT, never the `store-id` header — these
+  // three cases send no header at all.
+  const ownerHand = () =>
+    new Set(['customers.view', 'records.write', 'business.manage', 'recordings.viewAll'])
+
+  it("a colleague's row stamped in a store she cannot see → 403, storage untouched", async () => {
+    capabilities.current = ownerHand()
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-mine'] })
+    current.row = { ...current.row!, staff_id: 'auth-user-2', store_id: 'store-9' }
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(403)
+    expect(objectExists).not.toHaveBeenCalled()
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it("…and the same row stamped in a store she CAN see goes through", async () => {
+    capabilities.current = ownerHand()
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-mine'] })
+    current.row = { ...current.row!, staff_id: 'auth-user-2', store_id: 'store-mine' }
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('a pre-③ row with NO store stays open to the owner’s hand (D7)', async () => {
+    capabilities.current = ownerHand()
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-mine'] })
+    current.row = { ...current.row!, staff_id: 'auth-user-2', store_id: null }
+    const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
+    expect(res.status).toBe(200)
+    expect(jobsEnqueue).toHaveBeenCalledTimes(1)
   })
 
   it('a STAFF-discarded session → 409, and nothing is queued (R9a)', async () => {
