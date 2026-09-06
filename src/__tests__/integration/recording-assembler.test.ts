@@ -108,8 +108,8 @@ jest.mock('@/lib/supabase/service', () => ({
 import {
   ASSEMBLE_AFTER_MS,
   MAX_TAKES_PER_RUN,
-  ROTATION_STRIDE,
   SEGMENT_NOMINAL_MS,
+  goldenStartIndex,
   longestPrefix,
   runAssembler,
   type AssemblerDeps,
@@ -372,11 +372,14 @@ describe('the walk', () => {
   // ⚖ THE ROTATION, AND THE PROPERTY IT ACTUALLY BUYS. Nothing carries a cursor
   // between runs, so a walk that always began at index 0 would stop in the same
   // place every night and never reach the tail — silently, because the route
-  // still answers 200. Stepping the start by ONE folder a night is barely
-  // better: the covered WINDOW moves by one, so a folder just past tonight's
-  // reach waits N − reach nights. The start therefore strides by a night's
-  // REACH, which is what makes "within ceil(N / stride) nights" true.
-  it('strides by a night’s reach: ten folders, four a night, all ten seen in three nights', async () => {
+  // still answers 200. The start is the day's GOLDEN-RATIO point on the ring,
+  // which is equidistributed for every folder count: with a night's reach K,
+  // every folder is visited within about ceil(1.62 · N / K) + 1 nights. Ten
+  // folders at four a night is a bound of 6; the run below needs 3.
+  //
+  // UNINJECTED on purpose — this walks on the same arithmetic production does,
+  // so a start pinned at 0 or a day dropped out of it dies right here.
+  it('covers every folder within the golden bound: ten folders, four a night', async () => {
     // Ten finished folders — each costs the cheap pair and nothing more, so
     // one clock tick per folder is the whole per-folder cost.
     const ids = Array.from({ length: 10 }, (_, i) => `0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}`)
@@ -390,37 +393,48 @@ describe('the walk', () => {
     )
     const DAY = 86_400_000
     const seen = new Set<string>()
-    for (let day = 0; day < 3; day++) {
+    // ceil(1.62 × 10 / 4) + 1 = 6 — the bound the docblock promises.
+    const BOUND = Math.ceil((1.62 * 10) / 4) + 1
+    expect(BOUND).toBe(6)
+    let nightsNeeded = 0
+    for (let day = 0; day < BOUND; day++) {
       listCalls.length = 0
       // A clock that advances 1 s per read. Two reads are fixed (the deadline
       // and the day the start is taken from), then one per folder — so a 6 s
       // budget admits exactly four folders.
       let tick = 0
       const now = () => day * DAY + tick++ * 1000
-      const summary = await runAssembler(
-        { coreFor, now },
-        { budgetMs: 6_000, rotationStride: 4 },
-      )
+      const summary = await runAssembler({ coreFor, now }, { budgetMs: 6_000 })
       expect(summary.budgetExhausted).toBe(true)
       const visited = listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)
       expect(visited).toHaveLength(4)
       visited.forEach((v) => seen.add(v))
+      if (seen.size === 10 && nightsNeeded === 0) nightsNeeded = day + 1
     }
-    // Every folder reached inside ceil(10 / 4) = 3 nights. A one-step rotation
-    // would have covered {s..s+3} ∪ {s+1..s+4} ∪ {s+2..s+5} — six of ten.
+    // Every folder reached, inside the promised bound. A start that never
+    // moved — pinned at 0, or a day dropped out of the arithmetic — would
+    // have covered the same four folders six nights running.
     expect(seen.size).toBe(10)
+    expect(nightsNeeded).toBe(3)
   })
 
-  // ⚖ THE DEFAULT STRIDE IS THE ONE PRODUCTION RUNS. Every other rotation case
-  // in this file INJECTS a stride, so `opts.rotationStride ?? 1` — or the
-  // constant itself lowered — would pass the whole battery while the real walk
-  // crawled one folder a night. Both halves are pinned: the number, and the
-  // index the walk actually starts at when nothing is injected.
-  it('the DEFAULT stride is the prime constant, and an uninjected walk really starts a stride in', async () => {
-    expect(ROTATION_STRIDE).toBe(1_999)
-    // Two strides plus one folder, so index ROTATION_STRIDE is neither 0 nor 1
-    // and the modulus is not what put the start there.
-    const N = ROTATION_STRIDE * 2 + 1
+  // ⚖ THE DEFAULT START IS THE ONE PRODUCTION RUNS. The seam below can put the
+  // walk anywhere, so a default quietly pinned at 0 — or one that ignores the
+  // day — would pass every injected case while the real walk re-read the same
+  // leading folders every night. Both halves are pinned here: the pure
+  // function's own numbers, and the index an UNINJECTED walk actually starts
+  // at (4 of 8, so neither 0 nor 1, and no modulus put it there).
+  it('the DEFAULT start is the day’s golden point, and an uninjected walk really begins there', async () => {
+    // The constant itself, read through the function: frac(1 × φ) = 0.618…,
+    // frac(2 × φ) = 0.236…, frac(3 × φ) = 0.854… — a different φ, or a day
+    // dropped, moves all three.
+    expect(goldenStartIndex(1, 1000)).toBe(618)
+    expect(goldenStartIndex(2, 1000)).toBe(236)
+    expect(goldenStartIndex(3, 1000)).toBe(854)
+    // Degenerate inputs answer 0 rather than NaN: an empty tree has no ring.
+    expect(goldenStartIndex(1, 0)).toBe(0)
+
+    const N = 8
     for (let i = 0; i < N; i++) {
       rootFolders.push({
         name: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
@@ -442,48 +456,92 @@ describe('the walk', () => {
     // The empty folders parse and are walked; the one that was opened is the
     // whole assertion.
     expect(summary.skipped.noSeq0).toBe(1)
+    expect(goldenStartIndex(1, N)).toBe(4)
     const walked = [...new Set(listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix))]
-    expect(walked).toEqual([`seg/${rootFolders[ROTATION_STRIDE].name}`])
+    expect(walked).toEqual([`seg/${rootFolders[4].name}`])
   })
 
-  // ⚖ WHY THE STRIDE IS PRIME. The start positions are the multiples of
-  // gcd(stride, N), so a stride sharing a factor with the folder count only
-  // ever lands on N/gcd starts — with a shared factor the start leaves a band
-  // nothing ever walks, and a folder count that DIVIDES the stride pins the
-  // start at 0 forever. Either way it is the exact pathology the rotation
-  // exists to prevent.
-  it('a stride sharing a factor with N freezes on a lattice; a coprime one walks every folder', async () => {
+  // ⚖ NO LATTICE, NO RESIDUAL — THE WHOLE REASON THE START IS NOT A STRIDE.
+  // A fixed stride's starts are the multiples of gcd(stride, N), so some
+  // folder counts leave a band nothing ever walks; `seg/` only ever grows, so
+  // N passes through every such count on its way up. The golden-ratio point
+  // has no modulus in it at all — the simulation below is over the pure
+  // function, at the folder counts a stride of 1,999 was worst at.
+  it('the start is equidistributed for EVERY folder count, within the stated bound', () => {
+    /** Nights until every index has been inside some night's window. */
+    const nightsToCover = (n: number, k: number, day0: number): number => {
+      const seen = new Set<number>()
+      for (let d = 0; d < 200; d++) {
+        const start = goldenStartIndex(day0 + d, n)
+        for (let i = 0; i < k; i++) seen.add((start + i) % n)
+        if (seen.size === n) return d + 1
+      }
+      return Infinity
+    }
+    // Real day numbers, not just day 0: the property must not depend on where
+    // in the sequence the window happens to open (2026 is day ~20,700).
+    const DAY0S = [0, 1, 20_700, 100_000]
+
+    // A third of the tree a night, at the counts a 1,999 stride handled worst
+    // (3,998 = 2 × 1,999 is the exact residual it could not close).
+    for (const n of [8, 1999, 3998, 4000, 6000]) {
+      const k = Math.ceil(n / 3)
+      const bound = Math.ceil((1.62 * n) / k) + 1
+      expect(bound).toBe(6)
+      for (const day0 of DAY0S) expect(nightsToCover(n, k, day0)).toBeLessThanOrEqual(bound)
+    }
+    // Half the tree a night at 4,000 folders — the case a stride of 1,999
+    // could not promise, because at N = 3,998 it starts at only two places on
+    // the whole ring, forever.
+    const halfBound = Math.ceil((1.62 * 4000) / 2000) + 1
+    expect(halfBound).toBe(5)
+    for (const day0 of DAY0S) expect(nightsToCover(4000, 2000, day0)).toBeLessThanOrEqual(halfBound)
+
+    // The lattice, stated rather than implied: that is what a 1,999 stride
+    // does at 3,998 folders, and what the golden point does not do at any N.
+    const strideStarts = new Set<number>()
+    for (let d = 0; d < 500; d++) strideStarts.add((d * 1999) % 3998)
+    expect([...strideStarts].sort((a, b) => a - b)).toEqual([0, 1999])
+    const goldenStarts = new Set<number>()
+    for (let d = 0; d < 500; d++) goldenStarts.add(goldenStartIndex(d, 3998))
+    expect(goldenStarts.size).toBeGreaterThan(400)
+  })
+
+  // ⚖ THE SEAM, AND ITS FENCE. `startIndexFor` is what lets a case put the
+  // walk exactly where it needs it — and because it is injectable, a number
+  // off the end of the list must WRAP rather than index into nothing, which
+  // would skip folders in silence.
+  it('an injected start is honoured, and one off the ring wraps instead of skipping', async () => {
     const names = Array.from(
-      { length: 8 },
+      { length: 5 },
       (_, i) => `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`,
     )
     names.forEach((name) => rootFolders.push({ name, id: null, created_at: null, metadata: null }))
     contents.set('seg', [...rootFolders])
 
-    /** Eight one-folder nights at this stride: which INDEXES were ever opened. */
-    const eightNights = async (rotationStride: number) => {
-      const seen = new Set<number>()
-      for (let day = 0; day < 8; day++) {
-        listCalls.length = 0
-        let tick = 0
-        await runAssembler(
-          { coreFor, now: () => day * 86_400_000 + tick++ * 1000 },
-          { budgetMs: 3_000, rotationStride },
-        )
-        for (const call of listCalls) {
-          const index = names.indexOf(call.prefix.replace('seg/', ''))
-          if (index >= 0) seen.add(index)
-        }
-      }
-      return [...seen].sort((a, b) => a - b)
+    /** One folder at this injected start: which index did the walk open? */
+    const firstOpened = async (startIndexFor: (d: number, n: number) => number) => {
+      listCalls.length = 0
+      let tick = 0
+      await runAssembler(
+        { coreFor, now: () => 86_400_000 + tick++ * 1000 },
+        { budgetMs: 3_000, startIndexFor },
+      )
+      const opened = listCalls.filter((c) => c.prefix !== 'seg').map((c) => c.prefix)
+      return names.indexOf(opened[0].replace('seg/', ''))
     }
 
-    // gcd(4, 8) = 4: the start only ever lands on 0 and 4, and eight nights
-    // never reach the other six folders at all.
-    expect(await eightNights(4)).toEqual([0, 4])
-    // gcd(3, 8) = 1: the start walks every residue, so eight one-folder nights
-    // cover all eight — which is what 1,999 buys against any real folder count.
-    expect(await eightNights(3)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(await firstOpened(() => 3)).toBe(3)
+    // Off the end and off the front both wrap onto the ring.
+    expect(await firstOpened(() => 7)).toBe(2)
+    expect(await firstOpened(() => -1)).toBe(4)
+    // And the day it is handed is the day the clock says.
+    const days: number[] = []
+    await firstOpened((d) => {
+      days.push(d)
+      return 0
+    })
+    expect(days).toEqual([1])
   })
 
   // ⚖ THE PEEK'S FALLBACK. The cheap pair reads the container off the FIRST
@@ -895,7 +953,7 @@ describe('the bounds', () => {
     expect(summary.walkComplete).toBe(true)
   })
 
-  it(`stops at MAX_TAKES_PER_RUN (${MAX_TAKES_PER_RUN}) with budgetExhausted, and tomorrow starts a stride further round`, async () => {
+  it(`stops at MAX_TAKES_PER_RUN (${MAX_TAKES_PER_RUN}) with budgetExhausted, and tomorrow begins at the next night’s golden point`, async () => {
     for (let i = 0; i <= MAX_TAKES_PER_RUN; i++) {
       const takeId = `0f8c6c9a-3f2d-4a71-9b5e-${String(i).padStart(12, '0')}`
       seed({ takeId, seqs: [0] })

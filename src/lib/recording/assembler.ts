@@ -86,10 +86,10 @@ export const SEGMENT_NOMINAL_MS = 5_000
 /** How many takes one night may seal. A 90-minute take is ~1,000 objects
  *  (~32 MB); twenty of those fit the route's budget on hnd1 with room, and the
  *  field's worst night is a handful. A run that hits it reports
- *  `budgetExhausted`. Tomorrow's run starts one stride further round: on a
- *  night that reached at least the stride, that IS the next unvisited folder,
- *  so tomorrow picks up exactly where tonight left off; on a slower night the
- *  skipped folders wait for the walk to come round. */
+ *  `budgetExhausted`, and tomorrow's run begins at a different point on the
+ *  ring — the day's golden-ratio position (goldenStartIndex), which is what
+ *  makes the folders tonight could not reach a matter of a few nights rather
+ *  than of luck. */
 export const MAX_TAKES_PER_RUN = 20
 
 /** Stop STARTING a rebuild with less than this much of the budget left. The
@@ -100,57 +100,61 @@ export const MAX_TAKES_PER_RUN = 20
  *  that PUT server-side — leaving an object no run will ever audit, because
  *  the next night meets it and skips.
  *  It ends the WALK, not just the rebuild: a run that can no longer start one
- *  has nothing left worth classifying tonight. Tomorrow's run starts one
- *  stride further round: on a night that reached at least the stride, that IS
- *  the next unvisited folder; on a slower night the folders it did not reach
- *  wait for the walk to come round. */
+ *  has nothing left worth classifying tonight. Tomorrow's run begins at the
+ *  next night's golden-ratio point, so the folders tonight did not reach are
+ *  reached within a few nights whatever the folder count (goldenStartIndex). */
 const TAKE_RESERVE_MS = 30_000
 
 /** One day in ms — the rotation's period (see runAssembler). */
 const DAY_MS = 86_400_000
 
-/** How far the walk's starting point moves each night: ONE NIGHT'S REACH,
- *  estimated — not one folder, and PRIME on purpose.
+/** The fractional part of the golden ratio, φ − 1 = 1/φ. The one irrational
+ *  whose multiples spread across a ring more evenly than any other's (the
+ *  worst-approximable number: its continued fraction is all 1s). */
+const PHI_FRAC = 0.6180339887498949
+
+/**
+ * WHERE TONIGHT'S WALK BEGINS — a golden-ratio point on the ring of folders.
  *
- *  The arithmetic. A folder whose take is already on the server costs the
- *  cheap pair: one `list` with limit 1 and one `objectExists`. Two same-region
- *  round trips at ~60 ms each is ~120 ms a folder, so 270 s reaches roughly
- *  2,250 of them; 1,999 is under that, so the stride under-claims rather than
- *  over-claims.
+ * Nothing carries a cursor between runs, so a walk that always began at index
+ * 0 would stop in the same place every night and never reach the tail —
+ * silently, since the route still answers 200. The start therefore moves, and
+ * `frac(day × φ) × N` is where it moves to: the day's position on the unit
+ * circle, scaled onto the folder count.
  *
- *  THE COVERAGE PROPERTY, which the prime does not change. In unbounded index
- *  space night d covers [d·S, d·S + K), and while every night in the window
- *  reaches K ≥ S those runs abut or overlap — so their union is ONE contiguous
- *  run, and any run of N consecutive integers hits every residue mod N. Every
- *  folder is therefore visited within `ceil((N − K) / S) + 1` nights, which is
- *  `ceil(N / S)` at K = S and better when a night reaches more. The modulus
- *  never enters that proof, which is why N not being a multiple of the stride
- *  is safe.
+ * THE PROPERTY, HONESTLY STATED. A fixed STRIDE walks a lattice — its starts
+ * are the multiples of gcd(stride, N), so some folder counts leave a band
+ * nothing ever visits, and no choice of stride escapes that for every N (a
+ * prime stride only pushes the bad case out to multiples of itself). A
+ * golden-ratio Weyl sequence has no modulus in it at all: its points are
+ * equidistributed on the ring for EVERY N, with no lattice and no residual.
  *
- *  WHY PRIME. The start positions are the multiples of `gcd(stride, N)`, so a
- *  stride sharing a factor with the folder count only ever lands on `N / gcd`
- *  starts — with 2,000 against 6,000 folders the start only ever lands on
- *  three of the six thousand, so any night reaching fewer than 2,000 folders
- *  leaves a band nothing ever walks; and a folder count that DIVIDES the
- *  stride (2,000 folders, or 1,000) pins the start at 0 forever. Either way
- *  it is the exact pathology the rotation exists to prevent. `seg/` only ever
- *  grows (nothing deletes a segment, by law), so N passes through every such
- *  value on its way up. A prime shares a factor with nothing but its own
- *  multiples, so the start walks EVERY index; the residual is N a multiple of
- *  1,999.
+ * The three-gap theorem is what makes that a promise rather than a hope: after
+ * m nights the largest untouched arc is at most about 1.62/m of the ring — the
+ * golden ratio's own bound, and the smallest any irrational achieves. So with
+ * a night's reach of K folders, every folder is visited within roughly
  *
- *  AND WHAT A SLOW NIGHT REALLY COSTS. A night that reaches fewer than the
- *  stride still advances the start by the stride, so the folders it skipped are
- *  reached when the walk comes round — at most N nights, not on the
- *  ceil(N / S) schedule. Closing that exactly is the resume cursor named at the
- *  rotation itself.
+ *     ceil(1.62 · N / K) + 1   nights
  *
- *  WHY IT IS NOT 1. Stepping the start by one folder a night moves the covered
- *  WINDOW by one folder a night, so a folder just past tonight's reach waits
- *  N − reach nights, not N / reach. At 6,000 folders that is ~600 nights, and
- *  every comment promising "a few nights" would be wrong by two orders of
- *  magnitude. Striding by a night's reach makes the promise true. */
-export const ROTATION_STRIDE = 1_999
+ * (the +1 pays for the arc that straddles tonight's own window). At 6,000
+ * folders and a 2,000-folder night that is 6 nights, for any N — including the
+ * counts a stride of 1,999 could not promise, such as N = 3,998, where that
+ * stride only ever starts at two places on the whole ring.
+ *
+ * A NIGHT'S REACH, for scale: a folder whose take is already on the server
+ * costs the cheap pair — one `list` with limit 1 and one `objectExists`. Two
+ * same-region round trips at ~60 ms each is ~120 ms a folder, so the route's
+ * 270 s reaches roughly 2,250 of them. K is not a number this file sets; it is
+ * whatever the night managed, and the bound above is stated in terms of it.
+ *
+ * ponytail: stateless, because there is nowhere to keep a cursor. The exact
+ * fix — every folder visited on a known night, gap or no gap — is a resume
+ * cursor, and that is the upgrade path.
+ */
+export function goldenStartIndex(dayNumber: number, n: number): number {
+  if (n <= 0) return 0
+  return Math.floor(((dayNumber * PHI_FRAC) % 1) * n)
+}
 
 /** Downloads in flight at once while rebuilding one take. Four, not the whole
  *  prefix: this runs at 03:07 against a bucket nobody is recording into, so it
@@ -241,10 +245,10 @@ export interface AssemblerSummary {
   walkComplete: boolean
   /** True when the run stopped on its own time/count bound with candidates
    *  left. Distinct from walkComplete on purpose: the walk SAW them, tonight
-   *  simply ended, and tomorrow's run begins ROTATION_STRIDE folders further
-   *  along the same list (circularly), so nights that each reach at least that
-   *  many cover everything within ceil(N / ROTATION_STRIDE) nights. A 200,
-   *  not a 500. */
+   *  simply ended, and tomorrow's run begins at the next night's golden-ratio
+   *  point on the same circular list, so with a night's reach K every folder
+   *  is visited within about ceil(1.62 · N / K) + 1 nights, for every folder
+   *  count (goldenStartIndex). A 200, not a 500. */
   budgetExhausted: boolean
 }
 
@@ -688,20 +692,25 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
  * object is genuinely absent pays for the whole listing, the age arithmetic,
  * the core page and the rebuild.
  *
- * AND THE START ROTATES BY A NIGHT'S REACH. A run cut by the clock keeps no
- * cursor, so beginning at index 0 every night would re-walk the same leading
- * folders forever and never reach the tail — silently, since the route's 200
- * hides it. The start moves ROTATION_STRIDE folders a night and the walk is
- * circular, so nights that each reach at least that many cover everything
- * within ceil(N / ROTATION_STRIDE) nights; a slower night still advances the
- * start by the stride, so what it skipped is reached when the walk comes round
- * — at most N nights, except the named residual: a folder count that is
- * itself a multiple of ROTATION_STRIDE. The exact fix, named at the rotation
- * itself, is a resume cursor.
+ * AND THE START MOVES TO THE DAY'S GOLDEN-RATIO POINT. A run cut by the clock
+ * keeps no cursor, so beginning at index 0 every night would re-walk the same
+ * leading folders forever and never reach the tail — silently, since the
+ * route's 200 hides it. The start is `frac(day × φ) × N` and the walk is
+ * circular: those points are equidistributed on the ring for EVERY folder
+ * count, with no lattice and no residual, so with a night's reach K every
+ * folder is visited within about ceil(1.62 · N / K) + 1 nights. The full
+ * argument, and the upgrade a resume cursor would buy, sit at goldenStartIndex.
  */
 export async function runAssembler(
   deps: AssemblerDeps,
-  opts: { budgetMs: number; rotationStride?: number },
+  opts: {
+    budgetMs: number
+    /** THE TEST SEAM for the walk's starting point: `(dayNumber, n) => index`.
+     *  Defaults to goldenStartIndex, which is what production runs. Injected,
+     *  a case can put the walk exactly where it needs it without inventing a
+     *  clock that happens to land there. */
+    startIndexFor?: (dayNumber: number, n: number) => number
+  },
 ): Promise<AssemblerSummary> {
   const deadline = deps.now() + opts.budgetMs
   const summary: AssemblerSummary = {
@@ -748,24 +757,21 @@ export async function runAssembler(
     return made
   }
 
-  // ROTATE THE START BY A NIGHT'S REACH. Every folder in `seg/` costs at least
-  // the cheap pair above, `seg/` only ever grows (nothing deletes a segment,
-  // by law), and a run cut by the clock has no cursor to resume from — so a
-  // walk that always began at index 0 would stop in the same place every night
-  // and never reach the tail. Today's start is `dayNumber × ROTATION_STRIDE`,
-  // and the walk is circular.
+  // WHERE TONIGHT BEGINS — the day's golden-ratio point on the ring (see
+  // goldenStartIndex for the property and its bound). The walk is circular, so
+  // the start is the only thing that has to move.
   //
-  // THE PROPERTY, HONESTLY: while every night in the window reaches at least
-  // ROTATION_STRIDE folders, every folder is visited within
-  // ceil(N / ROTATION_STRIDE) nights. A slower night still advances the start
-  // by the stride, so the folders it skipped are reached when the walk comes
-  // round — at most N nights, except the named residual: a folder count that
-  // is itself a multiple of ROTATION_STRIDE.
-  // ponytail: a stateless stride, because there is nowhere to keep a cursor;
-  // the exact fix — every folder visited on a known night, gap or no gap — is
-  // a resume cursor, and that is the upgrade path.
-  const stride = opts.rotationStride ?? ROTATION_STRIDE
-  const startIndex = folders.length === 0 ? 0 : (Math.floor(deps.now() / DAY_MS) * stride) % folders.length
+  // The modulo is not belt-and-braces on the default (which is in range by
+  // construction) but on the SEAM: `startIndexFor` is injectable, and a walk
+  // that indexed off the end of the array on a handed-in number would skip
+  // folders silently instead of failing.
+  const startIndexFor = opts.startIndexFor ?? goldenStartIndex
+  const startIndex =
+    folders.length === 0
+      ? 0
+      : ((startIndexFor(Math.floor(deps.now() / DAY_MS), folders.length) % folders.length) +
+          folders.length) %
+        folders.length
 
   for (let i = 0; i < folders.length; i++) {
     const { folder, businessId, takeId } = folders[(startIndex + i) % folders.length]

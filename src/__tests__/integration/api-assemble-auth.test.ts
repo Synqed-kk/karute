@@ -8,7 +8,7 @@ import * as appHandler from '@/app/api/assemble/route'
 // status tells the scheduler the truth — a walk that could not see the whole
 // tree is a 500, so is a rescue whose durable receipt never landed, while a
 // run that merely ran out of tonight's budget is a 200, because tomorrow's run
-// picks the tree up a stride further along.
+// begins at the next night's golden-ratio point on the same ring.
 //
 // runAssembler itself is doubled: its own behaviour is proved in
 // recording-assembler.test.ts, and a route test that reached storage would be
@@ -194,7 +194,7 @@ describe('GET /api/assemble — the status is the run’s own honesty', () => {
     })
   })
 
-  it('a budget stop is a 200 with budgetExhausted, and tomorrow starts a stride further round', async () => {
+  it('a budget stop is a 200 with budgetExhausted, and tomorrow begins at the next night’s golden point', async () => {
     runAssembler.mockImplementation(async () =>
       summary({ budgetExhausted: true, candidates: 40, assembled: 20 }),
     )
