@@ -517,6 +517,14 @@ export const SDK_WRITE_ALLOWLIST: {
   },
   {
     file: 'src/lib/recording/enqueue-from-session.ts',
+    call: 'recordings.update',
+    symbols: ['stampEstimatedDuration'],
+    justification:
+      "Build 23 slice ③, ⚖ D8' amendment (2026-09-06). Core fences PUT /v1/recordings/:id behind a HUMAN actor, so the nightly assembler — a 03:07 cron with no actor — rebuilds a stranded take's audio OBJECT and can never write its length. This write is that missing half, performed by the door that DOES have an actor (the staffer's own bearer, on their own session or the owner's hand) at the moment they tap 保存する, and ONLY while the row's duration_seconds is still null. It writes one DERIVED NUMBER and nothing else — no content, no attribution, no state a human decided — and that same number is already in the audit trail: the assembler's recording.capture_resumed row (PR-A, DESIGN D5') carries estimated_duration_seconds for exactly this take, computed by the same longestPrefix × 5 s rule. The act the staffer actually performed is the SAVE, audited at the job pipeline's choke point (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) like every other recording save. A row here would log a length the log already knows, attached to a step that decided nothing. Best-effort by ruling: a failed stamp is logged (ids only) and never blocks the save.",
+    dated: '2026-09-06',
+  },
+  {
+    file: 'src/lib/recording/enqueue-from-session.ts',
     call: 'recordingJobs.enqueue',
     symbols: ['enqueueFromSessionWithClient'],
     justification:

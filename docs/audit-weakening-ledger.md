@@ -294,3 +294,16 @@
   row here would double-log every save the worker performs. Not a widening of
   what goes unaudited — the same one act, reachable from one more place · Fable
   (DESIGN-ASSEMBLER-2026-09-06 D8, PACKET-ASSEMBLER-C C3)
+- 2026-09-06 · SDK_WRITE_ALLOWLIST:src/lib/recording/enqueue-from-session.ts::recordings.update · the
+  duration stamp the nightly assembler cannot perform (⚖ D8' amendment, same
+  day). Core fences PUT /v1/recordings/:id behind a HUMAN actor, so the 03:07
+  cron rebuilds a stranded take's OBJECT and leaves its length null; the
+  save-from-server door is the first moment afterwards with a real staffer's
+  bearer in hand, so it computes the flush-window estimate from the take's own
+  segments and writes it ONCE, only while the row's duration is still null. One
+  derived number, no content and no human decision — and the number is already
+  in the audit trail, on the assembler's recording.capture_resumed row
+  (estimated_duration_seconds, PR-A/D5'), computed by the same rule. The act
+  being audited is the SAVE, and that fires at processJob like every other
+  recording save. Best-effort: a failed stamp is logged with ids only and never
+  blocks the enqueue · Fable (DESIGN-ASSEMBLER-2026-09-06 §⚖ 21:3x AMENDMENT)

@@ -17,7 +17,11 @@ jest.mock('@/lib/customers/cached', () => ({
   getCachedCustomerListFor: () => getCachedCustomerListFor(),
 }))
 
-import { readRecordingsInbox, type SegmentsProbe } from '@/lib/recordings/inbox-read'
+import {
+  readRecordingsInbox,
+  type ObjectProbe,
+  type SegmentsProbe,
+} from '@/lib/recordings/inbox-read'
 import { SESSION_UNSETTLED_GRACE_MS } from '@/lib/recordings/inbox'
 import { RecordingsInboxDTO } from '@/lib/app-api/recordings-inbox-dto'
 
@@ -76,6 +80,7 @@ const client = {
 } as unknown as Parameters<typeof readRecordingsInbox>[0]['synqed']
 
 const probe = jest.fn<ReturnType<SegmentsProbe>, Parameters<SegmentsProbe>>(async () => true)
+const objectProbe = jest.fn<ReturnType<ObjectProbe>, Parameters<ObjectProbe>>(async () => false)
 
 const read = () =>
   readRecordingsInbox({
@@ -84,6 +89,7 @@ const read = () =>
     businessId: BIZ,
     now: NOW,
     segmentsProbe: probe,
+    objectProbe,
   })
 
 beforeEach(() => {
@@ -92,44 +98,71 @@ beforeEach(() => {
   karuteRows.current = []
   discardEvents.current = []
   probe.mockImplementation(async () => true)
+  objectProbe.mockImplementation(async () => false)
   jobProbe.mockImplementation(async () => {
     throw Object.assign(new Error('no job'), { status: 404 })
   })
 })
 
-describe("serverAudio 'object' — the row answers it alone", () => {
-  it('a finalized, unprocessed take reads object with ZERO storage calls', async () => {
-    recordings.current = [rec({ id: 's1', duration_seconds: 1380 })]
+describe("serverAudio 'object' — STORAGE answers, not the row (⚖ D8')", () => {
+  it('THE RESCUE: no duration, but the object is in the bucket → object', async () => {
+    // Exactly the take the nightly assembler rebuilt: it wrote the object and
+    // could NOT write a length (core fences that behind a human actor). The old
+    // finalizedBefore reading would have called this row unfinalized and shown
+    // 失敗 — the bug this amendment closes.
+    objectProbe.mockResolvedValue(true)
+    recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('object')
+    expect(objectProbe).toHaveBeenCalledWith(KEY)
+    // No object → no segment listing. One call, not two.
     expect(probe).not.toHaveBeenCalled()
   })
 
-  it('a row still at RECORDING is NOT object — finalizedBefore says so', async () => {
-    // A duration with no finalize behind it (the discard stamp's shape) on a
-    // row the recorder never left: not a claim this read may make.
-    recordings.current = [rec({ id: 's1', duration_seconds: 1380, status: 'RECORDING' })]
+  it('a row that ALREADY carries a duration short-circuits — no storage call', async () => {
+    // Finalize proves the object before it stamps a length, so that proof was
+    // already paid for once; re-asking would spend a probe slot for nothing.
+    recordings.current = [rec({ id: 's1', duration_seconds: 1380 })]
     const [row] = await read()
-    expect(row.serverAudio).toBeUndefined()
+    expect(row.serverAudio).toBe('object')
+    expect(objectProbe).not.toHaveBeenCalled()
+    expect(probe).not.toHaveBeenCalled()
   })
 
-  it('a pointer that is not THIS business’s take is never object', async () => {
+  it("the object probe answering 'unknown' leaves the row alone — and asks nothing else", async () => {
+    objectProbe.mockResolvedValue('unknown')
+    recordings.current = [rec({ id: 's1' })]
+    const [row] = await read()
+    expect(row.serverAudio).toBeUndefined()
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('a pointer that is not THIS business’s take is never probed at all', async () => {
+    objectProbe.mockResolvedValue(true)
     recordings.current = [
-      rec({ id: 'other-tenant', duration_seconds: 1380, audio_storage_path: `app_biz-2_${TAKE}.webm` }),
-      rec({ id: 'a-segment', duration_seconds: 1380, audio_storage_path: `seg/app_${BIZ}_${TAKE}/000000.webm` }),
-      rec({ id: 'staged', duration_seconds: 1380, audio_storage_path: `stg/${BIZ}_${TAKE}_${TAKE}.webm` }),
-      rec({ id: 'no-pointer', duration_seconds: 1380, audio_storage_path: null }),
+      rec({ id: 'other-tenant', audio_storage_path: `app_biz-2_${TAKE}.webm` }),
+      rec({ id: 'a-segment', audio_storage_path: `seg/app_${BIZ}_${TAKE}/000000.webm` }),
+      rec({ id: 'staged', audio_storage_path: `stg/${BIZ}_${TAKE}_${TAKE}.webm` }),
+      rec({ id: 'no-pointer', audio_storage_path: null }),
     ]
     const rows = await read()
     expect(rows.map((r) => r.serverAudio)).toEqual([undefined, undefined, undefined, undefined])
+    expect(objectProbe).not.toHaveBeenCalled()
+  })
+
+  it('a duration-set row BELOW the grace is still nothing — the row reads 処理中', async () => {
+    recordings.current = [rec({ id: 's1', duration_seconds: 1380, created_at: iso(30) })]
+    const [row] = await read()
+    expect(row.serverAudio).toBeUndefined()
   })
 })
 
 describe("serverAudio 'segments' — the one storage listing, asked narrowly", () => {
-  it('an unsettled row past the grace is probed, and true reads segments', async () => {
+  it('NO object, but seq 0 is in the folder → segments', async () => {
     recordings.current = [rec({ id: 's1' })]
     const [row] = await read()
     expect(row.serverAudio).toBe('segments')
+    expect(objectProbe).toHaveBeenCalledWith(KEY)
     expect(probe).toHaveBeenCalledWith(BIZ, KEY)
   })
 
@@ -143,6 +176,7 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
   it('exactly AT the grace is still not probed (>, matching the fold’s <=)', async () => {
     recordings.current = [rec({ id: 's1', created_at: new Date(NOW.getTime() - SESSION_UNSETTLED_GRACE_MS).toISOString() })]
     await read()
+    expect(objectProbe).not.toHaveBeenCalled()
     expect(probe).not.toHaveBeenCalled()
   })
 
@@ -173,6 +207,7 @@ describe("serverAudio 'segments' — the one storage listing, asked narrowly", (
       }),
     )
     await read()
+    expect(objectProbe).toHaveBeenCalledTimes(100)
     expect(probe).toHaveBeenCalledTimes(100)
     const asked = new Set(probe.mock.calls.map((c) => c[1]))
     expect(asked.has(`app_${BIZ}_${takeOf(0)}.webm`)).toBe(true)
@@ -191,7 +226,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     karuteRows.current = [{ id: 'rec-1', recording_session_id: 's1' }]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(probe).not.toHaveBeenCalled()
+    expect(objectProbe).not.toHaveBeenCalled()
   })
 
   it('a discarded session is skipped — the fold outranks this anyway', async () => {
@@ -199,7 +234,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     discardEvents.current = [{ recording_session_id: 's1' }]
     const [row] = await read()
     expect(row.serverAudio).toBeUndefined()
-    expect(probe).not.toHaveBeenCalled()
+    expect(objectProbe).not.toHaveBeenCalled()
   })
 
   it('a session with a LIVE job is skipped — the fold answers it higher up', async () => {
@@ -208,7 +243,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     const [row] = await read()
     expect(row.jobStatus).toBe('QUEUED')
     expect(row.serverAudio).toBeUndefined()
-    expect(probe).not.toHaveBeenCalled()
+    expect(objectProbe).not.toHaveBeenCalled()
   })
 
   it('a session whose job probe FAILED is skipped — we do not know anything yet', async () => {
@@ -218,7 +253,7 @@ describe('the rows the derivation deliberately never asks about', () => {
     const [row] = await read()
     expect(row.jobProbeFailed).toBe(true)
     expect(row.serverAudio).toBeUndefined()
-    expect(probe).not.toHaveBeenCalled()
+    expect(objectProbe).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 })

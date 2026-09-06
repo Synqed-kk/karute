@@ -33,20 +33,24 @@
  *    and the latter would be a second N+1 across the WHOLE window rather than
  *    the residue. Sessions carrying a STAFF row render as 復元可能/破棄済み.
  *  - WHAT THE SERVER HOLDS (`serverAudio`, build 23 slice ③) is derived at the
- *    very end, for record-less sessions with no job. The 'object' half is FREE
- *    — the row's own pointer and duration answer it — and only the 'segments'
- *    half costs one storage listing, on the narrow cohort that could plausibly
- *    be mid-rescue (no duration, past the unsettled grace). The row facts it
- *    reads (the storage pointer, the status) stay in a LOCAL map and never
- *    reach the returned rows: this read's output is the facade's wire shape,
- *    and that shape carries metadata only.
+ *    very end, for record-less sessions with no job that are past the unsettled
+ *    grace. It is answered by STORAGE, not by the row (⚖ D8' amendment): a take
+ *    the nightly assembler rebuilt carries a rebuilt OBJECT and a duration that
+ *    is still null — core fences the duration write behind a human actor, so no
+ *    cron can stamp one — and `finalizedBefore` would call that row unfinalized
+ *    and miss the very rescue this feature exists to show. So the pointer's
+ *    object is asked about directly. A row that DOES carry a duration
+ *    short-circuits without a call (finalize proved its object before stamping
+ *    it), which is also what keeps the probe cap spent on the rows that need it.
+ *    The row facts the derivation reads (the storage pointer, the status) stay
+ *    in a LOCAL map and never reach the returned rows: this read's output is
+ *    the facade's wire shape, and that shape carries metadata only.
  */
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
-import { finalizedBefore } from '@/lib/recording/take-binding'
 import {
   INBOX_WINDOW_MS,
   SESSION_UNSETTLED_GRACE_MS,
@@ -129,6 +133,25 @@ async function readStaffDiscardedSessions(
  */
 export type SegmentsProbe = (businessId: string, takeKey: string) => Promise<boolean | 'unknown'>
 
+/**
+ * Is the take's own finalized OBJECT in the bucket?
+ *
+ * ⚖ THE PROOF, NOT THE ROW (D8' amendment). A take the nightly assembler
+ * rebuilt has its object and no duration — core fences `recordings.update`
+ * behind a human actor, so the cron cannot stamp one and the row's own
+ * `finalizedBefore` reads false for exactly the rescue this feature exists to
+ * surface. Storage is the only honest witness.
+ */
+export type ObjectProbe = (takeKey: string) => Promise<boolean | 'unknown'>
+
+const probeObject: ObjectProbe = async (takeKey) => {
+  // Lazy for the same reason listFirstSegment's client is: mint-take-url's
+  // graph reaches the service client and the SDK, and nothing that injects its
+  // own probe should have to load either.
+  const { objectExists } = await import('@/lib/recording/mint-take-url')
+  return objectExists(takeKey)
+}
+
 const listFirstSegment: SegmentsProbe = async (businessId, takeKey) => {
   const parsed = parseRecordingKey(takeKey, businessId)
   if (parsed?.kind !== 'take') return false
@@ -170,6 +193,9 @@ export interface InboxReadDeps {
    *  place that decides WHEN to ask. Default = the service-client listing
    *  above. */
   segmentsProbe?: SegmentsProbe
+  /** How the 'object' half is answered — the storage proof (D8'). Injected for
+   *  the same reason. */
+  objectProbe?: ObjectProbe
 }
 
 /**
@@ -214,6 +240,7 @@ export async function readRecordingsInbox({
   businessId,
   now,
   segmentsProbe = listFirstSegment,
+  objectProbe = probeObject,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
@@ -319,7 +346,10 @@ export async function readRecordingsInbox({
     }),
   )
 
-  await deriveServerAudio(rows, takeFacts, businessId, now.getTime(), segmentsProbe)
+  await deriveServerAudio(rows, takeFacts, businessId, now.getTime(), {
+    objectProbe,
+    segmentsProbe,
+  })
 
   return fillCustomerNames(rows, businessId)
 }
@@ -330,23 +360,25 @@ export async function readRecordingsInbox({
  * ONLY the sessions the fold's no-job branch will actually reach: no record,
  * no discard, and a DEFINITIVE "no job" (a 404). A row with a job — or with a
  * probe that failed, or a status this build never heard of — is answered
- * higher up in the fold, so deriving this for it would buy a storage call and
- * change nothing on screen.
+ * higher up in the fold, so deriving this for it would buy storage calls and
+ * change nothing on screen. Below the unsettled grace nothing is asked either:
+ * the row already reads 処理中, and no answer here would move it.
  *
- * The two halves cost very different things, which is why they are separate:
- *  · 'object' is FREE. `finalizedBefore` is the same question the take doors
- *    ask (take-binding.ts) and the row answers it alone — a pointer that
- *    parses as THIS business's take, a duration, and a status the recorder has
- *    left behind. That covers the assembled take and the take a phone
- *    finalized at stop before it died: the same news either way.
- *  · 'segments' costs ONE listing, so it is asked only where it could
- *    plausibly be true and the answer changes the row: no duration at all
- *    (nobody has ever settled this row) and past the unsettled grace, below
- *    which the row already reads 処理中 and nothing would move.
+ * ⚖ STORAGE ANSWERS, NOT THE ROW (D8'). For each remaining row, in order:
+ *  · a duration already on the row → 'object', with NO call. Finalize proves
+ *    the object before it stamps a duration, so the row has already carried
+ *    that proof once — and spending a probe slot to re-ask would take it from
+ *    a row that has no answer at all.
+ *  · else one `objectExists` on the pointer. TRUE is the rescue this feature
+ *    exists for: the nightly assembler rebuilt the take's object and could not
+ *    stamp a duration, because core fences that write behind a human actor.
+ *  · FALSE, and only then, one segment listing → 'segments' or nothing.
+ *  · 'unknown' from either → nothing. A storage blip is not evidence, in
+ *    either direction, and the row keeps exactly today's behaviour.
  *
- * Capped and newest-first for the same reason the job probes are: the oldest
- * rows of a genuinely broken tenant keep today's behaviour rather than
- * spending a bounded run on them. Logged, never silent.
+ * Both probes share ONE cap and ONE pool, for the same reason the job probes
+ * have theirs: a genuinely broken tenant must not turn one inbox read into
+ * hundreds of storage round trips. Newest-first, and the drop is logged.
  */
 async function deriveServerAudio(
   rows: readonly InboxServerSession[],
@@ -356,9 +388,9 @@ async function deriveServerAudio(
   >,
   businessId: string,
   nowMs: number,
-  probe: SegmentsProbe,
+  probes: { objectProbe: ObjectProbe; segmentsProbe: SegmentsProbe },
 ): Promise<void> {
-  const needsProbe: Array<{ row: InboxServerSession; key: string }> = []
+  const candidates: Array<{ row: InboxServerSession; key: string }> = []
   for (const row of rows) {
     if (row.karuteRecordId || row.discardedByStaff) continue
     if (row.jobStatus !== null || row.jobProbeFailed) continue
@@ -368,38 +400,37 @@ async function deriveServerAudio(
     // The take fence, not merely "parses": a segment leaf, a staged copy and
     // another tenant's key are all false here however the row reads.
     if (parseRecordingKey(key, businessId)?.kind !== 'take') continue
-    if (finalizedBefore(facts)) {
+    if (nowMs - Date.parse(row.createdAt) <= SESSION_UNSETTLED_GRACE_MS) continue
+    if (facts.duration_seconds !== null) {
       row.serverAudio = 'object'
       continue
     }
-    if (
-      facts.duration_seconds === null &&
-      nowMs - Date.parse(row.createdAt) > SESSION_UNSETTLED_GRACE_MS
-    ) {
-      needsProbe.push({ row, key })
-    }
+    candidates.push({ row, key })
   }
 
-  if (needsProbe.length > MAX_JOB_PROBES) {
+  if (candidates.length > MAX_JOB_PROBES) {
     console.warn(
-      `[recordings-inbox] ${needsProbe.length - MAX_JOB_PROBES} oldest unsettled sessions ` +
-        'left un-probed for server segments (cap reached)',
+      `[recordings-inbox] ${candidates.length - MAX_JOB_PROBES} oldest unsettled sessions ` +
+        'left un-probed for server audio (cap reached)',
     )
   }
   // `rows` is the server list's own order, so re-sort to the residue's
   // newest-first rule before the cap decides who is dropped.
-  const probes = needsProbe
+  const probeList = candidates
     .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
     .slice(0, MAX_JOB_PROBES)
   let next = 0
   await Promise.all(
-    Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
-      for (let i = next++; i < probes.length; i = next++) {
-        const { row, key } = probes[i]
-        // 'unknown' leaves the row untouched on purpose: a storage blip is not
-        // evidence that the server holds nothing, and claiming 処理中 off one
-        // would be the same lie in the other direction.
-        if ((await probe(businessId, key)) === true) row.serverAudio = 'segments'
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
+      for (let i = next++; i < probeList.length; i = next++) {
+        const { row, key } = probeList[i]
+        const object = await probes.objectProbe(key)
+        if (object === 'unknown') continue
+        if (object) {
+          row.serverAudio = 'object'
+          continue
+        }
+        if ((await probes.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
       }
     }),
   )

@@ -548,6 +548,8 @@ describe('録音履歴 — i18n parity for the new keys', () => {
     'reason.genericFailure',
     'reason.localAudio',
     'reason.tailIncomplete',
+    'reason.serverAudio',
+    'reason.partialOnServer',
     'action.open',
     'action.check',
     'action.retry',
@@ -578,6 +580,8 @@ describe('録音履歴 — i18n parity for the new keys', () => {
       'genericFailure',
       'localAudio',
       'tailIncomplete',
+      'serverAudio',
+      'partialOnServer',
     ] as const
     const jaInbox = jaRecording.inbox as { reason: Record<string, string> }
     for (const r of emitted) expect(typeof jaInbox.reason[r]).toBe('string')

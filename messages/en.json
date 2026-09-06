@@ -766,7 +766,9 @@
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
         "localAudio": "The audio is still on this device (unsaved)",
-        "tailIncomplete": "The recording ends partway (you can save what is left on this device)"
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
+      "serverAudio": "Audio is on the server (not saved yet; may end partway).",
+      "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)."
       },
       "action": {
         "open": "Open",
