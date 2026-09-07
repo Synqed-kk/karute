@@ -23,6 +23,9 @@ import { jstDayKey } from '@/business/lib/clock'
 import * as data from '@/business/lib/data'
 import { computeChecks, confirmCaption, type Check } from '@/business/lib/canon-logic/drag-rules'
 import {
+  RESIDUE_COMPARE_STRIPS_EXEMPTIONS,
+  residueVerdict,
+  restResidueOn,
   applyBlockMoves,
   applyMoves,
   blockChrome,
@@ -12764,11 +12767,21 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const c1today = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, null))!
     expect(warnFaceFor(warnInput(c1today, 7700)).impact.yen).toBe('約¥11,740')
 
-    // S1 fixture-as-is: an R-SALV residue refusal is NOT this round's business.
+    // S1 fixture-as-is — ⚖ PIN-DELTA, NUDGE-RESIDUE 9/7. This row was the ceiling
+    // PR #852 named in its own body: on the fixture as it LOADS the same nudge was an
+    // R-SALV residue refusal, 「ここに置くと132分の割引でしか売れない空きが残ります」
+    // behind a hard 「—」, while standing still already leaves 127 of the same minutes.
+    // The gap axis is measured against the committed day now, so the row is the quiet
+    // △ and the sentence is the gap's own. Full scene, both policies, at P2 below.
     const s1fix = movedTo(lanes, 'apt-29', 840, 900)
     const cfix = guardVerdictAt(s1fix, 'p-06', 840, demoInput(s1fix, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
-    expect(cfix.impact!.code).toBe('R-SALV')
-    expect(cfix.sentence).toBe('ここに置くと132分の割引でしか売れない空きが残ります')
+    expect(cfix.impact!.code).toBe('DEGRADED')
+    expect(cfix.label).toBe('△14:00')
+    expect(cfix.sentence).toBe('今の空き具合と変わりません')
+    expect(cfix.sentence).not.toContain('残ります')
+    // …and today's refusal is what it replaces, on the same board with no baseline.
+    const cfixToday = guardVerdictAt(s1fix, 'p-06', 840, demoInput(s1fix, 60, 'apt-29', guard, doors, null))!
+    expect(cfixToday.sentence).toBe('ここに置くと132分の割引でしか売れない空きが残ります')
 
     // S2 · かえる 17:12→17:00 — quiet, and the engine's two SAFE offers survive.
     const s2 = movedTo(movedTo(lanes, 'apt-29', 840, 900), 'apt-33', 1020, 1080)
@@ -13170,6 +13183,337 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBe('約¥11,770')
     }
   })
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS OF THE SAME MOVE.
+  //
+  // PR #852 closed the 新規-window axis. The leftover-space axis kept asking the
+  // NEW-card question, so a nudge that leaves the store's day no worse — なぎ's own
+  // 14:05→14:00, and the IDENTITY move, where the card does not move at all — still
+  // wore a hard 「—」 and 「ここに置くと132分の割引でしか売れない空きが残ります」 while
+  // standing still already leaves 127 of the same minutes. The board asks canon TWICE
+  // now, on the SAME pocket with the SAME ctx, and says only what CHANGED.
+  //
+  //   …/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md   rows 5-9
+  //   …/nextround/JP-NATIVE-NUDGE-RESIDUE-2026-09-07/FINAL.md        the four lines
+  //   …/nextround/MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md           Liam's sign-off
+  // ═════════════════════════════════════════════════════════════════════════
+  const QUIET = '今の空き具合と変わりません'
+  /** The demo board's own p-06 pocket, ctx and engine — the three things the seam's
+   *  own function needs, built exactly as `railCell` builds them. */
+  const seamFrame = (board: BoardLane[], laneKey: string, excludeId: string, guard: RailInput['guard'], doors: BedDoor, handId: string | null = excludeId) => {
+    const ln = board.find((l) => l.key === laneKey)!
+    const pockets = freePockets({ from: ln.window!.from, until: ln.window!.until, close: HOURS.close, now: DEMO_NOW, occupied: laneSpans(ln, excludeId) })
+    const door = doors(board, excludeId, handId)!
+    const held = doors(board, null, handId)!
+    return {
+      engine: createGapGuard(guard), pockets,
+      ctx: { now: DEMO_NOW, placementFeasible: (s: number, d: number) => door(ln, s, d), protectedWindowFeasible: (s: number, d: number) => held(ln, s, d) },
+    }
+  }
+
+  it('P2 — なぎ 14:05→14:00 on the fixture as it loads: QUIET under the pinned policy, and the soft note under the other', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 840, 900)
+    // ⚖ Liam's pick on the mock: wall and lead-time slivers count as real minutes on
+    // BOTH sides of the comparison. The five minutes 14:00–14:05 are a wall sliver
+    // where she stands and join the discount gap at the ask, so counted honestly the
+    // move is dead 5→0 / salvage 127→132 — better, and the board is quiet.
+    expect(RESIDUE_COMPARE_STRIPS_EXEMPTIONS).toBe(true)
+    for (const handId of [null, 'apt-29'] as const) {
+      const cell = guardVerdictAt(board, 'p-06', 840, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60), handId))!
+      expect({ handId, state: cell.state, label: cell.label, sentence: cell.sentence, reason: cell.reason, ack: cell.ackAllowed })
+        .toEqual({ handId, state: 'degraded', label: '△14:00', sentence: QUIET, reason: null, ack: true })
+      expect(cell.gapNote).toEqual({ dead: 0, salvage: 5, lostMenus: [] })
+      const face = warnFaceFor(warnInput(cell, 7700))
+      expect(face.face).toBe('clean')
+      expect(face.impact.yen).toBeNull()
+      expect(face.commit).toBeNull()
+      expect(cell.sentence).not.toContain('¥')
+    }
+    // …and the strip carries the same △14:00 chip it carries for every other quiet move.
+    const strip = guardRailsFor(board, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))
+      .find((r) => r.laneKey === 'p-06')!.cells.find((c) => c.start === 840)!
+    expect([strip.state, strip.label]).toEqual(['degraded', '△14:00'])
+
+    // BOTH POLICIES, measured at the seam's own function. The pinned constant decides
+    // which one the product shows; the other is the row Liam saw on the mock's
+    // footnote and did not choose.
+    const { engine, pockets, ctx } = seamFrame(board, 'p-06', 'apt-29', guard, doors)
+    const pocket = pockets.find((p) => p.s <= 845 && 905 <= p.e)!
+    expect([pocket.s, pocket.e, pocket.walls.left, pocket.walls.right]).toEqual([840, 1032, 'break', null])
+    const rest = { start: 845, dur: 60 }
+    const ask = { start: 840, dur: 60 }
+    expect(residueVerdict(engine, pocket, rest, ask, ctx, true))
+      .toEqual({ rest: [0, 0, 5, 127], askCost: [0, 0, 0, 132], worse: false, delta: { dead: 0, salvage: 5, lostMenus: [] } })
+    expect(residueVerdict(engine, pocket, rest, ask, ctx, false))
+      .toEqual({ rest: [0, 0, 0, 127], askCost: [0, 0, 0, 132], worse: true, delta: { dead: 0, salvage: 5, lostMenus: [] } })
+    // the other policy's sentence is the 2(a) line with the run's own 5 — spelled here
+    // so the FINAL.md string is pinned even though the product does not print it today
+    expect('割引でしか埋まらない空きが5分増えます').toBe(`割引でしか埋まらない空きが${5}分増えます`)
+  })
+
+  it('P3/P4 — the identity move and an IMPROVING move are both quiet, and the delta says why', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const rest = on('p-06', 845, 60)
+    for (const [ask, label] of [[845, '△14:05'], [870, '△14:30']] as const) {
+      const board = movedTo(lanes, 'apt-29', ask, ask + 60)
+      const cell = guardVerdictAt(board, 'p-06', ask, demoInput(board, 60, 'apt-29', guard, doors, rest))!
+      expect({ ask, label: cell.label, sentence: cell.sentence }).toEqual({ ask, label, sentence: QUIET })
+      expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: [] })
+      expect(warnFaceFor(warnInput(cell, 7700)).face).toBe('clean')
+    }
+    // …and TODAY these are the two worst sentences on the board: the identity move
+    // quotes 127 minutes about a card that did not move, and the improving move quotes
+    // the number it just improved.
+    const idBoard = movedTo(lanes, 'apt-29', 845, 905)
+    expect(guardVerdictAt(idBoard, 'p-06', 845, demoInput(idBoard, 60, 'apt-29', guard, doors, null))!.sentence)
+      .toBe('ここに置くと127分の割引でしか売れない空きが残ります')
+    const upBoard = movedTo(lanes, 'apt-29', 870, 930)
+    expect(guardVerdictAt(upBoard, 'p-06', 870, demoInput(upBoard, 60, 'apt-29', guard, doors, null))!.sentence)
+      .toBe('ここに置くと102分の割引でしか売れない空きが残ります')
+  })
+
+  it('P5 — LENS-2 BOARD 1: same code, same label, and the pocket’s last full-price slot dies → the note names the menu', () => {
+    // Lane 10:00–19:00, bookings 10:00–11:00 and 12:25–13:00 → ONE free pocket
+    // 11:00–12:25 (85分). Menus 20/30/60/90分, スキマ枠 30分, 新規保護なし, リードタイム 0.
+    // The card is 60分 committed 11:00–12:00; the ask is 11:10. Canon's key goes
+    // [0,2,25,0] → [0,3,25,0] and BOTH legs print the identical R-REP「テスト整体 60分」,
+    // so a rule that ranked the reason CODE would have called this costless.
+    const G = {
+      services: [
+        { name: '見本 全店舗メニュー 20分', dur: 20 }, { name: 'テストヘッド 30分', dur: 30 },
+        { name: 'テスト整体 60分', dur: 60 }, { name: 'テスト骨盤 90分', dur: 90 },
+      ],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const B1 = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 600, 660), card('F2', 745, 780), card('C1', 670, 730)] })]
+    const today = guardVerdictAt(board, 'p-01', 670, B1())!
+    expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-REP', 'ここに置くとテスト整体 60分が入らなくなります'])
+    const cell = guardVerdictAt(board, 'p-01', 670, B1({ resting: on('p-01', 660, 60) }))!
+    expect([cell.state, cell.label]).toEqual(['degraded', '△11:10'])
+    expect(cell.sentence).toBe('ここに置くと〈見本 全店舗メニュー 20分〉が入らなくなります')
+    expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: ['見本 全店舗メニュー 20分'] })
+    // the engine's own two keys, printed beside it — this is the measurement, not a
+    // restatement of the rule
+    const { engine, pockets, ctx } = { engine: createGapGuard(G), pockets: freePockets({ from: 600, until: HOURS.close, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }), ctx: {} }
+    const pocket = pockets.find((p) => p.s === 660)!
+    expect([pocket.s, pocket.e]).toEqual([660, 745])
+    expect([...engine.evaluate(pocket, { start: 660, dur: 60 }, ctx).cost]).toEqual([0, 2, 25, 0])
+    expect([...engine.evaluate(pocket, { start: 670, dur: 60 }, ctx).cost]).toEqual([0, 3, 25, 0])
+
+    // BOARD 2 — the committed span is in the OTHER pocket. Canon never compares two
+    // pockets (gap-guard :23-26), so there is no baseline and the row is today's.
+    const cross = guardVerdictAt(board, 'p-01', 670, B1({ resting: on('p-01', 780, 60) }))!
+    expect(cross).toEqual(today)
+    expect(cross.gapNote).toBeUndefined()
+  })
+
+  it('P6 — LENS-4 A-1: dead minutes grow 20 → 40 under one code and one label, and the note says 20', () => {
+    // Pocket 10:00–13:00 (180分), a 60分 card, スキマ枠 45分, one 60分 menu, 新規 off.
+    // At rest 10:20 the residue is 20 dead / 100 salvage; at 10:40 it is 40 / 80. The
+    // total is conserved and the KEY is strictly worse — 20 discountable minutes became
+    // unsellable. Both legs say R-DEAD.
+    const G = {
+      services: [{ name: 'テスト施術 60分', dur: 60 }],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 45, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const A1 = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 60, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 780, 840), card('C1', 640, 700)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const today = guardVerdictAt(board, 'p-01', 640, A1())!
+    expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-DEAD', 'ここに置くと40分の売れない空きが残ります'])
+    const cell = guardVerdictAt(board, 'p-01', 640, A1({ resting: on('p-01', 620, 60) }))!
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:40', '何も入らない空きが20分増えます'])
+    expect(cell.gapNote).toEqual({ dead: 20, salvage: 0, lostMenus: [] })
+    // the DIFFERENCE, never the total: today's line quotes 40, the note quotes 20
+    expect(cell.sentence).not.toContain('40分')
+    const engine = createGapGuard(G)
+    const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
+    expect([pocket.s, pocket.e, pocket.walls.left, pocket.walls.right]).toEqual([600, 780, null, null])
+    expect([...engine.evaluate(pocket, { start: 620, dur: 60 }, {}).cost]).toEqual([0, 0, 20, 100])
+    expect([...engine.evaluate(pocket, { start: 640, dur: 60 }, {}).cost]).toEqual([0, 0, 40, 80])
+  })
+
+  it('P7 — a menu newly out of reach: 整体60 was already lost, ヘッド30 goes too, and the sentence names the NEW one', () => {
+    // Pocket 10:00–11:40 (100分), a 55分 card. Committed at +45 the residues are 45/0,
+    // so only 整体60 cannot be hosted. Asked at +20 they are 20/25 and ヘッド30 goes as
+    // well. The COUNT moves 1 → 2 and the SET grows, and the desk hears about the
+    // thing that newly stopped fitting rather than the longest thing on the list.
+    const G = {
+      services: [{ name: 'テストヘッド 30分', dur: 30 }, { name: 'テスト整体 60分', dur: 60 }],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const P7 = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 55, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 700, 760), card('C1', 620, 675)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    expect(guardVerdictAt(board, 'p-01', 620, P7())!.sentence).toBe('ここに置くとテスト整体 60分が入らなくなります')
+    const cell = guardVerdictAt(board, 'p-01', 620, P7({ resting: on('p-01', 645, 55) }))!
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:20', 'ここに置くと〈テストヘッド 30分〉が入らなくなります'])
+    expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: ['テストヘッド 30分'] })
+    const engine = createGapGuard(G)
+    const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
+    expect([...engine.evaluate(pocket, { start: 645, dur: 55 }, {}).lossSet]).toEqual([60])
+    expect([...engine.evaluate(pocket, { start: 620, dur: 55 }, {}).lossSet]).toEqual([30, 60])
+  })
+
+  it('P8 — NO BASELINE is today, byte for byte: a committed span the clock has passed, and one that straddles the pocket', async () => {
+    // ⚖ D2, and it is the COMMON case, not an edge. `freePockets` floors every pocket
+    // at `now`, so at the demo clock (13:24) the whole morning has no baseline.
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-25', 870, 930)      // committed 11:00, asked 14:30
+    const live = guardVerdictAt(board, 'p-05', 870, demoInput(board, 60, 'apt-25', guard, doors, on('p-05', 660, 60)))!
+    const today = guardVerdictAt(board, 'p-05', 870, demoInput(board, 60, 'apt-25', guard, doors, null))!
+    expect(live).toEqual(today)
+    expect(live.gapNote).toBeUndefined()
+    expect(live.sentence).toBe('ここに置くとテスト整体 60分が入らなくなります')
+    // a straddling origin: the committed span hangs out of the pocket the ask lands in
+    const tiny = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 840, 900)], window: { from: 840, until: 1020 }, untilLabel: '17:00' })]
+    const strad = guardVerdictAt(tiny, 'p-01', 840, IN({ resting: on('p-01', 800, 70) }))!
+    expect(strad.gapNote).toBeUndefined()
+  })
+
+  it('P9/P10 — strict never gets a baseline, and at rest every cell is byte-identical', () => {
+    const board = pocketLane([card('C1', 845, 905)])
+    const strict = { guard: { ...GUARD, mode: 'strict' as const } }
+    const live = at(board, 845, { ...strict, resting: on('p-01', 850, 60) })!
+    expect(live).toEqual(at(board, 845, strict)!)
+    expect(live.gapNote).toBeUndefined()
+    // AT REST — the whole strip on a ten-lane board at the 5-minute step: no cell may
+    // carry a gap note, because `restingOn` hands null and nothing is being moved.
+    const lanes = Array.from({ length: 10 }, (_, i) =>
+      lane({ key: `p-${String(i + 1).padStart(2, '0')}`, group: 'staff', items: [card('C1', 840 + i * 10, 900 + i * 10)] }))
+    const cells = guardRailsFor(lanes, IN({ stepMin: 5, excludeId: null })).flatMap((r) => r.cells)
+    expect(cells).toHaveLength(1080)
+    expect(cells.filter((c) => c.gapNote != null)).toEqual([])
+    expect(cells).toEqual(guardRailsFor(lanes, IN({ stepMin: 5, excludeId: null, resting: null })).flatMap((r) => r.cells))
+  })
+
+  it('P11 — a RESIZE is compared at each span’s own duration', async () => {
+    // `input.dur` is the length being ASKED and `resting.dur` the committed one; the
+    // comparison never assumes they are equal (the conservation argument LENS-1 §F3
+    // refuted). なぎ committed 60分 at 14:05, stretched to 90分 in place.
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 845, 935)
+    const cell = guardVerdictAt(board, 'p-06', 845, demoInput(board, 90, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△14:05', QUIET])
+    const { engine, pockets, ctx } = seamFrame(board, 'p-06', 'apt-29', guard, doors)
+    const pocket = pockets.find((p) => p.s <= 845 && 935 <= p.e)!
+    const rv = residueVerdict(engine, pocket, { start: 845, dur: 60 }, { start: 845, dur: 90 }, ctx, true)!
+    expect(rv.rest).not.toEqual(rv.askCost)          // two different lengths, two different keys
+    expect(rv.worse).toBe(false)
+  })
+
+  it('P12 — the census: 30 gap-axis rows on the fixture day, none amber, none priced, none silently costly', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const subjects: { id: string; laneKey: string; start: number; dur: number }[] = []
+    for (const l of lanes) {
+      if (l.group !== 'staff' || l.window == null) continue
+      for (const i of l.items) if (i.kind === 'booking' && i.caseId != null) subjects.push({ id: i.caseId, laneKey: l.key, start: i.startMin, dur: i.endMin - i.startMin })
+    }
+    expect(subjects).toHaveLength(11)
+    const truths = new Map<string, number>()
+    const truthOf = (b: BoardLane[], key: string) => {
+      let t = truths.get(key)
+      if (t === undefined) { t = protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null)); truths.set(key, t) }
+      return t
+    }
+    let rows = 0, gap = 0, quiet = 0, soft = 0, amber = 0, priced = 0, silentCostly = 0, hardRefusal = 0
+    const shapes = new Set<string>()
+    for (const s of subjects) {
+      const truthNow = truthOf(movedTo(lanes, s.id, s.start, s.start + s.dur), `${s.id}|rest`)
+      for (let ask = HOURS.open; ask <= HOURS.close - s.dur; ask += 5) {
+        const board = movedTo(lanes, s.id, ask, ask + s.dur)
+        const cell = guardVerdictAt(board, s.laneKey, ask, demoInput(board, s.dur, s.id, guard, doors, on(s.laneKey, s.start, s.dur)))
+        if (cell == null) continue
+        rows += 1
+        if (cell.gapNote == null) continue
+        gap += 1
+        shapes.add(cell.sentence.replace(/[0-9]+分/g, 'N分').replace(/〈.*〉/, '〈メニュー〉'))
+        if (cell.sentence === QUIET) quiet += 1; else soft += 1
+        const face = warnFaceFor(warnInput(cell, 7700))
+        if (face.face === 'warn') amber += 1
+        if (face.impact.yen != null) priced += 1
+        if (cell.state === 'blocked') hardRefusal += 1
+        // the money frame: a placeable row may never hide a drop in the whole board's
+        // own protected capacity (I18's oracle, on the residue rows)
+        if (truthOf(board, `${s.id}|ask${ask}`) < truthNow) silentCostly += 1
+      }
+    }
+    expect({ rows, gap, quiet, soft, amber, priced, silentCostly, hardRefusal })
+      .toEqual({ rows: 1084, gap: 30, quiet: 7, soft: 23, amber: 0, priced: 0, silentCostly: 0, hardRefusal: 0 })
+    // exactly the three shapes the day can produce; the menu line needs a repertoire
+    // loss the fixture's own dials never reach (P5/P7 build it)
+    expect([...shapes].sort()).toEqual(['今の空き具合と変わりません', '何も入らない空きがN分増えます', '割引でしか埋まらない空きがN分増えます'])
+  })
+
+  it('P13 — a gap-note cell is never priced and never held: the clean face, the engine’s row, the normal button', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 850, 910)     // 14:05 → 14:10, dead +5
+    const cell = guardVerdictAt(board, 'p-06', 850, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    expect(cell.sentence).toBe('何も入らない空きが5分増えます')
+    expect(cell.gapNote).toEqual({ dead: 5, salvage: 0, lostMenus: [] })
+    expect(lossOf(cell)).toBe(0)
+    const face = warnFaceFor(warnInput(cell, 7700))
+    expect(face.face).toBe('clean')
+    expect(face.impact).toEqual({ head: '', yen: null, tail: '' })
+    expect(face.commit).toBeNull()
+    expect(face.lock).toBeNull()
+    // …and the △ check row is the sentence itself, tone unchanged
+    expect(guardCheckRow(cell)).toEqual({ label: '何も入らない空きが5分増えます', tone: 'warn' })
+    expect(guardCheckRowBesideOffer(cell)!.label).toBe('何も入らない空きが5分増えます')
+  })
+
+  it('P14/P15 — the four lines are spelled ONCE, no TOTAL rides this axis, and the rest leg is hoisted once per rail', () => {
+    const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    const CODE = codeOnly(INT)
+    for (const line of ['今の空き具合と変わりません', '割引でしか埋まらない空きが${n}分増えます', '何も入らない空きが${n}分増えます', 'ここに置くと〈${name}〉が入らなくなります']) {
+      expect(CODE.split(line)).toHaveLength(2)
+    }
+    // ⚖ the TOTAL shape is retired on this axis: the only 「…が残ります」 left is
+    // `reasonLine`'s own legacy line, which is what a row with NO baseline still shows.
+    expect(CODE.match(/分の割引でしか売れない空きが残ります/g)).toHaveLength(1)
+    expect(CODE.match(/分の売れない空きが残ります/g)).toHaveLength(1)
+    // …and 「区間」 never enters the new vocabulary (LENS-3's complaint about the line
+    // this axis replaces). The four pre-existing sentences that use it are unchanged
+    // and none of them is a gap-axis line.
+    expect(CODE.match(/区間/g)).toHaveLength(4)
+    for (const line of ['今の空き具合と変わりません', '割引でしか埋まらない空きが${n}分増えます', '何も入らない空きが${n}分増えます', 'ここに置くと〈${name}〉が入らなくなります']) {
+      expect(line).not.toContain('区間')
+    }
+    // ⚖ P15 — the committed span's answer is built ONCE for the whole rail and handed
+    // down; `guardVerdictAt`'s single cell computes its own. One declaration, one call.
+    expect(CODE.match(/restResidueOn\(/g)).toHaveLength(2)
+    expect(CODE.match(/residueVerdict\(/g)).toHaveLength(2)
+    expect(CODE).toContain('const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)')
+    expect(CODE.match(/RESIDUE_COMPARE_STRIPS_EXEMPTIONS/g)).toHaveLength(3)
+    // …and the hoist is not a behaviour change: the hoisted answer IS the one the
+    // un-hoisted call computes.
+    const G = { services: [{ name: '整体60', dur: 60 }], protectedDurationMin: null, gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const }
+    const engine = createGapGuard(G)
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 640, 700)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const pockets = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') })
+    const pocket = pockets[0]
+    const rest = { start: 620, dur: 60 }
+    for (const strip of [true, false]) {
+      const hoisted = restResidueOn(engine, pockets, rest, {}, strip)
+      for (const ask of [600, 620, 640, 660]) {
+        expect(residueVerdict(engine, pocket, rest, { start: ask, dur: 60 }, {}, strip, hoisted))
+          .toEqual(residueVerdict(engine, pocket, rest, { start: ask, dur: 60 }, {}, strip))
+      }
+    }
+    // a pocket that does not hold the committed span has no hoisted answer at all
+    expect(restResidueOn(engine, pockets, { start: 200, dur: 60 }, {}, true)).toBeNull()
+    expect(restResidueOn(engine, pockets, null, {}, true)).toBeNull()
+  })
 })
 
 // ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS OF A MOVED CARD IS MEASURED
@@ -13243,7 +13587,8 @@ describe('⚖ NUDGE-RESIDUE — the engine publishes the attempted placement’s
     const engine = createGapGuard(GAP)
     // The 240-minute pocket the NUDGE-GUARD block uses, walled on neither side, plus a
     // walled twin and a lead-time twin — the two exemption roads into the same key.
-    const plain = { s: 840, e: 1080, walls: { left: null, right: null } }
+    const plain: { s: number; e: number; walls: { left: string | null; right: string | null } } =
+      { s: 840, e: 1080, walls: { left: null, right: null } }
     const walled = { s: 840, e: 1080, walls: { left: 'break', right: 'shiftEnd' } }
     const tight = { s: 840, e: 900, walls: { left: null, right: null } }
     const tightWalled = { s: 840, e: 905, walls: { left: null, right: 'closing' } }

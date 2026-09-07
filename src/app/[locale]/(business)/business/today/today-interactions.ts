@@ -17,6 +17,7 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type GuardPocketSpan,
   type GapPackingInput,
   type SellBand,
   type SellCell,
@@ -24,7 +25,7 @@ import {
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason, type GuardResult, type GuardService } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -1618,6 +1619,15 @@ export interface RailCell {
     windowsBefore: number[]
     windowsAfter: number[]
   }
+  /** ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS'S OWN DIFFERENCE, as data.
+   *
+   *  Present exactly on the cells `residueVerdict` decided: a MOVE refused on the
+   *  leftover-space axis, measured against the store's committed day. All zeros and
+   *  an empty list is the honest answer for a costless move, and it is what says
+   *  「this cell was weighed on the gap axis」 to a surface that must not parse
+   *  sentences back into numbers (⚖ 54's disease — same law as `impact` above).
+   *  Absent everywhere else, including at rest and in strict mode. */
+  gapNote?: { dead: number; salvage: number; lostMenus: string[] }
 }
 
 export interface GuardRail {
@@ -1944,8 +1954,10 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     const ctx = railCtx(lane, input)
     const resting = restingOn(lane, input)
     const beforeCtx = beforeCtxFor(lane, input, ctx)
+    // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
+    const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -1968,6 +1980,166 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
   return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
 }
 
+/** ⚖ Liam 2026-09-07 (MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md) — THE SLIVER POLICY.
+ *
+ *  For the COMPARISON only, a residue against a wall or inside the lead time counts
+ *  as real minutes on BOTH sides. The comparison blames nobody; it measures the day.
+ *  なぎ's own 14:05→14:00 is the scene it decides: the five minutes 14:00–14:05 are a
+ *  wall sliver where she stands (exempt, uncounted by canon) and join the 127-minute
+ *  discount gap at the ask. Counted on both sides the move reads dead 5→0 / salvage
+ *  127→132 — lexicographically BETTER, so the board goes quiet. Counted canon's own
+ *  way it is five more discount-only minutes and the board says so, softly. Liam read
+ *  the footnote on the mock and let the default stand. Ruling, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md row 8 */
+export const RESIDUE_COMPARE_STRIPS_EXEMPTIONS = true
+
+/** The four gap-axis lines, each spelled once
+ *  (JP-NATIVE-NUDGE-RESIDUE-2026-09-07/FINAL.md, verbatim). NEVER a total on this
+ *  axis — the absolute 「N分の割引でしか売れない空きが残ります」 shape belongs to
+ *  `reasonLine`, and it stays there for the rows that have no baseline at all. */
+const QUIET_GAP_LINE = '今の空き具合と変わりません'
+const SALVAGE_GAP_LINE = (n: number) => `割引でしか埋まらない空きが${n}分増えます`
+const DEAD_GAP_LINE = (n: number) => `何も入らない空きが${n}分増えます`
+const LOST_MENU_LINE = (name: string) => `ここに置くと〈${name}〉が入らなくなります`
+
+export interface ResidueVerdict {
+  /** the committed span's own cost vector, as `evaluate` published it */
+  rest: readonly number[]
+  askCost: readonly number[]
+  worse: boolean
+  delta: { dead: number; salvage: number; lostMenus: number[] }
+}
+
+/** The committed span's own answer — the only two fields the comparison reads. */
+export type RestResidue = Pick<GuardResult, 'cost' | 'lossSet'>
+
+/** The pocket and the ctx the comparison is made in, spelled ONCE so both legs are
+ *  asked the same question. `strip` = the sliver policy: the wall flags go to
+ *  `WallType`'s no-wall value on a SHALLOW COPY (`availability.ts` is frozen and
+ *  nothing here edits it) and `now` leaves the ctx, so a wall or lead-time sliver
+ *  counts as real minutes on BOTH sides. */
+const comparisonFrame = (pocket: GuardPocketSpan, ctx: GuardContext, strip: boolean) =>
+  strip
+    ? { p: { ...pocket, walls: { left: null, right: null } }, c: { ...ctx, now: undefined } }
+    : { p: pocket, c: ctx }
+
+/** ⚖ perf (LENS-2 §B-14) — THE REST LEG, HOISTED. The committed span's answer is the
+ *  same for every cell of one rail (one span, one pocket, one ctx), and a second
+ *  `evaluate` per cell costs +142% of a rail build against +7.9% hoisted. So the rail
+ *  computes it once and hands it down; `guardVerdictAt`'s single cell computes its own
+ *  inside `residueVerdict` and pays nothing for the difference.
+ *
+ *  It answers on the pocket that CONTAINS the committed span, which is the only pocket
+ *  `residueVerdict` will accept it for — the containment test there is what makes the
+ *  hand-off safe (D2: a straddling or cross-pocket origin has no baseline at all). */
+export function restResidueOn(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  resting: GuardPlacement | null,
+  ctx: GuardContext,
+  strip: boolean,
+): RestResidue | null {
+  if (resting === null) return null
+  const pocket = pockets.find((p) => resting.start >= p.s && resting.start + resting.dur <= p.e)
+  if (pocket === undefined) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const r = engine.evaluate(p, resting, c)
+  return { cost: r.cost, lossSet: r.lossSet }
+}
+
+/** ⚖ NUDGE-RESIDUE — THE GAP AXIS OF A MOVE: is the space this card leaves behind
+ *  worse than the space the store is already living with?
+ *
+ *  Canon answers a different question, and answers it correctly: 「is this a good
+ *  place for a NEW card」 — the ask's residue against the BEST start in the pocket,
+ *  which is built with the moving card LIFTED. For a move that is the wrong
+ *  question, and it refuses the identity move: なぎ standing exactly where the store
+ *  put her reads 「ここに置くと127分の割引でしか売れない空きが残ります」. So the seam
+ *  asks canon TWICE — the committed span and the ask, the SAME pocket, the SAME ctx —
+ *  and compares the two answers. Canon classifies, the seam accumulates: the same
+ *  split `laneWindowsWith` already makes one axis over (R2 ruling 2).
+ *
+ *  The order is canon's own lexicographic compare (gap-guard :263-269) over the
+ *  RESIDUE sub-vector [repertoireLossCount, deadResidueMin, salvageResidueMin],
+ *  re-spelled here rather than imported — `compareKeys` is module-private, and a term
+ *  ORDER is a constant, not the dial-dependent behaviour a seam may never duplicate.
+ *  Set containment rides beside the count (LENS-1 §F6: the count cannot see a SWAP,
+ *  because `repLabel` names only the longest lost duration). ponytail — against
+ *  TODAY's engine that term can never fire on its own: `repertoireLossSet` subtracts a
+ *  downward-closed hostable set from a downward-closed base, so a loss set is always
+ *  the top slice above the longer residue and equal sizes mean equal sets. It stays
+ *  because it is the honest question, and it is what names the menu below.
+ *
+ *  Rulings and evidence, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md rows 5-9
+ *
+ *  ponytail: D1 — a row with NO baseline keeps today's absolute total sentence.
+ *  ponytail: D2 — no baseline is the COMMON case, never an edge. `freePockets` floors
+ *    every pocket at `now`, so every card the clock has passed has none; a straddling
+ *    origin has none; a cross-pocket origin has none and may never get one — canon
+ *    :23-26, 「Pockets are never compared against each other」.
+ *  ponytail: D3 — strict mode never reaches here at all; `restingOn` hands `null`.
+ *  ponytail: D4 — a costless move wears △, never ✓: canon still refused the start. */
+export function residueVerdict(
+  engine: ReturnType<typeof createGapGuard>,
+  pocket: GuardPocketSpan,
+  resting: GuardPlacement | null,
+  ask: GuardPlacement,
+  ctx: GuardContext,
+  strip: boolean,
+  /** `restResidueOn`'s answer, hoisted once per rail. Only ever used AFTER the
+   *  containment test below has proved this pocket is the committed span's own, so it
+   *  can only be the answer this call would compute itself. Absent → computed here. */
+  hoistedRest?: RestResidue | null,
+): ResidueVerdict | null {
+  // The lane and the mode are `restingOn`'s business and are already settled by the
+  // time a placement reaches here; what is left is whether the committed span lives
+  // inside THIS pocket (D2).
+  if (resting === null) return null
+  if (resting.start < pocket.s || resting.start + resting.dur > pocket.e) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const rest = hoistedRest ?? engine.evaluate(p, resting, c)
+  const at = engine.evaluate(p, ask, c)
+  const lostMenus = at.lossSet.filter((d) => !rest.lossSet.includes(d))
+  let cmp = 0
+  for (const i of [1, 2, 3]) {
+    if (at.cost[i] !== rest.cost[i]) { cmp = at.cost[i] - rest.cost[i]; break }
+  }
+  return {
+    rest: rest.cost,
+    askCost: at.cost,
+    worse: cmp > 0 || lostMenus.length > 0,
+    delta: {
+      dead: Math.max(0, at.cost[2] - rest.cost[2]),
+      salvage: Math.max(0, at.cost[3] - rest.cost[3]),
+      lostMenus,
+    },
+  }
+}
+
+/** The difference, in the desk's own words. Precedence dead > menus > salvage — the
+ *  worst thing that happened leads, in canon's own key order. The number is the
+ *  DIFFERENCE and never the total (LENS-3 §4). The menu is named the way `repLabel`
+ *  names it, the longest duration lost, re-spelled here for the reason the compare
+ *  is; a long name is ellipsized by the DISPLAY, never here. */
+function softGapLine(delta: ResidueVerdict['delta'], services: GuardService[]): string {
+  if (delta.dead > 0) return DEAD_GAP_LINE(delta.dead)
+  if (delta.lostMenus.length > 0) {
+    return LOST_MENU_LINE(menuNameOf(delta.lostMenus.slice().sort((a, b) => b - a)[0], services))
+  }
+  // The only term left. `worse` is set by this same sub-vector, so it cannot be true
+  // with all three deltas at zero — the salvage term is what moved.
+  return SALVAGE_GAP_LINE(delta.salvage)
+}
+
+/** canon `repLabel` (gap-guard :320-324), re-spelled for the reason the compare is —
+ *  it is module-private inside the frozen file. One spelling: the sentence names the
+ *  longest NEWLY lost duration through it, and `gapNote` names them all through it.
+ *  `repLabel` names the longest of the whole loss set; on this axis the sentence is
+ *  about the DIFFERENCE, so it names the longest of what newly stopped fitting. */
+const menuNameOf = (dur: number, services: GuardService[]): string =>
+  services.find((s) => s.dur === dur)?.name ?? `${dur}分`
+
 function railCell(
   engine: ReturnType<typeof createGapGuard>,
   pockets: ReturnType<typeof freePockets>,
@@ -1976,6 +2148,7 @@ function railCell(
   ctx: GuardContext,
   resting: GuardPlacement | null = null,
   beforeCtx: GuardContext = ctx,
+  restGap: RestResidue | null = null,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -2144,6 +2317,31 @@ function railCell(
   // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
   if (repCapacity && resting !== null && loss === 0) {
     return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+  }
+  // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
+  // three residue classes canon can refuse a move on: dead minutes, discount-only
+  // minutes, and a SERVICE that no longer fits (`R-REP` with no `capacityLost` — arm
+  // (c) took the protected-window shape already). `v.verdict` is not tested: ok,
+  // exempt, degraded and R-UNAVAILABLE have all returned above, so only `refuse`
+  // reaches this line. No baseline → `rv` is null → the (d)/(e) fall-through, which
+  // is today's behaviour byte for byte.
+  const rv =
+    resting !== null && v.reason && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
+      ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
+      : null
+  if (rv !== null) {
+    // Not worse → the quiet △ and the gap's own line. Worse → the same placeable △
+    // wearing a SOFT note that states the DIFFERENCE: no hard 「—」, no 長押し, no ¥
+    // (the window axis is honestly 0 here, so `lossOf` stays 0 and `warnFaceFor`
+    // keeps the clean face — ⚖ 9/1 「zero-loss is quiet」). Liam's mock, 9/7.
+    return {
+      ...degradedFace(
+        rv.worse ? softGapLine(rv.delta, input.guard.services) : QUIET_GAP_LINE,
+        safeAlternatives,
+        v.alternativeKind === 'safe' ? 'safe' : null,
+      ),
+      gapNote: { dead: rv.delta.dead, salvage: rv.delta.salvage, lostMenus: rv.delta.lostMenus.map((d) => menuNameOf(d, input.guard.services)) },
+    }
   }
   // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
   // every other refusal class keeps the engine's own pocket numbers, untouched.
