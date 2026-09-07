@@ -1983,6 +1983,28 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(SRC).not.toContain('bedFeasibility(')
   })
 
+  /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
+   *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
+   *  blanked, so a decoy has to be real code to appear at all. `ok` — and, ⚖
+   *  §DELTA 3 S1, each anchor's uniqueness — is asserted before the text is
+   *  read: a slice that came back empty because an anchor moved, or that came
+   *  back pointing at a verbatim COPY, would make the equality vacuous.
+   *
+   *  ⚖ NUDGE-GUARD FIX 2 — hoisted out of the doors test, unchanged, so the two
+   *  helper BODIES pinned below it read through the SAME reader. One reader,
+   *  one place the uniqueness assertion lives. */
+  const sliceLines = (open: string, close: string) => {
+    const s = callSlice(SRC, open, close)
+    // ⚖ BREAKER-827 §DELTA 3 S1 — and `opens`/`closes` are asserted with it.
+    // A verbatim copy of these lines above the real one satisfied every
+    // equality below while the live call lost its door; the equality does not
+    // know which copy it is looking at, so the anchor's uniqueness has to be
+    // established before the text is read at all.
+    expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
+    const code = codeOnly(s.text)
+    return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
+  }
+
   /** ⚖ BREAKER-827 §DELTA 2 D4 (BLOCKER) — EVERY PIN ABOVE ASKS WHERE A LINE IS.
    *  NONE OF THEM ASKS WHAT THE WRAPPER HANDS BACK.
    *
@@ -2036,24 +2058,6 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
    *  is the ⚖ renderer-fence question already on Liam's desk, and it is the
    *  recorded CEILING of this family rather than the next round of text. */
   it('the two guard doors and the wrapper they go through are EXACTLY these lines', () => {
-    /** One call's code, as the non-blank lines it is. Trimmed, so a tab or a
-     *  re-indent is still the same line (the BRK-D1-tab tolerance); comment-
-     *  blanked, so a decoy has to be real code to appear at all. `ok` — and, ⚖
-     *  §DELTA 3 S1, each anchor's uniqueness — is asserted before the text is
-     *  read: a slice that came back empty because an anchor moved, or that came
-     *  back pointing at a verbatim COPY, would make the equality below vacuous. */
-    const sliceLines = (open: string, close: string) => {
-      const s = callSlice(SRC, open, close)
-      // ⚖ BREAKER-827 §DELTA 3 S1 — and `opens`/`closes` are asserted with it.
-      // A verbatim copy of these lines above the real one satisfied every
-      // equality below while the live call lost its door; the equality does not
-      // know which copy it is looking at, so the anchor's uniqueness has to be
-      // established before the text is read at all.
-      expect({ open, ok: s.ok, opens: s.opens, closes: s.closes }).toEqual({ open, ok: true, opens: 1, closes: 1 })
-      const code = codeOnly(s.text)
-      return { lines: code.split('\n').map((l) => l.trim()).filter((l) => l.length > 0), code }
-    }
-
     // 1 · THE WRAPPER — three lines: the hook, the arrow with its asker and its
     // board default, and ⚖ 39's escape hatch. The breaker's fourth line has
     // nowhere to be.
@@ -2231,6 +2235,76 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "type RailCell,",
       "type SellDrop,",
       "type WarnCardModel,",
+    ])
+  })
+
+  /** ⚖ NUDGE-GUARD FIX 2, BREAKER-NUDGE-5fab5076b.md §F1 (MAJOR) + §F2 — THE TWO
+   *  NEW HELPERS WERE PINNED BY THE LINE THAT CALLS THEM, NEVER BY THEIR BODIES.
+   *
+   *  Fix round 1 pinned both call sites hard: the rail's and the verdict's
+   *  argument lines are EXACTLY-these-lines slices in the test above, and the
+   *  two gated door lines are whole-line anchored in selling-engine-doors. What
+   *  nothing read was what the two names COMPUTE. The breaker reverted each
+   *  body in turn, leaving every pinned character byte-identical, and all four
+   *  reverts passed the whole battery — 555 suites / 9,960 tests green:
+   *
+   *    D1  `restingFor` returns null for a real id — the guard simply OFF, and
+   *        the desk goes back to 8 costly-but-quiet rows and 102 amber rows
+   *        over moves that cost the store nothing.
+   *    D2  `restingFor` reads `boardLanes` instead of `committedLanes` — the v1
+   *        blocker at the screen: 74 rows under-report, so a move that really
+   *        drops a 新規 window says 「守れます」.
+   *    D3  `newClientDoorMinus`'s `doorFor` short-circuits to `undefined` for
+   *        any real id — FIX 1's own §F2 back off, 8 costly-but-quiet rows.
+   *    D4  the memo's fast path serves `ledger.world` where the honest answer
+   *        is `ledger.worldMinusHand` — the same under-count on the rail leg.
+   *    B10 the escape hatch `lanes !== boardLanes` deleted, so a caller that
+   *        hands its own board shares (and poisons) the board-keyed cache.
+   *        Latent today — `verdictAt`'s one such caller passes a null id — and
+   *        it is pinned here rather than left to a code read.
+   *
+   *  So both bodies are exact-line slices now, the shape the sibling door
+   *  `bedDoorFor` has carried since BREAKER-827 (its pin is in the test above).
+   *  No renderer, no new machinery — the same reader, two more anchors.
+   *
+   *  ⚠ THE CEILING, SAID PLAINLY (Liam, 9/3): this is source text, and source
+   *  text stops at the slice. A rewire ABOVE these lines — the whole input
+   *  rebuilt somewhere else on the screen and handed to the engine in place of
+   *  what the memo returned — is still the renderer fence, because no suite
+   *  renders `TodayScreen`. That question is on his desk, not answered here. */
+  it('the two NUDGE-GUARD helpers are EXACTLY these lines, bodies and all', () => {
+    // 1 · `restingFor` — WHERE THE COMMITTED DAY IS READ. Two lines: the hook and
+    // the one arrow that forwards `committedLanes` (never the board) into
+    // `restingSpanFor`. D1 and D2 are both a changed line here.
+    expect(
+      sliceLines('const restingFor = useCallback(', '[pending, committedLanes, hours, props.dayOffset, props.store],').lines,
+    ).toEqual([
+      'const restingFor = useCallback(',
+      '(excludeId: string | null) => restingSpanFor(pending, committedLanes, excludeId, hours, props.dayOffset, props.store),',
+    ])
+
+    // 2 · `newClientDoorMinus` — THE BEFORE-LIST'S OWN DOOR, whole. The memo, the
+    // cache it closes over, the fast/slow choice between the frame's book and a
+    // freshly built one, the lifted-world door line, the escape hatch and the key
+    // normalisation. D3, D4 and B10 are each a changed line in this array.
+    expect(
+      sliceLines('const newClientDoorMinus = useMemo(() => {', '}, [boardLanes, ledger, ledgerFrame])').lines,
+    ).toEqual([
+      'const newClientDoorMinus = useMemo(() => {',
+      'const built = new Map<string, ReturnType<typeof bedDoor>>()',
+      'const doorFor = (excludeId: string | null, lanes: BoardLane[]) => {',
+      'const lifted =',
+      'lanes === boardLanes && excludeId === ledger.handId',
+      '? ledger.worldMinusHand',
+      ': bedViewsFor(lanes, ledgerFrame, excludeId).worldMinusHand',
+      'return lifted === null ? undefined : bedDoor({ world: lifted, worldMinusHand: null, handId: null }, lanes, null)',
+      '}',
+      'return (excludeId: string | null, lanes: BoardLane[] = boardLanes) => {',
+      'if (lanes !== boardLanes) return doorFor(excludeId, lanes)',
+      "const key = excludeId ?? ''",
+      'if (!built.has(key)) built.set(key, doorFor(excludeId, lanes))',
+      'return built.get(key)',
+      '}',
     ])
   })
 
@@ -13044,6 +13118,56 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       // board where the card is at the ask.
       expect({ asked, walk: laneWindowsWith(engine, lifted, { start: asked, dur: 60 }, ctxOf(board, doors(board, null, null))).length })
         .toEqual({ asked, walk: bookOf(board) })
+    }
+  })
+
+  /** ⚖ BREAKER-NUDGE-5fab5076b.md §F5 — THE RESIZE LEG. Every scene above moves a
+   *  card of a FIXED length, so the asked duration and the committed one are the
+   *  same number and nothing notices which of the two the after-list is built at.
+   *  The breaker's E4 built it at the COMMITTED length: green on all four gates,
+   *  and a different answer on 44,226 of its own oracle rows. A resize is where
+   *  the two numbers part, and it is what this pins.
+   *
+   *  THE GEOMETRY, in plain words: p-06 holds なぎ committed 14:05–15:05 and かえる
+   *  at 17:12. Stretch なぎ in place from 60分 to 105分 and her end moves to 15:50,
+   *  which leaves 82 minutes in front of かえる — not enough for a 新規 90分. At her
+   *  COMMITTED length the same lane still holds that window at 15:05. So the whole
+   *  board really drops 3 → 2, the row is loud about it, and an after-list built at
+   *  the committed length would have found the window alive and gone quiet. */
+  it('I19 — a RESIZE is priced at the length being ASKED: なぎ stretched 60分→105分 eats the 15:05 window, and the committed length would not have seen it', async () => {
+    const { lanes, guard, doors } = await demoBoard()
+    const committedBoard = movedTo(lanes, 'apt-29', 845, 905)
+    const board = movedTo(lanes, 'apt-29', 845, 950)
+    const bookOf = (b: BoardLane[]) => protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null))
+    // WHOLE-BOARD TRUTH, the same oracle I17d/I18 use: the store really loses one.
+    expect([bookOf(committedBoard), bookOf(board)]).toEqual([3, 2])
+
+    // THE TWO AFTER-LISTS, side by side — this is E4's exact fork, and the reason
+    // the pin below is a measurement rather than a coincidence.
+    const engine = createGapGuard(guard)
+    const p06 = board.find((l) => l.key === 'p-06')!
+    const pockets = freePockets({
+      from: p06.window!.from, until: p06.window!.until,
+      close: HOURS.close, now: DEMO_NOW, occupied: laneSpans(p06, 'apt-29'),
+    })
+    const door = doors(board, null, null)!
+    const ctx = { now: DEMO_NOW, protectedWindowFeasible: (s: number, d: number) => door(p06, s, d) }
+    const askedList = laneWindowsWith(engine, pockets, { start: 845, dur: 105 }, ctx)
+    const atCommittedLength = laneWindowsWith(engine, pockets, { start: 845, dur: 60 }, ctx)
+    expect({ askedList, atCommittedLength }).toEqual({ askedList: [], atCommittedLength: [905] })
+
+    // …and the row is built at the ASKED length, at both `handId` wirings.
+    for (const handId of [null, 'apt-29'] as const) {
+      const cell = guardVerdictAt(board, 'p-06', 845, demoInput(board, 105, 'apt-29', guard, doors, on('p-06', 845, 60), handId))!
+      expect({ handId, state: cell.state, code: cell.impact!.code, loss: lossOf(cell) })
+        .toEqual({ handId, state: 'blocked', code: 'R-REP', loss: 1 })
+      expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([1, 0])
+      expect(cell.impact!.windowsAfter).toEqual(askedList)
+      expect(cell.impact!.windowsBefore).toEqual(atCommittedLength)
+      // the lane's own 1 → 0 IS the whole board's 3 → 2
+      expect(cell.impact!.capacityBefore - cell.impact!.capacityAfter).toBe(bookOf(committedBoard) - bookOf(board))
+      expect(cell.sentence).toBe('ここに置くと15:05〜16:35の新規（90分）が入らなくなります')
+      expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBe('約¥11,770')
     }
   })
 })
