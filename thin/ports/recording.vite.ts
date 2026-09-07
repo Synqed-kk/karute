@@ -450,7 +450,8 @@ export const viteRecordingPort: RecordingPipelinePort = {
       | { error?: { code?: string } }
       | null
     if (!res.ok || !body || !('ok' in body)) {
-      // The facade names its refusal in `error.code` (forbidden / not_found /
+      // The facade names its refusal in `error.code` (forbidden / store_forbidden
+      // / tenant_forbidden / not_found / no_audio / conflict / not_returning /
       // validation / upstream_unavailable). Mapped onto the shared body's own
       // closed union so both arms answer the caller in one vocabulary; anything
       // that named nothing — a proxy page, an auth blip — is `upstream`, the
@@ -471,10 +472,16 @@ export const viteRecordingPort: RecordingPipelinePort = {
       // and worth keeping distinct from the retryable arms: no amount of
       // tapping changes a decision somebody already made and explained.
       if (code === 'conflict') return { error: 'discarded' }
-      // The door answers 404 for BOTH "no such session" and "the server does
-      // not hold this audio", deliberately: which of the two is not the
-      // caller's business, and the row says the same thing either way — there
-      // is nothing here to save. One code out.
+      // THREE TERMINAL FACTS, EACH BY ITS OWN NAME (fix round 6, R3). The door
+      // used to answer 404 for two different things and `validation` for a
+      // third; now it says which. `not_found` = no such session in this
+      // business. `no_audio` = the session exists and the server holds nothing
+      // at either key. `not_returning` = a settled fact about the CUSTOMER,
+      // terminal like `discarded`. None of the three is retryable, and the
+      // shared body already spells all three — the port only has to stop
+      // losing them. `validation` (a malformed request) stays `upstream`.
+      if (code === 'no_audio') return { error: 'no_audio' }
+      if (code === 'not_returning') return { error: 'not_returning' }
       if (code === 'not_found') return { error: 'not_found' }
       return { error: 'upstream' }
     }

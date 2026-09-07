@@ -72,7 +72,16 @@ const fakeClient = {
   recordingJobs: { enqueue: jobsEnqueue },
   stores: { get: storesGet },
   staffStores: { get: staffStoresGet },
-  customers: { get: jest.fn() },
+  // The revisit guard calls `.then` on this, so a bare jest.fn() (undefined)
+  // throws synchronously and the handler answers 500 instead of the door's own
+  // refusal. The door suite's own default: a first-visit customer.
+  customers: {
+    get: jest.fn(async () => ({
+      is_existing_customer: false,
+      visit_count: 0,
+      has_ticket_pack: false,
+    })),
+  },
   packs: { listPacks: jest.fn(async () => []) },
   karuteRecords: { list: jest.fn(async () => ({ karute_records: [] })) },
   recordingDiscards: { list: listDiscards },
@@ -262,10 +271,26 @@ describe('POST recordings/job/from-session', () => {
     warn.mockRestore()
   })
 
-  it('no object in the bucket → 404, and nothing is queued', async () => {
+  it('no audio at either key → 404 with code no_audio, nothing queued', async () => {
     objectExists.mockResolvedValue(false)
     const res = await POST(req({ ...auth, ...idem }, validBody), noRoute)
     expect(res.status).toBe(404)
+    // ⚖ THE FACADE SPEAKS THE SHARED BODY'S WORDS (fix round 6, R3). The web
+    // action returns `no_audio`; before this the facade said `not_found`, so
+    // the phone could not tell "no such session" from "no audio here".
+    expect((await res.json()).error.code).toBe('no_audio')
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('a revisit label for a first-visit customer → 422 with code not_returning, nothing queued', async () => {
+    // A fact about the CUSTOMER, not about the request's shape — so never a
+    // 400/`validation`, which the thin port reads as a retryable blip.
+    const res = await POST(
+      req({ ...auth, ...idem }, { ...validBody, outcome: { status: 'revisit' } }),
+      noRoute,
+    )
+    expect(res.status).toBe(422)
+    expect((await res.json()).error.code).toBe('not_returning')
     expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 

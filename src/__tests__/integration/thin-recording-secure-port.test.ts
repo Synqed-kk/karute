@@ -772,10 +772,17 @@ describe('enqueueJobFromSession — the phone’s save-from-server door', () => 
     ['store_forbidden', 403, 'forbidden'],
     ['tenant_forbidden', 403, 'forbidden'],
     ['not_found', 404, 'not_found'],
+    // ⚖ TWO MORE TERMINAL FACTS, BY NAME (fix round 6, R3). The facade used to
+    // fold `no_audio` into the same 404 as "no such session" and re-code
+    // `not_returning` as `validation` — which lands on `upstream` here, i.e. a
+    // fact about the CUSTOMER shown to the phone as a retryable blip.
+    ['no_audio', 404, 'no_audio'],
+    ['not_returning', 422, 'not_returning'],
     // 409 — the one arm whose whole point is that it is TERMINAL: a staff
     // member threw this recording away and wrote why. Tapping again cannot
     // change that, so it must never be mapped onto a retryable code.
     ['conflict', 409, 'discarded'],
+    // …and a malformed REQUEST is still just a request failure.
     ['validation', 400, 'upstream'],
     ['upstream_unavailable', 502, 'upstream'],
   ])('a %s refusal comes back SETTLED as %s → %s', async (code, status, mapped) => {

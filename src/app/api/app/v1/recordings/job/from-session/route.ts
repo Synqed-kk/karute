@@ -117,11 +117,20 @@ export const POST = facadeHandler('recordings.job.enqueueFromSession', async (ct
     if (result.error === 'discarded') {
       throw new AppApiError('conflict', 'that recording was discarded by a staff member')
     }
+    // THE SHARED BODY'S VOCABULARY CROSSES THE WIRE BY NAME (fix round 6, R3 —
+    // Greptile P2). The web action returns the body's own codes untouched, so a
+    // facade that re-coded them made the two transports disagree about what
+    // happened: `no_audio` arrived as `not_found`, and `not_returning` — a
+    // settled fact about the CUSTOMER — arrived as `validation`, which the thin
+    // port reads as `upstream`, a retryable blip. A `detail.reason` cannot fix
+    // it: the thin port drops `detail` on every arm and branches on
+    // `error.code` alone, so a reason in the body never reaches the phone. A
+    // code does.
     if (result.error === 'no_audio') {
-      throw new AppApiError('not_found', 'the server does not hold this recording’s audio')
+      throw new AppApiError('no_audio', 'the server does not hold this recording’s audio')
     }
     if (result.error === 'not_returning') {
-      throw new AppApiError('validation', 'revisit requires a returning customer')
+      throw new AppApiError('not_returning', 'revisit requires a returning customer')
     }
     throw new AppApiError('upstream_unavailable', 'failed to enqueue the recording job')
   }

@@ -321,12 +321,14 @@ export interface RecordingPipelinePort {
    *
    * NEVER throws on a refusal. The shared body's closed union is
    * `forbidden` / `not_found` / `discarded` / `no_audio` / `not_returning` /
-   * `upstream`, and the two arms agree on the TYPE but not on every value: the
-   * web arm returns the body's answer verbatim, while the thin arm collapses
-   * what the facade tells it (403 → forbidden, 409 → discarded, 404 →
-   * not_found for both "no such session" and "no audio", everything else →
-   * upstream) — deliberately, with its own comment saying why. `not_returning`
-   * is unreachable from either arm today: no caller sends an `outcome`.
+   * `upstream`, and since fix round 6 BOTH arms answer every member of it by
+   * name: the web arm returns the body's answer verbatim, and the facade now
+   * sends the body's own vocabulary on the wire (403 → forbidden, 409 →
+   * discarded, 404 → not_found, 404 no_audio → no_audio, 422 → not_returning),
+   * which the thin arm maps straight back. Only an unnamed non-2xx is
+   * `upstream`, the retryable arm. `not_returning` is unreachable from either
+   * arm today: no caller sends an `outcome` — the device door's twin does
+   * reach it (R6).
    */
   enqueueJobFromSession(input: EnqueueFromSessionInput): Promise<EnqueueFromSessionResult>
   /**
