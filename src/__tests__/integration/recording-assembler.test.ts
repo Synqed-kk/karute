@@ -672,8 +672,8 @@ describe('the walk', () => {
 })
 
 describe('the age gate — the newest segment is the last sign of the device', () => {
-  it('47 h old is YOUNG: the device may still come back for it', async () => {
-    seed({ seqs: [0], createdAt: new Date(NOW - 47 * 60 * 60 * 1000).toISOString() })
+  it('one hour younger than the threshold is YOUNG: the device may still come back for it', async () => {
+    seed({ seqs: [0], createdAt: new Date(NOW - ASSEMBLE_AFTER_MS + 60 * 60 * 1000).toISOString() })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.young).toBe(1)
     expect(uploads).toHaveLength(0)
@@ -692,10 +692,7 @@ describe('the age gate — the newest segment is the last sign of the device', (
   it('an old FIRST segment does not age a take whose LAST segment is minutes old', async () => {
     seed({
       seqs: [0, 1],
-      createdAts: [
-        new Date(NOW - 10 * 24 * 60 * 60 * 1000).toISOString(),
-        new Date(NOW - 60 * 60 * 1000).toISOString(),
-      ],
+      createdAts: [OLD, new Date(NOW - 60 * 1000).toISOString()],
     })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.young).toBe(1)
