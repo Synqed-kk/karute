@@ -497,9 +497,9 @@ export const viteRecordingPort: RecordingPipelinePort = {
       | null
     if (!res.ok || !body || !('url' in body) || typeof body.url !== 'string') {
       // The facade names its refusal in `error.code` (forbidden / not_found /
-      // validation / upstream_unavailable). `mint_<status>` is the fallback for
-      // a non-2xx that named nothing — a proxy page, an auth blip — so the card
-      // still has something honest to log.
+      // no_audio / validation / upstream_unavailable). `mint_<status>` is the
+      // fallback for a non-2xx that named nothing — a proxy page, an auth
+      // blip — so the card still has something honest to log.
       const code = (body as { error?: { code?: string } } | null)?.error?.code
       return { error: typeof code === 'string' ? code : `mint_${res.status}` }
     }
