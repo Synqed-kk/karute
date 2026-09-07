@@ -24,6 +24,8 @@ import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { isOwnAudioKey } from '@/lib/recording/key-grammar'
+import { readStaffDiscard } from '@/lib/recording/staff-discard'
+import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -55,6 +57,38 @@ function coreClient(businessId: string): SynqedClient {
   const apiKey = process.env.SYNQED_CORE_API_KEY
   if (!baseUrl || !apiKey) throw new Error('SYNQED core env missing')
   return new SynqedClient({ baseUrl, apiKey, businessId })
+}
+
+/** ⚖ A DELIBERATE DISCARD OUTRANKS THE JOB (fix round 6, R1 — Greptile P1 on #851).
+ *  The doors ask the ledger before they queue; nothing asked it again between
+ *  the queue and the write, so a STAFF discard landing in that window still
+ *  produced a karute. The read is the shared one (staff-discard.ts); here a
+ *  'discarded' verdict ends the job with a named reason, 'unreadable' and a
+ *  throw fail it too — "could not check" is never "not discarded" — and
+ *  core's requeue asks again.
+ *  ⚖ THIS REFUSAL IS DETERMINISTIC AND STILL REQUEUED, on purpose: core's
+ *  fail() has no terminal flag (recordingJobs.fail(id, error) is the whole
+ *  verb), so a discarded take is re-asked up to max_attempts times. Each
+ *  retry costs ONE ledger read and nothing else, because check #1 runs before
+ *  any yen is spent — that is the accepted cost, and it is why the early check
+ *  exists (the REVISIT_NOT_ELIGIBLE comment below describes the expensive
+ *  version of this class). A ledger BLIP now also costs an attempt; same class
+ *  as the consent read beside it, and after fix round 6 R2 the row keeps its
+ *  再試行 even inside the grace.
+ *  THIS REFUSAL IS NOT AUDITED: the discard's own recording.discard row is the
+ *  receipt, and the job row carries the last_error. A new audit action is a
+ *  core-shaped decision, not this round's.
+ *  THE DISCARD IS THE ONE FENCE THE WORKER RE-ASKS. Ownership and the store
+ *  reach are settled at enqueue by the twins' own rule (attribution-at-enqueue;
+ *  revocation is covered at the door) — a discard is different because it is a
+ *  human decision that can land AFTER the queue and must still win.
+ *  WHAT THE STAFFER SEES: 録音履歴 folds a discarded session to 破棄済み FIRST
+ *  (inbox.ts:340-347), ahead of any job state; the device pipeline shows the
+ *  terminal 'discarded' card (fix round 6, R7) and offers no retry. */
+async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
+  const verdict = await readStaffDiscard(synqed, recordingSessionId)
+  if (verdict === 'unreadable') throw new Error('discard ledger row unreadable — refusing to write')
+  if (verdict === 'discarded') throw new Error(DISCARDED_BY_STAFF)
 }
 
 /** Process one claimed job end-to-end. Throws on failure — the caller reports
@@ -94,7 +128,11 @@ async function processJob(job: RecordingJob): Promise<string> {
     throw new Error('audio_path does not belong to this job’s business')
   }
 
-  // Consent gate FIRST — fail closed before spending a yen on transcription.
+  // Discard check #1 — ahead of consent and before a yen is spent: a requeued
+  // job for a discarded take costs one ledger read.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
+
+  // Consent gate — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
@@ -165,6 +203,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     runKaruteExtraction(common),
     runKaruteSummary(common),
   ])
+
+  // Discard check #2 — the LAST read before the write; a discard that landed
+  // during transcription ends here, with no karute.
+  await assertNotDiscardedByStaff(synqed, job.recording_session_id)
 
   // 4. ONE short write — the same idempotent by-recording-session upsert the
   // interactive path uses (core #38): a reclaimed/retried job converges on the

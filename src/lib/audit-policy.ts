@@ -520,7 +520,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'recordingJobs.enqueue',
     symbols: ['enqueueFromSessionWithClient'],
     justification:
-      "Build 23 slice ③ — the shared body BOTH new doors run (the web action enqueueRecordingJobFromSession and POST /api/app/v1/recordings/job/from-session). Identical reasoning to the src/actions/recording-jobs.ts entry above and to FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: this call routes EXCLUSIVELY into the job worker (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES), which is where the recording actually becomes a karute and emits karute.save. The enqueue step stages no auditable outcome of its own, and a row here would double-log every save the worker performs. Nothing else in this symbol writes: the only other SDK call is recordings.get, a read.",
+      "Build 23 slice ③ — the shared body BOTH new doors run (the web action enqueueRecordingJobFromSession and POST /api/app/v1/recordings/job/from-session). Identical reasoning to the src/actions/recording-jobs.ts entry above and to FACADE_AUDIT_MAP['recordings.job.enqueueFromSession']'s skip row: this call routes EXCLUSIVELY into the job worker (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES), which is where the recording actually becomes a karute and emits karute.save. The enqueue step stages no auditable outcome of its own, and a row here would double-log every save the worker performs. Nothing else in this symbol writes: every other SDK call is a read (recordings.get, the shared discard-ledger read, and the revisit guard's customer/pack/record lookups).",
     dated: '2026-09-06',
   },
   {

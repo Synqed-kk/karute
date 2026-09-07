@@ -33,6 +33,7 @@ import type { Recording, SynqedClient } from '@synqed-kk/client'
 import { assertRecorderOwnsRow, statusOf } from '@/lib/recording/take-binding'
 import { parseRecordingKey } from '@/lib/recording/key-grammar'
 import { resolveTakeAudio } from '@/lib/recording/take-audio'
+import { readStaffDiscard } from '@/lib/recording/staff-discard'
 import { isReturningCustomerServerSide } from '@/lib/karute/revisit-guard'
 import type { FinalizeTakeActor } from '@/lib/recording/finalize-take'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
@@ -148,43 +149,23 @@ export async function enqueueFromSessionWithClient(
   //
   // A THROW REFUSES. "We could not check" is never "not discarded" here.
   //
-  // ⚖ AND THE FENCE CHECKS, IT NEVER COUNTS (fix round 2, R1). The rows that
-  // come back are re-read in code, for the reason recording-discard-transcript
-  // .ts's `hasStaffDiscard` states in its own docblock about this same call: a
-  // fence does not trust the query filter it asked for. If core ever stopped
-  // honouring `recording_session_id` — a rename on an SDK bump, a proxy that
-  // strips an unknown param — a bare count would turn ONE reasoned discard
-  // anywhere in the business into a 409 on EVERY server save in that salon,
-  // silently and green, because a fake that implements the filter cannot see
-  // it. That count refused too much; it never wrote anything unlawful.
+  // ⚖ AND THE FENCE CHECKS, IT NEVER COUNTS (fix round 2, R1). The read lives
+  // in staff-discard.ts; this door maps its verdicts to a human-facing refusal.
   //
   // ⚖ AND THE CHECK'S POLARITY IS THE OPPOSITE OF ITS SIBLING'S, SO IT NEEDS
   // ITS OWN GUARD (fix round 3, R1). `hasStaffDiscard` next door requires a
-  // discard to EXIST before it writes, so a field core stopped sending makes
-  // that door refuse. This one requires a discard to be ABSENT before it
-  // saves, so the SAME missing field would let the save through — over a
-  // recording a staff member threw away with a written reason, which is the
-  // one outcome this fence exists to prevent. A row whose
-  // `recording_session_id` or `source` is not a string is not an answer about
-  // anything, so it takes the `upstream` exit the throw arm takes and the
-  // staffer can tap again: "we could not read it" is never "not discarded"
-  // either. It cannot fire while the SDK's shape holds (RecordingDiscardEvent
-  // has both fields required today), which is what makes it cheap to keep.
+  // discard to EXIST before it writes; this one requires one to be ABSENT, so
+  // an 'unreadable' verdict takes the `upstream` exit the throw arm takes and
+  // the staffer can tap again — the read lives in staff-discard.ts, and this
+  // door only decides what each verdict means to a human.
+  //
+  // The worker asks the same question twice more (process-recording.ts, fix
+  // round 6): a discard that lands after this read and before the karute is
+  // written still ends in no karute.
   try {
-    const discards = await synqed.recordingDiscards.list({
-      recording_session_id: input.recordingSessionId,
-      source: 'STAFF',
-      page_size: 1,
-    })
-    const events = discards?.events ?? []
-    const unreadable = events.some(
-      (e) => typeof e?.recording_session_id !== 'string' || typeof e?.source !== 'string',
-    )
-    if (unreadable) return { error: 'upstream' }
-    const hit = events.some(
-      (e) => e?.source === 'STAFF' && e.recording_session_id === input.recordingSessionId,
-    )
-    if (hit) return { error: 'discarded' }
+    const verdict = await readStaffDiscard(synqed, input.recordingSessionId)
+    if (verdict === 'unreadable') return { error: 'upstream' }
+    if (verdict === 'discarded') return { error: 'discarded' }
   } catch (err) {
     console.warn('[enqueueFromSession] discard ledger unreadable:', err)
     return { error: 'upstream' }
