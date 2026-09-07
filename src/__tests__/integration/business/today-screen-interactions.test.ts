@@ -13748,6 +13748,95 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       .toEqual({ rest: [0, 0, 5, 127], askCost: [0, 0, 0, 162], worse: false, delta: { dead: 0, salvage: 35, lostMenus: [] } })
   })
 
+  it('P21 — two menus newly out of reach: the sentence names the LONGEST of them', () => {
+    // ⚖ FIX 1 §E (LENS-2 §F3). The code's own rule is 「it names the longest of what
+    // newly stopped fitting」, and at the tip flipping that sort survived the whole
+    // 2,200-test battery: P7 pins ONE newly-lost menu, where a sort direction is
+    // invisible, and P7b has two but prints the dead line over them. This is the scene
+    // where the menu line really is printed with more than one entry
+    // (`BLIND-RESIDUE-d742915dc/lens2-runs/probe/RUN-4-clean.txt` E1).
+    //
+    // Menus 30/45/60分, スキマ枠 OFF, pocket 10:00–12:30 (150分), a 100分 card.
+    // Committed at 10:00 the residues are 0/50, so only 60分 is out of reach; asked at
+    // 10:25 they are 25/25 and 30分 AND 45分 go too — with the dead minutes IDENTICAL at
+    // 50 on both sides, so nothing outranks the menu term. Both legs also print the
+    // identical R-REP label 「M60」: same code, same label, worse key.
+    const G = {
+      services: [{ name: 'M30', dur: 30 }, { name: 'M45', dur: 45 }, { name: 'M60', dur: 60 }],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const E1 = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 100, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 750, 810), card('C1', 625, 725)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const engine = createGapGuard(G)
+    const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
+    expect([pocket.s, pocket.e]).toEqual([600, 750])
+    const rest = engine.evaluate(pocket, { start: 600, dur: 100 }, {})
+    const ask = engine.evaluate(pocket, { start: 625, dur: 100 }, {})
+    expect([[...rest.cost], [...rest.lossSet], rest.reason!.params.label]).toEqual([[0, 1, 50, 0], [60], 'M60'])
+    expect([[...ask.cost], [...ask.lossSet], ask.reason!.params.label]).toEqual([[0, 3, 50, 0], [30, 45, 60], 'M60'])
+    expect(residueVerdict(engine, pocket, { start: 600, dur: 100 }, { start: 625, dur: 100 }, {}, true))
+      .toEqual({ rest: [0, 1, 50, 0], askCost: [0, 3, 50, 0], worse: true, delta: { dead: 0, salvage: 0, lostMenus: [30, 45] } })
+    const cell = guardVerdictAt(board, 'p-01', 625, E1({ resting: on('p-01', 600, 100) }))!
+    // 45 is the longest of what NEWLY stopped fitting — not 30 (the shortest) and not
+    // 60 (the longest of the whole loss set, which `repLabel` would have named)
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:25', 'ここに置くと〈M45〉が入らなくなります'])
+    expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['M30', 'M45'] })
+    expect(cell.sentence).not.toContain('M30')
+    expect(cell.sentence).not.toContain('M60')
+    // …and today's line, on the same board with no baseline, names the longest of the
+    // whole set instead — the absolute the axis replaces
+    expect(guardVerdictAt(board, 'p-01', 625, E1())!.sentence).toBe('ここに置くとM60が入らなくなります')
+  })
+
+  it('P22 — both legs are asked in the SAME frame, on a board whose two doors disagree', () => {
+    // ⚖ FIX 1 §E (LENS-2 §F3b). P14/P15 pins the rail's hoist ctx as a STRING; this is
+    // the property underneath it, measured on P18's board — the one place in this suite
+    // where the REAL door and the LIFTED door really do give different answers.
+    const G = {
+      services: [{ name: 'M45', dur: 45 }, { name: 'M90', dur: 90 }],
+      newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const REAL = new Set([600, 610, 620, 640, 655, 665, 700, 730, 735, 740, 745, 755, 765, 775, 805, 835, 850, 860, 865, 870, 895, 905, 915, 920, 925, 940, 950, 955, 960, 970, 975, 990, 1025, 1030, 1055, 1080])
+    const LIFTED = new Set([610, 640, 700, 740, 745, 860, 865, 895, 905, 920, 950, 955, 975, 1055, 1080])
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(690, 720, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 700, 760), brk], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const engine = createGapGuard(G)
+    const pockets = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') })
+    const pocket = pockets.find((p) => p.s === 600)!
+    const realCtx = { protectedWindowFeasible: (st: number) => !REAL.has(st) }
+    const liftedCtx = { protectedWindowFeasible: (st: number) => !LIFTED.has(st) }
+    const rest = { start: 630, dur: 30 }
+    // the rest leg really is a different answer in the other frame — so which frame the
+    // rail hands the hoist is not a stylistic question
+    const same = restResidueOn(engine, pockets, rest, realCtx, true)!
+    const cross = restResidueOn(engine, pockets, rest, liftedCtx, true)!
+    expect([...same.cost]).toEqual([0, 1, 60, 0])
+    expect([...cross.cost]).toEqual([1, 1, 60, 0])
+    let asks = 0
+    let restDiffers = 0
+    for (let start = pocket.s; start + 30 <= pocket.e; start += 5) {
+      const a = residueVerdict(engine, pocket, rest, { start, dur: 30 }, realCtx, true)!
+      // the hoisted answer IS the one this call computes for itself…
+      expect(residueVerdict(engine, pocket, rest, { start, dur: 30 }, realCtx, true, same)).toEqual(a)
+      // …and the OTHER frame's answer changes what the verdict PUBLISHES…
+      const b = residueVerdict(engine, pocket, rest, { start, dur: 30 }, realCtx, true, cross)!
+      asks += 1
+      if (JSON.stringify(a.rest) !== JSON.stringify(b.rest)) restDiffers += 1
+      // …while never moving the verdict itself. ponytail — that is a PROPERTY, not
+      // luck: `candidateKey` builds terms 1..3 (menus, dead, salvage) out of the pocket
+      // geometry alone, a door can only touch term 0, and the compare skips term 0; the
+      // strip takes `now` — the only other ctx input — off both legs (gap-guard
+      // :227-250, LENS-1 §E8a's 116 placements × 6 frames). So the CEILING of this pin
+      // is the published vector: at cell level the rail's hoist argument is
+      // behaviourally invisible, and P14/P15's string stays its only killer.
+      expect([b.worse, b.delta]).toEqual([a.worse, a.delta])
+    }
+    expect([asks, restDiffers]).toEqual([13, 13])
+  })
+
   it('P14/P15 — the four lines are spelled ONCE, no TOTAL rides this axis, and the rest leg is hoisted once per rail', () => {
     const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     const CODE = codeOnly(INT)
