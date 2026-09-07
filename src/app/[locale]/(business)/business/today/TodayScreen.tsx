@@ -1821,8 +1821,11 @@ export function TodayScreen(props: TodayProps) {
    *
    *  ⚖ THE ONE-DOOR INVARIANT MIGRATES WITH THE DECISION, as it did at E3a: this is
    *  the second walk through `bedViewsFor`'s door on this screen and it is NAMED
-   *  here. No id, or a board holding no such card, has no lifted world → `undefined`,
-   *  which is today's behaviour everywhere.
+   *  here. `bedViewsFor` builds a lifted world for any id it is handed — a board that
+   *  holds no such card simply yields a world identical to the un-lifted one — so the
+   *  only road to `undefined` is NO id at all (`worldMinusHand === null`), which is
+   *  today's behaviour everywhere. Corrected at DELTA-NUDGE-5fab5076b/ADJUDICATION.md
+   *  #3; the line under it never behaved the way the sentence described.
    *
    *  ponytail — the frame's own book already holds the lifted world when the mover IS
    *  the live hand; the confirm surface's card is not, so its world is built here and

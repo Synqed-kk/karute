@@ -17,6 +17,7 @@ import {
   deriveSellableCells,
   freePockets,
   type GapCell,
+  type GuardPocketSpan,
   type GapPackingInput,
   type SellBand,
   type SellCell,
@@ -24,7 +25,7 @@ import {
   type SellResourceLane,
   type SellStaffLane,
 } from '@/business/lib/canon-logic/availability'
-import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason } from '@/business/lib/canon-logic/gap-guard'
+import { createGapGuard, type GuardConfig, type GuardContext, type GuardPlacement, type GuardReason, type GuardResult, type GuardService } from '@/business/lib/canon-logic/gap-guard'
 import { gapFillPrice, gapFillRawTotal, money, packedPrice, priceAt, priceLabel, SELL_SLOT_MIN, type PriceFrame } from '@/business/lib/canon-logic/pricing'
 import {
   computeChecks,
@@ -1618,6 +1619,28 @@ export interface RailCell {
     windowsBefore: number[]
     windowsAfter: number[]
   }
+  /** ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS'S OWN VERDICT AND DIFFERENCE.
+   *
+   *  Present exactly on the cells `residueVerdict` decided: a MOVE refused on the
+   *  leftover-space axis, measured against the store's committed day. Its presence is
+   *  what says 「this cell was weighed on the gap axis」 to a surface that must not
+   *  parse sentences back into numbers (⚖ 54's disease — same law as `impact` above).
+   *
+   *  THE FACE IS `gapIsQuiet`, NOT `worse` ALONE. `worse` is canon's lexicographic
+   *  ranking (`residueVerdict`'s own answer); the card goes quiet only when `worse` is
+   *  false AND `dead` is 0 AND `lostMenus` is empty (FIX 1 §A — new dead minutes and a
+   *  newly lost menu are always said, whatever a higher term did). A surface that
+   *  wants the verdict reads the fields the way `gapIsQuiet` does; `worse` alone
+   *  disagrees with the face on 108 of 3,144 swept rows (DELTA-RESIDUE L1 §F2). The
+   *  three numbers are the FLOORED difference and cannot reproduce the ranking by
+   *  themselves: a quiet move can carry a non-zero one (なぎ 14:05→14:00 is
+   *  `{worse: false, salvage: 5}` — the dead term improved and canon ranks it above
+   *  salvage), and two cells whose numbers are byte-identical can hold opposite
+   *  `worse` (LENS-1 §F1's three colliding shapes, LENS-3 §R-6).
+   *  Absent everywhere else, including at rest and in strict mode.
+   *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
+   *  surfaces' data, published with the axis rather than bolted on after it. */
+  gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
 }
 
 export interface GuardRail {
@@ -1709,8 +1732,8 @@ export function reasonLine(reason: GuardReason | undefined, protectedDur: number
   const p = reason.params as Record<string, number | string>
   switch (reason.code) {
     case 'R-REP': return `ここに置くと${windows ? `${windows}の` : ''}${p.label}が入らなくなります`
-    case 'R-DEAD': return `ここに置くと${p.n}分の売れない空きが残ります`
-    case 'R-SALV': return `ここに置くと${p.n}分の割引でしか売れない空きが残ります`
+    case 'R-DEAD': return `ここに置くと売れない空きが${p.n}分残ります`
+    case 'R-SALV': return `ここに置くと割引でしか売れない空きが${p.n}分残ります`
     case 'R-UNAVAILABLE': return `この開始には既存${p.dur}分を配置できません`
     case 'EXEMPT': return `端は${wallJa(String(p.wallType ?? ''), p.trigger === 'wall')}に接するため空きになりません`
     /** ⚖ Liam 8/30 (flag 90) — THIS BRANCH IS UNREACHABLE FROM THE BOARD, which
@@ -1944,8 +1967,10 @@ export function guardRailsFor(lanes: BoardLane[], input: RailInput): GuardRail[]
     const ctx = railCtx(lane, input)
     const resting = restingOn(lane, input)
     const beforeCtx = beforeCtxFor(lane, input, ctx)
+    // ⚖ perf — the gap axis's rest leg, once for the whole rail (see `restResidueOn`).
+    const restGap = restResidueOn(engine, pockets, resting, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS)
     for (let start = input.open; start < input.close; start += input.stepMin) {
-      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx))
+      cells.push(railCell(engine, pockets, start, input, ctx, resting, beforeCtx, restGap))
     }
     rails.push({ laneKey: lane.key, laneLabel: lane.label, cells })
   }
@@ -1968,6 +1993,206 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
   return railCell(createGapGuard(input.guard), pockets, start, input, ctx, restingOn(lane, input), beforeCtxFor(lane, input, ctx))
 }
 
+/** ⚖ Liam 2026-09-07 (MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md) — THE SLIVER POLICY.
+ *
+ *  For the COMPARISON only, a residue against a wall or inside the lead time counts
+ *  as real minutes on BOTH sides. The comparison blames nobody; it measures the day.
+ *  なぎ's own 14:05→14:00 is the scene it decides: the five minutes 14:00–14:05 are a
+ *  wall sliver where she stands (exempt, uncounted by canon) and join the 127-minute
+ *  discount gap at the ask. Counted on both sides the move reads dead 5→0 / salvage
+ *  127→132 — lexicographically BETTER, so the board goes quiet. Counted canon's own
+ *  way it is five more discount-only minutes and the board says so, softly. Liam read
+ *  the footnote on the mock and let the default stand. Ruling, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md row 8 */
+export const RESIDUE_COMPARE_STRIPS_EXEMPTIONS = true
+
+/** The four gap-axis lines, each spelled once (JP-NATIVE-NUDGE-RESIDUE-2026-09-07/
+ *  FINAL.md §AMENDMENT 2, verbatim — the system register; ⚖ Liam 9/7 16:1x picked the
+ *  quiet line himself and its comma is part of the string). One vocabulary for one
+ *  fact: 売れない空き and 割引でしか売れない空き are the words `reasonLine` already
+ *  uses for the rows with no baseline (LENS-3 §R-3), and the menu wears 「」, the only
+ *  quote mark this surface uses (§R-4). The difference SAYS 増えます and the absolute
+ *  SAYS 残ります — that is the whole difference in shape, and no total is ever printed
+ *  on this axis. */
+const QUIET_GAP_LINE = 'ここに置いても、売れない空きは増えません'
+const SALVAGE_GAP_LINE = (n: number) => `ここに置くと割引でしか売れない空きが${n}分増えます`
+const DEAD_GAP_LINE = (n: number) => `ここに置くと売れない空きが${n}分増えます`
+const LOST_MENU_LINE = (name: string) => `ここに置くと「${name}」が入らなくなります`
+
+export interface ResidueVerdict {
+  /** the committed span's own cost vector, as `evaluate` published it */
+  rest: readonly number[]
+  askCost: readonly number[]
+  worse: boolean
+  delta: { dead: number; salvage: number; lostMenus: number[] }
+}
+
+/** The committed span's own answer — the only two fields the comparison reads. */
+export type RestResidue = Pick<GuardResult, 'cost' | 'lossSet'>
+
+/** The pocket and the ctx the comparison is made in, spelled ONCE so both legs are
+ *  asked the same question. `strip` = the sliver policy: the wall flags go to
+ *  `WallType`'s no-wall value on a SHALLOW COPY (`availability.ts` is frozen and
+ *  nothing here edits it) and `now` leaves the ctx, so a wall or lead-time sliver
+ *  counts as real minutes on BOTH sides. */
+const comparisonFrame = (pocket: GuardPocketSpan, ctx: GuardContext, strip: boolean) =>
+  strip
+    ? { p: { ...pocket, walls: { left: null, right: null } }, c: { ...ctx, now: undefined } }
+    : { p: pocket, c: ctx }
+
+/** ⚖ perf (LENS-2 §B-14) — THE REST LEG, HOISTED. The committed span's answer is the
+ *  same for every cell of one rail (one span, one pocket, one ctx), and a second
+ *  `evaluate` per cell costs +142% of a rail build against +7.9% hoisted. So the rail
+ *  computes it once and hands it down; `guardVerdictAt`'s single cell computes its own
+ *  inside `residueVerdict` and pays nothing for the difference.
+ *
+ *  It answers on the pocket that CONTAINS the committed span, which is the only pocket
+ *  `residueVerdict` will accept it for — the containment test there is what makes the
+ *  hand-off safe (D2: a straddling or cross-pocket origin has no baseline at all).
+ *  LENS-2 §F5 proved that claim rather than asserting it: over 606 spans against three
+ *  disjoint pockets a looser overlap find disagrees 347 times and the strict gate
+ *  accepts none of them.
+ *
+ *  ponytail — WHICH CTX THIS IS HANDED IS LOAD-BEARING, and the pin on it is a string
+ *  (P14/P15), by a ceiling rather than an oversight: the rest leg built in the
+ *  lifted-door ctx publishes a different `rest` vector (P22 measures it, 13 of 13 asks),
+ *  but a door can only move `key[0]` and the compare reads terms 1..3, so the CELL's
+ *  answer provably cannot change. The string is what guards the frame. */
+export function restResidueOn(
+  engine: ReturnType<typeof createGapGuard>,
+  pockets: ReturnType<typeof freePockets>,
+  resting: GuardPlacement | null,
+  ctx: GuardContext,
+  strip: boolean,
+): RestResidue | null {
+  if (resting === null) return null
+  const pocket = pockets.find((p) => resting.start >= p.s && resting.start + resting.dur <= p.e)
+  if (pocket === undefined) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const r = engine.evaluate(p, resting, c)
+  return { cost: r.cost, lossSet: r.lossSet }
+}
+
+/** ⚖ NUDGE-RESIDUE — THE GAP AXIS OF A MOVE: is the space this card leaves behind
+ *  worse than the space the store is already living with?
+ *
+ *  Canon answers a different question, and answers it correctly: 「is this a good
+ *  place for a NEW card」 — the ask's residue against the BEST start in the pocket,
+ *  which is built with the moving card LIFTED. For a move that is the wrong
+ *  question, and it refuses the identity move: なぎ standing exactly where the store
+ *  put her reads 「ここに置くと割引でしか売れない空きが127分残ります」. So the seam
+ *  asks canon TWICE — the committed span and the ask, the SAME pocket, the SAME ctx —
+ *  and compares the two answers. Canon classifies, the seam accumulates: the same
+ *  split `laneWindowsWith` already makes one axis over (R2 ruling 2).
+ *
+ *  The order is canon's own lexicographic compare (gap-guard :263-269) over the
+ *  RESIDUE sub-vector [repertoireLossCount, deadResidueMin, salvageResidueMin],
+ *  re-spelled here rather than imported — `compareKeys` is module-private, and a term
+ *  ORDER is a constant, not the dial-dependent behaviour a seam may never duplicate.
+ *  Set containment rides beside the count (LENS-1 §F6: the count cannot see a SWAP,
+ *  because `repLabel` names only the longest lost duration). ponytail — against
+ *  TODAY's engine that term can never fire on its own: `repertoireLossSet` subtracts a
+ *  downward-closed hostable set from a downward-closed base, so a loss set is always
+ *  the top slice above the longer residue and equal sizes mean equal sets. LENS-2 §F4
+ *  swept 2,608,224 calls and found it firing alone 0 times, which turns the builder's
+ *  「survivor」 into 「equivalent, proved」. It stays because it is the honest question,
+ *  and it is what names the menu below.
+ *
+ *  Rulings and evidence, whole:
+ *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md rows 5-9
+ *
+ *  ponytail: D1 — a row with NO baseline keeps today's absolute total sentence.
+ *  ponytail: D2 — no baseline is the COMMON case, never an edge. `freePockets` floors
+ *    every pocket at `now`, so every card the clock has passed has none; a straddling
+ *    origin has none; a cross-pocket origin has none and may never get one — canon
+ *    :23-26, 「Pockets are never compared against each other」.
+ *  ponytail: D3 — strict mode never reaches here at all; `restingOn` hands `null`.
+ *  ponytail: D4 — a costless move wears △, never ✓: canon still refused the start.
+ *  ponytail: D5 — this `worse` is canon's RANKING, and canon's order can rank a
+ *    regained menu above sixty new dead minutes. `gapIsQuiet` below refuses to be
+ *    silent about dead minutes or a newly lost menu whatever the ranking says; salvage
+ *    growth under a dead decrease is the one trade that stays quiet (LENS-2 §F1). */
+export function residueVerdict(
+  engine: ReturnType<typeof createGapGuard>,
+  pocket: GuardPocketSpan,
+  resting: GuardPlacement | null,
+  ask: GuardPlacement,
+  ctx: GuardContext,
+  strip: boolean,
+  /** `restResidueOn`'s answer, hoisted once per rail. Only ever used AFTER the
+   *  containment test below has proved this pocket is the committed span's own, so it
+   *  can only be the answer this call would compute itself. Absent → computed here. */
+  hoistedRest?: RestResidue | null,
+): ResidueVerdict | null {
+  // The lane and the mode are `restingOn`'s business and are already settled by the
+  // time a placement reaches here; what is left is whether the committed span lives
+  // inside THIS pocket (D2).
+  if (resting === null) return null
+  if (resting.start < pocket.s || resting.start + resting.dur > pocket.e) return null
+  const { p, c } = comparisonFrame(pocket, ctx, strip)
+  const rest = hoistedRest ?? engine.evaluate(p, resting, c)
+  const at = engine.evaluate(p, ask, c)
+  const lostMenus = at.lossSet.filter((d) => !rest.lossSet.includes(d))
+  let cmp = 0
+  for (const i of [1, 2, 3]) {
+    if (at.cost[i] !== rest.cost[i]) { cmp = at.cost[i] - rest.cost[i]; break }
+  }
+  return {
+    rest: rest.cost,
+    askCost: at.cost,
+    worse: cmp > 0 || lostMenus.length > 0,
+    delta: {
+      dead: Math.max(0, at.cost[2] - rest.cost[2]),
+      salvage: Math.max(0, at.cost[3] - rest.cost[3]),
+      lostMenus,
+    },
+  }
+}
+
+/** ⚖ FIX 1 §A (LENS-2 §F1 BLOCKER · LENS-3 §R-1) — WHEN THE QUIET LINE MAY SPEAK.
+ *
+ *  `worse` is canon's lexicographic ranking and stays exactly that. 「Not worse」 is
+ *  not 「nothing got worse for the desk」: canon puts the repertoire term ABOVE dead
+ *  minutes, so a move that regains one menu while creating sixty NEW dead minutes
+ *  ranks not-worse — and the board printed the quiet line over its own
+ *  `gapNote {dead: 60}` (LENS-2: 6,116 of 973,680 measured pairs, 10 of 60 dial sets).
+ *  New dead minutes and a newly lost menu are therefore always SAID, whatever a higher
+ *  term did. Salvage growth under a dead decrease is the one trade that stays quiet,
+ *  and it is the pair of faces Liam signed on the mock: なぎ's 14:05→14:00 (dead 5→0,
+ *  salvage 127→132) and the same card shrunk to 30分 (dead 5→0, salvage 127→162). */
+const gapIsQuiet = (rv: ResidueVerdict): boolean =>
+  !rv.worse && rv.delta.dead === 0 && rv.delta.lostMenus.length === 0
+
+/** The difference, in the desk's own words. Precedence dead > menus > salvage — the
+ *  worst thing FOR THE DESK leads. That order is the packet's own ruling and NOT
+ *  canon's key order: canon ranks the repertoire term above dead (gap-guard :12), so
+ *  the COMPARE uses canon's order and the SENTENCE does not (LENS-1 §F4). The number
+ *  is the DIFFERENCE and never the total (LENS-3 §4). The menu is named the way
+ *  `repLabel` names it, the longest duration lost, re-spelled here for the reason the
+ *  compare is; a long name is ellipsized by the DISPLAY, never here. */
+function softGapLine(delta: ResidueVerdict['delta'], services: GuardService[]): string {
+  if (delta.dead > 0) return DEAD_GAP_LINE(delta.dead)
+  if (delta.lostMenus.length > 0) {
+    return LOST_MENU_LINE(menuNameOf(delta.lostMenus.slice().sort((a, b) => b - a)[0], services))
+  }
+  // The only term left, and it is reached only when `gapIsQuiet` said no: with dead 0
+  // and no newly lost menu that means `worse`, which this same sub-vector decided, so
+  // the salvage term is what moved.
+  return SALVAGE_GAP_LINE(delta.salvage)
+}
+
+/** canon `repLabel` (gap-guard :320-324), re-spelled for the reason the compare is —
+ *  it is module-private inside the frozen file. One spelling: the sentence names the
+ *  longest NEWLY lost duration through it, and `gapNote` names them all through it.
+ *  `repLabel` names the longest of the whole loss set; on this axis the sentence is
+ *  about the DIFFERENCE, so it names the longest of what newly stopped fitting. P21 is
+ *  the pin that can SEE that rule: it needs a scene where the menu line is printed with
+ *  more than one newly-lost duration, and until FIX 1 the suite had none (LENS-2 §F3 —
+ *  flipping the sort survived the whole battery). Duplicate durations behave as canon's
+ *  `repLabel` does: the first service with that duration wins. */
+const menuNameOf = (dur: number, services: GuardService[]): string =>
+  services.find((s) => s.dur === dur)?.name ?? `${dur}分`
+
 function railCell(
   engine: ReturnType<typeof createGapGuard>,
   pockets: ReturnType<typeof freePockets>,
@@ -1976,6 +2201,7 @@ function railCell(
   ctx: GuardContext,
   resting: GuardPlacement | null = null,
   beforeCtx: GuardContext = ctx,
+  restGap: RestResidue | null = null,
 ): RailCell {
   const blocked = (sentence: string, reason: RailReason): RailCell => ({
     start, state: 'blocked', label: '—', sentence, reason, alternatives: [], alternativeKind: null, ackAllowed: false,
@@ -2034,6 +2260,10 @@ function railCell(
    *  a lane holding nothing (…/nextround/PKT-NUDGE-FIX1.md §F1). */
   const keptSentence = (after: readonly number[], noneAtAll: boolean) => {
     const held = protectedWindowsClause(after, input.protectedDur)
+    // ponytail: the `held === ''` arm is DEAD and stays as insurance —
+    // `protectedWindowsClause` returns '' only for an empty list, which is exactly what
+    // `noneAtAll` already tested on every caller (BREAKER-NUDGE-5fab5076b.md §F4:
+    // mutant E7 is equivalent over 44,226 oracle answers and 18,895 lane shapes).
     return noneAtAll
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
       : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
@@ -2102,7 +2332,16 @@ function railCell(
     // engine (a start that keeps its capacity keeps its windows); it is here so
     // a future engine that reports a count without its starts falls back to the
     // sentence that shipped rather than printing a bare 「の」.
-    const sentence = keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
+    // ⚖ RIDER, DELTA-NUDGE-5fab5076b/ADJUDICATION.md #2 — AND A MOVE IS ASKED ABOUT
+    // THE WHOLE LANE HERE TOO. The two ✗-free move routes below decided on the honest
+    // lane lists while this one kept the ENGINE'S POCKET, so one costless landing could
+    // read 「この区間には…空きはありません」 and another 「17:30〜19:00…守れます」 about
+    // the same lane in the same drag — 「この区間」 carrying two different scopes. Same
+    // caller-names-its-own-lists law as ⚖ FIX 1 §F1. At rest (`resting === null`)
+    // nothing moves: the pocket lists ARE the answer, byte for byte.
+    const sentence = resting === null
+      ? keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
+      : keptSentence(afterStarts, afterStarts.length === 0)
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {
@@ -2144,6 +2383,49 @@ function railCell(
   // 長押し had nothing to gate: △, quiet, un-priced, the engine's safe offers kept.
   if (repCapacity && resting !== null && loss === 0) {
     return degradedFace(keptSentence(afterStarts, afterStarts.length === 0), safeAlternatives, v.alternativeKind === 'safe' ? 'safe' : null)
+  }
+  // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
+  // three residue classes canon can refuse a move on: dead minutes, discount-only
+  // minutes, and a SERVICE that no longer fits (`R-REP` with no `capacityLost` — arm
+  // (c) took the protected-window shape already). No baseline → `rv` is null → the
+  // (d)/(e) fall-through, which is today's behaviour byte for byte.
+  //
+  // ⚖ FIX 1 §D (LENS-1 §F2) — `v.verdict === 'refuse'` is SPELLED. It is a no-op at
+  // this tip (ok, exempt, degraded and R-UNAVAILABLE have all returned above), and an
+  // invariant held by the order of four earlier returns in a 240-line function is not
+  // an invariant this arm should rest on.
+  //
+  // ⚖ FIX 1 §B (LENS-2 §F2 BLOCKER) — and `loss === 0` joins the gate its three
+  // siblings already carry. `degradedFace` fills its impact from the LANE lists, which
+  // on a MOVE are built through two DIFFERENT doors (the lifted one before, the real
+  // one after), so the C1 over-report reached `lossOf` and a row arrived placeable △,
+  // amber, priced 約¥11,370 and behind 長押し while its own sentence said nothing had
+  // changed — three contradictory signals in one cell. A row with a real window loss
+  // now falls through to (d)/(e) and is priced there, exactly as at base.
+  const rv =
+    resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason
+    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
+      ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
+      : null
+  if (rv !== null) {
+    // Quiet (`gapIsQuiet`) → the quiet △ and the gap's own line. Anything else → the
+    // same placeable △ wearing a SOFT note that states the DIFFERENCE: no hard 「—」,
+    // no 長押し, no ¥ — the gate above has already proved the window axis is 0, so
+    // `lossOf` is 0 and `warnFaceFor` keeps the clean face (⚖ 9/1 「zero-loss is
+    // quiet」). Liam's mock, 9/7.
+    return {
+      ...degradedFace(
+        gapIsQuiet(rv) ? QUIET_GAP_LINE : softGapLine(rv.delta, input.guard.services),
+        safeAlternatives,
+        v.alternativeKind === 'safe' ? 'safe' : null,
+      ),
+      gapNote: {
+        worse: rv.worse,
+        dead: rv.delta.dead,
+        salvage: rv.delta.salvage,
+        lostMenus: rv.delta.lostMenus.map((d) => menuNameOf(d, input.guard.services)),
+      },
+    }
   }
   // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
   // every other refusal class keeps the engine's own pocket numbers, untouched.
