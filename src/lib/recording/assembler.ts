@@ -98,8 +98,23 @@ import { newSynqedClient } from '@/lib/synqed/client'
 /** How long the newest segment must be untouched before a take counts as
  *  abandoned. The NEWEST segment is the last moment the device was heard from
  *  — the honest "the device is gone" signal, since no drain window exists
- *  server-side (design D1/W5). */
-export const ASSEMBLE_AFTER_MS = 48 * 60 * 60 * 1000
+ *  server-side (design D1/W5).
+ *
+ *  OPS/PROOF KNOB (⚖ Liam 2026-09-07): the env var ASSEMBLE_AFTER_MS, when it
+ *  parses as a positive finite number of milliseconds, overrides the 48-hour
+ *  default. It exists so a proof can shorten the wait on a test tenant; it is
+ *  set in production only for a proof window and removed after. Unset, blank
+ *  or invalid values (NaN, 0, negative, Infinity) fall back to 48 hours. Read
+ *  once at module load — a change needs a new deployment, like every env var. */
+export const ASSEMBLE_AFTER_DEFAULT_MS = 48 * 60 * 60 * 1000
+
+export function assembleAfterMsFromEnv(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return ASSEMBLE_AFTER_DEFAULT_MS
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : ASSEMBLE_AFTER_DEFAULT_MS
+}
+
+export const ASSEMBLE_AFTER_MS = assembleAfterMsFromEnv(process.env.ASSEMBLE_AFTER_MS)
 
 /** The recorder flushes one segment per TAKE_FLUSH_MS (src/lib/global-recorder
  *  .ts) — pinned equal by recording-assembler.test.ts, because this number is

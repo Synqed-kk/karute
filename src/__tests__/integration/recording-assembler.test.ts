@@ -106,8 +106,10 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import {
+  ASSEMBLE_AFTER_DEFAULT_MS,
   ASSEMBLE_AFTER_MS,
   MAX_TAKES_PER_RUN,
+  assembleAfterMsFromEnv,
   SEGMENT_NOMINAL_MS,
   goldenStartIndex,
   longestPrefix,
@@ -1147,5 +1149,33 @@ describe('the estimate’s own constant', () => {
     const match = /const TAKE_FLUSH_MS = ([\d_]+)/.exec(src)
     expect(match).not.toBeNull()
     expect(Number(match![1].replace(/_/g, ''))).toBe(SEGMENT_NOMINAL_MS)
+  })
+})
+
+describe('the wait before a take counts as abandoned', () => {
+  // Pure-function pins: no env mutation, no isolateModules. The constant itself
+  // is read once at module load, so what is worth pinning is the parsing.
+  it('takes a positive finite number of milliseconds', () => {
+    expect(assembleAfterMsFromEnv('300000')).toBe(300000)
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    expect(assembleAfterMsFromEnv('  300000 ')).toBe(300000)
+  })
+
+  it.each([undefined, '', '   '])('falls back to 48 hours when unset or blank: %p', (raw) => {
+    expect(assembleAfterMsFromEnv(raw)).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+  })
+
+  it.each(['abc', '0', '-5', 'Infinity', 'NaN'])(
+    'falls back to 48 hours on a value that is not a positive number: %p',
+    (raw) => {
+      expect(assembleAfterMsFromEnv(raw)).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+    },
+  )
+
+  it('defaults to 48 hours, and that is what the job runs on in this suite', () => {
+    expect(ASSEMBLE_AFTER_DEFAULT_MS).toBe(48 * 60 * 60 * 1000)
+    expect(ASSEMBLE_AFTER_MS).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
   })
 })
