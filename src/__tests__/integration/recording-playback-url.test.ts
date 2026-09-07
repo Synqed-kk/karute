@@ -611,12 +611,17 @@ describe('GET /api/app/v1/recordings/playback-url — the door', () => {
     expect(res.status).toBe(400)
   })
 
-  it('404 for a missing karute; 404 + reason no_audio when the sound is what is missing', async () => {
+  it('404 for a missing karute; 404 with CODE no_audio when the sound is what is missing', async () => {
     expect((await GET(req('kar-nope'), route)).status).toBe(404)
     ROW.current = { ...ROW.current, audio_storage_path: null }
     const res = await GET(req(KARUTE_ID), route)
     expect(res.status).toBe(404)
-    expect((await res.json()).error).toMatchObject({ reason: 'no_audio' })
+    // ⚖ fix round 6, R5: the code IS the reason. A `detail.reason` never
+    // reached the phone — the thin port drops `detail` and branches on the
+    // code alone — so the two transports disagreed about what was missing.
+    const body = await res.json()
+    expect(body.error.code).toBe('no_audio')
+    expect(body.error).not.toHaveProperty('reason')
   })
 
   it('403 when the take is someone else’s', async () => {
