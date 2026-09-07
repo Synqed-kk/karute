@@ -2207,6 +2207,10 @@ function railCell(
    *  a lane holding nothing (…/nextround/PKT-NUDGE-FIX1.md §F1). */
   const keptSentence = (after: readonly number[], noneAtAll: boolean) => {
     const held = protectedWindowsClause(after, input.protectedDur)
+    // ponytail: the `held === ''` arm is DEAD and stays as insurance —
+    // `protectedWindowsClause` returns '' only for an empty list, which is exactly what
+    // `noneAtAll` already tested on every caller (BREAKER-NUDGE-5fab5076b.md §F4:
+    // mutant E7 is equivalent over 44,226 oracle answers and 18,895 lane shapes).
     return noneAtAll
       ? `配置できます。この区間には現在、守れる新規${input.protectedDur}分の空きはありません`
       : `${held === '' ? '' : `${held}の`}新規${input.protectedDur}分の空きを守れます`
