@@ -2275,7 +2275,16 @@ function railCell(
     // engine (a start that keeps its capacity keeps its windows); it is here so
     // a future engine that reports a count without its starts falls back to the
     // sentence that shipped rather than printing a bare 「の」.
-    const sentence = keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
+    // ⚖ RIDER, DELTA-NUDGE-5fab5076b/ADJUDICATION.md #2 — AND A MOVE IS ASKED ABOUT
+    // THE WHOLE LANE HERE TOO. The two ✗-free move routes below decided on the honest
+    // lane lists while this one kept the ENGINE'S POCKET, so one costless landing could
+    // read 「この区間には…空きはありません」 and another 「17:30〜19:00…守れます」 about
+    // the same lane in the same drag — 「この区間」 carrying two different scopes. Same
+    // caller-names-its-own-lists law as ⚖ FIX 1 §F1. At rest (`resting === null`)
+    // nothing moves: the pocket lists ARE the answer, byte for byte.
+    const sentence = resting === null
+      ? keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)
+      : keptSentence(afterStarts, afterStarts.length === 0)
     return { start, state: 'safe', label: `✓${clockOf(start)}`, sentence, reason: null, alternatives: [], alternativeKind: null, ackAllowed: true }
   }
   if (v.verdict === 'degraded') {

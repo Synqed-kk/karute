@@ -1373,8 +1373,13 @@ describe('the 配置ガイド rail', () => {
     // 「新規90分の空きを守れます」 over a lane holding none. Both call sites are
     // spelled here, so a route that re-crosses the frames reds.
     expect(pinnedLine(INT, "    const held = protectedWindowsClause(after, input.protectedDur)")).toBe(true)
-    expect(pinnedLines(INT, "const sentence = keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)")).toBe(1)
-    expect(INT.match(/keptSentence\(afterStarts, afterStarts\.length === 0\)/g)).toHaveLength(2)
+    // ⚖ PIN-DELTA, RIDER DELTA #2 (NUDGE-RESIDUE 9/7) — the ✓ branch now names the
+    // lane's lists on a MOVE, like the two routes under it, and keeps the engine's
+    // pocket lists at rest. THREE lane-framed calls, one pocket-framed, and the fork
+    // between them spelled on its own line so a route that re-crosses the frames reds.
+    expect(pinnedLine(INT, "const sentence = resting === null")).toBe(true)
+    expect(pinnedLines(INT, "? keptSentence(v.protectedWindowsAfter, v.protectedCapacityBefore === 0)")).toBe(1)
+    expect(INT.match(/keptSentence\(afterStarts, afterStarts\.length === 0\)/g)).toHaveLength(3)
     expect(pinnedLines(INT, "windowsEatenBy(beforeStarts, input.protectedDur, start, input.dur),")).toBe(2)
     expect(pinnedLine(INT, "const atRisk =")).toBe(true)
     // ⚖ 90 fix round 2 (F1) — and only when the placement actually COSTS a
@@ -13211,6 +13216,29 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       ctx: { now: DEMO_NOW, placementFeasible: (s: number, d: number) => door(ln, s, d), protectedWindowFeasible: (s: number, d: number) => held(ln, s, d) },
     }
   }
+
+  it('RIDER DELTA #2 — the ✓ branch speaks of the WHOLE LANE on a move, and of the pocket at rest', () => {
+    // Two pockets (break 13:30–14:00, lane 10:00–18:00). The ✓ branch used to name the
+    // LANDING pocket's survivors while the two move routes beside it named the lane's,
+    // so one drag could print 「この区間には…空きはありません」 on one cell and
+    // 「17:30〜19:00…守れます」 on another about the same lane
+    // (DELTA-NUDGE-5fab5076b/ADJUDICATION.md #2).
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(810, 840, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [brk, card('C1', 920, 980)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const cells = (resting: RailInput['resting']) => guardRailsFor(board, IN({ stepMin: 10, resting }))[0].cells
+    const moved = cells(on('p-01', 600, 60))
+    const rest = cells(null)
+    const safe = moved.filter((c) => c.state === 'safe')
+    expect(safe.map((c) => c.start)).toEqual([840, 930, 1020])
+    // the MOVE names the windows in BOTH pockets…
+    expect(safe[0].sentence).toBe('10:00〜11:30・11:30〜13:00・15:00〜16:30、ほか1件の新規90分の空きを守れます')
+    // …where the pocket frame named only the landing one
+    expect(rest.find((c) => c.start === 840)!.sentence).toBe('15:00〜16:30・16:30〜18:00の新規90分の空きを守れます')
+    // AT REST the whole rail is byte-identical — the at-rest law is untouched
+    expect(rest).toEqual(guardRailsFor(board, IN({ stepMin: 10 }))[0].cells)
+    // …and the lists the sentence names ARE the counts the row carries
+    for (const c of safe) expect(c.reason).toBeNull()
+  })
 
   it('P2 — なぎ 14:05→14:00 on the fixture as it loads: QUIET under the pinned policy, and the soft note under the other', async () => {
     const { lanes, guard, doors } = await demoBoard()
