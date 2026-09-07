@@ -360,6 +360,37 @@ describe('the rows the derivation deliberately never asks about', () => {
     expect(row.serverAudio).toBe('object')
   })
 
+  it('⚖ R2: a FAILED job INSIDE the grace is still probed — the job proved the audio', async () => {
+    // The grace exists for a row that may still be MID-UPLOAD with no job yet.
+    // A job row is proof the upload ENDED: a door proved the audio before it
+    // queued. So a server save that fails inside three hours keeps its 再試行
+    // instead of sitting inert until the grace runs out (Greptile P1 #2).
+    takeAudio.mockResolvedValue(PHONE)
+    recordings.current = [rec({ id: 's1', created_at: iso(30) })]
+    jobProbe.mockResolvedValue({ status: 'FAILED', last_error: 'CONSENT_REQUIRED' })
+    const [row] = await read()
+    expect(row.serverAudio).toBe('object')
+    expect(takeAudio).toHaveBeenCalledTimes(1)
+  })
+
+  it('a FAILED job inside the grace with NO audio at either key and no seq 0 → nothing (an honest 失敗)', async () => {
+    takeAudio.mockResolvedValue('absent')
+    probe.mockResolvedValue(false)
+    recordings.current = [rec({ id: 's1', created_at: iso(30) })]
+    jobProbe.mockResolvedValue({ status: 'FAILED', last_error: 'EMPTY_TRANSCRIPT' })
+    const [row] = await read()
+    expect(row.serverAudio).toBeUndefined()
+  })
+
+  it('a FAILED job inside the grace whose folder holds only segments → serverAudio "segments" (the fold ignores it — the honest cost)', async () => {
+    takeAudio.mockResolvedValue('absent')
+    probe.mockResolvedValue(true)
+    recordings.current = [rec({ id: 's1', created_at: iso(30) })]
+    jobProbe.mockResolvedValue({ status: 'FAILED', last_error: 'EMPTY_TRANSCRIPT' })
+    const [row] = await read()
+    expect(row.serverAudio).toBe('segments')
+  })
+
   it('a session whose job probe FAILED is skipped — we do not know anything yet', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     recordings.current = [rec({ id: 's1' })]

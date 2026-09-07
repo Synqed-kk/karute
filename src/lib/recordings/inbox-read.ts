@@ -455,7 +455,19 @@ export async function readRecordingsInbox({
  *    higher up; a FAILED one is admitted on purpose so a spent row keeps its
  *    one affordance (⚖ R10b — core re-arms a failed job per session);
  *  · the pointer parses as THIS business's take;
- *  · the row is past the unsettled grace, below which it already reads 処理中.
+ *  · the row is past the unsettled grace, below which it already reads 処理中 —
+ *    UNLESS its job already FAILED. The grace guards a row that may still be
+ *    mid-upload with no job yet; a job row is proof a door already proved the
+ *    audio and queued it, so a server save that fails inside the grace keeps
+ *    its 再試行 instead of sitting inert for three hours (fix round 6, R2).
+ *    THE HONEST COST: a young FAILED row whose folder holds only segments
+ *    still reads 失敗 — the fold's FAILED branch reads 'object' alone — so its
+ *    listing was asked for nothing; rare, capped, and cheaper than coupling
+ *    this read to the fold. A RETAKE on the same session (take-store's
+ *    'superseded') moves the row's pointer to the new take: the resolver then
+ *    answers about THAT take, which is the honest audio either way — 'absent'
+ *    while it uploads (nothing offered), 'object' once it lands (再試行 over
+ *    the new take).
  *
  * ⚖ STORAGE IS THE ONLY WITNESS (D8', hardened in fix round 1 R1). There is no
  * duration fast path, because a duration is NOT proof that an object exists:
@@ -521,7 +533,8 @@ async function deriveServerAudio(
     // so the fence and the question can never be about two different takes.
     const parsed = parseRecordingKey(key, businessId)
     if (parsed?.kind !== 'take') continue
-    if (nowMs - Date.parse(row.createdAt) <= SESSION_UNSETTLED_GRACE_MS) continue
+    if (row.jobStatus !== 'FAILED' && nowMs - Date.parse(row.createdAt) <= SESSION_UNSETTLED_GRACE_MS)
+      continue
     candidates.push({ row, key, takeId: parsed.takeId, ext: parsed.ext })
   }
 

@@ -115,6 +115,7 @@ export function resetInbox(): void {
   epoch++
   loading = false
   pendingReload = false
+  inFlight = null
   stopPoll()
   set(EMPTY)
 }
@@ -244,6 +245,7 @@ async function runInbox(): Promise<void> {
       // this one looping. AWAITED since fix round 2 (R2) so `inFlight` — and
       // with it every latch following this fold — spans the trailing re-run
       // too; the mid-flight caller's own write is only visible in THAT one.
+      // ponytail: depth = concurrent callers (mount effects + poll + settle); a cap if a fold ever chains.
       if (pendingReload) {
         pendingReload = false
         await loadInbox()
