@@ -13171,3 +13171,137 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     }
   })
 })
+
+// ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS OF A MOVED CARD IS MEASURED
+// AGAINST THE STORE'S COMMITTED DAY TOO.
+//
+// PR #852 fixed the 新規-window axis. The leftover-space axis kept asking the
+// new-card question, so a nudge that leaves the day no worse — なぎ's own
+// 14:05→14:00, and the IDENTITY move where the card does not move at all —
+// still read 「ここに置くと132分の割引でしか売れない空きが残ります」 behind a hard
+// 「—」. The board now asks canon TWICE, on the same pocket with the same ctx, and
+// says only what CHANGED.
+//
+// Rulings and words, read whole before changing anything below:
+//   …/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md
+//   …/WO2-today/batch14/nextround/JP-NATIVE-NUDGE-RESIDUE-2026-09-07/FINAL.md
+//   …/WO2-today/batch14/nextround/MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md
+//
+// EVERY NUMBER BELOW CAME OUT OF A RUN.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('⚖ NUDGE-RESIDUE — the engine publishes the attempted placement’s own cost', () => {
+  /** ⚖ P1 — canon's ONE additive field, re-derived from the pocket geometry.
+   *
+   *  `cost` and `lossSet` are the `attempted` CandidateInfo canon already had in hand
+   *  at `evaluate`'s result literal; nothing about the verdict changed. The pin
+   *  re-derives them here from gap-guard :243-251's own arithmetic — the duplicate is
+   *  the TEST's, never the product's, which is what keeps it honest (the
+   *  `LATTICE_STEP_MIN` precedent at capacity-ledger.test.ts :1449-1453). A canon-side
+   *  pin is not allowed: `canon-logic.test.ts` is the frozen file's own suite and must
+   *  stay at 66 unchanged, so the field is pinned from the seam side. */
+  const GAP = {
+    services: [{ name: 'ヘッド30', dur: 30 }, { name: '整体60', dur: 60 }, { name: '骨盤90', dur: 90 }],
+    newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 30, leadTimeMin: 0, mode: 'standard' as const,
+  }
+  /** gap-guard's own `fillableExactly` (:123-136), `residueClass` (:170-175) and
+   *  `repertoireLossSet` (:177-185), re-spelled for the derivation. */
+  const derive = (
+    pocket: { s: number; e: number; walls?: { left?: string | null; right?: string | null } },
+    start: number, dur: number, now: number | null,
+    cfg: { services: { name: string; dur: number }[]; newClientSessionMin?: number; protectedDurationMin?: number | null; gapFillMinMin: number; leadTimeMin: number },
+  ) => {
+    const svc = [...new Set(cfg.services.map((s) => s.dur))].sort((a, b) => a - b)
+    const prot = Object.prototype.hasOwnProperty.call(cfg, 'protectedDurationMin') ? cfg.protectedDurationMin : cfg.newClientSessionMin
+    const durations = [...new Set(svc.concat(typeof prot === 'number' ? [prot] : []))].sort((a, b) => a - b)
+    const other = svc.filter((d) => d !== prot)
+    const fillable = (min: number): boolean => {
+      if (min === 0) return true
+      if (min < 0 || min % 5 !== 0 || durations.length === 0) return false
+      const dp = new Array<boolean>(min / 5 + 1).fill(false)
+      dp[0] = true
+      for (let i = 1; i <= min / 5; i += 1) for (const c of durations.map((d) => d / 5)) if (c <= i && dp[i - c]) { dp[i] = true; break }
+      return dp[min / 5]
+    }
+    const cls = (len: number, exempt: boolean) =>
+      len <= 0 || exempt || fillable(len) ? { dead: 0, salvage: 0 }
+        : cfg.gapFillMinMin > 0 && len >= cfg.gapFillMinMin ? { dead: 0, salvage: len } : { dead: len, salvage: 0 }
+    const lenL = start - pocket.s
+    const lenR = pocket.e - (start + dur)
+    const exL = (lenL > 0 && Boolean(pocket.walls?.left)) || (lenL > 0 && now != null && start <= now + cfg.leadTimeMin)
+    const exR = (lenR > 0 && Boolean(pocket.walls?.right)) || (lenR > 0 && now != null && pocket.e <= now + cfg.leadTimeMin)
+    const mL = exL ? 0 : lenL
+    const mR = exR ? 0 : lenR
+    const hostable = (len: number) => other.filter((d) => d <= len)
+    const union = new Set([...hostable(mL), ...hostable(mR)])
+    const lossSet = mL <= 0 && mR <= 0 ? [] : hostable(pocket.e - pocket.s).filter((d) => !union.has(d))
+    const a = cls(lenL, exL)
+    const b = cls(lenR, exR)
+    return { lossSet, residue: [lossSet.length, a.dead + b.dead, a.salvage + b.salvage] }
+  }
+
+  it('P1 — `cost` IS the attempted key and `lossSet` IS the repertoire set, on every verdict class', () => {
+    const engine = createGapGuard(GAP)
+    // The 240-minute pocket the NUDGE-GUARD block uses, walled on neither side, plus a
+    // walled twin and a lead-time twin — the two exemption roads into the same key.
+    const plain = { s: 840, e: 1080, walls: { left: null, right: null } }
+    const walled = { s: 840, e: 1080, walls: { left: 'break', right: 'shiftEnd' } }
+    const tight = { s: 840, e: 900, walls: { left: null, right: null } }
+    const tightWalled = { s: 840, e: 905, walls: { left: null, right: 'closing' } }
+    const tightDead = { s: 840, e: 905, walls: { left: null, right: null } }
+    const scenes: { label: string; pocket: typeof plain; start: number; dur: number; now: number | null }[] = [
+      { label: 'exact fit, zero key', pocket: tight, start: 840, dur: 60, now: null },
+      { label: 'wall sliver, exempt', pocket: tightWalled, start: 840, dur: 60, now: null },
+      { label: 'dead sliver nowhere avoids', pocket: tightDead, start: 845, dur: 60, now: null },
+      { label: 'wall-exempt both sides', pocket: walled, start: 845, dur: 60, now: null },
+      { label: 'lead-time exempt', pocket: plain, start: 845, dur: 60, now: 1080 },
+      { label: 'repertoire loss', pocket: plain, start: 870, dur: 180, now: null },
+    ]
+    const seen: string[] = []
+    for (const s of scenes) {
+      const r = engine.evaluate(s.pocket, { start: s.start, dur: s.dur }, { now: s.now ?? undefined })
+      const d = derive(s.pocket, s.start, s.dur, s.now, GAP)
+      // the three residue terms, re-derived; the first term is canon's own published one
+      expect({ label: s.label, cost: [r.cost[1], r.cost[2], r.cost[3]] }).toEqual({ label: s.label, cost: d.residue })
+      expect({ label: s.label, lossSet: [...r.lossSet] }).toEqual({ label: s.label, lossSet: d.lossSet })
+      expect({ label: s.label, head: r.cost[0] }).toEqual({ label: s.label, head: r.protectedCapacityLoss })
+      expect(r.cost).toHaveLength(4)
+      seen.push(r.verdict)
+    }
+    // …and the six scenes really do cover the classes, so this is not one verdict six times
+    expect([...new Set(seen)].sort()).toEqual(['degraded', 'exempt', 'ok', 'refuse'])
+
+    // R-UNAVAILABLE carries it too: the attempted key is about the PLACEMENT, never the
+    // answer, so an impossible span still publishes what it would have cost.
+    const blocked = engine.evaluate(plain, { start: 845, dur: 60 }, { placementFeasible: () => false })
+    expect(blocked.reason!.code).toBe('R-UNAVAILABLE')
+    expect([...blocked.cost]).toEqual([1, 0, 5, 175])
+    expect(blocked.protectedCapacityLoss).toBe(1)
+    expect([...blocked.lossSet]).toEqual([])
+
+    // the field is a COPY, never canon's own array (a caller that sorted it in place
+    // would be re-ordering the engine's private loss set)
+    const rep = engine.evaluate(plain, { start: 870, dur: 180 }, {})
+    expect(rep.lossSet.length).toBeGreaterThan(0)
+    const first = rep.lossSet[0]
+    ;(rep.lossSet as number[]).push(999)
+    expect(engine.evaluate(plain, { start: 870, dur: 180 }, {}).lossSet[0]).toBe(first)
+    expect(engine.evaluate(plain, { start: 870, dur: 180 }, {}).lossSet).not.toContain(999)
+  })
+
+  it('P1b — the field is ADDITIVE: every other number on the result is what it always was', () => {
+    // The frozen file's own suite (66) proves the verdicts; this proves the shape of
+    // the result did not otherwise move — same keys, plus exactly two.
+    const engine = createGapGuard(GAP)
+    const r = engine.evaluate({ s: 840, e: 1080, walls: { left: null, right: null } }, { start: 845, dur: 60 }, {})
+    expect(Object.keys(r).sort()).toEqual([
+      'alternativeKind', 'alternatives', 'cost', 'lossSet', 'protectedCapacityAfter',
+      'protectedCapacityBefore', 'protectedCapacityLoss', 'protectedWindowsAfter',
+      'protectedWindowsBefore', 'reason', 'verdict',
+    ])
+    // and the comment says out loud that it is the ATTEMPTED key whatever the verdict
+    const engineSrc = readFileSync(join(process.cwd(), 'src/business/lib/canon-logic/gap-guard.ts'), 'utf8')
+    expect(engineSrc).toContain('cost: [attempted.key[0], attempted.key[1], attempted.key[2], attempted.key[3]] as const')
+    expect(engineSrc).toContain('lossSet: attempted.lossSet.slice()')
+    expect(engineSrc).toContain('It is the ATTEMPTED key whatever the verdict')
+  })
+})
