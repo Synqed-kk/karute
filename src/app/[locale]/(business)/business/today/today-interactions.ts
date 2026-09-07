@@ -2043,7 +2043,16 @@ const comparisonFrame = (pocket: GuardPocketSpan, ctx: GuardContext, strip: bool
  *
  *  It answers on the pocket that CONTAINS the committed span, which is the only pocket
  *  `residueVerdict` will accept it for — the containment test there is what makes the
- *  hand-off safe (D2: a straddling or cross-pocket origin has no baseline at all). */
+ *  hand-off safe (D2: a straddling or cross-pocket origin has no baseline at all).
+ *  LENS-2 §F5 proved that claim rather than asserting it: over 606 spans against three
+ *  disjoint pockets a looser overlap find disagrees 347 times and the strict gate
+ *  accepts none of them.
+ *
+ *  ponytail — WHICH CTX THIS IS HANDED IS LOAD-BEARING, and the pin on it is a string
+ *  (P14/P15), by a ceiling rather than an oversight: the rest leg built in the
+ *  lifted-door ctx publishes a different `rest` vector (P22 measures it, 13 of 13 asks),
+ *  but a door can only move `key[0]` and the compare reads terms 1..3, so the CELL's
+ *  answer provably cannot change. The string is what guards the frame. */
 export function restResidueOn(
   engine: ReturnType<typeof createGapGuard>,
   pockets: ReturnType<typeof freePockets>,
@@ -2079,8 +2088,10 @@ export function restResidueOn(
  *  because `repLabel` names only the longest lost duration). ponytail — against
  *  TODAY's engine that term can never fire on its own: `repertoireLossSet` subtracts a
  *  downward-closed hostable set from a downward-closed base, so a loss set is always
- *  the top slice above the longer residue and equal sizes mean equal sets. It stays
- *  because it is the honest question, and it is what names the menu below.
+ *  the top slice above the longer residue and equal sizes mean equal sets. LENS-2 §F4
+ *  swept 2,608,224 calls and found it firing alone 0 times, which turns the builder's
+ *  「survivor」 into 「equivalent, proved」. It stays because it is the honest question,
+ *  and it is what names the menu below.
  *
  *  Rulings and evidence, whole:
  *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md rows 5-9
@@ -2169,7 +2180,11 @@ function softGapLine(delta: ResidueVerdict['delta'], services: GuardService[]): 
  *  it is module-private inside the frozen file. One spelling: the sentence names the
  *  longest NEWLY lost duration through it, and `gapNote` names them all through it.
  *  `repLabel` names the longest of the whole loss set; on this axis the sentence is
- *  about the DIFFERENCE, so it names the longest of what newly stopped fitting. */
+ *  about the DIFFERENCE, so it names the longest of what newly stopped fitting. P21 is
+ *  the pin that can SEE that rule: it needs a scene where the menu line is printed with
+ *  more than one newly-lost duration, and until FIX 1 the suite had none (LENS-2 §F3 —
+ *  flipping the sort survived the whole battery). Duplicate durations behave as canon's
+ *  `repLabel` does: the first service with that duration wins. */
 const menuNameOf = (dur: number, services: GuardService[]): string =>
   services.find((s) => s.dur === dur)?.name ?? `${dur}分`
 
