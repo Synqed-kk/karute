@@ -106,8 +106,11 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 import {
+  ASSEMBLE_AFTER_DEFAULT_MS,
+  ASSEMBLE_AFTER_MIN_MS,
   ASSEMBLE_AFTER_MS,
   MAX_TAKES_PER_RUN,
+  assembleAfterMsFromEnv,
   SEGMENT_NOMINAL_MS,
   goldenStartIndex,
   longestPrefix,
@@ -669,8 +672,8 @@ describe('the walk', () => {
 })
 
 describe('the age gate — the newest segment is the last sign of the device', () => {
-  it('47 h old is YOUNG: the device may still come back for it', async () => {
-    seed({ seqs: [0], createdAt: new Date(NOW - 47 * 60 * 60 * 1000).toISOString() })
+  it('one minute younger than the threshold is YOUNG: the device may still come back for it', async () => {
+    seed({ seqs: [0], createdAt: new Date(NOW - ASSEMBLE_AFTER_MS + 60 * 1000).toISOString() })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.young).toBe(1)
     expect(uploads).toHaveLength(0)
@@ -689,10 +692,7 @@ describe('the age gate — the newest segment is the last sign of the device', (
   it('an old FIRST segment does not age a take whose LAST segment is minutes old', async () => {
     seed({
       seqs: [0, 1],
-      createdAts: [
-        new Date(NOW - 10 * 24 * 60 * 60 * 1000).toISOString(),
-        new Date(NOW - 60 * 60 * 1000).toISOString(),
-      ],
+      createdAts: [OLD, new Date(NOW - 60 * 1000).toISOString()],
     })
     const summary = await runAssembler(deps(), { budgetMs: 60_000 })
     expect(summary.skipped.young).toBe(1)
@@ -1147,5 +1147,63 @@ describe('the estimate’s own constant', () => {
     const match = /const TAKE_FLUSH_MS = ([\d_]+)/.exec(src)
     expect(match).not.toBeNull()
     expect(Number(match![1].replace(/_/g, ''))).toBe(SEGMENT_NOMINAL_MS)
+  })
+})
+
+describe('the wait before a take counts as abandoned', () => {
+  // Pure-function pins: no env mutation, no isolateModules. The constant itself
+  // is read once at module load, so what is worth pinning is the parsing.
+  it('takes a positive finite number of milliseconds', () => {
+    expect(assembleAfterMsFromEnv('300000')).toBe(300000)
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    expect(assembleAfterMsFromEnv('  300000 ')).toBe(300000)
+  })
+
+  it.each([undefined, '', '   '])('falls back to 48 hours when unset or blank: %p', (raw) => {
+    expect(assembleAfterMsFromEnv(raw)).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+  })
+
+  it.each(['abc', '0', '-5', 'Infinity', 'NaN'])(
+    'falls back to 48 hours on a value that is not a positive number: %p',
+    (raw) => {
+      expect(assembleAfterMsFromEnv(raw)).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+    },
+  )
+
+  it.each([
+    ['299999', ASSEMBLE_AFTER_DEFAULT_MS],
+    ['300000', 300000],
+  ])('the 5-minute floor: %s -> %p', (raw, expected) => {
+    expect(assembleAfterMsFromEnv(raw)).toBe(expected)
+  })
+
+  it('ASSEMBLE_AFTER_MIN_MS is 5 minutes', () => {
+    expect(ASSEMBLE_AFTER_MIN_MS).toBe(5 * 60 * 1000)
+  })
+
+  it('defaults to 48 hours, and that is what the job runs on in this suite', () => {
+    expect(ASSEMBLE_AFTER_DEFAULT_MS).toBe(48 * 60 * 60 * 1000)
+    // Isolated from this suite's own cached import of the module, so the env
+    // var actually takes effect (it is read once at module load).
+    const saved = process.env.ASSEMBLE_AFTER_MS
+    try {
+      process.env.ASSEMBLE_AFTER_MS = '300000'
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const m = require('@/lib/recording/assembler')
+        expect(m.ASSEMBLE_AFTER_MS).toBe(300000)
+      })
+      delete process.env.ASSEMBLE_AFTER_MS
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const m = require('@/lib/recording/assembler')
+        expect(m.ASSEMBLE_AFTER_MS).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+      })
+    } finally {
+      if (saved === undefined) delete process.env.ASSEMBLE_AFTER_MS
+      else process.env.ASSEMBLE_AFTER_MS = saved
+    }
   })
 })
