@@ -13277,7 +13277,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       const cell = guardVerdictAt(board, 'p-06', 840, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60), handId))!
       expect({ handId, state: cell.state, label: cell.label, sentence: cell.sentence, reason: cell.reason, ack: cell.ackAllowed })
         .toEqual({ handId, state: 'degraded', label: '△14:00', sentence: QUIET, reason: null, ack: true })
-      expect(cell.gapNote).toEqual({ dead: 0, salvage: 5, lostMenus: [] })
+      expect(cell.gapNote).toEqual({ worse: false, dead: 0, salvage: 5, lostMenus: [] })
       const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
       expect(face.face).toBe('clean')
       expect(face.impact.yen).toBeNull()
@@ -13288,7 +13288,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const strip = guardRailsFor(board, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))
       .find((r) => r.laneKey === 'p-06')!.cells.find((c) => c.start === 840)!
     expect([strip.state, strip.label, strip.sentence]).toEqual(['degraded', '△14:00', QUIET])
-    expect(strip.gapNote).toEqual({ dead: 0, salvage: 5, lostMenus: [] })
+    expect(strip.gapNote).toEqual({ worse: false, dead: 0, salvage: 5, lostMenus: [] })
 
     // BOTH POLICIES, measured at the seam's own function. The pinned constant decides
     // which one the product shows; the other is the row Liam saw on the mock's
@@ -13314,7 +13314,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       const board = movedTo(lanes, 'apt-29', ask, ask + 60)
       const cell = guardVerdictAt(board, 'p-06', ask, demoInput(board, 60, 'apt-29', guard, doors, rest))!
       expect({ ask, label: cell.label, sentence: cell.sentence }).toEqual({ ask, label, sentence: QUIET })
-      expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: [] })
+      expect(cell.gapNote).toEqual({ worse: false, dead: 0, salvage: 0, lostMenus: [] })
       expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).face).toBe('clean')
     }
     // …and TODAY these are the two worst sentences on the board: the identity move
@@ -13351,7 +13351,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const cell = guardVerdictAt(board, 'p-01', 670, B1({ resting: on('p-01', 660, 60) }))!
     expect([cell.state, cell.label]).toEqual(['degraded', '△11:10'])
     expect(cell.sentence).toBe('ここに置くと〈見本 全店舗メニュー 20分〉が入らなくなります')
-    expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: ['見本 全店舗メニュー 20分'] })
+    expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['見本 全店舗メニュー 20分'] })
     // the engine's own two keys, printed beside it — this is the measurement, not a
     // restatement of the rule
     const { engine, pockets, ctx } = { engine: createGapGuard(G), pockets: freePockets({ from: 600, until: HOURS.close, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }), ctx: {} }
@@ -13385,7 +13385,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-DEAD', 'ここに置くと40分の売れない空きが残ります'])
     const cell = guardVerdictAt(board, 'p-01', 640, A1({ resting: on('p-01', 620, 60) }))!
     expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:40', '何も入らない空きが20分増えます'])
-    expect(cell.gapNote).toEqual({ dead: 20, salvage: 0, lostMenus: [] })
+    expect(cell.gapNote).toEqual({ worse: true, dead: 20, salvage: 0, lostMenus: [] })
     // the DIFFERENCE, never the total: today's line quotes 40, the note quotes 20
     expect(cell.sentence).not.toContain('40分')
     const engine = createGapGuard(G)
@@ -13412,7 +13412,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(guardVerdictAt(board, 'p-01', 620, P7())!.sentence).toBe('ここに置くとテスト整体 60分が入らなくなります')
     const cell = guardVerdictAt(board, 'p-01', 620, P7({ resting: on('p-01', 645, 55) }))!
     expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:20', 'ここに置くと〈テストヘッド 30分〉が入らなくなります'])
-    expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: ['テストヘッド 30分'] })
+    expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['テストヘッド 30分'] })
     const engine = createGapGuard(G)
     const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
     expect([...engine.evaluate(pocket, { start: 645, dur: 55 }, {}).lossSet]).toEqual([60])
@@ -13439,7 +13439,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([...engine.evaluate(pocket, { start: 620, dur: 55 }, {}).cost]).toEqual([0, 3, 45, 0])
     const cell = guardVerdictAt(board, 'p-01', 620, P7b({ resting: on('p-01', 600, 55) }))!
     expect(cell.sentence).toBe('何も入らない空きが45分増えます')
-    expect(cell.gapNote).toEqual({ dead: 45, salvage: 0, lostMenus: ['テストヘッド 30分', 'テストミドル 45分'] })
+    expect(cell.gapNote).toEqual({ worse: true, dead: 45, salvage: 0, lostMenus: ['テストヘッド 30分', 'テストミドル 45分'] })
   })
 
   it('P8 — NO BASELINE is today, byte for byte: a committed span the clock has passed, and one that straddles the pocket', async () => {
@@ -13537,7 +13537,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const board = movedTo(lanes, 'apt-29', 850, 910)     // 14:05 → 14:10, dead +5
     const cell = guardVerdictAt(board, 'p-06', 850, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
     expect(cell.sentence).toBe('何も入らない空きが5分増えます')
-    expect(cell.gapNote).toEqual({ dead: 5, salvage: 0, lostMenus: [] })
+    expect(cell.gapNote).toEqual({ worse: true, dead: 5, salvage: 0, lostMenus: [] })
     expect(lossOf(cell)).toBe(0)
     const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
     expect(face.face).toBe('clean')
@@ -13552,9 +13552,200 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // asked 13:40, leaves 10 more dead minutes and 70 more discount-only ones.
     const both = movedTo(lanes, 'apt-09', 820, 840)
     const cb = guardVerdictAt(both, 'p-05', 820, demoInput(both, 20, 'apt-09', guard, doors, on('p-05', 845, 20)))!
-    expect(cb.gapNote).toEqual({ dead: 10, salvage: 70, lostMenus: [] })
+    expect(cb.gapNote).toEqual({ worse: true, dead: 10, salvage: 70, lostMenus: [] })
     expect(cb.sentence).toBe('何も入らない空きが10分増えます')
     expect(warnFaceFor(warnInput(cb, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
+  })
+
+  it('P16 — gapNote carries the VERDICT: two fixture cells, the same three numbers, opposite answers', async () => {
+    // ⚖ FIX 1 §C (LENS-1 §F1 MAJOR · LENS-3 §R-6). The three numbers are the FLOORED
+    // difference and cannot reproduce the verdict: `residueVerdict` clamps each term at
+    // zero and throws the sign away, and canon's compare lets a term that IMPROVED
+    // outrank one that got worse. So a surface honouring the renderer fence would draw
+    // 「割引 +35分」 under 「変わりません」 — the very disagreement the fence exists to
+    // prevent, moved one layer down. `worse` is the field that answers.
+    const { lanes, guard, doors } = await demoBoard()
+    // なぎ 14:05〜15:05 pulled back to a 30分 session at 14:00: dead 5 → 0, 割引のみ
+    // 127 → 162. canon ranks dead above salvage, so the compare says NOT WORSE.
+    const shrink = movedTo(lanes, 'apt-29', 840, 870)
+    const quiet = guardVerdictAt(shrink, 'p-06', 840, demoInput(shrink, 30, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+    // apt-34 committed 15:45（45分）asked 15:00 as a 30分 session, on 見本 ごろう's lane:
+    // the SAME three numbers, and this time the compare says worse.
+    const other = movedTo(lanes, 'apt-34', 900, 930)
+    const soft = guardVerdictAt(other, 'p-05', 900, demoInput(other, 30, 'apt-34', guard, doors, on('p-05', 945, 45)))!
+    const numbers = (c: RailCell) => ({ dead: c.gapNote!.dead, salvage: c.gapNote!.salvage, lostMenus: c.gapNote!.lostMenus })
+    expect(numbers(quiet)).toEqual({ dead: 0, salvage: 35, lostMenus: [] })
+    expect(numbers(soft)).toEqual(numbers(quiet))
+    // …and ONLY `worse` tells them apart.
+    expect([quiet.gapNote!.worse, soft.gapNote!.worse]).toEqual([false, true])
+    expect([quiet.label, quiet.sentence]).toEqual(['△14:00', QUIET])
+    expect([soft.label, soft.sentence]).toEqual(['△15:00', '割引でしか埋まらない空きが35分増えます'])
+    // the two engine answers behind them, printed rather than restated
+    const f1 = seamFrame(shrink, 'p-06', 'apt-29', guard, doors)
+    const pk1 = f1.pockets.find((p) => p.s <= 845 && 905 <= p.e)!
+    expect(residueVerdict(f1.engine, pk1, { start: 845, dur: 60 }, { start: 840, dur: 30 }, f1.ctx, true))
+      .toEqual({ rest: [0, 0, 5, 127], askCost: [0, 0, 0, 162], worse: false, delta: { dead: 0, salvage: 35, lostMenus: [] } })
+    const f2 = seamFrame(other, 'p-05', 'apt-34', guard, doors)
+    const pk2 = f2.pockets.find((p) => p.s <= 945 && 990 <= p.e)!
+    expect([pk2.s, pk2.e, pk2.walls.left, pk2.walls.right]).toEqual([865, 1020, null, 'shiftEnd'])
+    expect(residueVerdict(f2.engine, pk2, { start: 945, dur: 45 }, { start: 900, dur: 30 }, f2.ctx, true))
+      .toEqual({ rest: [1, 0, 0, 0], askCost: [0, 0, 0, 35], worse: true, delta: { dead: 0, salvage: 35, lostMenus: [] } })
+    // neither is priced or held — the face law is unchanged by the new field
+    for (const c of [quiet, soft]) {
+      expect(lossOf(c)).toBe(0)
+      expect(warnFaceFor(warnInput(c, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
+    }
+  })
+
+  it('P17 — the arm spells its own precondition: only a REFUSAL, and only with no window loss, reaches the gap axis', async () => {
+    // ⚖ FIX 1 §D (LENS-1 §F2) — the `v.verdict === 'refuse'` term is a no-op at this
+    // tip (ok, exempt, degraded and R-UNAVAILABLE have all returned above the line), and
+    // `loss === 0` is §B's gate. An invariant held by the ORDER of four earlier returns
+    // inside a 240-line function is not one this arm should rest on, so it is SPELLED.
+    // The engine cannot mint a `degraded` verdict carrying a residue reason at all
+    // (gap-guard :407-411 stamps code 'DEGRADED'), so this half of the pin is textual by
+    // necessity; the behavioural half below measures the property itself.
+    const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
+    const CODE = codeOnly(INT)
+    expect(CODE).toContain("resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason")
+    const { lanes, guard, doors } = await demoBoard()
+    const board = movedTo(lanes, 'apt-29', 840, 900)
+    const { engine, pockets, ctx } = seamFrame(board, 'p-06', 'apt-29', guard, doors)
+    const verdicts = new Map<string, number>()
+    let rows = 0
+    let gaps = 0
+    for (let ask = HOURS.open; ask <= HOURS.close - 60; ask += 5) {
+      const cell = guardVerdictAt(board, 'p-06', ask, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))
+      const pocket = pockets.find((p) => ask >= p.s && ask + 60 <= p.e)
+      if (cell == null || pocket == null) continue
+      rows += 1
+      const v = engine.evaluate(pocket, { start: ask, dur: 60 }, ctx)
+      verdicts.set(v.verdict, (verdicts.get(v.verdict) ?? 0) + 1)
+      if (cell.gapNote == null) continue
+      gaps += 1
+      // every gap-axis cell is a refusal on one of the three residue classes, and its
+      // window loss is zero — which is what makes the clean face honest
+      expect(v.verdict).toBe('refuse')
+      expect(['R-DEAD', 'R-SALV', 'R-REP']).toContain(v.reason!.code)
+      expect(lossOf(cell)).toBe(0)
+    }
+    // …and the census really does contain the verdict the term excludes, so the pin is
+    // measuring something rather than sweeping an empty set
+    expect({ rows, gaps, verdicts: [...verdicts].sort() }).toEqual({ rows: 27, gaps: 8, verdicts: [['degraded', 1], ['refuse', 26]] })
+  })
+
+  it('P18 — LENS-2 F2: a gap-axis row may not arrive amber, priced and behind 長押し', () => {
+    // LENS-2's trial 315, replayed with its two doors written out instead of re-seeded
+    // (`BLIND-RESIDUE-d742915dc/lens2-runs/probe/RUN-7-clean.txt`). Menus 45/90分,
+    // スキマ枠 OFF, リードタイム 0, 新規保護 90分; lane 10:00–18:00 with a 休憩
+    // 11:30–12:00 and the moved card excluded. The REAL door refuses 36 of the 97 window
+    // starts and the LIFTED door 15 — a SUBSET, which is the seam's own contract: the
+    // lifted world is the real one with the mover's room free.
+    //
+    // At the tip eleven consecutive rail cells (10:05 … 11:00) came out placeable △ with
+    // the quiet sentence AND an amber face priced 約¥11,370 behind 長押し, because the
+    // new arm was the only `degradedFace` on a move without the `loss === 0` gate its
+    // three siblings carry, and C1's documented over-report reached `lossOf`.
+    const G = {
+      services: [{ name: 'M45', dur: 45 }, { name: 'M90', dur: 90 }],
+      newClientSessionMin: 90, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const REAL = new Set([600, 610, 620, 640, 655, 665, 700, 730, 735, 740, 745, 755, 765, 775, 805, 835, 850, 860, 865, 870, 895, 905, 915, 920, 925, 940, 950, 955, 960, 970, 975, 990, 1025, 1030, 1055, 1080])
+    const LIFTED = new Set([610, 640, 700, 740, 745, 860, 865, 895, 905, 920, 950, 955, 975, 1055, 1080])
+    expect([REAL.size, LIFTED.size, [...LIFTED].every((x) => REAL.has(x))]).toEqual([36, 15, true])
+    const brk = { key: 'brk', kind: 'break', state: null, category: null, caseId: null, title: '休憩', ...place(690, 720, HOURS) } as unknown as BoardItem
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('C1', 700, 760), brk], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const input: RailInput = {
+      open: 600, close: 1080, stepMin: 5, dur: 30, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1',
+      resting: on('p-01', 630, 30),
+      protectedWindowFeasible: (_l, st) => !REAL.has(st),
+      restingWindowFeasible: (_l, st) => !LIFTED.has(st),
+    }
+    // the divergence itself, on the lane lists `degradedFace` counts: the move's honest
+    // BEFORE (lifted door) holds four windows and its AFTER (real door) three
+    const engine = createGapGuard(G)
+    const pockets = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') })
+    expect(pockets.map((p) => [p.s, p.e])).toEqual([[600, 690], [720, 1080]])
+    const realCtx = { protectedWindowFeasible: (st: number) => !REAL.has(st) }
+    const liftedCtx = { protectedWindowFeasible: (st: number) => !LIFTED.has(st) }
+    expect(laneWindowsWith(engine, pockets, { start: 630, dur: 30 }, liftedCtx)).toEqual([720, 810, 900, 990])
+    expect(laneWindowsWith(engine, pockets, { start: 605, dur: 30 }, realCtx)).toEqual([720, 810, 900])
+    // AFTER — the whole rail: not one gap-axis row, and not one priced cell
+    const cells = guardRailsFor(board, input)[0].cells
+    expect(cells.filter((c) => c.gapNote != null)).toEqual([])
+    expect(cells.filter((c) => lossOf(c) > 0 && c.state === 'degraded')).toEqual([])
+    // …and the eleven rows LENS-2 named are byte-identical to the no-baseline row, which
+    // is what base 00711dfa2 drew: a hard refusal, un-priced, no 長押し
+    for (const st of [605, 610, 615, 620, 625, 630, 635, 640, 650, 655, 660]) {
+      const row = cells.find((c) => c.start === st)!
+      expect(row).toEqual(guardVerdictAt(board, 'p-01', st, { ...input, resting: null }))
+      expect([row.state, row.label, row.gapNote]).toEqual(['blocked', '—', undefined])
+      const face = warnFaceFor(warnInput(row))
+      expect([lossOf(row), face.face, face.impact.yen, face.commit]).toEqual([0, 'clean', null, null])
+    }
+    // the row LENS-2 printed in full, spelled: the engine's own refusal, as at base
+    const row = cells.find((c) => c.start === 605)!
+    expect([row.impact!.code, row.sentence]).toEqual(['R-REP', 'ここに置くとM45が入らなくなります'])
+  })
+
+  it('P19 — LENS-2 F1: a regained menu never buys silence about 60 NEW dead minutes', () => {
+    // Menus 30/45分, スキマ枠 OFF, 新規保護 OFF, lane 10:00–18:00, a 100分 card, pocket
+    // 10:00–12:40. Committed 10:30 the key is [0,1,0,0] — one menu out of reach and no
+    // dead time; asked 10:05 it is [0,0,60,0] — the menu comes BACK and sixty minutes go
+    // dead. Canon ranks the repertoire term first, so the compare answers NOT WORSE, and
+    // the tip printed the quiet line over its own `gapNote {dead: 60}`
+    // (`BLIND-RESIDUE-d742915dc/lens2-runs/probe/RUN-2-clean.txt` C1).
+    const G = {
+      services: [{ name: 'テスト30', dur: 30 }, { name: 'テスト45', dur: 45 }],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const F1 = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 100, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 760, 820), card('C1', 605, 705)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const engine = createGapGuard(G)
+    const pockets = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') })
+    const pocket = pockets.find((p) => p.s === 600)!
+    expect([pocket.s, pocket.e, pocket.walls.left, pocket.walls.right]).toEqual([600, 760, null, null])
+    expect([...engine.evaluate(pocket, { start: 630, dur: 100 }, {}).cost]).toEqual([0, 1, 0, 0])
+    expect([...engine.evaluate(pocket, { start: 605, dur: 100 }, {}).cost]).toEqual([0, 0, 60, 0])
+    expect(residueVerdict(engine, pocket, { start: 630, dur: 100 }, { start: 605, dur: 100 }, {}, true))
+      .toEqual({ rest: [0, 1, 0, 0], askCost: [0, 0, 60, 0], worse: false, delta: { dead: 60, salvage: 0, lostMenus: [] } })
+    // `worse` is canon's ranking and stays false — and the desk is told anyway.
+    const cell = guardVerdictAt(board, 'p-01', 605, F1({ resting: on('p-01', 630, 100) }))!
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:05', '何も入らない空きが60分増えます'])
+    expect(cell.gapNote).toEqual({ worse: false, dead: 60, salvage: 0, lostMenus: [] })
+    expect(cell.sentence).not.toBe(QUIET)
+    // the strip LENS-2 printed: identical dead minutes ten minutes apart used to read
+    // half harmless and half harmful; now every one of them speaks with one voice
+    const strip = guardRailsFor(board, F1({ stepMin: 5, resting: on('p-01', 630, 100) }))[0].cells
+    const rows = strip.filter((c) => c.gapNote != null && c.gapNote.dead === 60).map((c) => [c.label, c.sentence])
+    expect(rows).toHaveLength(8)
+    expect([...new Set(rows.map((r) => r[1]))]).toEqual(['何も入らない空きが60分増えます'])
+    // …and the only quiet row on that strip is the identity move, where nothing moved
+    expect(strip.filter((c) => c.sentence === QUIET).map((c) => c.label)).toEqual(['△10:30'])
+  })
+
+  it('P20 — LENS-3 R-1: the resize trade stays quiet, at every length Liam can drop', async () => {
+    // なぎ 14:05〜15:05 pulled back to 14:00 and shrunk: dead 5 → 0 while the
+    // discount-only residue grows 127 → 162. A TRADE, not an improvement — and it is the
+    // one trade that stays quiet, because the dead term (what this axis exists to
+    // protect) got BETTER. The three faces Liam signed on the mock, unchanged by §A.
+    const { lanes, guard, doors } = await demoBoard()
+    for (const [dur, salvage] of [[30, 35], [60, 5], [90, 0]] as const) {
+      const board = movedTo(lanes, 'apt-29', 840, 840 + dur)
+      const cell = guardVerdictAt(board, 'p-06', 840, demoInput(board, dur, 'apt-29', guard, doors, on('p-06', 845, 60)))!
+      expect({ dur, label: cell.label, sentence: cell.sentence }).toEqual({ dur, label: '△14:00', sentence: QUIET })
+      expect(cell.gapNote).toEqual({ worse: false, dead: 0, salvage, lostMenus: [] })
+      expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
+    }
+    const board = movedTo(lanes, 'apt-29', 840, 870)
+    const { engine, pockets, ctx } = seamFrame(board, 'p-06', 'apt-29', guard, doors)
+    const pocket = pockets.find((p) => p.s <= 845 && 905 <= p.e)!
+    expect(residueVerdict(engine, pocket, { start: 845, dur: 60 }, { start: 840, dur: 30 }, ctx, true))
+      .toEqual({ rest: [0, 0, 5, 127], askCost: [0, 0, 0, 162], worse: false, delta: { dead: 0, salvage: 35, lostMenus: [] } })
   })
 
   it('P14/P15 — the four lines are spelled ONCE, no TOTAL rides this axis, and the rest leg is hoisted once per rail', () => {

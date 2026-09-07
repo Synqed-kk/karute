@@ -1619,15 +1619,23 @@ export interface RailCell {
     windowsBefore: number[]
     windowsAfter: number[]
   }
-  /** ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS'S OWN DIFFERENCE, as data.
+  /** ⚖ NUDGE-RESIDUE (Liam 2026-09-07) — THE GAP AXIS'S OWN VERDICT AND DIFFERENCE.
    *
    *  Present exactly on the cells `residueVerdict` decided: a MOVE refused on the
-   *  leftover-space axis, measured against the store's committed day. All zeros and
-   *  an empty list is the honest answer for a costless move, and it is what says
-   *  「this cell was weighed on the gap axis」 to a surface that must not parse
-   *  sentences back into numbers (⚖ 54's disease — same law as `impact` above).
-   *  Absent everywhere else, including at rest and in strict mode. */
-  gapNote?: { dead: number; salvage: number; lostMenus: string[] }
+   *  leftover-space axis, measured against the store's committed day. Its presence is
+   *  what says 「this cell was weighed on the gap axis」 to a surface that must not
+   *  parse sentences back into numbers (⚖ 54's disease — same law as `impact` above).
+   *
+   *  READ `worse`, NEVER THE NUMBERS. The three numbers are the FLOORED difference and
+   *  cannot reproduce the verdict: a quiet move can carry a non-zero one (なぎ
+   *  14:05→14:00 is `{worse: false, salvage: 5}` — the dead term improved and canon
+   *  ranks it above salvage), and two cells whose three numbers are byte-identical can
+   *  hold opposite verdicts (LENS-1 §F1's three colliding shapes, LENS-3 §R-6). `worse`
+   *  is `residueVerdict`'s own answer and is the only field that carries it.
+   *  Absent everywhere else, including at rest and in strict mode.
+   *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
+   *  surfaces' data, published with the axis rather than bolted on after it. */
+  gapNote?: { worse: boolean; dead: number; salvage: number; lostMenus: string[] }
 }
 
 export interface GuardRail {
@@ -2079,7 +2087,11 @@ export function restResidueOn(
  *    origin has none; a cross-pocket origin has none and may never get one — canon
  *    :23-26, 「Pockets are never compared against each other」.
  *  ponytail: D3 — strict mode never reaches here at all; `restingOn` hands `null`.
- *  ponytail: D4 — a costless move wears △, never ✓: canon still refused the start. */
+ *  ponytail: D4 — a costless move wears △, never ✓: canon still refused the start.
+ *  ponytail: D5 — this `worse` is canon's RANKING, and canon's order can rank a
+ *    regained menu above sixty new dead minutes. `gapIsQuiet` below refuses to be
+ *    silent about dead minutes or a newly lost menu whatever the ranking says; salvage
+ *    growth under a dead decrease is the one trade that stays quiet (LENS-2 §F1). */
 export function residueVerdict(
   engine: ReturnType<typeof createGapGuard>,
   pocket: GuardPocketSpan,
@@ -2117,18 +2129,35 @@ export function residueVerdict(
   }
 }
 
+/** ⚖ FIX 1 §A (LENS-2 §F1 BLOCKER · LENS-3 §R-1) — WHEN THE QUIET LINE MAY SPEAK.
+ *
+ *  `worse` is canon's lexicographic ranking and stays exactly that. 「Not worse」 is
+ *  not 「nothing got worse for the desk」: canon puts the repertoire term ABOVE dead
+ *  minutes, so a move that regains one menu while creating sixty NEW dead minutes
+ *  ranks not-worse — and the board printed the quiet line over its own
+ *  `gapNote {dead: 60}` (LENS-2: 6,116 of 973,680 measured pairs, 10 of 60 dial sets).
+ *  New dead minutes and a newly lost menu are therefore always SAID, whatever a higher
+ *  term did. Salvage growth under a dead decrease is the one trade that stays quiet,
+ *  and it is the pair of faces Liam signed on the mock: なぎ's 14:05→14:00 (dead 5→0,
+ *  salvage 127→132) and the same card shrunk to 30分 (dead 5→0, salvage 127→162). */
+const gapIsQuiet = (rv: ResidueVerdict): boolean =>
+  !rv.worse && rv.delta.dead === 0 && rv.delta.lostMenus.length === 0
+
 /** The difference, in the desk's own words. Precedence dead > menus > salvage — the
- *  worst thing that happened leads, in canon's own key order. The number is the
- *  DIFFERENCE and never the total (LENS-3 §4). The menu is named the way `repLabel`
- *  names it, the longest duration lost, re-spelled here for the reason the compare
- *  is; a long name is ellipsized by the DISPLAY, never here. */
+ *  worst thing FOR THE DESK leads. That order is the packet's own ruling and NOT
+ *  canon's key order: canon ranks the repertoire term above dead (gap-guard :12), so
+ *  the COMPARE uses canon's order and the SENTENCE does not (LENS-1 §F4). The number
+ *  is the DIFFERENCE and never the total (LENS-3 §4). The menu is named the way
+ *  `repLabel` names it, the longest duration lost, re-spelled here for the reason the
+ *  compare is; a long name is ellipsized by the DISPLAY, never here. */
 function softGapLine(delta: ResidueVerdict['delta'], services: GuardService[]): string {
   if (delta.dead > 0) return DEAD_GAP_LINE(delta.dead)
   if (delta.lostMenus.length > 0) {
     return LOST_MENU_LINE(menuNameOf(delta.lostMenus.slice().sort((a, b) => b - a)[0], services))
   }
-  // The only term left. `worse` is set by this same sub-vector, so it cannot be true
-  // with all three deltas at zero — the salvage term is what moved.
+  // The only term left, and it is reached only when `gapIsQuiet` said no: with dead 0
+  // and no newly lost menu that means `worse`, which this same sub-vector decided, so
+  // the salvage term is what moved.
   return SALVAGE_GAP_LINE(delta.salvage)
 }
 
@@ -2334,26 +2363,44 @@ function railCell(
   // (c2) — THE GAP AXIS OF A MOVE, measured against the store's committed day. The
   // three residue classes canon can refuse a move on: dead minutes, discount-only
   // minutes, and a SERVICE that no longer fits (`R-REP` with no `capacityLost` — arm
-  // (c) took the protected-window shape already). `v.verdict` is not tested: ok,
-  // exempt, degraded and R-UNAVAILABLE have all returned above, so only `refuse`
-  // reaches this line. No baseline → `rv` is null → the (d)/(e) fall-through, which
-  // is today's behaviour byte for byte.
+  // (c) took the protected-window shape already). No baseline → `rv` is null → the
+  // (d)/(e) fall-through, which is today's behaviour byte for byte.
+  //
+  // ⚖ FIX 1 §D (LENS-1 §F2) — `v.verdict === 'refuse'` is SPELLED. It is a no-op at
+  // this tip (ok, exempt, degraded and R-UNAVAILABLE have all returned above), and an
+  // invariant held by the order of four earlier returns in a 240-line function is not
+  // an invariant this arm should rest on.
+  //
+  // ⚖ FIX 1 §B (LENS-2 §F2 BLOCKER) — and `loss === 0` joins the gate its three
+  // siblings already carry. `degradedFace` fills its impact from the LANE lists, which
+  // on a MOVE are built through two DIFFERENT doors (the lifted one before, the real
+  // one after), so the C1 over-report reached `lossOf` and a row arrived placeable △,
+  // amber, priced 約¥11,370 and behind 長押し while its own sentence said nothing had
+  // changed — three contradictory signals in one cell. A row with a real window loss
+  // now falls through to (d)/(e) and is priced there, exactly as at base.
   const rv =
-    resting !== null && v.reason && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
+    resting !== null && v.verdict === 'refuse' && loss === 0 && v.reason
+    && (v.reason.code === 'R-DEAD' || v.reason.code === 'R-SALV' || (v.reason.code === 'R-REP' && !repCapacity))
       ? residueVerdict(engine, pocket, resting, { start, dur: input.dur }, ctx, RESIDUE_COMPARE_STRIPS_EXEMPTIONS, restGap)
       : null
   if (rv !== null) {
-    // Not worse → the quiet △ and the gap's own line. Worse → the same placeable △
-    // wearing a SOFT note that states the DIFFERENCE: no hard 「—」, no 長押し, no ¥
-    // (the window axis is honestly 0 here, so `lossOf` stays 0 and `warnFaceFor`
-    // keeps the clean face — ⚖ 9/1 「zero-loss is quiet」). Liam's mock, 9/7.
+    // Quiet (`gapIsQuiet`) → the quiet △ and the gap's own line. Anything else → the
+    // same placeable △ wearing a SOFT note that states the DIFFERENCE: no hard 「—」,
+    // no 長押し, no ¥ — the gate above has already proved the window axis is 0, so
+    // `lossOf` is 0 and `warnFaceFor` keeps the clean face (⚖ 9/1 「zero-loss is
+    // quiet」). Liam's mock, 9/7.
     return {
       ...degradedFace(
-        rv.worse ? softGapLine(rv.delta, input.guard.services) : QUIET_GAP_LINE,
+        gapIsQuiet(rv) ? QUIET_GAP_LINE : softGapLine(rv.delta, input.guard.services),
         safeAlternatives,
         v.alternativeKind === 'safe' ? 'safe' : null,
       ),
-      gapNote: { dead: rv.delta.dead, salvage: rv.delta.salvage, lostMenus: rv.delta.lostMenus.map((d) => menuNameOf(d, input.guard.services)) },
+      gapNote: {
+        worse: rv.worse,
+        dead: rv.delta.dead,
+        salvage: rv.delta.salvage,
+        lostMenus: rv.delta.lostMenus.map((d) => menuNameOf(d, input.guard.services)),
+      },
     }
   }
   // (d)/(e) — a refusal that really costs a window names and prices the honest lists;
