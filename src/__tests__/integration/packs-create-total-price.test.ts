@@ -113,3 +113,15 @@ describe('createPackAction — total_price defaulting', () => {
     expect(mockCreatePack).not.toHaveBeenCalled()
   })
 })
+
+
+describe('family pack purchase ownership', () => {
+  it.each([{ ownRound: null, expected: 1 }, { ownRound: 2, expected: 3 }])('numbers own purchase history with shared packs present: %j', async ({ ownRound, expected }) => {
+    mockListCustomerPacks.mockResolvedValue([
+      { customer_id: 'parent', kind: 'pack', purchase_round: 5 },
+      ...(ownRound === null ? [] : [{ customer_id: 'child', kind: 'pack', purchase_round: ownRound }]),
+    ])
+    expect(await createPackAction({ customerId: 'child', kind: 'pack', packSize: 10, unitPrice: 5000 })).toEqual({ ok: true })
+    expect(mockCreatePack).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ customerId: 'child', purchaseRound: expected }))
+  })
+})

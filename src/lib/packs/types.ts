@@ -12,6 +12,9 @@ export type PackStatus = 'active' | 'exhausted' | 'cancelled'
 export type LifecycleStatus = 'active' | 'graduated' | 'lost'
 
 export interface TicketPack {
+  /** Core list reads include every family member’s usage of this held pack. */
+  usage_count?: number
+  usage_last_redeemed_on?: string | null
   id: string
   customer_id: string
   kind: PackKind
