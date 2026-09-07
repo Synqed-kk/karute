@@ -100,10 +100,15 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   (`regenerate-karute.ts` reads the record's own transcript, never the audio).
   So when the phone returns, its fuller take becomes *playable* — the play
   button signs it automatically — without becoming *written*. The staffer sees a
-  normal saved karute, not 要対応. The honest close is a 「音声から文字起こしを
-  やり直す」 door, and that is a separate decision, not this lane. It is still
-  strictly better than what it replaced: nothing is stuck, no second karute
-  appears, and the full recording is on the server either way.
+  normal saved karute, not 要対応. There will be NO staff-facing
+  re-transcribe button (⚖ Liam 2026-09-07): bad text from the same audio is the
+  engine's failure to fix, not a button's job. The only conceivable successor is
+  an automatic, once-only re-listen when the phone's whole file arrives after a
+  partial was transcribed — and that is PARKED until the audit log shows the case
+  actually happening. Until then a karute saved from a rescue keeps its partial
+  transcript. It is still strictly better than what it replaced: nothing is
+  stuck, no second karute appears, and the full recording is on the server
+  either way.
 - **⚖ And a karute saved from 録音履歴 is not linked to a booking.** Which
   appointment a recording belongs to is known only on the device that made it —
   the inbox row carries no appointment id, by design (it carries metadata, never

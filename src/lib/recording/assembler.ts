@@ -63,9 +63,11 @@
 // object. What DOES remain, named: a karute somebody saved off the rescue keeps
 // the partial transcript it was made from — no door in the repo re-transcribes
 // (regenerate-karute.ts reads the record's own words), so the phone's fuller
-// audio becomes playable without becoming written. A "transcribe again from the
-// audio" door is the close, and it is a separate decision. (docs/recording-
-// resilience.md's T1 section carries the same, for a non-engineer reader.)
+// audio becomes playable without becoming written. There will be no
+// staff-facing re-transcribe button (⚖ Liam 2026-09-07); an automatic once-only
+// re-listen when the phone's whole file arrives is PARKED until the audit log
+// shows the case. (docs/recording-resilience.md's T1 section carries the same,
+// for a non-engineer reader.)
 //
 // WHAT IT NEVER CLAIMS (design D2). Today's main carries NO declaration of how
 // long a take was — FinalizeTakeSchema has no lastSeq, so the device never
