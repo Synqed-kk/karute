@@ -2314,6 +2314,18 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       'return built.get(key)',
       '}',
     ])
+
+    // 3 · ⚖ RIDER, BREAKER-NUDGE-03916e0a1-DELTA.md §N7 — AND WHERE THE ORIGIN IS
+    // WRITTEN. `restingFor`'s first arm reads `pending.origin`, so the whole committed
+    // baseline hangs off ONE line in the stage writer. The breaker replaced
+    // `from.staff ?? …` with the bare creation sentinel: every staged card then reports
+    // no baseline at all — the guard silently back to its old self on the very surface
+    // Liam photographed — and 555 suites / 9,962 tests stayed green. It is ordinary
+    // source text in a state writer, so it is pinnable exactly as the two bodies above
+    // are, and the ceiling it was filed under was a choice rather than a limit.
+    const STAGE_ORIGIN =
+      ": { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, ...boardStamp, override: override ?? undefined },"
+    expect({ line: STAGE_ORIGIN, count: pinnedLines(SRC, STAGE_ORIGIN) }).toEqual({ line: STAGE_ORIGIN, count: 1 })
   })
 
   /** ⚖ PLAN F10 (R7) — THE HOLD BAR'S ROWS ARE A BOARD WALK, NOT A FIELD READ.
@@ -12553,6 +12565,14 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     protectedDur: 90, confirmEnabled: true,
   })
 
+  /** ⚖ RIDER, FABLE-LINE-AUDIT-NUDGE-FIX2-03916e0a1.md — THE LANE'S OWN 定価, READ.
+   *  Every ¥ pin below used to TYPE the price (`7700` for p-06, `7000` for c-03), which
+   *  is the product's truth today and silently stops being it the moment the fixture
+   *  moves. `warnFaceFor` prices from its input, and the input the screen gives it is
+   *  `BoardLane.listPrice` — so the rig reads that, and a fixture change is loud
+   *  instead of quietly re-basing every yen on this page. The numbers are unchanged. */
+  const priceOf = (lanes: BoardLane[], key: string) => lanes.find((l) => l.key === key)!.listPrice
+
   /** THE PRODUCT'S OWN BOARD, built exactly as page.tsx builds it — the data
    *  doors, the full appointments list, `buildLanes(input, dayBookings(input))`.
    *  Liam's shots are on this board, so the pins that answer for them are too. */
@@ -12737,7 +12757,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([2, 1])
     expect(lossOf(cell)).toBe(1)
     expect(cell.sentence).toBe('ここに置くと14:00〜15:30の新規（90分）が入らなくなります')
-    expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBe('約¥11,740')
+    expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).impact.yen).toBe('約¥11,740')
   })
 
   it('I7 — the strip is POINTER-INVARIANT (apt-33 in hand, committed 17:12–18:12) and unchanged at rest', async () => {
@@ -12760,17 +12780,22 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
 
   it('I8 — Liam\'s two shots on the product\'s own board, both legs', async () => {
     const { lanes, guard, doors } = await demoBoard()
+    // ⚖ RIDER — the lane's own 定価, read off the board rather than typed. p-06 charges
+    // 7,700 and c-03 charges 7,000 (fixtures-today.ts :68-69); every ¥ below is priced
+    // through `priceOf`, so a fixture that moves is LOUD here instead of quietly
+    // re-basing the yen on this page.
+    expect([priceOf(lanes, 'p-06'), priceOf(lanes, 'c-03')]).toEqual([7700, 7000])
     // S1 · なぎ 14:05→14:00 on the board that reproduces the shot (minus apt-26).
     const s1 = withoutCard(movedTo(lanes, 'apt-29', 840, 900), 'apt-26')
     const c1 = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
     expect(c1.label).toBe('△14:00')
     expect(lossOf(c1)).toBe(0)
     expect(c1.sentence).toBe('15:00〜16:30の新規90分の空きを守れます')
-    expect(warnFaceFor(warnInput(c1, 7700)).face).toBe('clean')
-    expect(warnFaceFor(warnInput(c1, 7700)).impact.yen).toBeNull()
+    expect(warnFaceFor(warnInput(c1, priceOf(lanes, 'p-06'))).face).toBe('clean')
+    expect(warnFaceFor(warnInput(c1, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
     // …the same nudge today: the amber face and the ¥11,740 of the shot.
     const c1today = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, null))!
-    expect(warnFaceFor(warnInput(c1today, 7700)).impact.yen).toBe('約¥11,740')
+    expect(warnFaceFor(warnInput(c1today, priceOf(lanes, 'p-06'))).impact.yen).toBe('約¥11,740')
 
     // S1 fixture-as-is — ⚖ PIN-DELTA, NUDGE-RESIDUE 9/7. This row was the ceiling
     // PR #852 named in its own body: on the fixture as it LOADS the same nudge was an
@@ -12796,10 +12821,10 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(c2.sentence).toBe('15:00〜16:30の新規90分の空きを守れます')
     expect(c2.alternatives).toEqual([990, 1080])
     expect(c2.alternativeKind).toBe('safe')
-    expect(warnFaceFor(warnInput(c2, 7700)).face).toBe('clean')
+    expect(warnFaceFor(warnInput(c2, priceOf(lanes, 'p-06'))).face).toBe('clean')
     // …the same drop today: ¥12,500 and the amber face of the second shot.
     const c2today = guardVerdictAt(s2, 'p-06', 1020, demoInput(s2, 60, 'apt-33', guard, doors, null))!
-    expect(warnFaceFor(warnInput(c2today, 7700)).impact.yen).toBe('約¥12,500')
+    expect(warnFaceFor(warnInput(c2today, priceOf(lanes, 'p-06'))).impact.yen).toBe('約¥12,500')
 
     // A REAL loss on the same board stays exactly as loud as it is:
     // あかり c-03, committed 16:00–16:30, asked 17:30 → 1 window.
@@ -12818,7 +12843,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const cf = guardVerdictAt(f8, 'p-06', 1020, demoInput(f8, 60, 'apt-33', guard, doors, on('p-06', 1080, 60)))!
     expect(cf.state).toBe('blocked')
     expect([cf.impact!.capacityBefore, cf.impact!.capacityAfter]).toEqual([2, 1])
-    expect(warnFaceFor(warnInput(cf, 7700)).impact.yen).toBe('約¥12,500')
+    expect(warnFaceFor(warnInput(cf, priceOf(lanes, 'p-06'))).impact.yen).toBe('約¥12,500')
   })
 
   it('I18 — THE TAGGED SWEEP: apt-29 (個室のみ) AND apt-33, both handId wirings, 4×385 pairs — no silent-but-costly, no amber-but-costless, no bare 守れます', async () => {
@@ -12846,7 +12871,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       if (t === undefined) { t = protectedCapacityOf(b, demoInput(b, 60, null, guard, doors, null)); truths.set(key, t) }
       return t
     }
-    const faceOf = (c: RailCell | null) => warnFaceFor(warnInput(c, 7700)).face
+    const faceOf = (c: RailCell | null) => warnFaceFor(warnInput(c, priceOf(lanes, 'p-06'))).face
     const sweep = (id: string, base: BoardLane[], tag: string, handId: string | null, live: boolean) => {
       let silent = 0, amber = 0, bare = 0, pairs = 0
       for (const o of origins) {
@@ -12937,7 +12962,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const cell = guardVerdictAt(board, 'p-06', 930, demoInput(board, 60, 'apt-33', guard, doors, on('p-06', 1032, 60)))!
     expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([1, 1])
     expect(lossOf(cell)).toBe(0)
-    expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBeNull()
+    expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
     // the window that survives is NOT the window that was there
     expect(cell.impact!.windowsBefore).not.toEqual(cell.impact!.windowsAfter)
   })
@@ -12999,7 +13024,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(live.state).toBe('degraded')
     expect([live.impact!.capacityBefore, live.impact!.capacityAfter]).toEqual([0, 0])
     expect(live.sentence).toBe('配置できます。この区間には現在、守れる新規90分の空きはありません')
-    expect(warnFaceFor(warnInput(live, 7700)).face).toBe('clean')
+    expect(warnFaceFor(warnInput(live, priceOf(lanes, 'p-06'))).face).toBe('clean')
   })
 
   it('I16b — the 守れます clause is the HONEST after-list: a nudge across a 休憩 names the windows in BOTH pockets', () => {
@@ -13042,7 +13067,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
         expect({ asked, state: cell.state, code: cell.impact!.code, loss: lossOf(cell) })
           .toEqual({ asked, state: 'blocked', code: 'R-REP', loss: 1 })
         expect(cell.sentence).toBe('ここに置くと15:00〜16:30の新規（90分）が入らなくなります')
-        const face = warnFaceFor(warnInput(cell, 7700))
+        const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
         expect(face.face).toBe('warn')
         expect(face.impact.yen).toBe('約¥11,740')
         expect(face.commit!.kind).toBe('hold')
@@ -13056,7 +13081,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       const quiet = guardVerdictAt(s1, 'p-06', 840, demoInput(s1, 60, 'apt-29', guard, doors, on('p-06', 845, 60), handId))!
       expect({ handId, label: quiet.label, loss: lossOf(quiet), sentence: quiet.sentence })
         .toEqual({ handId, label: '△14:00', loss: 0, sentence: '15:00〜16:30の新規90分の空きを守れます' })
-      expect(warnFaceFor(warnInput(quiet, 7700)).face).toBe('clean')
+      expect(warnFaceFor(warnInput(quiet, priceOf(lanes, 'p-06'))).face).toBe('clean')
     }
   })
 
@@ -13074,7 +13099,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([cell.impact!.capacityBefore, cell.impact!.capacityAfter]).toEqual([2, 0])
     expect(lossOf(cell)).toBe(2)
     expect(cell.sentence).toBe('ここに置くと14:00〜15:30・15:30〜17:00の新規（90分）が入らなくなります')
-    const face = warnFaceFor(warnInput(cell, 7700))
+    const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
     expect(face.impact.tail).toBe('が2枠から0枠に減ります（2枠分・約¥23,480）。')
   })
 
@@ -13185,7 +13210,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       // the lane's own 1 → 0 IS the whole board's 3 → 2
       expect(cell.impact!.capacityBefore - cell.impact!.capacityAfter).toBe(bookOf(committedBoard) - bookOf(board))
       expect(cell.sentence).toBe('ここに置くと15:05〜16:35の新規（90分）が入らなくなります')
-      expect(warnFaceFor(warnInput(cell, 7700)).impact.yen).toBe('約¥11,770')
+      expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).impact.yen).toBe('約¥11,770')
     }
   })
 
@@ -13253,7 +13278,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       expect({ handId, state: cell.state, label: cell.label, sentence: cell.sentence, reason: cell.reason, ack: cell.ackAllowed })
         .toEqual({ handId, state: 'degraded', label: '△14:00', sentence: QUIET, reason: null, ack: true })
       expect(cell.gapNote).toEqual({ dead: 0, salvage: 5, lostMenus: [] })
-      const face = warnFaceFor(warnInput(cell, 7700))
+      const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
       expect(face.face).toBe('clean')
       expect(face.impact.yen).toBeNull()
       expect(face.commit).toBeNull()
@@ -13262,7 +13287,8 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // …and the strip carries the same △14:00 chip it carries for every other quiet move.
     const strip = guardRailsFor(board, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))
       .find((r) => r.laneKey === 'p-06')!.cells.find((c) => c.start === 840)!
-    expect([strip.state, strip.label]).toEqual(['degraded', '△14:00'])
+    expect([strip.state, strip.label, strip.sentence]).toEqual(['degraded', '△14:00', QUIET])
+    expect(strip.gapNote).toEqual({ dead: 0, salvage: 5, lostMenus: [] })
 
     // BOTH POLICIES, measured at the seam's own function. The pinned constant decides
     // which one the product shows; the other is the row Liam saw on the mock's
@@ -13289,7 +13315,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       const cell = guardVerdictAt(board, 'p-06', ask, demoInput(board, 60, 'apt-29', guard, doors, rest))!
       expect({ ask, label: cell.label, sentence: cell.sentence }).toEqual({ ask, label, sentence: QUIET })
       expect(cell.gapNote).toEqual({ dead: 0, salvage: 0, lostMenus: [] })
-      expect(warnFaceFor(warnInput(cell, 7700)).face).toBe('clean')
+      expect(warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06'))).face).toBe('clean')
     }
     // …and TODAY these are the two worst sentences on the board: the identity move
     // quotes 127 minutes about a card that did not move, and the improving move quotes
@@ -13393,6 +13419,29 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([...engine.evaluate(pocket, { start: 620, dur: 55 }, {}).lossSet]).toEqual([30, 60])
   })
 
+  it('P7b — the ORDER is dead > menus > salvage, measured where the terms really collide', () => {
+    // Same 100分 pocket, menus 30/45/60分. Committed at the pocket's own start the
+    // right residue is exactly 45 — a menu fits it, so nothing is dead and only 整体60
+    // is out of reach. Asked 20 minutes in, the residues are 20 and 25: 45 dead minutes
+    // AND two menus newly out of reach. The desk hears the worst thing first.
+    const G = {
+      services: [{ name: 'テストヘッド 30分', dur: 30 }, { name: 'テストミドル 45分', dur: 45 }, { name: 'テスト整体 60分', dur: 60 }],
+      protectedDurationMin: null, protectedLabel: '新規', gapFillMinMin: 0, leadTimeMin: 0, mode: 'standard' as const,
+    } as RailInput['guard']
+    const P7b = (over: Partial<RailInput> = {}): RailInput => ({
+      open: HOURS.open, close: HOURS.close, stepMin: 30, dur: 55, protectedDur: 90,
+      nowMinute: null, locked: [], guard: G, excludeId: 'C1', resting: null, ...over,
+    })
+    const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 700, 760), card('C1', 620, 675)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
+    const engine = createGapGuard(G)
+    const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
+    expect([...engine.evaluate(pocket, { start: 600, dur: 55 }, {}).cost]).toEqual([0, 1, 0, 0])
+    expect([...engine.evaluate(pocket, { start: 620, dur: 55 }, {}).cost]).toEqual([0, 3, 45, 0])
+    const cell = guardVerdictAt(board, 'p-01', 620, P7b({ resting: on('p-01', 600, 55) }))!
+    expect(cell.sentence).toBe('何も入らない空きが45分増えます')
+    expect(cell.gapNote).toEqual({ dead: 45, salvage: 0, lostMenus: ['テストヘッド 30分', 'テストミドル 45分'] })
+  })
+
   it('P8 — NO BASELINE is today, byte for byte: a committed span the clock has passed, and one that straddles the pocket', async () => {
     // ⚖ D2, and it is the COMMON case, not an edge. `freePockets` floors every pocket
     // at `now`, so at the demo clock (13:24) the whole morning has no baseline.
@@ -13467,7 +13516,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
         gap += 1
         shapes.add(cell.sentence.replace(/[0-9]+分/g, 'N分').replace(/〈.*〉/, '〈メニュー〉'))
         if (cell.sentence === QUIET) quiet += 1; else soft += 1
-        const face = warnFaceFor(warnInput(cell, 7700))
+        const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
         if (face.face === 'warn') amber += 1
         if (face.impact.yen != null) priced += 1
         if (cell.state === 'blocked') hardRefusal += 1
@@ -13490,7 +13539,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(cell.sentence).toBe('何も入らない空きが5分増えます')
     expect(cell.gapNote).toEqual({ dead: 5, salvage: 0, lostMenus: [] })
     expect(lossOf(cell)).toBe(0)
-    const face = warnFaceFor(warnInput(cell, 7700))
+    const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
     expect(face.face).toBe('clean')
     expect(face.impact).toEqual({ head: '', yen: null, tail: '' })
     expect(face.commit).toBeNull()
@@ -13498,6 +13547,14 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // …and the △ check row is the sentence itself, tone unchanged
     expect(guardCheckRow(cell)).toEqual({ label: '何も入らない空きが5分増えます', tone: 'warn' })
     expect(guardCheckRowBesideOffer(cell)!.label).toBe('何も入らない空きが5分増えます')
+
+    // …and where dead AND salvage both grow, dead leads: apt-09 committed 14:05 (20分),
+    // asked 13:40, leaves 10 more dead minutes and 70 more discount-only ones.
+    const both = movedTo(lanes, 'apt-09', 820, 840)
+    const cb = guardVerdictAt(both, 'p-05', 820, demoInput(both, 20, 'apt-09', guard, doors, on('p-05', 845, 20)))!
+    expect(cb.gapNote).toEqual({ dead: 10, salvage: 70, lostMenus: [] })
+    expect(cb.sentence).toBe('何も入らない空きが10分増えます')
+    expect(warnFaceFor(warnInput(cb, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
   })
 
   it('P14/P15 — the four lines are spelled ONCE, no TOTAL rides this axis, and the rest leg is hoisted once per rail', () => {
