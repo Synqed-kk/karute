@@ -107,6 +107,7 @@ jest.mock('@/lib/supabase/service', () => ({
 
 import {
   ASSEMBLE_AFTER_DEFAULT_MS,
+  ASSEMBLE_AFTER_MIN_MS,
   ASSEMBLE_AFTER_MS,
   MAX_TAKES_PER_RUN,
   assembleAfterMsFromEnv,
@@ -1174,8 +1175,38 @@ describe('the wait before a take counts as abandoned', () => {
     },
   )
 
+  it.each([
+    ['299999', ASSEMBLE_AFTER_DEFAULT_MS],
+    ['300000', 300000],
+  ])('the 5-minute floor: %s -> %p', (raw, expected) => {
+    expect(assembleAfterMsFromEnv(raw)).toBe(expected)
+  })
+
+  it('ASSEMBLE_AFTER_MIN_MS is 5 minutes', () => {
+    expect(ASSEMBLE_AFTER_MIN_MS).toBe(5 * 60 * 1000)
+  })
+
   it('defaults to 48 hours, and that is what the job runs on in this suite', () => {
     expect(ASSEMBLE_AFTER_DEFAULT_MS).toBe(48 * 60 * 60 * 1000)
-    expect(ASSEMBLE_AFTER_MS).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+    // Isolated from this suite's own cached import of the module, so the env
+    // var actually takes effect (it is read once at module load).
+    const saved = process.env.ASSEMBLE_AFTER_MS
+    try {
+      process.env.ASSEMBLE_AFTER_MS = '300000'
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const m = require('@/lib/recording/assembler')
+        expect(m.ASSEMBLE_AFTER_MS).toBe(300000)
+      })
+      delete process.env.ASSEMBLE_AFTER_MS
+      jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const m = require('@/lib/recording/assembler')
+        expect(m.ASSEMBLE_AFTER_MS).toBe(ASSEMBLE_AFTER_DEFAULT_MS)
+      })
+    } finally {
+      if (saved === undefined) delete process.env.ASSEMBLE_AFTER_MS
+      else process.env.ASSEMBLE_AFTER_MS = saved
+    }
   })
 })

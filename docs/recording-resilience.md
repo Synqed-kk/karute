@@ -75,7 +75,8 @@ Raising the storage limit does **not** fix any of these — the fix is architect
   job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
   take from the segments it left behind, once they have gone 48 hours
   untouched (the 48 hours are the default of the server setting
-  `ASSEMBLE_AFTER_MS`; it is shortened only for a proof and reset after). It
+  `ASSEMBLE_AFTER_MS`, minimum 5 minutes; it is shortened only for a proof
+  and reset after). It
   concatenates the contiguous run from the first segment, ADDS the result
   **beside** the take — at `rsc/<the take's own key>`, never on it —
   and files one `recording.capture_resumed` audit row that says plainly how many

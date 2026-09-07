@@ -105,13 +105,22 @@ import { newSynqedClient } from '@/lib/synqed/client'
  *  default. It exists so a proof can shorten the wait on a test tenant; it is
  *  set in production only for a proof window and removed after. Unset, blank
  *  or invalid values (NaN, 0, negative, Infinity) fall back to 48 hours. Read
- *  once at module load — a change needs a new deployment, like every env var. */
+ *  once at module load — a change needs a new deployment, like every env var.
+ *
+ *  FLOOR: values under 5 minutes fall back to the default. WHY A FLOOR: a
+ *  rescue is written ONCE (upsert:false, never replaced — audio is never
+ *  deleted); a take rescued while its phone was merely paused keeps only
+ *  that prefix if the phone later sends more segments but never finalizes.
+ *  The 48-hour default makes that vanishingly rare; the floor keeps a proof
+ *  from making it common. When the phone DOES finalize, its whole object
+ *  wins at every reader (amendment 9) and nothing is lost. */
 export const ASSEMBLE_AFTER_DEFAULT_MS = 48 * 60 * 60 * 1000
+export const ASSEMBLE_AFTER_MIN_MS = 5 * 60 * 1000
 
 export function assembleAfterMsFromEnv(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return ASSEMBLE_AFTER_DEFAULT_MS
   const n = Number(raw)
-  return Number.isFinite(n) && n > 0 ? n : ASSEMBLE_AFTER_DEFAULT_MS
+  return Number.isFinite(n) && n >= ASSEMBLE_AFTER_MIN_MS ? n : ASSEMBLE_AFTER_DEFAULT_MS
 }
 
 export const ASSEMBLE_AFTER_MS = assembleAfterMsFromEnv(process.env.ASSEMBLE_AFTER_MS)
