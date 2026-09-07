@@ -73,8 +73,14 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
       // record, so take-1's row must not make take-2 look like a regular.
       recordingSessionId: parsed.data.recordingSessionId,
     })
+    // ⚖ A FACT ABOUT THE CUSTOMER, NOT ABOUT THE REQUEST (fix round 6, R6 —
+    // the same parity rule R3 applied to the from-session twin, on the door
+    // that actually meets this refusal: every device save sends an `outcome`).
+    // `validation` reads as "your request was malformed", which the thin port
+    // then folds into a retryable blip; 422 `not_returning` says the label
+    // cannot be true for this person, which no amount of tapping changes.
     if (eligibility === 'not_returning') {
-      throw new AppApiError('validation', 'revisit requires a returning customer')
+      throw new AppApiError('not_returning', 'revisit requires a returning customer')
     }
     // Pre-persist: nothing is queued yet, so failing honestly is free. A
     // retryable shape, never a 400 — the client did nothing wrong.
