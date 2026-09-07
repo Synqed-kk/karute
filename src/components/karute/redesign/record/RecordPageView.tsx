@@ -32,6 +32,7 @@ import {
 import { drainOwedTakes } from '@/lib/recording/owed-drain'
 import { loadInbox, useRecordingsInbox } from '@/lib/recordings/inbox-store'
 import type { InboxRow } from '@/lib/recordings/inbox'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { globalRecorder, SECURE_MINT_AWAIT_MS } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
@@ -1151,7 +1152,14 @@ export function RecordPageView({
       // discardReasonSubmittingRef.current is set true above, before any
       // await, and startRecoveryFlow refuses to start ANY save (tap, inbox,
       // auto-finish, repoint continuation — every entry routes through it)
-      // while that ref is true. So a save can exist at this gate only if it
+      // while that ref is true. Since build 23 slice ③ there is a SECOND entry
+      // that does not route through startRecoveryFlow — startServerSave, for a
+      // row whose audio is on the server and not on this device — and it reads
+      // the same ref for the same reason (fix round 1, R5) AND re-reads it
+      // after EACH of the two awaits it makes before the door — its own consent
+      // round trip (fix round 2, R2) and, on the dialog path, the consent GRANT
+      // (fix round 3, R4). So the sentence above holds across
+      // both. So a save can exist at this gate only if it
       // started BEFORE this confirm call began, which this pre-await check
       // already catches on the live ref. A dedicated post-await recheck was
       // built and mutation-tested here first; the mutation run proved it
@@ -1783,6 +1791,25 @@ export function RecordPageView({
   // Synchronous single-flight for the whole recovery save (state reads stale
   // mid-tick — same reason resolvingOutcomeRef is a ref).
   const recoverySavingRef = useRef(false)
+  // ⚖ THE SERVER SAVE KEEPS ITS OWN LATCH (build 23 slice ③). It shares nothing
+  // with the recovery flow above — no offer, no take, no money legs, no
+  // dialogs — so it must not take the latch that greys the banner and gates
+  // every one of those. It only READS recoverySavingRef, to refuse starting
+  // while a take-based save is under way.
+  const serverSavingRef = useRef(false)
+  /** An UNBOUND server-audio row waiting for its customer (slice ③). Its own
+   *  state, deliberately not `repointOpen`: that picker renders off the take
+   *  flow's frozen `offer` and its exit continues the take flow. A row with no
+   *  take has no offer, so reusing it would mean teaching the take flow about
+   *  a save that never enters it. */
+  const [serverSaveRow, setServerSaveRow] = useState<InboxRow | null>(null)
+  /** The row whose server save is IN FLIGHT — the visible half of the latch
+   *  above (R6). A ref cannot re-render; this is what greys the one button. */
+  const [serverSavingId, setServerSavingId] = useState<string | null>(null)
+  /** A server save waiting on a consent grant (R10a). */
+  const [serverConsent, setServerConsent] = useState<{ row: InboxRow; customerId: string } | null>(
+    null,
+  )
   // A SECOND, narrower latch for the popup's own 保存: the outer one spans the
   // whole flow (it is what greys the banner), so feeding it to the dialog's
   // `saving` prop would leave the dialog's own button disabled from the moment
@@ -1903,7 +1930,18 @@ export function RecordPageView({
    * picker `handleRecoverySaveTap` opens, whose exit continues the save.
    */
   function handleInboxSaveTake(row: InboxRow) {
-    if (recoverySavingRef.current || !row.takeId) return
+    if (recoverySavingRef.current) return
+    // ⚖ NO TAKE ON THIS DEVICE (build 23 slice ③). The audio is on the SERVER,
+    // so there is nothing here to promote into the recovery offer and nothing
+    // for the flow below to freeze: this row goes through its own door. Bound
+    // → straight there; unbound → the picker IS the save's first step, the same
+    // shape the banner uses for a take with no binding.
+    if (!row.takeId) {
+      if (!row.serverAudio || !row.recordingSessionId) return
+      if (row.customerId) void startServerSave(row, row.customerId)
+      else setServerSaveRow(row)
+      return
+    }
     const wanted = row.takeId
     void (async () => {
       // Re-read rather than trusting the rendered row: the take may have been
@@ -1933,6 +1971,166 @@ export function RecordPageView({
       if (dest) setPendingStart(dest)
       else setRepointOpen(true)
     })()
+  }
+
+  /**
+   * 保存する on a row whose audio is on the SERVER (build 23 slice ③).
+   *
+   * One call, and deliberately nothing else: the door reads the session row,
+   * proves the object is really in the bucket, derives the storage path from
+   * that row and queues the ordinary worker job. What comes back on screen is
+   * the job — the next fold reads it as 処理中「サーバーで文字起こし中」 and the
+   * row lands at 保存済み when the worker is done. No new save writer exists
+   * here, and none is added: this is the SAME pipeline every server-path
+   * recording already goes through, entered from the row instead of from a
+   * device that just stopped recording.
+   *
+   * No success toast, on purpose — the row itself is the report, and a second
+   * one would claim the karute exists when what exists is a queued job.
+   */
+  /** Drop the server save's latch and un-grey its row. Every path that takes
+   *  the latch ends here, including the door's own (below, after the reload). */
+  function releaseServerSave() {
+    serverSavingRef.current = false
+    setServerSavingId(null)
+  }
+
+  async function startServerSave(row: InboxRow, customerId: string) {
+    // ⚖ THE WHOLE SEAL, all three (fix round 1, R5). `discardReasonSubmittingRef`
+    // is the one the first cut missed: startRecoveryFlow refuses for as long as
+    // a discard confirm is mid-commit, and its comment calls the pair "the whole
+    // seal — no save can start anywhere between a discard confirm and its
+    // landing". A third entry that did not honour it would be a hole in that
+    // sentence, whether or not a real row can reach it today.
+    if (
+      serverSavingRef.current ||
+      recoverySavingRef.current ||
+      discardReasonSubmittingRef.current ||
+      !row.recordingSessionId
+    )
+      return
+
+    // ⚖ ONE LATCH, TAKEN FIRST, HELD TO THE END (fix round 2, R2). Round 1 took
+    // it inside runServerSave — AFTER the consent read below, which on a phone
+    // is a facade round trip and is the first thing every single tap does. So
+    // the window R6 was written to close was still open at full width on 100%
+    // of taps: the row unchanged, the 保存する still solid and enabled, and a
+    // second tap buying a second consent read. Taken here, in the same
+    // synchronous block as the guard above, nothing can slip between them.
+    serverSavingRef.current = true
+    setServerSavingId(row.recordingSessionId)
+
+    // ⚖ CONSENT BEFORE THE DOOR (fix round 1, R10a). The take-based save gates
+    // on this and opens the grant dialog; the server save must too — and here
+    // it matters MORE, because the unbound path lets a staffer pick a customer
+    // from search who may never have consented. Without the gate the worker
+    // refuses (fail-closed, correctly), the job goes FAILED, and the row's one
+    // affordance is spent on a save that could never have landed. FAIL-CLOSED
+    // on an unreadable answer, exactly as beginRecoverySave does.
+    let consentCurrent = false
+    try {
+      const { consent } = await getCustomerConsent(customerId)
+      consentCurrent = isConsentCurrent(consent)
+    } catch {
+      consentCurrent = false
+    }
+
+    // ⚖ …AND THE SEAL CAN CLOSE WHILE WE WERE ASKING (fix round 2, R2). R5's
+    // check above is pre-await only, so a discard confirm that commits DURING
+    // the consent read used to sail through into the door — a hole in the take
+    // flow's own sentence about the pair of guards. Re-read, on the live refs.
+    if (discardReasonSubmittingRef.current || recoverySavingRef.current) {
+      releaseServerSave()
+      return
+    }
+    if (!consentCurrent) {
+      // The latch stays DOWN across the dialog: it is the same save, still in
+      // flight from the staffer's point of view. Cancel releases it; the grant
+      // continues to the door still holding it.
+      setConsentError(null)
+      setServerConsent({ row, customerId })
+      return
+    }
+    await runServerSave(row, customerId)
+  }
+
+  /** The server save itself, past the gates. Split out so the consent dialog's
+   *  confirm can resume it without re-asking the question it just answered.
+   *
+   *  It does NOT take the latch: since fix round 2 both callers arrive holding
+   *  it (R2), and re-taking it here is what put the take AFTER the consent
+   *  read in the first place. The `finally` below is its one release point. */
+  async function runServerSave(row: InboxRow, customerId: string) {
+    if (!row.recordingSessionId) return
+    try {
+      const result = await getRecordingPipelinePort().enqueueJobFromSession({
+        recordingSessionId: row.recordingSessionId,
+        customerId,
+        locale,
+      })
+      // The same honest surface the take-based save uses for its own refusals.
+      // Every arm of the door's union is a settled answer, never a throw, so
+      // one message covers all of them — including `discarded`, whose row
+      // re-folds to 破棄済み on the reload below and says the rest itself.
+      if ('error' in result) toast.error(t('recoverSaveFailed'))
+    } catch {
+      toast.error(t('recoverSaveFailed'))
+    } finally {
+      // ⚖ HOLD THE LATCH THROUGH THE RELOAD (R6). Dropping it before the
+      // re-read left a live 保存する over a row that had not changed yet, and a
+      // second tap fired a second enqueue — proven in jsdom. `loadInbox` never
+      // rejects (inbox-store catches both halves), so `.finally` always runs,
+      // and since fix round 2 (R2) its single-flight path hands back the read
+      // already running instead of resolving on the spot, so the latch follows
+      // a fold this call did not start.
+      void loadInbox().finally(releaseServerSave)
+    }
+  }
+
+  /** The server save's own consent gate (R10a). Its customer is not the
+   *  screen's bound one and it carries no recovery flow, so it gets its own
+   *  small state rather than overloading `consentFlow`, which is a frozen
+   *  RecoveryFlow a server row can never produce.
+   *
+   *  It INHERITS the latch startServerSave took (R2) and hands it to the door
+   *  once it has re-read the seal across the grant's own await (R4) — so the
+   *  row stays greyed from the tap, through the dialog, to the reload, and a
+   *  discard that lands mid-grant stands the save down instead. A refusal here
+   *  leaves the dialog (and the latch) up for the staffer to answer or cancel;
+   *  cancel is the release. */
+  async function handleGrantServerConsent() {
+    const pending = serverConsent
+    if (!pending || consentSubmitting) return
+    setConsentSubmitting(true)
+    setConsentError(null)
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(pending.customerId, { method: 'VERBAL' })
+    } catch {
+      // A transport failure must release the dialog, not wedge it.
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
+    setConsentSubmitting(false)
+    if (!r.ok) {
+      setConsentError(r.error)
+      return
+    }
+    setServerConsent(null)
+    // ⚖ THE GRANT IS A SECOND AWAIT BEFORE THE DOOR (fix round 3, R4). On a
+    // phone it is another facade round trip, and the seal can close across it
+    // exactly as it can across the consent read — so the same two refs are
+    // re-read here rather than trusting startServerSave's check from before
+    // the dialog went up. Not reachable through the UI today (the consent
+    // dialog's own backdrop is what fences it), but confirmDiscardReason's
+    // comment claims this door makes no unguarded await, and that sentence is
+    // load-bearing: a post-await recheck was deleted there on its strength.
+    if (discardReasonSubmittingRef.current || recoverySavingRef.current) {
+      releaseServerSave()
+      return
+    }
+    await runServerSave(pending.row, pending.customerId)
   }
 
   /** A-1 ① — FREEZE, then run. Everything downstream takes this object as an
@@ -3222,6 +3420,7 @@ export function RecordPageView({
         customerNameById={customerNameById}
         onOpenRecord={handleInboxOpenRecord}
         onSaveTake={handleInboxSaveTake}
+        savingSessionId={serverSavingId}
         myDiscardsThisMonth={myDiscardsThisMonth}
       />
 
@@ -3475,6 +3674,44 @@ export function RecordPageView({
         />
       )}
 
+      {/* ⚖ お客様を選んで保存する, for a row whose audio is on the SERVER and
+          carries no customer (build 23 slice ③).
+
+          The SAME picker in the SAME repoint variant as the block above — and
+          deliberately its own mount, not the same one. That block renders off
+          `offer`, the take flow's frozen recovery offer, and its exit
+          (repointTo) continues the take flow; a server row has no take, so it
+          has no offer, and reusing that state would mean teaching the take
+          flow's invariants about a save that never enters it.
+
+          `pinned={null}` is what turns the search box ON (⚖ 8/21 doctrine ⑥):
+          this row has no original binding for the day restriction to anchor
+          on, exactly like an unbound take. `bookings={[]}` because the day's
+          bookings live on the take flow's own facts fetch — the staffer types
+          the name, which is the same trust tier the walk-in pick-at-review
+          path has always had over the same `customers` prop. */}
+      {serverSaveRow && (
+        <RecordCustomerPickerDialog
+          variant="repoint"
+          customers={customers}
+          bookings={[]}
+          pinned={null}
+          dayLabel={formatCompactDateJst(new Date(serverSaveRow.startedAt), locale)}
+          cancelLabel={tc('cancel')}
+          onClose={() => setServerSaveRow(null)}
+          onSelectBooking={(booking) => {
+            const row = serverSaveRow
+            setServerSaveRow(null)
+            if (booking.customerId) void startServerSave(row, booking.customerId)
+          }}
+          onSelectCustomer={(id) => {
+            const row = serverSaveRow
+            setServerSaveRow(null)
+            void startServerSave(row, id)
+          }}
+        />
+      )}
+
       {/* PR-B1 — the recovery save's consent gate. Its customer may not be the
           screen's bound one, so it carries its own FROZEN flow rather than
           overloading the start-gate dialog below. */}
@@ -3488,6 +3725,29 @@ export function RecordPageView({
             releaseRecoverySave()
           }}
           onConfirm={() => void handleGrantRecoveryConsent()}
+        />
+      )}
+
+      {/* R10a — the server save's own consent gate. Same dialog, same wording;
+          its customer comes from the inbox row (or the picker), never from the
+          screen's binding, so it carries its own tiny state rather than a
+          RecoveryFlow it could never produce. */}
+      {serverConsent && (
+        <RecordingConsentDialog
+          customerName={
+            serverConsent.row.customerName ??
+            customerNameById.get(serverConsent.customerId) ??
+            t('recoverCustomerUnknown')
+          }
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={() => {
+            // The save the tap started ends here, so its latch does too —
+            // otherwise a cancelled dialog would leave the row wedged (R2).
+            setServerConsent(null)
+            releaseServerSave()
+          }}
+          onConfirm={() => void handleGrantServerConsent()}
         />
       )}
 

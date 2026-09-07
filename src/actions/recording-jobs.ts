@@ -15,10 +15,16 @@
 import { headers } from 'next/headers'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, viewerScopeForActs } from '@/lib/auth/store-scope'
+import { holdsOwnerKeys } from '@/lib/auth/permissions'
 import { isOwnRecordingKey } from '@/lib/recording/key-grammar'
+import {
+  enqueueFromSessionWithClient,
+  type EnqueueFromSessionInput,
+  type EnqueueFromSessionResult,
+} from '@/lib/recording/enqueue-from-session'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -96,6 +102,72 @@ export async function enqueueRecordingJob(
   } catch (err) {
     console.error('[enqueueRecordingJob] failed:', err)
     return { error: 'Failed to enqueue the recording job.' }
+  }
+}
+
+/**
+ * 保存する on a 録音履歴 row whose audio is on the SERVER (build 23 slice ③).
+ *
+ * The web twin of POST /api/app/v1/recordings/job/from-session. It takes NO
+ * audio path — the shared body derives it from the row — so unlike its
+ * enqueueRecordingJob sibling above there is no client-supplied key to fence
+ * here at all. Attribution and store scope are resolved from the cookie
+ * session exactly as the sibling resolves them.
+ */
+export async function enqueueRecordingJobFromSession(
+  input: EnqueueFromSessionInput,
+): Promise<EnqueueFromSessionResult> {
+  try {
+    // Same gate as every other act a 録音履歴 row offers: records.write.
+    await requireCapability('records.write')
+    if (!input?.recordingSessionId || !input.customerId) {
+      return { error: 'not_found' }
+    }
+
+    const [synqed, businessId, profileStaffId, scope, capabilities] = await Promise.all([
+      getSynqedClient(),
+      getBusinessId(),
+      getCurrentUserStaffId(),
+      resolveStoreScope(),
+      getMyCapabilities(),
+    ])
+    // The worker runs without a session, so attribution is captured NOW — the
+    // same rule, from the same resolver, as the sibling above.
+    const jobStaffId = profileStaffId
+      ? await resolveSynqedStaffId(profileStaffId).catch(() => profileStaffId)
+      : null
+    if (!jobStaffId) return { error: 'forbidden' }
+
+    // ③ THE OWNER'S HAND REACHES ONLY WHERE THE PERSON CAN SEE (PR-B's rule,
+    // resolved here exactly as finalizeTake's web caller resolves it — one
+    // spelling of the act scope, viewerScopeForActs). Only when the pair is
+    // held: a recorder saving her OWN session never reaches the store leg, so
+    // an assignment blip must not cost her the recording. `null` here would
+    // read as UNCLAMPED under the D7 null rule, so it is never typed — it is
+    // what the resolver answers for a caller who genuinely has no restriction.
+    const pairHeld = holdsOwnerKeys(capabilities)
+    const allowedStoreIds = pairHeld ? await viewerScopeForActs() : null
+
+    const result = await enqueueFromSessionWithClient(
+      synqed,
+      {
+        staffId: profileStaffId,
+        businessId,
+        holdsOwnerKeys: pairHeld,
+        allowedStoreIds,
+        source: 'web',
+        jobStaffId,
+        storeId: scope.storeId,
+      },
+      input,
+    )
+    // Kick the worker on this deployment so the job starts now rather than at
+    // the next minute tick — the cron stays the safety net (sibling's rule).
+    if ('ok' in result) void kickWorker()
+    return result
+  } catch (err) {
+    console.error('[enqueueRecordingJobFromSession] failed:', err)
+    return { error: 'upstream' }
   }
 }
 

@@ -613,6 +613,7 @@
     "pipelineErrorEmptyTranscript": "No speech could be recognized. Please check that the recording contains audio and try again.",
     "pipelineErrorConsentRequired": "Recording consent is required. Please obtain consent and try again.",
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
+    "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
@@ -766,7 +767,9 @@
         "autoSaved": "This recording was saved automatically (nobody has checked it yet)",
         "genericFailure": "This recording was not saved",
         "localAudio": "The audio is still on this device (unsaved)",
-        "tailIncomplete": "The recording ends partway (you can save what is left on this device)"
+        "tailIncomplete": "The recording ends partway (you can save what is left on this device)",
+        "serverAudio": "Audio is on the server (not saved yet; may end partway)",
+        "partialOnServer": "Audio reached the server partway (you'll be able to save it within a few days)"
       },
       "action": {
         "open": "Open",

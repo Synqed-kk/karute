@@ -41,6 +41,29 @@ describe('PipelineErrorCard (localized pipeline failures)', () => {
     expect(screen.getByText(/処理中にエラーが発生しました/)).toBeTruthy()
   })
 
+  it('⚖ R7: a DISCARDED code renders its own sentence and NO retry button', () => {
+    // A staff member threw this recording away and wrote why. Core re-arms the
+    // same job on every retry and the worker refuses it on exactly the same
+    // ground, so a 再試行 here could never land. Cancel stays — the staffer
+    // still has to leave the screen.
+    render(<PipelineErrorCard code="discarded" onCancel={noop} onRetry={noop} />)
+    expect(screen.getByText(/この録音はスタッフが破棄したため/)).toBeTruthy()
+    expect(screen.queryByText(/処理中にエラーが発生しました/)).toBeNull()
+    expect(screen.queryByRole('button', { name: '再試行' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeTruthy()
+  })
+
+  it('the three existing codes keep their retry button', () => {
+    const { rerender } = render(
+      <PipelineErrorCard code="empty-transcript" onCancel={noop} onRetry={noop} />,
+    )
+    expect(screen.getByRole('button', { name: '再試行' })).toBeTruthy()
+    rerender(<PipelineErrorCard code="consent-required" onCancel={noop} onRetry={noop} />)
+    expect(screen.getByRole('button', { name: '再試行' })).toBeTruthy()
+    rerender(<PipelineErrorCard code={null} onCancel={noop} onRetry={noop} />)
+    expect(screen.getByRole('button', { name: '再試行' })).toBeTruthy()
+  })
+
   it('wires retry and cancel', () => {
     const onCancel = jest.fn()
     const onRetry = jest.fn()

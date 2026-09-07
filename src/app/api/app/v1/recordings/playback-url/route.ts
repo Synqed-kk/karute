@@ -78,12 +78,15 @@ export const GET = facadeHandler('recordings.playbackUrl', async (ctx) => {
   )
 
   if ('error' in result) {
-    // no_audio is a 404 WITH A REASON: the karute exists, the sound does not.
-    // The reason rides the body so the log stream can tell the two 404s apart.
+    // ⚖ THE CODE IS THE REASON (fix round 6, R5 — the same parity rule the
+    // from-session door earned one door over). This used to answer 404
+    // `not_found` with a `detail.reason` beside it, so the phone heard
+    // `not_found` where the web arm says `no_audio`: the thin port drops
+    // `detail` on every arm and passes `error.code` through, so the reason
+    // never crossed. The karute exists; the sound does not, and now the wire
+    // says so. The log stream reads the code.
     if (result.error === 'no_audio') {
-      throw new AppApiError('not_found', 'no playable audio for this karute', {
-        reason: 'no_audio',
-      })
+      throw new AppApiError('no_audio', 'no playable audio for this karute')
     }
     if (result.error === 'not_found') throw new AppApiError('not_found', 'karute not found')
     if (result.error === 'forbidden') {

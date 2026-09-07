@@ -19,6 +19,10 @@ import type {
   RecordingJobStatusView,
 } from '@/actions/recording-jobs'
 import type {
+  EnqueueFromSessionInput,
+  EnqueueFromSessionResult,
+} from '@/lib/recording/enqueue-from-session'
+import type {
   FinalizeTakeInput,
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
@@ -427,6 +431,62 @@ export const viteRecordingPort: RecordingPipelinePort = {
     }
     return body as { ok: true; jobId: string; status: string }
   },
+  async enqueueJobFromSession(input: EnqueueFromSessionInput): Promise<EnqueueFromSessionResult> {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/job/from-session', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // Same derivation as enqueueJob above. A stable per-session key would
+        // buy nothing here: core's enqueue is already idempotent per recording
+        // session (it re-arms rather than minting a second job), and the door
+        // bounds this header at the trust boundary expecting the 36-char uuid
+        // every other client sends.
+        'idempotency-key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(input),
+    })
+    const body = (await res.json().catch(() => null)) as
+      | { ok: true; jobId: string; status: string }
+      | { error?: { code?: string } }
+      | null
+    if (!res.ok || !body || !('ok' in body)) {
+      // The facade names its refusal in `error.code` (forbidden / store_forbidden
+      // / tenant_forbidden / not_found / no_audio / conflict / not_returning /
+      // validation / upstream_unavailable). Mapped onto the shared body's own
+      // closed union so both arms answer the caller in one vocabulary; anything
+      // that named nothing — a proxy page, an auth blip — is `upstream`, the
+      // retryable arm.
+      const code = (body as { error?: { code?: string } } | null)?.error?.code
+      // ALL THREE 403 CODES ARE ONE REFUSAL (fix round 4, R4). The port's own
+      // contract is "403 → forbidden", and the store clamp runs BEFORE the
+      // shared body on this route, so `store_forbidden` is reachable here;
+      // `tenant_forbidden` is normalised the same way by FACADE_CODE_TO_MINT in
+      // this very file. Leaving them to fall through would have called a 403
+      // retryable. `store_forbidden` covers one true out-of-scope refusal AND
+      // two fail-CLOSED lookups (store-clamp.ts:43-48) — the wire cannot tell
+      // them apart, so the port takes the status at its word. Nothing branches
+      // on the difference today: runServerSave shows one toast for every arm.
+      if (code === 'forbidden' || code === 'store_forbidden' || code === 'tenant_forbidden')
+        return { error: 'forbidden' }
+      // 409 — a staff member deliberately discarded this recording. Terminal,
+      // and worth keeping distinct from the retryable arms: no amount of
+      // tapping changes a decision somebody already made and explained.
+      if (code === 'conflict') return { error: 'discarded' }
+      // THREE TERMINAL FACTS, EACH BY ITS OWN NAME (fix round 6, R3). The door
+      // used to answer 404 for two different things and `validation` for a
+      // third; now it says which. `not_found` = no such session in this
+      // business. `no_audio` = the session exists and the server holds nothing
+      // at either key. `not_returning` = a settled fact about the CUSTOMER,
+      // terminal like `discarded`. None of the three is retryable, and the
+      // shared body already spells all three — the port only has to stop
+      // losing them. `validation` (a malformed request) stays `upstream`.
+      if (code === 'no_audio') return { error: 'no_audio' }
+      if (code === 'not_returning') return { error: 'not_returning' }
+      if (code === 'not_found') return { error: 'not_found' }
+      return { error: 'upstream' }
+    }
+    return body
+  },
   async mintPlaybackUrl(karuteId: string) {
     const res = await getDataPort().apiFetch(
       `/api/app/v1/recordings/playback-url?karuteId=${encodeURIComponent(karuteId)}`,
@@ -437,9 +497,9 @@ export const viteRecordingPort: RecordingPipelinePort = {
       | null
     if (!res.ok || !body || !('url' in body) || typeof body.url !== 'string') {
       // The facade names its refusal in `error.code` (forbidden / not_found /
-      // validation / upstream_unavailable). `mint_<status>` is the fallback for
-      // a non-2xx that named nothing — a proxy page, an auth blip — so the card
-      // still has something honest to log.
+      // no_audio / validation / upstream_unavailable). `mint_<status>` is the
+      // fallback for a non-2xx that named nothing — a proxy page, an auth
+      // blip — so the card still has something honest to log.
       const code = (body as { error?: { code?: string } } | null)?.error?.code
       return { error: typeof code === 'string' ? code : `mint_${res.status}` }
     }

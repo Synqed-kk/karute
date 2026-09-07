@@ -31,13 +31,32 @@
  *    probe per row: recordingDiscards.list has no date or session-set filter,
  *    so the only shapes available are "everything" or "one session at a time",
  *    and the latter would be a second N+1 across the WHOLE window rather than
- *    the residue. Sessions carrying a STAFF row render as 破棄済み.
+ *    the residue. Sessions carrying a STAFF row render as 破棄済み, and only
+ *    that — the fold's first branch, ahead of everything.
+ *  - WHAT THE SERVER HOLDS (`serverAudio`, build 23 slice ③) is derived at the
+ *    very end, for the narrow cohort below. STORAGE answers it, never the row
+ *    (⚖ D8', hardened by fix round 1's R1): a take the nightly assembler
+ *    rebuilt carries a rebuilt OBJECT and a duration that is still null — core
+ *    fences the duration write behind a human actor, so no cron can stamp one —
+ *    while a reasoned DISCARD stamps a duration with no object behind it at
+ *    all. So neither the presence nor the absence of a duration is evidence
+ *    here: the take's segment folder is listed, and only a folder holding seq 0
+ *    is asked where its audio is — the phone's own object first, the nightly
+ *    rescue beside it (amendment 9). The one raw fact the derivation reads —
+ *    the storage pointer — stays in a LOCAL map and never reaches the returned
+ *    rows: this read's output is the facade's wire shape, and that shape
+ *    carries metadata only.
  */
 
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from '@/lib/customers/paginate'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
-import { INBOX_WINDOW_MS, type InboxServerSession } from './inbox'
+import { parseRecordingKey } from '@/lib/recording/key-grammar'
+import {
+  INBOX_WINDOW_MS,
+  SESSION_UNSETTLED_GRACE_MS,
+  type InboxServerSession,
+} from './inbox'
 
 /**
  * BOTH list endpoints this file calls REJECT a page_size above 200 — they do
@@ -62,6 +81,24 @@ const MAX_JOB_PROBES = 100
  *  rows; the pool only matters on a genuinely broken tenant. */
 const PROBE_CONCURRENCY = 6
 
+/** The STORAGE probes' own cap (slice ③). Deliberately the same number as the
+ *  job budget above, and named separately so a future change to one is not a
+ *  silent change to the other: these are a different kind of round trip, to a
+ *  different service, on a narrower cohort.
+ *
+ *  ponytail: since R3 the candidate set is a SUBSET of the job-probed rows, so
+ *  at equal numbers this cap can never bite — the job cap dominates it. It
+ *  stays because that is a coincidence of the two constants, not a property:
+ *  raise MAX_JOB_PROBES alone and this is the only thing bounding storage.
+ *
+ *  ⚖ …and that coincidence made R3's own pin VACUOUS (fix round 2, R3). With
+ *  both caps equal AND sorted the same way, a fixture one row over the job cap
+ *  is dropped by the AUDIO cap too, so removing the job-cap fence changed no
+ *  assertion — the mutant survived a cold battery run. Both numbers are
+ *  overridable through InboxReadDeps for that reason, so a test can make them
+ *  diverge and leave exactly one explanation for an excluded row. */
+const MAX_AUDIO_PROBES = MAX_JOB_PROBES
+
 /** Pages of the discard ledger read per pass. Discards are rare by nature, so
  *  20 × 200 is years of them.
  *  ponytail: past the cap the OLDEST discards stop being recognised and their
@@ -78,10 +115,16 @@ const MAX_DISCARD_PAGES = 20
  * not blank the whole 録音履歴. The cost of degrading is that a discarded
  * session reads as it did before P5-A for one render — honest-if-stale, and
  * strictly better than showing the staffer nothing.
+ *
+ * ⚖ …BUT THE DEGRADATION IS NOW REPORTED (fix round 1, R9b). Reading as it did
+ * before P5-A was harmless while the worst a discarded row could do was look
+ * 失敗. Since slice ③ the same blindness would offer 保存する over audio a
+ * staff member deliberately threw away — so the caller is told, and stands the
+ * whole server-audio derivation down for that pass.
  */
 async function readStaffDiscardedSessions(
   synqed: Pick<SynqedClient, 'recordingDiscards'>,
-): Promise<Set<string>> {
+): Promise<{ discarded: Set<string>; degraded: boolean }> {
   const discarded = new Set<string>()
   try {
     for (let page = 1; page <= MAX_DISCARD_PAGES; page++) {
@@ -98,9 +141,104 @@ async function readStaffDiscardedSessions(
     }
   } catch (err) {
     console.warn('[recordings-inbox] discard ledger read degraded:', err)
-    return new Set()
+    return { discarded: new Set(), degraded: true }
   }
-  return discarded
+  return { discarded, degraded: false }
+}
+
+/**
+ * Does the server hold this take's SEGMENTS — is seq 000000 in its folder?
+ *
+ * The cheapest honest read there is: ONE listing of the take's own folder,
+ * limit 1, name ascending. Seq 0 present means the recorder's very first flush
+ * landed, which is exactly what the nightly assembler needs to seal a prefix;
+ * a folder whose first leaf is anything else has no prefix to assemble and the
+ * row must not claim one. `'unknown'` on any storage trouble — a blip is not
+ * an answer, and the caller leaves the row exactly as it was.
+ */
+export type SegmentsProbe = (businessId: string, takeKey: string) => Promise<boolean | 'unknown'>
+
+/**
+ * WHERE THIS TAKE'S AUDIO ACTUALLY IS — the phone's own object, the nightly
+ * rescue beside it, or neither.
+ *
+ * ⚖ THE PROOF, NOT THE ROW (D8' amendment). A take the assembler rebuilt has
+ * bytes and a duration that is still null — core fences `recordings.update`
+ * behind a human actor, so no cron can stamp one — and the row's own
+ * `finalizedBefore` reads false for exactly the rescue this feature exists to
+ * surface. Storage is the only honest witness.
+ *
+ * ⚖ AND THE RESCUE LIVES AT ITS OWN KEY (amendment 9, Liam "b"). Since the
+ * assembler stopped writing under the take's own key there are two places to
+ * look, in one fixed precedence, and `resolveTakeAudio` is that precedence's
+ * ONE home — asked here through a seam so the suites can answer it without a
+ * bucket. The INBOX does not care which of the two answered: 保存する saves
+ * whatever the server holds, and the door resolves the path again for itself.
+ */
+export type TakeAudioProbe = (
+  businessId: string,
+  takeId: string,
+  ext: string,
+) => Promise<{ key: string; rescued: boolean } | 'absent' | 'unknown'>
+
+/** The one storage call each probe makes, as a seam. Both PRODUCTION probes are
+ *  built over one of these rather than reaching for a client themselves — the
+ *  fix-round-1 lesson: a default nothing can call is a default nothing tests,
+ *  and the seq-0 rule below was the load-bearing line with no pin on it. */
+type ListFn = (
+  folder: string,
+  opts: { limit: number; sortBy: { column: string; order: string } },
+) => Promise<{ data: Array<{ name: string }> | null; error: unknown }>
+
+/** The REAL segments probe, over whatever `list` it is handed. Exported for its
+ *  own tests; the default below hands it the service client's. */
+export function makeSegmentsProbe(list: ListFn): SegmentsProbe {
+  return async (businessId, takeKey) => {
+    const parsed = parseRecordingKey(takeKey, businessId)
+    // Not this tenant's take → not a folder we may look in. No call at all.
+    if (parsed?.kind !== 'take') return false
+    try {
+      // The folder IS the take key without its extension — composeSegmentKey
+      // builds `seg/app_<biz>_<take>/<seq>.<ext>` from the same two pieces the
+      // pointer carries, and parseRecordingKey above already proved the shape.
+      const folder = takeKey.slice(0, takeKey.lastIndexOf('.'))
+      const { data, error } = await list(`seg/${folder}`, {
+        limit: 1,
+        sortBy: { column: 'name', order: 'asc' },
+      })
+      if (error) {
+        console.warn('[recordings-inbox] segment probe failed:', error)
+        return 'unknown'
+      }
+      // EXACT name equality on the FIRST leaf, never a length check: a folder
+      // whose prefix starts at seq 3 has nothing the assembler can seal, and
+      // painting it 「途中まで届いています」 would promise a rescue that cannot
+      // happen. Named rather than inlined so the rule has a line a mutation
+      // anchor can hold (a backtick cannot ride in one — the battery's own
+      // shell-quoting limit).
+      const firstLeaf = `000000.${parsed.ext}`
+      return data?.[0]?.name === firstLeaf
+    } catch (err) {
+      console.warn('[recordings-inbox] segment probe failed:', err)
+      return 'unknown'
+    }
+  }
+}
+
+const probeTakeAudio: TakeAudioProbe = async (businessId, takeId, ext) => {
+  // Lazy for the same reason the segment default is: the resolver's graph
+  // reaches the service client and the SDK, and nothing that injects its own
+  // probe should have to load either.
+  const { resolveTakeAudio } = await import('@/lib/recording/take-audio')
+  return resolveTakeAudio(businessId, takeId, ext)
+}
+
+const listFirstSegment: SegmentsProbe = async (businessId, takeKey) => {
+  const { createServiceClient } = await import('@/lib/supabase/service')
+  const storage = createServiceClient().storage.from('recordings')
+  return makeSegmentsProbe((folder, opts) =>
+    storage.list(folder, opts as Parameters<typeof storage.list>[1]),
+  )(businessId, takeKey)
 }
 
 export interface InboxReadDeps {
@@ -114,6 +252,20 @@ export interface InboxReadDeps {
    *  getBusinessId(), the Bearer arm from its verified token identity. */
   businessId: string
   now: Date
+  /** How the 'segments' half of `serverAudio` is answered. Injected so the
+   *  suites can answer it without a bucket — and so this read stays the ONE
+   *  place that decides WHEN to ask. Default = the service-client listing
+   *  above. */
+  segmentsProbe?: SegmentsProbe
+  /** How the 'object' half is answered — the phone's object or the rescue
+   *  beside it, through the ONE resolver every reader shares. Injected for the
+   *  same reason. */
+  takeAudioProbe?: TakeAudioProbe
+  /** The two probe budgets, overridable ONLY so a test can make them diverge
+   *  (fix round 2, R3 — see MAX_AUDIO_PROBES above). Production never passes
+   *  them; both defaults are the constants. */
+  maxJobProbes?: number
+  maxAudioProbes?: number
 }
 
 /**
@@ -157,10 +309,14 @@ export async function readRecordingsInbox({
   staffId,
   businessId,
   now,
+  segmentsProbe = listFirstSegment,
+  takeAudioProbe = probeTakeAudio,
+  maxJobProbes = MAX_JOB_PROBES,
+  maxAudioProbes = MAX_AUDIO_PROBES,
 }: InboxReadDeps): Promise<InboxServerSession[]> {
   const from = new Date(now.getTime() - INBOX_WINDOW_MS).toISOString()
 
-  const [sessions, records, discardedSessions] = await Promise.all([
+  const [sessions, records, discardLedger] = await Promise.all([
     paginateDedupe((page) =>
       synqed.recordings
         .list({ staff_id: staffId, from, page, page_size: PAGE_SIZE })
@@ -179,6 +335,17 @@ export async function readRecordingsInbox({
     if (r.recording_session_id) recordBySession.set(r.recording_session_id, r.id)
   }
 
+  /** The ONE row fact the `serverAudio` derivation reads, and the one the WIRE
+   *  must never carry: the storage POINTER (the DTO's rule — metadata only, no
+   *  audio path). Kept here rather than on the row so what this function
+   *  RETURNS stays exactly the shape it returned before this build. Nothing
+   *  else is carried: since fix round 1's R1 the derivation asks STORAGE, so
+   *  the row's own duration and status say nothing it may act on. */
+  const pointerBySession = new Map<string, string>()
+  for (const s of sessions) {
+    if (s.audio_storage_path) pointerBySession.set(s.id, s.audio_storage_path)
+  }
+
   const rows: InboxServerSession[] = sessions.map((s) => ({
     recordingSessionId: s.id,
     customerId: s.customer_id ?? null,
@@ -188,7 +355,7 @@ export async function readRecordingsInbox({
     jobStatus: null,
     jobProbeFailed: false,
     jobLastError: null,
-    discardedByStaff: discardedSessions.has(s.id),
+    discardedByStaff: discardLedger.discarded.has(s.id),
   }))
 
   // Residue = the only sessions whose job state can still matter.
@@ -199,18 +366,24 @@ export async function readRecordingsInbox({
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
   if (residue.length > 0) {
     console.info(
-      `[recordings-inbox] job probes: ${Math.min(residue.length, MAX_JOB_PROBES)} of ` +
+      `[recordings-inbox] job probes: ${Math.min(residue.length, maxJobProbes)} of ` +
         `${residue.length} record-less sessions (${sessions.length} in window)`,
     )
   }
-  if (residue.length > MAX_JOB_PROBES) {
+  if (residue.length > maxJobProbes) {
     console.warn(
-      `[recordings-inbox] ${residue.length - MAX_JOB_PROBES} oldest record-less sessions ` +
+      `[recordings-inbox] ${residue.length - maxJobProbes} oldest record-less sessions ` +
         'left unprobed (cap reached)',
     )
   }
 
-  const probes = residue.slice(0, MAX_JOB_PROBES)
+  const probes = residue.slice(0, maxJobProbes)
+  /** ⚖ WHO WAS ACTUALLY ASKED (fix round 1, R3). A row past the cap keeps
+   *  `jobStatus: null, jobProbeFailed: false` — the exact shape of a real 404 —
+   *  so without this set the server-audio derivation would read "never asked"
+   *  as "definitively no job" and offer 保存する over audio a live job may
+   *  already be processing. */
+  const probedSessions = new Set(probes.map((r) => r.recordingSessionId))
   let next = 0
   await Promise.all(
     Array.from({ length: Math.min(PROBE_CONCURRENCY, probes.length) }, async () => {
@@ -245,5 +418,173 @@ export async function readRecordingsInbox({
     }),
   )
 
+  // ⚖ A LEDGER WE COULD NOT READ MEANS NO SERVER SAVE THIS RENDER (R9b). Every
+  // discarded session looks un-discarded on a degraded pass, and the one thing
+  // this build adds to such a row is an offer to save the audio a staff member
+  // threw away. Said out loud, once, rather than silently skipped.
+  if (discardLedger.degraded) {
+    console.warn(
+      '[recordings-inbox] discard ledger degraded — server-audio derivation skipped for this read',
+    )
+  } else {
+    await deriveServerAudio(rows, pointerBySession, probedSessions, businessId, now.getTime(), {
+      takeAudioProbe,
+      segmentsProbe,
+      maxAudioProbes,
+    })
+  }
+
   return fillCustomerNames(rows, businessId)
+}
+
+/**
+ * WHAT THE SERVER HOLDS, for the rows where it can still matter (slice ③).
+ *
+ * WHO IS ASKED, and every exclusion is a refusal to guess:
+ *  · no karute record and no staff discard — either one answers the row higher
+ *    up in the fold, and a discard outranks everything;
+ *  · the ledger was READABLE this pass. When it degraded (its catch returns an
+ *    empty set) every discarded session in the window looks un-discarded, so
+ *    this whole derivation stands down: we could not check discards, so we
+ *    offer no server save this render (⚖ fix round 1, R9b);
+ *  · the job was ACTUALLY PROBED. Rows past MAX_JOB_PROBES carry
+ *    `jobStatus: null, jobProbeFailed: false` — shape-identical to a real 404
+ *    but never asked — and admitting them would offer 保存する over audio a
+ *    live job may already be processing (⚖ R3);
+ *  · that probe said "no job" or "FAILED". A live/unknown job is answered
+ *    higher up; a FAILED one is admitted on purpose so a spent row keeps its
+ *    one affordance (⚖ R10b — core re-arms a failed job per session);
+ *  · the pointer parses as THIS business's take;
+ *  · the row is past the unsettled grace, below which it already reads 処理中 —
+ *    UNLESS its job already FAILED. The grace guards a row that may still be
+ *    mid-upload with no job yet; a job row is proof a door already proved the
+ *    audio and queued it, so a server save that fails inside the grace keeps
+ *    its 再試行 instead of sitting inert for three hours (fix round 6, R2).
+ *    THE HONEST COST: a young FAILED row whose folder holds only segments
+ *    still reads 失敗 — the fold's FAILED branch reads 'object' alone — so its
+ *    listing was asked for nothing; rare, capped, and cheaper than coupling
+ *    this read to the fold. A RETAKE on the same session (take-store's
+ *    'superseded') moves the row's pointer to the new take: the resolver then
+ *    answers about THAT take, which is the honest audio either way — 'absent'
+ *    while it uploads (nothing offered), 'object' once it lands (再試行 over
+ *    the new take).
+ *
+ * ⚖ STORAGE IS THE ONLY WITNESS (D8', hardened in fix round 1 R1). There is no
+ * duration fast path, because a duration is NOT proof that an object exists:
+ * discard.ts's stampRecordingDuration writes a client-reported length with no
+ * object behind it at all (take-binding.ts says so in capitals). Trusting it
+ * would paint 復元可能 + 保存する over nothing, the door would answer no_audio,
+ * and the 要対応 count would be one a staffer could never clear.
+ *
+ * ⚖ AND THE PHONE'S OWN KEY IS ASKED FIRST (ADDENDUM 9.4, 2026-09-07).
+ * `resolveTakeAudio` is the ONE precedence for "where is this take's audio" —
+ * the phone's whole object, then the rescue beside it — and it needs no
+ * segments to answer. WHY THAT ORDER: a whole object can exist with no `seg/`
+ * folder behind it at all. Every take recorded by a shell older than the
+ * segment pump (#836) is that shape, which is every fielded phone until this
+ * build's bake reaches it; so is a take whose stop-time pump was refused or
+ * budget-cut and whose object landed on a later drain. Asking the listing
+ * first hid all of them behind 失敗 while the save door would have queued
+ * them happily. So, per candidate:
+ *  · the resolver first: a key (the phone's object OR the rescue — the inbox
+ *    does not care which) → 'object', and nothing else is asked;
+ *  · 'unknown' → nothing at all, and no listing. A blip is not evidence in
+ *    either direction, and the row keeps exactly today's behaviour;
+ *  · 'absent' → THEN the listing, which now gates only the half it can speak
+ *    for: seq 000000 present → 'segments'; anything else, or 'unknown' →
+ *    nothing.
+ *
+ * THE HONEST CALL COUNT: still up to THREE storage calls per candidate row —
+ * the phone's key, the rescue's, then the listing — and the cap below bounds
+ * the CANDIDATES, not the calls. A finished-object row now pays ONE. The only
+ * row that pays MORE than before is a dead folder with no seq 0 (three calls
+ * instead of one), which is rare and bounded by the same cap. One pool, one
+ * cap, for the same reason the job probes have theirs: a genuinely broken
+ * tenant must not turn one inbox read into hundreds of storage round trips.
+ * Newest-first, and the drop is logged.
+ *
+ * THE HONEST REMAINING COST: a take with nothing on the server at all — no
+ * object at either key, no seq 0 in the folder — still reads 失敗, which is
+ * exactly what it is.
+ */
+async function deriveServerAudio(
+  rows: readonly InboxServerSession[],
+  /** sessionId → the row's storage POINTER. The one raw fact the derivation
+   *  needs and the wire must never carry, kept out of the returned rows on
+   *  purpose (the DTO's rule: metadata only, no audio path). */
+  pointerBySession: ReadonlyMap<string, string>,
+  /** The sessions whose job state was ACTUALLY probed — see the doc above. */
+  probedSessions: ReadonlySet<string>,
+  businessId: string,
+  nowMs: number,
+  deps: { takeAudioProbe: TakeAudioProbe; segmentsProbe: SegmentsProbe; maxAudioProbes: number },
+): Promise<void> {
+  const candidates: Array<{ row: InboxServerSession; key: string; takeId: string; ext: string }> = []
+  for (const row of rows) {
+    if (row.karuteRecordId || row.discardedByStaff) continue
+    if (!probedSessions.has(row.recordingSessionId)) continue
+    if (row.jobProbeFailed) continue
+    if (row.jobStatus !== null && row.jobStatus !== 'FAILED') continue
+    const key = pointerBySession.get(row.recordingSessionId)
+    if (!key) continue
+    // The take fence, not merely "parses": a segment leaf, a staged copy and
+    // another tenant's key are all false here however the row reads. What it
+    // yields — the take id and the container — is also what the resolver takes,
+    // so the fence and the question can never be about two different takes.
+    const parsed = parseRecordingKey(key, businessId)
+    if (parsed?.kind !== 'take') continue
+    if (row.jobStatus !== 'FAILED' && nowMs - Date.parse(row.createdAt) <= SESSION_UNSETTLED_GRACE_MS)
+      continue
+    candidates.push({ row, key, takeId: parsed.takeId, ext: parsed.ext })
+  }
+
+  if (candidates.length > deps.maxAudioProbes) {
+    console.warn(
+      `[recordings-inbox] ${candidates.length - deps.maxAudioProbes} oldest unsettled sessions ` +
+        'left un-probed for server audio (cap reached)',
+    )
+  }
+  // `rows` is the server list's own order, so re-sort to the residue's
+  // newest-first rule before the cap decides who is dropped.
+  const probeList = candidates
+    .sort((a, b) => Date.parse(b.row.createdAt) - Date.parse(a.row.createdAt))
+    .slice(0, deps.maxAudioProbes)
+  let next = 0
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_CONCURRENCY, probeList.length) }, async () => {
+      for (let i = next++; i < probeList.length; i = next++) {
+        const { row, key, takeId, ext } = probeList[i]
+        // ⚖ ONE ROW'S BAD LUCK IS NOT THE WHOLE SCREEN'S (fix round 4, R1).
+        // Both production probes can THROW, not just answer 'unknown':
+        // listFirstSegment builds the service client outside makeSegmentsProbe's
+        // own try (a missing or rotated SUPABASE env throws on construction),
+        // and resolveTakeAudio throws by design when a key fails its grammar. A
+        // rejection here escapes Promise.all and takes the whole 録音履歴 server
+        // half down with it — a 502 at the facade, 「サーバー側の読み込みに失敗」
+        // on the web — which is the opposite of the rule this loop is written to:
+        // a probe we could not ask leaves the row EXACTLY as it was. The job
+        // probe next door already degrades this way.
+        try {
+          // THE PHONE'S KEY FIRST (ADDENDUM 9.4), because a whole object needs
+          // no segments behind it. Only a proven 'absent' buys the listing, and
+          // the listing now gates the RESCUE half alone.
+          const audio = await deps.takeAudioProbe(businessId, takeId, ext)
+          if (audio === 'unknown') continue
+          if (audio !== 'absent') {
+            row.serverAudio = 'object'
+            continue
+          }
+          if ((await deps.segmentsProbe(businessId, key)) === true) row.serverAudio = 'segments'
+        } catch (err) {
+          // A probe we could not ask is not an answer: the row keeps today's
+          // behaviour and the next render asks again.
+          console.warn(
+            `[recordings-inbox] server-audio probe failed for ${row.recordingSessionId}:`,
+            err,
+          )
+          continue
+        }
+      }
+    }),
+  )
 }

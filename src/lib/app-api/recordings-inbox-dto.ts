@@ -48,6 +48,20 @@ const InboxSessionSchema = z.object({
    *  key stays valid, and the fold already treats absence as "not
    *  discarded". */
   discardedByStaff: z.boolean().nullish(),
+  /** What the server holds for this session's audio — 'object' (the whole
+   *  finalized take, unprocessed) or 'segments' (part of it, the nightly job
+   *  will finish what it can). Build 23 slice ③.
+   *
+   *  A PLAIN STRING, not an enum, and that is load-bearing for the SAME reason
+   *  `jobStatus` above is one: phones run a BAKED bundle, so a narrow enum
+   *  would start rejecting this whole payload — every phone's inbox blank —
+   *  the day a third value lands. The fold narrows it with `===` and reads
+   *  anything it does not recognise as absent, i.e. as today's behaviour.
+   *
+   *  RECORDING-PRIVACY, restated because this is the field that could break
+   *  the header rule above: it says WHETHER, never WHERE. No path and no key
+   *  is derivable from it, and the save door reads the path off the ROW. */
+  serverAudio: z.string().nullish(),
 })
 
 export const RecordingsInboxDTO = z.object({

@@ -369,6 +369,31 @@ export const RecordingJobEnqueueSchema = z
   })
   .strict()
 
+// ── Recording job enqueue FROM THE SESSION (build 23 slice ③). The same door
+// as above minus the one field that matters: NO audioPath. This job's audio is
+// on the server without a client having put it there, so the path is derived
+// from the row server-side and a caller cannot name one — `.strict()` 400s an
+// audioPath key rather than ignoring it. staffId/store_id stay SERVER-resolved,
+// same #452 posture as every write on this surface.
+export const RecordingJobFromSessionSchema = z
+  .object({
+    recordingSessionId: z.string().max(MAX_ID_CHARS),
+    customerId: z.string().max(MAX_ID_CHARS),
+    appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
+    locale: z.string().max(MAX_LOCALE_CHARS).optional(),
+    outcome: z
+      .object({
+        status: z.enum(['success', 'no_deal', 'pending', 'revisit']),
+        reason: z
+          .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
+          .nullish(),
+        isFirstVisit: z.boolean().optional(),
+      })
+      .strict()
+      .nullish(),
+  })
+  .strict()
+
 // ── Discard transcript write (PHONEWIRE-2C) — the two shapes the client relay
 // (lib/recording/discard-transcript.ts) actually sends, as ONE union so the door
 // can never be ambiguous about which it got: both members are `.strict()`, so a

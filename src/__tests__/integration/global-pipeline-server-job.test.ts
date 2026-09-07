@@ -613,6 +613,27 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     expect(settleTakeAfterSave).not.toHaveBeenCalled()
   })
 
+  it("⚖ R7: FAILED with 'DISCARDED_BY_STAFF' → discarded, take kept", async () => {
+    // The worker re-asks the discard ledger (fix round 6, R1), so a session a
+    // colleague threw away after this save was queued now fails by name. It
+    // must reach the card as its own code: mapped to 'unknown' it would show
+    // 「処理中にエラーが発生しました。もう一度お試しください。」 with a live
+    // 再試行 that re-arms the same job and fails identically, for ever.
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED',
+      karuteRecordId: null,
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: 'DISCARDED_BY_STAFF',
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.error).toBe('discarded')
+    expect(settleTakeAfterSave).not.toHaveBeenCalled()
+  })
+
   it('FAILED with an unmapped lastError → unknown, take kept', async () => {
     jobStatus.mockResolvedValueOnce({
       status: 'FAILED',

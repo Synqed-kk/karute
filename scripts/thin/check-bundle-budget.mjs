@@ -395,10 +395,114 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // slice left 55 B, which is not headroom, and correcting that is this entry's
 // other job.
 //
+// RAISED 2026-09-06 for THE NIGHTLY RESCUE (build 23 slice ③) — one entry for
+// the whole slice, ⚖ 8/25 + 9/4: 2,049,700 → 2,054,000. The method is unchanged
+// from the 2026-09-02 entry above (release-length placeholder env, emptied
+// thin/dist).
+//
+// What is in the phone for the bytes: 録音履歴 stops guessing about audio it
+// cannot see. A recording whose device walked out of signal used to sit there
+// saying 「この録音は保存されませんでした」 for as long as anyone looked at it —
+// while the server was in fact holding most of it, and while a nightly job was
+// on its way to rebuild the rest. Now the row says which of the two is true:
+// 処理中「サーバーに音声が途中まで届いています（数日以内に保存できるように
+// なります）」 while only the pieces are up there, and 復元可能「サーバーに音声が
+// 残っています（未保存・途中までの場合があります）」 once the whole object is —
+// with the same solid 保存する the staffer already knows, going through a new
+// server-side door that derives the audio's location from the recording row
+// itself (nothing on the wire names a file, ever), proves the bytes are really
+// in the bucket — at the take's own key or at the nightly job's rescue of it —
+// and then runs the ordinary transcription the phone would have run. A device
+// that still holds the recording keeps winning: the complete copy is always the
+// one offered, on the phone and in the bucket.
+//
+// Measured ON THE PRE-REBASE BASE (3ee1cdf8d), the CI/release way, after fix
+// round 3 — kept for the history of where the bytes went, NOT as this tip's
+// number; the REBASED block at the bottom is the live measurement:
+// en 130,422 · index 984,398 · vendor 937,743 = 2,052,563 B. Every figure below
+// came from a cold `rm -rf thin/dist` build under the env extracted from
+// ci.yml's own gate step by
+// evidence/assembler-20260906/extract-ci-bundle-env.py (no value retyped by
+// hand), and each was reproduced twice:
+//   · base 3ee1cdf8d on main — en 130,251 · index 981,263 · vendor 937,743
+//     = 2,049,257 B
+//   · fix round 1 (19db4c223) — en 130,422 · index 984,147 · vendor 937,743
+//     = 2,052,312 B
+//   · fix round 2 (c9faaee4e) — en 130,422 · index 984,321 · vendor 937,743
+//     = 2,052,486 B
+//   · fix round 3 (the last pre-rebase tip) — 2,052,563 B
+// So on that base the PR cost the phone +3,306 B, of which fix round 3 is +77 B.
+//
+// ⚖ AND THE ENVIRONMENT IS PART OF THE MEASUREMENT (fix round 3, R6). These are
+// the CI RECIPE run in ONE environment — this repo's own node_modules at this
+// tip's lockfile. A build from another dependency tree can emit a different
+// index chunk hash and land a few bytes apart without anything here moving: at
+// 19db4c223 this environment emits index-C3F9hjgF.js at 984,147 B and a review
+// worktree whose node_modules were symlinked from elsewhere emitted
+// index-CIqb6iSh.js at 984,151 B. Four bytes, a different chunk, no defect —
+// and re-measuring rather than re-typing is the only way to tell. So do not
+// "correct" a figure here from another machine's build; re-run the recipe.
+//
+// Where those bytes went. The build itself was +2,080 B (2,051,337 B at the
+// pre-review tip): two message strings in both catalogs, the fold's two new
+// branches, the handler's server-save path with its own picker mount, and the
+// phone port's entry for the new door. Fix round 1 added +975 B, and every one
+// of them is a refusal the first cut did not make — the consent gate before the
+// door, the discard guard the take flow already honoured, the in-flight latch
+// that survives the reload, the row's button greying out while it does, the
+// failed-job row keeping its 再試行, and the new door's own refusal codes
+// reaching the phone. Fix round 2's +174 B is the same kind of thing, smaller:
+// the save's latch moved to the tap and held across the consent round trip, the
+// seal re-checked after it, the store handing a mid-flight caller a promise it
+// can follow, and the greyed button losing its hover fill. Fix round 3's +77 B
+// is three lines of the same: the discard fence refusing a ledger row it cannot
+// read, every save arm on the card greying while any one save runs, and the
+// seal re-read across the consent grant as well.
+//
+// The ceiling is sized for the WHOLE slice, not just this PR, because the other
+// two land beside it: PR-A (the nightly assembler) adds +119 B of i18n labels
+// its own totality gate demands, and PR-B (the store stamp) is server-side but
+// for a few lines at the take doors. (The headroom this paragraph forecast was
+// read off the PRE-REBASE tip; A and B have since merged, so the real number is
+// measured in the REBASED block below and nowhere else.) Whatever is left after
+// those three is the next thing's problem, and it should have to come back and
+// say what it is.
+//
+// REBASED 2026-09-07 onto a main that now CARRIES A AND B (14666699b), and the
+// ceiling does not move — 2,054,000 stands. Measured the same way, cold, twice,
+// byte-identical both runs:
+//   · base 14666699b (the merged nightly assembler + store stamp) — en 130,310 ·
+//     index 981,323 · vendor 937,743 = 2,049,376 B
+//   · the rebase tip (af9c95c24) — en 130,481 · index 984,458 · vendor 937,743
+//     = 2,052,682 B
+//   · fix round 4 — en 130,481 · index 984,505 · vendor 937,743 = 2,052,729 B
+//   · THIS TIP, after fix round 6 — en 130,591 · index 984,821 · vendor 937,743
+//     = 2,053,155 B
+// So C costs the phone +3,779 B over the merged base, and 2,054,000 leaves
+// 845 B of headroom at this tip — the live number, and the only one in this
+// file that describes the code as it stands.
+// The rebase itself moved two things in opposite directions and they cancelled:
+// the door now asks the ONE resolver both PRs share instead of probing the
+// pointer itself, and the duration stamp left the door altogether (a rescued
+// take's length stays null until the phone that made it comes back and writes
+// the real one — ADDENDUM 9.2 H3). A's +119 B of i18n labels are in the base
+// above now rather than predicted. B is server-side and costs the phone
+// nothing. Fix round 4 is +47 B, all of it in one place the phone can see: the
+// port's refusal table now answers all three 403 codes as one terminal
+// `forbidden` instead of letting two of them read as "try again". Everything
+// else that round touched — the read's probe order and its guard, the door's
+// store leg, the docs — is server-side or comment, and weighs nothing here.
+// Fix round 6 is +426 B, and every byte of it is a refusal the phone can now
+// read: the port's two new terminal arms (`no_audio`, `not_returning` — R3),
+// and the pipeline's `discarded` arm with the card branch and the one new
+// sentence it renders (R7 — the EN twin is what moves the `en` chunk; `vendor`
+// does not move). R1, R2, R4, R5 and R6 are server-side or comment and weigh
+// nothing here.
+//
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
 // non-zero against whatever ceiling stands here.
-const BUDGET_BYTES = 2_049_700
+const BUDGET_BYTES = 2_054_000
 
 let dir
 try {

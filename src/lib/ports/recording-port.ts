@@ -12,6 +12,10 @@ import type {
   RecordingJobStatusView,
 } from '@/actions/recording-jobs'
 import type {
+  EnqueueFromSessionInput,
+  EnqueueFromSessionResult,
+} from '@/lib/recording/enqueue-from-session'
+import type {
   FinalizeTakeInput,
   FinalizeTakeResult,
 } from '@/lib/recording/finalize-take'
@@ -304,6 +308,29 @@ export interface RecordingPipelinePort {
   enqueueJob(
     input: EnqueueRecordingJobInput,
   ): Promise<{ ok: true; jobId: string; status: string } | { error: string }>
+  /**
+   * The SAME job, for a session whose audio is on the SERVER and not on this
+   * device (build 23 slice ③ — a 録音履歴 row reading 復元可能 with no take
+   * behind it). It carries NO audio path: the shared body derives the storage
+   * key from the recording row, so neither arm can name one.
+   *
+   * Web calls the server action directly (attribution + store scope from the
+   * cookie); thin POSTs the facade twin (same resolution, Bearer path). Both
+   * reach one body, so the phone and the web page cannot drift into different
+   * rules about who may save a recording.
+   *
+   * NEVER throws on a refusal. The shared body's closed union is
+   * `forbidden` / `not_found` / `discarded` / `no_audio` / `not_returning` /
+   * `upstream`, and since fix round 6 BOTH arms answer every member of it by
+   * name: the web arm returns the body's answer verbatim, and the facade now
+   * sends the body's own vocabulary on the wire (403 → forbidden, 409 →
+   * discarded, 404 → not_found, 404 no_audio → no_audio, 422 → not_returning),
+   * which the thin arm maps straight back. Only an unnamed non-2xx is
+   * `upstream`, the retryable arm. `not_returning` is unreachable from either
+   * arm today: no caller sends an `outcome` — the device door's twin does
+   * reach it (R6).
+   */
+  enqueueJobFromSession(input: EnqueueFromSessionInput): Promise<EnqueueFromSessionResult>
   /**
    * Mint a short-lived signed READ url for the audio behind ONE karute — the
    * play button's single server call, fired on the FIRST tap and never on
@@ -607,6 +634,11 @@ export const webRecordingPort: RecordingPipelinePort = {
     // that never touch the server path.
     const { enqueueRecordingJob } = await import('@/actions/recording-jobs')
     return enqueueRecordingJob(input)
+  },
+  async enqueueJobFromSession(input) {
+    // Lazy for the same reason as enqueueJob above.
+    const { enqueueRecordingJobFromSession } = await import('@/actions/recording-jobs')
+    return enqueueRecordingJobFromSession(input)
   },
   async jobStatus(recordingSessionId) {
     const { getRecordingJobStatus } = await import('@/actions/recording-jobs')

@@ -728,3 +728,76 @@ describe('thin actions port — the recorder start-mint reserves at create too',
     }
   })
 })
+
+/**
+ * SAVE FROM WHAT THE SERVER HAS — the phone's entry (build 23 slice ③).
+ *
+ * A wrong path here is invisible until a bake, so the transport is pinned: the
+ * exact facade route, the Idempotency-Key every write on this surface carries,
+ * and the refusal mapping — because this door NEVER throws, and a facade error
+ * body parses perfectly (the discard port's lesson again).
+ */
+describe('enqueueJobFromSession — the phone’s save-from-server door', () => {
+  const INPUT = { recordingSessionId: 'sess-1', customerId: 'cust-1', locale: 'ja' }
+
+  it('POSTs the from-session route with an Idempotency-Key and the body verbatim', async () => {
+    let seen: { path: string; init?: RequestInit } | null = null
+    const apiFetch = port(async (path, init) => {
+      seen = { path, init }
+      return new Response(JSON.stringify({ ok: true, jobId: 'job-1', status: 'QUEUED' }), {
+        status: 200,
+      })
+    })
+    await expect(viteRecordingPort.enqueueJobFromSession(INPUT)).resolves.toEqual({
+      ok: true,
+      jobId: 'job-1',
+      status: 'QUEUED',
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    const call = seen as unknown as { path: string; init: RequestInit }
+    expect(call.path).toBe('/api/app/v1/recordings/job/from-session')
+    expect(call.init.method).toBe('POST')
+    const headers = call.init.headers as Record<string, string>
+    expect(headers['content-type']).toBe('application/json')
+    expect(headers['idempotency-key']).toBeTruthy()
+    // NO audio path on the wire, ever — the door derives it from the row.
+    expect(JSON.parse(String(call.init.body))).toEqual(INPUT)
+  })
+
+  it.each([
+    ['forbidden', 403, 'forbidden'],
+    // The store clamp runs before the shared body on this route, so this 403
+    // is real here; `tenant_forbidden` is the same refusal from the mint's own
+    // table in this file. Both are terminal, not retryable.
+    ['store_forbidden', 403, 'forbidden'],
+    ['tenant_forbidden', 403, 'forbidden'],
+    ['not_found', 404, 'not_found'],
+    // ⚖ TWO MORE TERMINAL FACTS, BY NAME (fix round 6, R3). The facade used to
+    // fold `no_audio` into the same 404 as "no such session" and re-code
+    // `not_returning` as `validation` — which lands on `upstream` here, i.e. a
+    // fact about the CUSTOMER shown to the phone as a retryable blip.
+    ['no_audio', 404, 'no_audio'],
+    ['not_returning', 422, 'not_returning'],
+    // 409 — the one arm whose whole point is that it is TERMINAL: a staff
+    // member threw this recording away and wrote why. Tapping again cannot
+    // change that, so it must never be mapped onto a retryable code.
+    ['conflict', 409, 'discarded'],
+    // …and a malformed REQUEST is still just a request failure.
+    ['validation', 400, 'upstream'],
+    ['upstream_unavailable', 502, 'upstream'],
+  ])('a %s refusal comes back SETTLED as %s → %s', async (code, status, mapped) => {
+    port(async () => new Response(JSON.stringify({ error: { code } }), { status }))
+    await expect(viteRecordingPort.enqueueJobFromSession(INPUT)).resolves.toEqual({
+      error: mapped,
+    })
+  })
+
+  it('a 2xx body that names no ok is NOT read as success', async () => {
+    // The facade stringifies its errors, so a parseable body proves nothing on
+    // its own — `!res.ok` is only half the guard.
+    port(async () => new Response(JSON.stringify({ error: { code: 'forbidden' } }), { status: 200 }))
+    await expect(viteRecordingPort.enqueueJobFromSession(INPUT)).resolves.toEqual({
+      error: 'forbidden',
+    })
+  })
+})
