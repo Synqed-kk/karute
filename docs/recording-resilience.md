@@ -74,8 +74,10 @@ Raising the storage limit does **not** fix any of these — the fix is architect
 - **And a device that never comes back no longer keeps the audio** — a nightly
   job (03:07 JST, `/api/assemble`, `lib/recording/assembler.ts`) rebuilds the
   take from the segments it left behind, once they have gone 48 hours
-  untouched. It concatenates the contiguous run from the first segment, ADDS
-  the result **beside** the take — at `rsc/<the take's own key>`, never on it —
+  untouched (the 48 hours are the default of the server setting
+  `ASSEMBLE_AFTER_MS`; it is shortened only for a proof and reset after). It
+  concatenates the contiguous run from the first segment, ADDS the result
+  **beside** the take — at `rsc/<the take's own key>`, never on it —
   and files one `recording.capture_resumed` audit row that says plainly how many
   segments there were, where the first hole is, and how long the rebuilt audio
   is estimated to run. Two days, not two hours, because the device's own drain
