@@ -613,6 +613,7 @@
     "pipelineErrorEmptyTranscript": "No speech could be recognized. Please check that the recording contains audio and try again.",
     "pipelineErrorConsentRequired": "Recording consent is required. Please obtain consent and try again.",
     "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
+    "pipelineErrorDiscarded": "This recording was discarded by a staff member, so it cannot be saved to a karute.",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",

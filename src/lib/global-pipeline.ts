@@ -11,6 +11,7 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { ensureFinalizedPath, readTakeSecureMeta, settleTakeAfterSave } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
 import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
@@ -118,7 +119,18 @@ export type PipelineState =
  *  Stage 1 surfaces the error card instead; the take is KEPT and recoverable
  *  via the record-page banner (which runs the in-tab review/consent flow).
  *  Wiring a grant-consent affordance onto the server path is Stage 2. */
-export type PipelineErrorCode = 'empty-transcript' | 'consent-required' | 'unknown'
+export type PipelineErrorCode =
+  | 'empty-transcript'
+  | 'consent-required'
+  /** ⚖ A STAFF MEMBER THREW THIS RECORDING AWAY (fix round 6, R7). The worker
+   *  re-asks the discard ledger before it writes, so a session a colleague
+   *  discarded after this save was queued now fails DISCARDED_BY_STAFF. That
+   *  is TERMINAL — the card offers no retry, because core's enqueue re-arms
+   *  the same job and the worker refuses it identically, for ever, while the
+   *  録音履歴 row beside it already reads 破棄済み. A staffer must never be
+   *  handed a button that cannot work. */
+  | 'discarded'
+  | 'unknown'
 
 type Listener = () => void
 
@@ -635,7 +647,9 @@ class GlobalPipeline {
             ? 'consent-required'
             : status.lastError === 'EMPTY_TRANSCRIPT'
               ? 'empty-transcript'
-              : 'unknown'
+              : status.lastError === DISCARDED_BY_STAFF
+                ? 'discarded'
+                : 'unknown'
         this.state = 'error'
         this.notify()
         return

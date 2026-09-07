@@ -475,10 +475,11 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 //     index 981,323 · vendor 937,743 = 2,049,376 B
 //   · the rebase tip (af9c95c24) — en 130,481 · index 984,458 · vendor 937,743
 //     = 2,052,682 B
-//   · THIS TIP, after fix round 4 — en 130,481 · index 984,505 · vendor 937,743
-//     = 2,052,729 B
-// So C costs the phone +3,353 B over the merged base, and 2,054,000 leaves
-// 1,271 B of headroom at this tip — the live number, and the only one in this
+//   · fix round 4 — en 130,481 · index 984,505 · vendor 937,743 = 2,052,729 B
+//   · THIS TIP, after fix round 6 — en 130,591 · index 984,821 · vendor 937,743
+//     = 2,053,155 B
+// So C costs the phone +3,779 B over the merged base, and 2,054,000 leaves
+// 845 B of headroom at this tip — the live number, and the only one in this
 // file that describes the code as it stands.
 // The rebase itself moved two things in opposite directions and they cancelled:
 // the door now asks the ONE resolver both PRs share instead of probing the
@@ -491,6 +492,12 @@ const MANIFEST = 'thin/dist/.vite/manifest.json'
 // `forbidden` instead of letting two of them read as "try again". Everything
 // else that round touched — the read's probe order and its guard, the door's
 // store leg, the docs — is server-side or comment, and weighs nothing here.
+// Fix round 6 is +426 B, and every byte of it is a refusal the phone can now
+// read: the port's two new terminal arms (`no_audio`, `not_returning` — R3),
+// and the pipeline's `discarded` arm with the card branch and the one new
+// sentence it renders (R7 — the EN twin is what moves the `en` chunk; `vendor`
+// does not move). R1, R2, R4, R5 and R6 are server-side or comment and weigh
+// nothing here.
 //
 // Report-only per ⚖ 8/25 describes the RAISE, and it is REVERSIBLE: Liam vetoes
 // this line with one revert. The SCRIPT still gates — it runs in CI and exits
