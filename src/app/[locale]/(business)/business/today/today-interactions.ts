@@ -1626,12 +1626,17 @@ export interface RailCell {
    *  what says 「this cell was weighed on the gap axis」 to a surface that must not
    *  parse sentences back into numbers (⚖ 54's disease — same law as `impact` above).
    *
-   *  READ `worse`, NEVER THE NUMBERS. The three numbers are the FLOORED difference and
-   *  cannot reproduce the verdict: a quiet move can carry a non-zero one (なぎ
-   *  14:05→14:00 is `{worse: false, salvage: 5}` — the dead term improved and canon
-   *  ranks it above salvage), and two cells whose three numbers are byte-identical can
-   *  hold opposite verdicts (LENS-1 §F1's three colliding shapes, LENS-3 §R-6). `worse`
-   *  is `residueVerdict`'s own answer and is the only field that carries it.
+   *  THE FACE IS `gapIsQuiet`, NOT `worse` ALONE. `worse` is canon's lexicographic
+   *  ranking (`residueVerdict`'s own answer); the card goes quiet only when `worse` is
+   *  false AND `dead` is 0 AND `lostMenus` is empty (FIX 1 §A — new dead minutes and a
+   *  newly lost menu are always said, whatever a higher term did). A surface that
+   *  wants the verdict reads the fields the way `gapIsQuiet` does; `worse` alone
+   *  disagrees with the face on 108 of 3,144 swept rows (DELTA-RESIDUE L1 §F2). The
+   *  three numbers are the FLOORED difference and cannot reproduce the ranking by
+   *  themselves: a quiet move can carry a non-zero one (なぎ 14:05→14:00 is
+   *  `{worse: false, salvage: 5}` — the dead term improved and canon ranks it above
+   *  salvage), and two cells whose numbers are byte-identical can hold opposite
+   *  `worse` (LENS-1 §F1's three colliding shapes, LENS-3 §R-6).
    *  Absent everywhere else, including at rest and in strict mode.
    *  ponytail: no product surface reads this yet (LENS-4 §D-11) — it is the explain
    *  surfaces' data, published with the axis rather than bolted on after it. */
