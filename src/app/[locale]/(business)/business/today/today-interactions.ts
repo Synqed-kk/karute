@@ -1727,8 +1727,8 @@ export function reasonLine(reason: GuardReason | undefined, protectedDur: number
   const p = reason.params as Record<string, number | string>
   switch (reason.code) {
     case 'R-REP': return `ここに置くと${windows ? `${windows}の` : ''}${p.label}が入らなくなります`
-    case 'R-DEAD': return `ここに置くと${p.n}分の売れない空きが残ります`
-    case 'R-SALV': return `ここに置くと${p.n}分の割引でしか売れない空きが残ります`
+    case 'R-DEAD': return `ここに置くと売れない空きが${p.n}分残ります`
+    case 'R-SALV': return `ここに置くと割引でしか売れない空きが${p.n}分残ります`
     case 'R-UNAVAILABLE': return `この開始には既存${p.dur}分を配置できません`
     case 'EXEMPT': return `端は${wallJa(String(p.wallType ?? ''), p.trigger === 'wall')}に接するため空きになりません`
     /** ⚖ Liam 8/30 (flag 90) — THIS BRANCH IS UNREACHABLE FROM THE BOARD, which
@@ -2001,14 +2001,18 @@ export function guardVerdictAt(lanes: BoardLane[], laneKey: string, start: numbe
  *  business-release-packets/evidence-transplant-batch1-20260819/WO2-today/batch14/nextround/COUNCIL-NUDGE-RESIDUE-2026-09-07/ADJUDICATION.md row 8 */
 export const RESIDUE_COMPARE_STRIPS_EXEMPTIONS = true
 
-/** The four gap-axis lines, each spelled once
- *  (JP-NATIVE-NUDGE-RESIDUE-2026-09-07/FINAL.md, verbatim). NEVER a total on this
- *  axis — the absolute 「N分の割引でしか売れない空きが残ります」 shape belongs to
- *  `reasonLine`, and it stays there for the rows that have no baseline at all. */
-const QUIET_GAP_LINE = '今の空き具合と変わりません'
-const SALVAGE_GAP_LINE = (n: number) => `割引でしか埋まらない空きが${n}分増えます`
-const DEAD_GAP_LINE = (n: number) => `何も入らない空きが${n}分増えます`
-const LOST_MENU_LINE = (name: string) => `ここに置くと〈${name}〉が入らなくなります`
+/** The four gap-axis lines, each spelled once (JP-NATIVE-NUDGE-RESIDUE-2026-09-07/
+ *  FINAL.md §AMENDMENT 2, verbatim — the system register; ⚖ Liam 9/7 16:1x picked the
+ *  quiet line himself and its comma is part of the string). One vocabulary for one
+ *  fact: 売れない空き and 割引でしか売れない空き are the words `reasonLine` already
+ *  uses for the rows with no baseline (LENS-3 §R-3), and the menu wears 「」, the only
+ *  quote mark this surface uses (§R-4). The difference SAYS 増えます and the absolute
+ *  SAYS 残ります — that is the whole difference in shape, and no total is ever printed
+ *  on this axis. */
+const QUIET_GAP_LINE = 'ここに置いても、売れない空きは増えません'
+const SALVAGE_GAP_LINE = (n: number) => `ここに置くと割引でしか売れない空きが${n}分増えます`
+const DEAD_GAP_LINE = (n: number) => `ここに置くと売れない空きが${n}分増えます`
+const LOST_MENU_LINE = (name: string) => `ここに置くと「${name}」が入らなくなります`
 
 export interface ResidueVerdict {
   /** the committed span's own cost vector, as `evaluate` published it */
@@ -2062,7 +2066,7 @@ export function restResidueOn(
  *  place for a NEW card」 — the ask's residue against the BEST start in the pocket,
  *  which is built with the moving card LIFTED. For a move that is the wrong
  *  question, and it refuses the identity move: なぎ standing exactly where the store
- *  put her reads 「ここに置くと127分の割引でしか売れない空きが残ります」. So the seam
+ *  put her reads 「ここに置くと割引でしか売れない空きが127分残ります」. So the seam
  *  asks canon TWICE — the committed span and the ask, the SAME pocket, the SAME ctx —
  *  and compares the two answers. Canon classifies, the seam accumulates: the same
  *  split `laneWindowsWith` already makes one axis over (R2 ruling 2).

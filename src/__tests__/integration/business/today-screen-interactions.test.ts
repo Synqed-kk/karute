@@ -1296,8 +1296,8 @@ describe('the 配置ガイド rail', () => {
     expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90, '17:30〜19:00'))
       .toBe('ここに置くと17:30〜19:00の新規（90分）が入らなくなります')
     for (const [reason, said] of [
-      [{ code: 'R-DEAD' as const, params: { n: 25 } }, 'ここに置くと25分の売れない空きが残ります'],
-      [{ code: 'R-SALV' as const, params: { n: 40 } }, 'ここに置くと40分の割引でしか売れない空きが残ります'],
+      [{ code: 'R-DEAD' as const, params: { n: 25 } }, 'ここに置くと売れない空きが25分残ります'],
+      [{ code: 'R-SALV' as const, params: { n: 40 } }, 'ここに置くと割引でしか売れない空きが40分残ります'],
       [{ code: 'R-UNAVAILABLE' as const, params: { dur: 60 } }, 'この開始には既存60分を配置できません'],
       [{ code: 'EXEMPT' as const, params: { trigger: 'wall', wallType: 'break' } }, '端は休憩に接するため空きになりません'],
       [{ code: 'DEGRADED' as const, params: { capacityBefore: 2, capacityAfter: 1, t: 945 } },
@@ -1476,8 +1476,8 @@ describe('the 配置ガイド rail', () => {
 
   it('reasonLine speaks the engine\'s refusal, never a generic one', () => {
     expect(reasonLine({ code: 'R-REP', params: { label: '新規（90分）' } }, 90)).toBe('ここに置くと新規（90分）が入らなくなります')
-    expect(reasonLine({ code: 'R-DEAD', params: { n: 25 } }, 90)).toBe('ここに置くと25分の売れない空きが残ります')
-    expect(reasonLine({ code: 'R-SALV', params: { n: 40 } }, 90)).toBe('ここに置くと40分の割引でしか売れない空きが残ります')
+    expect(reasonLine({ code: 'R-DEAD', params: { n: 25 } }, 90)).toBe('ここに置くと売れない空きが25分残ります')
+    expect(reasonLine({ code: 'R-SALV', params: { n: 40 } }, 90)).toBe('ここに置くと割引でしか売れない空きが40分残ります')
     expect(reasonLine({ code: 'R-UNAVAILABLE', params: { dur: 60 } }, 90)).toBe('この開始には既存60分を配置できません')
     expect(reasonLine({ code: 'EXEMPT', params: { trigger: 'wall', wallType: 'shiftEnd' } }, 90)).toBe('端はシフト終了に接するため空きになりません')
     expect(reasonLine({ code: 'EXEMPT', params: { trigger: 'wall', wallType: 'break' } }, 90)).toBe('端は休憩に接するため空きになりません')
@@ -8947,12 +8947,12 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // keeps the engine's sentence, ¥-free — it just has to be asked on a cell
     // the warn face still composes.
     const salv: RailCell = {
-      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと30分の割引でしか売れない空きが残ります',
+      start: 630, state: 'blocked', label: '—', sentence: 'ここに置くと割引でしか売れない空きが30分残ります',
       reason: 'guard', alternatives: [], alternativeKind: null, ackAllowed: true,
       impact: { code: 'R-SALV', capacityBefore: 6, capacityAfter: 5, windowsBefore: windows(6), windowsAfter: windows(5, 690) },
     }
     expect(warnFaceFor(input({ cell: salv })).impact).toEqual({
-      head: 'ここに置くと30分の割引でしか売れない空きが残ります', yen: null, tail: '',
+      head: 'ここに置くと割引でしか売れない空きが30分残ります', yen: null, tail: '',
     })
   })
 
@@ -12799,7 +12799,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
 
     // S1 fixture-as-is — ⚖ PIN-DELTA, NUDGE-RESIDUE 9/7. This row was the ceiling
     // PR #852 named in its own body: on the fixture as it LOADS the same nudge was an
-    // R-SALV residue refusal, 「ここに置くと132分の割引でしか売れない空きが残ります」
+    // R-SALV residue refusal, 「ここに置くと割引でしか売れない空きが132分残ります」
     // behind a hard 「—」, while standing still already leaves 127 of the same minutes.
     // The gap axis is measured against the committed day now, so the row is the quiet
     // △ and the sentence is the gap's own. Full scene, both policies, at P2 below.
@@ -12807,11 +12807,11 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const cfix = guardVerdictAt(s1fix, 'p-06', 840, demoInput(s1fix, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
     expect(cfix.impact!.code).toBe('DEGRADED')
     expect(cfix.label).toBe('△14:00')
-    expect(cfix.sentence).toBe('今の空き具合と変わりません')
+    expect(cfix.sentence).toBe('ここに置いても、売れない空きは増えません')
     expect(cfix.sentence).not.toContain('残ります')
     // …and today's refusal is what it replaces, on the same board with no baseline.
     const cfixToday = guardVerdictAt(s1fix, 'p-06', 840, demoInput(s1fix, 60, 'apt-29', guard, doors, null))!
-    expect(cfixToday.sentence).toBe('ここに置くと132分の割引でしか売れない空きが残ります')
+    expect(cfixToday.sentence).toBe('ここに置くと割引でしか売れない空きが132分残ります')
 
     // S2 · かえる 17:12→17:00 — quiet, and the engine's two SAFE offers survive.
     const s2 = movedTo(movedTo(lanes, 'apt-29', 840, 900), 'apt-33', 1020, 1080)
@@ -13220,7 +13220,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
   // PR #852 closed the 新規-window axis. The leftover-space axis kept asking the
   // NEW-card question, so a nudge that leaves the store's day no worse — なぎ's own
   // 14:05→14:00, and the IDENTITY move, where the card does not move at all — still
-  // wore a hard 「—」 and 「ここに置くと132分の割引でしか売れない空きが残ります」 while
+  // wore a hard 「—」 and 「ここに置くと割引でしか売れない空きが132分残ります」 while
   // standing still already leaves 127 of the same minutes. The board asks canon TWICE
   // now, on the SAME pocket with the SAME ctx, and says only what CHANGED.
   //
@@ -13228,7 +13228,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
   //   …/nextround/JP-NATIVE-NUDGE-RESIDUE-2026-09-07/FINAL.md        the four lines
   //   …/nextround/MOCK-NUDGE-RESIDUE-2026-09-07/SIGNOFF.md           Liam's sign-off
   // ═════════════════════════════════════════════════════════════════════════
-  const QUIET = '今の空き具合と変わりません'
+  const QUIET = 'ここに置いても、売れない空きは増えません'
   /** The demo board's own p-06 pocket, ctx and engine — the three things the seam's
    *  own function needs, built exactly as `railCell` builds them. */
   const seamFrame = (board: BoardLane[], laneKey: string, excludeId: string, guard: RailInput['guard'], doors: BedDoor, handId: string | null = excludeId) => {
@@ -13304,7 +13304,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       .toEqual({ rest: [0, 0, 0, 127], askCost: [0, 0, 0, 132], worse: true, delta: { dead: 0, salvage: 5, lostMenus: [] } })
     // the other policy's sentence is the 2(a) line with the run's own 5 — spelled here
     // so the FINAL.md string is pinned even though the product does not print it today
-    expect('割引でしか埋まらない空きが5分増えます').toBe(`割引でしか埋まらない空きが${5}分増えます`)
+    expect('ここに置くと割引でしか売れない空きが5分増えます').toBe(`ここに置くと割引でしか売れない空きが${5}分増えます`)
   })
 
   it('P3/P4 — the identity move and an IMPROVING move are both quiet, and the delta says why', async () => {
@@ -13322,10 +13322,10 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // the number it just improved.
     const idBoard = movedTo(lanes, 'apt-29', 845, 905)
     expect(guardVerdictAt(idBoard, 'p-06', 845, demoInput(idBoard, 60, 'apt-29', guard, doors, null))!.sentence)
-      .toBe('ここに置くと127分の割引でしか売れない空きが残ります')
+      .toBe('ここに置くと割引でしか売れない空きが127分残ります')
     const upBoard = movedTo(lanes, 'apt-29', 870, 930)
     expect(guardVerdictAt(upBoard, 'p-06', 870, demoInput(upBoard, 60, 'apt-29', guard, doors, null))!.sentence)
-      .toBe('ここに置くと102分の割引でしか売れない空きが残ります')
+      .toBe('ここに置くと割引でしか売れない空きが102分残ります')
   })
 
   it('P5 — LENS-2 BOARD 1: same code, same label, and the pocket’s last full-price slot dies → the note names the menu', () => {
@@ -13350,7 +13350,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-REP', 'ここに置くとテスト整体 60分が入らなくなります'])
     const cell = guardVerdictAt(board, 'p-01', 670, B1({ resting: on('p-01', 660, 60) }))!
     expect([cell.state, cell.label]).toEqual(['degraded', '△11:10'])
-    expect(cell.sentence).toBe('ここに置くと〈見本 全店舗メニュー 20分〉が入らなくなります')
+    expect(cell.sentence).toBe('ここに置くと「見本 全店舗メニュー 20分」が入らなくなります')
     expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['見本 全店舗メニュー 20分'] })
     // the engine's own two keys, printed beside it — this is the measurement, not a
     // restatement of the rule
@@ -13382,9 +13382,9 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     })
     const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 780, 840), card('C1', 640, 700)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
     const today = guardVerdictAt(board, 'p-01', 640, A1())!
-    expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-DEAD', 'ここに置くと40分の売れない空きが残ります'])
+    expect([today.state, today.impact!.code, today.sentence]).toEqual(['blocked', 'R-DEAD', 'ここに置くと売れない空きが40分残ります'])
     const cell = guardVerdictAt(board, 'p-01', 640, A1({ resting: on('p-01', 620, 60) }))!
-    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:40', '何も入らない空きが20分増えます'])
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:40', 'ここに置くと売れない空きが20分増えます'])
     expect(cell.gapNote).toEqual({ worse: true, dead: 20, salvage: 0, lostMenus: [] })
     // the DIFFERENCE, never the total: today's line quotes 40, the note quotes 20
     expect(cell.sentence).not.toContain('40分')
@@ -13411,7 +13411,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const board = [lane({ key: 'p-01', group: 'staff', items: [card('F1', 700, 760), card('C1', 620, 675)], window: { from: 600, until: 1080 }, untilLabel: '18:00' })]
     expect(guardVerdictAt(board, 'p-01', 620, P7())!.sentence).toBe('ここに置くとテスト整体 60分が入らなくなります')
     const cell = guardVerdictAt(board, 'p-01', 620, P7({ resting: on('p-01', 645, 55) }))!
-    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:20', 'ここに置くと〈テストヘッド 30分〉が入らなくなります'])
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:20', 'ここに置くと「テストヘッド 30分」が入らなくなります'])
     expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['テストヘッド 30分'] })
     const engine = createGapGuard(G)
     const pocket = freePockets({ from: 600, until: 1080, close: HOURS.close, now: null, occupied: laneSpans(board[0], 'C1') }).find((p) => p.s === 600)!
@@ -13438,7 +13438,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect([...engine.evaluate(pocket, { start: 600, dur: 55 }, {}).cost]).toEqual([0, 1, 0, 0])
     expect([...engine.evaluate(pocket, { start: 620, dur: 55 }, {}).cost]).toEqual([0, 3, 45, 0])
     const cell = guardVerdictAt(board, 'p-01', 620, P7b({ resting: on('p-01', 600, 55) }))!
-    expect(cell.sentence).toBe('何も入らない空きが45分増えます')
+    expect(cell.sentence).toBe('ここに置くと売れない空きが45分増えます')
     expect(cell.gapNote).toEqual({ worse: true, dead: 45, salvage: 0, lostMenus: ['テストヘッド 30分', 'テストミドル 45分'] })
   })
 
@@ -13514,7 +13514,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
         rows += 1
         if (cell.gapNote == null) continue
         gap += 1
-        shapes.add(cell.sentence.replace(/[0-9]+分/g, 'N分').replace(/〈.*〉/, '〈メニュー〉'))
+        shapes.add(cell.sentence.replace(/[0-9]+分/g, 'N分').replace(/「.+」が入らなくなります/, '「メニュー」が入らなくなります'))
         if (cell.sentence === QUIET) quiet += 1; else soft += 1
         const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
         if (face.face === 'warn') amber += 1
@@ -13529,14 +13529,14 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       .toEqual({ rows: 1084, gap: 30, quiet: 7, soft: 23, amber: 0, priced: 0, silentCostly: 0, hardRefusal: 0 })
     // exactly the three shapes the day can produce; the menu line needs a repertoire
     // loss the fixture's own dials never reach (P5/P7 build it)
-    expect([...shapes].sort()).toEqual(['今の空き具合と変わりません', '何も入らない空きがN分増えます', '割引でしか埋まらない空きがN分増えます'])
+    expect([...shapes].sort()).toEqual(['ここに置いても、売れない空きは増えません', 'ここに置くと割引でしか売れない空きがN分増えます', 'ここに置くと売れない空きがN分増えます'])
   })
 
   it('P13 — a gap-note cell is never priced and never held: the clean face, the engine’s row, the normal button', async () => {
     const { lanes, guard, doors } = await demoBoard()
     const board = movedTo(lanes, 'apt-29', 850, 910)     // 14:05 → 14:10, dead +5
     const cell = guardVerdictAt(board, 'p-06', 850, demoInput(board, 60, 'apt-29', guard, doors, on('p-06', 845, 60)))!
-    expect(cell.sentence).toBe('何も入らない空きが5分増えます')
+    expect(cell.sentence).toBe('ここに置くと売れない空きが5分増えます')
     expect(cell.gapNote).toEqual({ worse: true, dead: 5, salvage: 0, lostMenus: [] })
     expect(lossOf(cell)).toBe(0)
     const face = warnFaceFor(warnInput(cell, priceOf(lanes, 'p-06')))
@@ -13545,15 +13545,15 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     expect(face.commit).toBeNull()
     expect(face.lock).toBeNull()
     // …and the △ check row is the sentence itself, tone unchanged
-    expect(guardCheckRow(cell)).toEqual({ label: '何も入らない空きが5分増えます', tone: 'warn' })
-    expect(guardCheckRowBesideOffer(cell)!.label).toBe('何も入らない空きが5分増えます')
+    expect(guardCheckRow(cell)).toEqual({ label: 'ここに置くと売れない空きが5分増えます', tone: 'warn' })
+    expect(guardCheckRowBesideOffer(cell)!.label).toBe('ここに置くと売れない空きが5分増えます')
 
     // …and where dead AND salvage both grow, dead leads: apt-09 committed 14:05 (20分),
     // asked 13:40, leaves 10 more dead minutes and 70 more discount-only ones.
     const both = movedTo(lanes, 'apt-09', 820, 840)
     const cb = guardVerdictAt(both, 'p-05', 820, demoInput(both, 20, 'apt-09', guard, doors, on('p-05', 845, 20)))!
     expect(cb.gapNote).toEqual({ worse: true, dead: 10, salvage: 70, lostMenus: [] })
-    expect(cb.sentence).toBe('何も入らない空きが10分増えます')
+    expect(cb.sentence).toBe('ここに置くと売れない空きが10分増えます')
     expect(warnFaceFor(warnInput(cb, priceOf(lanes, 'p-06'))).impact.yen).toBeNull()
   })
 
@@ -13579,7 +13579,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     // …and ONLY `worse` tells them apart.
     expect([quiet.gapNote!.worse, soft.gapNote!.worse]).toEqual([false, true])
     expect([quiet.label, quiet.sentence]).toEqual(['△14:00', QUIET])
-    expect([soft.label, soft.sentence]).toEqual(['△15:00', '割引でしか埋まらない空きが35分増えます'])
+    expect([soft.label, soft.sentence]).toEqual(['△15:00', 'ここに置くと割引でしか売れない空きが35分増えます'])
     // the two engine answers behind them, printed rather than restated
     const f1 = seamFrame(shrink, 'p-06', 'apt-29', guard, doors)
     const pk1 = f1.pockets.find((p) => p.s <= 845 && 905 <= p.e)!
@@ -13715,7 +13715,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
       .toEqual({ rest: [0, 1, 0, 0], askCost: [0, 0, 60, 0], worse: false, delta: { dead: 60, salvage: 0, lostMenus: [] } })
     // `worse` is canon's ranking and stays false — and the desk is told anyway.
     const cell = guardVerdictAt(board, 'p-01', 605, F1({ resting: on('p-01', 630, 100) }))!
-    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:05', '何も入らない空きが60分増えます'])
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:05', 'ここに置くと売れない空きが60分増えます'])
     expect(cell.gapNote).toEqual({ worse: false, dead: 60, salvage: 0, lostMenus: [] })
     expect(cell.sentence).not.toBe(QUIET)
     // the strip LENS-2 printed: identical dead minutes ten minutes apart used to read
@@ -13723,7 +13723,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const strip = guardRailsFor(board, F1({ stepMin: 5, resting: on('p-01', 630, 100) }))[0].cells
     const rows = strip.filter((c) => c.gapNote != null && c.gapNote.dead === 60).map((c) => [c.label, c.sentence])
     expect(rows).toHaveLength(8)
-    expect([...new Set(rows.map((r) => r[1]))]).toEqual(['何も入らない空きが60分増えます'])
+    expect([...new Set(rows.map((r) => r[1]))]).toEqual(['ここに置くと売れない空きが60分増えます'])
     // …and the only quiet row on that strip is the identity move, where nothing moved
     expect(strip.filter((c) => c.sentence === QUIET).map((c) => c.label)).toEqual(['△10:30'])
   })
@@ -13782,7 +13782,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
     const cell = guardVerdictAt(board, 'p-01', 625, E1({ resting: on('p-01', 600, 100) }))!
     // 45 is the longest of what NEWLY stopped fitting — not 30 (the shortest) and not
     // 60 (the longest of the whole loss set, which `repLabel` would have named)
-    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:25', 'ここに置くと〈M45〉が入らなくなります'])
+    expect([cell.state, cell.label, cell.sentence]).toEqual(['degraded', '△10:25', 'ここに置くと「M45」が入らなくなります'])
     expect(cell.gapNote).toEqual({ worse: true, dead: 0, salvage: 0, lostMenus: ['M30', 'M45'] })
     expect(cell.sentence).not.toContain('M30')
     expect(cell.sentence).not.toContain('M60')
@@ -13840,18 +13840,28 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
   it('P14/P15 — the four lines are spelled ONCE, no TOTAL rides this axis, and the rest leg is hoisted once per rail', () => {
     const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     const CODE = codeOnly(INT)
-    for (const line of ['今の空き具合と変わりません', '割引でしか埋まらない空きが${n}分増えます', '何も入らない空きが${n}分増えます', 'ここに置くと〈${name}〉が入らなくなります']) {
+    for (const line of ['ここに置いても、売れない空きは増えません', 'ここに置くと割引でしか売れない空きが${n}分増えます', 'ここに置くと売れない空きが${n}分増えます', 'ここに置くと「${name}」が入らなくなります']) {
       expect(CODE.split(line)).toHaveLength(2)
     }
-    // ⚖ the TOTAL shape is retired on this axis: the only 「…が残ります」 left is
-    // `reasonLine`'s own legacy line, which is what a row with NO baseline still shows.
-    expect(CODE.match(/分の割引でしか売れない空きが残ります/g)).toHaveLength(1)
-    expect(CODE.match(/分の売れない空きが残ります/g)).toHaveLength(1)
+    // ⚖ the TOTAL is retired on this axis: the only 「…分残ります」 left is
+    // `reasonLine`'s own line, which is what a row with NO baseline still shows. The
+    // difference SAYS 増えます and the absolute SAYS 残ります — those are the only two
+    // shapes, and the whole file spells each of them exactly once.
+    expect(CODE.match(/残ります/g)).toHaveLength(2)
+    expect(CODE).toContain('`ここに置くと売れない空きが${p.n}分残ります`')
+    expect(CODE).toContain('`ここに置くと割引でしか売れない空きが${p.n}分残ります`')
+    // ⚖ FIX 1 §F — and the round-1 vocabulary is GONE from the seam: 空き具合, the
+    // 〈〉 quotes that appeared exactly once in the whole business surface, and the
+    // 埋まらない / 何も入らない pair that gave one fact two names beside `reasonLine`'s
+    // own words (LENS-3 §R-3, §R-4; JP FINAL §AMENDMENT 2 retires all of them).
+    for (const dead of ['空き具合', '〈', '〉', '埋まらない', '何も入らない']) {
+      expect(INT).not.toContain(dead)
+    }
     // …and 「区間」 never enters the new vocabulary (LENS-3's complaint about the line
     // this axis replaces). The four pre-existing sentences that use it are unchanged
     // and none of them is a gap-axis line.
     expect(CODE.match(/区間/g)).toHaveLength(4)
-    for (const line of ['今の空き具合と変わりません', '割引でしか埋まらない空きが${n}分増えます', '何も入らない空きが${n}分増えます', 'ここに置くと〈${name}〉が入らなくなります']) {
+    for (const line of ['ここに置いても、売れない空きは増えません', 'ここに置くと割引でしか売れない空きが${n}分増えます', 'ここに置くと売れない空きが${n}分増えます', 'ここに置くと「${name}」が入らなくなります']) {
       expect(line).not.toContain('区間')
     }
     // ⚖ P15 — the committed span's answer is built ONCE for the whole rail and handed
@@ -13887,7 +13897,7 @@ describe('⚖ NUDGE-GUARD — the guard measures a MOVED card against the commit
 // PR #852 fixed the 新規-window axis. The leftover-space axis kept asking the
 // new-card question, so a nudge that leaves the day no worse — なぎ's own
 // 14:05→14:00, and the IDENTITY move where the card does not move at all —
-// still read 「ここに置くと132分の割引でしか売れない空きが残ります」 behind a hard
+// still read 「ここに置くと割引でしか売れない空きが132分残ります」 behind a hard
 // 「—」. The board now asks canon TWICE, on the same pocket with the same ctx, and
 // says only what CHANGED.
 //
