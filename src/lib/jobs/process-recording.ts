@@ -84,7 +84,15 @@ function coreClient(businessId: string): SynqedClient {
  *  human decision that can land AFTER the queue and must still win.
  *  WHAT THE STAFFER SEES: 録音履歴 folds a discarded session to 破棄済み FIRST
  *  (inbox.ts:340-347), ahead of any job state; the device pipeline shows the
- *  terminal 'discarded' card (fix round 6, R7) and offers no retry. */
+ *  terminal 'discarded' card (fix round 6, R7) and offers no retry.
+ *  THE ONE SAVE THIS FENCE DOES NOT REACH: the in-tab pipeline. global-pipeline.ts
+ *  falls back to run() when a pre-enqueue failure meets a session whose only
+ *  job is FAILED (:486-490 — an unfinalized take, a retake), and run() ends at
+ *  saveKaruteRecordInline (actions/karute.ts), which reads no discard ledger.
+ *  Pre-existing, and NARROWED by this fence (the server path now refuses), not
+ *  widened; the honest close is the same ledger read at that chokepoint, which
+ *  would protect the whole web arm too — a product decision (a new refusal on
+ *  the review screen), parked with Liam, not this round's. */
 async function assertNotDiscardedByStaff(synqed: SynqedClient, recordingSessionId: string): Promise<void> {
   const verdict = await readStaffDiscard(synqed, recordingSessionId)
   if (verdict === 'unreadable') throw new Error('discard ledger row unreadable — refusing to write')
