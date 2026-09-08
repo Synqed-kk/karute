@@ -1428,9 +1428,12 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
   it('and the confirm actually runs that loop, over EVERY companion', () => {
     const confirm = SCREEN.slice(SCREEN.indexOf('function confirmPending()'), SCREEN.indexOf('⚖ LIAM flag 92 (2026-08-31) — THE SAFE ANSWER, PRESSED'))
     expect(confirm).toContain('for (const c of pending.companions ?? []) {')
-    expect(confirm).toContain("const room = allocateBed(boardLanes.filter((l) => l.group !== 'beds' || l.key === c.bedTo), {")
-    expect(confirm).toContain('if (room.laneKey !== c.bedTo) {')
+    // ⚖ FIX ROUND 2 (F10) — the re-check is a pure function now, so the screen is
+    // the thin caller and the RULE is executed above rather than spelled here.
+    expect(confirm).toContain('const room = companionRoomStillFree(boardLanes, c, span, hours)')
+    expect(confirm).toContain('if (!room.ok) {')
     expect(confirm).toContain("refuse(room.refusal ?? '状況が変わったため、この内容では確定できません')")
+    expect(confirm).not.toContain('allocateBed(')
   })
 
   it('vacate-before-occupy: the card LEAVING a room is written before the card entering it', () => {
@@ -1460,6 +1463,98 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
     // Every writer of companion rooms uses the order — the stage, the 次回予約
     // placement and the shelf chip.
     expect((SCREEN.match(/vacateBeforeOccupy\(/g) ?? [])).toHaveLength(3)
+  })
+})
+
+/** ⚖ FIX ROUND 2 (F10), CODE-LENS-4 F1 — THE SCREEN'S TWO COMPANION RULES,
+ *  EXECUTED RATHER THAN TEXT-PINNED.
+ *
+ *  The breaker's finding, verbatim: 「every check is a source-text pin, never an
+ *  execution … A rewrite that preserves the pinned substring while changing
+ *  behavior (or one that changes an unrelated adjacent line the pin doesn't
+ *  check) would sail through all 10,559 green tests undetected.」 Both closures
+ *  are pure decisions, so both are now functions in today-interactions and the
+ *  screen is their caller. The pins above hold the calls; these hold the rules. */
+describe('F10 — `isStagedCard`: every card the change moved wears the outline', () => {
+  const withCompanions = {
+    id: 'apt-09',
+    companions: [{ id: 'apt-26', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }] as BedCompanion[],
+  }
+  it('the subject, and every companion, and nobody else', () => {
+    expect(isStagedCard(withCompanions, 'apt-09')).toBe(true)
+    expect(isStagedCard(withCompanions, 'apt-26')).toBe(true)
+    expect(isStagedCard(withCompanions, 'apt-14')).toBe(false)
+  })
+  it('a change that moved nobody still marks its own card', () => {
+    expect(isStagedCard({ id: 'apt-09' }, 'apt-09')).toBe(true)
+    expect(isStagedCard({ id: 'apt-09', companions: [] }, 'apt-26')).toBe(false)
+  })
+  it('nothing staged, or a row with no booking behind it, is never staged', () => {
+    // A 清掃 tail, a 予定ブロック and a shift hatch all carry `caseId: null`, and
+    // an id of `null` must never match the subject's own id by accident.
+    expect(isStagedCard(null, 'apt-09')).toBe(false)
+    expect(isStagedCard(undefined, 'apt-09')).toBe(false)
+    expect(isStagedCard(withCompanions, null)).toBe(false)
+    expect(isStagedCard(null, null)).toBe(false)
+  })
+})
+
+describe('F10 — `companionRoomStillFree`: the confirm-time re-check, on Liam’s board', () => {
+  /** さくら (apt-26) staged into ベッド2 for her own hour, 14:30〜15:30. */
+  const sakura: BedCompanion = { id: 'apt-26', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }
+  const HER_SPAN = place(870, 930, HOURS)
+
+  it('says yes while the room is hers', async () => {
+    const lanes = await demoLanes()
+    // かえる leaves ベッド2 at 14:30, so it is free for her whole hour.
+    expect(companionRoomStillFree(lanes, sakura, HER_SPAN, HOURS)).toEqual({ ok: true })
+  })
+
+  it('says no, and names the room, when somebody took ベッド2 meanwhile', async () => {
+    const lanes = await demoLanes()
+    // An intruder lands in ベッド2 across her window — another operator, another
+    // tab, the world moving under an unconfirmed change (canon R11-7's reason).
+    const intruder = lanes.map((l) => (l.key === 'bed-02'
+      ? { ...l, items: [...l.items, booking({ key: 'x', caseId: 'apt-x', title: '見本 かえで' }, 870, 930)] }
+      : l))
+    const answer = companionRoomStillFree(intruder, sakura, HER_SPAN, HOURS)
+    expect(answer.ok).toBe(false)
+    expect(answer.ok === false && answer.refusal)
+      .toBe('14:30〜15:30はベッドに空きがありません。ベッド2（見本 かえで様）が使用中です')
+  })
+
+  it('the room filter buys the SENTENCE, never the decision (CODE-LENS-4 F6)', async () => {
+    const lanes = await demoLanes()
+    const intruder = lanes.map((l) => (l.key === 'bed-02'
+      ? { ...l, items: [...l.items, booking({ key: 'x', caseId: 'apt-x', title: '見本 かえで' }, 870, 930)] }
+      : l))
+    // Asked about the WHOLE board the allocator answers with some other free
+    // room, so the gate still refuses — but with no sentence to say. That is the
+    // whole of the filter's job, and it is why the filter lives in one place.
+    const staff = intruder.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === sakura.id))!
+    const unfiltered = allocateBed(intruder, {
+      id: sakura.id, currentBed: sakura.bedTo, stores: staff.stores, requiresPrivate: false, start: 870, end: 930,
+    })
+    expect(unfiltered.laneKey).not.toBe(sakura.bedTo)
+    expect(unfiltered.laneKey).not.toBeNull()
+    expect(unfiltered.refusal).toBeNull()
+  })
+
+  it('reads the booking’s own 個室のみ tag, exactly as the landings do', async () => {
+    const lanes = await demoLanes()
+    // なぎ (apt-29) is the fixture's one tagged booking, in ベッド3 14:05〜15:05.
+    // Ask her re-check about a STANDARD room and the tag refuses it; the same
+    // ask with the allocator stubbed proves the field reaches the call.
+    const seen: Array<boolean> = []
+    const answer = companionRoomStillFree(
+      lanes,
+      { id: 'apt-29', bedOrigin: { laneKey: 'bed-03', x: 0, w: 1 }, bedTo: 'bed-01' },
+      place(845, 905, HOURS),
+      HOURS,
+      ((board, opts) => { seen.push(opts.requiresPrivate); return allocateBed(board, opts) }) as typeof allocateBed,
+    )
+    expect(seen).toEqual([true])
+    expect(answer.ok).toBe(false)
   })
 })
 
@@ -1556,7 +1651,8 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
   })
 
   it('every moved card wears the staged outline', () => {
-    expect(SCREEN).toContain("const isPending = pending != null && item.caseId != null && (pending.id === item.caseId || (pending.companions ?? []).some((c) => c.id === item.caseId))")
+    // ⚖ FIX ROUND 2 (F10) — the predicate is `isStagedCard`, executed above.
+    expect(SCREEN).toContain('const isPending = isStagedCard(pending, item.caseId)')
     // No new class and no new colour: it is the outline the subject already wore.
     expect(SCREEN).toContain("${isPending ? ' pending' : ''}")
   })

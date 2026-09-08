@@ -66,7 +66,9 @@ import {
   allocateBed,
   applyBedMoves,
   companionLines,
+  companionRoomStillFree,
   companionsFor,
+  isStagedCard,
   lanesWithCompanionsRestored,
   vacateBeforeOccupy,
   type BedCompanion,
@@ -3294,20 +3296,15 @@ export function TodayScreen(props: TodayProps) {
     // applies to N cards exactly as it applies to one. The room is asked with
     // every OTHER room filtered out, so the allocator's own 満室 sentence names
     // the one room that is no longer free — one composer, no second wording.
+    // ⚖ FIX ROUND 2 (F10, CODE-LENS-4 F1) — the re-check itself is a pure
+    // function now (`companionRoomStillFree`), unit-tested on Liam's own board
+    // with an intruder in ベッド2, because a rule this file only ever pinned as
+    // source text is a rule a tsc-clean rewrite can walk straight past.
     for (const c of pending.companions ?? []) {
       const span = bedMoves[c.id]
-      const staffLane = boardLanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === c.id))
-      const held = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)
       if (!span) continue
-      const room = allocateBed(boardLanes.filter((l) => l.group !== 'beds' || l.key === c.bedTo), {
-        id: c.id,
-        currentBed: c.bedTo,
-        stores: staffLane?.stores ?? null,
-        requiresPrivate: held?.requiresPrivateRoom === true,
-        start: minuteOf(span.x, hours),
-        end: minuteOf(span.x + span.w, hours),
-      })
-      if (room.laneKey !== c.bedTo) {
+      const room = companionRoomStillFree(boardLanes, c, span, hours)
+      if (!room.ok) {
         refuse(room.refusal ?? '状況が変わったため、この内容では確定できません')
         return
       }
@@ -6227,7 +6224,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 9/8 PACKING — a card the board moved to make room is part of the staged
     // change, so it wears the staged outline too. Without this a companion
     // renders as an ordinary, undisturbed booking — the one thing it is not.
-    const isPending = pending != null && item.caseId != null && (pending.id === item.caseId || (pending.companions ?? []).some((c) => c.id === item.caseId))
+    const isPending = isStagedCard(pending, item.caseId)
     return (
       <button
         // NO `title` ON A DRAGGABLE CARD. The browser's own black tooltip fired

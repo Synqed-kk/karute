@@ -2163,7 +2163,9 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
       "allocateBed,",
       "applyBedMoves,",
       "companionLines,",
+      "companionRoomStillFree,",
       "companionsFor,",
+      "isStagedCard,",
       "lanesWithCompanionsRestored,",
       "vacateBeforeOccupy,",
       "type BedCompanion,",
@@ -12025,7 +12027,11 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // 確定, and it reads the booking's own tag exactly as the four landings do.
     // ⚖ FIX ROUND 2 (F2) — SEVENTEEN: the safe-start press now solves its own
     // room as well as asking about it, and the solve reads the same tag.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(17)
+    // ⚖ FIX ROUND 2 (F10) — SIXTEEN again: the confirm's own re-check moved into
+    // `companionRoomStillFree` (today-interactions), where it is unit-tested
+    // rather than text-pinned; the tag is read there now. The engine-side count
+    // is pinned in `today-bed-packing.test.ts` beside that helper's own tests.
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind
