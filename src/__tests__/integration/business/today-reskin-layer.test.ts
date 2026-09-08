@@ -11,7 +11,9 @@
  * a hover can erase a selection and a tint can erase a refusal, with nothing
  * in the diff to show for it.
  *
- * WHAT CI ACTUALLY RUNS IS THIS FILE, AND ONLY THIS FILE. These pins are source
+ * OF THE LAYER'S TWO PROOFS, CI RUNS ONLY THIS ONE. (It runs the rest of the
+ * repo's suite too — the point is that neither of the layer's own two proofs
+ * reaches CI except this file.) These pins are source
  * pins: the append shape, the seeds, and the five places where the order of two
  * rules IS the behaviour. They read today.css as text. Nothing here renders a
  * page, so nothing here can prove a computed value.
@@ -104,6 +106,24 @@ describe('今日の運営 reskin layer — the seeds', () => {
     const INT = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
     expect(INT).toContain('export const LABEL_MIN = 90')
     expect(INT).toContain('export const LABEL_MAX = 240')
+  })
+
+  it('the page-root block declares the four tokens this PR consumes, and no others', () => {
+    // ⚖ GREPTILE G-1 — three tokens (--control / --line / --line-2) were removed
+    // from this block because nothing in this PR reads them; leaving them in
+    // repainted 22 toolbar/popover/dialog borders and both hairlines of the
+    // ruled warn-face card. Nothing held them out, so a one-line re-insert put
+    // the whole bug back and both gates stayed green (delta lens MAJOR-1, its
+    // mutant MXa). This is the assertion that holds them out.
+    const at = LAYER_CODE.indexOf('.biz .page.page-today {')
+    expect(at).toBeGreaterThan(-1)
+    const body = LAYER_CODE.slice(LAYER_CODE.indexOf('{', at) + 1, LAYER_CODE.indexOf('}', at))
+    const declared = body.split(';').map((d) => d.split(':')[0].trim()).filter(Boolean)
+    expect(declared.filter((d) => d.startsWith('--')).sort()).toEqual(['--card', '--muted', '--row', '--section'])
+    expect(declared.filter((d) => !d.startsWith('--')).sort()).toEqual(['background', 'padding'])
+    // …and nowhere else in the layer either — a page-scoped rule further down
+    // would reach exactly the same descendants.
+    expect(LAYER_CODE).not.toMatch(/--(?:control|line|line-2)\s*:/)
   })
 
   it('the two tint calibrations keep their grammar and change only the paint', () => {
