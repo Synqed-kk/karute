@@ -124,6 +124,9 @@ const TAKE = '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30'
 const TAKE2 = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 const SESSION = '7c1f0a2b-4d3e-4f56-9a7b-8c9d0e1f2a3b'
 const SESSION2 = '9d2e1b3c-5f4a-4e67-8b9c-0d1e2f3a4b5c'
+/** Whose take, and for whom — the two ids the receipt now names. */
+const STAFF = '3a5b7c9d-1e2f-4a6b-8c0d-1e2f3a4b5c6d'
+const CUSTOMER = '5c6d7e8f-9a0b-4c1d-8e2f-3a4b5c6d7e8f'
 
 const NOW = Date.parse('2026-09-06T18:07:00.000Z')
 const OLD = new Date(NOW - ASSEMBLE_AFTER_MS - 60 * 60 * 1000).toISOString()
@@ -131,6 +134,11 @@ const OLD = new Date(NOW - ASSEMBLE_AFTER_MS - 60 * 60 * 1000).toISOString()
 type Row = {
   id: string
   business_id: string
+  /** Core's `Recording` carries both; the receipt names them so a manager can
+   *  tell whose take the server rebuilt. `customer_id` is null on a take
+   *  started with nobody chosen. */
+  staff_id: string
+  customer_id: string | null
   audio_storage_path: string | null
   duration_seconds: number | null
   status: string
@@ -210,6 +218,9 @@ function seed(opts: {
   /** Per-leaf timestamps, when the test is about WHICH leaf decides the age. */
   createdAts?: string[]
   rowId?: string
+  staffId?: string
+  /** `null` = a take with no customer chosen; omit for the ordinary shape. */
+  customerId?: string | null
   rowPointer?: string | null
   duration?: number | null
   storeId?: string | null
@@ -252,6 +263,8 @@ function seed(opts: {
     rows.push({
       id: rowId,
       business_id: businessId,
+      staff_id: opts.staffId ?? STAFF,
+      customer_id: opts.customerId === undefined ? CUSTOMER : opts.customerId,
       audio_storage_path: pointer,
       duration_seconds: opts.duration ?? null,
       status: opts.status ?? 'UPLOADING',
@@ -835,6 +848,9 @@ describe('the assembly', () => {
       source: 'system',
       detail: {
         recording_session_id: SESSION,
+        // ⚖ 8/17 doc law — ids only, no name: WHOSE take, and for WHOM.
+        staff_id: STAFF,
+        customer_id: CUSTOMER,
         take_id: TAKE,
         ext: 'webm',
         segments_present: 5,
@@ -846,6 +862,20 @@ describe('the assembly', () => {
         estimated_duration_seconds: 25,
         trigger: 'cron',
       },
+    })
+  })
+
+  // The owner's own 9/8 test take: he hit record with nobody chosen. The
+  // receipt must still name the staffer and say the customer slot was EMPTY —
+  // an absent key would read as "we didn't record it", a null reads as "there
+  // was none".
+  it('a take with no customer: the receipt still names the staffer, customer_id null', async () => {
+    seed({ seqs: [0, 1], customerId: null })
+    await runAssembler(deps(), { budgetMs: 60_000 })
+    expect(auditFn).toHaveBeenCalledTimes(1)
+    expect(auditFn.mock.calls[0][0].detail).toMatchObject({
+      staff_id: STAFF,
+      customer_id: null,
     })
   })
 
@@ -1058,6 +1088,8 @@ describe('the row query is the class', () => {
       rowsByBusiness.get(BIZ)!.unshift({
         id: `${SESSION2.slice(0, 23)}${i}${SESSION2.slice(24)}`,
         business_id: BIZ,
+        staff_id: STAFF,
+        customer_id: CUSTOMER,
         audio_storage_path: `app_${BIZ}_0f8c6c9a-3f2d-4a71-9b5e-00000000000${i}.webm`,
         duration_seconds: null,
         status: 'UPLOADING',
