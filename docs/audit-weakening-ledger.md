@@ -294,3 +294,17 @@
   row here would double-log every save the worker performs. Not a widening of
   what goes unaudited — the same one act, reachable from one more place · Fable
   (DESIGN-ASSEMBLER-2026-09-06 D8, PACKET-ASSEMBLER-C C3)
+- 2026-09-08 · SDK_WRITE_ALLOWLIST:src/lib/ai-rate-limit.ts::aiRateLimit.recordUsage#reportTranscriptionUsageWithClient · the
+  transcription SPEND WALL adds a second reporter onto the SAME ledger the
+  token routes already report to: transcription is billed per MINUTE, so its
+  cents are computed from the audio's own length and returned through
+  `recordUsage('transcribe', null, null, cents)`. It is silent for exactly the
+  reason the existing reportAiUsageWithClient entry above it is — a
+  system-internal accounting increment, not a user-attributable business
+  mutation — and it is the OPPOSITE of a widening in practice: the act it
+  reports (a Deepgram call) has never been audited at all until this round,
+  and the same wrapper now files a `recording.transcribe` receipt for every
+  provider answer plus a `recording.transcribe_refused` row (severity warning)
+  for every refusal, from src/lib/ai/transcribe.ts (AUDITED_CORES). The money
+  moves in one place and the log says so · Fable
+  (LENS-RULING-SPEND-2026-09-08 §3.7 / PACKET-SPEND-METER-2026-09-08 C1)
