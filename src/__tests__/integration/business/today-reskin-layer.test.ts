@@ -45,6 +45,53 @@ const LAYER = CSS.slice(CSS.indexOf(HEADER))
  *  explanation of the very thing it checks. Ordering reads it too — a comment
  *  naming a rule before the rule exists is not the rule. */
 const LAYER_CODE = LAYER.replace(/\/\*[\s\S]*?\*\//g, '')
+/** EVERY selector the layer writes, not every line that looks like one.
+ *
+ * ⚖ RIDER (d) — blind round F-6. The old fence filtered lines on `/^[.@]/` and
+ * tested the whole line, so three shapes walked straight past it, all three
+ * probed and confirmed: a comma-joined SECOND selector
+ * (`.biz .page-today .panel, .topbar .brand {`), a selector that opens on an
+ * attribute (`[data-role="rail"] .lane {`), and one that opens on an element
+ * (`button.segmented-x {`). A rule head is now taken as the text before its
+ * `{` and split on commas, so the fence sees what the browser sees. `@media`
+ * heads are stepped INTO rather than counted; any other at-rule is skipped
+ * whole.
+ */
+const selectorsOf = (css: string): string[] => {
+  const out: string[] = []
+  const closeRe = /^\s*\}/
+  let i = 0
+  let mediaDepth = 0
+  while (i < css.length) {
+    const brace = css.indexOf('{', i)
+    if (brace < 0) break
+    const head = css.slice(i, brace).trim()
+    if (head.startsWith('@media')) {
+      mediaDepth += 1
+      i = brace + 1
+      continue
+    }
+    let depth = 1
+    let j = brace + 1
+    while (j < css.length && depth > 0) {
+      if (css[j] === '{') depth += 1
+      else if (css[j] === '}') depth -= 1
+      j += 1
+    }
+    if (head && !head.startsWith('@')) {
+      for (const s of head.split(',').map((x) => x.trim()).filter(Boolean)) out.push(s)
+    }
+    i = j
+    while (mediaDepth > 0) {
+      const m = css.slice(i).match(closeRe)
+      if (!m) break
+      i += m[0].length
+      mediaDepth -= 1
+    }
+  }
+  return out
+}
+
 /** `a` must be written after `b`, or the cascade reverses. */
 const after = (a: string, b: string) => {
   expect(LAYER_CODE.indexOf(a)).toBeGreaterThan(-1)
@@ -73,16 +120,13 @@ describe('今日の運営 reskin layer — the append shape', () => {
     expect(LAYER_CODE).not.toContain('!important')
     expect(LAYER_CODE).not.toContain(':has(')
     expect(LAYER_CODE).not.toContain('html.freeze')
-    // Every selector in the layer opens on the page, not on `.biz` alone.
-    // The line is TRIMMED first and a one-line `@media … {` prefix is peeled off:
-    // column-anchoring let a selector indented inside a media block, or written
-    // on the same line as its `@media`, walk straight past this fence.
-    const selectors = LAYER_CODE.split('\n')
-      .map((l) => l.trim())
-      .map((l) => (l.startsWith('@media') && l.includes('{') ? l.slice(l.indexOf('{') + 1).trim() : l))
-      .filter((l) => /^[.@]/.test(l))
+    // Every selector in the layer opens on the page, not on `.biz` alone —
+    // and "every" means every one of them: `selectorsOf` reads rule heads and
+    // splits them on commas, so a shell name hidden in a second selector, or
+    // behind an attribute or an element name, is caught like any other.
+    const selectors = selectorsOf(LAYER_CODE)
     expect(selectors.length).toBeGreaterThan(40)
-    expect(selectors.filter((l) => !/^(@media|\.biz \.page(\.page-today|-today) )/.test(l))).toEqual([])
+    expect(selectors.filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual([])
   })
 })
 
