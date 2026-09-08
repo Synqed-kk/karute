@@ -514,7 +514,7 @@ const WD = ['日', '月', '火', '水', '木', '金', '土']
 /** The `--label` the stylesheet seeds the board with (today.css `.biz .timeline`).
  *  The divider's first drag starts from whatever is computed, and falls back to
  *  this when the property has not been resolved yet.
- *  ⚖ V3-1 (Liam 9/6) — the reskin layer seeds 142px (134px at ≤1320px), so the
+ *  ⚖ V3-1 (Liam 9/6) — the reskin layer seeds 142px (136px at ≤1320px), so the
  *  unresolved-property fallback follows it. This constant is ONLY that fallback:
  *  the handle itself reads the live computed value, and `LABEL_MIN` / `LABEL_MAX`
  *  are untouched. */

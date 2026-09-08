@@ -1868,8 +1868,9 @@
 /* ⚖ V3-1 (Liam, 9/6) — THE LANE CHIPS ARE OUT: 「the letters and the round
    boxes beside the names — wasting space」. With the 26px chip and its 8px gap
    gone the column is a plain single-column block again, and --label drops from
-   176 to 142 (134 ≤1320). D-3's measurement still governs the number: テスト
-   さぶろう needs 95px of name room, and 142 − 12 − 26 of padding leaves 104.
+   176 to 142 (136 ≤1320 — 134 until fix round 1, see the ⚖ line below).
+   D-3's measurement still governs the number: テスト さぶろう needs 95px of
+   name room, and 142 − 12 − 26 of padding leaves 104.
    Everything else in R-5 stays — white column, hairline, ink name, grey sub,
    the 自分 pill, the group-label tint, and the lock toggle he likes.
    The handle (LABEL_MIN 90 / LABEL_MAX 240) is untouched; TodayScreen's
