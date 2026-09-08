@@ -1,6 +1,7 @@
 import 'server-only'
 import type { SynqedClient } from '@synqed-kk/client'
 import {
+  DeepgramHttpError,
   transcribeUrlWithDeepgram,
   transcribeWithDeepgram,
   type DeepgramTranscribeResult,
@@ -243,17 +244,27 @@ async function runTranscription(params: {
 // shorter than the estimate leaves the ledger holding MORE than the truth.
 // On purpose.
 //
-// ⚖ BUT IT IS RELEASED WHEN THE PROVIDER THROWS (fix round 5). The two cases
-// are not the same act, and the word for each says which: a provider ANSWER is
-// never REFUNDED, whatever it cost; a provider THROW is RELEASED, because no
-// money was spent at all — a failed request is not billed. It is the retry
-// that makes the difference matter: the worker re-runs a thrown job, and each
-// attempt reserves again, so a reserve left standing after a Deepgram outage
-// would put max_attempts × the estimate on the ledger for a recording nobody
-// ever transcribed, and the cap would then refuse honest work for the rest of
-// the rolling day. The release is a negative row of exactly the reserve, once,
+// ⚖ BUT IT IS RELEASED WHEN THE PROVIDER ANSWERS NON-2xx (fix round 5, narrowed
+// in fix round 6). The two cases are not the same act, and the word for each
+// says which: a SUCCESSFUL provider answer is never REFUNDED, whatever it cost;
+// a provider answer that says NO — an HTTP status outside 2xx, the one failure
+// we know was not billed — is RELEASED. It is the retry that makes the
+// difference matter: the worker re-runs a failed job, and each attempt reserves
+// again, so a reserve left standing after a Deepgram outage would put
+// max_attempts × the estimate on the ledger for a recording nobody ever
+// transcribed, and the cap would then refuse honest work for the rest of the
+// rolling day. The release is a negative row of exactly the reserve, once,
 // best-effort, and never on a successful call
 // (ai-rate-limit.ts#releaseTranscriptionReserveWithClient).
+//
+// ⚖ AND EVERYTHING AMBIGUOUS KEEPS ITS RESERVE (fix round 6, Greptile round 3).
+// A transport error, a timeout, a 2xx whose body could not be read or parsed:
+// each of those can happen AFTER Deepgram accepted and billed the request, so
+// treating them as proof of no spend would let a requeueing worker spend
+// repeatedly while every reserve was handed back — billed money erased from the
+// very number the cap is computed from. They keep the reserve, which over-counts
+// in the same direction the unknown-duration floor and the no-refund rule
+// already do.
 //
 // NO NEW COUNTER, NO NEW TABLE: the ledger core already keeps for the token
 // routes is the same ledger, and the unit is money. The cap VALUE is an env on
@@ -479,19 +490,27 @@ export async function runMeteredTranscription(
     throw err
   }
 
-  // ⚖ THE RESERVE IS RELEASED WHEN THE PROVIDER THROWS (fix round 5). Only
-  // the provider call is inside this try: a failure here means the money was
-  // never spent, and the caller's own retry will reserve again — so a reserve
-  // left standing would put max_attempts × the estimate on the ledger for a
-  // recording that was never transcribed, and one provider outage would then
-  // refuse honest work for the rest of the rolling day. Best-effort: the
-  // release never throws, and a release that cannot land leaves the reserve,
-  // which is the safe direction. The provider's error leaves unchanged.
+  // ⚖ RELEASED ONLY WHEN THE PROVIDER SAID NO (fix round 6): a non-2xx answer
+  // is a request Deepgram refused or failed and did not bill. Every other
+  // throw — the socket dropping, a timeout, a 2xx whose body could not be read
+  // or parsed — may be a request the provider accepted and billed, so the
+  // reserve STAYS (an over-count, the safe direction; a worker retry then
+  // reserves again, and the ledger holds attempts × the estimate for that
+  // recording — bounded, rare, and visible in the receipt rows). The old catch
+  // released on every throw and so could erase billed spend across retries
+  // (Greptile round 3).
+  //
+  // Only the provider call is inside this try, and the release stays
+  // best-effort: it never throws, and a release that cannot land leaves the
+  // reserve — again the safe direction. The provider's error leaves unchanged
+  // either way.
   let result: Record<string, unknown>
   try {
     result = await runTranscription(params)
   } catch (err) {
-    await releaseTranscriptionReserveWithClient(meter.synqed, reserveCents)
+    if (err instanceof DeepgramHttpError) {
+      await releaseTranscriptionReserveWithClient(meter.synqed, reserveCents)
+    }
     throw err
   }
 

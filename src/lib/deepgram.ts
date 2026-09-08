@@ -114,12 +114,32 @@ function buildDeepgramUrl(opts: {
   return `${DEEPGRAM_URL}?${params.toString()}`
 }
 
+/**
+ * THE PROVIDER ANSWERED AND SAID NO — a non-2xx HTTP status, and nothing else.
+ * Thrown from exactly one place (the `!res.ok` branch below), because exactly
+ * one thing downstream depends on being able to tell this case apart: the spend
+ * wall releases a transcription's reserve on THIS error and on no other. A
+ * request Deepgram refused or failed is a request it did not bill; a socket
+ * that dropped, a timeout, or a 2xx whose body would not parse may all be
+ * requests it accepted and billed (src/lib/ai/transcribe.ts, fix round 6).
+ *
+ * The message text is the one this branch has always produced — pinned by
+ * api-transcribe.test.ts — so the two interactive routes' 500 detail is
+ * unchanged.
+ */
+export class DeepgramHttpError extends Error {
+  readonly status: number
+  constructor(status: number, statusText: string, bodyHead: string) {
+    super(`Deepgram ${status} ${statusText}: ${bodyHead}`)
+    this.name = 'DeepgramHttpError'
+    this.status = status
+  }
+}
+
 async function parseDeepgram(res: Response): Promise<DeepgramTranscribeResult> {
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(
-      `Deepgram ${res.status} ${res.statusText}: ${body.slice(0, 240)}`,
-    )
+    throw new DeepgramHttpError(res.status, res.statusText, body.slice(0, 240))
   }
   const data = (await res.json()) as DeepgramApiResponse
   const alt = data.results?.channels?.[0]?.alternatives?.[0]

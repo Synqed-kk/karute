@@ -41,6 +41,9 @@ process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
 process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 process.env.SPEAKER_ID_MODE = 'off'
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test-local.supabase.co'
+// Only the three fix-round-6 cases below let the REAL provider wrapper run; it
+// refuses to start without a key.
+process.env.DEEPGRAM_API_KEY ??= 'test-deepgram-key'
 
 import { createHmac } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -62,7 +65,10 @@ jest.mock('next-intl/server', () => ({
 const order: string[] = []
 
 // ── THE PROVIDER (the thing that costs money) ───────────────────────────────
-const deepgramResult = {
+// Typed as the provider's own result: the fix-round-6 cases hand the REAL
+// wrapper's return value back through this same mock, and an inferred
+// `words: never[]` would refuse it.
+const deepgramResult: DeepgramTranscribeResult = {
   transcript: 'こんにちは',
   durationSec: 5400,
   requestId: 'dg-1',
@@ -78,7 +84,11 @@ const transcribeWithDeepgram = jest.fn(async () => {
   order.push('deepgram')
   return deepgramResult
 })
+// Spread the REAL module: the wall's release now turns on `err instanceof
+// DeepgramHttpError`, and that class must be the SAME object on both sides of
+// the mock or the check silently answers false for every error (fix round 6).
 jest.mock('@/lib/deepgram', () => ({
+  ...jest.requireActual('@/lib/deepgram'),
   transcribeUrlWithDeepgram: (...a: unknown[]) => transcribeUrlWithDeepgram(...(a as [])),
   transcribeWithDeepgram: (...a: unknown[]) => transcribeWithDeepgram(...(a as [])),
 }))
@@ -157,11 +167,22 @@ const aiRateLimit = {
 // 32,400,000 B ÷ 6,000 B/s = 5,400 s — the 90-minute session the whole suite
 // bills at 45 ¢, so the default keeps every existing cent pin exact.
 const headBytes: { current: number | null } = { current: 32_400_000 }
+// ── DEEPGRAM'S OWN HTTP ANSWER (fix round 6) ────────────────────────────────
+// Null by default, and then a non-HEAD fetch is the error it has always been.
+// The three tests that need the REAL provider wrapper — the ones whose whole
+// claim is WHICH error it throws — queue one answer here instead of mocking
+// the wrapper away.
+const deepgramHttp: { next: (() => Response) | null } = { next: null }
 const originalFetch = global.fetch
 const fetchMock = jest.fn(async (url: unknown, init?: { method?: string }) => {
-  if (init?.method !== 'HEAD') throw new Error(`unexpected non-HEAD fetch: ${String(url)}`)
-  if (headBytes.current == null) throw new Error('storage unreachable')
-  return { headers: new Headers({ 'content-length': String(headBytes.current) }) }
+  if (init?.method === 'HEAD') {
+    if (headBytes.current == null) throw new Error('storage unreachable')
+    return { headers: new Headers({ 'content-length': String(headBytes.current) }) }
+  }
+  const queued = deepgramHttp.next
+  if (!queued) throw new Error(`unexpected non-HEAD fetch: ${String(url)}`)
+  deepgramHttp.next = null
+  return queued()
 })
 
 const audit = jest.fn()
@@ -296,6 +317,7 @@ const auditWeb = jest.fn(async () => {})
 jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(...(a as [])) }))
 
 import { processRecordingJobs } from '@/lib/jobs/process-recording'
+import { DeepgramHttpError, type DeepgramTranscribeResult } from '@/lib/deepgram'
 import { transcribeAndPersistDiscardWithClient } from '@/actions/recording-discard-transcript'
 import type { SynqedClient } from '@synqed-kk/client'
 import { estimateTranscriptionCostCents } from '@/lib/ai-rate-limit'
@@ -337,6 +359,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   order.length = 0
   headBytes.current = 32_400_000
+  deepgramHttp.next = null
   global.fetch = fetchMock as unknown as typeof global.fetch
   // reset, not clear: a queued `...Once` that a test never reached would
   // otherwise leak into the next one.
@@ -1190,18 +1213,48 @@ describe('the reserve on the buffer door (the web FormData path)', () => {
 // spent at all — releases. The two mutants that blur the line (m20 release on
 // success, m21 refund the over-estimate) are the reason these are separate
 // claims rather than one.
-describe('the release — a provider that throws gives the reserve back', () => {
+//
+// ⚖ NARROWED IN FIX ROUND 6 (Greptile round 3 on PR #863). "The provider threw"
+// was too big a word for "the provider did not bill us". A catch that treats
+// EVERY exception as proof of no spend also releases when the socket dropped
+// mid-answer, when the client timed out, and when a 2xx body would not parse —
+// and each of those can happen AFTER Deepgram accepted and billed the request.
+// A requeueing worker would then spend on every attempt while handing back
+// every reserve: billed money erased from the very number the cap is computed
+// from, the dangerous direction. Only a NON-2xX ANSWER — a `DeepgramHttpError`,
+// thrown from one branch of one function — is a refusal we know was not billed.
+// Everything ambiguous keeps its reserve.
+describe('the release — a provider that ANSWERS non-2xx gives the reserve back', () => {
   const runOneJob = async (job: Record<string, unknown> = baseJob) => {
     claim.mockResolvedValueOnce(job).mockResolvedValueOnce(null)
     await processRecordingJobs(10_000)
   }
-  /** Deepgram reached, Deepgram threw — the order push stays honest so the
-   *  release can be pinned as happening AFTER the money would have moved. */
-  const providerThrows = (message = 'deepgram 503') =>
+  /** Deepgram reached, Deepgram said no — the order push stays honest so the
+   *  release can be pinned as happening AFTER the money would have moved. The
+   *  error is thrown at the module edge here because these tests are about what
+   *  the WALL does with it; the three cases below prove the real wrapper is
+   *  what produces it, and produces it for that case ONLY. */
+  const providerRefuses = () =>
     transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
       order.push('deepgram')
-      throw new Error(message)
+      throw new DeepgramHttpError(503, 'Service Unavailable', 'upstream')
     })
+  const REFUSAL_MESSAGE = 'Deepgram 503 Service Unavailable: upstream'
+
+  /** THE REAL PROVIDER WRAPPER, run against one stubbed HTTP answer. The whole
+   *  claim of the fix-round-6 cases is WHICH error `parseDeepgram` throws, and
+   *  that is only visible when parseDeepgram actually runs — a mocked module
+   *  would let a wrapper that threw the typed error from its PARSE branch too
+   *  (m26) pass unnoticed. */
+  const realTranscribeUrl = jest.requireActual<typeof import('@/lib/deepgram')>('@/lib/deepgram')
+    .transcribeUrlWithDeepgram
+  const providerHttp = (answer: () => Response) => {
+    deepgramHttp.next = answer
+    transcribeUrlWithDeepgram.mockImplementationOnce(async (...a: unknown[]) => {
+      order.push('deepgram')
+      return realTranscribeUrl(...(a as Parameters<typeof realTranscribeUrl>))
+    })
+  }
   /** Every cents figure the ledger was handed, in order. */
   const ledger = () => recordUsage.mock.calls.map((c) => (c as unknown[])[3] as number)
   let errorLog: jest.SpyInstance
@@ -1213,8 +1266,8 @@ describe('the release — a provider that throws gives the reserve back', () => 
     errorLog.mockRestore()
   })
 
-  it('the provider throws → ONE negative row of exactly the reserve, and the error leaves unchanged', async () => {
-    providerThrows()
+  it('the provider answers non-2xx → ONE negative row of exactly the reserve, and the error leaves unchanged', async () => {
+    providerRefuses()
 
     await runOneJob()
 
@@ -1232,7 +1285,7 @@ describe('the release — a provider that throws gives the reserve back', () => 
     expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, -46)
     // The provider's own error reaches the worker unchanged — the job requeues
     // by attempts rather than wearing the spend-limit word.
-    expect(fail).toHaveBeenCalledWith('job-1', 'deepgram 503')
+    expect(fail).toHaveBeenCalledWith('job-1', REFUSAL_MESSAGE)
     expect(fail).not.toHaveBeenCalledWith('job-1', AI_SPEND_LIMIT)
     expect(complete).not.toHaveBeenCalled()
     // NO receipt (nothing was transcribed) and NO true-up (nothing to true up).
@@ -1241,6 +1294,67 @@ describe('the release — a provider that throws gives the reserve back', () => 
       '[ai-usage] reserve RELEASE lost after 3 attempts:',
       expect.anything(),
     )
+  })
+
+  // ── THE THREE CASES FIX ROUND 6 SEPARATES ─────────────────────────────────
+  // All three reach the REAL provider wrapper, because the difference between
+  // them is made inside it.
+
+  it('m25 Deepgram itself answers 502 → the real wrapper throws the typed error and the reserve comes back', async () => {
+    providerHttp(() => new Response('upstream boom', { status: 502, statusText: 'Bad Gateway' }))
+
+    await runOneJob()
+
+    expect(ledger()).toEqual([45, -45])
+    expect(recordUsage).toHaveBeenNthCalledWith(2, 'transcribe', null, null, -45)
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'deepgram',
+      'recordUsage(release)',
+    ])
+    // The message the two interactive routes have always surfaced, unchanged by
+    // the class it now travels in.
+    expect(fail).toHaveBeenCalledWith('job-1', 'Deepgram 502 Bad Gateway: upstream boom')
+    expect(rows('recording.transcribe')).toHaveLength(0)
+  })
+
+  it('m24 the request never lands (the socket drops) → NO release: Deepgram may have billed it', async () => {
+    providerHttp(() => {
+      throw new TypeError('fetch failed')
+    })
+
+    await runOneJob()
+
+    // The reserve STAYS. An over-count is the safe direction; erasing a spend
+    // Deepgram may already have billed is not.
+    expect(ledger()).toEqual([45])
+    expect(ledger().every((c) => c > 0)).toBe(true)
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
+    expect(fail).toHaveBeenCalledWith('job-1', 'fetch failed')
+    expect(rows('recording.transcribe')).toHaveLength(0)
+  })
+
+  it('m26 Deepgram answers 200 with a body that will not parse → NO release: it accepted the request', async () => {
+    // The most expensive shape of this bug: the provider transcribed the audio,
+    // billed us for it, and only the reading of its answer failed.
+    providerHttp(() => new Response('<html>not json</html>', { status: 200 }))
+
+    await runOneJob()
+
+    expect(ledger()).toEqual([45])
+    expect(ledger().every((c) => c > 0)).toBe(true)
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
+    expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, -45)
+    expect(complete).not.toHaveBeenCalled()
+    expect(rows('recording.transcribe')).toHaveLength(0)
+    // The error is the PARSE's own — proof the real `res.json()` ran and that
+    // the typed error was NOT what came out of it (m26). Matched loosely
+    // because the exact wording is the JSON parser's, and it moves with Node.
+    const reason = (fail.mock.calls[0] as unknown[])[1] as string
+    expect(reason).toMatch(/JSON/i)
+    expect(reason).not.toMatch(/^Deepgram /)
+    expect(reason).not.toMatch(/unexpected non-HEAD fetch/)
   })
 
   it('m20 the provider ANSWERS → no negative row is ever written', async () => {
@@ -1270,7 +1384,7 @@ describe('the release — a provider that throws gives the reserve back', () => 
   })
 
   it('the release cannot land after three attempts → written down, the reserve stays, the error still leaves unchanged', async () => {
-    providerThrows()
+    providerRefuses()
     // The reserve lands; every release attempt fails.
     recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
 
@@ -1297,13 +1411,13 @@ describe('the release — a provider that throws gives the reserve back', () => 
     // ⚖ The reserve simply STAYS — an over-count, the safe direction. Nothing
     // is thrown from the release itself: the provider's error is the one the
     // caller sees.
-    expect(fail).toHaveBeenCalledWith('job-1', 'deepgram 503')
+    expect(fail).toHaveBeenCalledWith('job-1', REFUSAL_MESSAGE)
     expect(rows('recording.transcribe')).toHaveLength(0)
   })
 
   it('m23 a retried job reserves again — over two attempts the ledger nets ONE estimate, not two', async () => {
-    // Attempt 1: Deepgram throws. +45 then −45.
-    providerThrows()
+    // Attempt 1: Deepgram answers 503. +45 then −45.
+    providerRefuses()
     await runOneJob()
     expect(order).toEqual([
       'consume',

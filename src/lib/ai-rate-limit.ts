@@ -154,10 +154,10 @@ export async function reportTranscriptionUsageWithClient(
  * was invented and no core change was needed; the hourly count is untouched,
  * because it only counts rows whose cents are null.
  *
- * ⚖ RELEASE, NOT REFUND: this runs only when the provider call itself threw —
- * the money was not spent (a failed request is not billed; a client-side
- * timeout after the server finished is the accepted residual: one estimate,
- * once). A SUCCESSFUL call is never refunded, whatever the estimate was (the
+ * ⚖ RELEASE, NOT REFUND: this runs only when the provider ANSWERED with a
+ * non-2xx status — a request it refused or failed and did not bill. Transport
+ * errors, timeouts and unreadable 2xx bodies never reach here: those reserves
+ * stay. A SUCCESSFUL call is never refunded, whatever the estimate was (the
  * no-refund ruling).
  *
  * The three attempts and the never-throws rule are the reporter's above, and
