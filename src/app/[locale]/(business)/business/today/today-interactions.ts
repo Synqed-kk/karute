@@ -3373,6 +3373,238 @@ export function orderRooms(rooms: readonly BoardLane[]): BoardLane[] {
   return [...rooms.filter((l) => l.roomClass !== 'private'), ...rooms.filter((l) => l.roomClass === 'private')]
 }
 
+// ── ⚖ 9/8 PACKING — THE FEWEST ROOM MOVES THAT MAKE THE DAY FIT ────────────
+
+/** One booking's room move, exactly as the search found it. Empty on every path
+ *  that existed before the pack. */
+export interface Reseat {
+  id: string
+  from: string
+  to: string
+}
+
+/** The same move carrying the span 元に戻す needs. `PendingChange.companions` is
+ *  a list of these, `applyBedMoves` builds a board from them and `stage()` writes
+ *  the identical `bedMoves` entries — ONE shape, so the verdict's synthetic board
+ *  and the staged board can never become two different worlds. */
+export interface BedCompanion {
+  id: string
+  bedOrigin: Move
+  bedTo: string
+}
+
+/** ponytail: a booking that has started — or is about to — is not a card the
+ *  board may re-seat, and this board's clock is a per-request snapshot, so a bare
+ *  「has started」 test would move a customer already lying on the bed. Fifteen
+ *  minutes is the floor, in code, NEVER a dial (⚖ 9/5, zero room dials). Upgrade
+ *  path: change the number here if a store ever reports a re-seat that reached
+ *  the floor; it is one constant with one reader. */
+const LEAD_FLOOR_MIN = 15
+/** ponytail: four moved bookings, and a day that needs a fifth refuses honestly
+ *  with today's sentence rather than shuffling half the board under the operator.
+ *  Upgrade path: raise K — the search is iterative-deepening, so the extra depth
+ *  is only paid on the days that need it — or switch to a flow formulation if a
+ *  real store ever hits this ceiling on a genuinely packable day. */
+const PACK_MAX_MOVES = 4
+/** ponytail: claim placements per landing. Measured on the reference harness: a
+ *  typical landing finishes well under a millisecond, and 4,000 was exhausted on
+ *  4-8% of 個室のみ-narrow landings on a packed 30-bed board while the true answer
+ *  still needed roughly 3x that to prove. Exhausted is treated as 「not found」 —
+ *  today's honest refusal, never a wrong seat. Upgrade path: raise it if a real
+ *  store's own board ever refuses a day the harness calls packable. */
+const PACK_BUDGET = 16000
+
+/** ⚖ 9/8 PACKING (DESIGN-RESEAT-ONEHOP v3.1 §2 step 1) — THE CONFLICT-DIRECTED,
+ *  FEWEST-MOVES-FIRST SEARCH.
+ *
+ *  Ported from the reference implementation the design's delta round proved on
+ *  500,000 fuzzed scenes against a brute-force oracle (`harness/core.mjs` in the
+ *  RESEAT-2026-09-08 packet folder) — ported, not re-derived, because three of
+ *  its corrections are the kind a re-derivation loses: the subject's own claim
+ *  BLOCKS its target room for the rest of the branch, the undo log rolls back
+ *  grandchildren a sibling's abandoned subtree committed, and the whole
+ *  assignment is ONE backtracking search over a queue so a later failure can
+ *  force an EARLIER sibling onto its next room.
+ *
+ *  CLAIMS, NOT WINDOWS. A booking's claim on a room is `[startMin, endMin +
+ *  cleanup(room))` — core's `appointments_resource_no_overlap` EXCLUDE refuses
+ *  the write otherwise, and the turnaround is a property of the ROOM, so a
+ *  booking that changes room changes tail. The drawn 清掃 items are therefore
+ *  skipped as pins and re-derived here: a tail that stayed behind when its
+ *  booking moved would paint over a span where nothing happens (⚖ 51
+ *  second-order, `withTrailingCleanup`'s own rule).
+ *
+ *  It runs ONLY after today's step-0 search has refused, and only when the caller
+ *  asked for it — see `allocateBed`'s `pack` option for the fence. */
+function packSearch(
+  lanes: BoardLane[],
+  /** The rooms sharing a store with the SUBJECT's staff lane — `allocateBed`'s
+   *  own `beds`, handed in rather than re-derived so the two cannot disagree. */
+  beds: BoardLane[],
+  subject: { id: string | null; currentBed: string | null; requiresPrivate: boolean; start: number; end: number },
+  now: number | null,
+  cleanupMinutesByBed: Record<string, number>,
+): { laneKey: string; reseats: Reseat[] } | null {
+  const SUBJECT = ' subject'
+  const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.end > b.start && a.start < b.end
+  const cleanupOf = (room: BoardLane) => cleanupMinutesByBed[room.key] ?? 0
+
+  // ⚖ STORE ISOLATION, per ROOM rather than per subject: a room only ever hosts
+  // its own store's bookings, which is what keeps a floating staff member's
+  // landing from pulling another store's card into the chain. A booking whose
+  // staff lane is not on this board cannot be proven to belong anywhere, so it is
+  // pinned — fail-closed, the same choice `allocateBed.stores` makes.
+  const storesOf = new Map<string, string[] | null>()
+  for (const l of lanes) {
+    if (l.group !== 'staff') continue
+    for (const i of l.items) if (i.caseId) storesOf.set(i.caseId, l.stores)
+  }
+
+  interface PackBooking {
+    id: string
+    room: string
+    stores: string[] | null | undefined
+    requiresPrivate: boolean
+    start: number
+    end: number
+  }
+  const bookings: PackBooking[] = []
+  const pinsOf = new Map<string, Array<{ start: number; end: number }>>()
+  for (const l of beds) {
+    const rows: Array<{ start: number; end: number }> = []
+    for (const i of l.items) {
+      // A 清掃 is the TAIL OF ITS BOOKING, never a thing on the board: it is
+      // re-derived into every claim below, so counting it here as well would
+      // charge the turnaround twice and nail it to a room its booking may leave.
+      if (i.kind === 'cleanup') continue
+      if (i.kind !== 'booking') {
+        rows.push({ start: i.startMin, end: i.endMin })
+        continue
+      }
+      if (i.caseId == null || i.caseId === subject.id) continue
+      bookings.push({
+        id: i.caseId,
+        room: l.key,
+        stores: storesOf.get(i.caseId),
+        requiresPrivate: i.requiresPrivateRoom === true,
+        start: i.startMin,
+        end: i.endMin,
+      })
+    }
+    pinsOf.set(l.key, rows)
+  }
+
+  const timePinned = (b: PackBooking) => now != null && b.start <= now + LEAD_FLOOR_MIN
+  const pinnedInRoom = (b: PackBooking, room: BoardLane) =>
+    b.stores === undefined || timePinned(b) || !sharesStore(b.stores, room.stores)
+
+  const subjectRooms = () => {
+    const compatible = beds.filter((l) => roomFitsNeed(l, subject.requiresPrivate))
+    const current = compatible.find((l) => l.key === subject.currentBed)
+    // ⚖ 51's keep-if-free, ahead of ⚖ ROOM RULE clause 1's standard-first order:
+    // the room the booking carries in is the first candidate at every depth.
+    return current ? [current, ...orderRooms(compatible).filter((l) => l.key !== current.key)] : orderRooms(compatible)
+  }
+  const companionRooms = (b: PackBooking) =>
+    orderRooms(beds.filter((l) => l.key !== b.room && roomFitsNeed(l, b.requiresPrivate) && b.stores !== undefined && sharesStore(b.stores, l.stores)))
+
+  type Occupant =
+    | { kind: 'pin' | 'subject'; start: number; end: number; booking?: undefined }
+    | { kind: 'booking'; start: number; end: number; booking: PackBooking }
+
+  const occupantsOf = (room: BoardLane, moves: Map<string, string>, excludeId: string | null): Occupant[] => {
+    const tail = cleanupOf(room)
+    const out: Occupant[] = (pinsOf.get(room.key) ?? []).map((p) => ({ kind: 'pin' as const, start: p.start, end: p.end }))
+    // The subject's committed claim blocks its target room exactly like a pin —
+    // nothing in the vocabulary exempts the card being landed from being an
+    // occupant a companion two levels deep might otherwise be dropped on top of.
+    if (moves.get(SUBJECT) === room.key) out.push({ kind: 'subject', start: subject.start, end: subject.end + tail })
+    for (const b of bookings) {
+      if (b.id === excludeId) continue
+      if ((moves.get(b.id) ?? b.room) !== room.key) continue
+      out.push({ kind: 'booking', start: b.start, end: b.end + tail, booking: b })
+    }
+    return out
+  }
+
+  let nodes = 0
+
+  /** `queue[0]` is placed next; every candidate room for it is exhausted —
+   *  including everything its own conflicts recursively pull in — before this
+   *  call reports failure to whoever queued it. `true` / `false` / `'BUDGET'`. */
+  const tryQueue = (
+    queue: Array<{ item: PackBooking | typeof subject; isSubject: boolean }>,
+    moves: Map<string, string>,
+    movedSet: Set<string>,
+    k: number,
+    log: Array<() => void>,
+  ): boolean | 'BUDGET' => {
+    if (queue.length === 0) return true
+    const [head, ...rest] = queue
+    const item = head.item
+    const candidates = head.isSubject ? subjectRooms() : companionRooms(item as PackBooking)
+    for (const room of candidates) {
+      nodes += 1
+      if (nodes > PACK_BUDGET) return 'BUDGET'
+      const claim = { start: item.start, end: item.end + cleanupOf(room) }
+      const toMove: PackBooking[] = []
+      let dead = false
+      for (const o of occupantsOf(room, moves, head.isSubject ? null : (item as PackBooking).id)) {
+        if (!overlaps(o, claim)) continue
+        if (o.kind !== 'booking' || pinnedInRoom(o.booking, room) || movedSet.has(o.booking.id)) {
+          // A pin, the subject's own claim, a booking this room may not host —
+          // or one already moved once in this branch, which 「each booking moves
+          // at most once」 makes a genuine conflict rather than a second hop.
+          dead = true
+          break
+        }
+        toMove.push(o.booking)
+      }
+      if (dead) continue
+      toMove.sort((a, b) => a.start - b.start)
+      if (movedSet.size + toMove.length > k) continue
+
+      const mark = log.length
+      const setMove = (key: string, val: string) => {
+        moves.set(key, val)
+        log.push(() => moves.delete(key))
+      }
+      const addMoved = (id: string) => {
+        if (movedSet.has(id)) return
+        movedSet.add(id)
+        log.push(() => movedSet.delete(id))
+      }
+      setMove(head.isSubject ? SUBJECT : (item as PackBooking).id, room.key)
+      if (!head.isSubject) addMoved((item as PackBooking).id)
+      for (const b of toMove) addMoved(b.id)
+
+      const res = tryQueue([...toMove.map((b) => ({ item: b, isSubject: false })), ...rest], moves, movedSet, k, log)
+      if (res === true) return true
+      // Roll this attempt's ENTIRE subtree back, however deep: a grandchild a
+      // sibling committed and then abandoned would otherwise sit in `moves`
+      // blocking a room that is free in the branch about to be tried.
+      while (log.length > mark) log.pop()!()
+      if (res === 'BUDGET') return 'BUDGET'
+    }
+    return false
+  }
+
+  for (let k = 1; k <= PACK_MAX_MOVES; k += 1) {
+    const moves = new Map<string, string>()
+    const movedSet = new Set<string>()
+    const res = tryQueue([{ item: subject, isSubject: true }], moves, movedSet, k, [])
+    if (res === 'BUDGET') return null
+    if (res === true) {
+      const laneKey = moves.get(SUBJECT)!
+      return {
+        laneKey,
+        reseats: [...movedSet].map((id) => ({ id, from: bookings.find((b) => b.id === id)!.room, to: moves.get(id)! })),
+      }
+    }
+  }
+  return null
+}
+
 /** ⚖ LIAM 2026-08-21 (flag 51, LOCKED) — THE BED IS AN ALLOCATION, NOT A
  *  CHOICE. Staff, customer and time are human decisions; the room is something
  *  the system re-solves at EVERY landing:
@@ -3452,12 +3684,40 @@ export function allocateBed(
      *  "which move is unconfirmed" is screen state (`pending`), not a fact about
      *  the day — today-board draws a staged card exactly like a standing one. */
     stagedId?: string | null
+    /** ⚖ 9/8 PACKING — MAY THIS SEARCH MOVE SOMEBODY ELSE?
+     *
+     *  Default `false`, which is every caller that existed before this option and
+     *  every answer they get, byte for byte. It is an explicit ARGUMENT and never
+     *  a field on the `Subject`/`Query` shapes the capacity book spreads into its
+     *  asks — a spread would carry packing into the rail probes, the sell layer
+     *  and the reserved mask, which is the one place it must never be (design §3;
+     *  pinned in the suite against `capacity-ledger.ts`' own `search()`).
+     *
+     *  Only a gesture END asks with it: `landingVerdict`'s solve arm through
+     *  `verdictAtLanding`, and `solveBed`, which stages the answer. The word at
+     *  the cursor during a drag does not. */
+    pack?: boolean
+    /** Minutes on the day shown; `null` = a future day, where nothing has
+     *  started. REQUIRED when `pack` is true — a re-seat search that cannot tell
+     *  which bookings are already under way would move a customer off the bed
+     *  they are lying on. */
+    now?: number | null
+    /** Each room's own turnaround, by lane key. REQUIRED when `pack` is true:
+     *  `BoardLane` deliberately does not carry the policy (see
+     *  `withTrailingCleanup`), and the pack needs the ROOM's constant for rooms
+     *  nobody currently occupies, where there is no drawn 清掃 to read it off. */
+    cleanupMinutesByBed?: Record<string, number>
   },
   // ⚖ 44 FIX ROUND (blind lens 1, F6) — `readonly`: the walk is handed out to be
   // READ (classified into the chip's word), never to be sorted or spliced by the
   // display that borrowed it.
-): { laneKey: string | null; refusal: string | null; blockers: readonly BoardItem[] } {
+): { laneKey: string | null; refusal: string | null; blockers: readonly BoardItem[]; reseats: readonly Reseat[] } {
   const { id, start, end } = opts
+  // The two facts the pack cannot be honest without. Absent is a caller defect,
+  // not a board state, so it is loud here rather than quietly fail-open deeper in.
+  if (opts.pack === true && (opts.now === undefined || opts.cleanupMinutesByBed === undefined)) {
+    throw new Error('allocateBed: pack requires now and cleanupMinutesByBed')
+  }
   const blockersOn = (lane: BoardLane) =>
     lane.items.filter(
       (i) =>
@@ -3473,14 +3733,14 @@ export function allocateBed(
   const compatible = (l: BoardLane) => roomFitsNeed(l, opts.requiresPrivate)
   const free = (l: BoardLane) => opts.allowBusy === true || blockersOn(l).length === 0
   const current = beds.find((l) => l.key === opts.currentBed)
-  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [] }
+  if (current && compatible(current) && free(current)) return { laneKey: current.key, refusal: null, blockers: [], reseats: [] }
   const candidates = beds.filter(compatible)
   // ⚖ ROOM RULE clause 1 — standard rooms first, 個室 last, ALWAYS. `orderRooms` is the
   // one home for that; a tagged booking's candidates are private-only anyway, so
   // the same call is correct on both branches and there is nothing to switch on.
   const ordered = orderRooms(candidates)
   const taken = ordered.find(free)
-  if (taken) return { laneKey: taken.key, refusal: null, blockers: [] }
+  if (taken) return { laneKey: taken.key, refusal: null, blockers: [], reseats: [] }
   // ⚖ 44 — THE SAME WALK, HANDED OUT ONCE. The refusal SENTENCE names the
   // occupants and the rail's micro-word has to CLASSIFY them (all-清掃 wears
   // 清掃 rather than 満室), and a display that re-walked the rooms to find that
@@ -3489,10 +3749,28 @@ export function allocateBed(
   // answers. Empty on every non-refusal above: nothing blocked, so there is
   // nobody to name.
   const rows = candidates.map((l) => [l, blockersOn(l)] as const)
+  // ⚖ 9/8 PACKING — STEP 1, AND ONLY HERE. Today's search has refused, so the
+  // question 「is a compatible bed free right now?」 is answered and the second
+  // one — 「is there a way to make one free by moving the fewest other people?」 —
+  // is allowed to be asked. A caller that did not ask for it never reaches this
+  // line, and a search that finds nothing falls straight through to the refusal
+  // the operator reads today, same sentence, same blockers.
+  const packed =
+    opts.pack === true
+      ? packSearch(
+          lanes,
+          beds,
+          { id, currentBed: opts.currentBed, requiresPrivate: opts.requiresPrivate, start, end },
+          opts.now ?? null,
+          opts.cleanupMinutesByBed ?? {},
+        )
+      : null
+  if (packed) return { laneKey: packed.laneKey, refusal: null, blockers: [], reseats: packed.reseats }
   return {
     laneKey: null,
     refusal: fullRoomsRefusal(rows, start, end, opts.requiresPrivate, opts.stagedId ?? null),
     blockers: rows.flatMap(([, blockers]) => blockers),
+    reseats: [],
   }
 }
 

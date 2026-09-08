@@ -3468,6 +3468,8 @@ describe('次回予約を作成 arms the board, and the slot click makes the boo
       // on. That contrast IS the rule the differs-only test states.
       refusal: '15:00〜16:00はベッドに空きがありません。ベッド1（見本 かえる様）、ベッド2（見本 あかり様 14:50〜16:40）が使用中です',
       blockers: solve(900, 960).blockers,
+      // ⚖ 9/8 PACKING — the field is new; `[]` on every path that existed before it.
+      reseats: [],
     })
     // ⚖ 44 — and the occupants the sentence just named, handed out as values.
     expect(solve(900, 960).blockers.map((i) => i.title)).toEqual(['見本 かえる', '見本 あかり'])
@@ -5726,13 +5728,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
   it('keeps the booking’s own room when it is free at the landing time', () => {
     // 見本 かえる's case: carries ベッド2, and ベッド2 is free at 16:00 → nothing
     // moves. The room the operator can see on the card is the room they get.
-    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null, blockers: [] })
+    expect(solve(scene(), { currentBed: 'bed-02' })).toEqual({ laneKey: 'bed-02', refusal: null, blockers: [], reseats: [] })
   })
 
   it('retargets to a free compatible room when its own is taken — Liam’s なぎ case', () => {
     // The whole flag: ベッド3 is held by あかり at 16:00, あずさ is free, so the
     // landing succeeds in another room instead of refusing about a person.
-    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
+    expect(solve(scene())).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [], reseats: [] })
   })
 
   it('refuses ONLY at true 満室 — and the sentence names the window and the rooms', () => {
@@ -5747,6 +5749,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // sentence used to hide which one was in the way.
       refusal: '16:00〜17:00はベッドに空きがありません。ベッド1（見本 かえる様）、ベッド2（清掃 16:00〜16:30）、ベッド3（見本 あかり様）が使用中です',
       blockers: solve(full).blockers,
+      reseats: [],
     })
     // ⚖ 44 — the walk the sentence was composed from, handed out beside it: the
     // same occupants, in the same room order, so a display classifying them can
@@ -5786,7 +5789,7 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       }),
     ]
     expect(allocateBed(own, { id: 'apt-nagi', currentBed: 'bed-02', stores: null, requiresPrivate: false, start: 960, end: 1020 }))
-      .toEqual({ laneKey: 'bed-02', refusal: null, blockers: [] })
+      .toEqual({ laneKey: 'bed-02', refusal: null, blockers: [], reseats: [] })
     // Somebody else's turnaround is the room being unavailable, exactly as the
     // board's own 「清掃を予約不可時間として表示」 says.
     const theirs = [
@@ -11991,7 +11994,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
   // untagged booking is never refused while any same-store bed is free.
   it('I2 — an untagged booking is never refused while a same-store bed is free', () => {
     const storeB = [staffLane({ stores: ['store-b'] }), bed('bed-04', 'standard', [], ['store-b'])]
-    expect(solve(storeB, false, ['store-b'])).toEqual({ laneKey: 'bed-04', refusal: null, blockers: [] })
+    expect(solve(storeB, false, ['store-b'])).toEqual({ laneKey: 'bed-04', refusal: null, blockers: [], reseats: [] })
     // …at every hour of the day, not just this one.
     for (let start = 600; start + 60 <= 1140; start += 30) {
       const at = allocateBed(storeB, { id: null, currentBed: null, stores: ['store-b'], requiresPrivate: false, start, end: start + 60 })
@@ -12080,6 +12083,7 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
       laneKey: null,
       refusal: 'この店舗には個室がありません。個室のある店舗へ移してください',
       blockers: [],
+      reseats: [],
     })
     expect(INT).not.toContain('個室のみの指定を外すか')
     // …and an untagged booking on a store with no bed AT ALL answers the SAME
