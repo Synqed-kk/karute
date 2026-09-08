@@ -1780,19 +1780,29 @@
 
 /* ── R-1 · Surface system — hierarchy through paper, not lines ───────────── */
 
-/* The room's own grey ladder. Scoped to the page (never the shell): every
-   surface this layer touches — the board, the dialogs, the popovers, the toast
-   — lives inside .page-today, so one declaration reaches all of them and the
-   sidebar/topbar keep canon's tokens exactly. Semantic tokens (green / orange
-   / red / guard / indigo) are deliberately NOT redeclared: a colour's meaning
-   may not move. --quiet is left at canon's #71717a — the packet's #9ca3af is
-   named for a chevron and a header label, and is too light to become the
-   room's text grey. */
+/* THE PAGE'S GREY LADDER — four tokens, page-scoped, never the shell. Each one
+   is redeclared because THIS PR repaints its consumers: --muted the greys of
+   the register cells, incident stats, facts and legend · --card the panel,
+   ops-strip and decision-rows borders · --section the lane-label, group-label,
+   inspector and section-head hairlines · --row the lane rows and the track's
+   gridlines. Semantic tokens (green / orange / red / guard / indigo) are
+   deliberately NOT redeclared: a colour's meaning may not move. --quiet stays
+   at canon's #71717a — the packet's #9ca3af is named for a chevron and a
+   header label, and is too light to become the room's text grey.
+
+   ⚖ GREPTILE G-1 — three tokens were here and are gone, because a token with no
+   consumer in this PR only repaints somebody else's surface:
+   --control  22 canon uses, all toolbar / popover / dialog / tour controls
+              (PR-2's territory) plus the lock toggle, whose look this PR keeps
+              as canon. PR-2's own block declares it.
+   --line     one use: the 配置の相談 popover's fact box (:1005). Not this PR.
+   --line-2   two uses, :1271 and :1463 — BOTH inside the ruled H2 warn-face
+              section, which must stay to the pixel. No PR declares it.
+   The layer's one `var(--control)` reader — the `.guard-band.legend-only`
+   restatement below — now resolves to the shell's own #e4e4e9, which is exactly
+   the value canon gives that rule, so the restatement still says canon's word. */
 .biz .page.page-today {
   --muted: #6b7280;
-  --line: #e4e7ec;
-  --line-2: #eef0f4;
-  --control: #e4e7ec;
   --card: #e4e7ec;
   --section: #eef0f4;
   --row: #eceef3;
