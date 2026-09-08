@@ -1668,21 +1668,30 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     }
     // ⚖ flag 92 — A THIRD SITE, and it is the same law rather than an exception:
     // taking the warn card's safe start is another landing of a change that is
-    // already staged, so it re-solves from the room that change OWNS. It seeds
-    // the VERDICT'S carried room rather than a second `solveBed` — the press
-    // judges and stages in one tick, so one solve is the whole answer (⚖ 54),
-    // which is why the `solveBed` count below is unmoved.
+    // already staged, so it re-solves from the room that change OWNS.
+    //
+    // ⚖ FIX ROUND 2 (F2, CODE-LENS-2 BLOCKER) — AND IT SEEDS A REAL SOLVE NOW,
+    // not only the verdict's carried room. The reasoning that used to stand here
+    // — 「the press judges and stages in one tick, so one solve is the whole
+    // answer (⚖ 54)」 — was true while a landing only moved ITSELF. Once a
+    // landing can move OTHER cards, the verdict's room was chosen on the
+    // shuffled board while the staging sent those cards home, and the subject
+    // landed in a room a companion still occupied. So the press seeds twice: the
+    // verdict's carried room, and the solve that actually stages.
     expect(SRC).toContain('bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),')
     // ⚖ 92 fix round F2 — AND A FOURTH, which is the same ask asked one step
     // earlier. The card's safe start is now re-verdicted when it is DRAWN as
     // well as when it is TAKEN (⚖ 58's filter re-runs the gate per candidate),
     // and a question about where this change may land carries the room it owns
-    // whichever end of the gesture asks it. Still no second `solveBed`.
-    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(4)
-    // ⚖ 9/8 PACKING — SIX: the declaration plus the four landings, and now the
+    // whichever end of the gesture asks it.
+    // ⚖ FIX ROUND 2 (F2) — FIVE, with the safe-start press's own solve.
+    expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(5)
+    // ⚖ 9/8 PACKING — SIX: the declaration plus the four landings, and the
     // `solveLanes` doc comment's own back-reference is a comment rather than a
-    // call, so the count moved only by the one real thing that changed — none.
-    expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
+    // call.
+    // ⚖ FIX ROUND 2 (F2) — SIX: the safe-start press is the FIFTH landing, so
+    // the declaration plus five calls.
+    expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(6)
   })
 
   it('the RECORDING is the bed-row drag alone, and no other landing can clear it', () => {

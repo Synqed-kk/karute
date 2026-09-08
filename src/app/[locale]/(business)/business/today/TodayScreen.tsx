@@ -2277,7 +2277,23 @@ export function TodayScreen(props: TodayProps) {
    *  ending, where there is one landing rather than a strip of them. The card's
    *  OWN length, exactly as `askGuard` does it. */
   const verdictAtLanding = useCallback(
-    (q: LandingAsk): LandingVerdict => {
+    /** ⚖ FIX ROUND 2 (F1, CODE-LENS-1 BLOCKER) — `pack` IS AN ARGUMENT HERE TOO,
+     *  AND IT HAS NO DEFAULT.
+     *
+     *  This function's body used to hardcode `true`, and `verdictRef.current` is
+     *  what the two LIVE per-frame words call (`paintProxyVerdict`,
+     *  `paintChipVerdict`) — so every pointer-move frame over an occupied room
+     *  ran the full backtracking search, the exact per-frame cost design §3's
+     *  NEVER list and §6's zero-cost guarantee were written to forbid. The
+     *  suite's own fence could not see it: this function passed `true`
+     *  POSITIONALLY, which the keyword-form grep never matched.
+     *
+     *  No default, so a new call site cannot forget to answer: the gesture ENDS
+     *  ask with the pack ON (the drop, the keyboard nudge, the safe-start press
+     *  and the offered alternatives — Q3 accepted, an offer is a drop by another
+     *  gesture); the two per-frame paints ask with it OFF and get exactly the
+     *  answer this board gave before the packing branch existed. */
+    (q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {
       const start = minuteOf(q.span.x, hours)
       const dur = minuteOf(q.span.x + q.span.w, hours) - start
       const cellOn = (lanes: BoardLane[]) => (q.staffLane ? verdictAt(q.staffLane, start, dur, q.id, lanes) : null)
@@ -2300,11 +2316,23 @@ export function TodayScreen(props: TodayProps) {
       // could refuse what the drop would then pack, or pass what the drop would
       // then refuse and leave `solveBed`'s toast to speak after a clean verdict.
       // One board, asked once: the cell, the verdict and the shuffle all read it.
+      //
+      // ⚖ FIX ROUND 2 (F3, CODE-LENS-2 F2) — AND THE ANSWER CARRIES THE FIRST
+      // SOLVE'S `reseats`. The second verdict re-solves on `shuffled`, where the
+      // companions already sit in their new rooms, so its own step 0 succeeds
+      // and its `reseats` is provably always `[]` — a packing landing was
+      // returning a verdict that said nobody moves. The board stages the
+      // companions from `solveBed`, so nothing was wrong on screen; the next
+      // reader of this field (a preview line, the caution box's facts, the
+      // durable audit entry §7 has queued) would have got silence.
       const base = solveLanes(q.id)
-      const v = verdictFor(q, cellOn(base), true, base)
-      if (v.reseats.length === 0) return v
+      const v = verdictFor(q, cellOn(base), opts.pack, base)
+      // The fence, said twice: without a pack there is nothing to shuffle
+      // (`allocateBed` returns `reseats: []` on every non-pack path), and this
+      // says so out loud rather than relying on that.
+      if (!opts.pack || v.reseats.length === 0) return v
       const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)
-      return verdictFor(q, cellOn(shuffled), true, shuffled)
+      return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }
     },
     // `solveLanes` is a body function declaration (⚖ its own doc comment: one
     // home for 「which board does this landing solve against?」, and the pins in
@@ -2351,7 +2379,10 @@ export function TodayScreen(props: TodayProps) {
       const start = minuteOf(ask.span.x, hours)
       const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
       return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>
-        verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+        // ⚖ FIX ROUND 2 (F1) — an OFFER is a drop by another gesture (⚖ FIX
+        // ROUND 1 F3, Q3 accepted), so it is judged with the pack the drop will
+        // run. Gesture-end only: nothing here runs per pointer frame.
+        verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
       )
     },
     [hours, props.guard.bookingStepMin],
@@ -2383,7 +2414,9 @@ export function TodayScreen(props: TodayProps) {
         const start = minuteOf(ask.span.x, hours)
         const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
         return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>
-          verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+          // ⚖ FIX ROUND 2 (F1) — the refusal box's own starts, judged with the
+          // pack for the same reason `offerable` above is.
+          verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
         )
       }),
     [hours, props.guard.bookingStepMin],
@@ -2659,8 +2692,12 @@ export function TodayScreen(props: TodayProps) {
     const stagedLoss = lossOf(cell)
     return {
       row: guardCheckRow(cell),
+      // ⚖ FIX ROUND 2 (F1) — THE DRAW AND THE PRESS ARE ONE LAW (⚖ 92 fix round
+      // 3 T6): the safe-start press packs, so the gate that decides which starts
+      // this card OFFERS has to pack too, or the card would withhold a start the
+      // press can reach. Once per render of a staged card, never per frame.
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
-        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
+        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind
         if (cell?.alternativeKind === 'safe') return k === 'clean'
         if (k === 'blocked') return false
         if (cell?.alternatives.includes(s)) return true
@@ -3317,10 +3354,20 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 87 — the room the operator CHOSE outlives the gestures that follow it,
     // and taking the safe start is one of those gestures. The seed is handed to
     // the verdict as the carried room, so `allocateBed` prefers it if it is free
-    // at the new span and re-solves if it is not — which is ⚖ 51's own rule, run
-    // ONCE. (The drop re-solves after its verdict because its red box can stand
-    // open for a while; this press judges and stages in the same tick, so a
-    // second solve would only be a second reading of one answer — ⚖ 54.)
+    // at the new span and re-solves if it is not — which is ⚖ 51's own rule.
+    //
+    // ⚖ FIX ROUND 2 (F2, CODE-LENS-2 BLOCKER) — AND THE ROOM IS SOLVED AGAIN
+    // BEFORE IT IS STAGED. The parenthesis that used to close this comment read
+    // 「this press judges and stages in the same tick, so a second solve would
+    // only be a second reading of one answer — ⚖ 54」. That was true while a
+    // landing only ever moved ITSELF. It no longer is: `again.bedLane` is a room
+    // chosen on the SHUFFLED board, and staging it with no companions sends the
+    // previous companions home in the same staging write — so the subject lands
+    // in a room a companion still occupies. Proven on Liam's own board: ベッド1
+    // double-booked 14:30〜15:05, 確定 dead, 元に戻す the only way out, reached by
+    // pressing the SAFE answer. This landing is now the same landing the other
+    // three are — the one solver, on the board `solveLanes` hands it, companions
+    // and all.
     const again = verdictAtLanding({
       staffLane: at.laneKey,
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
@@ -3330,7 +3377,9 @@ export function TodayScreen(props: TodayProps) {
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span,
-    })
+      // ⚖ FIX ROUND 2 (F1) — the safe-start press is a gesture END that STAGES
+      // its answer, so it asks the same question the drop asks.
+    }, { pack: true })
     if (again.kind === 'blocked') {
       refuse(again.reason ?? '配置できません')
       return
@@ -3379,7 +3428,9 @@ export function TodayScreen(props: TodayProps) {
     // still undoes the whole change (⚖ 45's two-sided snapshot). And NO override
     // rides along: the operator took the safe answer, so there is no longer a
     // sentence being walked past — `stage` clears the stamp, and with it the △.
-    stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
+    const bed = solveBed(solveLanes(pending.id), at.laneKey, pending.id, seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null), item?.requiresPrivateRoom === true, span)
+    if (bed == null) return
+    stage(pending.id, { staffLane: at.laneKey, bedLane: bed.laneKey, companions: bed.companions }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
   }
 
   // ── ⚖ LIAM flag 92 — the long press ────────────────────────────────────────
@@ -3762,6 +3813,12 @@ export function TodayScreen(props: TodayProps) {
     if (key === ctx.aimKey) return
     ctx.aimKey = key
     const sides = sidesAt(ctx.home, ctx.group, ctx.targetLane)
+    // ⚖ FIX ROUND 2 (F1, CODE-LENS-1 BLOCKER) — NO PACK AT THE CURSOR. This
+    // runs from the coalesced pointer-move frame; design §3 lists 「the word at
+    // the cursor during a drag」 on the NEVER side of the fence and §6 makes
+    // landing-only the zero-per-frame-cost guarantee. ⚖ flag 54's asymmetry
+    // stands: the cursor promises only no-shuffle fits, and the drop may accept
+    // a start it did not promise.
     const v = verdictRef.current({
       staffLane: ctx.offLane ? null : sides.staffLane,
       bedLane: sides.bedLane,
@@ -3774,7 +3831,7 @@ export function TodayScreen(props: TodayProps) {
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
-    })
+    }, { pack: false })
     wearVerdict(node, v)
   }
 
@@ -3973,7 +4030,7 @@ export function TodayScreen(props: TodayProps) {
           id: ctx.id, requiresPrivate: item.requiresPrivateRoom === true, foreignRefusal: null, span,
           hasPrice: hasPriceFor(ctx.id),
         }
-        explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
+        explainBlocked(verdictRef.current(off, { pack: true }), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
           override: null,
           placeAt: () => {},
         })
@@ -4074,7 +4131,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ Liam flag 63 §4 — through the REF, so the release judges the board as
     // it stands rather than the one that existed at pointerdown. One line, and
     // it removes an entire class of hover/release disagreement.
-    const v = verdictRef.current(ask)
+    const v = verdictRef.current(ask, { pack: true })
     if (v.kind === 'blocked') {
       // ⚖ Liam flag 57 (2026-08-22) — NO REWIND WHILE THE QUESTION IS OPEN.
       //
@@ -4097,7 +4154,7 @@ export function TodayScreen(props: TodayProps) {
         placeAt: (s) => {
           const dur = minuteOf(span.x + span.w, hours) - minuteOf(span.x, hours)
           const at = place(s, s + dur, hours)
-          const again = verdictRef.current({ ...ask, span: at })
+          const again = verdictRef.current({ ...ask, span: at }, { pack: true })
           if (again.kind === 'blocked') {
             refuse(again.reason ?? '配置できません')
             return
@@ -4783,7 +4840,7 @@ export function TodayScreen(props: TodayProps) {
     run: (start: number, override: string | null) => void,
   ) {
     const start = minuteOf(ask.span.x, hours)
-    const v = verdictAtLanding(ask)
+    const v = verdictAtLanding(ask, { pack: true })
     if (v.kind === 'clean') {
       run(start, null)
       return
@@ -4795,7 +4852,7 @@ export function TodayScreen(props: TodayProps) {
         override: () => run(start, v.reason),
         placeAt: (s) => {
           const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
-          const again = verdictAtLanding({ ...ask, span: place(s, s + dur, hours) })
+          const again = verdictAtLanding({ ...ask, span: place(s, s + dur, hours) }, { pack: true })
           if (again.kind === 'blocked') {
             refuse(again.reason ?? '配置できません')
             return
@@ -4906,7 +4963,7 @@ export function TodayScreen(props: TodayProps) {
       }
       stage(id, { ...on, companions }, next, pending?.id === id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from, override)
     }
-    const v = verdictAtLanding(ask)
+    const v = verdictAtLanding(ask, { pack: true })
     if (v.kind === 'blocked') {
       // No pointer to hang the explanation off, so it hangs off the card the
       // keys are moving — the same surface, the same clamp (⚖ 35), measured
@@ -5090,7 +5147,9 @@ export function TodayScreen(props: TodayProps) {
     const key = `${ctx.laneKey}|${span.x}`
     if (key === ctx.aimKey) return
     ctx.aimKey = key
-    wearVerdict(node, verdictRef.current(chipAsk(chip, ctx.laneKey, span)))
+    // ⚖ FIX ROUND 2 (F1) — NO PACK AT THE CURSOR, the chip's half of the same
+    // fence: this is the pointer-move frame for a parked booking.
+    wearVerdict(node, verdictRef.current(chipAsk(chip, ctx.laneKey, span), { pack: false }))
   }
 
   /** ONE description of "this chip, landing here", so the word the operator sees
