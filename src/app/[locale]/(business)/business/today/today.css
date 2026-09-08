@@ -2302,7 +2302,7 @@
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
 .biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
 
-/* ── R-2 · The money bar (本日の店舗状態) + 自分の1日 · REVERT = delete this block (lines A–B) ── */
+/* ── R-2 · The money bar (本日の店舗状態) + 自分の1日 · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
 
 /* label over value: the number is what the eye is hunting, so it stops being
    the second half of a sentence and becomes the thing on the tile.
@@ -2405,7 +2405,7 @@
 .biz .page-today .ops-strip + .ops-strip { background: #f7f9ff; border-color: #dfe5fb; }
 .biz .page-today .ops-strip + .ops-strip .register-cell { border-right-color: #e2e8fb; }
 
-/* ── R-6 · Card faces (calibrated washes, ink text) + 仮置きエリア · REVERT = delete this block (lines A–B) ── */
+/* ── R-6 · Card faces (calibrated washes, ink text) + 仮置きエリア · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
 
 /* ⚖ STATE-CLASS LAW (PKT §1) — THE BASE RULE BELOW IS THE MOST DANGEROUS LINE
    IN THIS SLICE. `.biz .page-today .event` is 0,3,0, which is EXACTLY the
@@ -2506,7 +2506,7 @@
 .biz .page-today .park-chip .park-x,
 .biz .page-today .placing-note .park-x { width: 22px; height: 22px; border-radius: 50%; }
 
-/* ── R-7 · Time axis + now · REVERT = delete this block (lines A–B) ── */
+/* ── R-7 · Time axis + now · REVERT = delete this block (from this header to the line before the next ── header, or EOF) ── */
 
 /* V2-1 — THE RULER IS TWO BANDS. With the hour label sitting AT its gridline
    (R-7), the 13:24 pill centred on the same line landed on 「13」 at every width
