@@ -1081,7 +1081,7 @@ describe('R6 — a second landing of the same card solves against the day it sta
 
   it('and the screen asks that question at every landing, through ONE function', () => {
     expect(SCREEN).toContain('function solveLanes(id: string | null): BoardLane[] {')
-    expect(SCREEN).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours)')
+    expect(SCREEN).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)')
     expect(SCREEN).toContain(': boardLanesRef.current')
     // All four landings go through it — the drop, the keyboard nudge, the 次回予約
     // placement and the shelf chip. A landing that read the raw board would
@@ -1182,7 +1182,7 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // judgement and the solve can no longer drift apart.
     expect(SCREEN).toContain('const base = solveLanes(q.id)')
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
     expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
     // The gesture end reads the board through `solveLanes` and nowhere else.
     const landing = SCREEN.slice(SCREEN.indexOf('const verdictAtLanding = useCallback('), SCREEN.indexOf('const verdictRef = useRef('))
@@ -1298,7 +1298,7 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
   it('and the screen asks the guard on exactly that board', () => {
     expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
     expect(SCREEN).toContain('if (v.reseats.length === 0) return v')
-    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
     expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
   })
 })

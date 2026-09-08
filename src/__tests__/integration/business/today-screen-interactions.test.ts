@@ -1554,7 +1554,7 @@ describe('the window layers price the committed board, never the card in flight'
     // takes the BED side's committed memberships too, and the same rule binds
     // them — `bedMoves`, never `liveBedMoves`. The pin is what stops a future
     // round from quietly feeding the priced layers the pointer's position.
-    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, bedMoves\)/
+    const memo = /const committedLanes = useMemo\(\s*\(\) => applyMoves\(placedLanes, moves, parked, addedHere, hours, bedMoves, props\.bedCleanupMinutes\)/
     expect(memo.test(src)).toBe(true)
     // ⚖ flag 64 — the delete ledger joined that SAME pass, deliberately: the
     // board, the sell layer, blockClash and the guard's occupancy all read the
@@ -3589,8 +3589,12 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // ⚖ BATCH-6 flag 45 — RENEGOTIATED: both boards now carry the bed side's
     // memberships alongside the staff side's, and the live/committed split is
     // mirrored exactly (`liveBedMoves` beside `liveMoves`).
-    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves)')
-    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves)')
+    // ⚖ 9/8 PACKING fix round 2 (F4) — RENEGOTIATED AGAIN: each room's own
+    // turnaround rides with both boards, so a card that changed room is drawn
+    // with the tail its NEW room needs. All three boards carry it.
+    expect(SRC).toContain('applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes)')
+    expect(SRC).toContain('applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes)')
+    expect(SRC).toContain('applyMoves(placedLanes, staff, parked, addedHere, hours, bed, props.bedCleanupMinutes)')
     // The shelf lands through `added`, stamped with the BOARD on screen —
     // RENEGOTIATED (⚖ 46 forerunner): the day and the store together, from the
     // one `board` const, so a landing cannot record half of where it landed.
@@ -4862,7 +4866,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // 元に戻す (:5527). Ours reads the staged `moves`, so the same is true.
     // (⚖ BATCH-6 flag 45 — RENEGOTIATED: the bed side's committed memberships
     // ride the same board, and the same "committed, never live" rule.)
-    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),')
+    expect(SRC).toContain('const committedLanes = useMemo(\n    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes),')
     // What is frozen for the length of a GESTURE is `liveMoves`, and only that.
     // ⚖ flag 57 — RENEGOTIATED: a third case joined, and only as a PAINT. The
     // pending-override ghost is `attemptLanes`, folded in here and nowhere
@@ -6529,7 +6533,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // is the board the landing SOLVES on (`solveLanes`), never the screen's.
     expect(SRC).toContain('const base = solveLanes(q.id)')
     expect(SRC).toContain('const v = verdictFor(q, cellOn(base), true, base)')
-    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
     expect(SRC).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
   })
 
@@ -7193,7 +7197,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     expect(solve).toContain('const solved = allocateBed(board, {')
     expect(solve).not.toContain('allocateBed(boardLanes,')
     const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
-    expect(which).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours)')
+    expect(which).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)')
     expect(which).toContain(': boardLanesRef.current')
   })
 

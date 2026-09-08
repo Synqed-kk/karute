@@ -1338,9 +1338,14 @@ export function TodayScreen(props: TodayProps) {
     () => applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted),
     [props.lanes, blockMoves, hours, blockDeleted],
   )
+  /** ⚖ 9/8 PACKING fix round 2 (F4) — AND EACH ROOM'S OWN TURNAROUND, on all
+   *  three boards below. A card that changed room is drawn with the tail the
+   *  room it is in NOW needs, which is the same policy the pack's own claims are
+   *  measured against. Without it `committedLanes` — the board the sell, gap and
+   *  reserved layers price against — could advertise minutes core will refuse. */
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
-    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes),
+    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -1355,8 +1360,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),
-    [placedLanes, moves, parked, addedHere, hours, bedMoves],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes),
+    [placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -1374,8 +1379,8 @@ export function TodayScreen(props: TodayProps) {
     if (!a) return null
     const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
     const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
-    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed)
-  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours])
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed, props.bedCleanupMinutes)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, props.bedCleanupMinutes])
   const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
@@ -2302,7 +2307,7 @@ export function TodayScreen(props: TodayProps) {
       const base = solveLanes(q.id)
       const v = verdictFor(q, cellOn(base), true, base)
       if (v.reseats.length === 0) return v
-      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)
       return verdictFor(q, cellOn(shuffled), true, shuffled)
     },
     // `solveLanes` is a body function declaration (⚖ its own doc comment: one
@@ -2312,6 +2317,10 @@ export function TodayScreen(props: TodayProps) {
     // plus `boardLanesRef`, which is a ref and therefore always current. That
     // ref is also why `boardLanes` LEAVES the list: nothing here reads the
     // render's own copy of the board any more.
+    // ⚖ FIX ROUND 2 (F4) — `props.bedCleanupMinutes` is read here too (the
+    // shuffle draws each moved card's tail at its NEW room's policy) and stays
+    // off the list for the same reason `boardLanes` did: `verdictFor` carries it
+    // and so changes identity with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [verdictFor, verdictAt, hours, pending],
   )
@@ -3075,7 +3084,7 @@ export function TodayScreen(props: TodayProps) {
    *  other landing gets the board as it stands. */
   function solveLanes(id: string | null): BoardLane[] {
     return pending && pending.id === id
-      ? lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours)
+      ? lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)
       : boardLanesRef.current
   }
 
