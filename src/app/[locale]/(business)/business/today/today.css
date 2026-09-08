@@ -2309,8 +2309,15 @@
 
    ⚖ THIS RULE ALSO STACKS THE KPI STRIP'S CELLS, and that is the 9/8 ruling,
    not a leak. `.register-cell` is ONE component and the product wears it in
-   three places (TodayScreen :6136–6156 the money bar · :6185–6190 自分の1日 ·
-   :6816–6818 the 指標 strip inside the 予約一覧 dialog). Slice ① already sized
+   three places, named here by what the DOM says rather than by a line number a
+   merge moves: `header.ops-strip[aria-label="本日の店舗状態"]` (the money bar) ·
+   `header.ops-strip[aria-label="自分の1日"]` ·
+   `section[aria-labelledby="kpiStripTitle"] .kpi-strip .register-cell`.
+   ⚠ CORRECTED 9/9 — that third place is NOT 「inside the 予約一覧 dialog」, as
+   this comment said until now. It is section K 店舗全体の指標: an always-visible
+   PAGE SECTION, below the fold at 900/1000. No dialog on this route contains a
+   `.register-cell`. The ⚖ 9/8 ruling below is unchanged; the sentence was
+   false. Slice ① already sized
    the KPI strip's NUMBER (`.kpi-strip .register-cell b`, 18px/800 at 0,4,1,
    which still beats the 16px below); the SHAPE was ruled to land here with the
    bar it belongs to, so the same component does not read two ways on one page.
@@ -2337,7 +2344,12 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-/* 本日の予約総額 — the headline money. */
+/* 本日の予約総額 — the headline money. ⚖ REACH, derived rather than assumed:
+   `header.ops-strip` is written TWICE on this page, so this rule dresses the
+   first cell of BOTH strips — 本日の予約総額 in 本日の店舗状態, and 次のお客様 in
+   自分の1日, which is a sentence rather than a number. That is the mock's own
+   rule and it is a KEEP under Liam's #2 revert (the whole R-2 block is one
+   line to delete), disclosed here so the next reader does not re-derive it. */
 .biz .page-today .ops-strip .register-cell:first-child b { font-size: 20px; font-weight: 800; }
 /* ⚖ STATE-CLASS LAW (PKT §1) — ORDER IS THE BEHAVIOUR, twice over. Canon's
    `.biz .register-cell b.warn` (:65) is 0,3,1 and the `b` rule above is 0,3,1
@@ -2380,12 +2392,15 @@
 .biz .page-today .ops-right { padding: 10px 14px; gap: 6px; }
 /* ⚖ SCOPE, read at the source rather than assumed. `.chip` is canon's own pill
    (:30) and the product writes it in seven places; `.ops-right .chip` reaches
-   exactly FIVE of them — the three status pills in the money bar (TodayScreen
-   :6161 :6162 :6172) and the two in 自分の1日 (:6192 :6193). It does NOT reach
-   #844's signpost (:6448, a `<Link className="chip">` inside `.fields-pop`,
-   which is slice ②'s `.fields-pop .chip`), nor the drag proxy's own
-   `.drag-proxy.chip` (:7525), nor `.session-chip` / `.online-chip`, which are
-   different classes entirely. */
+   exactly FIVE of them — the three `.ops-right > span.chip.ok` (Reserve 正常 ·
+   公開中の販売可能枠 · the shift pill in 自分の1日), the one
+   `.ops-right > span.chip.warn` (通知未達), and the one bare
+   `.ops-right > span.chip` (the break pill in 自分の1日). It does NOT reach
+   #844's signpost (the `<Link className="chip">` inside `.fields-pop`
+   `[data-pop="fields"]`, which is slice ②'s `.fields-pop .chip`), nor the drag
+   proxy's own `.drag-proxy.chip` (the proxy's `className` template writes
+   either `drag-proxy chip` or `drag-proxy event <state>`), nor `.session-chip`
+   / `.online-chip`, which are different classes entirely. */
 .biz .page-today .ops-right .chip {
   min-height: 26px;
   padding: 0 11px;
@@ -2429,7 +2444,8 @@
        have to re-derive it.
      · .selected :612 (outline) · .dragging :439 (opacity/cursor/box-shadow) ·
        .pending :440 · .attempting :446 · .parked :447 (display) ·
-       .resizing :630 · .block/.cleanup :429 (overflow/touch-action)
+       .resizing :630 · .block/.cleanup :425 (overflow/touch-action — :429 is
+       `position: absolute` inside the ::before/::after grip rule below it)
        → checked property by property: NOT ONE of them declares padding,
          border, border-radius, background or transition, so there is no tie
          to answer. They are listed because "I checked" has to be visible.
@@ -2439,7 +2455,13 @@
        leaves 6px of gutter beside it) and it is a RECALIBRATION, disclosed
        here rather than left to be found. `box-shadow: none` is untouched, so
        the category stripe still replaces the state's inset bar exactly as
-       canon has it. */
+       canon has it.
+       ⚠ BOTH HALVES, 9/9 — this used to disclose the left half only, and the
+       right half is the LARGER one: canon's shorthand is `5px 2px 4px 6px`, so
+       a categorised card goes padding-left 9 → 10px AND padding-right 2 → 6px.
+       Five pixels come out of the name's box, which is what ellipsises the two
+       card names `axis-measure` declares by name (見本 かえる【ベッド2】 at 1280,
+       見本 かえる【テスト さぶろう】 at 1512). The card's own box does not move. */
 .biz .page-today .event {
   padding: 5px 6px 4px 10px;
   border-radius: 8px;
@@ -2524,12 +2546,13 @@
 .biz .page-today .event.cleanup:not(.dragging):not(.resizing):hover { filter: none; box-shadow: inset 3px 0 0 #b6a795, 0 2px 8px rgba(16, 24, 40, .10); border-color: #cdc2b4; z-index: 5; }
 
 /* the card in hand. ⚖ STATE-CLASS LAW — `.biz .drag-proxy.chip` (:490) is
-   0,3,0 and the rule below ties it and stands later, so the CHIP proxy's own
-   lift is deliberately replaced; everything else canon gives it (its padding,
-   its orange border and fill, its box-sizing) is not declared here and stays.
-   The chip proxy never wears `.event` (TodayScreen :7525 writes either
-   `drag-proxy chip` or `drag-proxy event <state>`), so the base rule above
-   cannot reach it. */
+   0,3,0 and the rule below BEATS it at 0,4,0 (it does not merely tie it and
+   stand later — corrected 9/9), so the CHIP proxy's own lift is deliberately
+   replaced; everything else canon gives it (its padding, its orange border and
+   fill, its box-sizing) is not declared here and stays.
+   The chip proxy never wears `.event` — the proxy's `className` template writes
+   either `drag-proxy chip` or `drag-proxy event <state>` — so the base rule
+   above cannot reach it. */
 .biz .page-today .event.drag-proxy { box-shadow: inset 3px 0 0 currentColor, 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
 .biz .page-today .event.drag-proxy[data-cat] { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
 .biz .page-today .drag-proxy.chip { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
@@ -2558,6 +2581,14 @@
    upper band, the labels are bottom-aligned in the lower one, and the two can
    never share a row at ANY width. The dot still marks the exact minute — it
    sits on the line at the ruler's bottom edge (centre y = 36px).
+   ⚖ PRECISELY, 9/9 (the number below is a CONTENT height, and the box is one
+   pixel taller): `min-height: 36px` is the content box, and under the shell's
+   `.biz * { box-sizing: border-box }` (business-shell.css :103) plus canon's
+   own `border-bottom: 1px solid var(--section)` (:287) the ruler's BORDER BOX
+   measures 37px once R-7's 19px label padding fills the content to 36. So the
+   line and the wash, both `top: 36px`, start ON the border row, and the dot's
+   centre (36 − 4.5 + 4.5) sits on that same row — which is what the mock shows
+   and what the pixels measure. 36 is the right number here; 37 is the box.
    ⚖ STATE-CLASS LAW — checked and there is nothing to answer here: no canon
    rule carrying a state token declares anything on `.time-head`, `.hours`,
    `.elapsed-wash` or `.now-line`. `.biz.board-compact` (:1084–1087) touches
