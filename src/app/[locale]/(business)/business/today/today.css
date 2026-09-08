@@ -1813,12 +1813,12 @@
    --line-2   two uses, :1271 and :1463 — BOTH inside the ruled H2 warn-face
               section, which must stay to the pixel. No PR declares it.
    The layer's one `var(--control)` reader — the `.guard-band.legend-only`
-   restatement below — resolved to the shell's own #e4e4e9 while no PR declared
-   the token. ⚖ FIX ROUND 1 (PR-2, L1 #3): PR-2's block declares
-   `--control: #e4e7ec` on this page, so it now resolves to #e4e7ec like every
-   other edge here. The rule paints nothing either way — the width is 0 — but
-   the sentence above was true only until PR-2 landed, and a comment that goes
-   quietly stale is how the next reader is misled. */
+   restatement below — resolves to the shell's own #e4e4e9, which is exactly the
+   value canon gives that rule, so the restatement still says canon's word.
+   (⚖ PR-2 declared this token for one round and Greptile's G-2 took it out
+   again — see the ② block. While it was declared this line read #e4e7ec, and
+   the comment said so; it is back to the truth now. The rule paints nothing
+   either way: the width is 0.) */
 .biz .page.page-today {
   --muted: #6b7280;
   --card: #e4e7ec;
@@ -2076,20 +2076,19 @@
 
 /* ── R-3 · Board head → a toolbar ───────────────────────────────────────── */
 
-/* ⚖ GREPTILE G-1 (PR-1) — THE TOKEN THIS PR ACTUALLY READS. `--control` was in
-   PR-1's page ladder and was taken out again, because every one of its 22 canon
-   consumers is a control on THIS surface: help-toggle :129 · session-chip :146 ·
-   segmented :156 · time-nav :170 · fields-pop :191 · density-seg button :225 ·
-   cal-pop :254 · cal-tools button :262 · lock-toggle :360 · guard-pop's cancel
-   :1031 · nine dialog controls · the tour card and its footer. They are this
-   PR's, PR-4's dialogs, or the lock toggle whose look PR-1 kept as canon — so
-   the declaration belongs here and nowhere earlier. The value is the same
-   #e4e7ec the panels and cards already wear, which is the whole point: one
-   hairline grey for every edge on the page.
-   `--line` and `--line-2` stay undeclared by every PR — `--line-2`'s only two
-   consumers are inside the ruled H2 warn-face (:1271 / :1463), which stays to
-   the pixel. */
-.biz .page.page-today { --control: #e4e7ec; }
+/* ⚖ GREPTILE G-2 (PR-2) — NO TOKEN IS DECLARED HERE, and that is the same
+   answer PR-1 gave its own G-1. `--control` was declared on this page for one
+   round, and it repainted surfaces this slice does not own: the nine dialog
+   controls (:1618–1705), the lock toggle (:360, whose look slice ① kept as
+   canon), the 配置の相談 popover's cancel (:1031), the tour card and its footer
+   (:1762 / :1774) and the segmented track (:156). Every one of those is a later
+   slice's or a deliberate keep. A token is page-wide by construction, so the
+   slice that declares it is the slice that repaints everyone — PR-4 owns most
+   of the consumers and declares `--control` and `--line` together, with the map.
+   Every surface in THIS block already carries its edge as a literal. Exactly
+   one did not: the month calendar's 今日 / ‹ / › buttons read `var(--control)`
+   at canon :262, so the edge is stated for them, here, and nowhere wider. */
+.biz .page-today .cal-pop .cal-tools button { border-color: #e4e7ec; }
 
 .biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
 /* D-PR2-1 — the mock writes this as `.board-head strong`. In the MOCK that is
@@ -2111,7 +2110,17 @@
    apart from the title. */
 .biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
 
-/* ⚖ FIX ROUND 1 (L1 #9) — `:not([hidden])`, because this rule introduces a
+/* ⚖ GREPTILE G-1 (PR-2) — THE ACCENT IS THE SHELL'S, NOT A COPY OF IT. The
+   values were written as literals (#eef2ff / #3f5be8) where the shell already
+   owns them: `--select-bg` is `--indigo-soft` #eef2ff and `--select-ink` is
+   `--indigo` #3f5be8, so these swaps are pixel-identical and the palette stops
+   being hand-copied into a route sheet.
+   And the accent is LAWFUL here: this chip is a `<button>` (TodayScreen :6207),
+   a pressable that opens the 販売可能枠 shelf, and the one-way accent law
+   (CLAUDE.md) reserves accent for exactly that. Greptile read it as
+   non-pressable status text; the DOM says otherwise. The HOVER tint below stays
+   a literal — a wash is lawful and the shell has no token for it.
+   ⚖ FIX ROUND 1 (L1 #9) — `:not([hidden])`, because this rule introduces a
    `display` canon never gave the chip (:100–110 declares none) and TodayScreen
    :6216 sets `hidden` on it whenever online sales are off. `display` beats the
    `hidden` attribute, so without the guard the chip's visibility would rest on
@@ -2124,8 +2133,8 @@
   min-height: 28px;
   padding: 0 12px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #3f5be8;
+  background: var(--select-bg);
+  color: var(--select-ink);
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -2147,7 +2156,14 @@
    (:137) is 0,3,0, so without this line moving the pointer over the open
    button would wipe the very dress that says it is open. Restated at 0,4,0
    AFTER the hover, which is the order that decides it. */
-.biz .page-today .help-toggle[aria-expanded="true"] { background: #eef2ff; color: #3f5be8; border-color: #c7d2fb; }
+/* ⚖ D-PR2-10 (Greptile G-1) — the shell's tokens, and ONE pixel moves with
+   them: the ring. `--select-bg` and `--select-ink` are the mock's own #eef2ff
+   and #3f5be8 exactly, but `--select-line` is `--indigo` #3f5be8 where the mock
+   drew a pale #c7d2fb. That is the R13 selected recipe every other control on
+   this page already wears (canon's `.density-seg button[aria-pressed]`, the
+   segmented tab, the cal cell), so the open ? now matches its siblings instead
+   of the mock's one-off. Measured, not assumed — see the build report. */
+.biz .page-today .help-toggle[aria-expanded="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
 
 .biz .page-today .session-chip {
   border: 0;
@@ -2162,7 +2178,7 @@
 /* V2-2 — the pill wraps AS A PILL or not at all. At 1280 it was breaking inside
    its own words (「精算待/ち」「次回予約を作/成」), which reads as damage. */
 .biz .page-today .session-chip { white-space: nowrap; }
-.biz .page-today .session-chip .btn.text { color: #3f5be8; font-weight: 700; white-space: nowrap; }
+.biz .page-today .session-chip .btn.text { color: var(--indigo); font-weight: 700; white-space: nowrap; }
 .biz .page-today .session-chip .btn.text:hover { background: rgba(63, 91, 232, .08); }
 
 .biz .page-today .time-nav {
@@ -2284,4 +2300,4 @@
    disagreed. This is a fix, not a belt. */
 .biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
-.biz .page-today .sell-shelf button:hover { background: #eef2ff; }
+.biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
