@@ -2466,7 +2466,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
         for (const gridMin of [15, 30, 60]) for (const durationMin of [20, 30, 45, 60, 90]) {
           const query = (world: World) => bookingOptionsFor({
             lanes: world.lanes, storeIds: [...new Set(world.lanes.flatMap(l => l.stores ?? []))], hours: world.hours, now: world.now, locked,
-            rooms: world.rooms, cleanupMinutesByBed: world.cleanup, gridMin, durationMin,
+            cleanupMinutesByBed: world.cleanup, gridMin, durationMin,
             minSellableMin: world.minSellableMin, held: maskOf(world, { ...shipped(), mode: 'standard' }),
           })
           const before = query(w)
@@ -2488,7 +2488,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
     const hours = { open: 540, close: 780 }
     const lanes = [lane({ key: 'staff', group: 'staff' }, hours), lane({ key: 'room', group: 'beds', items: [item({ key: 'added', kind: 'booking', startMin: 540, endMin: 600 })] }, hours)]
     const options = bookingOptionsFor({ lanes, storeIds: ['store-a'], hours, locked: [], now: null, gridMin: 15, durationMin: 30,
-      minSellableMin: 0, rooms: REAL.rooms, cleanupMinutesByBed: { room: 15 } })
+      minSellableMin: 0, cleanupMinutesByBed: { room: 15 } })
     expect(options.some(o => o.start === 600)).toBe(false)
     expect(options.some(o => o.start === 615)).toBe(true)
   })
@@ -2496,7 +2496,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
     const hours = { open: 540, close: 780 }
     const lanes = [lane({ key: 'staff', group: 'staff', stores: ['bedless'] }, hours), lane({ key: 'foreign-room', group: 'beds', stores: ['other'] }, hours)]
     const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
-      minSellableMin: 0, rooms: REAL.rooms, cleanupMinutesByBed: {} }
+      minSellableMin: 0, cleanupMinutesByBed: {} }
     expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
     expect(bookingOptionsFor(input).every(o => o.resourceKeys.length === 0)).toBe(true)
     expect(bookingOptionsFor({ ...input, requiresPrivateRoom: true })).toEqual([])
@@ -2505,7 +2505,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
     const hours = { open: 540, close: 780 }
     const lanes = [lane({ key: 'staff', group: 'staff', stores: ['full', 'bedless'] }, hours), lane({ key: 'room', group: 'beds', stores: ['full'], items: [item({ key: 'occupied', kind: 'booking', startMin: 540, endMin: 780 })] }, hours)]
     const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
-      minSellableMin: 0, rooms: REAL.rooms, cleanupMinutesByBed: {} }
+      minSellableMin: 0, cleanupMinutesByBed: {} }
     expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
     expect(bookingOptionsFor(input).every(o => o.storeIds.join() === 'bedless')).toBe(true)
     expect(bookingOptionsFor({ ...input, storeId: 'full' })).toEqual([])
@@ -2515,7 +2515,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
     const hours = { open: 540, close: 780 }
     const lanes = [lane({ key: 'staff', group: 'staff', stores: null }, hours), lane({ key: 'room', group: 'beds', stores: ['full'], items: [item({ key: 'occupied', kind: 'booking', startMin: 540, endMin: 780 })] }, hours)]
     const input = { lanes, storeIds: ['full', 'bedless'], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
-      minSellableMin: 0, rooms: REAL.rooms, cleanupMinutesByBed: {} }
+      minSellableMin: 0, cleanupMinutesByBed: {} }
     expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
     expect(bookingOptionsFor(input).every(o => o.storeIds.join() === 'bedless')).toBe(true)
     expect(bookingOptionsFor({ ...input, storeIds: ['full'] })).toEqual([])
@@ -2525,7 +2525,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
     const hours = { open: 540, close: 780 }
     const lanes = [lane({ key: 'staff', group: 'staff' }, hours), lane({ key: 'room', group: 'beds' }, hours)]
     const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 30,
-      minSellableMin: 0, rooms: REAL.rooms, cleanupMinutesByBed: {} }
+      minSellableMin: 0, cleanupMinutesByBed: {} }
     const open = bookingOptionsFor(input)
     const protectedChoices = bookingOptionsFor({ ...input, held: [{ laneKey: 'staff', protectedCount: 1, spans: [{ start: 600, end: 690, windowStart: 600 }] }] })
     expect(protectedChoices.map(key)).toEqual(open.map(key))
@@ -2534,7 +2534,7 @@ describe('CORE-9 — booking choices do not reserve beds', () => {
   })
   it('reproduces the reported lost therapist as a still-bookable choice after cancellation', () => {
     const w = syntheticWorld()
-    const input = { storeIds: ['store-a'], hours: w.hours, now: w.now, rooms: w.rooms, cleanupMinutesByBed: w.cleanup,
+    const input = { storeIds: ['store-a'], hours: w.hours, now: w.now, cleanupMinutesByBed: w.cleanup,
       locked: [], gridMin: 30, durationMin: 30, minSellableMin: 0, held: [] }
     const before = bookingOptionsFor({ ...input, lanes: w.lanes })
     expect(before.some(o => o.laneKey === 'p-06' && o.start === 990)).toBe(true)

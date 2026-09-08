@@ -1,6 +1,6 @@
 import { bookableOptions } from '@/business/lib/bookable-options'
 import type { BoardLane, Hours } from '@/business/lib/today-board'
-import { laneSpans, sellStaffLanes, type RoomPolicy } from './today-interactions'
+import { laneSpans, sellStaffLanes } from './today-interactions'
 import type { ReservedLaneMask } from './reserved-mask'
 
 /** Customer-facing choices are independent of the board's packing suggestions.
@@ -16,7 +16,6 @@ export function bookingOptionsFor(input: {
   durationMin: number
   minSellableMin: number
   cleanupMinutesByBed: Record<string, number>
-  rooms: RoomPolicy
   held?: readonly ReservedLaneMask[]
   requiresPrivateRoom?: boolean
 }) {
@@ -52,7 +51,7 @@ export function bookingOptionsFor(input: {
         staffLanes: [{ ...staff, stores: storeId === null ? null : [storeId] }], resourceLanes: localRooms,
         open: input.hours.open, close: input.hours.close, now: input.now,
         gridMin: input.gridMin, durationMin: input.durationMin,
-        requiresPrivateRoom: input.requiresPrivateRoom, privateIsLastResort: input.rooms.privateIsLastResort,
+        requiresPrivateRoom: input.requiresPrivateRoom,
       })) {
         const key = `${option.start}/${option.end}`
         const previous = options.get(key)

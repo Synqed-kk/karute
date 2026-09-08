@@ -27,7 +27,6 @@ export function bookableOptions(input: {
   gridMin: number
   durationMin: number
   requiresPrivateRoom?: boolean
-  privateIsLastResort?: boolean
 }): BookableOption[] {
   if (![input.open, input.close, input.now ?? input.open].every(Number.isFinite) || !Number.isFinite(input.gridMin) || input.gridMin <= 0 || !Number.isFinite(input.durationMin) || input.durationMin <= 0) return []
   const first = Math.ceil(Math.max(input.open, input.now ?? input.open) / input.gridMin) * input.gridMin
@@ -39,7 +38,7 @@ export function bookableOptions(input: {
       const resourceKeys = input.resourceLanes
         .filter(room => Number.isFinite(room.cleanupMinutes ?? 0) && (room.cleanupMinutes ?? 0) >= 0 && (staff.stores === null || room.stores === null || staff.stores.some(id => (room.stores ?? [room.storeId]).includes(id))) && (!input.requiresPrivateRoom || room.roomClass === 'private') &&
           trackFree(room.occupied, start, end + (room.cleanupMinutes ?? 0)))
-        .sort((a, b) => (input.privateIsLastResort === false ? 0 : Number(a.roomClass === 'private') - Number(b.roomClass === 'private')) || a.key.localeCompare(b.key))
+        .sort((a, b) => (Number(a.roomClass === 'private') - Number(b.roomClass === 'private')) || a.key.localeCompare(b.key))
         .map(room => room.key)
       if ((input.resourceLanes.length > 0 || input.requiresPrivateRoom) && resourceKeys.length === 0) continue
       out.push({ laneKey: staff.key, start, end, resourceKeys })

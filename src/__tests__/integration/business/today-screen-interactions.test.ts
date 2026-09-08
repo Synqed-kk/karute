@@ -11135,6 +11135,7 @@ describe('⚖ R8 T1 — the 価格保持 row only where a price exists', () => {
     "import { useTopbarAction } " + "fr" + "om '../../BusinessTopbar'",
     "} from './today-interactions'",
     "import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'",
+    "import { bookingOptionsFor } from './booking-options'",
     "import { fallbackCellsFor, type FallbackResult } from './fallback-cells'",
     "import { heldCommittedFor } from './held-committed'",
     "import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'",
@@ -11866,12 +11867,12 @@ describe('⚖ R8 T4 — the incident stat and the header chip name one count onc
   it('both surfaces print sellDrawn.staffBands.length under the SAME words', () => {
     const code = codeOnly(SRC)
     // The chip and the stat, each pinned as the whole line it is.
-    expect(pinnedLines(SRC, '<span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
-    expect(pinnedLines(SRC, '<div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
+    expect(pinnedLines(SRC, '<span className="chip ok">配置案の標準枠 {sellDrawn.staffBands.length}枠</span>')).toBe(1)
+    expect(pinnedLines(SRC, '<div className="incident-stat"><span>配置案の標準枠</span><b>{sellDrawn.staffBands.length}枠</b></div>')).toBe(1)
     // Two LABELS for one derivation, and they are the same words. (The number
     // itself appears a third time, inside the 公開価格 button's toast — a
     // sentence about what was just updated, not a name for the count.)
-    expect((code.match(/公開中の販売可能枠/g) ?? []).length).toBe(2)
+    expect((code.match(/配置案の標準枠/g) ?? []).length).toBe(2)
     expect((code.match(/sellDrawn\.staffBands\.length}枠/g) ?? []).length).toBe(3)
     // 安全な空き was the second NAME for that one count, and it is retired —
     // gone from the rendered board and from every comment that taught it.
@@ -11958,14 +11959,15 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     expect((SRC.match(/category === 'vip'/g) ?? []).length).toBe(0)
     // ⚖ FIX ROUND 1 (blind lens 4, weak-pin list) — A NUMBER, not `> 0`. A
     // `toBeGreaterThan(0)` on a field this round exists to introduce proves close
-    // to nothing: one surviving mention passes it. Fifteen sites, all code.
+    // to nothing: one surviving mention passes it. Sixteen sites, including the
+    // CORE-9 booking-options query, all code.
     //
     // ⚖ FIX ROUND 2 (delta lens 4 N4) — COUNTED OVER `codeOnly`, like I6. A raw
     // count is satisfied by a COMMENT mention, which is the first entry in the
     // ⚠ 9/3 R7 decoy set: delete one code site, write the word in a comment, and
     // the number never moves. I6 was moved in fix round 1 for exactly this and
     // these two were left raw beside it.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(15)
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind

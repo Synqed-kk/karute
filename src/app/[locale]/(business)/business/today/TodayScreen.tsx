@@ -1768,9 +1768,9 @@ export function TodayScreen(props: TodayProps) {
     lanes: committedLanes, storeId: props.store, storeIds: props.optionStores.map(store => store.id), hours, locked, now: props.sell.nowMinute,
     gridMin: props.sell.gridMin, durationMin: selectedOptionDuration,
     minSellableMin: props.guard.minSellableMin ?? 0,
-    cleanupMinutesByBed: props.bedCleanupMinutes, rooms: props.rooms,
+    cleanupMinutesByBed: props.bedCleanupMinutes,
     held: heldCommitted, requiresPrivateRoom: privateOptions,
-  }), [committedLanes, props.store, props.optionStores, hours, locked, props.sell, selectedOptionDuration, props.guard.minSellableMin, props.bedCleanupMinutes, props.rooms, heldCommitted, privateOptions])
+  }), [committedLanes, props.store, props.optionStores, hours, locked, props.sell, selectedOptionDuration, props.guard.minSellableMin, props.bedCleanupMinutes, heldCommitted, privateOptions])
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
    *  a personal display preference that can hide the painted rail and can never
@@ -6775,7 +6775,7 @@ export function TodayScreen(props: TodayProps) {
               here made one count read as two facts about the same board. The
               chip's own words are the surviving name — no new vocabulary, and
               nothing about the number or its unit moves. */}
-          <div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
+          <div className="incident-stat"><span>配置案の標準枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
