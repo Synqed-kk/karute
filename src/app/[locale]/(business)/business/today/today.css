@@ -1813,8 +1813,12 @@
    --line-2   two uses, :1271 and :1463 — BOTH inside the ruled H2 warn-face
               section, which must stay to the pixel. No PR declares it.
    The layer's one `var(--control)` reader — the `.guard-band.legend-only`
-   restatement below — now resolves to the shell's own #e4e4e9, which is exactly
-   the value canon gives that rule, so the restatement still says canon's word. */
+   restatement below — resolves to the shell's own #e4e4e9, which is exactly the
+   value canon gives that rule, so the restatement still says canon's word.
+   (⚖ PR-2 declared this token for one round and Greptile's G-2 took it out
+   again — see the ② block. While it was declared this line read #e4e7ec, and
+   the comment said so; it is back to the truth now. The rule paints nothing
+   either way: the width is 0.) */
 .biz .page.page-today {
   --muted: #6b7280;
   --card: #e4e7ec;
@@ -2069,3 +2073,231 @@
 .biz .page-today .now-line span,
 .biz .page-today .cal-cell b,
 .biz .page-today .spot-foot .count { font-variant-numeric: tabular-nums; }
+
+/* ── R-3 · Board head → a toolbar ───────────────────────────────────────── */
+
+/* ⚖ GREPTILE G-2 (PR-2) — NO TOKEN IS DECLARED HERE, and that is the same
+   answer PR-1 gave its own G-1. `--control` was declared on this page for one
+   round, and it repainted surfaces this slice does not own: the nine dialog
+   controls (:1618–1705), the lock toggle (:360, whose look slice ① kept as
+   canon), the 配置の相談 popover's cancel (:1031), the tour card and its footer
+   (:1762 / :1774) and the segmented track (:156). Every one of those is a later
+   slice's or a deliberate keep. A token is page-wide by construction, so the
+   slice that declares it is the slice that repaints everyone — PR-4 owns most
+   of the consumers and declares `--control` and `--line` together, with the map.
+   Every surface in THIS block already carries its edge as a literal. Exactly
+   one did not: the month calendar's 今日 / ‹ / › buttons read `var(--control)`
+   at canon :262, so the edge is stated for them, here, and nowhere wider. */
+.biz .page-today .cal-pop .cal-tools button { border-color: #e4e7ec; }
+
+.biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
+/* D-PR2-1 — the mock writes this as `.board-head strong`. In the MOCK that is
+   safe; in the product it is not. Three popovers and the month calendar render
+   INSIDE `.board-head` — the shelf and 操作ヒント hang off `.bh-left`, 表示設定
+   and the calendar off `.board-tools` — so the descendant form at 0,3,1 reaches
+   furniture the toolbar has nothing to do with. MEASURED, by putting the mock's
+   own form back and diffing every computed property on every element (mutant
+   P5): the calendar's month header 「2026年9月」 grows from 14px to 15px, off
+   canon's `.cal-head strong` (0,2,1). The title is a DIRECT child of
+   `.bh-left`, so that is what the selector says — same specificity as the
+   mock's, less reach.
+   ⚖ FIX ROUND 1 (L1 #7) — the SPAN half of this pair is gone. It never painted
+   anything: no sub-line span exists under `.bh-left` in the product, and the
+   one element that matched (`span.fields-pop-wrap`, the online chip's wrapper)
+   has descendants that state their own colour. Mutant P4 measured its
+   descendant form moving five weekday greys, which is a reason not to write it
+   WIDE — not a reason to write it at all. The board head's own type is canon's
+   apart from the title. */
+.biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
+
+/* ⚖ GREPTILE G-1 (PR-2) — THE ACCENT IS THE SHELL'S, NOT A COPY OF IT. The
+   values were written as literals (#eef2ff / #3f5be8) where the shell already
+   owns them: `--select-bg` is `--indigo-soft` #eef2ff and `--select-ink` is
+   `--indigo` #3f5be8, so these swaps are pixel-identical and the palette stops
+   being hand-copied into a route sheet.
+   And the accent is LAWFUL here: this chip is a `<button>` (TodayScreen :6207),
+   a pressable that opens the 販売可能枠 shelf, and the one-way accent law
+   (CLAUDE.md) reserves accent for exactly that. Greptile read it as
+   non-pressable status text; the DOM says otherwise. The HOVER tint below stays
+   a literal — a wash is lawful and the shell has no token for it.
+   ⚖ FIX ROUND 1 (L1 #9) — `:not([hidden])`, because this rule introduces a
+   `display` canon never gave the chip (:100–110 declares none) and TodayScreen
+   :6216 sets `hidden` on it whenever online sales are off. `display` beats the
+   `hidden` attribute, so without the guard the chip's visibility would rest on
+   Tailwind preflight's `[hidden]{display:none!important}` — a reset, in another
+   sheet, that the harness renders do not even load. The state stays the
+   element's own. */
+.biz .page-today .online-chip:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--select-bg);
+  color: var(--select-ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.biz .page-today .online-chip:hover { background: #e3e9ff; }
+
+.biz .page-today .help-toggle {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #e4e7ec;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+.biz .page-today .help-toggle:hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW (PKT §1) — the OPEN ? keeps its accent under the pointer.
+   The hover above is 0,4,0 and canon's `.biz .help-toggle[aria-expanded="true"]`
+   (:137) is 0,3,0, so without this line moving the pointer over the open
+   button would wipe the very dress that says it is open. Restated at 0,4,0
+   AFTER the hover, which is the order that decides it. */
+/* ⚖ D-PR2-10 (Greptile G-1) — the shell's tokens, and ONE pixel moves with
+   them: the ring. `--select-bg` and `--select-ink` are the mock's own #eef2ff
+   and #3f5be8 exactly, but `--select-line` is `--indigo` #3f5be8 where the mock
+   drew a pale #c7d2fb. That is the R13 selected recipe every other control on
+   this page already wears (canon's `.density-seg button[aria-pressed]`, the
+   segmented tab, the cal cell), so the open ? now matches its siblings instead
+   of the mock's one-off. Measured, not assumed — see the build report. */
+.biz .page-today .help-toggle[aria-expanded="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }
+
+.biz .page-today .session-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 5px 3px 12px;
+  background: #e7f5ee;
+  color: #14532d;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.biz .page-today .session-chip i { width: 7px; height: 7px; }
+/* V2-2 — the pill wraps AS A PILL or not at all. At 1280 it was breaking inside
+   its own words (「精算待/ち」「次回予約を作/成」), which reads as damage. */
+.biz .page-today .session-chip { white-space: nowrap; }
+.biz .page-today .session-chip .btn.text { color: var(--indigo); font-weight: 700; white-space: nowrap; }
+.biz .page-today .session-chip .btn.text:hover { background: rgba(63, 91, 232, .08); }
+
+.biz .page-today .time-nav {
+  min-height: 32px;
+  padding: 0 2px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  align-items: center;
+}
+/* D-PR2-2 — the mock writes `.time-nav button` / `.time-nav a`. Canon makes
+   `.time-nav` the positioning parent of the month calendar (:170 `position:
+   relative`, the `.cal-pop` is its child), and in the PRODUCT every day cell is
+   a `<Link>` — an `<a>` — while the mock builds them as `<button>`. Either way
+   the descendant form reaches them. MEASURED on mutant P3 — 1537 computed
+   differences, the calendar alone: every day cell 44px → 30px, the grid
+   257px → 187px, 空き green #1d5c39 → #52525b, today's indigo #3f5be8 →
+   #52525b, and the 今日 link and 前の月/次の月 buttons repainted with it.
+   The three controls this rule is FOR — ‹ · the day label · › — are direct
+   children, so the child combinator says exactly that and nothing more. */
+.biz .page-today .time-nav > button,
+.biz .page-today .time-nav > a {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 8px;
+  color: #52525b;
+}
+.biz .page-today .time-nav > button:hover,
+.biz .page-today .time-nav > a:hover { background: #f1f3f7; }
+/* the day label wears a calendar glyph — decorative, generated, never in the
+   accessibility tree (a background image has no accessible name). */
+.biz .page-today .time-nav > button.day-label {
+  padding: 0 12px 0 30px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='1.9' stroke-linecap='round'%3E%3Crect x='3.6' y='5' width='16.8' height='15' rx='2.6'/%3E%3Cpath d='M8 3v4M16 3v4M3.6 10h16.8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+/* 表示設定 gains a sliders glyph, same technique, same law. */
+.biz .page-today [data-pop="fields"] > .btn.text {
+  padding-left: 30px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233f5be8' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M4 8h10M18 8h2M4 16h4M12 16h8'/%3E%3Ccircle cx='16' cy='8' r='2.1'/%3E%3Ccircle cx='10' cy='16' r='2.1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+
+/* V2-2 — ≤1320 the head is two rows: [title · 販売中 · ? · ご来店中] over
+   [date nav · 表示設定 · 両方/スタッフ/設備], the tools right-aligned. Without
+   this the `?` fell onto a row of its own between the chip and the pill.
+   ≥1321 is untouched. Measured rather than assumed (L1 #11): only 1920 sits on
+   one row; at 1440 the tools already fall to a second row on canon's own wrap,
+   and this block simply does not reach that width. */
+@media (max-width: 1320px) {
+  .biz .page-today .board-head { flex-wrap: wrap; row-gap: 8px; }
+  .biz .page-today .bh-left { flex: 1 1 auto; min-width: 0; }
+  .biz .page-today .board-tools { flex: 0 0 auto; margin-left: auto; }
+}
+
+/* 密度 / 販売可能枠の表示 / 配置ガイド — same family, no thumb: selected is a
+   wash with an accent border, exactly as today. (The segmented control's own
+   track and its sliding thumb are PR-4's.)
+   ⚖ FIX ROUND 1 (L1 #1) — SCOPED TO THE POPOVER. Nine controls on this page
+   wear `.density-seg` and only three are the 表示設定 popover's; the other six
+   are dialog controls (登録の種類 / 性別 / 予約経路 / ブロックの種類 /
+   ブロックの長さ / 価格の見せ方) that PR-4 owns. The first version restyled all
+   nine and disclosed it; the ruling is that a slice paints its own room and
+   PR-4 unifies the dialogs' instances. Same three declarations, three
+   selectors, `.fields-pop` in front of each. */
+.biz .page-today .fields-pop .density-seg button {
+  min-height: 28px;
+  border-radius: 8px;
+  border-color: #e4e7ec;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — D-PR2-3, the same answer PR-1 gave the lock toggle. A
+   plain `.density-seg button:hover` is 0,4,1 and canon's
+   `[aria-pressed="true"]` (:227) is 0,3,1, so hovering the SELECTED 密度 /
+   販売可能枠 / 配置ガイド option would wash its accent background away. Written
+   to exclude the pressed state, so the pressed button keeps canon's own hover
+   behaviour (canon's :226 hover loses to its own :227 by order). */
+.biz .page-today .fields-pop .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW — and at REST the same pair ties: the base rule above is
+   0,3,1, exactly canon's `[aria-pressed="true"]` (:227), and stands later, so
+   the selected option lost its accent ink and its accent border. Restated after
+   it. `background` is NOT restated: the base rule never declares one, so
+   canon's `var(--select-bg)` wash was never in danger. */
+.biz .page-today .fields-pop .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+
+/* popovers — one card, one edge, one shadow. `.sell-shelf` and `.help-pop`
+   share the `.fields-pop` base and come with it; `.store-pop` is the shell's
+   and is not this sheet's to touch. */
+.biz .page-today .fields-pop,
+.biz .page-today .cal-pop {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .14);
+}
+/* The 操作ヒント popover's 「画面の説明を表示」 button takes its edge from the
+   shell's `.biz .btn { border: 1px solid var(--line) }` — #e4e4e9, one
+   calibration off every other edge in this card. `--line` is not declared by
+   any PR yet (its consumers are mostly PR-4's dialog buttons and the guard-pop,
+   so PR-4 declares it); restated locally here, for this popover family only. */
+.biz .page-today .fields-pop .btn { border-color: #e4e7ec; }
+.biz .page-today .fields-pop strong { color: #18181b; font-size: 12.5px; font-weight: 700; }
+.biz .page-today .fields-pop span { color: #6b7280; }
+/* #844's signpost is a `<Link>` wearing canon's `.chip`, and a link inside a
+   pill should not also be underlined — the pill already says it is one.
+   MEASURED on both sheets, the same page (evidence/TOOLBAR-MEASURE): on main it
+   renders `text-decoration-line: underline`, and this rule takes it to `none`.
+   An earlier version of this comment said Tailwind's preflight already made it
+   inherit rather than underline, so the rule was only a belt. That was reasoned
+   from the reset and it was wrong; the page was read afterwards and it
+   disagreed. This is a fix, not a belt. */
+.biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
+.biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
+.biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
