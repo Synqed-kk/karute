@@ -360,3 +360,131 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     expect(CSS).toContain('.biz .cal-head strong { font-size: 14px; }')
   })
 })
+
+describe('今日の運営 reskin layer — slice ③ (money bar · card faces · time axis)', () => {
+  it('is three blocks, in order, each with its own one-line revert', () => {
+    // The PR body promises three independent reverts. That promise is only true
+    // if the three blocks exist, are separate, and stand in the order the report
+    // prints line ranges for — so it is pinned rather than described.
+    const heads = ['── R-2 · The money bar', '── R-6 · Card faces', '── R-7 · Time axis']
+    for (const h of heads) {
+      expect(LAYER.indexOf(h)).toBeGreaterThan(-1)
+      expect(LAYER.split(h)).toHaveLength(2)
+      expect(LAYER.slice(LAYER.indexOf(h), LAYER.indexOf(h) + 200)).toContain('REVERT = delete this block')
+    }
+    // …and after slice ②'s block, because the layer is append-only and the
+    // cascade of every restatement below depends on standing last.
+    expect(LAYER.indexOf(heads[0])).toBeGreaterThan(LAYER.indexOf('── R-3 · Board head'))
+    expect(LAYER.indexOf(heads[1])).toBeGreaterThan(LAYER.indexOf(heads[0]))
+    expect(LAYER.indexOf(heads[2])).toBeGreaterThan(LAYER.indexOf(heads[1]))
+  })
+
+  it('declares no token of its own — the page ladder is still slice ①\'s four', () => {
+    // ⚖ The TOKEN CORRECTION (9/8): `--control` and `--line` belong to PR-4, and
+    // `--line-2` to nobody. This slice reads the ladder and declares nothing, so
+    // the whole layer's declared custom properties are still ①'s four plus
+    // canon's own `--label`, which the layer only re-seeds on `.timeline`.
+    // (`var(--x)` is a READ and has no colon after the name, so this matches
+    // declarations only.)
+    const declared = [...new Set(LAYER_CODE.match(/--[a-z0-9-]+(?=\s*:)/g) ?? [])].sort()
+    expect(declared).toEqual(['--card', '--label', '--muted', '--row', '--section'])
+  })
+
+  it('the 清掃 and 無断キャンセル hatches survive the card faces', () => {
+    // THE tie of this slice. `.biz .page-today .event` is 0,3,0 — exactly canon
+    // :604 / :605 — and stands later, so its indigo wash paints straight over
+    // both beige weaves unless they are restated after it. Restated VERBATIM:
+    // the packet's ruling is that these two do not move at all.
+    const hatch = 'repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px)'
+    for (const state of ['cleanup', 'noshow']) {
+      after(`.biz .page-today .event.${state} { border-color: #d9d0c7; background: ${hatch}; }`, '.biz .page-today .event {')
+    }
+    // …and canon's own two lines are still canon's, untouched above the header.
+    expect(CSS.indexOf(HEADER)).toBeGreaterThan(CSS.indexOf(`.biz .event.cleanup { border-color: #d9d0c7; background: ${hatch};`))
+    expect(CSS.indexOf(HEADER)).toBeGreaterThan(CSS.indexOf(`.biz .event.noshow { border-color: #d9d0c7; background: ${hatch};`))
+  })
+
+  it('a 準備 / レジ締め micro card keeps the 2px canon gives it', () => {
+    // Same 0,3,0 tie, on padding. An ~18px card with the base rule's
+    // `padding: 5px 6px 4px 10px` has 2px of content box left.
+    after('.biz .page-today .event.micro { padding: 0 2px; }', '.biz .page-today .event {')
+    expect(CSS).toContain('.biz .event.micro { min-width: 0; padding: 0 2px; }')
+  })
+
+  it('the base card rule never touches the stripe or the plain card\'s ink', () => {
+    // `box-shadow` on this rule at 0,3,0 would erase every state's 3px inset bar
+    // AND canon's `[data-cat] { box-shadow: none }`; `color` would take the
+    // plain card's indigo and the 休憩 / 勤務不可 family colours with it. The
+    // fence is on the rule's own body, so a later, narrower rule may still say
+    // either — the mock's hover lift does exactly that.
+    const base = LAYER_CODE.slice(LAYER_CODE.indexOf('.biz .page-today .event {'))
+    const body = base.slice(base.indexOf('{'), base.indexOf('}'))
+    expect(body).not.toMatch(/(^|[;{\s])box-shadow\s*:/)
+    expect(body).not.toMatch(/(^|[;{\s])color\s*:/)
+    // …and the press feedback is PR-4's `:active`, not the mock's script class.
+    expect(LAYER_CODE).not.toContain('.event.is-pressed')
+  })
+
+  it('the 仮置きエリア still lights up when a card is dragged over it', () => {
+    // canon :560 and the reskin shelf are both 0,3,0; the restatement has to
+    // stand after the rule that beat it, at 0,4,0.
+    after(
+      '.biz .page-today .park-shelf.over { border-color: var(--orange); background: var(--orange-soft); }',
+      '.biz .page-today .park-shelf {',
+    )
+    expect(CSS).toContain('.biz .park-shelf.over { border-color: var(--orange); background: var(--orange-soft); }')
+  })
+
+  it('the money bar keeps the red count, the orange count and the entrance reset', () => {
+    // Three ties, all decided by ORDER inside R-2:
+    // 1 · canon `.register-cell b.warn` (:65) is 0,3,1 and so is the layer's
+    //     `b`, so 施術済み・精算待ち / 未解決 would go ink instead of red;
+    // 2 · canon `.ops-decisions b` (:75) is only 0,2,1, so 次に決めること would
+    //     lose its orange to the same rule;
+    // 3 · canon `.register-cell.act` (:70) is `border: 0` — the reset that stops
+    //     a <button> drawing the browser's outset bevel — and the base rule's
+    //     `border-right` ties it at 0,3,0. R-2 restates the whole reset and adds
+    //     the strip's one uniform divider back on purpose.
+    after('.biz .page-today .register-cell b.warn { color: var(--red-dark); }', '.biz .page-today .register-cell b {')
+    after('.biz .page-today .ops-decisions b { color: var(--orange); }', '.biz .page-today .register-cell b {')
+    after('.biz .page-today .register-cell.act,', '.biz .page-today .register-cell {')
+    expect(LAYER_CODE).toMatch(/\.biz \.page-today \.register-cell\.act,\s*\n\.biz \.page-today \.ops-decisions \{\s*\n\s*border: 0;\s*\n\s*border-right: 1px solid #eef0f4;/)
+  })
+
+  it('the status pills keep 正常 green and 未達 amber', () => {
+    // `.ops-right .chip` is 0,4,0 and canon's `.chip.ok` / `.chip.warn` (:41 /
+    // :42) are 0,3,0, so this is a SPECIFICITY restatement, not merely an
+    // ordering one — the pills would go flat grey without it.
+    after('.biz .page-today .ops-right .chip.ok { background: #e7f5ee; color: #14532d; }', '.biz .page-today .ops-right .chip {')
+    after('.biz .page-today .ops-right .chip.warn { background: #fdf1e3; color: #92400e; }', '.biz .page-today .ops-right .chip {')
+  })
+
+  it('never dresses a bare `.chip` — #844\'s signpost is not a status pill', () => {
+    // `.chip` is canon's own pill and the product writes it in seven places. A
+    // bare `.page-today .chip` rule would reach #844's 変更は「設定」＞予約と確保で
+    // signpost inside 表示設定 (slice ②'s `.fields-pop .chip`) and the drag
+    // proxy's chip. Pinned as a RULE over every selector the scanner finds, the
+    // same shape the 密度 family got, so no spelling escapes it.
+    const chipSelectors = selectorsOf(LAYER_CODE).filter((s) => /\.chip(?![\w-])/.test(s))
+    expect(chipSelectors.length).toBeGreaterThan(3)
+    for (const s of chipSelectors) {
+      expect(s).toMatch(/\.ops-right \.chip|\.fields-pop \.chip|\.drag-proxy\.chip/)
+    }
+  })
+
+  it('the ruler is two bands and the now pill lives in the upper one (D-6)', () => {
+    // V2-1. The 36px ruler is the whole fix for the pill landing on 「13」: the
+    // pill owns y 2…20, the labels are pushed to y 19 in the lower band, and
+    // both overlays start at the ruler's bottom edge so the dot's centre sits
+    // ON the line. Four numbers, one behaviour — pinned together.
+    expect(LAYER_CODE).toContain('.biz .page-today .time-head { min-height: 36px; }')
+    expect(LAYER_CODE).toContain('.biz .page-today .elapsed-wash { top: 36px; background: rgba(16, 24, 40, .045); }')
+    expect(LAYER_CODE).toContain('.biz .page-today .now-line { top: 36px; }')
+    expect(LAYER_CODE).toMatch(/\.biz \.page-today \.now-line::before \{[^}]*top: -4\.5px;[^}]*width: 9px;[^}]*height: 9px;/)
+    expect(LAYER_CODE).toMatch(/\.biz \.page-today \.now-line span \{[^}]*top: -34px;/)
+    expect(LAYER_CODE).toContain('padding: 19px 0 0 6px;')
+    // canon's own 32px pair is still canon's — the layer beats it on
+    // specificity (0,3,0 over 0,2,0), it does not edit it.
+    expect(CSS.indexOf(HEADER)).toBeGreaterThan(CSS.indexOf('.biz .time-head { min-height: 32px; border-bottom: 1px solid var(--section); }'))
+  })
+})
