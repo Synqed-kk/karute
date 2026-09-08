@@ -41,7 +41,7 @@ import { isOwnAudioKey, isOwnRecordingKey, isStagedKeyFor, parseRecordingKey } f
 import { resolveTakeAudio } from '@/lib/recording/take-audio'
 import { isConsentCurrent } from '@/lib/consent'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
-import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 
 /**
@@ -59,8 +59,9 @@ export type DiscardTranscriptWrite =
   | { error: 'forbidden' | 'not_discarded' | 'failed' }
 
 type Core = Pick<SynqedClient, 'recordings' | 'recordingDiscards' | 'customers'>
-/** The transcribe door reads org settings too (diarization + business type). */
-type TranscribeCore = Core & Pick<SynqedClient, 'orgSettings'>
+/** The transcribe door reads org settings too (diarization + business type), and
+ *  since the spend wall (2026-09-08) it asks the AI ledger before it spends. */
+type TranscribeCore = Core & Pick<SynqedClient, 'orgSettings' | 'aiRateLimit'>
 
 /**
  * WHO is writing — resolved by the CALLER, never by the shared body, exactly as
@@ -464,19 +465,35 @@ export async function transcribeAndPersistDiscardWithClient(
         )
       : null
     const reference = mode === 'off' ? null : await loadStaffReferenceForStaff(settings, staffId)
-    const transcription = (await runTranscription({
-      audio: { url: signed.signedUrl },
-      locale: input.locale || 'ja',
-      diarize: settings?.speaker_diarization !== false,
-      reference,
-      mode,
-      businessType: settings?.business_type ?? null,
-    })) as {
-      transcript?: string
-      paragraphs?: never[]
-      words?: never[]
-      confidence?: number
-      speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+    // The take these words belong to, read off the key the fences above proved
+    // (a staged claim carries the session, not a take — then there is none).
+    const parsedAudio = parseRecordingKey(audioPath, actor.businessId)
+    // Only the provider body is used here; the meter files this door's own
+    // receipt (including whether the debit landed) from inside the wrapper.
+    const { result: transcription } = (await runMeteredTranscription(
+      {
+        synqed,
+        businessId: actor.businessId,
+        door: 'discard',
+        recordingSessionId: input.recordingSessionId,
+        takeId: parsedAudio && 'takeId' in parsedAudio ? parsedAudio.takeId : null,
+      },
+      {
+        audio: { url: signed.signedUrl },
+        locale: input.locale || 'ja',
+        diarize: settings?.speaker_diarization !== false,
+        reference,
+        mode,
+        businessType: settings?.business_type ?? null,
+      },
+    )) as {
+      result: {
+        transcript?: string
+        paragraphs?: never[]
+        words?: never[]
+        confidence?: number
+        speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+      }
     }
 
     // Same Stage-0 diarization assembly as the worker: labeled text when
@@ -505,6 +522,9 @@ export async function transcribeAndPersistDiscardWithClient(
     // nothing this may destroy.
     return text ? { ok: true } : { skipped: 'empty' }
   } catch (err) {
+    // A SPEND-WALL refusal lands here too, and `failed` is the right answer for
+    // it: retryable, and cheap — one refused ledger read per record-page mount
+    // and no money, until the rolling window frees and the sweep succeeds.
     console.warn('[discard-transcript] transcribe failed:', err)
     return { error: 'failed' }
   }

@@ -81,13 +81,121 @@ export function estimateCostCents(
   return Math.max(1, Math.round(cents)) // round up to at least 1 cent so tiny calls still register
 }
 
+// ── Transcription (per-MINUTE) cost ─────────────────────────────────────────
+// Deepgram nova-3 ja is $0.0043/min pay-as-you-go with diarization included
+// (pricing page, read 2026-09-08) = 0.43 ¢/min. Rounded UP to 0.5, for the same
+// reason the token estimator falls back to gpt-4o pricing above: the cap must
+// err toward stopping early rather than overspending.
+export const DEEPGRAM_CENTS_PER_MINUTE = 0.5
+
+/** Cents for one transcription, from the audio's own length. Rounded up, and
+ *  never below 1 ¢ — the same "tiny calls still register" rule
+ *  estimateCostCents applies to tokens. */
+export function estimateTranscriptionCostCents(durationSec: number): number {
+  return Math.max(1, Math.ceil((durationSec / 60) * DEEPGRAM_CENTS_PER_MINUTE))
+}
+
+/** The waits BETWEEN the three attempts below. Short on purpose: the caller is
+ *  a request or a job holding a claim, and core answering slowly is the common
+ *  case this is here for — not an outage, which the third failure records. */
+const DEBIT_RETRY_WAITS_MS = [250, 750]
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Report ONE transcription's minutes to synqed-core, as cents, against the same
+ * rolling daily $-cap consume() enforces (core's ai_request_log — a
+ * `transcribe:usage` row, no tokens). Returns whether the debit LANDED.
+ *
+ * THREE ATTEMPTS (fix round 2, Greptile P1). A single failed call used to lose
+ * the money silently: the cap under-counts by that recording for a rolling 24 h,
+ * and a run of them is exactly the outage during which the wall stops holding.
+ * A blip now costs 250 ms and then 750 ms instead of a spend nobody counted.
+ *
+ * NEVER THROWS, deliberately, even after the third failure — and since fix
+ * round 4 the CALLER decides what a `false` means, because it is called twice
+ * now and the two moments are not the same:
+ *
+ *   BEFORE the provider (the reserve) — nothing has been spent yet, so a
+ *   `false` REFUSES: runMeteredTranscription throws `upstream_unavailable` and
+ *   the provider is never reached.
+ *
+ *   AFTER the provider (the true-up) — the money is already spent, so a
+ *   `false` is FLAGGED, never re-thrown: failing the caller here would send the
+ *   whole recording back through Deepgram on the next retry, paying twice to
+ *   report once. ⚖ That is the ruling: a lost debit is written down (the
+ *   console line below, and `debit_recorded: false` on the caller's audit row).
+ */
+export async function reportTranscriptionUsageWithClient(
+  synqed: RateLimitClient,
+  costCents: number,
+): Promise<boolean> {
+  let err: unknown
+  for (let attempt = 0; attempt < 1 + DEBIT_RETRY_WAITS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(DEBIT_RETRY_WAITS_MS[attempt - 1])
+    try {
+      await synqed.aiRateLimit.recordUsage('transcribe', null, null, costCents)
+      return true
+    } catch (e) {
+      err = e
+    }
+  }
+  console.error('[ai-usage] transcription debit LOST after 3 attempts:', { costCents, err })
+  return false
+}
+
+/**
+ * Give a transcription's RESERVE back to the ledger, as a NEGATIVE row on the
+ * same route: core's `recordAiUsage` stores the integer exactly as it is given
+ * and `consume` SUMs that column over the rolling 24 h
+ * (synqed-core `src/services/ai-rate-limit.service.ts` — the `_sum: { costCents }`
+ * aggregate and the `create` beneath it), so `-reserveCents` subtracts the
+ * reserve back out of the very number the cap is computed from. No refund call
+ * was invented and no core change was needed; the hourly count is untouched,
+ * because it only counts rows whose cents are null.
+ *
+ * ⚖ RELEASE, NOT REFUND: this runs only when the provider ANSWERED with a
+ * non-2xx status — a request it refused or failed and did not bill. Transport
+ * errors, timeouts and unreadable 2xx bodies never reach here: those reserves
+ * stay. A SUCCESSFUL call is never refunded, whatever the estimate was (the
+ * no-refund ruling).
+ *
+ * The three attempts and the never-throws rule are the reporter's above, and
+ * for the same reason — but a `false` here is the SAFE direction: the reserve
+ * simply stays, and an over-count errs toward stopping early, which is the
+ * ruling the unknown-duration floor and the gpt-4o price fallback already
+ * follow. So it is written down and nothing else happens.
+ */
+export async function releaseTranscriptionReserveWithClient(
+  synqed: RateLimitClient,
+  reserveCents: number,
+): Promise<boolean> {
+  // Never a POSITIVE "release". A reserve that is not a whole positive number
+  // of cents is nothing to give back, and writing one anyway would ADD to the
+  // very cap this call claims to relieve.
+  if (!Number.isInteger(reserveCents) || reserveCents <= 0) return true
+  let err: unknown
+  for (let attempt = 0; attempt < 1 + DEBIT_RETRY_WAITS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(DEBIT_RETRY_WAITS_MS[attempt - 1])
+    try {
+      await synqed.aiRateLimit.recordUsage('transcribe', null, null, -reserveCents)
+      return true
+    } catch (e) {
+      err = e
+    }
+  }
+  console.error('[ai-usage] reserve RELEASE lost after 3 attempts:', { reserveCents, err })
+  return false
+}
+
 /**
  * Fire-and-forget: report token usage to synqed-core for the daily $-cap.
  *
- * NOTE: transcription (Deepgram) is billed per-MINUTE, not per-token, so it
- * never calls this — the spend cap currently does NOT include Deepgram cost
- * (the dominant cost at 60–90 min sessions). Adding duration-based Deepgram
- * accounting is a synqed-core follow-up so the cap reflects true spend.
+ * Transcription (Deepgram) is billed per-MINUTE, not per-token, so it does not
+ * come through here — it reports through reportTranscriptionUsageWithClient
+ * above, into the SAME ledger, so the cap now DOES include Deepgram cost (the
+ * dominant cost at 60–90 min sessions). No core change was needed:
+ * recordUsage's tokens are nullable and its cents are the caller's own.
  */
 export async function reportAiUsageWithClient(
   synqed: RateLimitClient,

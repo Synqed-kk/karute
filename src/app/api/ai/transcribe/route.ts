@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { AppApiError } from '@/lib/app-api/errors'
 import { featureAllowed } from '@/lib/subscription/feature-gate'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
-  runTranscription,
+  runMeteredTranscription,
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
@@ -62,18 +63,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const limited = await enforceAiRateLimit('transcribe')
-  if (limited) {
-    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
-    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
-    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
-    // .catch guards a parse failure on the limiter's own body from escaping
-    // this route's error envelope.
-    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
-      status: 429,
-      headers: limited.headers,
-    })
-  }
+  // ⚖ THE CEILING IS ASKED ONCE, INSIDE THE METER (the spend wall, 2026-09-08).
+  // This route used to consume('transcribe') here, before the plan gate's twin
+  // ordering — with runMeteredTranscription consuming at the provider call, a
+  // second consume here would count every request against the hourly cap twice.
+  // The refusal comes back as a classified rate_limited AppApiError and leaves
+  // through the catch below, as the same 429 body + Retry-After this block sent.
+  //
   // Plan gate (P4): transcription is the front door of AI karute generation —
   // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).
   if (!(await featureAllowed('aiKaruteGeneration'))) {
@@ -96,6 +92,13 @@ export async function POST(request: Request) {
       mode === 'off'
         ? null
         : await loadStaffReferenceForStaff(orgSettings, await getCurrentUserStaffId())
+    // Both request-cached: getSynqedClient already resolved the business id, so
+    // this second read is the same lookup, not a second round-trip.
+    const meter = {
+      synqed: await getSynqedClient(),
+      businessId: await getBusinessId(),
+      door: 'web' as const,
+    }
 
     if (contentType.includes('application/json')) {
       const { audioUrl, locale: loc } = await request.json()
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
       if (!isAllowedAudioUrl(audioUrl)) {
         return NextResponse.json({ error: 'Invalid audioUrl' }, { status: 400 })
       }
-      const body = await runTranscription({
+      const { result: body, receipt } = await runMeteredTranscription(meter, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,
@@ -116,8 +119,17 @@ export async function POST(request: Request) {
         businessType,
       })
       // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER transcription
-      // succeeds, before the response — ids-only, no transcript content.
-      await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
+      // succeeds, before the response — ids-only, no transcript content. The
+      // spend wall's numbers ride THIS row rather than a second one from the
+      // meter: one call, one receipt. The receipt itself never leaves the
+      // server — the client gets `body`, exactly as before.
+      await auditWeb({
+        category: 'recording',
+        action: 'recording.transcribe',
+        ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
+        detail: { ...receipt },
+        requestId: crypto.randomUUID(),
+      })
       return NextResponse.json(body)
     }
 
@@ -130,7 +142,7 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await audioFile.arrayBuffer())
     const mimeType = audioFile.type || 'audio/webm'
 
-    const body = await runTranscription({
+    const { result: body, receipt } = await runMeteredTranscription(meter, {
       audio: { buffer, mimeType },
       locale: locale === 'en' ? 'en' : 'ja',
       diarize,
@@ -138,9 +150,31 @@ export async function POST(request: Request) {
       mode,
       businessType,
     })
-    await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
+    await auditWeb({
+      category: 'recording',
+      action: 'recording.transcribe',
+      ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
+      detail: { ...receipt },
+      requestId: crypto.randomUUID(),
+    })
     return NextResponse.json(body)
   } catch (error) {
+    // The spend/rate ceiling — the SAME body and Retry-After the removed
+    // consume block above sent, rebuilt from the classified error it throws
+    // instead. Status stays a literal 429 for CP7's audit-writer walker.
+    if (error instanceof AppApiError && error.code === 'rate_limited') {
+      return NextResponse.json(
+        { error: error.message, ...(error.detail ?? {}) },
+        { status: 429, headers: { 'Retry-After': String(60 * 60) } },
+      )
+    }
+    // The LEDGER itself would not take the reserve (fix round 4) — an upstream
+    // outage, not this request's fault, and nothing was spent. A literal 502,
+    // the same status the facade twin's handler maps `upstream_unavailable` to
+    // (errors.ts), so both doors answer one word; literal for CP7's walker.
+    if (error instanceof AppApiError && error.code === 'upstream_unavailable') {
+      return NextResponse.json({ error: error.message }, { status: 502 })
+    }
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[/api/ai/transcribe]', message)
     return NextResponse.json(

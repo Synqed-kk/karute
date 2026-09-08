@@ -16,3 +16,11 @@
  *  right before the write (fix round 6, R1). TERMINAL in meaning: retrying
  *  cannot change a decision somebody already made and explained. */
 export const DISCARDED_BY_STAFF = 'DISCARDED_BY_STAFF'
+
+/** The business's transcription allowance is used up — core's rolling 24 h AI
+ *  cost cap refused this job BEFORE a yen was spent (the spend wall, 2026-09-08).
+ *  DETERMINISTIC TODAY, RETRYABLE TOMORROW: today's remaining attempts each cost
+ *  one refused ledger read and no money, and core re-arms a FAILED job with
+ *  attempts = 0 on the next enqueue — so 再試行 genuinely works once the window
+ *  frees. ⚖ THE AUDIO STAYS, so nothing is lost while it waits. */
+export const AI_SPEND_LIMIT = 'AI_SPEND_LIMIT'

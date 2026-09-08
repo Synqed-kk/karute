@@ -18,14 +18,15 @@
 
 import { SynqedClient, type RecordingJob } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { runTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
+import { runMeteredTranscription, speakerIdMode, loadStaffReferenceForStaff } from '@/lib/ai/transcribe'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { isOwnAudioKey } from '@/lib/recording/key-grammar'
+import { isOwnAudioKey, parseRecordingKey } from '@/lib/recording/key-grammar'
 import { readStaffDiscard } from '@/lib/recording/staff-discard'
-import { DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import { AI_SPEND_LIMIT, DISCARDED_BY_STAFF } from '@/lib/recording/job-errors'
+import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient, REVISIT_NOT_ELIGIBLE } from '@/lib/karute/outcome'
 import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
@@ -142,6 +143,9 @@ async function processJob(job: RecordingJob): Promise<string> {
 
   // Consent gate — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
+  // The SPEND WALL is the third fence and it lives one level down, inside
+  // runMeteredTranscription: the ceiling is asked at the provider call itself so
+  // all five doors share one place, and a refusal leaves here as AI_SPEND_LIMIT.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)
   if (!isConsentCurrent(consent)) throw new Error(CONSENT_REQUIRED_ERROR)
 
@@ -167,19 +171,54 @@ async function processJob(job: RecordingJob): Promise<string> {
   const mode = speakerIdMode()
   const reference =
     mode === 'off' ? null : await loadStaffReferenceForStaff(settings, payload.staff_id)
-  const transcription = (await runTranscription({
-    audio: { url: signed.signedUrl },
-    locale,
-    diarize,
-    reference,
-    mode,
-    businessType,
-  })) as {
+  // WHICH DOOR, read off the KEY GRAMMAR and nothing else: a `rsc/` object is
+  // the nightly assembler's rescue of a take, and the only door that can enqueue
+  // one is the save-from-session door (no client may ever name that key). A
+  // take-keyed job is reported as 'job'; the worker has no other witness for the
+  // save-from-session door when the phone's own object is present, and inventing
+  // one would mean a new payload field on three doors.
+  const parsedKey = parseRecordingKey(payload.audio_path, job.business_id)
+  const rescued = parsedKey?.kind === 'rescue'
+  let transcription: {
     transcript?: string
     paragraphs?: never[]
     words?: never[]
     confidence?: number
+    durationSec?: number
     speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+  }
+  try {
+    // `result` is the provider body, unchanged; the meter's own receipt (the
+    // billed length, the cents, and whether the debit landed) is filed by the
+    // wrapper for this door, so the worker takes only the half it uses.
+    const metered = (await runMeteredTranscription(
+      {
+        synqed,
+        businessId: job.business_id,
+        door: rescued ? 'from_session' : 'job',
+        recordingSessionId: job.recording_session_id,
+        takeId: parsedKey && 'takeId' in parsedKey ? parsedKey.takeId : null,
+        attempt: job.attempts,
+        rescued,
+        requestId: job.id,
+      },
+      {
+        audio: { url: signed.signedUrl },
+        locale,
+        diarize,
+        reference,
+        mode,
+        businessType,
+      },
+    )) as { result: typeof transcription }
+    transcription = metered.result
+  } catch (err) {
+    // The ceiling's own word, so `last_error` carries a reason both surfaces can
+    // read. Everything else keeps its own message.
+    if (err instanceof AppApiError && err.code === 'rate_limited') {
+      throw new Error(AI_SPEND_LIMIT)
+    }
+    throw err
   }
   const flat = transcription.transcript ?? ''
   if (!flat.trim()) throw new Error('EMPTY_TRANSCRIPT')

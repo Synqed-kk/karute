@@ -47,13 +47,20 @@ async function readErrorMessage(res: Response): Promise<string> {
 }
 
 async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
+  // A REFUSAL IS NOT A BLIP: a 429 (the AI spend/rate ceiling) or a 403 (the
+  // plan gate) answers the same 1.5 s later, and the retry arm below throws the
+  // raw `HTTP ${status}` — the English-mid-app leak PipelineErrorCard exists to
+  // prevent. Refusals leave on the FIRST answer, with the localized message.
+  let refused = false
   try {
     const res = await fn()
     if (!res.ok) {
+      refused = res.status === 429 || res.status === 403
       throw new Error(await readErrorMessage(res))
     }
     return res
   } catch (firstError) {
+    if (refused) throw firstError
     // Wait 1.5 seconds before retrying
     await new Promise((resolve) => setTimeout(resolve, 1500))
     try {

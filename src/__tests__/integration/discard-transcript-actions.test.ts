@@ -134,9 +134,17 @@ jest.mock('@/lib/synqed/staff-map', () => ({
  *  returned value — a gate that transcribes first and refuses afterwards would
  *  pass a return-value-only test while burning the money the ⚖ gate exists to
  *  protect. */
-const mockRunTranscription = jest.fn(async () => ({ transcript: 'こんにちは、本日はありがとうございます' }))
+const mockRunTranscription = jest.fn(async () => ({
+  result: { transcript: 'こんにちは、本日はありがとうございます' },
+  receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+}))
+/** THE SPEND COUNTER is now the METER (the spend wall, 2026-09-08) — the door's
+ *  one provider call goes through it, so this stand-in counts exactly what
+ *  runTranscription used to count here. The wall's own behaviour (the ceiling
+ *  asked before the provider, the debit, the receipt) is proven against the
+ *  REAL wrapper in transcription-spend-wall.test.ts. */
 jest.mock('@/lib/ai/transcribe', () => ({
-  runTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
+  runMeteredTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
   speakerIdMode: () => 'off',
   loadStaffReferenceForStaff: jest.fn(async () => null),
 }))
@@ -374,6 +382,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
     recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
     await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
     expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ door: 'discard' }),
       expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
     )
   })
@@ -388,6 +397,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
     recordingRow = { duration_seconds: null, customer_id: 'cust-1', audio_storage_path: null }
     await expect(staged({ audioPath: OWN_STAGED })).resolves.toEqual({ ok: true })
     expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({ door: 'discard' }),
       expect.objectContaining({ audio: { url: `https://storage.test/${OWN_STAGED}` } }),
     )
   })
@@ -436,6 +446,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
       mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ door: 'discard' }),
         expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
       )
       // The row's own take and its rescue are the only things the door probed
@@ -460,6 +471,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
       mockBucket.missing.add(RESCUE_PATH)
       await expect(staged({ audioPath: STAGED })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ door: 'discard' }),
         expect.objectContaining({ audio: { url: `https://storage.test/${STAGED}` } }),
       )
       expect(segmentSets[0][0].text).toBe('こんにちは、本日はありがとうございます')
@@ -469,6 +481,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       await expect(staged({ audioPath: OTHER_TAKE })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ door: 'discard' }),
         expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
       )
     })
@@ -532,6 +545,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
       mockBucket.missing.add(OWN_PATH)
       await expect(staged({ audioPath: RESCUE_PATH })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ door: 'discard' }),
         expect.objectContaining({ audio: { url: `https://storage.test/${RESCUE_PATH}` } }),
       )
       expect(mockBucket.probed).toEqual([OWN_PATH, RESCUE_PATH])
@@ -543,6 +557,7 @@ describe('the tenant fence on a client-supplied storage key', () => {
       recordingRow = { duration_seconds: 62, customer_id: 'cust-1', audio_storage_path: OWN_PATH }
       await expect(staged({ audioPath: RESCUE_PATH })).resolves.toEqual({ ok: true })
       expect(mockRunTranscription).toHaveBeenCalledWith(
+        expect.objectContaining({ door: 'discard' }),
         expect.objectContaining({ audio: { url: `https://storage.test/${OWN_PATH}` } }),
       )
       // ONE probe: the rescue was never asked about.
@@ -700,7 +715,10 @@ describe('what actually lands', () => {
   })
 
   it('silence is answered honestly — nothing is written for an empty transcript', async () => {
-    mockRunTranscription.mockImplementationOnce(async () => ({ transcript: '   ' }))
+    mockRunTranscription.mockImplementationOnce(async () => ({
+      result: { transcript: '   ' },
+      receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+    }))
     await expect(staged()).resolves.toEqual({ skipped: 'empty' })
     expect(segmentSets).toEqual([])
     expect(removed).toEqual([])

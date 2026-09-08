@@ -2481,7 +2481,8 @@
           "play": "Played recording",
           "session_cleanup": "Recording discarded",
           "take_named": "Recording upload address issued (existing session)",
-          "transcribe": "Transcribed recording"
+          "transcribe": "Transcribed recording",
+          "transcribe_refused": "Recording transcription declined (usage limit)"
         }
       },
       "burnError": {

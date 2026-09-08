@@ -27,14 +27,19 @@ jest.mock('@/lib/karute/outcome', () => ({
 const audit = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])) }))
 
+// The METER is the worker's transcription door since the spend wall
+// (2026-09-08) — the wall's own behaviour (ask → spend → debit → receipt) is
+// pinned in transcription-spend-wall.test.ts against the real wrapper; here it
+// stands in for the provider exactly as runTranscription used to.
 jest.mock('@/lib/ai/transcribe', () => ({
   speakerIdMode: () => 'off',
   loadStaffReferenceForStaff: jest.fn(async () => null),
-  runTranscription: jest.fn(async () => ({
-    transcript: 'hello',
-    paragraphs: [],
-    words: [],
-    confidence: 1,
+  // `{ result, receipt }` since fix round 2 — the receipt is the meter's own
+  // half (billed length, cents, and whether the debit landed); this worker
+  // takes only `result`, so the stand-in answers a truthful pair.
+  runMeteredTranscription: jest.fn(async () => ({
+    result: { transcript: 'hello', paragraphs: [], words: [], confidence: 1 },
+    receipt: { duration_seconds: 60, cost_cents: 1, debit_recorded: true },
   })),
 }))
 jest.mock('@/lib/ai/karute-extract', () => ({
@@ -117,7 +122,7 @@ import { processRecordingJobs } from '@/lib/jobs/process-recording'
 // AI set, so the mocked fn needs to be reachable — the outcome tests above
 // never care about extraction content, hence the shared static default.
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
-import { runTranscription } from '@/lib/ai/transcribe'
+import { runMeteredTranscription } from '@/lib/ai/transcribe'
 import { conformingKey, rescueKey, segmentKey } from './helpers/recording-key-fixtures'
 
 const baseJob = {
@@ -396,7 +401,7 @@ describe('⚖ a deliberate discard outranks the job (fix round 6, R1)', () => {
     // device pipeline's consent dialog over a recording somebody threw away.
     expect(getConsent).not.toHaveBeenCalled()
     expect(createSignedUrl).not.toHaveBeenCalled()
-    expect(runTranscription).not.toHaveBeenCalled()
+    expect(runMeteredTranscription).not.toHaveBeenCalled()
     expect(karuteRecordsCreate).not.toHaveBeenCalled()
     expect(complete).not.toHaveBeenCalled()
   })
@@ -411,7 +416,7 @@ describe('⚖ a deliberate discard outranks the job (fix round 6, R1)', () => {
 
     // Check #1 passed, so the yen WAS spent — that is the honest cost of a
     // race nobody can close. What must never happen is the karute.
-    expect(runTranscription).toHaveBeenCalledTimes(1)
+    expect(runMeteredTranscription).toHaveBeenCalledTimes(1)
     expect(karuteRecordsCreate).not.toHaveBeenCalled()
     expect(fail).toHaveBeenCalledWith('job-1', 'DISCARDED_BY_STAFF')
     expect(complete).not.toHaveBeenCalled()

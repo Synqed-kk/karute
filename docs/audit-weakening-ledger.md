@@ -294,3 +294,37 @@
   row here would double-log every save the worker performs. Not a widening of
   what goes unaudited — the same one act, reachable from one more place · Fable
   (DESIGN-ASSEMBLER-2026-09-06 D8, PACKET-ASSEMBLER-C C3)
+- 2026-09-08 · SDK_WRITE_ALLOWLIST:src/lib/ai-rate-limit.ts::aiRateLimit.recordUsage#reportTranscriptionUsageWithClient · the
+  transcription SPEND WALL adds a second reporter onto the SAME ledger the
+  token routes already report to: transcription is billed per MINUTE, so its
+  cents are computed from the audio's own length and returned through
+  `recordUsage('transcribe', null, null, cents)`. It is silent for exactly the
+  reason the existing reportAiUsageWithClient entry above it is — a
+  system-internal accounting increment, not a user-attributable business
+  mutation — and it is the OPPOSITE of a widening in practice: the act it
+  reports (a Deepgram call) has never been audited at all until this round,
+  and the same wrapper now files a `recording.transcribe` receipt for every
+  provider answer plus a `recording.transcribe_refused` row (severity warning)
+  for every refusal, from src/lib/ai/transcribe.ts (AUDITED_CORES). The money
+  moves in one place and the log says so · Fable
+  (LENS-RULING-SPEND-2026-09-08 §3.7 / PACKET-SPEND-METER-2026-09-08 C1)
+- 2026-09-08 · SDK_WRITE_ALLOWLIST:src/lib/ai-rate-limit.ts::aiRateLimit.recordUsage#releaseTranscriptionReserveWithClient · fix
+  round 5 of the transcription SPEND WALL adds the reserve's RELEASE — the same
+  system-internal accounting write as the two symbols already on this entry,
+  in the other direction. When the provider call itself throws, no money was
+  spent, and the caller retries: the worker re-runs the job, each attempt
+  reserves again, and a reserve left standing would put max_attempts × the
+  estimate on the ledger for a recording nobody ever transcribed — so one
+  Deepgram outage would refuse honest work for the rest of the rolling day.
+  The release is `recordUsage('transcribe', null, null, -reserveCents)`, a
+  negative row on the same route, because core stores the integer as given and
+  `consume` SUMs the column over the rolling 24 h (synqed-core
+  src/services/ai-rate-limit.service.ts) — no refund call was invented and no
+  core change was needed. It is silent for exactly the reason the entry above
+  it is, and it is the OPPOSITE of a widening in what goes unlogged: the act
+  it corrects is a provider FAILURE, which every door already surfaces on its
+  own error path (the worker's fail(), the two routes' error arms), and the
+  only new place it can be reached from is the catch inside
+  src/lib/ai/transcribe.ts#runMeteredTranscription (AUDITED_CORES). A
+  SUCCESSFUL call is still never refunded — the no-refund ruling is unchanged ·
+  Fable (BLIND-LENS-SPEND-f7ca094.md MEDIUM 2 / PACKET-SPEND-FIX5-2026-09-08 C1)
