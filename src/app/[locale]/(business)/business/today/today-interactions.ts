@@ -3919,6 +3919,87 @@ export function holdSummary(
   return `${title ? `${title}様 → ` : ''}${clockOf(from)}〜${clockOf(to)} / 担当 ${staffLane?.label ?? '—'}${bedLane ? ` / ${moved}${bedLane.label}` : ''}`
 }
 
+/** ⚖ 9/8 PACKING — THE SEARCH'S ANSWER, WITH THE SPAN EACH MOVED CARD NEEDS TO
+ *  GO HOME AGAIN. `reseats` says which room a booking left and which it took;
+ *  元に戻す also needs where it was DRAWN, and the board being solved against is
+ *  the one place that knows. A reseat whose card is not on the board is dropped
+ *  rather than guessed — the same law the rest of this file follows. */
+export function companionsFor(lanes: BoardLane[], reseats: readonly Reseat[]): BedCompanion[] {
+  const out: BedCompanion[] = []
+  for (const r of reseats) {
+    const item = lanes.find((l) => l.key === r.from && l.group === 'beds')?.items.find((i) => i.caseId === r.id)
+    if (item) out.push({ id: r.id, bedOrigin: { laneKey: r.from, x: item.x, w: item.w }, bedTo: r.to })
+  }
+  return out
+}
+
+/** The board as it will stand once these moves are staged — the SAME `bedMoves`
+ *  writes `stage()` makes, through the same `applyMoves`, so the guard's
+ *  synthetic world and the staged world can never be two different boards. */
+export function applyBedMoves(lanes: BoardLane[], companions: readonly BedCompanion[], hours: Hours): BoardLane[] {
+  if (companions.length === 0) return lanes
+  const bedMoves: Moves = {}
+  for (const c of companions) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+  return applyMoves(lanes, {}, [], [], hours, bedMoves)
+}
+
+/** ⚖ 9/8 PACKING, THE RE-LANDING RULE — every companion put back where it stood
+ *  before this staged change.
+ *
+ *  A second gesture on a staged card must solve against the day the operator
+ *  STARTED from, not the day the first gesture already rearranged: otherwise
+ *  さくら is shuffled a second time out of the seat the first landing gave her,
+ *  and the origin 元に戻す restores from stops being the truth. */
+export function lanesWithCompanionsRestored(
+  lanes: BoardLane[],
+  companions: readonly BedCompanion[] | undefined,
+  hours: Hours,
+): BoardLane[] {
+  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours)
+}
+
+/** ⚖ 9/8 PACKING — VACATE BEFORE OCCUPY. A card moving INTO a room is written
+ *  after the card moving OUT of it.
+ *
+ *  Locally this is one state update and the order changes nothing; it is the
+ *  order core needs when these become real writes, because its bed rule is a
+ *  per-row EXCLUDE and a chain written the other way round collides with itself
+ *  halfway through (design §4). A CYCLE (A↔B) has no such order — nothing can go
+ *  first — and keeps the order it came in with; that is exactly the case the
+ *  core ask names, and the only one that needs an atomic batch. */
+export function vacateBeforeOccupy(companions: readonly BedCompanion[]): BedCompanion[] {
+  const rest = [...companions]
+  const out: BedCompanion[] = []
+  while (rest.length > 0) {
+    const free = rest.findIndex((c) => !rest.some((o) => o !== c && o.bedOrigin.laneKey === c.bedTo))
+    out.push(...rest.splice(free < 0 ? 0 : free, 1))
+  }
+  return out
+}
+
+/** ⚖ 9/8 PACKING — WHO ELSE THIS LANDING MOVED, one line each.
+ *
+ *  The 仮押さえ box's own summary is UNTOUCHED (it has a second caller and a
+ *  second construction branch); these ride beside it, and the register is the
+ *  surface's own arrow idiom — no `/` (a line is its own separator), no new
+ *  vocabulary for「the board moved this one for you」. Five or more takes the
+ *  board's own fold (`protectedWindowsClause`, :1686): first three, then the
+ *  count. Unreachable while the ceiling is four moves, and it is here because
+ *  raising that ceiling is the stated upgrade path.
+ *
+ *  ⚠ PLACEHOLDER JAPANESE, awaiting the native pass — brief the writer with the
+ *  sibling lines (`holdSummary` above, and this file's :1686 fold). */
+export function companionLines(lanes: BoardLane[], companions: readonly BedCompanion[]): string[] {
+  const labelOf = (key: string) => lanes.find((l) => l.key === key && l.group === 'beds')?.label ?? key
+  const all = companions.map((c) => {
+    // Read off the board, never invented — ⚖ A3's law. A companion is by
+    // construction a card the search found ON the board, so this is present.
+    const title = lanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title
+    return `${title ? `${title}様 ` : ''}${labelOf(c.bedOrigin.laneKey)} → ${labelOf(c.bedTo)}`
+  })
+  return all.length > 4 ? [...all.slice(0, 3), `、ほか${all.length - 3}件`] : all
+}
+
 /** ⚖ FIX ROUND 3 (delta2 lens 2 F1 · lens 4 D6) — WHICH ROWS THE REFUSAL BOX
  *  EARNS, AS A RULE THAT CAN BE ASKED.
  *
@@ -4149,6 +4230,12 @@ export interface LandingVerdict {
    *  the ORIGIN — the wrong board. These are the right ones, from the same call
    *  that judged the landing. Empty before the rows are reached. */
   checks: Check[]
+  /** ⚖ 9/8 PACKING — WHO ELSE THIS LANDING WOULD MOVE, from the same solve that
+   *  chose the room. Empty on every landing that packs nothing, which is every
+   *  landing that did not ask to (`LandingQuestion.pack`), and it is carried on a
+   *  refused verdict too: the guard is re-asked on the board WITH these applied,
+   *  so the shuffle's own cost can be what refuses the landing. */
+  reseats: readonly Reseat[]
 }
 
 /** canon `computeChecks` (drag-rules.ts:227) pushes this row UNCONDITIONALLY,
@@ -4307,6 +4394,24 @@ export interface LandingQuestion {
    *  honest default: a board with nothing staged has no such occupant, and every
    *  caller that genuinely has one passes it. */
   stagedId?: string | null
+  /** ⚖ 9/8 PACKING — MAY THIS LANDING MOVE SOMEBODY ELSE? Written by
+   *  `verdictAtLanding` alone, which is the gesture END (a drop through
+   *  `askGuard`, a keyboard nudge). The per-frame word at the cursor calls
+   *  `verdictFor` directly and never sets it, so the strip promises only
+   *  no-shuffle fits and the drop may accept a start the strip did not promise —
+   *  ⚖ flag 54's asymmetry, kept in its original direction.
+   *
+   *  OPTIONAL, and absent means NO: every caller that predates the pack keeps
+   *  today's answer with no edit, and the geometry-only asks stay geometry-only.
+   *  `allocateBed` is the one that refuses to guess — it throws when `pack` is
+   *  true and the two facts below are missing. */
+  pack?: boolean
+  /** Minutes on the day shown, for the pack's lead floor. `null` = a future day.
+   *  Filled by the screen on every ask, so a `pack` can never arrive without it. */
+  now?: number | null
+  /** Each room's own turnaround, for the pack's claims. Filled by the screen on
+   *  every ask, from the same prop the board's 清掃 drawing comes from. */
+  cleanupMinutesByBed?: Record<string, number>
   /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — WHO IS ASKING, at the only
    *  landing class where the store's dial has anything to say about it.
    *
@@ -4347,6 +4452,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
   // honestly reports none: no room had been solved and no row had been read.
   let bedLane: string | null = null
   let checks: Check[] = []
+  let reseats: readonly Reseat[] = []
   /** ⚖ ROOM RULE fix round 1 (blind lens 3 F1) — AND A STOP MAY SAY IT HAS
    *  NOTHING TO OFFER. `cell` is the guard's own ranking of nearby starts, and
    *  every floor that is about the CLOCK is entitled to it. The 個室のみ stop is
@@ -4358,7 +4464,7 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
    *  offer line and the alternatives simply do not render and the way out rides
    *  in the sentence instead. Defaulted, so every other stop is byte-unchanged. */
   const stop = (reason: string, floor: LandingFloor, offer: RailCell | null = cell): LandingVerdict =>
-    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell: offer, bedLane, checks })
+    ({ kind: 'blocked', floor, label: VERDICT_WORD.blocked, reason, cell: offer, bedLane, checks, reseats })
   // ⚖ 46 store isolation is LAW, never a judgement — there is no authority on
   // this board that may place a person in another store's building.
   if (q.foreignRefusal) return stop(q.foreignRefusal, 'hard')
@@ -4379,14 +4485,21 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
         start: q.start,
         end: q.end,
         stagedId: q.stagedId ?? null,
+        // ⚖ 9/8 PACKING — the fence, at the one call that has it. The bed-row arm
+        // below asks no allocator at all (the operator named the room out loud),
+        // so there is nothing to gate there.
+        pack: q.pack === true,
+        now: q.now ?? null,
+        cleanupMinutesByBed: q.cleanupMinutesByBed ?? {},
       })
     // ⚖ 44 FIX ROUND (blind lens 1, F6) — ONE SHAPE ON BOTH SIDES. A bed-row
     // gesture names its own room, so nothing was walked and nobody is in the
     // way; saying that with `[]` keeps `solved` one type rather than a union
     // whose second arm quietly lacks the field a reader may go looking for.
-    : { laneKey: q.bedLane, refusal: null, blockers: [] }
+    : { laneKey: q.bedLane, refusal: null, blockers: [], reseats: [] as readonly Reseat[] }
   const bed = lanes.find((l) => l.key === solved.laneKey && l.group === 'beds') ?? null
   bedLane = solved.laneKey
+  reseats = solved.reseats
 
   // ⚖ 74 (lens-1 F5) — READ THE ROWS BEFORE THE EXPLICIT-ROOM STOPS, so the two
   // bed-row refusals below carry them too. They used to return above this block
@@ -4559,8 +4672,8 @@ export function landingVerdict(lanes: BoardLane[], q: LandingQuestion, cell: Rai
       ? stop(cell.sentence, 'policy')
       : stop(cell.sentence, 'hard')
   }
-  if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }
-  return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks }
+  if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks, reseats }
+  return { kind: 'clean', floor: null, label: VERDICT_WORD.clean, reason: null, cell, bedLane, checks, reseats }
 }
 
 /** ⚖ RULING 91 / SPEC-SELLING-ENGINE §7 — THE PERMISSION DIAL'S THREE LEVELS,
