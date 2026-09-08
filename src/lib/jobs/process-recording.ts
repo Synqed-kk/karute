@@ -188,7 +188,10 @@ async function processJob(job: RecordingJob): Promise<string> {
     speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
   }
   try {
-    transcription = (await runMeteredTranscription(
+    // `result` is the provider body, unchanged; the meter's own receipt (the
+    // billed length, the cents, and whether the debit landed) is filed by the
+    // wrapper for this door, so the worker takes only the half it uses.
+    const metered = (await runMeteredTranscription(
       {
         synqed,
         businessId: job.business_id,
@@ -207,7 +210,8 @@ async function processJob(job: RecordingJob): Promise<string> {
         mode,
         businessType,
       },
-    )) as typeof transcription
+    )) as { result: typeof transcription }
+    transcription = metered.result
   } catch (err) {
     // The ceiling's own word, so `last_error` carries a reason both surfaces can
     // read. Everything else keeps its own message.

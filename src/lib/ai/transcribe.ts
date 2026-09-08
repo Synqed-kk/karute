@@ -275,30 +275,34 @@ function billedSeconds(result: Record<string, unknown>): number {
   return positiveSeconds(result.durationSec) ?? UNKNOWN_DURATION_FLOOR_SECONDS
 }
 
-/** The two numbers the meter just debited, for the doors that file their OWN
- *  receipt row (the two interactive routes). Same inputs, same rules, one home
- *  — never a second estimate that could disagree with the ledger. */
-export function transcriptionCostDetail(
-  result: Record<string, unknown>,
-): { duration_seconds: number; cost_cents: number } {
-  const durationSec = billedSeconds(result)
-  return {
-    duration_seconds: Math.round(durationSec),
-    cost_cents: estimateTranscriptionCostCents(durationSec),
-  }
+/** WHAT THE METER DID, for the doors that file their OWN receipt row (the two
+ *  interactive routes) — handed back from the call itself rather than
+ *  recomputed, because `debit_recorded` is an OUTCOME: no second pass over the
+ *  provider's body could ever know it (fix round 2, Greptile P1). */
+export interface TranscriptionReceipt {
+  duration_seconds: number
+  cost_cents: number
+  /** false = the money was spent and the ledger never heard about it. */
+  debit_recorded: boolean
 }
 
 /** THE RECEIPT — ids and numbers only, never a word of the transcript. Private
  *  and unconditional so the emission walker can prove it (CP7); the CALLER
- *  decides whether this door files one (see runMeteredTranscription). */
+ *  decides whether this door files one (see runMeteredTranscription).
+ *
+ *  ⚖ A LOST DEBIT IS COUNTABLE (fix round 2). When the ledger never took the
+ *  cents, this row is severity 'warning' — the same severity the refusal row
+ *  uses, so the ONE audit.list query that answers "is the wall firing?" by
+ *  severity now also returns the spends that were never counted. Both are the
+ *  same sentence: the wall is not holding. */
 function auditTranscriptionReceipt(
   meter: TranscriptionMeter,
-  durationSec: number,
-  costCents: number,
+  receipt: TranscriptionReceipt,
 ): void {
   audit({
     category: 'recording',
     action: 'recording.transcribe',
+    ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
     actorId: null,
     actorType: 'system',
     businessId: meter.businessId,
@@ -306,8 +310,7 @@ function auditTranscriptionReceipt(
     targetId: meter.recordingSessionId ?? undefined,
     detail: {
       door: meter.door,
-      duration_seconds: Math.round(durationSec),
-      cost_cents: costCents,
+      ...receipt,
       ...(meter.recordingSessionId ? { recording_session_id: meter.recordingSessionId } : {}),
       ...(meter.takeId ? { take_id: meter.takeId } : {}),
       ...(meter.attempt != null ? { attempt: meter.attempt } : {}),
@@ -349,11 +352,15 @@ function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError):
  * Throws the classified `rate_limited` AppApiError unchanged on a refusal (the
  * facade maps it to 429; the web route rewraps it; the worker renames it to its
  * own named reason word) — and the refusal row is filed before it leaves.
+ *
+ * Returns the provider body under `result` (unchanged shape — it is what the
+ * clients already receive) plus the meter's own `receipt`, which never leaves
+ * the server: it is the audit row's detail on the two doors that file their own.
  */
 export async function runMeteredTranscription(
   meter: TranscriptionMeter,
   params: Parameters<typeof runTranscription>[0],
-): Promise<Record<string, unknown>> {
+): Promise<{ result: Record<string, unknown>; receipt: TranscriptionReceipt }> {
   try {
     await enforceAiRateLimitWithClient(meter.synqed, 'transcribe')
   } catch (err) {
@@ -367,14 +374,18 @@ export async function runMeteredTranscription(
 
   const durationSec = billedSeconds(result)
   const costCents = estimateTranscriptionCostCents(durationSec)
-  await reportTranscriptionUsageWithClient(meter.synqed, costCents)
+  const receipt: TranscriptionReceipt = {
+    duration_seconds: Math.round(durationSec),
+    cost_cents: costCents,
+    debit_recorded: await reportTranscriptionUsageWithClient(meter.synqed, costCents),
+  }
 
   // ONE receipt per call. The two interactive routes already emit their own
   // recording.transcribe row (web: auditWeb; facade: the hook map) and carry
-  // the same two numbers on it, so the wrapper stays silent for them — a door
+  // the same numbers on it, so the wrapper stays silent for them — a door
   // added later must declare itself HERE or it files nothing.
   if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
-    auditTranscriptionReceipt(meter, durationSec, costCents)
+    auditTranscriptionReceipt(meter, receipt)
   }
-  return result
+  return { result, receipt }
 }

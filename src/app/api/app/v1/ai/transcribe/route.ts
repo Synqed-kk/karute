@@ -19,7 +19,6 @@ import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
   runMeteredTranscription,
-  transcriptionCostDetail,
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
@@ -86,7 +85,7 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'could not read the recording')
   }
 
-  const result = await runMeteredTranscription(
+  const { result, receipt } = await runMeteredTranscription(
     { synqed, businessId: ctx.identity.businessId, door: 'app' },
     {
       audio: { url: signed.signedUrl },
@@ -99,10 +98,12 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
       businessType: orgSettings?.business_type ?? null,
     },
   )
-  // The spend wall's two numbers ride the hook's OWN recording.transcribe row
+  // The spend wall's numbers ride the hook's OWN recording.transcribe row
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
-  // meter: one call, one receipt. Two keys, well inside the hook's cap of 8.
-  ctx.auditDetail = transcriptionCostDetail(result)
+  // meter: one call, one receipt. Three keys, well inside the hook's cap of 8.
+  // The receipt is server-side only — the client is answered with `result`,
+  // the provider body, exactly as before.
+  ctx.auditDetail = { ...receipt }
   return ok(ctx, result)
 })
 

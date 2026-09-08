@@ -7,7 +7,6 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   runMeteredTranscription,
-  transcriptionCostDetail,
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
@@ -111,7 +110,7 @@ export async function POST(request: Request) {
       if (!isAllowedAudioUrl(audioUrl)) {
         return NextResponse.json({ error: 'Invalid audioUrl' }, { status: 400 })
       }
-      const body = await runMeteredTranscription(meter, {
+      const { result: body, receipt } = await runMeteredTranscription(meter, {
         audio: { url: audioUrl },
         locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,
@@ -121,12 +120,13 @@ export async function POST(request: Request) {
       })
       // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER transcription
       // succeeds, before the response — ids-only, no transcript content. The
-      // spend wall's two numbers ride THIS row rather than a second one from
-      // the meter: one call, one receipt.
+      // spend wall's numbers ride THIS row rather than a second one from the
+      // meter: one call, one receipt. The receipt itself never leaves the
+      // server — the client gets `body`, exactly as before.
       await auditWeb({
         category: 'recording',
         action: 'recording.transcribe',
-        detail: transcriptionCostDetail(body),
+        detail: { ...receipt },
         requestId: crypto.randomUUID(),
       })
       return NextResponse.json(body)
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await audioFile.arrayBuffer())
     const mimeType = audioFile.type || 'audio/webm'
 
-    const body = await runMeteredTranscription(meter, {
+    const { result: body, receipt } = await runMeteredTranscription(meter, {
       audio: { buffer, mimeType },
       locale: locale === 'en' ? 'en' : 'ja',
       diarize,
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
     await auditWeb({
       category: 'recording',
       action: 'recording.transcribe',
-      detail: transcriptionCostDetail(body),
+      detail: { ...receipt },
       requestId: crypto.randomUUID(),
     })
     return NextResponse.json(body)

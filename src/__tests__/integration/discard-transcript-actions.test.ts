@@ -134,7 +134,10 @@ jest.mock('@/lib/synqed/staff-map', () => ({
  *  returned value — a gate that transcribes first and refuses afterwards would
  *  pass a return-value-only test while burning the money the ⚖ gate exists to
  *  protect. */
-const mockRunTranscription = jest.fn(async () => ({ transcript: 'こんにちは、本日はありがとうございます' }))
+const mockRunTranscription = jest.fn(async () => ({
+  result: { transcript: 'こんにちは、本日はありがとうございます' },
+  receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+}))
 /** THE SPEND COUNTER is now the METER (the spend wall, 2026-09-08) — the door's
  *  one provider call goes through it, so this stand-in counts exactly what
  *  runTranscription used to count here. The wall's own behaviour (the ceiling
@@ -712,7 +715,10 @@ describe('what actually lands', () => {
   })
 
   it('silence is answered honestly — nothing is written for an empty transcript', async () => {
-    mockRunTranscription.mockImplementationOnce(async () => ({ transcript: '   ' }))
+    mockRunTranscription.mockImplementationOnce(async () => ({
+      result: { transcript: '   ' },
+      receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+    }))
     await expect(staged()).resolves.toEqual({ skipped: 'empty' })
     expect(segmentSets).toEqual([])
     expect(removed).toEqual([])

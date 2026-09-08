@@ -633,18 +633,22 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
-    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts the two
-    // numbers it debited on this row rather than filing a second one — ids and
-    // numbers only, still nothing PII-shaped.
+    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts what it
+    // debited on this row rather than filing a second one — ids and numbers
+    // only, still nothing PII-shaped.
     expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
       'action',
       'category',
       'detail',
       'requestId',
     ])
+    // THREE detail keys since fix round 2: the debit is retried three times
+    // and a loss that survives them all is written down HERE, on the row, so a
+    // spend nobody counted is countable rather than merely mentioned in a log.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
+      debit_recorded: true,
     })
   })
 
@@ -666,18 +670,22 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
-    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts the two
-    // numbers it debited on this row rather than filing a second one — ids and
-    // numbers only, still nothing PII-shaped.
+    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts what it
+    // debited on this row rather than filing a second one — ids and numbers
+    // only, still nothing PII-shaped.
     expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
       'action',
       'category',
       'detail',
       'requestId',
     ])
+    // THREE detail keys since fix round 2: the debit is retried three times
+    // and a loss that survives them all is written down HERE, on the row, so a
+    // spend nobody counted is countable rather than merely mentioned in a log.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
+      debit_recorded: true,
     })
   })
 

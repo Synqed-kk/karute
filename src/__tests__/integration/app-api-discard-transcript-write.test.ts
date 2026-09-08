@@ -70,7 +70,10 @@ jest.mock('@/lib/synqed/staff-map', () => ({
 /** THE spend counter, same idiom as the web suite: a gate that transcribed
  *  first and refused afterwards would pass a return-value-only test while
  *  burning the money the ⚖ consent/floor gates exist to protect. */
-const mockRunTranscription = jest.fn(async () => ({ transcript: '本日はありがとうございます' }))
+const mockRunTranscription = jest.fn(async () => ({
+  result: { transcript: '本日はありがとうございます' },
+  receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+}))
 const mockLoadReference = jest.fn(async (): Promise<unknown> => null)
 /** Steerable, because 'off' short-circuits the voice reference to null and a
  *  suite pinned only at 'off' can never see the reference leg at all. */
@@ -257,7 +260,10 @@ beforeEach(() => {
   roster = [{ id: 'auth-user-1' }]
   orgSettings = { settings: {} }
   mockLoadReference.mockResolvedValue(null)
-  mockRunTranscription.mockResolvedValue({ transcript: '本日はありがとうございます' })
+  mockRunTranscription.mockResolvedValue({
+    result: { transcript: '本日はありがとうございます' },
+    receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+  })
   discardRows = [{ recording_session_id: 'rs-1', reason: 'テスト' }]
   consentByCustomer = { 'cust-1': { policy_version: RECORDING_CONSENT_POLICY_VERSION } }
   // BORN RESERVED (session-mint.ts) — and since PR4 fix round 7 the ordinary
@@ -612,7 +618,10 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
   })
 
   it('silence is answered honestly — nothing written for an empty transcript', async () => {
-    mockRunTranscription.mockResolvedValueOnce({ transcript: '   ' })
+    mockRunTranscription.mockResolvedValueOnce({
+      result: { transcript: '   ' },
+      receipt: { duration_seconds: 62, cost_cents: 1, debit_recorded: true },
+    })
     expect(await (await post(STAGED_BODY)).json()).toEqual({ skipped: 'empty' })
     expect(upsertSegments).not.toHaveBeenCalled()
   })

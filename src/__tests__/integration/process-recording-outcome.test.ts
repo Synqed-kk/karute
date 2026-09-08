@@ -34,11 +34,12 @@ jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])
 jest.mock('@/lib/ai/transcribe', () => ({
   speakerIdMode: () => 'off',
   loadStaffReferenceForStaff: jest.fn(async () => null),
+  // `{ result, receipt }` since fix round 2 — the receipt is the meter's own
+  // half (billed length, cents, and whether the debit landed); this worker
+  // takes only `result`, so the stand-in answers a truthful pair.
   runMeteredTranscription: jest.fn(async () => ({
-    transcript: 'hello',
-    paragraphs: [],
-    words: [],
-    confidence: 1,
+    result: { transcript: 'hello', paragraphs: [], words: [], confidence: 1 },
+    receipt: { duration_seconds: 60, cost_cents: 1, debit_recorded: true },
   })),
 }))
 jest.mock('@/lib/ai/karute-extract', () => ({

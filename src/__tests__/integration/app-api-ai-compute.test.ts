@@ -42,6 +42,7 @@ jest.mock('@/lib/ai-rate-limit', () => ({
 }))
 
 const runTranscription = jest.fn(async () => ({ transcript: 'T', durationSec: 1, confidence: 0.9 }))
+const RECEIPT = { duration_seconds: 1, cost_cents: 1, debit_recorded: true }
 const loadRef = jest.fn(async () => null)
 /** THE METER, as a stand-in (the spend wall, 2026-09-08). This suite is about
  *  the route's ORDER — plan gate first, ZERO consume when locked, nothing
@@ -56,13 +57,15 @@ const runMeteredTranscription = jest.fn(
       'transcribe',
     )
     void params
-    return runTranscription()
+    // `{ result, receipt }` since fix round 2: the route reads `result` for the
+    // client and `receipt` for its audit row (transcriptionCostDetail is gone —
+    // only the call itself can know whether the debit landed).
+    return { result: await runTranscription(), receipt: RECEIPT }
   },
 )
 jest.mock('@/lib/ai/transcribe', () => ({
   runMeteredTranscription: (...a: unknown[]) =>
     (runMeteredTranscription as (...x: unknown[]) => unknown)(...(a as [])),
-  transcriptionCostDetail: () => ({ duration_seconds: 1, cost_cents: 1 }),
   speakerIdMode: () => 'shadow',
   loadStaffReferenceForStaff: (...a: unknown[]) => loadRef(...(a as [])),
 }))

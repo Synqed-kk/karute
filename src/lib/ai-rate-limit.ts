@@ -95,26 +95,46 @@ export function estimateTranscriptionCostCents(durationSec: number): number {
   return Math.max(1, Math.ceil((durationSec / 60) * DEEPGRAM_CENTS_PER_MINUTE))
 }
 
+/** The waits BETWEEN the three attempts below. Short on purpose: the caller is
+ *  a request or a job holding a claim, and core answering slowly is the common
+ *  case this is here for — not an outage, which the third failure records. */
+const DEBIT_RETRY_WAITS_MS = [250, 750]
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * Report ONE transcription's minutes to synqed-core, as cents, against the same
  * rolling daily $-cap consume() enforces (core's ai_request_log — a
- * `transcribe:usage` row, no tokens).
+ * `transcribe:usage` row, no tokens). Returns whether the debit LANDED.
  *
- * NEVER THROWS, deliberately: this is called immediately AFTER the provider has
- * answered, so the money is already spent. Failing the caller here would send
- * the whole recording back through Deepgram on the next retry — paying twice to
- * report once. A failed debit is loud in the log and lost, which is the cheaper
- * of the two errors.
+ * THREE ATTEMPTS (fix round 2, Greptile P1). A single failed call used to lose
+ * the money silently: the cap under-counts by that recording for a rolling 24 h,
+ * and a run of them is exactly the outage during which the wall stops holding.
+ * A blip now costs 250 ms and then 750 ms instead of a spend nobody counted.
+ *
+ * NEVER THROWS, deliberately, even after the third failure: this is called
+ * immediately AFTER the provider has answered, so the money is already spent.
+ * Failing the caller here would send the whole recording back through Deepgram
+ * on the next retry — paying twice to report once. ⚖ That is the ruling: a lost
+ * debit is written down (the console line below, and `debit_recorded: false` on
+ * the caller's audit row), never re-thrown.
  */
 export async function reportTranscriptionUsageWithClient(
   synqed: RateLimitClient,
   costCents: number,
-): Promise<void> {
-  try {
-    await synqed.aiRateLimit.recordUsage('transcribe', null, null, costCents)
-  } catch (err) {
-    console.error('[ai-usage] transcription debit failed:', err)
+): Promise<boolean> {
+  let err: unknown
+  for (let attempt = 0; attempt < 1 + DEBIT_RETRY_WAITS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(DEBIT_RETRY_WAITS_MS[attempt - 1])
+    try {
+      await synqed.aiRateLimit.recordUsage('transcribe', null, null, costCents)
+      return true
+    } catch (e) {
+      err = e
+    }
   }
+  console.error('[ai-usage] transcription debit LOST after 3 attempts:', { costCents, err })
+  return false
 }
 
 /**

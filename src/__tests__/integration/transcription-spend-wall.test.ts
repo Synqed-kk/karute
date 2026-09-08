@@ -401,11 +401,15 @@ describe('the job worker — the phone’s normal save path', () => {
         door: 'job',
         duration_seconds: 5400,
         cost_cents: 45,
+        debit_recorded: true,
         recording_session_id: 'sess-1',
         attempt: 1,
         rescued: false,
       },
     })
+    // A landed debit is an ordinary row — the 'warning' severity below is
+    // reserved for the two ways the wall stops holding.
+    expect(receipts[0].severity).toBeUndefined()
     expect(rows('recording.transcribe_refused')).toHaveLength(0)
   })
 
@@ -456,6 +460,79 @@ describe('the job worker — the phone’s normal save path', () => {
       rescued: true,
       take_id: '0f8c6c9a-3f2d-4a71-9b5e-2c1d7e4a8b30',
     })
+  })
+})
+
+// ── t8 — the debit itself (fix round 2, Greptile P1) ────────────────────────
+//
+// A `recordUsage` that failed used to be a shrug in the log: the money was
+// spent, the ledger never heard about it, and the rolling 24 h cap under-counted
+// by that whole recording — for exactly as long as core was unwell, which is
+// precisely when a runaway would be running. Three attempts, and a loss that
+// survives all three is COUNTABLE rather than merely mentioned.
+describe('the debit — three attempts, and a lost one is written down', () => {
+  const runOneJob = async (job: Record<string, unknown> = baseJob) => {
+    claim.mockResolvedValueOnce(job).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+  let errorLog: jest.SpyInstance
+
+  beforeEach(() => {
+    errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorLog.mockRestore()
+  })
+
+  it('t8 core blips twice → the third attempt lands, the debit is recorded, nothing is written down', async () => {
+    recordUsage
+      .mockRejectedValueOnce(new Error('core 502'))
+      .mockRejectedValueOnce(new Error('core 502'))
+      .mockResolvedValueOnce(undefined)
+
+    await runOneJob()
+
+    expect(recordUsage).toHaveBeenCalledTimes(3)
+    expect(recordUsage).toHaveBeenLastCalledWith('transcribe', null, null, 45)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({ debit_recorded: true })
+    expect(errorLog).not.toHaveBeenCalled()
+    // ONE provider call — a retry of the DEBIT must never re-run the spend.
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+  })
+
+  it('t8 all three fail → the debit is LOST: one console.error, a warning receipt saying so, and the karute still saves', async () => {
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    await runOneJob()
+
+    expect(recordUsage).toHaveBeenCalledTimes(3)
+    // The money was spent exactly once; only the report was retried.
+    expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
+
+    expect(errorLog).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledWith(
+      '[ai-usage] transcription debit LOST after 3 attempts:',
+      expect.objectContaining({ costCents: 45 }),
+    )
+
+    // COUNTABLE: severity 'warning' is what the refusal row uses, so the one
+    // audit.list query that answers "is the wall firing?" now also returns the
+    // spends nobody counted. Both mean the wall is not holding.
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0].severity).toBe('warning')
+    expect(receipts[0].detail).toMatchObject({
+      door: 'job',
+      duration_seconds: 5400,
+      cost_cents: 45,
+      debit_recorded: false,
+    })
+
+    // ⚖ AND IT NEVER THROWS. The money is already spent; failing the caller
+    // here would send the whole recording back through Deepgram on the requeue
+    // — paying twice to report once. The job finishes.
+    expect(complete).toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
   })
 })
 
@@ -553,8 +630,8 @@ describe('the web route (cookie door)', () => {
     expect(recordUsage).not.toHaveBeenCalled()
   })
 
-  it('t7 the route files ONE receipt, carrying the two numbers the meter debited', async () => {
-    await webTranscribePOST(post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }))
+  it('t7 the route files ONE receipt, carrying the numbers the meter debited AND whether it landed', async () => {
+    const res = await webTranscribePOST(post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }))
 
     // The wrapper stays silent for this door — the route's own row is the one.
     expect(rows('recording.transcribe')).toHaveLength(0)
@@ -563,9 +640,27 @@ describe('the web route (cookie door)', () => {
       expect.objectContaining({
         category: 'recording',
         action: 'recording.transcribe',
-        detail: { duration_seconds: 5400, cost_cents: 45 },
+        detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: true },
       }),
     )
+    // …and the receipt is SERVER-SIDE ONLY: the client's body is the provider's,
+    // unchanged, with no accounting field bolted onto it.
+    expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
+  })
+
+  it('t8 the debit is lost → the route’s OWN row says so (debit_recorded false), and the caller still gets its words', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    const res = await webTranscribePOST(post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }))
+
+    expect(res.status).toBe(200)
+    expect(auditWeb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: false },
+      }),
+    )
+    errorLog.mockRestore()
   })
 })
 
@@ -605,12 +700,20 @@ describe('the facade route (Bearer door)', () => {
     expect(recordUsage).not.toHaveBeenCalled()
   })
 
-  it('t7 the hook’s row carries the two numbers, and the wrapper files none of its own', async () => {
-    await facadeTranscribePOST(post(), noRoute)
+  it('t7 the hook’s row carries the numbers AND the debit outcome, and the wrapper files none of its own', async () => {
+    const res = await facadeTranscribePOST(post(), noRoute)
 
     const receipts = rows('recording.transcribe')
     expect(receipts).toHaveLength(1)
     expect(receipts[0].source).toBe('facade')
-    expect(receipts[0].detail).toMatchObject({ duration_seconds: 5400, cost_cents: 45 })
+    expect(receipts[0].detail).toMatchObject({
+      duration_seconds: 5400,
+      cost_cents: 45,
+      debit_recorded: true,
+    })
+    // Three keys — well inside the hook's cap of 8 (handler.ts) — and none of
+    // them reaches the client: the body is the provider's own.
+    expect(Object.keys(receipts[0].detail as object)).toHaveLength(3)
+    expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
   })
 })

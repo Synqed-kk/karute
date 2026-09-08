@@ -468,7 +468,9 @@ export async function transcribeAndPersistDiscardWithClient(
     // The take these words belong to, read off the key the fences above proved
     // (a staged claim carries the session, not a take — then there is none).
     const parsedAudio = parseRecordingKey(audioPath, actor.businessId)
-    const transcription = (await runMeteredTranscription(
+    // Only the provider body is used here; the meter files this door's own
+    // receipt (including whether the debit landed) from inside the wrapper.
+    const { result: transcription } = (await runMeteredTranscription(
       {
         synqed,
         businessId: actor.businessId,
@@ -485,11 +487,13 @@ export async function transcribeAndPersistDiscardWithClient(
         businessType: settings?.business_type ?? null,
       },
     )) as {
-      transcript?: string
-      paragraphs?: never[]
-      words?: never[]
-      confidence?: number
-      speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+      result: {
+        transcript?: string
+        paragraphs?: never[]
+        words?: never[]
+        confidence?: number
+        speakerId?: { mode?: string; staffSpeakerIndex?: number; confidence?: number }
+      }
     }
 
     // Same Stage-0 diarization assembly as the worker: labeled text when
