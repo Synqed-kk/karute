@@ -306,6 +306,36 @@ describe('R4 — the 個室 is never stolen out from under the booking that need
   })
 })
 
+// ── ⚖ ROOM RULE clause 1 — STANDARD ROOMS FIRST, FOR COMPANIONS TOO ────────
+
+describe('room order — the person the board moves is sent to a 施術室 before a 個室', () => {
+  it('sends the moved booking to the standard room even when a private one is nearer in board order', () => {
+    // Board order deliberately puts the two 個室 FIRST, so 「first compatible
+    // room」 and 「standard rooms first」 give different answers and the test can
+    // tell which rule is running.
+    //
+    // The subject is 個室のみ and both 個室 are busy in its window, so today's
+    // search refuses. X (untagged, 13:00〜13:20) is in the way on ベッド3; it
+    // could go to ベッド5 (free until 13:40) or ベッド1 (free all day). ⚖ ROOM
+    // RULE clause 1 says the 施術室: a private room spent on a booking that does
+    // not need one is a private room the next 個室のみ booking cannot have.
+    const scene = boardOf([
+      lane({
+        key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private',
+        items: [booking({ key: 'x', caseId: 'apt-x', title: 'X' }, 780, 800)],
+      }),
+      lane({
+        key: 'bed-05', group: 'beds', label: 'ベッド5', roomClass: 'private',
+        items: [booking({ key: 'z', caseId: 'apt-z', title: 'Z' }, 820, 840)],
+      }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard' }),
+    ], 'SUBJECT')
+    const r = allocateBed(scene, packAsk({ requiresPrivate: true, currentBed: 'bed-03' }))
+    expect(r.laneKey).toBe('bed-03')
+    expect(r.reseats).toEqual([{ id: 'apt-x', from: 'bed-03', to: 'bed-01' }])
+  })
+})
+
 // ── R5 — LENS-4'S PIN COUNTER-SCENE PACKS ──────────────────────────────────
 
 describe('R5 — the pin scene the start-ordered version refused', () => {
@@ -537,10 +567,10 @@ const CLEANUPS = [0, 0, 5, 10, 15]
  *  be self-conflicting: every pre-existing claim is placed by rejection sampling
  *  against the ones already committed. A generator that skips this makes boards
  *  no store can reach and turns every 「invalid solution」 reading into noise. */
-function genScene(seed: number, mode: 'mixed' | 'all-standard'): GenScene {
+function genScene(seed: number, mode: 'mixed' | 'all-standard', size = { rooms: 2, movables: 4 }): GenScene {
   const rnd = mulberry32(seed)
   const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
-  const numRooms = 2 + Math.floor(rnd() * 2)
+  const numRooms = 2 + Math.floor(rnd() * size.rooms)
   const rooms: GenRoom[] = []
   let hasPrivate = false
   for (let i = 0; i < numRooms; i += 1) {
@@ -554,7 +584,7 @@ function genScene(seed: number, mode: 'mixed' | 'all-standard'): GenScene {
   const commit = (room: GenRoom, start: number, end: number, tail: number) => claims.get(room.key)!.push({ start, end: end + tail })
 
   const bookings: GenBooking[] = []
-  const target = 2 + Math.floor(rnd() * 4)
+  const target = 2 + Math.floor(rnd() * size.movables)
   for (let i = 0; i < target; i += 1) {
     const requiresPrivate = hasPrivate && rnd() < 0.3
     const compat = rooms.filter((r) => !requiresPrivate || r.roomClass === 'private')
@@ -703,7 +733,7 @@ describe('the seeded battery — 2,400 generated days against a brute-force orac
     it(`${mode}: no false refusal, no invalid seat, no extra move, no bystander`, () => {
       const stats = { total: 0, step0: 0, packed: 0, falseRefusals: 0, invalid: 0, nonMinimal: 0, belowTruth: 0, bystander: 0, stranded: 0 }
       const firstFailure: string[] = []
-      for (let seed = 1; seed <= 1200; seed += 1) {
+      for (let seed = 1; seed <= Number(process.env.FUZZ_N ?? 1200); seed += 1) {
         const s = genScene(seed, mode)
         const lanes = lanesOf(s)
         const tails = tailsOf(s)
@@ -759,6 +789,56 @@ describe('the seeded battery — 2,400 generated days against a brute-force orac
         falseRefusals: 0, invalid: 0, nonMinimal: 0, belowTruth: 0, bystander: 0, stranded: 0,
         firstFailure: [],
       })
+    })
+  }
+})
+
+/** ⚖ 9/3 R7 — THE SECOND BATTERY, ON THE DAYS THE ORACLE CANNOT AFFORD.
+ *
+ *  Exhaustive ground truth costs `rooms ^ movables`, so the battery above stops
+ *  at three rooms and five movables — and the deepest defect this search can
+ *  have (a branch that fails, is abandoned, and leaves one of its own
+ *  grandchildren's moves standing in the shared state) only shows up on days
+ *  with longer chains than that.
+ *
+ *  So this battery drops the oracle and keeps the two checks that need none:
+ *  the answer must HOLD (no two claims on one room), and every move in it must
+ *  be NECESSARY (drop any one and the answer stops holding). Both are O(n), so
+ *  six rooms and eight movables are affordable, and stale state shows up as a
+ *  move nobody needed. */
+describe('the deep battery — 80,000 bigger days, checked for validity and necessity', () => {
+  for (const mode of ['mixed', 'all-standard'] as const) {
+    it(`${mode}: every answer holds, and every move in it was necessary`, () => {
+      const size = { rooms: 5, movables: 7 }
+      const stats = { packed: 0, invalid: 0, bystander: 0, stranded: 0 }
+      const firstFailure: string[] = []
+      for (let seed = 1; seed <= 40000; seed += 1) {
+        const s = genScene(seed, mode, size)
+        const lanes = lanesOf(s)
+        const tails = tailsOf(s)
+        const ask = {
+          id: 'SUBJECT', currentBed: s.subject.currentBed, stores: ['store-a'],
+          requiresPrivate: s.subject.requiresPrivate, start: s.subject.start, end: s.subject.end,
+        }
+        if (allocateBed(lanes, ask).laneKey !== null) continue
+        const r = allocateBed(lanes, { ...ask, pack: true, now: s.now, cleanupMinutesByBed: tails })
+        if (r.laneKey === null) continue
+        stats.packed += 1
+        const subj = { id: 'SUBJECT', start: s.subject.start, end: s.subject.end }
+        const note = (what: string) => { if (firstFailure.length < 3) firstFailure.push(`${what} @ ${mode} seed ${seed}`) }
+        if (!noOverlaps(lanes, subj, r, tails)) { stats.invalid += 1; note('invalid seat') }
+        for (const one of r.reseats) {
+          const without = { laneKey: r.laneKey, reseats: r.reseats.filter((x) => x.id !== one.id) }
+          if (noOverlaps(lanes, subj, without, tails)) { stats.bystander += 1; note(`unnecessary move of ${one.id}`) }
+        }
+        const to = new Map(r.reseats.map((x) => [x.id, x.to]))
+        for (const b of s.bookings) {
+          if (!b.requiresPrivate) continue
+          if (s.rooms.find((x) => x.key === (to.get(b.id) ?? b.room))!.roomClass !== 'private') { stats.stranded += 1; note('stranded 個室のみ') }
+        }
+      }
+      expect(stats.packed).toBeGreaterThan(500)
+      expect({ ...stats, firstFailure }).toEqual({ ...stats, invalid: 0, bystander: 0, stranded: 0, firstFailure: [] })
     })
   }
 })
