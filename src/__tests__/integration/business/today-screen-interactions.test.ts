@@ -2161,6 +2161,12 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     expect(sliceLines('import {\n  allocateBed,', "} from './today-interactions'").lines).toEqual([
       "import {",
       "allocateBed,",
+      "applyBedMoves,",
+      "companionLines,",
+      "companionsFor,",
+      "lanesWithCompanionsRestored,",
+      "vacateBeforeOccupy,",
+      "type BedCompanion,",
       "anchorOnScreen,",
       "applyBlockMoves,",
       "applyMoves,",
@@ -2324,7 +2330,7 @@ describe('⚖ flag 76 — the 60分配置 rail hears about the rooms', () => {
     // source text in a state writer, so it is pinnable exactly as the two bodies above
     // are, and the ceiling it was filed under was a choice rather than a limit.
     const STAGE_ORIGIN =
-      ": { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, ...boardStamp, override: override ?? undefined },"
+      ": { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, companions, ...boardStamp, override: override ?? undefined },"
     expect({ line: STAGE_ORIGIN, count: pinnedLines(SRC, STAGE_ORIGIN) }).toEqual({ line: STAGE_ORIGIN, count: 1 })
   })
 
@@ -3628,7 +3634,7 @@ describe('a parked chip crosses days, lands on the day being viewed, and the × 
     // RENEGOTIATED (batch-9, ⚖ 50(d)): the solve carries whether this landing was
     // placed THROUGH a 置けない — an override has to reach the room too, or the
     // escalation is refused a second time behind a decision already made.
-    expect(body).toContain('const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)')
+    expect(body).toContain('const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)')
     expect(body).toContain('laneKey: bed.key')
     // The × and the hold bar's 元に戻す both take the placed row back off.
     expect(SRC).toContain('setAdded((was) => was.filter((a) => a.item.caseId !== id))')
@@ -4433,7 +4439,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // which is the ONE thing both a clean release and a 「注意して配置」
     // escalation run, and it carries the override sentence. `askGuard` is still
     // absent from this function (pinned above) — a MOVE still never consults.
-    expect(finishDrag).toContain('stage(\n        ctx.id,\n        on,\n        at,\n        pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n        override,\n      )')
+    expect(finishDrag).toContain('stage(\n        ctx.id,\n        { ...on, companions },\n        at,\n        pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,\n        override,\n      )')
   })
 
   // ── flag 33's root cause, found in the browser ────────────────────────────
@@ -4738,7 +4744,10 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // Confirming a STAGED change answers the incident's hold too — otherwise
     // the standing surface steps straight into the space this one just left,
     // which is exactly what Liam saw.
-    const confirm = SRC.slice(SRC.indexOf('function confirmPending'), SRC.indexOf('function confirmPending') + 1200)
+    // ⚖ 9/8 PACKING — ANCHORED, not counted. A fixed 1,200-character window went
+    // stale the moment `confirmPending` grew its companion re-check, which is a
+    // pin measuring the wrong thing (the same lesson the nudge window learned).
+    const confirm = SRC.slice(SRC.indexOf('function confirmPending'), SRC.indexOf('⚖ LIAM flag 92 (2026-08-31) — THE SAFE ANSWER, PRESSED'))
     expect(confirm).toContain('setPending(null)')
     expect(confirm).toContain("setHoldAnswer('confirmed')")
     // RENEGOTIATED BY ⚖ LIAM FLAG 56 (2026-08-22). This used to read "reverting
@@ -5356,7 +5365,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
       ['3 page.tsx', PROPS, 'inStore: inStore ? { name: inStore.customerName, bookingId: inStore.id, category: inStore.category } : null,'],
       ['4 arming', armed, 'category: nextVisitCategory(props.inStore.category),'],
       ['5 landing', landing, '{ staffLane: lane.key, bedLane: null, solveRoom: true, id: null, requiresPrivate: NEXT_VISIT_REQUIRES_PRIVATE, foreignRefusal: foreignStoreRefusal(placing, props.store), hasPrice: lane.listPrice > 0, span: slot },'],
-      ['6 solve', place_, 'const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))'],
+      ['6 solve', place_, 'const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))'],
       ['7 minted card', face, 'category: p.category,'],
       // ⚖ FIX ROUND 1 (blind lens 4 F5) — AND THE MINTED CARD'S ROOM NEED. Hop 7
       // pinned only the category, so the one line that carries the tag onto the
@@ -5508,7 +5517,7 @@ describe('BATCH-7 ⚖ 46/47 — a refusal changes NOTHING, and says why', () => 
     }
     // The composed refusals go through the same door — the allocator's 満室
     // sentence and the chip landing's missing-person one.
-    expect(SRC).toContain('if (solved.refusal) {\n      refuse(solved.refusal)')
+    expect(SRC).toContain('if (solved.refusal || solved.laneKey == null) {\n      if (solved.refusal) refuse(solved.refusal)')
     expect(SRC).toContain('refuse(`${chip.item.title}様の担当がこのボードにいません')
   })
 
@@ -5985,10 +5994,13 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
       // is the BOOKING's own 個室のみ tag, never the customer's VIP badge. The
       // three card landings read it off the card; 次回予約 has no card and no menu
       // yet, so both of its legs read the one named constant they share.
-      'solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
-      'solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
-      'solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
-      'solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
+      // ⚖ 9/8 PACKING — every call now leads with the BOARD it solves against
+      // (`solveLanes`), because a re-landing solves against the day before this
+      // change's own companions moved. The four spellings are otherwise unmoved.
+      'solveBed(solveLanes(ctx.id), on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'solveBed(solveLanes(id), on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
+      'solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      'solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect(SRC).toContain(call)
     }
@@ -6509,7 +6521,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // `verdictFor` is the only caller of `landingVerdict` in the screen.
     expect(SRC.match(/landingVerdict\(/g)).toHaveLength(1)
     expect(SRC).toContain('const verdictAtLanding = useCallback(')
-    expect(SRC).toContain('return verdictFor(q, q.staffLane ? verdictAt(q.staffLane, start, dur, q.id) : null)')
+    // ⚖ 9/8 PACKING — the one call became two legs of ONE expression: the room
+    // solve runs first, and when it carries companions the guard cell is re-read
+    // on the board the shuffle would leave. Both legs still go through
+    // `verdictFor`, so the label, the × and the release are still one function.
+    expect(SRC).toContain('const v = verdictFor(q, cellOn(boardLanes), true)')
+    expect(SRC).toContain('return verdictFor(q, cellOn(applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours)), true)')
   })
 
   // ── ⚖ FLAG 55 — the silent guard row, answered ───────────────────────────
@@ -6611,7 +6628,7 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     const nudge = SRC.slice(SRC.indexOf('const land = (override: string | null) => {'))
     // If the `stage(id, on, next,` literal ever drifts, indexOf returns -1 and
     // slice(0, -1) would silently widen the window instead of failing loudly.
-    const stageIdx = nudge.indexOf('stage(id, on, next,')
+    const stageIdx = nudge.indexOf('stage(id, { ...on, companions }, next,')
     expect(stageIdx).toBeGreaterThan(0)
     expect(nudge.slice(0, stageIdx)).toContain("if (lane.group !== 'beds') {")
     // …and NEITHER landing still tests the carried room before solving.
@@ -7164,9 +7181,16 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     expect(SRC).toContain('const v = verdictRef.current(ask)')
     expect(SRC).toContain('const boardLanesRef = useRef(boardLanes)')
     expect(SRC).toContain('boardLanesRef.current = boardLanes')
-    const solve = SRC.slice(SRC.indexOf('function solveBed('), SRC.indexOf('return solved.laneKey'))
-    expect(solve).toContain('const board = boardLanesRef.current')
+    // ⚖ 9/8 PACKING — the ref read moved ONE FUNCTION DOWN. `solveBed` takes the
+    // board as a parameter now, because a re-landing has to solve against the day
+    // BEFORE this change's own companions were moved; `solveLanes` is the single
+    // place that answers which board that is, and it is still the ref.
+    const solve = SRC.slice(SRC.indexOf('function solveBed('), SRC.indexOf('function solveLanes('))
+    expect(solve).toContain('const solved = allocateBed(board, {')
     expect(solve).not.toContain('allocateBed(boardLanes,')
+    const which = SRC.slice(SRC.indexOf('function solveLanes('), SRC.indexOf('\n  }', SRC.indexOf('function solveLanes(')))
+    expect(which).toContain('lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours)')
+    expect(which).toContain(': boardLanesRef.current')
   })
 
   // ── the applyMoves extra pass (study §61 bonus) ──────────────────────────
@@ -8630,11 +8654,11 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // survived: the placed-back card drew into its OLD room on top of whoever
     // was in it, while the room the allocator chose read free. Pre-existing —
     // the synthesized bed row only removed the immunity room-less bookings had.
-    expect(SRC).toContain('setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))')
+    expect(SRC).toContain('const next = { ...was, [chip.id]: { laneKey: bed.key, ...span } }')
     // ⚖ 45's law, machine-checked: this function writes BOTH sides from ONE span.
     const shelf = SRC.slice(SRC.indexOf('function placeFromShelf('), SRC.indexOf('const monthCells ='))
     expect(shelf).toContain('setMoves((was) => ({ ...was, [chip.id]: { laneKey: staff.key, ...span } }))')
-    expect(shelf).toContain('setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))')
+    expect(shelf).toContain('const next = { ...was, [chip.id]: { laneKey: bed.key, ...span } }')
     // The board half of the same cycle: with both sides written, the pair draws
     // where the placement says — and the old room is left to its own occupant.
     const span = place(960, 1020, HOURS)
@@ -8694,7 +8718,7 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // spelling has been all along.
     expect(SRC).toContain('placeFromShelf(chip, laneKey, s === start ? span : place(s, s + dur, hours), override),')
     // …and it reaches the stamp, so the confirm can show the △ (T2 above).
-    expect(SRC).toContain("setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, ...boardStamp, override: override ?? undefined })")
+    expect(SRC).toContain("setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, companions: solvedPartner.companions, ...boardStamp, override: override ?? undefined })")
     // Plain-create's drop STAYS: nothing stages there, so there is nothing to
     // stamp and nothing that could lie.
     expect(SRC).toContain('(s) => openCreateAt({ staffId: lane.key, start: s }),')
@@ -11967,7 +11991,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // ⚠ 9/3 R7 decoy set: delete one code site, write the word in a comment, and
     // the number never moves. I6 was moved in fix round 1 for exactly this and
     // these two were left raw beside it.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(15)
+    // ⚖ 9/8 PACKING — SIXTEEN. `confirmPending` re-asks every companion's room at
+    // 確定, and it reads the booking's own tag exactly as the four landings do.
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind

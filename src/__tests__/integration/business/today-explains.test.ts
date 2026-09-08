@@ -1645,8 +1645,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // than the substring they pinned before, and the smallest change that
     // anchors them.
     for (const line of [
-      'const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
-      'const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
+      'const bed = solveBed(solveLanes(ctx.id), on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)',
+      'const bed = solveBed(solveLanes(id), on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1661,8 +1661,8 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // bed came first. The category rides `PlacingIntent` now. The seed is still
     // `null, null` — which is what this test is actually about.
     for (const line of [
-      'const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
-      'const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
+      'const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))',
+      'const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)',
     ]) {
       expect({ line, has: pinnedLine(SRC, line) }).toEqual({ line, has: true })
     }
@@ -1679,6 +1679,9 @@ describe('§9 — ⚖ flag 87: a staged change re-solves from the room it OWNS',
     // and a question about where this change may land carries the room it owns
     // whichever end of the gesture asks it. Still no second `solveBed`.
     expect(SRC.match(/seedBed\(/g) ?? []).toHaveLength(4)
+    // ⚖ 9/8 PACKING — SIX: the declaration plus the four landings, and now the
+    // `solveLanes` doc comment's own back-reference is a comment rather than a
+    // call, so the count moved only by the one real thing that changed — none.
     expect(SRC.match(/solveBed\(/g) ?? []).toHaveLength(5)
   })
 
