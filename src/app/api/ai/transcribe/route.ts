@@ -126,6 +126,7 @@ export async function POST(request: Request) {
       await auditWeb({
         category: 'recording',
         action: 'recording.transcribe',
+        ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
         detail: { ...receipt },
         requestId: crypto.randomUUID(),
       })
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
     await auditWeb({
       category: 'recording',
       action: 'recording.transcribe',
+      ...(receipt.debit_recorded ? {} : { severity: 'warning' as const }),
       detail: { ...receipt },
       requestId: crypto.randomUUID(),
     })

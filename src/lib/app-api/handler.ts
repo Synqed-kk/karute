@@ -66,6 +66,12 @@ export interface FacadeContext<P = Record<string, string>> {
    *  auditStoreId. Unset falls back to params.id, but ONLY when it's
    *  UUID-shaped — see logFacadeAudit. */
   auditTargetId?: string
+  /** Severity override for the hook's own row (fix round 3, same additive-only
+   *  contract as auditDetail / auditStoreId / auditTargetId): a route sets it
+   *  only when the row must outrank 'info' (a lost debit, same 'warning' the
+   *  wrapper's own receipt uses) — the hook never lowers a severity, and an
+   *  unset field emits exactly as before (audit.ts defaults to 'info'). */
+  auditSeverity?: 'notice' | 'warning'
   /** Per-request opt-out from the success-hook emit (success-only audit law):
    *  a route that returns a 2xx whose BODY is a soft FAILURE (e.g. karute
    *  regenerate's `{error}` result — no transcript, extraction failed) sets a
@@ -142,6 +148,7 @@ export function facadeHandler<P = Record<string, string>>(
         ctx.auditStoreId,
         ctx.auditTargetId,
         ctx.auditSuppress,
+        ctx.auditSeverity,
       )
       return res
     } catch (err) {
@@ -172,6 +179,7 @@ async function logFacadeAudit(
   routeStoreId?: string,
   routeTargetId?: string,
   routeSuppress?: string,
+  routeSeverity?: 'notice' | 'warning',
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -222,6 +230,7 @@ async function logFacadeAudit(
       actorId: identity.authUserId,
       actorType: 'staff',
       businessId: identity.businessId,
+      severity: routeSeverity,
       targetType: rule.targetType,
       // Precedence: a route's server-resolved true id (routeTargetId — set
       // when the path param is decorative or poisoned) wins verbatim;

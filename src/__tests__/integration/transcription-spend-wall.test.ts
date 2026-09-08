@@ -701,6 +701,11 @@ describe('the web route (cookie door)', () => {
         detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: true },
       }),
     )
+    // A landed debit is an ordinary row — no severity key at all (fix round 3;
+    // matches the wrapper's own emitter's t8 assertion above).
+    expect('severity' in ((auditWeb as jest.Mock).mock.calls[0][0] as Record<string, unknown>)).toBe(
+      false,
+    )
     // …and the receipt is SERVER-SIDE ONLY: the client's body is the provider's,
     // unchanged, with no accounting field bolted onto it.
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
@@ -718,6 +723,10 @@ describe('the web route (cookie door)', () => {
         detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: false },
       }),
     )
+    // ⚖ fix round 3, m13: a lost debit on THIS route's own row is severity
+    // 'warning' too — the same one-query answer the wrapper's receipt gives
+    // the other three doors.
+    expect(auditWeb).toHaveBeenCalledWith(expect.objectContaining({ severity: 'warning' }))
     errorLog.mockRestore()
   })
 })
@@ -773,5 +782,24 @@ describe('the facade route (Bearer door)', () => {
     // them reaches the client: the body is the provider's own.
     expect(Object.keys(receipts[0].detail as object)).toHaveLength(3)
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
+    // A landed debit is an ordinary row (fix round 3 — same default as every
+    // other route the hook serves).
+    expect(receipts[0].severity).toBeUndefined()
+  })
+
+  it('t8 the debit is lost → the hook’s OWN row is severity warning too (fix round 3)', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    const res = await facadeTranscribePOST(post(), noRoute)
+
+    expect(res.status).toBe(200)
+    const receipts = rows('recording.transcribe')
+    expect(receipts).toHaveLength(1)
+    // m14: the route never sets ctx.auditSeverity → this stays undefined.
+    // m15: the hook ignores ctx.auditSeverity → this stays undefined.
+    expect(receipts[0].severity).toBe('warning')
+    expect(receipts[0].detail).toMatchObject({ debit_recorded: false })
+    errorLog.mockRestore()
   })
 })

@@ -301,7 +301,10 @@ export interface TranscriptionReceipt {
  *  cents, this row is severity 'warning' — the same severity the refusal row
  *  uses, so the ONE audit.list query that answers "is the wall firing?" by
  *  severity now also returns the spends that were never counted. Both are the
- *  same sentence: the wall is not holding. */
+ *  same sentence: the wall is not holding. The two interactive routes that
+ *  file their OWN row apply this same severity themselves (route.ts's spread,
+ *  the facade's ctx.auditSeverity — fix round 3), so all five doors answer the
+ *  one query. */
 function auditTranscriptionReceipt(
   meter: TranscriptionMeter,
   receipt: TranscriptionReceipt,

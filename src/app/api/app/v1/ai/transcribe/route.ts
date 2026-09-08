@@ -104,6 +104,7 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   // The receipt is server-side only — the client is answered with `result`,
   // the provider body, exactly as before.
   ctx.auditDetail = { ...receipt }
+  if (!receipt.debit_recorded) ctx.auditSeverity = 'warning'
   return ok(ctx, result)
 })
 
