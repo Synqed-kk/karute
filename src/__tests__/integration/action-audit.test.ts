@@ -284,6 +284,46 @@ describe('invite writers', () => {
     expect(JSON.stringify(lines[0])).not.toContain('joiner@example.com')
   })
 
+  // ⚖ THE ORDER IS THE FIX. Core resolves `actor_label` at WRITE time from its
+  // staff roster by user id; a staff.add written before step 4 attaches this
+  // userId to a staff row snapshots an empty label, and the row that records
+  // someone JOINING reads 不明 forever once they leave.
+  it('acceptInvite writes the staff.add line AFTER the core staff link (so core can resolve the actor label)', async () => {
+    publicGetByToken.mockResolvedValue({
+      id: 'inv-5',
+      status: 'pending',
+      email: 'joiner5@example.com',
+      role: 'STYLIST',
+      business_id: 'biz-join',
+      invited_staff_id: null,
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    })
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      await expect(
+        acceptInvite('tok-abcdef1234567890', 'password123', 'Joiner', 'ja'),
+      ).resolves.toBeUndefined()
+      // No roster match and no invited_staff_id → the link is a create.
+      expect(linkedStaffCreate).toHaveBeenCalledTimes(1)
+      const addAt = logSpy.mock.calls.findIndex((args) => {
+        try {
+          const line = JSON.parse(String(args[0])) as { evt?: string; action?: string }
+          return line.evt === 'audit' && line.action === 'staff.add'
+        } catch {
+          return false
+        }
+      })
+      expect(addAt).toBeGreaterThanOrEqual(0)
+      // The console line is emitted synchronously inside auditWeb, so its call
+      // order IS the emit's position in the action.
+      expect(linkedStaffCreate.mock.invocationCallOrder[0]).toBeLessThan(
+        logSpy.mock.invocationCallOrder[addAt],
+      )
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
+
   it('acceptInvite: a failed staff link is LOUD — staff.link_failed at warning lands in the log (the silent version hid a half-joined staff for 11 days)', async () => {
     publicGetByToken.mockResolvedValue({
       id: 'inv-2',

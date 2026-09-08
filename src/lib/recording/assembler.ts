@@ -382,6 +382,13 @@ export interface StrandedTake {
   /** The row that reserved this key: id only — nothing else is read from it
    *  after the walk classified it. */
   rowId: string
+  /** Whose take it is, and for whom — straight off the same `Recording` row,
+   *  IDS ONLY (⚖ 8/17 doc law). The receipt's actor is 「システム」 because
+   *  nobody acted, which left a manager unable to tell WHOSE take the server
+   *  rebuilt at 00:09, or for which customer. `customerId` is null on a take
+   *  started with no customer chosen (the owner's 9/8 take). */
+  staffId: string | null
+  customerId: string | null
   /** The row's own store, for the audit row. The 監査ログ viewer FILTERS by
    *  store, so a row keyed on an empty one is invisible to every store-scoped
    *  search (playback-url.ts:259-263 is the precedent, and it was itself a fix
@@ -775,6 +782,8 @@ export async function assembleStrandedTake(take: StrandedTake): Promise<Assemble
     severity: 'notice',
     detail: {
       recording_session_id: take.rowId,
+      staff_id: take.staffId,
+      customer_id: take.customerId,
       take_id: take.takeId,
       ext: take.ext,
       segments_present: take.segmentsPresent,
@@ -1049,6 +1058,8 @@ export async function runAssembler(
       prefix: prefix.map((seq) => bySeq.get(seq)!),
       firstGapSeq: firstGap,
       rowId: row.id,
+      staffId: row.staff_id ?? null,
+      customerId: row.customer_id ?? null,
       storeId: row.store_id ?? null,
     })
     if ('error' in result) {
