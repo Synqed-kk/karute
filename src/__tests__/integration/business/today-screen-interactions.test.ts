@@ -5674,7 +5674,7 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     expect(SRC).toContain(
       'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
       + '警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。'
-      + '入れ替えた方はここに表示されます。'
+      + '入れ替えたお客様はここに表示されます。'
       + "ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
