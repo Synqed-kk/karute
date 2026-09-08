@@ -131,7 +131,19 @@ const aiRateLimit = {
     // provider rather than by anything the wrapper says about itself — so a
     // wall that reserved AFTER spending shows up in the pin as a delta in the
     // wrong slot, which is exactly what m16 does.
-    order.push(order.includes('deepgram') ? 'recordUsage(delta)' : 'recordUsage(reserve)')
+    //
+    // A NEGATIVE row is named for what it is (fix round 5): the RELEASE. The
+    // sign is the ledger's own, not the wrapper's word for itself, so a
+    // release that fired on a successful call (m20) or fired twice (m23)
+    // lands in the order pin as an extra slot nobody asked for.
+    const cents = a[3]
+    order.push(
+      typeof cents === 'number' && cents < 0
+        ? 'recordUsage(release)'
+        : order.includes('deepgram')
+          ? 'recordUsage(delta)'
+          : 'recordUsage(reserve)',
+    )
     return (recordUsage as (...x: unknown[]) => Promise<void>)(...a)
   },
 }
@@ -1077,5 +1089,170 @@ describe('the reserve on the buffer door (the web FormData path)', () => {
         },
       }),
     )
+  })
+})
+
+// ── fix round 5 — A PROVIDER FAILURE GIVES ITS RESERVE BACK ─────────────────
+//
+// Blind lens on f7ca09484, MEDIUM 2: a GENUINE provider failure (Deepgram 5xx,
+// a timeout, a throw) after the reserve landed left the reserve standing — and
+// the worker RETRIES, reserving again each time. Up to max_attempts × the
+// estimate would sit on the rolling cap for a recording that was never
+// transcribed, so one Deepgram outage could refuse honest work for the rest of
+// the day. The reserve is now RELEASED on a throw: one negative row, of exactly
+// the reserve, on the same route.
+//
+// ⚖ AND THAT IS NOT A REFUND. A provider ANSWER is never given back, however
+// far short of the estimate it came in. Only the throw — where no money was
+// spent at all — releases. The two mutants that blur the line (m20 release on
+// success, m21 refund the over-estimate) are the reason these are separate
+// claims rather than one.
+describe('the release — a provider that throws gives the reserve back', () => {
+  const runOneJob = async (job: Record<string, unknown> = baseJob) => {
+    claim.mockResolvedValueOnce(job).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+  /** Deepgram reached, Deepgram threw — the order push stays honest so the
+   *  release can be pinned as happening AFTER the money would have moved. */
+  const providerThrows = (message = 'deepgram 503') =>
+    transcribeUrlWithDeepgram.mockImplementationOnce(async () => {
+      order.push('deepgram')
+      throw new Error(message)
+    })
+  /** Every cents figure the ledger was handed, in order. */
+  const ledger = () => recordUsage.mock.calls.map((c) => (c as unknown[])[3] as number)
+  let errorLog: jest.SpyInstance
+
+  beforeEach(() => {
+    errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorLog.mockRestore()
+  })
+
+  it('the provider throws → ONE negative row of exactly the reserve, and the error leaves unchanged', async () => {
+    providerThrows()
+
+    await runOneJob()
+
+    // +45 reserved, −45 released: the ledger nets to nothing for a recording
+    // that was never transcribed.
+    expect(ledger()).toEqual([45, -45])
+    expect(recordUsage).toHaveBeenNthCalledWith(2, 'transcribe', null, null, -45)
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'deepgram',
+      'recordUsage(release)',
+    ])
+    // m22: the release is the reserve, not a cent more or less.
+    expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, -46)
+    // The provider's own error reaches the worker unchanged — the job requeues
+    // by attempts rather than wearing the spend-limit word.
+    expect(fail).toHaveBeenCalledWith('job-1', 'deepgram 503')
+    expect(fail).not.toHaveBeenCalledWith('job-1', AI_SPEND_LIMIT)
+    expect(complete).not.toHaveBeenCalled()
+    // NO receipt (nothing was transcribed) and NO true-up (nothing to true up).
+    expect(rows('recording.transcribe')).toHaveLength(0)
+    expect(errorLog).not.toHaveBeenCalledWith(
+      '[ai-usage] reserve RELEASE lost after 3 attempts:',
+      expect.anything(),
+    )
+  })
+
+  it('m20 the provider ANSWERS → no negative row is ever written', async () => {
+    await runOneJob()
+
+    expect(ledger()).toEqual([45])
+    expect(ledger().every((c) => c > 0)).toBe(true)
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({ debit_recorded: true })
+  })
+
+  it('m21 the provider answers SHORTER than the estimate → still no refund, the over-reservation stands', async () => {
+    // 32.4 MB reserved 45 ¢; the take turns out to be five minutes (3 ¢). The
+    // 42 ¢ difference is NOT given back — only a throw releases.
+    deepgramResult.durationSec = 300
+
+    await runOneJob()
+
+    expect(ledger()).toEqual([45])
+    expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, -42)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      duration_seconds: 300,
+      cost_cents: 3,
+      cents_reserved: 45,
+      debit_recorded: true,
+    })
+  })
+
+  it('the release cannot land after three attempts → written down, the reserve stays, the error still leaves unchanged', async () => {
+    providerThrows()
+    // The reserve lands; every release attempt fails.
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
+
+    await runOneJob()
+
+    expect(recordUsage).toHaveBeenCalledTimes(4) // 1 reserve + 3 release attempts
+    expect(ledger()).toEqual([45, -45, -45, -45])
+    // ONE line, and it is the RELEASE's own — never the lost-DEBIT line, which
+    // means the opposite thing (an under-count, the dangerous direction).
+    // Counted by MESSAGE, not by total: the worker logs its own
+    // `[jobs] recording job … failed:` line beside it, as it does for every
+    // failed job, and that one is not this claim.
+    expect(
+      errorLog.mock.calls.filter((c) => c[0] === '[ai-usage] reserve RELEASE lost after 3 attempts:'),
+    ).toHaveLength(1)
+    expect(errorLog).toHaveBeenCalledWith(
+      '[ai-usage] reserve RELEASE lost after 3 attempts:',
+      expect.objectContaining({ reserveCents: 45 }),
+    )
+    expect(errorLog).not.toHaveBeenCalledWith(
+      '[ai-usage] transcription debit LOST after 3 attempts:',
+      expect.anything(),
+    )
+    // ⚖ The reserve simply STAYS — an over-count, the safe direction. Nothing
+    // is thrown from the release itself: the provider's error is the one the
+    // caller sees.
+    expect(fail).toHaveBeenCalledWith('job-1', 'deepgram 503')
+    expect(rows('recording.transcribe')).toHaveLength(0)
+  })
+
+  it('m23 a retried job reserves again — over two attempts the ledger nets ONE estimate, not two', async () => {
+    // Attempt 1: Deepgram throws. +45 then −45.
+    providerThrows()
+    await runOneJob()
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'deepgram',
+      'recordUsage(release)',
+    ])
+    // The order labels are positional WITHIN one run (a row after 'deepgram' is
+    // a true-up), so attempt 2 gets its own clean slate. The `recordUsage`
+    // ledger below is deliberately NOT cleared — the net across both attempts
+    // is the whole claim.
+    order.length = 0
+
+    // Attempt 2, the requeue: Deepgram answers. +45, and nothing released.
+    await runOneJob({ ...baseJob, attempts: 2 })
+
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
+    expect(ledger()).toEqual([45, -45, 45])
+    expect(ledger().reduce((a, b) => a + b, 0)).toBe(45)
+    // Twice reserved, ONCE released — a release per throw, never a spare.
+    expect(ledger().filter((c) => c < 0)).toHaveLength(1)
+    // The second attempt is the one that produced words: one receipt, one save.
+    expect(rows('recording.transcribe')).toHaveLength(1)
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('the ceiling refuses before the reserve exists → nothing to release', async () => {
+    consume.mockResolvedValueOnce(REFUSED)
+
+    await runOneJob()
+
+    expect(recordUsage).not.toHaveBeenCalled()
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
   })
 })

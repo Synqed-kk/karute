@@ -653,9 +653,13 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-rate-limit.ts',
     call: 'aiRateLimit.recordUsage',
-    symbols: ['reportAiUsageWithClient', 'reportTranscriptionUsageWithClient'],
+    symbols: [
+      'reportAiUsageWithClient',
+      'reportTranscriptionUsageWithClient',
+      'releaseTranscriptionReserveWithClient',
+    ],
     justification:
-      'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting. EXTENDED 2026-09-08 (the transcription spend wall): reportTranscriptionUsageWithClient reports the SAME ledger in cents-from-minutes for Deepgram, and is equally system-internal — the user-visible receipt for that spend is the recording.transcribe audit row the wrapper files (src/lib/ai/transcribe.ts, AUDITED_CORES).',
+      'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting. EXTENDED 2026-09-08 (the transcription spend wall): reportTranscriptionUsageWithClient reports the SAME ledger in cents-from-minutes for Deepgram, and is equally system-internal — the user-visible receipt for that spend is the recording.transcribe audit row the wrapper files (src/lib/ai/transcribe.ts, AUDITED_CORES). EXTENDED AGAIN 2026-09-08 (fix round 5): releaseTranscriptionReserveWithClient is the SAME accounting write in the other direction — a negative row that takes back a reserve the provider then threw on, so it was never spent. It writes only from inside the wrapper’s catch around the provider call (AUDITED_CORES), reports no new act, and files no row of its own: the act it corrects is the provider failure, which is already the caller’s own error path (the worker’s fail(), the routes’ error arms).',
     dated: '2026-09-08',
   },
   {

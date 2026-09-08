@@ -145,6 +145,50 @@ export async function reportTranscriptionUsageWithClient(
 }
 
 /**
+ * Give a transcription's RESERVE back to the ledger, as a NEGATIVE row on the
+ * same route: core's `recordAiUsage` stores the integer exactly as it is given
+ * and `consume` SUMs that column over the rolling 24 h
+ * (synqed-core `src/services/ai-rate-limit.service.ts` — the `_sum: { costCents }`
+ * aggregate and the `create` beneath it), so `-reserveCents` subtracts the
+ * reserve back out of the very number the cap is computed from. No refund call
+ * was invented and no core change was needed; the hourly count is untouched,
+ * because it only counts rows whose cents are null.
+ *
+ * ⚖ RELEASE, NOT REFUND: this runs only when the provider call itself threw —
+ * the money was not spent (a failed request is not billed; a client-side
+ * timeout after the server finished is the accepted residual: one estimate,
+ * once). A SUCCESSFUL call is never refunded, whatever the estimate was (the
+ * no-refund ruling).
+ *
+ * The three attempts and the never-throws rule are the reporter's above, and
+ * for the same reason — but a `false` here is the SAFE direction: the reserve
+ * simply stays, and an over-count errs toward stopping early, which is the
+ * ruling the unknown-duration floor and the gpt-4o price fallback already
+ * follow. So it is written down and nothing else happens.
+ */
+export async function releaseTranscriptionReserveWithClient(
+  synqed: RateLimitClient,
+  reserveCents: number,
+): Promise<boolean> {
+  // Never a POSITIVE "release". A reserve that is not a whole positive number
+  // of cents is nothing to give back, and writing one anyway would ADD to the
+  // very cap this call claims to relieve.
+  if (!Number.isInteger(reserveCents) || reserveCents <= 0) return true
+  let err: unknown
+  for (let attempt = 0; attempt < 1 + DEBIT_RETRY_WAITS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(DEBIT_RETRY_WAITS_MS[attempt - 1])
+    try {
+      await synqed.aiRateLimit.recordUsage('transcribe', null, null, -reserveCents)
+      return true
+    } catch (e) {
+      err = e
+    }
+  }
+  console.error('[ai-usage] reserve RELEASE lost after 3 attempts:', { reserveCents, err })
+  return false
+}
+
+/**
  * Fire-and-forget: report token usage to synqed-core for the daily $-cap.
  *
  * Transcription (Deepgram) is billed per-MINUTE, not per-token, so it does not

@@ -12,6 +12,7 @@ import { mapStaffSpeaker } from '@/lib/speaker-id/align'
 import {
   enforceAiRateLimitWithClient,
   estimateTranscriptionCostCents,
+  releaseTranscriptionReserveWithClient,
   reportTranscriptionUsageWithClient,
 } from '@/lib/ai-rate-limit'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -239,8 +240,20 @@ async function runTranscription(params: {
 // ⚖ AND THE RESERVE IS NEVER REFUNDED. Core has no refund call, and an
 // over-reservation errs toward stopping early — the same ruling the unknown
 // floor and the gpt-4o fallback already follow. A provider that answers
-// shorter than the estimate, or that throws after the reserve landed, leaves
-// the ledger holding MORE than the truth. On purpose.
+// shorter than the estimate leaves the ledger holding MORE than the truth.
+// On purpose.
+//
+// ⚖ BUT IT IS RELEASED WHEN THE PROVIDER THROWS (fix round 5). The two cases
+// are not the same act, and the word for each says which: a provider ANSWER is
+// never REFUNDED, whatever it cost; a provider THROW is RELEASED, because no
+// money was spent at all — a failed request is not billed. It is the retry
+// that makes the difference matter: the worker re-runs a thrown job, and each
+// attempt reserves again, so a reserve left standing after a Deepgram outage
+// would put max_attempts × the estimate on the ledger for a recording nobody
+// ever transcribed, and the cap would then refuse honest work for the rest of
+// the rolling day. The release is a negative row of exactly the reserve, once,
+// best-effort, and never on a successful call
+// (ai-rate-limit.ts#releaseTranscriptionReserveWithClient).
 //
 // NO NEW COUNTER, NO NEW TABLE: the ledger core already keeps for the token
 // routes is the same ledger, and the unit is money. The cap VALUE is an env on
@@ -466,7 +479,21 @@ export async function runMeteredTranscription(
     throw err
   }
 
-  const result = await runTranscription(params)
+  // ⚖ THE RESERVE IS RELEASED WHEN THE PROVIDER THROWS (fix round 5). Only
+  // the provider call is inside this try: a failure here means the money was
+  // never spent, and the caller's own retry will reserve again — so a reserve
+  // left standing would put max_attempts × the estimate on the ledger for a
+  // recording that was never transcribed, and one provider outage would then
+  // refuse honest work for the rest of the rolling day. Best-effort: the
+  // release never throws, and a release that cannot land leaves the reserve,
+  // which is the safe direction. The provider's error leaves unchanged.
+  let result: Record<string, unknown>
+  try {
+    result = await runTranscription(params)
+  } catch (err) {
+    await releaseTranscriptionReserveWithClient(meter.synqed, reserveCents)
+    throw err
+  }
 
   // ── THE TRUE-UP ───────────────────────────────────────────────────────────
   // The ledger already holds the reserve. Only a provider answer LONGER than
