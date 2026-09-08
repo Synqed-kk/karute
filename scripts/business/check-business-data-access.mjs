@@ -3,7 +3,9 @@
 // on FIXTURE DATA ONLY until he gives the explicit reconnect order. This guard
 // is the machine that enforces it, across ALL Business territory:
 //
-//   1. NO DIRECT core reach, anywhere — @synqed-kk/client, the app's
+// Exception: the owner-authorized reserve-card-color route has exactly one
+// factory import/call and one partial orgSettings write, pinned below.
+//   1. Otherwise NO DIRECT core reach, anywhere — @synqed-kk/client, the app's
 //      core-client factory (lib/synqed/client), `new SynqedClient(`,
 //      `getSynqedClient(`. No file is exempt, src/business/lib/ included.
 //   2. NO writes, anywhere — .insert( .update( .upsert( .delete( .rpc(.
@@ -126,7 +128,12 @@ const CALL_PATTERNS = [
 // exact path + label + a `match` substring the flagged line must contain + a
 // `count` budget, so a pinned string copied onto a new line fails the whole
 // entry closed. Empty today.
-const ALLOW = []
+// Liam explicitly reconnects this ONE company appearance setting (2026-09-06).
+const ALLOW = [
+  { path: 'src/app/api/business/reserve-card-color/route.ts', label: 'core client factory import (lib/synqed/client)', match: ["import { getSynqedClient } from '@/lib/synqed/client'"], count: 1 },
+  { path: 'src/app/api/business/reserve-card-color/route.ts', label: 'getSynqedClient(', match: ['const client = await getSynqedClient()'], count: 1 },
+  { path: 'src/app/api/business/reserve-card-color/route.ts', label: 'write call .upsert(', match: ['await auth.client.orgSettings.upsert({ settings: { reserve_card_color: color } })'], count: 1 },
+]
 
 // allowJs is on (tsconfig), so .js/.mjs/.cjs/.jsx are real source here.
 const SOURCE_EXT = /\.(tsx?|jsx?|mjs|cjs)$/
@@ -265,5 +272,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     )
     process.exit(1)
   }
-  console.log('✓ business play-phase fence: territory clean (no core reach, no writes)')
+  console.log('✓ business play-phase fence: territory clean (only explicitly pinned core access)')
 }

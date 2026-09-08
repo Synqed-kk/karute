@@ -135,6 +135,20 @@ const quoted = scanDataAccess(root)
 assert.equal(quoted.length, 1, 'violation after a string containing /* must still flag')
 assert.equal(quoted[0].line, 2)
 
+// The sole reconnect is constrained by exact route, call and occurrence budget.
+clear('src/business/screens')
+const colorRoute = 'src/app/api/business/reserve-card-color/route.ts'
+const authorized = "import { getSynqedClient } from '@/lib/synqed/client'\nconst client = await getSynqedClient()\nawait auth.client.orgSettings.upsert({ settings: { reserve_card_color: color } })"
+write(colorRoute, authorized)
+assert.deepEqual(scanDataAccess(root), [])
+write(colorRoute, authorized + '\nawait auth.client.orgSettings.upsert({ settings: { other: true } })')
+assert.ok(scanDataAccess(root).length > 0)
+write(colorRoute, authorized + '\nconst client = await getSynqedClient()')
+assert.ok(scanDataAccess(root).length > 0)
+clear(colorRoute)
+write('src/app/api/business/other/route.ts', authorized)
+assert.equal(scanDataAccess(root).length, 3)
+
 // 13. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
