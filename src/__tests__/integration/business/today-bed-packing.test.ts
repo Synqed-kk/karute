@@ -1,0 +1,764 @@
+/**
+ * @jest-environment jsdom
+ *
+ * ⚖ 9/8 PACKING — 今日の運営's bed allocator, second step.
+ *
+ * Liam's finding (2026-09-08): stretching きり to 14:00〜15:00 was refused
+ * 満室 while moving さくら one bed over by hand and stretching again worked.
+ * The board should have moved さくら itself. `allocateBed(…, { pack: true })`
+ * is that search, and this file is its proof.
+ *
+ * TWO KINDS OF PROOF, deliberately:
+ *   · NAMED SCENES — Liam's own board (built through the product's real data
+ *     doors, never hand-typed) plus the counter-scenes the four design lenses
+ *     found. Each one states a rule in the vocabulary the operator lives in.
+ *   · A SEEDED BATTERY — 2,400 generated days answered against an exhaustive
+ *     brute-force oracle written independently of the search. A search that
+ *     refuses a packable day, seats somebody on top of somebody else, moves one
+ *     person more than it had to, or touches a bystander fails here.
+ *
+ * The oracle is in this file on purpose: an oracle that imported the search's
+ * own helpers could only ever agree with it.
+ */
+import { appointments, STORE_A } from '@/business/lib/fixtures'
+import { jstDayKey } from '@/business/lib/clock'
+import * as data from '@/business/lib/data'
+import { buildLanes, dayBookings, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
+import { allocateBed } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const HOURS = { open: 600, close: 1140 } // 10:00–19:00
+
+/** Every bed in these scenes turns around instantly unless the case says
+ *  otherwise — the shipped fixture's own `cleanup_minutes: 0`. */
+const NO_CLEANUP: Record<string, number> = {}
+
+function booking(over: Partial<BoardItem> & Pick<BoardItem, 'key' | 'caseId'>, start: number, end: number): BoardItem {
+  return {
+    kind: 'booking', state: 'confirmed', category: 'repeat',
+    ...place(start, end, HOURS),
+    title: '見本 はなこ', tag: '', time: '',
+    ticketCat: '単発', ticketCore: null, held: false, micro: false,
+    label: '', ...over,
+  }
+}
+
+function lane(over: Partial<BoardLane> & Pick<BoardLane, 'key' | 'group'>): BoardLane {
+  return {
+    label: over.key, sub: '', absentNote: null, mine: false, items: [],
+    window: over.group === 'staff' ? { from: HOURS.open, until: HOURS.close } : null,
+    untilLabel: over.group === 'staff' ? '19:00' : null,
+    listPrice: over.group === 'staff' ? 7000 : 0,
+    stores: over.group === 'staff' ? ['store-a'] : ['store-a'],
+    roomClass: over.group === 'staff' ? null : 'standard',
+    ...over,
+  }
+}
+
+/** One staff lane carrying every booking on the board, so the pack can read each
+ *  one's store the way the real board carries it (a room hosts only its own
+ *  store's bookings). Rooms are the lanes handed in. */
+function boardOf(beds: BoardLane[], subjectId: string | null = null): BoardLane[] {
+  const seen = new Set<string>()
+  const staffItems: BoardItem[] = []
+  for (const b of beds) {
+    for (const i of b.items) {
+      if (i.kind !== 'booking' || !i.caseId || seen.has(i.caseId)) continue
+      seen.add(i.caseId)
+      staffItems.push({ ...i, key: `${i.caseId}-staff` })
+    }
+  }
+  if (subjectId && !seen.has(subjectId)) staffItems.push(booking({ key: `${subjectId}-staff`, caseId: subjectId }, 600, 630))
+  return [lane({ key: 'p-01', group: 'staff', items: staffItems }), ...beds]
+}
+
+const packAsk = (over: Partial<Parameters<typeof allocateBed>[1]> = {}) => ({
+  id: 'SUBJECT' as string | null,
+  currentBed: null as string | null,
+  stores: ['store-a'] as string[] | null,
+  requiresPrivate: false,
+  start: 780,
+  end: 840,
+  pack: true,
+  now: null as number | null,
+  cleanupMinutesByBed: NO_CLEANUP,
+  ...over,
+})
+
+// ── R1 — LIAM'S OWN SCENE, ON THE PRODUCT'S OWN BOARD ──────────────────────
+
+/** THE PRODUCT'S OWN BOARD, built exactly as page.tsx builds it — the data
+ *  doors, the full appointments list, `buildLanes(input, dayBookings(input))`.
+ *  Liam's shot is on this board, so the pin that answers for it is too. */
+let DEMO: BoardLane[] | null = null
+async function demoLanes(): Promise<BoardLane[]> {
+  if (DEMO) return DEMO
+  const lens = STORE_A
+  const apts = appointments()
+  const dayKey = jstDayKey(apts.find((a) => a.id === 'apt-29')!.starts_at)
+  const [custs, menus, staffList, beds, planes, shell, storeOptions, staffStores] = await Promise.all([
+    data.listCustomers(lens), data.listMenus(lens), data.listStaff(lens),
+    data.listResources(lens), data.readDayPlanes(lens, dayKey), data.readShellIdentity(),
+    data.listStoreOptions(), data.readStaffStores(lens),
+  ])
+  const input: BuildInput = {
+    appointments: apts, customers: custs, menus, staff: staffList, resources: beds,
+    shifts: planes.shifts, qualifications: planes.staffQualifications,
+    staffListPrice: planes.staffListPrice, staffStores, absence: planes.absence,
+    blocks: planes.blocks, sellSlots: planes.sellSlots, decisions: planes.decisions,
+    hours: planes.operatingHours, dayKey,
+    operatorStaffId: shell.operator.staff_id,
+    storeNames: new Map(storeOptions.map((s) => [s.id, s.name])),
+    crossStore: false,
+  }
+  DEMO = buildLanes(input, dayBookings(input))
+  return DEMO
+}
+
+describe('R1 — きり’s stretch, on the real fixture board', () => {
+  /** きり (apt-09) carries no bed in the fixture and runs 14:05〜14:25; the ask
+   *  is the one the repro ran — `currentBed: 'bed-01'`, 14:00〜15:00 — because
+   *  `allocateBed` self-excludes the card either way and the allocator's answer
+   *  is identical. ベッド1 is さくら's hold 14:30〜15:30, ベッド2 is かえる until
+   *  14:30, ベッド3 is なぎ 14:05〜15:05 (個室のみ). */
+  const kiri = async (over: Partial<Parameters<typeof allocateBed>[1]> = {}) => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    return allocateBed(lanes, {
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores,
+      requiresPrivate: false, start: 840, end: 900, ...over,
+    })
+  }
+
+  it('today’s search still refuses, byte for byte — nothing changed for a caller that did not ask', async () => {
+    const plain = await kiri()
+    expect(plain.laneKey).toBeNull()
+    expect(plain.reseats).toEqual([])
+    expect(plain.refusal).toBe(
+      '14:00〜15:00はベッドに空きがありません。ベッド1（見本 さくら様 14:30〜15:30）、ベッド2（見本 かえる様 13:00〜14:30）、ベッド3（テスト なぎ様 14:05〜15:05）が使用中です',
+    )
+  })
+
+  it('with the pack asked for, さくら moves one bed over and きり keeps ベッド1 — one move, k = 1', async () => {
+    const packed = await kiri({ pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP })
+    expect(packed.laneKey).toBe('bed-01')
+    expect(packed.refusal).toBeNull()
+    expect(packed.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
+  })
+
+  it('a hold is a real room claim, so the person the search moves may be a 仮押さえ', async () => {
+    const lanes = await demoLanes()
+    const sakura = lanes.flatMap((l) => l.items).find((i) => i.caseId === 'apt-26')!
+    expect(sakura.state).toBe('hold')
+  })
+})
+
+// ── R2 — WHAT HAS STARTED, OR IS ABOUT TO, NEVER MOVES ─────────────────────
+
+describe('R2 — the lead floor', () => {
+  /** A is on ベッド1 13:00〜13:10. ベッド2 carries a 予定ブロック 13:50〜14:00 —
+   *  closed to the subject's 13:00〜14:00 window, open to A. So the day has
+   *  exactly one answer (subject on ベッド1, A on ベッド2) and it costs one move,
+   *  which makes 「did A move?」 a clean yes/no about the lead floor alone. */
+  const scene = () =>
+    boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 790)] }),
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [{ ...booking({ key: 'blk', caseId: null }, 830, 840), kind: 'block' as const, title: '設備点検' }],
+      }),
+    ], 'SUBJECT')
+
+  it('moves the occupant when nothing has started (a future day, now = null)', () => {
+    const r = allocateBed(scene(), packAsk({ currentBed: 'bed-01' }))
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([{ id: 'apt-a', from: 'bed-01', to: 'bed-02' }])
+  })
+
+  it('moves the occupant when it is comfortably later than the floor', () => {
+    // A starts 13:00, now 12:00 → 12:00 + 15 = 12:15 < 13:00, so A is movable.
+    const r = allocateBed(scene(), packAsk({ currentBed: 'bed-01', now: 720 }))
+    expect(r.reseats).toEqual([{ id: 'apt-a', from: 'bed-01', to: 'bed-02' }])
+  })
+
+  it('refuses instead of moving a booking within 15 minutes of now, and never moves one already under way', () => {
+    // now 12:45 → floor 13:00, and A starts at exactly 13:00: `<=` pins it.
+    const atFloor = allocateBed(scene(), packAsk({ currentBed: 'bed-01', now: 765 }))
+    expect(atFloor.laneKey).toBeNull()
+    expect(atFloor.reseats).toEqual([])
+    expect(atFloor.refusal).toContain('ベッドに空きがありません')
+    // …and one minute the other side of the floor is movable again, so the pin
+    // is the floor and not a blanket refusal.
+    expect(allocateBed(scene(), packAsk({ currentBed: 'bed-01', now: 764 })).reseats).toEqual([
+      { id: 'apt-a', from: 'bed-01', to: 'bed-02' },
+    ])
+    // Already lying on the bed: pinned, whatever else is free.
+    expect(allocateBed(scene(), packAsk({ currentBed: 'bed-01', now: 800 })).laneKey).toBeNull()
+  })
+})
+
+// ── R3 — A PIN FORCES TODAY'S SENTENCE, BYTE-IDENTICAL ─────────────────────
+
+describe('R3 — 清掃 / 予定ブロック never move', () => {
+  it('a block on the only escape room refuses with the sentence the operator reads today', () => {
+    const withBlock = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-a', title: '見本 かえる' }, 780, 840)] }),
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [{ ...booking({ key: 'blk', caseId: null }, 780, 840), kind: 'block' as const, title: '設備点検' }],
+      }),
+    ], 'SUBJECT')
+    const packed = allocateBed(withBlock, packAsk({ currentBed: 'bed-01' }))
+    const plain = allocateBed(withBlock, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 })
+    expect(packed.laneKey).toBeNull()
+    expect(packed.reseats).toEqual([])
+    // THE SAME SENTENCE. Not「similar」— the same string the board shipped with.
+    expect(packed.refusal).toBe(plain.refusal)
+    expect(packed.refusal).toBe('13:00〜14:00はベッドに空きがありません。ベッド1（見本 かえる様）、ベッド2（設備点検）が使用中です')
+  })
+
+  it('a 清掃 tail is the tail of its booking, not a pin — it travels with the card it belongs to', () => {
+    // ベッド1: A 10:00〜11:00 with its drawn 15-minute turnaround 11:00〜11:15.
+    // ベッド2 turns around instantly and carries a 予定ブロック 11:00〜11:40.
+    // The subject wants 11:00〜11:40 — the span A's tail is sitting on.
+    //
+    // If the drawn 清掃 were treated as a thing on the board, ベッド1 would stay
+    // blocked no matter where A went and the day would refuse. It is A's tail:
+    // A moves to ベッド2 (whose turnaround is 0, so A's claim there ends at
+    // 11:00 and clears the block) and ベッド1 opens at 11:00.
+    const beds = [
+      lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [
+          booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 600, 660),
+          { ...booking({ key: 'apt-a-cleanup', caseId: null }, 660, 675), kind: 'cleanup' as const, title: '清掃' },
+        ],
+      }),
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [{ ...booking({ key: 'blk', caseId: null }, 660, 700), kind: 'block' as const, title: '設備点検' }],
+      }),
+    ]
+    const r = allocateBed(boardOf(beds, 'SUBJECT'), packAsk({ currentBed: 'bed-01', start: 660, end: 700, cleanupMinutesByBed: { 'bed-01': 15, 'bed-02': 0 } }))
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([{ id: 'apt-a', from: 'bed-01', to: 'bed-02' }])
+  })
+})
+
+// ── R4 — LENS-1'S STEALING SCENE: A PLAIN SUBJECT NEVER STRANDS A 個室のみ ──
+
+describe('R4 — the 個室 is never stolen out from under the booking that needs it', () => {
+  /** One standard room and one private room. The private room holds a 個室のみ
+   *  booking; the subject is plain and wants the standard room's window. The
+   *  only "solution" a tightest-fit search would find is to move the tagged
+   *  booking onto the standard bed, which its own tag forbids. */
+  const stealing = () =>
+    boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard', items: [booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 840)] }),
+      lane({
+        key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private',
+        items: [booking({ key: 'v', caseId: 'apt-v', title: 'なぎ', requiresPrivateRoom: true }, 780, 840)],
+      }),
+    ], 'SUBJECT')
+
+  it('refuses rather than putting a 個室のみ booking on a standard bed', () => {
+    const r = allocateBed(stealing(), packAsk({ currentBed: 'bed-01' }))
+    expect(r.laneKey).toBeNull()
+    expect(r.reseats).toEqual([])
+  })
+
+  it('moves a 個室のみ booking only to ANOTHER private room, never onto a standard bed', () => {
+    // ベッド1 standard (A 13:00〜14:00), ベッド3 個室 (なぎ, tagged, 13:00〜13:30),
+    // ベッド6 個室 (B 13:30〜14:00). A plain subject wants 13:00〜14:00: every
+    // room is busy, so step 0 refuses and the pack runs. The only one-move
+    // answer is the subject taking ベッド3 and なぎ moving to ベッド6 — a private
+    // room, because her tag says so.
+    const scene = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard', items: [booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 840)] }),
+      lane({
+        key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private',
+        items: [booking({ key: 'v', caseId: 'apt-v', title: 'なぎ', requiresPrivateRoom: true }, 780, 810)],
+      }),
+      lane({ key: 'bed-06', group: 'beds', label: 'ベッド6', roomClass: 'private', items: [booking({ key: 'b', caseId: 'apt-b', title: 'B' }, 810, 840)] }),
+    ], 'SUBJECT')
+    const r = allocateBed(scene, packAsk({ currentBed: 'bed-01' }))
+    expect(r.laneKey).toBe('bed-03')
+    expect(r.reseats).toEqual([{ id: 'apt-v', from: 'bed-03', to: 'bed-06' }])
+  })
+
+  it('a 個室のみ subject is still only ever offered a private room', () => {
+    // Two 個室, both busy; one standard room free. The subject is tagged, so the
+    // standard room is not a candidate for HER — but it is for the untagged
+    // booking sitting in the 個室 she needs.
+    const scene = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', roomClass: 'standard' }),
+      lane({
+        key: 'bed-03', group: 'beds', label: 'ベッド3', roomClass: 'private',
+        items: [booking({ key: 'v', caseId: 'apt-v', title: 'なぎ', requiresPrivateRoom: true }, 780, 840)],
+      }),
+      lane({ key: 'bed-06', group: 'beds', label: 'ベッド6', roomClass: 'private', items: [booking({ key: 'x', caseId: 'apt-x', title: 'X' }, 780, 840)] }),
+    ], 'SUBJECT')
+    const r = allocateBed(scene, packAsk({ requiresPrivate: true, currentBed: 'bed-06' }))
+    expect(r.laneKey).toBe('bed-06')
+    // X is untagged, so ⚖ ROOM RULE clause 1 sends it to the STANDARD room.
+    expect(r.reseats).toEqual([{ id: 'apt-x', from: 'bed-06', to: 'bed-01' }])
+  })
+})
+
+// ── R5 — LENS-4'S PIN COUNTER-SCENE PACKS ──────────────────────────────────
+
+describe('R5 — the pin scene the start-ordered version refused', () => {
+  /** LENS-4's counter-scene, on a board a store can actually reach: two standard
+   *  rooms, a 予定ブロック pin on ベッド1 13:35〜13:50, A on ベッド1 13:00〜13:10,
+   *  C on ベッド2 13:30〜13:55, and the subject B asking for 13:05〜13:35.
+   *
+   *  A start-ordered re-solve refuses this day (it locks A onto its own bed
+   *  before it can see that A is the one who has to move). The conflict-directed
+   *  search finds the one-move answer the lens proved exists. */
+  const pinScene = () =>
+    boardOf([
+      lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [
+          booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 790),
+          { ...booking({ key: 'pin', caseId: null }, 815, 830), kind: 'block' as const, title: '設備点検' },
+        ],
+      }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'c', caseId: 'apt-c', title: 'C' }, 810, 835)] }),
+    ], 'SUBJECT')
+
+  it('packs: A moves to ベッド2 and the subject takes ベッド1 up to the pin', () => {
+    const r = allocateBed(pinScene(), packAsk({ currentBed: null, start: 785, end: 815 }))
+    expect(r.refusal).toBeNull()
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([{ id: 'apt-a', from: 'bed-01', to: 'bed-02' }])
+    expect(noOverlaps(pinScene(), { id: 'SUBJECT', start: 785, end: 815 }, r, NO_CLEANUP)).toBe(true)
+  })
+
+  it('an unpackable day refuses with today’s sentence, byte-identical', () => {
+    const jammed = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-a', title: '見本 かえる' }, 780, 840)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'b', caseId: 'apt-b', title: '見本 あかり' }, 780, 840)] }),
+    ], 'SUBJECT')
+    const packed = allocateBed(jammed, packAsk({ currentBed: 'bed-01' }))
+    const plain = allocateBed(jammed, { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 })
+    expect(packed.laneKey).toBeNull()
+    expect(packed.refusal).toBe(plain.refusal)
+    expect(packed.blockers.map((i) => i.title)).toEqual(plain.blockers.map((i) => i.title))
+  })
+})
+
+// ── R11 — LENS-2'S CLEANUP SCENE ───────────────────────────────────────────
+
+describe('R11 — the turnaround is part of every claim', () => {
+  /** A on bed-01 10:00〜11:00 with a 15-minute turnaround; C 11:00〜12:00 wants
+   *  a room. Compared as WINDOWS, C sits happily beside A. Compared as CLAIMS,
+   *  A holds bed-01 until 11:15 and C does not fit — which is the answer core's
+   *  own `appointments_resource_no_overlap` EXCLUDE gives. */
+  const beds = () => [
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 600, 660)] }),
+    lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [booking({ key: 'b', caseId: 'apt-b', title: 'B' }, 600, 720)] }),
+  ]
+  const tails = { 'bed-01': 15, 'bed-02': 15 }
+
+  it('never packs a booking into the turnaround of the one before it', () => {
+    // The subject wants bed-02's window; the only escape for B is bed-01, where
+    // A's claim runs to 11:15 — so nothing legal exists and the day refuses.
+    const r = allocateBed(boardOf(beds(), 'SUBJECT'), packAsk({ currentBed: 'bed-02', start: 600, end: 720, cleanupMinutesByBed: tails }))
+    expect(r.laneKey).toBeNull()
+    expect(r.reseats).toEqual([])
+  })
+
+  it('and with a zero turnaround the same room is genuinely free — nobody moves at all', () => {
+    // The identical board with `cleanup_minutes: 0`: A ends at 11:00 and holds
+    // nothing after it, so today's own search answers 11:00〜12:00 on ベッド1
+    // and step 1 never runs. The turnaround is the whole difference.
+    const r = allocateBed(boardOf(beds(), 'SUBJECT'), packAsk({ currentBed: 'bed-02', start: 660, end: 720, cleanupMinutesByBed: NO_CLEANUP }))
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([])
+  })
+})
+
+// ── R12 — THE CEILING ──────────────────────────────────────────────────────
+
+describe('R12 — four moves pack, five refuse', () => {
+  /** ベッド1 carries the whole conflict: N short bookings inside the subject's
+   *  13:00〜14:00 window. Every OTHER room is closed to the subject by a
+   *  予定ブロック — a pin, so those rooms are dead for the subject at every k —
+   *  while still having room for the short bookings around the pin. So the
+   *  subject can only take ベッド1, and taking it costs exactly N moves. */
+  const spread = (n: number) => {
+    const rows: BoardItem[] = []
+    for (let i = 0; i < n; i += 1) rows.push(booking({ key: `k${i}`, caseId: `apt-${i}`, title: `A${i}` }, 780 + i * 11, 790 + i * 11))
+    // 13:58〜14:00 on every other room: closed to the 13:00〜14:00 subject (so
+    // ベッド1 is its only possible seat), open to every short card, which all
+    // end by 13:44.
+    const escape = (key: string, label: string) =>
+      lane({ key, group: 'beds', label, items: [{ ...booking({ key: `p-${key}`, caseId: null }, 838, 840), kind: 'block' as const, title: '設備点検' }] })
+    return boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: rows }),
+      escape('bed-02', 'ベッド2'), escape('bed-03', 'ベッド3'),
+      escape('bed-04', 'ベッド4'), escape('bed-05', 'ベッド5'), escape('bed-06', 'ベッド6'),
+    ], 'SUBJECT')
+  }
+  const ask = packAsk({ currentBed: 'bed-01', start: 780, end: 840 })
+
+  it('a four-move day packs, and moves exactly four', () => {
+    const r = allocateBed(spread(4), ask)
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toHaveLength(4)
+    expect(noOverlaps(spread(4), { id: 'SUBJECT', start: 780, end: 840 }, r, NO_CLEANUP)).toBe(true)
+  })
+
+  it('a five-move day refuses honestly rather than shuffling the board', () => {
+    const r = allocateBed(spread(5), ask)
+    expect(r.laneKey).toBeNull()
+    expect(r.reseats).toEqual([])
+    expect(r.refusal).toContain('ベッドに空きがありません')
+  })
+})
+
+// ── R13 — MINIMALITY: A BYSTANDER IS NEVER MOVED ───────────────────────────
+
+describe('R13 — the search touches only the conflict chain', () => {
+  it('moves nobody when the subject already fits somewhere', () => {
+    // LENS-4's scene: A 13:25〜13:50 on bed-01, subject B 13:10〜13:30. bed-02
+    // is free, so step 0 answers and step 1 never runs.
+    const scene = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 805, 830)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ], 'SUBJECT')
+    const r = allocateBed(scene, packAsk({ currentBed: 'bed-01', start: 790, end: 810 }))
+    expect(r.laneKey).toBe('bed-02')
+    expect(r.reseats).toEqual([])
+  })
+
+  it('leaves the card in the SAME room alone when it is not in the way', () => {
+    // ベッド1 carries A 13:00〜13:20 and B 13:30〜14:00; the subject wants
+    // 13:00〜13:30. Only A overlaps, so only A moves — B is a bystander sitting
+    // in the very room being packed and is never touched.
+    const scene = boardOf([
+      lane({
+        key: 'bed-01', group: 'beds', label: 'ベッド1',
+        items: [
+          booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 800),
+          booking({ key: 'b', caseId: 'apt-b', title: 'B' }, 810, 840),
+        ],
+      }),
+      lane({
+        key: 'bed-02', group: 'beds', label: 'ベッド2',
+        items: [{ ...booking({ key: 'blk', caseId: null }, 800, 840), kind: 'block' as const, title: '設備点検' }],
+      }),
+    ], 'SUBJECT')
+    const r = allocateBed(scene, packAsk({ currentBed: 'bed-01', start: 780, end: 810 }))
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([{ id: 'apt-a', from: 'bed-01', to: 'bed-02' }])
+  })
+})
+
+// ── R9 — THE FENCE: THE CAPACITY BOOK NEVER PACKS ──────────────────────────
+
+describe('R9 — the fence, in the source', () => {
+  const read = (rel: string) => readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today', rel), 'utf8')
+
+  it('the capacity book’s one search never receives `pack`', () => {
+    const src = read('capacity-ledger.ts')
+    expect(src).toContain('const search = (q: Query, start: number, end: number) => {')
+    // The whole file. The book is the rail probes, `bedDoor` and `newClientMask`
+    // — the surfaces `capacity-ledger-parity.test.ts` compares against the
+    // legacy oracle — and a pack anywhere inside it would make that comparison
+    // a comparison of two different questions.
+    expect(src).not.toMatch(/pack\s*:/)
+    expect(src).not.toContain('reseats')
+  })
+
+  it('nor do the sell layer, the reserved mask or the parity oracle', () => {
+    // The three `allocateBed` callers inside today-interactions.ts are the sell
+    // offer builder (:1045), the rail explain path (:2812) and `bedFeasibility`
+    // (the parity oracle) — none of them may ask to pack. `landingVerdict` is
+    // the one call that CAN, and it only ever passes the question through.
+    const interactions = read('today-interactions.ts')
+    expect([...interactions.matchAll(/pack: true/g)]).toHaveLength(0)
+    expect(read('reserved-mask.ts')).not.toMatch(/pack\s*:/)
+    expect(read('fallback-cells.ts')).not.toMatch(/pack\s*:/)
+  })
+
+  it('`pack` is an option on the call, never a field on the asker’s shape', () => {
+    // ⚖ LENS-2 F9 — `freeKeysFor` spreads `Subject` into three more doors, so a
+    // `pack` living on that shape would ride into every one of them. `Subject`
+    // is declared in capacity-ledger.ts, which the pin above reads whole.
+    const book = read('capacity-ledger.ts')
+    expect(book).toContain('export interface Subject')
+    expect(book.slice(book.indexOf('export interface Subject'), book.indexOf('export interface Subject') + 1500)).not.toContain('pack')
+  })
+
+  it('throws rather than guessing when the pack is asked for without its two facts', () => {
+    const scene = boardOf([lane({ key: 'bed-01', group: 'beds', items: [booking({ key: 'a', caseId: 'apt-a' }, 780, 840)] })], 'SUBJECT')
+    const base = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 780, end: 840 }
+    expect(() => allocateBed(scene, { ...base, pack: true, cleanupMinutesByBed: NO_CLEANUP })).toThrow('allocateBed: pack requires now and cleanupMinutesByBed')
+    expect(() => allocateBed(scene, { ...base, pack: true, now: null })).toThrow('allocateBed: pack requires now and cleanupMinutesByBed')
+    // `now: null` is a real answer (a future day), not a missing one.
+    expect(() => allocateBed(scene, { ...base, pack: true, now: null, cleanupMinutesByBed: NO_CLEANUP })).not.toThrow()
+  })
+})
+
+// ── THE SEEDED BATTERY ─────────────────────────────────────────────────────
+
+/** A deterministic generator, and an EXHAUSTIVE oracle written against the
+ *  design's claim rule rather than against the search's code. */
+
+interface GenRoom { key: string; roomClass: 'standard' | 'private'; cleanup: number }
+interface GenBooking { id: string; room: string; requiresPrivate: boolean; start: number; end: number }
+interface GenScene {
+  rooms: GenRoom[]
+  pins: Array<{ room: string; start: number; end: number }>
+  bookings: GenBooking[]
+  subject: { currentBed: string | null; requiresPrivate: boolean; start: number; end: number }
+  now: number | null
+}
+
+function mulberry32(seed: number) {
+  let a = seed >>> 0
+  return () => {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const olap = (a: { start: number; end: number }, b: { start: number; end: number }) => a.end > b.start && a.start < b.end
+const DURATIONS = [10, 15, 20, 25, 30]
+const CLEANUPS = [0, 0, 5, 10, 15]
+
+/** The board a landing arrives at was itself built by landings, so it can never
+ *  be self-conflicting: every pre-existing claim is placed by rejection sampling
+ *  against the ones already committed. A generator that skips this makes boards
+ *  no store can reach and turns every 「invalid solution」 reading into noise. */
+function genScene(seed: number, mode: 'mixed' | 'all-standard'): GenScene {
+  const rnd = mulberry32(seed)
+  const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)]
+  const numRooms = 2 + Math.floor(rnd() * 2)
+  const rooms: GenRoom[] = []
+  let hasPrivate = false
+  for (let i = 0; i < numRooms; i += 1) {
+    const isPrivate = mode === 'mixed' && (i === numRooms - 1 ? !hasPrivate : rnd() < 0.35)
+    if (isPrivate) hasPrivate = true
+    rooms.push({ key: `bed-0${i}`, roomClass: isPrivate ? 'private' : 'standard', cleanup: pick(CLEANUPS) })
+  }
+  const claims = new Map(rooms.map((r) => [r.key, [] as Array<{ start: number; end: number }>]))
+  const fits = (room: GenRoom, start: number, end: number, tail: number) =>
+    !claims.get(room.key)!.some((c) => olap(c, { start, end: end + tail }))
+  const commit = (room: GenRoom, start: number, end: number, tail: number) => claims.get(room.key)!.push({ start, end: end + tail })
+
+  const bookings: GenBooking[] = []
+  const target = 2 + Math.floor(rnd() * 4)
+  for (let i = 0; i < target; i += 1) {
+    const requiresPrivate = hasPrivate && rnd() < 0.3
+    const compat = rooms.filter((r) => !requiresPrivate || r.roomClass === 'private')
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const start = 600 + Math.floor(rnd() * 19) * 5
+      const dur = pick(DURATIONS)
+      const room = pick(compat.length ? compat : rooms)
+      if (!fits(room, start, start + dur, room.cleanup)) continue
+      commit(room, start, start + dur, room.cleanup)
+      bookings.push({ id: `apt-${i}`, room: room.key, requiresPrivate, start, end: start + dur })
+      break
+    }
+  }
+  const pins: Array<{ room: string; start: number; end: number }> = []
+  for (let i = 0; i < Math.floor(rnd() * 3); i += 1) {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const room = pick(rooms)
+      const start = 610 + Math.floor(rnd() * 15) * 5
+      const dur = pick([5, 10, 15, 20])
+      if (!fits({ ...room, cleanup: 0 }, start, start + dur, 0)) continue
+      commit({ ...room, cleanup: 0 }, start, start + dur, 0)
+      pins.push({ room: room.key, start, end: start + dur })
+      break
+    }
+  }
+  const now = rnd() < 0.3 ? null : 600 + Math.floor(rnd() * 19) * 5
+  const sStart = 600 + Math.floor(rnd() * 19) * 5
+  const sDur = pick(DURATIONS)
+  const sPrivate = hasPrivate && rnd() < 0.25
+  const sCompat = rooms.filter((r) => !sPrivate || r.roomClass === 'private')
+  return {
+    rooms, pins, bookings, now,
+    subject: {
+      currentBed: rnd() < 0.5 ? null : pick(sCompat.length ? sCompat : rooms).key,
+      requiresPrivate: sPrivate,
+      start: sStart,
+      end: sStart + sDur,
+    },
+  }
+}
+
+function lanesOf(s: GenScene): BoardLane[] {
+  const beds = s.rooms.map((r) =>
+    lane({
+      key: r.key, group: 'beds', label: r.key, roomClass: r.roomClass,
+      items: [
+        ...s.bookings.filter((b) => b.room === r.key).map((b) =>
+          booking({ key: `${b.id}-bed`, caseId: b.id, title: b.id, requiresPrivateRoom: b.requiresPrivate }, b.start, b.end)),
+        ...s.pins.filter((p) => p.room === r.key).map((p, i) =>
+          ({ ...booking({ key: `pin-${r.key}-${i}`, caseId: null }, p.start, p.end), kind: 'block' as const, title: '設備点検' })),
+      ],
+    }),
+  )
+  return boardOf(beds, 'SUBJECT')
+}
+
+const tailsOf = (s: GenScene) => Object.fromEntries(s.rooms.map((r) => [r.key, r.cleanup]))
+
+/** Does this assignment actually hold? Rebuilt from scratch, per room, per
+ *  claim — deliberately independent of the search's own internals, because the
+ *  bug class it exists to catch is a search that returns 「success」 on an
+ *  assignment that does not hold. */
+function noOverlaps(
+  lanes: BoardLane[],
+  subject: { id: string; start: number; end: number },
+  result: { laneKey: string | null; reseats: readonly { id: string; from: string; to: string }[] },
+  tails: Record<string, number>,
+): boolean {
+  if (result.laneKey == null) return true
+  const to = new Map(result.reseats.map((r) => [r.id, r.to]))
+  const byRoom = new Map<string, Array<{ start: number; end: number }>>()
+  for (const l of lanes) {
+    if (l.group !== 'beds') continue
+    byRoom.set(l.key, [])
+  }
+  for (const l of lanes) {
+    if (l.group !== 'beds') continue
+    for (const i of l.items) {
+      if (i.kind === 'cleanup') continue
+      if (i.kind !== 'booking' || i.caseId == null) {
+        byRoom.get(l.key)!.push({ start: i.startMin, end: i.endMin })
+        continue
+      }
+      if (i.caseId === subject.id) continue
+      const room = to.get(i.caseId) ?? l.key
+      byRoom.get(room)!.push({ start: i.startMin, end: i.endMin + (tails[room] ?? 0) })
+    }
+  }
+  byRoom.get(result.laneKey)!.push({ start: subject.start, end: subject.end + (tails[result.laneKey] ?? 0) })
+  for (const claims of byRoom.values()) {
+    claims.sort((a, b) => a.start - b.start)
+    for (let i = 1; i < claims.length; i += 1) if (olap(claims[i - 1], claims[i])) return false
+  }
+  return true
+}
+
+/** Ground truth by exhaustive enumeration: every valid full assignment of the
+ *  movable bookings over their compatible rooms, cheapest first. */
+function bruteForce(s: GenScene, K: number): { packable: boolean; minCost: number | null } {
+  const roomOf = new Map(s.rooms.map((r) => [r.key, r]))
+  const timePinned = (b: GenBooking) => s.now != null && b.start <= s.now + 15
+  const movable = s.bookings.filter((b) => !timePinned(b))
+  const fixed = s.bookings.filter(timePinned)
+  const base = new Map(s.rooms.map((r) => [r.key, [] as Array<{ start: number; end: number }>]))
+  for (const p of s.pins) base.get(p.room)!.push({ start: p.start, end: p.end })
+  for (const b of fixed) base.get(b.room)!.push({ start: b.start, end: b.end + roomOf.get(b.room)!.cleanup })
+
+  const compatFor = (needsPrivate: boolean) => s.rooms.filter((r) => !needsPrivate || r.roomClass === 'private')
+  const subjectRooms = compatFor(s.subject.requiresPrivate)
+  const cands = movable.map((b) => compatFor(b.requiresPrivate))
+
+  let best: number | null = null
+  const feasible = (subjectRoom: string, assign: Map<string, string>) => {
+    const byRoom = new Map([...base].map(([k, v]) => [k, [...v]]))
+    byRoom.get(subjectRoom)!.push({ start: s.subject.start, end: s.subject.end + roomOf.get(subjectRoom)!.cleanup })
+    for (const b of movable) {
+      const k = assign.get(b.id)!
+      byRoom.get(k)!.push({ start: b.start, end: b.end + roomOf.get(k)!.cleanup })
+    }
+    for (const claims of byRoom.values()) {
+      claims.sort((a, b) => a.start - b.start)
+      for (let i = 1; i < claims.length; i += 1) if (olap(claims[i - 1], claims[i])) return false
+    }
+    return true
+  }
+  const walk = (subjectRoom: string, idx: number, assign: Map<string, string>) => {
+    if (idx === movable.length) {
+      if (!feasible(subjectRoom, assign)) return
+      let cost = 0
+      for (const b of movable) if (assign.get(b.id) !== b.room) cost += 1
+      if (cost <= K && (best === null || cost < best)) best = cost
+      return
+    }
+    for (const room of cands[idx]) {
+      assign.set(movable[idx].id, room.key)
+      walk(subjectRoom, idx + 1, assign)
+    }
+    assign.delete(movable[idx].id)
+  }
+  for (const r of subjectRooms) walk(r.key, 0, new Map())
+  return { packable: best !== null, minCost: best }
+}
+
+describe('the seeded battery — 2,400 generated days against a brute-force oracle', () => {
+  for (const mode of ['mixed', 'all-standard'] as const) {
+    it(`${mode}: no false refusal, no invalid seat, no extra move, no bystander`, () => {
+      const stats = { total: 0, step0: 0, packed: 0, falseRefusals: 0, invalid: 0, nonMinimal: 0, belowTruth: 0, bystander: 0, stranded: 0 }
+      const firstFailure: string[] = []
+      for (let seed = 1; seed <= 1200; seed += 1) {
+        const s = genScene(seed, mode)
+        const lanes = lanesOf(s)
+        const tails = tailsOf(s)
+        const ask = {
+          id: 'SUBJECT', currentBed: s.subject.currentBed, stores: ['store-a'],
+          requiresPrivate: s.subject.requiresPrivate, start: s.subject.start, end: s.subject.end,
+        }
+        stats.total += 1
+        // Step 0 is pre-existing, trusted code with its own deliberate asymmetry
+        // (the asker's side carries no turnaround). A room free under the pack's
+        // stricter uniform rule is always free under it too, so gating here keeps
+        // the oracle a faithful judge of step 1 with no semantic mismatch.
+        if (allocateBed(lanes, ask).laneKey !== null) {
+          stats.step0 += 1
+          continue
+        }
+        stats.packed += 1
+        const r = allocateBed(lanes, { ...ask, pack: true, now: s.now, cleanupMinutesByBed: tails })
+        const truth = bruteForce(s, 4)
+        const note = (what: string) => { if (firstFailure.length < 3) firstFailure.push(`${what} @ ${mode} seed ${seed}`) }
+
+        if (r.laneKey === null) {
+          if (truth.packable) { stats.falseRefusals += 1; note('false refusal') }
+          continue
+        }
+        if (!noOverlaps(lanes, { id: 'SUBJECT', start: s.subject.start, end: s.subject.end }, r, tails)) {
+          stats.invalid += 1
+          note('invalid seat')
+        }
+        if (truth.minCost != null) {
+          if (r.reseats.length > truth.minCost) { stats.nonMinimal += 1; note('non-minimal') }
+          if (r.reseats.length < truth.minCost) { stats.belowTruth += 1; note('below truth') }
+        }
+        // A move is a bystander move when the assignment still holds without it.
+        for (const one of r.reseats) {
+          const without = { laneKey: r.laneKey, reseats: r.reseats.filter((x) => x.id !== one.id) }
+          if (noOverlaps(lanes, { id: 'SUBJECT', start: s.subject.start, end: s.subject.end }, without, tails)) {
+            stats.bystander += 1
+            note('bystander')
+          }
+        }
+        const to = new Map(r.reseats.map((x) => [x.id, x.to]))
+        for (const b of s.bookings) {
+          if (!b.requiresPrivate) continue
+          const finalRoom = s.rooms.find((x) => x.key === (to.get(b.id) ?? b.room))!
+          if (finalRoom.roomClass !== 'private') { stats.stranded += 1; note('stranded 個室のみ') }
+        }
+      }
+      // The battery has to have actually engaged the pack, or it proves nothing.
+      expect(stats.packed).toBeGreaterThan(200)
+      expect({ ...stats, firstFailure }).toEqual({
+        ...stats,
+        falseRefusals: 0, invalid: 0, nonMinimal: 0, belowTruth: 0, bystander: 0, stranded: 0,
+        firstFailure: [],
+      })
+    })
+  }
+})
