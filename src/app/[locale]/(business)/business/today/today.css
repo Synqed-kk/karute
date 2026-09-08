@@ -1813,8 +1813,12 @@
    --line-2   two uses, :1271 and :1463 — BOTH inside the ruled H2 warn-face
               section, which must stay to the pixel. No PR declares it.
    The layer's one `var(--control)` reader — the `.guard-band.legend-only`
-   restatement below — now resolves to the shell's own #e4e4e9, which is exactly
-   the value canon gives that rule, so the restatement still says canon's word. */
+   restatement below — resolved to the shell's own #e4e4e9 while no PR declared
+   the token. ⚖ FIX ROUND 1 (PR-2, L1 #3): PR-2's block declares
+   `--control: #e4e7ec` on this page, so it now resolves to #e4e7ec like every
+   other edge here. The rule paints nothing either way — the width is 0 — but
+   the sentence above was true only until PR-2 landed, and a comment that goes
+   quietly stale is how the next reader is misled. */
 .biz .page.page-today {
   --muted: #6b7280;
   --card: #e4e7ec;
@@ -2088,26 +2092,33 @@
 .biz .page.page-today { --control: #e4e7ec; }
 
 .biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
-/* D-PR2-1 — the mock writes these as `.board-head strong` / `.board-head span`.
-   In the MOCK that is safe; in the product it is not. Three popovers and the
-   month calendar render INSIDE `.board-head` — the shelf and 操作ヒント hang
-   off `.bh-left`, 表示設定 and the calendar off `.board-tools` — so the
-   descendant form at 0,3,1 reaches furniture the toolbar has nothing to do
-   with. MEASURED, by putting the mock's own form back and diffing every
-   computed property on every element (build/pr2/redruns, mutants P4 and P5):
-     · `.board-head span`   → the five plain weekday labels 月火水木金 in the
-       month calendar leave canon's --quiet #71717a for #6b7280.
-     · `.board-head strong` → the calendar's month header 「2026年9月」 grows
-       from 14px to 15px (canon's `.cal-head strong`, 0,2,1).
-   The 日 and 土 labels survive either way: `.wd.sun` / `.wd.sat` are 0,4,0
-   compounds. A specificity read here said they would lose their red and blue;
-   the measurement said otherwise, and the measurement is what this comment
-   carries. The title and its sub-line are DIRECT children of `.bh-left`, so
-   that is what the selector says — same specificity as the mock's, less reach. */
+/* D-PR2-1 — the mock writes this as `.board-head strong`. In the MOCK that is
+   safe; in the product it is not. Three popovers and the month calendar render
+   INSIDE `.board-head` — the shelf and 操作ヒント hang off `.bh-left`, 表示設定
+   and the calendar off `.board-tools` — so the descendant form at 0,3,1 reaches
+   furniture the toolbar has nothing to do with. MEASURED, by putting the mock's
+   own form back and diffing every computed property on every element (mutant
+   P5): the calendar's month header 「2026年9月」 grows from 14px to 15px, off
+   canon's `.cal-head strong` (0,2,1). The title is a DIRECT child of
+   `.bh-left`, so that is what the selector says — same specificity as the
+   mock's, less reach.
+   ⚖ FIX ROUND 1 (L1 #7) — the SPAN half of this pair is gone. It never painted
+   anything: no sub-line span exists under `.bh-left` in the product, and the
+   one element that matched (`span.fields-pop-wrap`, the online chip's wrapper)
+   has descendants that state their own colour. Mutant P4 measured its
+   descendant form moving five weekday greys, which is a reason not to write it
+   WIDE — not a reason to write it at all. The board head's own type is canon's
+   apart from the title. */
 .biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
-.biz .page-today .bh-left > span { color: #6b7280; }
 
-.biz .page-today .online-chip {
+/* ⚖ FIX ROUND 1 (L1 #9) — `:not([hidden])`, because this rule introduces a
+   `display` canon never gave the chip (:100–110 declares none) and TodayScreen
+   :6216 sets `hidden` on it whenever online sales are off. `display` beats the
+   `hidden` attribute, so without the guard the chip's visibility would rest on
+   Tailwind preflight's `[hidden]{display:none!important}` — a reset, in another
+   sheet, that the harness renders do not even load. The state stays the
+   element's own. */
+.biz .page-today .online-chip:not([hidden]) {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -2205,7 +2216,9 @@
 /* V2-2 — ≤1320 the head is two rows: [title · 販売中 · ? · ご来店中] over
    [date nav · 表示設定 · 両方/スタッフ/設備], the tools right-aligned. Without
    this the `?` fell onto a row of its own between the chip and the pill.
-   ≥1321 is untouched — 1440 and 1920 already sit on one row. */
+   ≥1321 is untouched. Measured rather than assumed (L1 #11): only 1920 sits on
+   one row; at 1440 the tools already fall to a second row on canon's own wrap,
+   and this block simply does not reach that width. */
 @media (max-width: 1320px) {
   .biz .page-today .board-head { flex-wrap: wrap; row-gap: 8px; }
   .biz .page-today .bh-left { flex: 1 1 auto; min-width: 0; }
@@ -2214,8 +2227,15 @@
 
 /* 密度 / 販売可能枠の表示 / 配置ガイド — same family, no thumb: selected is a
    wash with an accent border, exactly as today. (The segmented control's own
-   track and its sliding thumb are PR-4's.) */
-.biz .page-today .density-seg button {
+   track and its sliding thumb are PR-4's.)
+   ⚖ FIX ROUND 1 (L1 #1) — SCOPED TO THE POPOVER. Nine controls on this page
+   wear `.density-seg` and only three are the 表示設定 popover's; the other six
+   are dialog controls (登録の種類 / 性別 / 予約経路 / ブロックの種類 /
+   ブロックの長さ / 価格の見せ方) that PR-4 owns. The first version restyled all
+   nine and disclosed it; the ruling is that a slice paints its own room and
+   PR-4 unifies the dialogs' instances. Same three declarations, three
+   selectors, `.fields-pop` in front of each. */
+.biz .page-today .fields-pop .density-seg button {
   min-height: 28px;
   border-radius: 8px;
   border-color: #e4e7ec;
@@ -2229,13 +2249,13 @@
    販売可能枠 / 配置ガイド option would wash its accent background away. Written
    to exclude the pressed state, so the pressed button keeps canon's own hover
    behaviour (canon's :226 hover loses to its own :227 by order). */
-.biz .page-today .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+.biz .page-today .fields-pop .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
 /* ⚖ STATE-CLASS LAW — and at REST the same pair ties: the base rule above is
    0,3,1, exactly canon's `[aria-pressed="true"]` (:227), and stands later, so
    the selected option lost its accent ink and its accent border. Restated after
    it. `background` is NOT restated: the base rule never declares one, so
    canon's `var(--select-bg)` wash was never in danger. */
-.biz .page-today .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+.biz .page-today .fields-pop .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
 
 /* popovers — one card, one edge, one shadow. `.sell-shelf` and `.help-pop`
    share the `.fields-pop` base and come with it; `.store-pop` is the shell's
@@ -2246,13 +2266,18 @@
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(16, 24, 40, .14);
 }
+/* The 操作ヒント popover's 「画面の説明を表示」 button takes its edge from the
+   shell's `.biz .btn { border: 1px solid var(--line) }` — #e4e4e9, one
+   calibration off every other edge in this card. `--line` is not declared by
+   any PR yet (its consumers are mostly PR-4's dialog buttons and the guard-pop,
+   so PR-4 declares it); restated locally here, for this popover family only. */
+.biz .page-today .fields-pop .btn { border-color: #e4e7ec; }
 .biz .page-today .fields-pop strong { color: #18181b; font-size: 12.5px; font-weight: 700; }
 .biz .page-today .fields-pop span { color: #6b7280; }
 /* #844's signpost is a `<Link>`, and a link in a pill should not also be
    underlined — the pill already says it is one. Tailwind's preflight makes
    `a { text-decoration: inherit }`, so on main it inherits rather than
    underlines; this states it instead of relying on a reset. */
-.biz .page-today .fields-pop .chip { text-decoration: none; }
+.biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
 .biz .page-today .sell-shelf button:hover { background: #eef2ff; }
-.biz .page-today .sell-shelf button b { color: #3f5be8; }
