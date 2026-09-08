@@ -3330,7 +3330,7 @@ export function TodayScreen(props: TodayProps) {
         // moved. The name is read off the card, exactly as `companionLines`
         // reads it, and where the board cannot say it the sibling sentence
         // stands rather than a 「様」 about nobody (⚖ A3).
-        // ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
+        // ⚖ FIX ROUND 3 (G2, DELTA-CODE-D3) — JAPANESE ACCEPTED AS FINAL, no correction.
         const title = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title
         refuse(title
           ? `${title}様の移動先を確保できなくなったため、この内容では確定できません`
@@ -7589,7 +7589,7 @@ export function TodayScreen(props: TodayProps) {
           // byte-identical; this is one more, in the same plain voice, sitting
           // with the other 「what can happen here」 clause and before the 「what you
           // do here」 one. ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えた方はここに表示されます。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
