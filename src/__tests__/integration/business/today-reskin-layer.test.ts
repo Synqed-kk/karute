@@ -121,12 +121,15 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // was beating canon's `.inert` at 0,3,0 and the refusal lost its colour.
     expect(SRC).toContain("${v?.kind === 'blocked' ? ' inert' : ''}")
     after(
-      '.biz .page-today .guard-rail-cell.inert {',
+      '.biz .page-today .guard-rail-cell.blocked.inert {',
       '.biz .page-today .guard-rail-cell.blocked {',
     )
     // The tint zeroes the border width canon's `.blocked` supplied, so the
-    // restatement has to bring the whole shorthand back, not just the colour.
-    expect(LAYER).toContain('.biz .page-today .guard-rail-cell.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }')
+    // restatement has to bring the whole shorthand back — and it is written as
+    // the COMBINATION so it cannot leak that border onto the chips canon draws
+    // without one (the base cell :888 has a radius and no border).
+    expect(LAYER).toContain('.biz .page-today .guard-rail-cell.blocked.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }')
+    expect(LAYER).not.toContain('.biz .page-today .guard-rail-cell.inert {')
   })
 
   it("an absent staff member's sub-line stays red", () => {

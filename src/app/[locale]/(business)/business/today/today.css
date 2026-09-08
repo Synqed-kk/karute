@@ -1944,13 +1944,18 @@
    quiet: the strip becomes a thin calm line instead of 18 bordered boxes.
    ✓ purple, △ amber, the word chips, the 3px dot and × are untouched. */
 .biz .page-today .guard-rail-cell.blocked { border: 0; background: #f3f4f7; color: #a1a1aa; }
-/* ⚖ STATE-CLASS LAW — and the ✗ still goes red. TodayScreen :5866 writes BOTH
+/* ⚖ STATE-CLASS LAW — and the ✗ still goes red. TodayScreen :5870 writes BOTH
    classes on the same chip whenever the live verdict is 「置けない」
    (`state` is 'blocked' AND ' inert' is appended), so canon's `.inert` (:924,
    0,3,0) was being beaten by the tint above at 0,4,0 and the refusal lost its
-   red. Restated at 0,4,0 after it — as the full `border` shorthand, because
-   the tint zeroes the width canon's `.blocked` was supplying. */
-.biz .page-today .guard-rail-cell.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }
+   red. Restated as the COMBINATION, not as `.inert` alone: the border shorthand
+   has to come back (the tint zeroes the width canon's `.blocked` supplied), and
+   a bare `.inert` would then draw that 1px red edge on chips canon leaves
+   borderless — the base cell (:888) has a radius and no border, so a word chip
+   that turns inert mid-drag would gain an edge it never had. At 0,5,0 this
+   touches the one pair the tint interferes with; canon's `.inert` still governs
+   `.guard-slot` (:891) and `.degraded` (:892), which bring their own border. */
+.biz .page-today .guard-rail-cell.blocked.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }
 
 /* ── R-8 · Decisions · incident · KPI ───────────────────────────────────── */
 
