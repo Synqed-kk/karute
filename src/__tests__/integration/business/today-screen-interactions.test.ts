@@ -6525,8 +6525,12 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // solve runs first, and when it carries companions the guard cell is re-read
     // on the board the shuffle would leave. Both legs still go through
     // `verdictFor`, so the label, the × and the release are still one function.
-    expect(SRC).toContain('const v = verdictFor(q, cellOn(boardLanes), true)')
-    expect(SRC).toContain('return verdictFor(q, cellOn(applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours)), true)')
+    // ⚖ FIX ROUND 1 (F1) — and both legs name the board they are asked on, which
+    // is the board the landing SOLVES on (`solveLanes`), never the screen's.
+    expect(SRC).toContain('const base = solveLanes(q.id)')
+    expect(SRC).toContain('const v = verdictFor(q, cellOn(base), true, base)')
+    expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SRC).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
   })
 
   // ── ⚖ FLAG 55 — the silent guard row, answered ───────────────────────────

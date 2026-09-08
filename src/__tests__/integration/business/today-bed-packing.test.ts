@@ -23,7 +23,7 @@
 import { appointments, STORE_A } from '@/business/lib/fixtures'
 import { jstDayKey } from '@/business/lib/clock'
 import * as data from '@/business/lib/data'
-import { buildLanes, dayBookings, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
+import { buildLanes, dayBookings, minuteOf, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
 import {
   allocateBed,
   applyBedMoves,
@@ -32,6 +32,7 @@ import {
   companionRoomStillFree,
   companionsFor,
   isStagedCard,
+  landingVerdict,
   lanesWithCompanionsRestored,
   vacateBeforeOccupy,
   type BedCompanion,
@@ -1098,6 +1099,100 @@ describe('R6 — a second landing of the same card solves against the day it sta
   })
 })
 
+/** ⚖ FIX ROUND 1 (F1), Fable's line audit of e70ca6dd9 — A RE-LANDING WAS BEING
+ *  JUDGED ON A DIFFERENT BOARD THAN IT IS SOLVED ON.
+ *
+ *  `verdictAtLanding` asked `landingVerdict` about the board on SCREEN, while
+ *  the landing that follows it solves through `solveBed(solveLanes(id), …)` —
+ *  the board with the previous companions put back. On a first gesture those are
+ *  the same day. On a SECOND gesture on the same staged card they are not: the
+ *  first landing's companions are sitting in their new rooms on one and at home
+ *  on the other. The operator was then shown one answer and given another — the
+ *  word could promise a room the drop would not take, or say nobody moves while
+ *  the drop moved somebody, and `solveBed`'s own toast could speak AFTER a clean
+ *  verdict. This is that disagreement, on Liam's own board. */
+describe('R6b — a re-landing is judged on the board it is solved on', () => {
+  /** Liam's scene, one gesture in: きり 14:00〜15:00 takes ベッド1 and さくら
+   *  (apt-26) is moved ベッド1 → ベッド2. `staged` is what the screen then shows;
+   *  `restored` is what `solveLanes(id)` hands the next landing. */
+  const afterFirstLanding = async () => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    const first = allocateBed(lanes, {
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      start: 840, end: 900, stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    })
+    expect({ room: first.laneKey, reseats: first.reseats })
+      .toEqual({ room: 'bed-01', reseats: [{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }] })
+    const companions = companionsFor(lanes, first.reseats)
+    const staged = applyBedMoves(lanes, companions, HOURS)
+    return { staff, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS) }
+  }
+
+  /** The second landing, asked exactly as the screen asks it — `verdictFor`'s
+   *  own field list, with the board as the argument F1 added. */
+  const askAt = (staffKey: string, start: number, end: number) => ({
+    staffLane: staffKey, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+    requiresPrivate: false, start, end, span: place(start, end, HOURS),
+    foreignRefusal: null, hasPrice: true, locked: [] as string[],
+    minutesOf: (x: number) => minuteOf(x, HOURS),
+    stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+  })
+
+  /** And what `solveBed(solveLanes(id), …)` will actually do with it. */
+  const solveOn = (board: BoardLane[], staffKey: string, stores: string[] | null, start: number, end: number) =>
+    allocateBed(board, {
+      id: 'apt-09', currentBed: 'bed-01', stores, requiresPrivate: false,
+      start, end, stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    })
+
+  it('the second landing’s companions are the ones the solve will really move', async () => {
+    const { staff, staged, restored } = await afterFirstLanding()
+    // 14:05〜15:05 — さくら has to move again for this one, measured from the day
+    // the operator started on.
+    const solve = solveOn(restored, staff.key, staff.stores, 845, 905)
+    expect(solve.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
+
+    const q = askAt(staff.key, 845, 905)
+    const judged = landingVerdict(restored, q, null)
+    expect({ room: judged.bedLane, reseats: judged.reseats })
+      .toEqual({ room: solve.laneKey, reseats: solve.reseats })
+
+    // …and the board on screen would have said NOBODY moves — the 仮押さえ box
+    // would have named no one, and the guard would never have been re-asked on
+    // the shuffled day at all.
+    const onScreen = landingVerdict(staged, q, null)
+    expect(onScreen.reseats).toEqual([])
+    expect(onScreen.reseats).not.toEqual(solve.reseats)
+  })
+
+  it('…and the room itself can differ, so the word can name a room the drop will not take', async () => {
+    const { staff, staged, restored } = await afterFirstLanding()
+    // 14:30〜15:30 — さくら's own hold hour. Restored, ベッド1 is hers and きり
+    // gets ベッド2; on the screen's board she has already vacated it.
+    const solve = solveOn(restored, staff.key, staff.stores, 870, 930)
+    const q = askAt(staff.key, 870, 930)
+    expect(landingVerdict(restored, q, null).bedLane).toBe(solve.laneKey)
+    expect([landingVerdict(staged, q, null).bedLane, solve.laneKey]).toEqual(['bed-01', 'bed-02'])
+  })
+
+  it('and the screen takes ONE board and asks everything on it', () => {
+    // `solveLanes` is the single answer to 「which board does this landing solve
+    // against?」 — the cell, both verdicts and the shuffle all read it, so the
+    // judgement and the solve can no longer drift apart.
+    expect(SCREEN).toContain('const base = solveLanes(q.id)')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
+    // The gesture end reads the board through `solveLanes` and nowhere else.
+    const landing = SCREEN.slice(SCREEN.indexOf('const verdictAtLanding = useCallback('), SCREEN.indexOf('const verdictRef = useRef('))
+    expect(landing).not.toContain('boardLanes)')
+    expect(landing).not.toContain('boardLanes,')
+    // …and every OTHER consumer still gets the board on screen, by default.
+    expect(SCREEN).toContain('(q: LandingAsk, cell: RailCell | null, pack = false, lanes: BoardLane[] = boardLanes): LandingVerdict =>')
+  })
+})
+
 describe('R7 — one 元に戻す, all the cards', () => {
   it('the revert restores every companion before the subject', () => {
     const revert = SCREEN.slice(SCREEN.indexOf('function revertPending()'), SCREEN.indexOf('function confirmPending()'))
@@ -1201,9 +1296,10 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
   })
 
   it('and the screen asks the guard on exactly that board', () => {
-    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(boardLanes), true)')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
     expect(SCREEN).toContain('if (v.reseats.length === 0) return v')
-    expect(SCREEN).toContain('return verdictFor(q, cellOn(applyBedMoves(boardLanes, companionsFor(boardLanes, v.reseats), hours)), true)')
+    expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours)')
+    expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
   })
 })
 
@@ -1212,11 +1308,14 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     // ⚖ flag 54's asymmetry, kept: the strip and the cursor promise only
     // no-shuffle fits; the drop may accept a start the strip did not promise.
     expect((SCREEN.match(/pack: true/g) ?? [])).toHaveLength(1)
-    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(boardLanes), true)')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
     // `verdictFor` itself never turns it on — it takes the answer from its caller
     // and defaults to OFF, so every other consumer (the 60分配置 strip's × marks,
-    // the word under the cursor, the rail's own probes) is byte-unchanged.
-    expect(SCREEN).toContain('(q: LandingAsk, cell: RailCell | null, pack = false): LandingVerdict =>')
+    // the word under the cursor, the rail's own probes) is byte-unchanged. The
+    // board is defaulted the same way (⚖ FIX ROUND 1 F1), so those consumers are
+    // still asked about the board on screen.
+    expect(SCREEN).toContain('(q: LandingAsk, cell: RailCell | null, pack = false, lanes: BoardLane[] = boardLanes): LandingVerdict =>')
+    expect(SCREEN).toContain('      landingVerdict(\n        lanes,')
     const forBody = SCREEN.slice(SCREEN.indexOf('const verdictFor = useCallback('), SCREEN.indexOf('const verdictAtLanding = useCallback('))
     expect(forBody).toContain('pack,')
     expect(forBody).not.toContain('pack: true')
