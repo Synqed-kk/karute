@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getCoachingConsent, decideCoachingConsent } from '@/actions/coaching-consent'
 import { createClient } from '@/lib/supabase/client'
-import type { CoachingConsentRecord } from './types'
+import { DISPLAYED_COACHING_POLICY_VERSION, type CoachingConsentRecord } from './types'
 
 const EMPTY: CoachingConsentRecord = { status: 'unset', decidedAt: null, policyVersion: null }
 
@@ -13,7 +13,8 @@ export function useCoachingConsent() {
   const [policyVersion, setPolicyVersion] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<'loadFailed' | 'saveFailed' | 'policyChanged' | null>(null)
+  const [identityRevision, setIdentityRevision] = useState(0)
+  const [error, setError] = useState<'loadFailed' | 'saveFailed' | 'policyChanged' | 'policyUnavailable' | null>(null)
   const epoch = useRef(0)
   const writing = useRef(false)
 
@@ -51,6 +52,7 @@ export function useCoachingConsent() {
       const nextSubject = session?.user.id ?? null
       if (subject === nextSubject) return
       subject = nextSubject
+      setIdentityRevision(value => value + 1)
       // Drop previous account state and ignore every response started for it.
       ++epoch.current
       writing.current = false
@@ -68,6 +70,10 @@ export function useCoachingConsent() {
 
   const decide = useCallback(async (status: 'granted' | 'declined'): Promise<boolean> => {
     if (writing.current || loading || !policyVersion) return false
+    if (status === 'granted' && policyVersion !== DISPLAYED_COACHING_POLICY_VERSION) {
+      setError('policyUnavailable')
+      return false
+    }
     writing.current = true
     setSaving(true)
     setError(null)
@@ -99,5 +105,6 @@ export function useCoachingConsent() {
     }
   }, [loading, policyVersion, reload])
 
-  return { ...consent, loading, saving, error, reload, decide }
+  return { ...consent, loading, saving, error, reload, decide, identityRevision,
+    currentPolicyVersion: policyVersion, canGrant: policyVersion === DISPLAYED_COACHING_POLICY_VERSION }
 }

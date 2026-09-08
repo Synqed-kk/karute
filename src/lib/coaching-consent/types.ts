@@ -1,3 +1,6 @@
+// Version of the disclosure currently shipped in the translated dialog.
+export const DISPLAYED_COACHING_POLICY_VERSION = 'v1.0-2026-05'
+
 export type CoachingConsentStatus = 'unset' | 'granted' | 'declined'
 
 export interface CoachingConsentRecord {

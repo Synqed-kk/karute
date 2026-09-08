@@ -10,8 +10,8 @@ jest.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: {
   onAuthStateChange: (callback: typeof authChanged) => { authChanged = callback; return { data: { subscription: { unsubscribe } } } },
 } }) }))
 const read = jest.mocked(getCoachingConsent), write = jest.mocked(decideCoachingConsent)
-const decision = { id: 'decision', status: 'granted' as const, policy_version: 'policy-one', decided_at: '2026-09-08T12:00:00Z' }
-const state = { current_policy_version: 'policy-one', status: 'unset' as const, decision: null }
+const decision = { id: 'decision', status: 'granted' as const, policy_version: 'v1.0-2026-05', decided_at: '2026-09-08T12:00:00Z' }
+const state = { current_policy_version: 'v1.0-2026-05', status: 'unset' as const, decision: null }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
 
 beforeEach(() => {
@@ -43,7 +43,7 @@ it('does not show a grant until the server confirms it, and suppresses duplicate
   expect(result.current.saving).toBe(true)
   await act(async () => { expect(await result.current.decide('granted')).toBe(false) })
   expect(write).toHaveBeenCalledTimes(1)
-  expect(write).toHaveBeenCalledWith({ status: 'granted', policy_version: 'policy-one' })
+  expect(write).toHaveBeenCalledWith({ status: 'granted', policy_version: 'v1.0-2026-05' })
   await act(async () => { pending.resolve({ ok: true, data: decision }); expect(await saving).toBe(true) })
   expect(result.current.status).toBe('granted')
   expect(result.current.saving).toBe(false)
@@ -95,4 +95,15 @@ it('preserves a read failure after policy conflict so retry remains available', 
   await act(async () => { expect(await result.current.decide('granted')).toBe(false) })
   expect(result.current.error).toBe('loadFailed')
   expect(result.current.saving).toBe(false)
+})
+
+it('refuses agreement to a disclosure this UI cannot display but still allows withdrawal', async () => {
+  read.mockResolvedValueOnce({ ok: true, data: { ...state, current_policy_version: 'future-policy' } })
+  const { result } = renderHook(useCoachingConsent)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.canGrant).toBe(false)
+  await act(async () => { expect(await result.current.decide('granted')).toBe(false) })
+  expect(write).not.toHaveBeenCalled()
+  await act(async () => { await result.current.decide('declined') })
+  expect(write).toHaveBeenCalledWith({ status: 'declined', policy_version: 'future-policy' })
 })

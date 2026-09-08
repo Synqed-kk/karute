@@ -54,6 +54,7 @@ interface CoachingConsentDialogProps {
   onConsent: (granted: boolean) => Promise<boolean>
   saving?: boolean
   unavailable?: boolean
+  grantUnavailable?: boolean
   error?: string | null
 }
 
@@ -63,6 +64,7 @@ export function CoachingConsentDialog({
   onConsent,
   saving = false,
   unavailable = false,
+  grantUnavailable = false,
   error = null,
 }: CoachingConsentDialogProps) {
   const t = useTranslations('coaching.consent')
@@ -181,7 +183,7 @@ export function CoachingConsentDialog({
             <input
               type="checkbox"
               checked={checked}
-              disabled={saving || unavailable}
+              disabled={saving || unavailable || grantUnavailable}
               onChange={(e) => setChecked(e.target.checked)}
               className="sr-only"
             />
@@ -203,7 +205,7 @@ export function CoachingConsentDialog({
           </Button>
           <Button
             onClick={() => { void handleDecision(true) }}
-            disabled={!checked || saving || unavailable}
+            disabled={!checked || saving || unavailable || grantUnavailable}
             className="h-12 w-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 md:h-10 md:w-auto"
           >
             {t('agree')}

@@ -1524,6 +1524,7 @@
       "grantedTooltip": "Granted on {date}"
     },
     "consent": {
+      "policyUnavailable": "The current policy is not available in this screen yet. You can still decline or withdraw consent.",
       "loading": "Loading your consent…",
       "loadFailed": "Your consent could not be loaded. Please try again.",
       "saveFailed": "Your decision could not be saved. Please try again.",

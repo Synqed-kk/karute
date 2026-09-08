@@ -165,12 +165,14 @@ export function CoachingPageView({
       </div>
 
       <CoachingConsentDialog
+        key={`${consent.identityRevision}:${consent.currentPolicyVersion}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onConsent={(granted) => consent.decide(granted ? 'granted' : 'declined')}
         saving={consent.saving}
+        grantUnavailable={!consent.canGrant}
         unavailable={consent.loading || consent.error === 'loadFailed'}
-        error={consent.error ? t(consent.error) : null}
+        error={consent.error ? t(consent.error) : !consent.loading && !consent.canGrant ? t('policyUnavailable') : null}
       />
     </main>
   )

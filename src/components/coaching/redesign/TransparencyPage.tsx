@@ -61,12 +61,14 @@ export function TransparencyPage() {
   return (
     <div className="space-y-6">
       <CoachingConsentDialog
+        key={`${consent.identityRevision}:${consent.currentPolicyVersion}`}
         open={consentOpen}
         onOpenChange={setConsentOpen}
         onConsent={(granted) => consent.decide(granted ? 'granted' : 'declined')}
         saving={consent.saving}
+        grantUnavailable={!consent.canGrant}
         unavailable={consent.loading || consent.error === 'loadFailed'}
-        error={consent.error ? tConsent(consent.error) : null}
+        error={consent.error ? tConsent(consent.error) : !consent.loading && !consent.canGrant ? tConsent('policyUnavailable') : null}
       />
 
       {consent.error === 'loadFailed' && (
