@@ -3982,22 +3982,24 @@ export function vacateBeforeOccupy(companions: readonly BedCompanion[]): BedComp
  *  The 仮押さえ box's own summary is UNTOUCHED (it has a second caller and a
  *  second construction branch); these ride beside it, and the register is the
  *  surface's own arrow idiom — no `/` (a line is its own separator), no new
- *  vocabulary for「the board moved this one for you」. Five or more takes the
- *  board's own fold (`protectedWindowsClause`, :1686): first three, then the
- *  count. Unreachable while the ceiling is four moves, and it is here because
- *  raising that ceiling is the stated upgrade path.
+ *  vocabulary for「the board moved this one for you」.
+ *
+ *  ⚖ FIX ROUND 1 (F2) — AND THERE IS NO FOLD. `PACK_MAX_MOVES = 4` caps this
+ *  list at four, so a 「、ほかN件」 tail was unreachable code, and as a LINE of
+ *  its own it opened with a 読点 — right inside `protectedWindowsClause`'s
+ *  `・`-joined run (:1686), wrong standing alone. If the ceiling is ever
+ *  raised, how a long list reads is a design question for that round.
  *
  *  ⚠ PLACEHOLDER JAPANESE, awaiting the native pass — brief the writer with the
- *  sibling lines (`holdSummary` above, and this file's :1686 fold). */
+ *  sibling lines (`holdSummary` above). */
 export function companionLines(lanes: BoardLane[], companions: readonly BedCompanion[]): string[] {
   const labelOf = (key: string) => lanes.find((l) => l.key === key && l.group === 'beds')?.label ?? key
-  const all = companions.map((c) => {
+  return companions.map((c) => {
     // Read off the board, never invented — ⚖ A3's law. A companion is by
     // construction a card the search found ON the board, so this is present.
     const title = lanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title
     return `${title ? `${title}様 ` : ''}${labelOf(c.bedOrigin.laneKey)} → ${labelOf(c.bedTo)}`
   })
-  return all.length > 4 ? [...all.slice(0, 3), `、ほか${all.length - 3}件`] : all
 }
 
 /** ⚖ FIX ROUND 3 (delta2 lens 2 F1 · lens 4 D6) — WHICH ROWS THE REFUSAL BOX
