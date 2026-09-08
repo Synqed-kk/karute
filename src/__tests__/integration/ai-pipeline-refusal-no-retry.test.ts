@@ -10,6 +10,7 @@
  *
  * A real failure (500, a network throw) keeps its one retry, unchanged.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const awaitTakeSecured = jest.fn(async (_takeId: string) => {})
 jest.mock('@/lib/global-recorder', () => ({
   globalRecorder: { awaitTakeSecured: (takeId: string) => awaitTakeSecured(takeId) },
