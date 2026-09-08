@@ -2481,7 +2481,8 @@
           "play": "録音を再生",
           "session_cleanup": "録音を破棄",
           "take_named": "録音のアップロード先を発行（既存セッション）",
-          "transcribe": "録音を文字起こし"
+          "transcribe": "録音を文字起こし",
+          "transcribe_refused": "録音の文字起こしを中止（利用上限）"
         }
       },
       "burnError": {
