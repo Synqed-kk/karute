@@ -4532,7 +4532,7 @@ describe('the confirm comes to the card, and the consult goes back to the placem
     // RENEGOTIATED (batch-9, ⚖ 50): it asks the ONE verdict rather than the guard
     // alone — the seam that let the strip advertise a start the drop then refused
     // (flag 54) — and 'clean' is what places outright.
-    expect(SRC).toContain('const v = verdictAtLanding(ask)')
+    expect(SRC).toContain('const v = verdictAtLanding(ask, { pack: true })')
     expect(SRC).toContain("if (v.kind === 'clean') {")
     expect(SRC).toContain('      run(start, null)')
     // 1 · empty track → the create dialog, seeded at the start the popup names
@@ -5983,7 +5983,10 @@ describe('BATCH-8 ⚖ 51 — the room is solved at the landing, and the refusal 
     expect(blockedBranch).not.toContain('restoreSides(')
     expect(blockedBranch).not.toContain('stage(')
     // Every landing that carries a room goes through the ONE solver.
-    expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
+    // ⚖ FIX ROUND 2 (F2) — SIX: the declaration and FIVE landings. 「より良い開始」
+    // was the one landing that staged a room off the verdict instead of solving
+    // for it, which on a packing landing double-booked a room (CODE-LENS-2 F1).
+    expect(SRC.match(/solveBed\(/g)).toHaveLength(6)
     for (const call of [
       // RENEGOTIATED (Greptile #725 P1-A): every landing now names the staff lane
       // it is allocating for — the first argument — so the allocator can scope
@@ -6405,7 +6408,7 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
       // RENEGOTIATED (batch-10, ⚖ 63 §4): the card release asks through
       // `verdictRef` — the same escape hatch the hover has always used — so it
       // judges the board as it stands rather than the pointerdown closure's.
-      expect([name, body.includes('const v = verdictAtLanding(ask)') || body.includes('const v = verdictRef.current(ask)')]).toEqual([name, true])
+      expect([name, body.includes('const v = verdictAtLanding(ask, { pack: true })') || body.includes('const v = verdictRef.current(ask, { pack: true })')]).toEqual([name, true])
       // The EXACT gating line, not a substring: `kind === 'blocked'` also appears
       // inside the alternative-start re-check, so a weaker pin survives a mutant
       // that opens the gate (M10 of the batch-9 red-runs found this test, not
@@ -6532,9 +6535,15 @@ describe('BATCH-9 ⚖ 50 — one verdict: 置けない / 要確認 / silence', (
     // ⚖ FIX ROUND 1 (F1) — and both legs name the board they are asked on, which
     // is the board the landing SOLVES on (`solveLanes`), never the screen's.
     expect(SRC).toContain('const base = solveLanes(q.id)')
-    expect(SRC).toContain('const v = verdictFor(q, cellOn(base), true, base)')
+    // ⚖ FIX ROUND 2 (F1) — and the FIRST leg carries the caller's own answer to
+    // 「may this landing move somebody else?」, because the two per-frame words
+    // reach this function too and design §3 forbids them the search.
+    // ⚖ FIX ROUND 2 (F3) — and the answer carries the FIRST solve's `reseats`:
+    // the second leg re-solves on the shuffled board, where step 0 succeeds, so
+    // its own reseats are provably always empty.
+    expect(SRC).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
     expect(SRC).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
-    expect(SRC).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
+    expect(SRC).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 
   // ── ⚖ FLAG 55 — the silent guard row, answered ───────────────────────────
@@ -6628,7 +6637,7 @@ describe('BATCH-10 W1 — the trivial trio: bed solve, proxy paint, block step',
     // — `&& on.bedLane != null` — so `resource_id: null` bookings staged with no
     // bed row and `holdSummary` printed the em-dash. Both landing paths carried
     // the same inverted guard: the pointer release and the keyboard nudge.
-    const land = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictAtLanding(ask)'))
+    const land = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictAtLanding(ask, { pack: true })'))
     expect(land).toContain("if (ctx.group !== 'beds') {")
     // The window is the nudge's `land` up to its `stage(` — a fixed character
     // count went stale the moment ⚖ 87 added three comment lines above the
@@ -7060,7 +7069,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     expect(SRC).toContain('return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>')
     // …gated by the release's OWN verdict, through `verdictRef` so a surface
     // built inside a gesture closure judges against the board as it stands.
-    expect(SRC).toContain("verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked'")
+    expect(SRC).toContain("verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked'")
     // Block side: the same helper, on the BLOCK lattice, with the block's gate.
     expect(SRC).toContain('const better = offerableCell(cell, props.guard.config.blockStepMin ?? BLOCK_STEP_MIN_DEFAULT, from, (s) =>')
     expect(SRC).toContain('suggest: better.alternatives[0],')
@@ -7154,7 +7163,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // The toast is gone from this ending; the popover the rest of the board
     // uses takes its place, at the pointer.
     expect(finish).not.toContain("refuse('予約を置く行の中で離してください')")
-    expect(finish).toContain('explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {')
+    expect(finish).toContain('explainBlocked(verdictRef.current(off, { pack: true }), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {')
     expect(finish).toContain('override: null,')
     // ⚖ 47 — and it still changes nothing: the pair goes back first.
     expect(finish.indexOf('restoreSides(ctx.id, from)')).toBeLessThan(finish.indexOf('const off: LandingAsk'))
@@ -7186,7 +7195,7 @@ describe('BATCH-10 W4 — ROOT B: drops stop dying silently', () => {
     // release did not use it; `solveBed` had the identical problem, and a
     // release asking the current board for its verdict and the pointerdown
     // board for its room is two homes for one landing.
-    expect(SRC).toContain('const v = verdictRef.current(ask)')
+    expect(SRC).toContain('const v = verdictRef.current(ask, { pack: true })')
     expect(SRC).toContain('const boardLanesRef = useRef(boardLanes)')
     expect(SRC).toContain('boardLanesRef.current = boardLanes')
     // ⚖ 9/8 PACKING — the ref read moved ONE FUNCTION DOWN. `solveBed` takes the
@@ -7841,14 +7850,18 @@ describe('BATCH-11 ⚖ flags 73 + 74 — the floor decides the button, and the b
     // into a full house and the board named a room somebody else was in. 満室 is
     // now a fact, and TEST:4030's law (満室 outranks the guard) generalises: a
     // physics floor outranks any policy override.
-    expect(SRC.match(/solveBed\(/g)).toHaveLength(5)
+    // ⚖ FIX ROUND 2 (F2) — SIX: the declaration and FIVE landings. 「より良い開始」
+    // was the one landing that staged a room off the verdict instead of solving
+    // for it, which on a packing landing double-booked a room (CODE-LENS-2 F1).
+    expect(SRC.match(/solveBed\(/g)).toHaveLength(6)
     expect(SRC).not.toContain('override != null)')
     expect(SRC).not.toContain('allowBusy,')
     expect(SRC).not.toContain('allowBusy = false')
     // …and a solve that refuses now STOPS the landing on every path, rather than
     // keeping the carried room and staging anyway.
-    expect(SRC.match(/if \(bed == null\) return/g)).toHaveLength(2) // the drop, and the nudge
-    const finish = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictRef.current(ask)'))
+    // ⚖ FIX ROUND 2 (F2) — THREE: the drop, the nudge and the safe-start press.
+    expect(SRC.match(/if \(bed == null\) return/g)).toHaveLength(3)
+    const finish = SRC.slice(SRC.indexOf('const land = (override: string | null, at:'), SRC.indexOf('const v = verdictRef.current(ask, { pack: true })'))
     expect(finish).toContain('if (bed == null) return')
     expect(finish).not.toContain('?? on.bedLane')
     // The engine's own branch is UNTOUCHED and still true as a unit fact — 73 is
@@ -9555,7 +9568,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // face, so a locked-out operator now reads the same card, the same offers
     // and the same commit as anyone else. Three arms, one law, every level.
     expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
-      + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind\n'
+      + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind\n'
       + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
       + "        if (k === 'blocked') return false\n"
       + '        if (cell?.alternatives.includes(s)) return true\n'
@@ -10419,7 +10432,16 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     expect(fn).toContain("if (again.kind === 'blocked') {\n      refuse(again.reason ?? '配置できません')\n      return\n    }")
     expect(fn.indexOf('refuse(')).toBeLessThan(fn.indexOf('stage('))
     // ⚖ 45 — the ONE door, both sides, one span. No second write path exists.
-    expect(fn).toContain('stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })')
+    // ⚖ FIX ROUND 2 (F2, CODE-LENS-2 BLOCKER) — AND THE ROOM IT STAGES IS SOLVED,
+    // never taken off the verdict. `again.bedLane` was chosen on the board the
+    // pack had already shuffled, and staging it with no companions sent those
+    // companions home in the same write — ベッド1 double-booked on Liam's own
+    // board, 確定 dead, from pressing the SAFE answer. Same solver, same seed and
+    // same board as the other four landings.
+    expect(fn).toContain('const bed = solveBed(solveLanes(pending.id), at.laneKey, pending.id, seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null), item?.requiresPrivateRoom === true, span)')
+    expect(fn).toContain('if (bed == null) return')
+    expect(fn).toContain('stage(pending.id, { staffLane: at.laneKey, bedLane: bed.laneKey, companions: bed.companions }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })')
+    expect(fn).not.toContain('bedLane: again.bedLane')
     expect(fn).not.toContain('setMoves(')
     expect(fn).not.toContain('setBedMoves(')
     // The origin is the CHANGE's, so 元に戻す still undoes the whole change; and
@@ -12001,7 +12023,9 @@ describe('⚖ ROOM RULE — the room need is a fact about the BOOKING', () => {
     // these two were left raw beside it.
     // ⚖ 9/8 PACKING — SIXTEEN. `confirmPending` re-asks every companion's room at
     // 確定, and it reads the booking's own tag exactly as the four landings do.
-    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(16)
+    // ⚖ FIX ROUND 2 (F2) — SEVENTEEN: the safe-start press now solves its own
+    // room as well as asking about it, and the solve reads the same tag.
+    expect((codeOnly(SRC).match(/requiresPrivateRoom/g) ?? []).length).toBe(17)
     // …and the board model is where the field is born, in ONE place per shape.
     // Six mentions: the two type declarations, the read off the appointment row,
     // the carry onto the item (which names it twice), and — ⚖ FIX ROUND 1, blind

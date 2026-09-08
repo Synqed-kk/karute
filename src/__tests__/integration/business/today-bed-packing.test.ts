@@ -1086,7 +1086,9 @@ describe('R6 — a second landing of the same card solves against the day it sta
     // All four landings go through it — the drop, the keyboard nudge, the 次回予約
     // placement and the shelf chip. A landing that read the raw board would
     // shuffle さくら a second time out of the seat this change gave her.
-    expect((SCREEN.match(/solveBed\(solveLanes\(/g) ?? [])).toHaveLength(4)
+    // ⚖ FIX ROUND 2 (F2) — FIVE, with 「より良い開始」: it was the one landing that
+    // staged a room off the verdict instead of solving for it.
+    expect((SCREEN.match(/solveBed\(solveLanes\(/g) ?? [])).toHaveLength(5)
     expect(SCREEN).not.toContain('solveBed(boardLanesRef.current')
   })
 
@@ -1181,15 +1183,202 @@ describe('R6b — a re-landing is judged on the board it is solved on', () => {
     // against?」 — the cell, both verdicts and the shuffle all read it, so the
     // judgement and the solve can no longer drift apart.
     expect(SCREEN).toContain('const base = solveLanes(q.id)')
-    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
     expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
-    expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
+    expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
     // The gesture end reads the board through `solveLanes` and nowhere else.
     const landing = SCREEN.slice(SCREEN.indexOf('const verdictAtLanding = useCallback('), SCREEN.indexOf('const verdictRef = useRef('))
     expect(landing).not.toContain('boardLanes)')
     expect(landing).not.toContain('boardLanes,')
     // …and every OTHER consumer still gets the board on screen, by default.
     expect(SCREEN).toContain('(q: LandingAsk, cell: RailCell | null, pack = false, lanes: BoardLane[] = boardLanes): LandingVerdict =>')
+  })
+})
+
+/** ⚖ FIX ROUND 2 — THE THREE SCREEN DEFECTS THE BLIND ROUND FOUND, EXECUTED.
+ *
+ *  F1 (CODE-LENS-1, BLOCKER) — the per-frame word ran the pack.
+ *  F2 (CODE-LENS-2, BLOCKER) — 「より良い開始」 staged a shuffled board's room and
+ *    sent the shuffle home in the same write.
+ *  F3 (CODE-LENS-2, MAJOR)  — a packing landing answered `reseats: []`.
+ *
+ *  All three live in `TodayScreen`, which this suite does not render, so each is
+ *  proven the way R6b's own half is: the screen's line is pinned as source, and
+ *  the RULE it stands on is executed here on Liam's own board. */
+describe('F1 — `pack` is the only switch: the same ask, two answers', () => {
+  /** `verdictFor`'s own field list, so this is the question the screen asks. */
+  const askKiri = (staffKey: string, pack: boolean) => ({
+    staffLane: staffKey, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+    requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
+    foreignRefusal: null, hasPrice: true, locked: [] as string[],
+    minutesOf: (x: number) => minuteOf(x, HOURS),
+    stagedId: null, pack, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+  })
+
+  it('with the pack OFF the landing is refused, in today’s exact sentence, moving nobody', async () => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    const off = landingVerdict(lanes, askKiri(staff.key, false), null)
+    expect(off.kind).toBe('blocked')
+    expect(off.bedLane).toBeNull()
+    expect(off.reseats).toEqual([])
+    expect(off.reason).toBe(
+      '14:00〜15:00はベッドに空きがありません。ベッド1（見本 さくら様 14:30〜15:30）、ベッド2（見本 かえる様 13:00〜14:30）、ベッド3（テスト なぎ様 14:05〜15:05）が使用中です',
+    )
+    // …and a question that never names `pack` at all is the same answer, because
+    // absent means NO — every caller that predates the pack is untouched.
+    const { pack: _drop, ...silent } = askKiri(staff.key, false)
+    expect(landingVerdict(lanes, silent, null).reason).toBe(off.reason)
+  })
+
+  it('with the pack ON the same ask returns the packed room — one flag, nothing else changed', async () => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    const on = landingVerdict(lanes, askKiri(staff.key, true), null)
+    expect(on.bedLane).toBe('bed-01')
+    expect(on.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
+    // The 満室 refusal is gone because the room is REAL, not because the sentence
+    // was rewritten — the OFF ask above still gets it, byte for byte. (What is
+    // left on this ask is the staff-side 重複 with きり's own un-moved card: this
+    // suite asks the verdict about a board the drag has not been applied to,
+    // which the screen's own `liveMoves` does before it asks.)
+    expect(on.reason).not.toBe(
+      '14:00〜15:00はベッドに空きがありません。ベッド1（見本 さくら様 14:30〜15:30）、ベッド2（見本 かえる様 13:00〜14:30）、ベッド3（テスト なぎ様 14:05〜15:05）が使用中です',
+    )
+  })
+})
+
+describe('F3 — a packing landing answers with the companions it will actually stage', () => {
+  it('the verdict’s `reseats` are the first solve’s, never the shuffled board’s empty set', async () => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    // Leg one, as `verdictAtLanding` runs it.
+    const v = landingVerdict(lanes, {
+      staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+      requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
+      foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
+      stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    }, null)
+    expect(v.reseats).toEqual([{ id: 'apt-26', from: 'bed-01', to: 'bed-02' }])
+
+    // Leg two, on the board the shuffle would leave: step 0 succeeds there, so
+    // its OWN reseats are empty. That empty set used to be the returned answer.
+    const shuffled = applyBedMoves(lanes, companionsFor(lanes, v.reseats), HOURS)
+    const second = landingVerdict(shuffled, {
+      staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+      requiresPrivate: false, start: 840, end: 900, span: place(840, 900, HOURS),
+      foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
+      stagedId: null, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    }, null)
+    expect(second.reseats).toEqual([])
+
+    // The screen returns the second leg's verdict WITH the first leg's reseats —
+    // and that set is exactly what the landing stages (`solveBed`'s companions).
+    const returned = { ...second, reseats: v.reseats }
+    const staged = companionsFor(lanes, allocateBed(lanes, {
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      start: 840, end: 900, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    }).reseats)
+    expect(returned.reseats.map((r) => `${r.id}:${r.from}→${r.to}`))
+      .toEqual(staged.map((c) => `${c.id}:${c.bedOrigin.laneKey}→${c.bedTo}`))
+  })
+})
+
+/** ⚖ FIX ROUND 2 (F2), CODE-LENS-2's BLOCKER — 「より良い開始」 DOUBLE-BOOKED A ROOM.
+ *
+ *  `placePendingAt` was the ONE landing on this board that did not re-solve: it
+ *  took `again.bedLane` off the second verdict — a room chosen on the SHUFFLED
+ *  board — and called `stage()` with no companions, which writes every previous
+ *  companion HOME in the same update. The room was free only because of a
+ *  shuffle the same call cancelled.
+ *
+ *  This is that scene, with both stagings executed as `stage()` writes them. */
+describe('F2 — the safe-start press stages a room it solved for, on the board it stages against', () => {
+  /** Two bookings on one bed lane, overlapping in time — ⚖ 8/9's impossible
+   *  state, the thing the operator actually sees drawn. */
+  const doubleBookings = (board: BoardLane[]) => {
+    const out: string[] = []
+    for (const l of board.filter((x) => x.group === 'beds')) {
+      const on = l.items.filter((i) => i.kind === 'booking')
+      for (let i = 0; i < on.length; i += 1) {
+        for (let j = i + 1; j < on.length; j += 1) {
+          if (on[i].startMin < on[j].endMin && on[j].startMin < on[i].endMin) out.push(`${l.key}:${on[i].caseId}×${on[j].caseId}`)
+        }
+      }
+    }
+    return out
+  }
+
+  const scene = async () => {
+    const lanes = await demoLanes()
+    const staff = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === 'apt-09'))!
+    // Gesture one: きり 14:00〜15:00 takes ベッド1, さくら moves ベッド1 → ベッド2.
+    const first = allocateBed(lanes, {
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      start: 840, end: 900, pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    })
+    const companions = companionsFor(lanes, first.reseats)
+    const span = place(840, 900, HOURS)
+    // `stage()`'s own writes, transcribed: the subject, then the companions in
+    // vacate-before-occupy order.
+    const bedMoves: Record<string, { laneKey: string; x: number; w: number }> = { 'apt-09': { laneKey: first.laneKey!, ...span } }
+    for (const c of vacateBeforeOccupy(companions)) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+    // `stage()` writes the STAFF side too, and `applyMoves` reads every span
+    // from there — a companion has no entry, so its time never moves (⚖ 51).
+    const moves: Record<string, { laneKey: string; x: number; w: number }> = { 'apt-09': { laneKey: staff.key, ...span } }
+    const staged = applyMoves(lanes, moves, [], [], HOURS, bedMoves)
+    return { lanes, staff, companions, moves, bedMoves, staged, restored: lanesWithCompanionsRestored(staged, companions, HOURS) }
+  }
+
+  /** The press: 「より良い開始」 at 14:05, the same 60 minutes. */
+  const AT = place(845, 905, HOURS)
+
+  it('the OLD press double-booked ベッド1 — the room the shuffle bought, with the shuffle cancelled', async () => {
+    const { lanes, staff, moves, bedMoves, staged, restored } = await scene()
+    // The verdict's SECOND leg, which is where `again.bedLane` came from.
+    const v = landingVerdict(restored, {
+      staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+      requiresPrivate: false, start: 845, end: 905, span: AT,
+      foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
+      stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    }, null)
+    const shuffled = applyBedMoves(restored, companionsFor(restored, v.reseats), HOURS)
+    const again = landingVerdict(shuffled, {
+      staffLane: staff.key, bedLane: 'bed-01', solveRoom: true, id: 'apt-09',
+      requiresPrivate: false, start: 845, end: 905, span: AT,
+      foreignRefusal: null, hasPrice: true, locked: [], minutesOf: (x: number) => minuteOf(x, HOURS),
+      stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    }, null)
+    // The word says CLEAN, so the button fires…
+    expect(again.kind).not.toBe('blocked')
+    expect(again.bedLane).toBe('bed-01')
+    // …and the old `stage(…, { bedLane: again.bedLane })` carried no companions,
+    // so the previous ones are written home in the same update.
+    const old: Record<string, { laneKey: string; x: number; w: number }> = { ...bedMoves, 'apt-09': { laneKey: again.bedLane!, ...AT } }
+    for (const c of (await scene()).companions) old[c.id] = c.bedOrigin
+    const onStaff = { ...moves, 'apt-09': { laneKey: staff.key, ...AT } }
+    expect(doubleBookings(applyMoves(lanes, onStaff, [], [], HOURS, old))).toEqual(['bed-01:apt-09×apt-26'])
+    // (and the board it was staged FROM was clean — the press made the mess)
+    expect(doubleBookings(staged)).toEqual([])
+  })
+
+  it('the NEW press re-solves on the board it stages against: no overlap, and the companions ride along', async () => {
+    const { lanes, staff, companions, moves, bedMoves, restored } = await scene()
+    // `solveBed(solveLanes(pending.id), …)` — the same door the other four
+    // landings use, on the board with the first gesture's companions restored.
+    const solved = allocateBed(restored, {
+      id: 'apt-09', currentBed: 'bed-01', stores: staff.stores, requiresPrivate: false,
+      start: 845, end: 905, stagedId: 'apt-09', pack: true, now: 804, cleanupMinutesByBed: NO_CLEANUP,
+    })
+    expect(solved.laneKey).not.toBeNull()
+    const next = companionsFor(restored, solved.reseats)
+    // `stage()`'s own bookkeeping: the previous set goes home, then this one.
+    const fixed: Record<string, { laneKey: string; x: number; w: number }> = { ...bedMoves, 'apt-09': { laneKey: solved.laneKey!, ...AT } }
+    for (const c of companions) fixed[c.id] = c.bedOrigin
+    for (const c of vacateBeforeOccupy(next)) fixed[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+    expect(doubleBookings(applyMoves(lanes, { ...moves, 'apt-09': { laneKey: staff.key, ...AT } }, [], [], HOURS, fixed))).toEqual([])
+    // …and the 仮押さえ box names さくら, rather than naming nobody while she moves.
+    expect(companionLines(restored, next)).toEqual(['見本 さくら様 ベッド1 → ベッド2'])
   })
 })
 
@@ -1296,19 +1485,60 @@ describe('R10 — a shuffle that kills a held window is judged on the board it w
   })
 
   it('and the screen asks the guard on exactly that board', () => {
-    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
-    expect(SCREEN).toContain('if (v.reseats.length === 0) return v')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
+    expect(SCREEN).toContain('if (!opts.pack || v.reseats.length === 0) return v')
     expect(SCREEN).toContain('const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)')
-    expect(SCREEN).toContain('return verdictFor(q, cellOn(shuffled), true, shuffled)')
+    expect(SCREEN).toContain('return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }')
   })
 })
 
 describe('B — the fence at the screen: only a gesture END packs', () => {
-  it('`pack: true` is written in exactly two places, and neither is the per-frame word', () => {
+  /** ⚖ FIX ROUND 2 (F1), CODE-LENS-1's BLOCKER — THE FENCE, ASKED OF EVERY CALL
+   *  SITE RATHER THAN OF A GREP.
+   *
+   *  The pin this replaces counted `/pack: true/` and found ONE — `solveBed`'s
+   *  keyword form — and called that proof that the per-frame word does not pack.
+   *  It was not: `verdictAtLanding`'s body hardcoded a POSITIONAL `true`, which
+   *  that regex can never match, and both live paint paths reach it through
+   *  `verdictRef`. Every pointer-move frame over an occupied room ran the full
+   *  backtracking search. The test title said otherwise and 637 tests were green.
+   *
+   *  So the fence is now asked of the CALL SITES: every one of them names its
+   *  own answer, and the two per-frame paints name OFF. */
+  it('every landing question names its own `pack`, and the two per-frame words say no', () => {
     // ⚖ flag 54's asymmetry, kept: the strip and the cursor promise only
     // no-shuffle fits; the drop may accept a start the strip did not promise.
-    expect((SCREEN.match(/pack: true/g) ?? [])).toHaveLength(1)
-    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), true, base)')
+    //
+    // Twelve call sites, each carrying its answer as the second argument. The
+    // regex matches a CALL (`(`), so a comment naming the function is not one.
+    const calls = [...SCREEN.matchAll(/verdict(?:Ref\.current|AtLanding)\(/g)].map((m) => m.index ?? -1)
+    expect(calls).toHaveLength(12)
+    for (let i = 0; i < calls.length; i += 1) {
+      const seg = SCREEN.slice(calls[i], calls[i + 1] ?? SCREEN.length)
+      const answers = seg.match(/\{ pack: (?:true|false) \}/g) ?? []
+      // Exactly one answer between this call and the next: no call is silent,
+      // and none of them is answered twice.
+      expect({ at: seg.slice(0, 48), answers: answers.length }).toEqual({ at: seg.slice(0, 48), answers: 1 })
+    }
+    // Ten gesture ENDS and two per-frame paints — counted over the whole file,
+    // so a thirteenth call cannot hide inside a segment.
+    expect((SCREEN.match(/\{ pack: true \}/g) ?? [])).toHaveLength(10)
+    expect((SCREEN.match(/\{ pack: false \}/g) ?? [])).toHaveLength(2)
+    // …and the two OFFs are the two live words, named. `paintProxyVerdict` is
+    // the card's, `paintChipVerdict` the shelf chip's; both are called from the
+    // coalesced pointer-move frame.
+    for (const fn of ['function paintProxyVerdict(', 'function paintChipVerdict(']) {
+      const body = SCREEN.slice(SCREEN.indexOf(fn), SCREEN.indexOf('\n  }\n', SCREEN.indexOf(fn)))
+      expect({ fn, off: body.includes('{ pack: false }') }).toEqual({ fn, off: true })
+      expect({ fn, on: body.includes('{ pack: true }') }).toEqual({ fn, on: false })
+    }
+    // `solveBed`'s own keyword form is the ONE remaining spelling — the other
+    // door design §3 allows, and the only `pack:` field written anywhere.
+    expect((SCREEN.match(/pack: true,/g) ?? [])).toHaveLength(1)
+    // No default on the landing question, so a new call site cannot forget.
+    expect(SCREEN).toContain('(q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {')
+    expect(SCREEN).not.toContain('opts: { pack: boolean } = ')
+    expect(SCREEN).toContain('const v = verdictFor(q, cellOn(base), opts.pack, base)')
     // `verdictFor` itself never turns it on — it takes the answer from its caller
     // and defaults to OFF, so every other consumer (the 60分配置 strip's × marks,
     // the word under the cursor, the rail's own probes) is byte-unchanged. The
