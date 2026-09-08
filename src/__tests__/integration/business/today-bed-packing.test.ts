@@ -24,7 +24,12 @@ import { appointments, STORE_A } from '@/business/lib/fixtures'
 import { jstDayKey } from '@/business/lib/clock'
 import * as data from '@/business/lib/data'
 import { buildLanes, dayBookings, place, type BoardItem, type BoardLane, type BuildInput } from '@/business/lib/today-board'
-import { allocateBed } from '@/app/[locale]/(business)/business/today/today-interactions'
+import {
+  allocateBed,
+  applyBedMoves,
+  applyMoves,
+  type BedCompanion,
+} from '@/app/[locale]/(business)/business/today/today-interactions'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -407,6 +412,104 @@ describe('R11 — the turnaround is part of every claim', () => {
     const r = allocateBed(boardOf(beds(), 'SUBJECT'), packAsk({ currentBed: 'bed-02', start: 660, end: 720, cleanupMinutesByBed: NO_CLEANUP }))
     expect(r.laneKey).toBe('bed-01')
     expect(r.reseats).toEqual([])
+  })
+})
+
+/** ⚖ FIX ROUND 2 (F4), CODE-LENS-2 F3 — THE TAIL BELONGS TO THE ROOM THE CARD
+ *  IS IN NOW.
+ *
+ *  `packSearch` validates a reseat against the DESTINATION room's turnaround
+ *  (`cleanupMinutesByBed[room]`), and the board redrew the tail at the length
+ *  the SERVER drew on the ORIGIN room — drawing nothing at all when the origin
+ *  turned around instantly. So the board could show ベッド2 free at 12:10 in
+ *  minutes the search had already reserved, and every layer reading
+ *  `committedLanes` (sell / gap / reserved) would sell them — minutes core's own
+ *  `appointments_resource_no_overlap` EXCLUDE refuses. Unreachable on the
+ *  shipped fixture (`cleanup_minutes: 0` everywhere); real the day one store
+ *  sets a turnaround. */
+describe('F4 — a moved card’s turnaround is the DESTINATION room’s, never the origin’s', () => {
+  const A_SPAN = place(690, 730, HOURS) // 11:30〜12:10
+  const movedToBed02: BedCompanion[] = [{ id: 'apt-A', bedOrigin: { laneKey: 'bed-01', x: A_SPAN.x, w: A_SPAN.w }, bedTo: 'bed-02' }]
+  const rows = (board: BoardLane[], key: string) =>
+    board.find((l) => l.key === key)!.items.map((i) => [i.key, i.kind, i.startMin, i.endMin])
+  /** A turnaround the server DID draw, in today-board's own shape (:594-600). */
+  const drawnTail = (caseId: string, start: number, end: number): BoardItem => ({
+    key: `${caseId}-cleanup`, kind: 'cleanup', state: null, category: null,
+    ...place(start, end, HOURS), title: '清掃', tag: '', time: '',
+    ticketCat: null, ticketCore: null, held: false, micro: end - start <= 20, caseId: null,
+    label: '',
+  })
+  /** 「could anybody have ベッド2 from 12:10?」 — the question the sell layer and
+   *  the gap layer both end up asking of the board this draws. */
+  const bed02FreeAt = (board: BoardLane[], start: number, end: number) =>
+    allocateBed(board.filter((l) => l.group !== 'beds' || l.key === 'bed-02'), {
+      id: null, currentBed: 'bed-02', stores: ['store-a'], requiresPrivate: false, start, end,
+    }).laneKey
+
+  it('origin 0 → destination 15: the tail is DRAWN in the new room, and the minutes stop being sellable', () => {
+    const board = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-A', title: '見本 さくら' }, 690, 730)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ])
+    const withTails = applyBedMoves(board, movedToBed02, HOURS, { 'bed-01': 0, 'bed-02': 15 })
+    expect(rows(withTails, 'bed-02')).toEqual([
+      ['a', 'booking', 690, 730],
+      ['apt-A-cleanup', 'cleanup', 730, 745],
+    ])
+    expect(bed02FreeAt(withTails, 730, 760)).toBeNull()
+
+    // The same board WITHOUT the room policy is byte-for-byte what shipped: no
+    // tail at all, and 12:10 on ベッド2 reads as free — the defect, pinned.
+    const asShipped = applyBedMoves(board, movedToBed02, HOURS)
+    expect(rows(asShipped, 'bed-02')).toEqual([['a', 'booking', 690, 730]])
+    expect(bed02FreeAt(asShipped, 730, 760)).toBe('bed-02')
+  })
+
+  it('origin 15 → destination 0: the origin’s tail does NOT travel, so nothing is drawn', () => {
+    const board = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [
+        booking({ key: 'a', caseId: 'apt-A', title: '見本 さくら' }, 690, 730),
+        drawnTail('apt-A', 730, 745),
+      ] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ])
+    expect(rows(applyBedMoves(board, movedToBed02, HOURS, { 'bed-01': 15, 'bed-02': 0 }), 'bed-02'))
+      .toEqual([['a', 'booking', 690, 730]])
+    // …and without the map the origin's 15 minutes travel to a room that needs
+    // none, which is the same defect one size smaller.
+    expect(rows(applyBedMoves(board, movedToBed02, HOURS), 'bed-02'))
+      .toEqual([['a', 'booking', 690, 730], ['apt-A-cleanup', 'cleanup', 730, 745]])
+  })
+
+  it('a booking that did NOT change room keeps the length the server drew, map or no map', () => {
+    // apt-B never moves. The server clipped its turnaround to 5 minutes; ベッド2's
+    // policy says 15. The clip is the truth for a card standing still.
+    const board = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [booking({ key: 'a', caseId: 'apt-A', title: '見本 さくら' }, 690, 730)] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [
+        booking({ key: 'b', caseId: 'apt-B', title: '見本 かえる' }, 780, 840),
+        drawnTail('apt-B', 840, 845),
+      ] }),
+    ])
+    const moved = applyMoves(board, {}, [], [], HOURS, { 'apt-A': { laneKey: 'bed-02', x: A_SPAN.x, w: A_SPAN.w } }, { 'bed-01': 0, 'bed-02': 15 })
+    expect(rows(moved, 'bed-02')).toEqual([
+      ['a', 'booking', 690, 730],
+      ['apt-A-cleanup', 'cleanup', 730, 745],
+      ['b', 'booking', 780, 840],
+      ['apt-B-cleanup', 'cleanup', 840, 845],
+    ])
+  })
+
+  it('and a caller that hands in no policy at all is byte-identical to the shipped board', () => {
+    const board = boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [
+        booking({ key: 'a', caseId: 'apt-A', title: '見本 さくら' }, 690, 730),
+        drawnTail('apt-A', 730, 745),
+      ] }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
+    ])
+    const bed: Record<string, { laneKey: string; x: number; w: number }> = { 'apt-A': { laneKey: 'bed-02', x: A_SPAN.x, w: A_SPAN.w } }
+    expect(applyMoves(board, {}, [], [], HOURS, bed, undefined)).toEqual(applyMoves(board, {}, [], [], HOURS, bed))
   })
 })
 

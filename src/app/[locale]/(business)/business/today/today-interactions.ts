@@ -469,6 +469,12 @@ export function applyMoves(
    *  booking nobody has grabbed by its bed row: the room keeps the lane the
    *  server drew it on and takes only the span. */
   bedMoves: Moves = {},
+  /** ⚖ 9/8 PACKING fix round 2 (F4, CODE-LENS-2 F3) — EACH ROOM'S OWN
+   *  TURNAROUND, so a booking that CHANGED room is drawn with the tail the room
+   *  it is in now actually needs. Absent (the default) is byte-for-byte the
+   *  behaviour this file shipped with: every tail keeps the length the server
+   *  drew on the origin room. See `withTrailingCleanup` for the rule. */
+  cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
   // The row the SERVER drew, per group — what a lane re-admits when a booking
   // arrives on it. Keyed by group as well as id, because a booking arriving on a
@@ -480,13 +486,24 @@ export function applyMoves(
   // `${id}-cleanup` at derivation (today-board :508), which is the only link
   // back to its owner — the item itself carries no caseId.
   const cleanupOf = new Map<string, BoardItem>()
+  // …and the room the SERVER drew each booking in, which is the only way to tell
+  // a staged room CHANGE from a staged time change on the same room.
+  const bedHome = new Map<string, string>()
   for (const lane of lanes) {
     for (const item of lane.items) {
       if (item.kind === 'booking' && item.caseId) home.set(`${lane.group}|${item.caseId}`, item)
+      if (item.kind === 'booking' && item.caseId && lane.group === 'beds') bedHome.set(item.caseId, lane.key)
       if (item.kind === 'cleanup' && item.key.endsWith('-cleanup')) {
         cleanupOf.set(item.key.slice(0, -'-cleanup'.length), item)
       }
     }
+  }
+  // ⚖ 9/8 PACKING fix round 2 (F4) — WHO CHANGED ROOM. A booking the server drew
+  // in no room at all (`resource_id: null`, the flag-59 residue below) changed
+  // room too: it had none, and it has one now.
+  const movedRoom = new Set<string>()
+  for (const [id, m] of Object.entries(bedMoves)) {
+    if (bedHome.get(id) !== m.laneKey) movedRoom.add(id)
   }
   // ⚖ Liam flag 61, second-order (study §61 bonus) — A ROW THIS SESSION CREATED
   // IS A BOARD ROW. `added` used to bypass everything below: it was filtered by
@@ -619,7 +636,7 @@ export function applyMoves(
       arrivals.push(row)
     }
     const settled = [...kept, ...arrivals].map((i) => moved(i, lane.group)).sort(byX)
-    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours) : settled }
+    return { ...lane, items: lane.group === 'beds' ? withTrailingCleanup(lane, settled, cleanupOf, hours, cleanupMinutesByBed, movedRoom) : settled }
   })
 }
 
@@ -634,32 +651,53 @@ export function applyMoves(
  *  no room. With an empty `moves`/`bedMoves` this reproduces the server's rows
  *  exactly, which is what makes it safe to run on every board.
  *
- *  ponytail: the LENGTH is the one the server drew, not the resource's
- *  `cleanup_minutes` — BoardLane does not carry that policy and threading it
- *  from page.tsx would be a wider change than this defect needs. It differs only
- *  for a turnaround the server had already clipped short, and only ever
- *  UNDER-draws, never blocking a minute the room is free. Carry
- *  `cleanup_minutes` onto BoardLane if that case ever matters. */
+ *  ponytail: for a booking that did NOT change room the LENGTH is still the one
+ *  the server drew, not the resource's `cleanup_minutes`. It differs only for a
+ *  turnaround the server had already clipped short, and only ever UNDER-draws,
+ *  never blocking a minute the room is free.
+ *
+ *  ⚖ 9/8 PACKING fix round 2 (F4, CODE-LENS-2 F3) — A BOOKING THAT CHANGED ROOM
+ *  TAKES THE ROOM IT IS IN NOW. `packSearch` reserves the DESTINATION room's
+ *  `cleanup_minutes` when it validates a reseat, and this function re-placed the
+ *  tail at the ORIGIN room's drawn length — drawing nothing at all when the
+ *  origin turned around in 0 minutes. The board (the guard's synthetic `W` and
+ *  `committedLanes`, which the sell / gap / reserved layers read) could then
+ *  advertise a 販売可能枠 core's own per-row EXCLUDE would refuse. Unreachable on
+ *  the shipped fixture, where every room turns around instantly; real for any
+ *  store that sets a turnaround. `cleanupMinutesByBed` absent = every caller
+ *  that predates this is byte-identical. */
 function withTrailingCleanup(
   lane: BoardLane,
   items: BoardItem[],
   cleanupOf: Map<string, BoardItem>,
   hours: Hours,
+  cleanupMinutesByBed?: Record<string, number>,
+  movedRoom?: ReadonlySet<string>,
 ): BoardItem[] {
   const out = [...items]
+  /** This room's own policy — the tail length for anyone who arrived here. */
+  const policy = cleanupMinutesByBed?.[lane.key]
   for (const b of items) {
     if (b.kind !== 'booking' || !b.caseId) continue
     const orig = cleanupOf.get(b.caseId)
-    if (!orig) continue
+    const drawn = orig ? orig.endMin - orig.startMin : null
+    // `min(cleanupMinutesByBed[newBed] ?? drawnLength, ceiling)` for a card that
+    // changed room; the drawn length for everybody else. A destination that
+    // turns around in 0 draws nothing, which is the honest board.
+    const minutes = movedRoom?.has(b.caseId) === true && policy != null ? policy : drawn
+    if (minutes == null) continue
     const start = b.endMin
     const ceiling = items.reduce(
       (c, i) => (i.kind === 'booking' && i.startMin >= start && i.startMin < c ? i.startMin : c),
       hours.close,
     )
-    const end = Math.min(start + (orig.endMin - orig.startMin), ceiling)
+    const end = Math.min(start + minutes, ceiling)
     if (end <= start) continue
     out.push({
-      ...orig,
+      // A room whose turnaround the SERVER never drew (origin 0, destination 15)
+      // has no `orig` to re-place, so the tail is minted in today-board's own
+      // shape (:594-600) rather than skipped — the same row, one room over.
+      ...(orig ?? cleanupShell(b)),
       ...place(start, end, hours),
       time: `${clock(start)}〜`,
       micro: end - start <= 20,
@@ -670,6 +708,22 @@ function withTrailingCleanup(
     })
   }
   return out.sort(byX)
+}
+
+/** ⚖ 9/8 PACKING fix round 2 (F4) — a 清掃 row for a booking the server drew no
+ *  turnaround for, in today-board's own shape (:594-600). Every positional field
+ *  is overwritten by the caller; what lives here is the chrome a turnaround
+ *  wears — its key, its kind, its 清掃 title and the nulls that say it is not a
+ *  booking. */
+function cleanupShell(b: BoardItem): BoardItem {
+  return {
+    key: `${b.caseId}-cleanup`,
+    kind: 'cleanup', state: null, category: null,
+    x: 0, w: 0, startMin: 0, endMin: 0,
+    title: '清掃', tag: '', time: '',
+    ticketCat: null, ticketCore: null, held: false, micro: false, caseId: null,
+    label: '',
+  }
 }
 
 /** An item redrawn at a staged span — the percent pair AND the minutes and the
@@ -3935,12 +3989,21 @@ export function companionsFor(lanes: BoardLane[], reseats: readonly Reseat[]): B
 
 /** The board as it will stand once these moves are staged — the SAME `bedMoves`
  *  writes `stage()` makes, through the same `applyMoves`, so the guard's
- *  synthetic world and the staged world can never be two different boards. */
-export function applyBedMoves(lanes: BoardLane[], companions: readonly BedCompanion[], hours: Hours): BoardLane[] {
+ *  synthetic world and the staged world can never be two different boards.
+ *
+ *  ⚖ 9/8 PACKING fix round 2 (F4) — and each room's own turnaround rides along,
+ *  because a moved card's tail belongs to the room it lands in (see
+ *  `withTrailingCleanup`). Absent = today's behaviour, unchanged. */
+export function applyBedMoves(
+  lanes: BoardLane[],
+  companions: readonly BedCompanion[],
+  hours: Hours,
+  cleanupMinutesByBed?: Record<string, number>,
+): BoardLane[] {
   if (companions.length === 0) return lanes
   const bedMoves: Moves = {}
   for (const c of companions) bedMoves[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
-  return applyMoves(lanes, {}, [], [], hours, bedMoves)
+  return applyMoves(lanes, {}, [], [], hours, bedMoves, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING, THE RE-LANDING RULE — every companion put back where it stood
@@ -3954,8 +4017,9 @@ export function lanesWithCompanionsRestored(
   lanes: BoardLane[],
   companions: readonly BedCompanion[] | undefined,
   hours: Hours,
+  cleanupMinutesByBed?: Record<string, number>,
 ): BoardLane[] {
-  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours)
+  return applyBedMoves(lanes, (companions ?? []).map((c) => ({ ...c, bedTo: c.bedOrigin.laneKey })), hours, cleanupMinutesByBed)
 }
 
 /** ⚖ 9/8 PACKING — VACATE BEFORE OCCUPY. A card moving INTO a room is written
