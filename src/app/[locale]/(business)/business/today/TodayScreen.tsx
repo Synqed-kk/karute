@@ -64,6 +64,14 @@ import { useSessionEdits, type ParkChip } from '../../BusinessSessionEdits'
 import { useTopbarAction } from '../../BusinessTopbar'
 import {
   allocateBed,
+  applyBedMoves,
+  companionLines,
+  companionRoomStillFree,
+  companionsFor,
+  isStagedCard,
+  lanesWithCompanionsRestored,
+  vacateBeforeOccupy,
+  type BedCompanion,
   anchorOnScreen,
   applyBlockMoves,
   applyMoves,
@@ -726,6 +734,15 @@ interface HoldPop {
   status: string
   tone: 'waiting' | 'done'
   summary: string
+  /** ⚖ 9/8 PACKING — WHO ELSE THIS CHANGE MOVED, one line each.
+   *
+   *  ADDITIVE on purpose: `summary` above is untouched, because `holdSummary`
+   *  has a second caller (the caution box's own facts) and this surface has a
+   *  second construction branch (the day's own standing 仮押さえ) — both of which
+   *  answer for a landing that moved nobody. Absent there, and absent on every
+   *  landing that packed nothing. A `\n`-joined string would collapse into one
+   *  run-on sentence, so it is a list and the render puts each on its own line. */
+  companionLines?: readonly string[]
   /** ⚖ 52 — `bad` is ×, and × is a line that BLOCKS; `warn` is △, for a line
    *  that is real but no longer stops the confirm (⚖ 50(d)'s overridden row). */
   checks: Array<{ label: string; tone: '' | 'bad' | 'warn' }>
@@ -1323,9 +1340,14 @@ export function TodayScreen(props: TodayProps) {
     () => applyBlockMoves(props.lanes, blockMoves, hours, blockDeleted),
     [props.lanes, blockMoves, hours, blockDeleted],
   )
+  /** ⚖ 9/8 PACKING fix round 2 (F4) — AND EACH ROOM'S OWN TURNAROUND, on all
+   *  three boards below. A card that changed room is drawn with the tail the
+   *  room it is in NOW needs, which is the same policy the pack's own claims are
+   *  measured against. Without it `committedLanes` — the board the sell, gap and
+   *  reserved layers price against — could advertise minutes core will refuse. */
   const boardLanes = useMemo(
-    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves),
-    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves],
+    () => applyMoves(placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes),
+    [placedLanes, liveMoves, parked, addedHere, hours, liveBedMoves, props.bedCleanupMinutes],
   )
   /** The board WITHOUT the in-flight pointer — what the window layers price
    *  against. canon's `renderPublicLayer` (:5343) and `renderGapFillLayer`
@@ -1340,8 +1362,8 @@ export function TodayScreen(props: TodayProps) {
    *  1. `boardLanes` stays the truth for the guard and the drop target, which
    *  DO have to answer where the card is heading. */
   const committedLanes = useMemo(
-    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves),
-    [placedLanes, moves, parked, addedHere, hours, bedMoves],
+    () => applyMoves(placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes),
+    [placedLanes, moves, parked, addedHere, hours, bedMoves, props.bedCleanupMinutes],
   )
   /** WHAT THE DOM DRAWS while a card is in flight: the board as it stands. The
    *  card he grabbed is under his cursor now (the proxy), so the original stays
@@ -1359,8 +1381,8 @@ export function TodayScreen(props: TodayProps) {
     if (!a) return null
     const staff = a.staffLane ? { ...moves, [a.id]: { laneKey: a.staffLane, x: a.span.x, w: a.span.w } } : moves
     const bed = a.bedLane ? { ...bedMoves, [a.id]: { laneKey: a.bedLane, x: a.span.x, w: a.span.w } } : bedMoves
-    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed)
-  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours])
+    return applyMoves(placedLanes, staff, parked, addedHere, hours, bed, props.bedCleanupMinutes)
+  }, [advice, moves, bedMoves, placedLanes, parked, addedHere, hours, props.bedCleanupMinutes])
   const drawnLanes = live || blockLive ? committedLanes : (attemptLanes ?? boardLanes)
   /** ⚖ Liam 2026-08-20: the dashed outline is now the SNAPPED LANDING PREVIEW and
    *  is drawn for every live drag, same lane or not — with the card off travelling
@@ -2216,9 +2238,19 @@ export function TodayScreen(props: TodayProps) {
    *  60分配置 strip, and every gesture ending — which is what makes the label a
    *  promise instead of a decoration. */
   const verdictFor = useCallback(
-    (q: LandingAsk, cell: RailCell | null): LandingVerdict =>
+    /** ⚖ 9/8 PACKING — `pack` is an ARGUMENT here, defaulted OFF, and not a field
+     *  on `LandingAsk`: the ask is passed around by every surface on this board
+     *  and a field would ride into all of them. Only `verdictAtLanding` — the
+     *  gesture END — turns it on.
+     *
+     *  ⚖ FIX ROUND 1 (F1) — AND `lanes` IS THE BOARD THE QUESTION IS ASKED ON,
+     *  defaulted to the one on screen. Every per-frame consumer leaves it out
+     *  and is byte-unchanged; only `verdictAtLanding` hands one in, because a
+     *  re-landing is SOLVED on the board with its companions restored and was
+     *  being JUDGED on the board with them still moved. */
+    (q: LandingAsk, cell: RailCell | null, pack = false, lanes: BoardLane[] = boardLanes): LandingVerdict =>
       landingVerdict(
-        boardLanes,
+        lanes,
         {
           ...q,
           start: minuteOf(q.span.x, hours),
@@ -2235,22 +2267,92 @@ export function TodayScreen(props: TodayProps) {
           // 91 and passed it only to the card — so the card said 長押しで注意して
           // 配置 while the board underneath refused to stage anything for anyone.
           overrideLevel: props.overrideLevel,
+          // ⚖ 9/8 PACKING — the two facts the pack cannot be honest without, on
+          // EVERY ask rather than only the packing ones, so `pack` can never
+          // arrive at the allocator without them.
+          now: props.sell.nowMinute,
+          cleanupMinutesByBed: props.bedCleanupMinutes,
+          pack,
         },
         cell,
       ),
-    [boardLanes, hours, locked, pending?.id, props.overrideLevel],
+    [boardLanes, hours, locked, pending?.id, props.overrideLevel, props.sell.nowMinute, props.bedCleanupMinutes],
   )
 
   /** The same question when the guard has NOT already been asked — a gesture
    *  ending, where there is one landing rather than a strip of them. The card's
    *  OWN length, exactly as `askGuard` does it. */
   const verdictAtLanding = useCallback(
-    (q: LandingAsk): LandingVerdict => {
+    /** ⚖ FIX ROUND 2 (F1, CODE-LENS-1 BLOCKER) — `pack` IS AN ARGUMENT HERE TOO,
+     *  AND IT HAS NO DEFAULT.
+     *
+     *  This function's body used to hardcode `true`, and `verdictRef.current` is
+     *  what the two LIVE per-frame words call (`paintProxyVerdict`,
+     *  `paintChipVerdict`) — so every pointer-move frame over an occupied room
+     *  ran the full backtracking search, the exact per-frame cost design §3's
+     *  NEVER list and §6's zero-cost guarantee were written to forbid. The
+     *  suite's own fence could not see it: this function passed `true`
+     *  POSITIONALLY, which the keyword-form grep never matched.
+     *
+     *  No default, so a new call site cannot forget to answer: the gesture ENDS
+     *  ask with the pack ON (the drop, the keyboard nudge, the safe-start press
+     *  and the offered alternatives — Q3 accepted, an offer is a drop by another
+     *  gesture); the two per-frame paints ask with it OFF and get exactly the
+     *  answer this board gave before the packing branch existed. */
+    (q: LandingAsk, opts: { pack: boolean }): LandingVerdict => {
       const start = minuteOf(q.span.x, hours)
       const dur = minuteOf(q.span.x + q.span.w, hours) - start
-      return verdictFor(q, q.staffLane ? verdictAt(q.staffLane, start, dur, q.id) : null)
+      const cellOn = (lanes: BoardLane[]) => (q.staffLane ? verdictAt(q.staffLane, start, dur, q.id, lanes) : null)
+      // ⚖ 9/8 PACKING — THE ROOM SOLVE RUNS FIRST, AND THE GUARD THEN JUDGES THE
+      // BOARD THE SHUFFLE WOULD LEAVE.
+      //
+      // The guard cell is an ARGUMENT to the verdict, so it used to be evaluated
+      // before the solve had computed anything — which is fine while a landing
+      // only ever moves itself. It no longer only moves itself: a companion can
+      // take the room that made a held 新規用 window feasible, and the existing
+      // 「…が入らなくなります」 face has to fire for that. So the solve runs, and
+      // when it carries companions the cell is re-read on the synthetic board
+      // `stage()` is about to write (`applyBedMoves`, the same helper).
+      //
+      // ⚖ FIX ROUND 1 (F1) — AND ALL OF IT ON ONE BOARD. `solveLanes` is what
+      // the landing that follows this verdict SOLVES against (a re-landing puts
+      // its own companions back first), and this function was judging on
+      // `boardLanes` — the day with the first gesture's companions still in
+      // their new rooms. On a second gesture the two boards differ, so the word
+      // could refuse what the drop would then pack, or pass what the drop would
+      // then refuse and leave `solveBed`'s toast to speak after a clean verdict.
+      // One board, asked once: the cell, the verdict and the shuffle all read it.
+      //
+      // ⚖ FIX ROUND 2 (F3, CODE-LENS-2 F2) — AND THE ANSWER CARRIES THE FIRST
+      // SOLVE'S `reseats`. The second verdict re-solves on `shuffled`, where the
+      // companions already sit in their new rooms, so its own step 0 succeeds
+      // and its `reseats` is provably always `[]` — a packing landing was
+      // returning a verdict that said nobody moves. The board stages the
+      // companions from `solveBed`, so nothing was wrong on screen; the next
+      // reader of this field (a preview line, the caution box's facts, the
+      // durable audit entry §7 has queued) would have got silence.
+      const base = solveLanes(q.id)
+      const v = verdictFor(q, cellOn(base), opts.pack, base)
+      // The fence, said twice: without a pack there is nothing to shuffle
+      // (`allocateBed` returns `reseats: []` on every non-pack path), and this
+      // says so out loud rather than relying on that.
+      if (!opts.pack || v.reseats.length === 0) return v
+      const shuffled = applyBedMoves(base, companionsFor(base, v.reseats), hours, props.bedCleanupMinutes)
+      return { ...verdictFor(q, cellOn(shuffled), true, shuffled), reseats: v.reseats }
     },
-    [verdictFor, verdictAt, hours],
+    // `solveLanes` is a body function declaration (⚖ its own doc comment: one
+    // home for 「which board does this landing solve against?」, and the pins in
+    // the suite hold it there), so the rule cannot see through it: this list is
+    // hand-maintained against what it actually reads — `pending` and `hours`,
+    // plus `boardLanesRef`, which is a ref and therefore always current. That
+    // ref is also why `boardLanes` LEAVES the list: nothing here reads the
+    // render's own copy of the board any more.
+    // ⚖ FIX ROUND 2 (F4) — `props.bedCleanupMinutes` is read here too (the
+    // shuffle draws each moved card's tail at its NEW room's policy) and stays
+    // off the list for the same reason `boardLanes` did: `verdictFor` carries it
+    // and so changes identity with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [verdictFor, verdictAt, hours, pending],
   )
 
   /** ⚖ Liam flag 50 — the drag frame runs inside listeners bound once per
@@ -2283,7 +2385,10 @@ export function TodayScreen(props: TodayProps) {
       const start = minuteOf(ask.span.x, hours)
       const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
       return offerableCell(cell, props.guard.bookingStepMin, start, (s) =>
-        verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+        // ⚖ FIX ROUND 2 (F1) — an OFFER is a drop by another gesture (⚖ FIX
+        // ROUND 1 F3, Q3 accepted), so it is judged with the pack the drop will
+        // run. Gesture-end only: nothing here runs per pointer frame.
+        verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
       )
     },
     [hours, props.guard.bookingStepMin],
@@ -2315,7 +2420,9 @@ export function TodayScreen(props: TodayProps) {
         const start = minuteOf(ask.span.x, hours)
         const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
         return nearestFreeStarts(start, props.guard.bookingStepMin, hours, dur, (s) =>
-          verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind !== 'blocked',
+          // ⚖ FIX ROUND 2 (F1) — the refusal box's own starts, judged with the
+          // pack for the same reason `offerable` above is.
+          verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind !== 'blocked',
         )
       }),
     [hours, props.guard.bookingStepMin],
@@ -2591,8 +2698,27 @@ export function TodayScreen(props: TodayProps) {
     const stagedLoss = lossOf(cell)
     return {
       row: guardCheckRow(cell),
+      // ⚖ FIX ROUND 2 (F1) — THE DRAW AND THE PRESS ARE ONE LAW (⚖ 92 fix round
+      // 3 T6): the safe-start press packs, so the gate that decides which starts
+      // this card OFFERS has to agree with what the press can reach.
+      //
+      // ⚖ FIX ROUND 3 (G1, DELTA-CODE-D1) — CORRECTED: the line above used to
+      // say "once per render of a staged card, never per frame," and that was
+      // false. This memo depends on `boardLanes`, which gets a fresh identity on
+      // every RAF frame while the staged card is re-dragged — the one live drag
+      // `pending` still allows (every other drag door refuses while a card is
+      // staged) — so packing here ran the full backtracking search on every
+      // frame of that gesture, the exact per-frame cost design §3/§6 forbid.
+      // Gate passes `pack: false` instead. Safe in the conservative
+      // direction: with no companions the packed and unpacked verdicts agree,
+      // and packing never refuses a start the plain search accepts, so the
+      // DRAWN offers stay a subset of what the PRESS (`placePendingAt`,
+      // `pack: true`) accepts — ⚖ 92 T6 (draw ≤ press) still holds. A start
+      // that only fits with a shuffle simply is not drawn from this row any
+      // more; closing that for real is the live-while-dragging round's own,
+      // not this fix's.
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
-        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }).kind
+        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: false }).kind
         if (cell?.alternativeKind === 'safe') return k === 'clean'
         if (k === 'blocked') return false
         if (cell?.alternatives.includes(s)) return true
@@ -2743,6 +2869,7 @@ export function TodayScreen(props: TodayProps) {
         // reads `boardLanes`, which is this store's. Batch-8's bed argument
         // (⚖ 52's △-grammar) rides along; the two are orthogonal.
         summary: pendingOffBoard ? '' : holdSummary(boardLanes, pending.id, moves[pending.id], hours, pending.bedOrigin?.laneKey ?? null),
+        companionLines: pendingOffBoard ? [] : companionLines(boardLanes, pending.companions ?? []),
         // ⚖ Liam flag 50(d) + ⚖ 52 — THE OVERRIDDEN ROW STAYS ON SCREEN, and it
         // stops wearing ×. The operator did not make the reason go away, they
         // walked past it, so the surface says so in the wording; and because it
@@ -2951,9 +3078,14 @@ export function TodayScreen(props: TodayProps) {
   //  either — TEST:4030's own law, 満室 outranks the guard, generalised. The
   //  allocator answers exactly one question now, and a refusal is final on every
   //  path (⚖ 47: it speaks, and the caller changes nothing).
-  function solveBed(staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): string | null {
+  //  ⚖ 9/8 PACKING — AND THE BOARD IT SOLVES AGAINST IS HANDED IN. It used to
+  //  read `boardLanesRef.current` itself, which is right for a first landing and
+  //  wrong for a second one on the same staged card: the companions of the first
+  //  gesture are sitting in their new rooms, so a re-solve would shuffle them
+  //  again from a seat this very change gave them. `solveLanes` is the one place
+  //  that answers 「which board does this landing solve against?」.
+  function solveBed(board: BoardLane[], staffLaneKey: string | null, id: string | null, currentBed: string | null, requiresPrivate: boolean, span: { x: number; w: number }): { laneKey: string; companions: BedCompanion[] } | null {
     const start = minuteOf(span.x, hours)
-    const board = boardLanesRef.current
     const solved = allocateBed(board, {
       id,
       currentBed,
@@ -2984,12 +3116,30 @@ export function TodayScreen(props: TodayProps) {
       // pointerdown and its drop. Same reason `hours` is read
       // here the same way.
       stagedId: pending?.id ?? null,
+      // ⚖ 9/8 PACKING — this is a gesture END and it STAGES its answer, so it is
+      // the second of the two doors allowed to ask (design §3). The word at the
+      // cursor during the drag does not come through here.
+      pack: true,
+      now: props.sell.nowMinute,
+      cleanupMinutesByBed: props.bedCleanupMinutes,
     })
-    if (solved.refusal) {
-      refuse(solved.refusal)
+    if (solved.refusal || solved.laneKey == null) {
+      if (solved.refusal) refuse(solved.refusal)
       return null
     }
-    return solved.laneKey
+    return { laneKey: solved.laneKey, companions: companionsFor(board, solved.reseats) }
+  }
+
+  /** ⚖ 9/8 PACKING, THE RE-LANDING RULE — the board this landing solves against.
+   *
+   *  A second gesture on the SAME staged card puts every companion back where it
+   *  stood before the change, so the new answer is measured from the day the
+   *  operator started on and the new companion set REPLACES the old one. Any
+   *  other landing gets the board as it stands. */
+  function solveLanes(id: string | null): BoardLane[] {
+    return pending && pending.id === id
+      ? lanesWithCompanionsRestored(boardLanesRef.current, pending.companions, hours, props.bedCleanupMinutes)
+      : boardLanesRef.current
   }
 
   /** ⚖ BATCH-6 flag 45 — ONE SIDE RETARGETS, BOTH RE-TIME (canon `stageChange`
@@ -3009,6 +3159,9 @@ export function TodayScreen(props: TodayProps) {
        *  here without a `solveBed` behind it. `undefined` from every other
        *  landing means "no opinion", never "forget the one they gave". */
       bedChosen?: string
+      /** ⚖ 9/8 PACKING — the other people this landing moves, from the same solve
+       *  that chose the room. Absent on every landing that moved nobody. */
+      companions?: readonly BedCompanion[]
     },
     span: { x: number; w: number },
     from: PairLanes,
@@ -3019,8 +3172,22 @@ export function TodayScreen(props: TodayProps) {
     override: string | null = null,
   ) {
     const { staffLane, bedLane, bedChosen } = at
+    const companions = at.companions ?? []
+    // ⚖ 9/8 PACKING — a RE-LANDING replaces the companion set rather than adding
+    // to it: the previous landing's companions go home first (the same board
+    // `solveLanes` solved against), then this landing's are written.
+    const previous = pending && pending.id === id ? (pending.companions ?? []) : []
     if (staffLane) setMoves((was) => ({ ...was, [id]: { laneKey: staffLane, ...span } }))
-    if (bedLane) setBedMoves((was) => ({ ...was, [id]: { laneKey: bedLane, ...span } }))
+    if (bedLane) setBedMoves((was) => {
+      const next = { ...was, [id]: { laneKey: bedLane, ...span } }
+      for (const c of previous) next[c.id] = c.bedOrigin
+      // core seam (design §4): one local state update today. Against core these
+      // become N sequential `resource_id` writes and the ORDER is load-bearing —
+      // `vacateBeforeOccupy` is that order, and a swap cycle needs an atomic
+      // batch core does not have yet (the ask is queued with its own trigger).
+      for (const c of vacateBeforeOccupy(companions)) next[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+      return next
+    })
     // ⚖ 46 forerunner kept under batch-6's two-sided rewrite: the stamp is
     // `boardStamp`, not the day pair batch-6 was written against — it predates
     // the store scoping, and `PendingChange` REQUIRES store + storeLabel.
@@ -3042,10 +3209,10 @@ export function TodayScreen(props: TodayProps) {
           // bed-row drag replaces it, everything else leaves it standing. Written
           // the other way round it would be cleared by the very time adjustment
           // this fix exists to survive.
-          (was.override === (override ?? undefined) && (bedChosen ?? was.bedChosen) === was.bedChosen
+          (was.override === (override ?? undefined) && (bedChosen ?? was.bedChosen) === was.bedChosen && companions.length === 0 && (was.companions?.length ?? 0) === 0
             ? was
-            : { ...was, override: override ?? undefined, bedChosen: bedChosen ?? was.bedChosen })
-        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, ...boardStamp, override: override ?? undefined },
+            : { ...was, override: override ?? undefined, bedChosen: bedChosen ?? was.bedChosen, companions })
+        : { id, origin: from.staff ?? { laneKey: '', x: 0, w: 0 }, bedOrigin: from.bed ?? undefined, bedChosen, companions, ...boardStamp, override: override ?? undefined },
     )
     // ⚖ 74 — a fresh landing is a fresh question, so an id opened a moment ago
     // may not answer for it.
@@ -3102,6 +3269,11 @@ export function TodayScreen(props: TodayProps) {
     // stop. No bed origin (a creation, or a booking with no bed row) = no entry.
     setBedMoves((was) => {
       const next = { ...was }
+      // ⚖ 9/8 PACKING — ONE 元に戻す, ALL THE CARDS. A landing that moved さくら
+      // to make room is one change, so undoing it has to put her back too; a
+      // revert that only restored the subject would leave a customer sitting in
+      // a room nobody ever agreed to move her to.
+      for (const c of pending.companions ?? []) next[c.id] = c.bedOrigin
       if (bedOrigin) next[id] = bedOrigin
       else delete next[id]
       return next
@@ -3132,6 +3304,39 @@ export function TodayScreen(props: TodayProps) {
     if (pendingOffBoard || !at || !overrideCaption(checksFor(pending.id, at), pending.override ?? null).enabled) {
       refuse('状況が変わったため、この内容では確定できません')
       return
+    }
+    // ⚖ 9/8 PACKING — AND THE SAME RE-CHECK FOR EVERY CARD THIS CHANGE MOVED.
+    // canon R11-7's reason ("a lane locked after staging cannot be confirmed
+    // through") is about the world moving under an unconfirmed change, and it
+    // applies to N cards exactly as it applies to one. The room is asked with
+    // every OTHER room filtered out, so the allocator's own 満室 sentence names
+    // the one room that is no longer free — one composer, no second wording.
+    // ⚖ FIX ROUND 2 (F10, CODE-LENS-4 F1) — the re-check itself is a pure
+    // function now (`companionRoomStillFree`), unit-tested on Liam's own board
+    // with an intruder in ベッド2, because a rule this file only ever pinned as
+    // source text is a rule a tsc-clean rewrite can walk straight past.
+    for (const c of pending.companions ?? []) {
+      const span = bedMoves[c.id]
+      if (!span) continue
+      const room = companionRoomStillFree(boardLanes, c, span, hours)
+      if (!room.ok) {
+        // ⚖ FIX ROUND 2 (F5, CODE-LENS-3 F2) — AND IT SAYS WHOSE MOVE FAILED.
+        // The composed 満室 sentence is about the COMPANION's window and the
+        // COMPANION's room — 「a room and a clock window that match nothing the
+        // operator dragged」 — handed to a seven-second toast with no
+        // attribution, so an operator would reread their own drop looking for
+        // the mistake. This is the surface's own frame instead (sibling:
+        // 状況が変わったため、この内容では確定できません), naming the person the board
+        // moved. The name is read off the card, exactly as `companionLines`
+        // reads it, and where the board cannot say it the sibling sentence
+        // stands rather than a 「様」 about nobody (⚖ A3).
+        // ⚖ FIX ROUND 3 (G2, DELTA-CODE-D3) — JAPANESE ACCEPTED AS FINAL, no correction.
+        const title = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title
+        refuse(title
+          ? `${title}様の移動先を確保できなくなったため、この内容では確定できません`
+          : (room.refusal ?? '状況が変わったため、この内容では確定できません'))
+        return
+      }
     }
     setPending(null)
     // ⚖ 41 — a staged change confirmed IS the incident's 担当変更 answered, so
@@ -3179,10 +3384,20 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 87 — the room the operator CHOSE outlives the gestures that follow it,
     // and taking the safe start is one of those gestures. The seed is handed to
     // the verdict as the carried room, so `allocateBed` prefers it if it is free
-    // at the new span and re-solves if it is not — which is ⚖ 51's own rule, run
-    // ONCE. (The drop re-solves after its verdict because its red box can stand
-    // open for a while; this press judges and stages in the same tick, so a
-    // second solve would only be a second reading of one answer — ⚖ 54.)
+    // at the new span and re-solves if it is not — which is ⚖ 51's own rule.
+    //
+    // ⚖ FIX ROUND 2 (F2, CODE-LENS-2 BLOCKER) — AND THE ROOM IS SOLVED AGAIN
+    // BEFORE IT IS STAGED. The parenthesis that used to close this comment read
+    // 「this press judges and stages in the same tick, so a second solve would
+    // only be a second reading of one answer — ⚖ 54」. That was true while a
+    // landing only ever moved ITSELF. It no longer is: `again.bedLane` is a room
+    // chosen on the SHUFFLED board, and staging it with no companions sends the
+    // previous companions home in the same staging write — so the subject lands
+    // in a room a companion still occupies. Proven on Liam's own board: ベッド1
+    // double-booked 14:30〜15:05, 確定 dead, 元に戻す the only way out, reached by
+    // pressing the SAFE answer. This landing is now the same landing the other
+    // three are — the one solver, on the board `solveLanes` hands it, companions
+    // and all.
     const again = verdictAtLanding({
       staffLane: at.laneKey,
       bedLane: seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null),
@@ -3192,7 +3407,9 @@ export function TodayScreen(props: TodayProps) {
       foreignRefusal: null,
       hasPrice: hasPriceFor(pending.id),
       span,
-    })
+      // ⚖ FIX ROUND 2 (F1) — the safe-start press is a gesture END that STAGES
+      // its answer, so it asks the same question the drop asks.
+    }, { pack: true })
     if (again.kind === 'blocked') {
       refuse(again.reason ?? '配置できません')
       return
@@ -3241,7 +3458,9 @@ export function TodayScreen(props: TodayProps) {
     // still undoes the whole change (⚖ 45's two-sided snapshot). And NO override
     // rides along: the operator took the safe answer, so there is no longer a
     // sentence being walked past — `stage` clears the stamp, and with it the △.
-    stage(pending.id, { staffLane: at.laneKey, bedLane: again.bedLane }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
+    const bed = solveBed(solveLanes(pending.id), at.laneKey, pending.id, seedBed(pending, pending.id, bedMoves[pending.id]?.laneKey ?? null), item?.requiresPrivateRoom === true, span)
+    if (bed == null) return
+    stage(pending.id, { staffLane: at.laneKey, bedLane: bed.laneKey, companions: bed.companions }, span, { staff: pending.origin, bed: pending.bedOrigin ?? null })
   }
 
   // ── ⚖ LIAM flag 92 — the long press ────────────────────────────────────────
@@ -3624,6 +3843,12 @@ export function TodayScreen(props: TodayProps) {
     if (key === ctx.aimKey) return
     ctx.aimKey = key
     const sides = sidesAt(ctx.home, ctx.group, ctx.targetLane)
+    // ⚖ FIX ROUND 2 (F1, CODE-LENS-1 BLOCKER) — NO PACK AT THE CURSOR. This
+    // runs from the coalesced pointer-move frame; design §3 lists 「the word at
+    // the cursor during a drag」 on the NEVER side of the fence and §6 makes
+    // landing-only the zero-per-frame-cost guarantee. ⚖ flag 54's asymmetry
+    // stands: the cursor promises only no-shuffle fits, and the drop may accept
+    // a start it did not promise.
     const v = verdictRef.current({
       staffLane: ctx.offLane ? null : sides.staffLane,
       bedLane: sides.bedLane,
@@ -3636,7 +3861,7 @@ export function TodayScreen(props: TodayProps) {
       foreignRefusal: null,
       hasPrice: hasPriceFor(ctx.id),
       span,
-    })
+    }, { pack: false })
     wearVerdict(node, v)
   }
 
@@ -3835,7 +4060,7 @@ export function TodayScreen(props: TodayProps) {
           id: ctx.id, requiresPrivate: item.requiresPrivateRoom === true, foreignRefusal: null, span,
           hasPrice: hasPriceFor(ctx.id),
         }
-        explainBlocked(verdictRef.current(off), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
+        explainBlocked(verdictRef.current(off, { pack: true }), off, ctx.homeLane, span, { x: clientX, y: clientY, t: upAt }, {
           override: null,
           placeAt: () => {},
         })
@@ -3918,14 +4143,16 @@ export function TodayScreen(props: TodayProps) {
       // board as it stands, which while something is staged is the staged
       // board; `seedBed` prefers the room the operator chose by hand, then the
       // origin this very change snapped, then that staged board.
+      let companions: readonly BedCompanion[] = []
       if (ctx.group !== 'beds') {
-        const bed = solveBed(on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)
+        const bed = solveBed(solveLanes(ctx.id), on.staffLane, ctx.id, seedBed(pending, ctx.id, on.bedLane), item.requiresPrivateRoom === true, at)
         if (bed == null) return
-        on.bedLane = bed
+        on.bedLane = bed.laneKey
+        companions = bed.companions
       }
       stage(
         ctx.id,
-        on,
+        { ...on, companions },
         at,
         pending?.id === ctx.id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from,
         override,
@@ -3934,7 +4161,7 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ Liam flag 63 §4 — through the REF, so the release judges the board as
     // it stands rather than the one that existed at pointerdown. One line, and
     // it removes an entire class of hover/release disagreement.
-    const v = verdictRef.current(ask)
+    const v = verdictRef.current(ask, { pack: true })
     if (v.kind === 'blocked') {
       // ⚖ Liam flag 57 (2026-08-22) — NO REWIND WHILE THE QUESTION IS OPEN.
       //
@@ -3957,7 +4184,7 @@ export function TodayScreen(props: TodayProps) {
         placeAt: (s) => {
           const dur = minuteOf(span.x + span.w, hours) - minuteOf(span.x, hours)
           const at = place(s, s + dur, hours)
-          const again = verdictRef.current({ ...ask, span: at })
+          const again = verdictRef.current({ ...ask, span: at }, { pack: true })
           if (again.kind === 'blocked') {
             refuse(again.reason ?? '配置できません')
             return
@@ -4643,7 +4870,7 @@ export function TodayScreen(props: TodayProps) {
     run: (start: number, override: string | null) => void,
   ) {
     const start = minuteOf(ask.span.x, hours)
-    const v = verdictAtLanding(ask)
+    const v = verdictAtLanding(ask, { pack: true })
     if (v.kind === 'clean') {
       run(start, null)
       return
@@ -4655,7 +4882,7 @@ export function TodayScreen(props: TodayProps) {
         override: () => run(start, v.reason),
         placeAt: (s) => {
           const dur = minuteOf(ask.span.x + ask.span.w, hours) - start
-          const again = verdictAtLanding({ ...ask, span: place(s, s + dur, hours) })
+          const again = verdictAtLanding({ ...ask, span: place(s, s + dur, hours) }, { pack: true })
           if (again.kind === 'blocked') {
             refuse(again.reason ?? '配置できません')
             return
@@ -4757,14 +4984,16 @@ export function TodayScreen(props: TodayProps) {
       // change's own origin room rather than from the leg before it — and from
       // the operator's own room ahead of both, which is why these keys pass no
       // `bedChosen` of their own: an edge nudge is a time, not a room.
+      let companions: readonly BedCompanion[] = []
       if (lane.group !== 'beds') {
-        const bed = solveBed(on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)
+        const bed = solveBed(solveLanes(id), on.staffLane, id, seedBed(pending, id, on.bedLane), item.requiresPrivateRoom === true, next)
         if (bed == null) return
-        on.bedLane = bed
+        on.bedLane = bed.laneKey
+        companions = bed.companions
       }
-      stage(id, on, next, pending?.id === id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from, override)
+      stage(id, { ...on, companions }, next, pending?.id === id ? { staff: pending.origin, bed: pending.bedOrigin ?? null } : from, override)
     }
-    const v = verdictAtLanding(ask)
+    const v = verdictAtLanding(ask, { pack: true })
     if (v.kind === 'blocked') {
       // No pointer to hang the explanation off, so it hangs off the card the
       // keys are moving — the same surface, the same clamp (⚖ 35), measured
@@ -4948,7 +5177,9 @@ export function TodayScreen(props: TodayProps) {
     const key = `${ctx.laneKey}|${span.x}`
     if (key === ctx.aimKey) return
     ctx.aimKey = key
-    wearVerdict(node, verdictRef.current(chipAsk(chip, ctx.laneKey, span)))
+    // ⚖ FIX ROUND 2 (F1) — NO PACK AT THE CURSOR, the chip's half of the same
+    // fence: this is the pointer-move frame for a parked booking.
+    wearVerdict(node, verdictRef.current(chipAsk(chip, ctx.laneKey, span), { pack: false }))
   }
 
   /** ONE description of "this chip, landing here", so the word the operator sees
@@ -5115,9 +5346,9 @@ export function TodayScreen(props: TodayProps) {
     // operator nothing they could act on.
     // ⚖ 51 — AND THE SOLVE ASKS THE SAME QUESTION THE VERDICT DID: both legs read
     // `NEXT_VISIT_REQUIRES_PRIVATE`, so they cannot disagree by construction.
-    const partnerKey = solveBed(lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))
-    const partner = partnerKey == null ? null : boardLanes.find((l) => l.key === partnerKey)
-    if (!partner) return
+    const solvedPartner = solveBed(solveLanes(null), lane.key, null, null, NEXT_VISIT_REQUIRES_PRIVATE, place(start, end, hours))
+    const partner = solvedPartner == null ? null : boardLanes.find((l) => l.key === solvedPartner.laneKey)
+    if (!partner || !solvedPartner) return
     setPlacing(null)
     // canon's `cellCreateSeq` (:6029): a counter, not a clock. Two placements in
     // the same millisecond would collide on a timestamp, and the id is a React
@@ -5196,7 +5427,17 @@ export function TodayScreen(props: TodayProps) {
     setMoves((was) => ({ ...was, [id]: { laneKey: lane.key, ...span } }))
     // '' is `revertPending`'s "there is no earlier span" sentinel: 元に戻す on a
     // creation deletes it rather than moving it somewhere it has never been.
-    setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, ...boardStamp, override: override ?? undefined })
+    // ⚖ 9/8 PACKING — this path writes `bedMoves` and `pending` itself, so it
+    // owes the companions the same two writes `stage` makes: without them the
+    // board would move さくら with nothing to undo it and nothing to name her.
+    if (solvedPartner.companions.length > 0) {
+      setBedMoves((was) => {
+        const next = { ...was }
+        for (const c of vacateBeforeOccupy(solvedPartner.companions)) next[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+        return next
+      })
+    }
+    setPending({ id, origin: { laneKey: '', x: 0, w: 0 }, companions: solvedPartner.companions, ...boardStamp, override: override ?? undefined })
     // ⚖ 74 (lens-1 F6) — this path writes `pending` itself, so it owes the reset
     // `stage` does; without it a previously-opened id could auto-pop this one.
     setPendingOpen(null)
@@ -5250,13 +5491,16 @@ export function TodayScreen(props: TodayProps) {
     // this now asks the one allocator instead of keeping its own copy of it: the
     // chip's own room first, then any free compatible one, then 満室 with the
     // busy rooms named. A drop ON a bed row stays the operator's explicit choice.
+    let chipCompanions: readonly BedCompanion[] = []
     const bed =
       dropped?.group === 'beds'
         ? dropped
         : (() => {
             const home = boardLanes.find((l) => l.group === 'beds' && l.label === chip.item.tag.replace(/[【】]/g, ''))
-            const key = solveBed(staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
-            return key == null ? null : boardLanes.find((l) => l.key === key)
+            const solvedChip = solveBed(solveLanes(chip.id), staff?.key ?? null, chip.id, home?.key ?? null, chip.item.requiresPrivateRoom === true, span)
+            if (solvedChip == null) return null
+            chipCompanions = solvedChip.companions
+            return boardLanes.find((l) => l.key === solvedChip.laneKey)
           })()
     // `bed` null means `solveBed` has already said 満室 (⚖ 47: the refusal speaks
     // and changes nothing). `staff` null is the other half — a room drop whose
@@ -5303,8 +5547,13 @@ export function TodayScreen(props: TodayProps) {
     // ⚖ 45's own law is the fix: one span, both sides, from every writer. `bed`
     // here is the room this placement actually landed in — the operator's own
     // choice on a bed-row drop, the allocator's answer otherwise.
-    setBedMoves((was) => ({ ...was, [chip.id]: { laneKey: bed.key, ...span } }))
-    setPending({ id: chip.id, origin: chip.home, ...boardStamp, override: override ?? undefined })
+    setBedMoves((was) => {
+      const next = { ...was, [chip.id]: { laneKey: bed.key, ...span } }
+      // ⚖ 9/8 PACKING — the same two writes `stage` makes, for the same reason.
+      for (const c of vacateBeforeOccupy(chipCompanions)) next[c.id] = { laneKey: c.bedTo, x: c.bedOrigin.x, w: c.bedOrigin.w }
+      return next
+    })
+    setPending({ id: chip.id, origin: chip.home, companions: chipCompanions, ...boardStamp, override: override ?? undefined })
     // ⚖ 74 (lens-1 F6) — the same reset `stage` owes; this path writes `pending`
     // itself, and the park→place-back cycle is exactly where a stale id survived.
     setPendingOpen(null)
@@ -6001,7 +6250,10 @@ export function TodayScreen(props: TodayProps) {
         </span>
       )
     }
-    const isPending = pending?.id === item.caseId
+    // ⚖ 9/8 PACKING — a card the board moved to make room is part of the staged
+    // change, so it wears the staged outline too. Without this a companion
+    // renders as an ordinary, undisturbed booking — the one thing it is not.
+    const isPending = isStagedCard(pending, item.caseId)
     return (
       <button
         // NO `title` ON A DRAGGABLE CARD. The browser's own black tooltip fired
@@ -7329,12 +7581,37 @@ export function TodayScreen(props: TodayProps) {
           // face's 確定 is a tap at every store, dial on or off. Naming the face
           // scopes the promise to the control that actually asks for it.
           data-guide-title="仮押さえの確認"
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          // ⚖ FIX ROUND 2 (F7, CODE-LENS-3 NOTE 6 · ⚖ 8/23 guided-tour law: a new
+          // function declares itself the SAME round) — AND IT SAYS THAT THE BOARD
+          // CAN MOVE OTHER PEOPLE. The tour described a landing moving ONE
+          // booking; an operator who had only ever read it would not know this
+          // exists until it happened to them. The existing sentences are
+          // byte-identical; this is one more, in the same plain voice, sitting
+          // with the other 「what can happen here」 clause and before the 「what you
+          // do here」 one. ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えたお客様はここに表示されます。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
             <strong>{holdPop.summary}</strong>
           </div>
+          {/* ⚖ 9/8 PACKING — the people the board moved to make this landing fit,
+              one line each under the sentence about the subject. It borrows the
+              surface's own secondary-line dress (`.holdbar-checks`) rather than
+              minting a rule of its own; the basis is what makes each line its
+              own row inside that wrapping strip. */}
+          {holdPop.companionLines && holdPop.companionLines.length > 0 && (
+            <div className="holdbar-checks">
+              {/* ⚖ FIX ROUND 2 (F6, CODE-LENS-2/3) — keyed on the INDEX and the text.
+                  `key={line}` collapsed two identical lines into one: one
+                  customer with two bookings moving the same room → room, or two
+                  blank titles between the same pair, and the board would move
+                  two people while naming one. */}
+              {holdPop.companionLines.map((line, i) => (
+                <span key={`${i}-${line}`} style={{ flexBasis: '100%' }}>{line}</span>
+              ))}
+            </div>
+          )}
           {/* canon's 日付ピン (:2048, :3675): the 仮押さえ outlives the day it was
               staged on, so on any other day it names its own day and offers the
               way back rather than sitting there answering for nothing.
