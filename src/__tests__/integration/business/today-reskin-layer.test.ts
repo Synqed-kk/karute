@@ -11,12 +11,20 @@
  * a hover can erase a selection and a tint can erase a refusal, with nothing
  * in the diff to show for it.
  *
- * These pins are the cheap half of the proof: the append shape, the seeds, and
- * the five places where the order of two rules IS the behaviour. The expensive
- * half — computed values on the rendered page under every state class — lives
- * in the build round's Playwright checker (build/harness/check.mjs), which is
- * what actually drives the states; this file is what stops a later edit from
- * quietly re-sorting the layer under it.
+ * WHAT CI ACTUALLY RUNS IS THIS FILE, AND ONLY THIS FILE. These pins are source
+ * pins: the append shape, the seeds, and the five places where the order of two
+ * rules IS the behaviour. They read today.css as text. Nothing here renders a
+ * page, so nothing here can prove a computed value.
+ *
+ * The rendered proof — every canon state class forced on a real element in
+ * headless Chromium, its computed values compared with the layer on and with
+ * the layer stripped — is an OUT-OF-REPO gate: build/harness/check.mjs in this
+ * lane's packet folder, run before every push of this branch, its output and
+ * its mutation red-runs filed beside the PR. The repo does not carry it and CI
+ * does not execute it; there is no Playwright step in this pipeline. Putting
+ * one there is a separate change to shared CI and is not this lane's to make.
+ * So: if you edit the layer and only this file is green, the cascade has NOT
+ * been re-proved — run the checker, or say in the PR that you did not.
  *
  * Territory's import fence: node specifiers only, so this is text on the file.
  */
