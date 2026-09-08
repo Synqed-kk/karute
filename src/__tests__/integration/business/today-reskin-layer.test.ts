@@ -58,12 +58,51 @@ const LAYER_CODE = LAYER.replace(/\/\*[\s\S]*?\*\//g, '')
  * whole.
  */
 const selectorsOf = (css: string): string[] => {
+  // ⚖ GREPTILE G-3 — the scan is STRING-AWARE and PAREN-AWARE. Counting raw
+  // braces let `content: "}"` close a block that is still open, and everything
+  // after it was read one level out; splitting heads on every comma turned
+  // `:not(.a, .b)` into two selectors, one of which is `.b)` and fails the page
+  // fence for no reason. Both were latent — nothing in the layer writes either
+  // today — and both are the kind of thing that only shows up once someone
+  // does. The lane's own `codeOnly` lexer already works this way.
   const out: string[] = []
-  const closeRe = /^\s*\}/
+  /** the next index at or after `from` where `ch` appears OUTSIDE any string */
+  const scanTo = (from: number, stop: (c: string) => boolean): number => {
+    let q: string | null = null
+    for (let k = from; k < css.length; k += 1) {
+      const c = css[k]
+      if (q) {
+        if (c === '\\') k += 1
+        else if (c === q) q = null
+        continue
+      }
+      if (c === '"' || c === "'") { q = c; continue }
+      if (stop(c)) return k
+    }
+    return -1
+  }
+  /** commas at paren depth 0 and outside strings — nothing else separates */
+  const splitHead = (head: string): string[] => {
+    const parts: string[] = []
+    let buf = ''
+    let depth = 0
+    let q: string | null = null
+    for (let k = 0; k < head.length; k += 1) {
+      const c = head[k]
+      if (q) { buf += c; if (c === '\\') { buf += head[k + 1] ?? ''; k += 1 } else if (c === q) q = null; continue }
+      if (c === '"' || c === "'") { q = c; buf += c; continue }
+      if (c === '(') depth += 1
+      if (c === ')') depth -= 1
+      if (c === ',' && depth === 0) { parts.push(buf); buf = ''; continue }
+      buf += c
+    }
+    parts.push(buf)
+    return parts.map((x) => x.trim()).filter(Boolean)
+  }
   let i = 0
   let mediaDepth = 0
   while (i < css.length) {
-    const brace = css.indexOf('{', i)
+    const brace = scanTo(i, (c) => c === '{')
     if (brace < 0) break
     const head = css.slice(i, brace).trim()
     if (head.startsWith('@media')) {
@@ -74,18 +113,17 @@ const selectorsOf = (css: string): string[] => {
     let depth = 1
     let j = brace + 1
     while (j < css.length && depth > 0) {
-      if (css[j] === '{') depth += 1
-      else if (css[j] === '}') depth -= 1
-      j += 1
+      const at = scanTo(j, (c) => c === '{' || c === '}')
+      if (at < 0) { j = css.length; break }
+      depth += css[at] === '{' ? 1 : -1
+      j = at + 1
     }
-    if (head && !head.startsWith('@')) {
-      for (const s of head.split(',').map((x) => x.trim()).filter(Boolean)) out.push(s)
-    }
+    if (head && !head.startsWith('@')) out.push(...splitHead(head))
     i = j
     while (mediaDepth > 0) {
-      const m = css.slice(i).match(closeRe)
-      if (!m) break
-      i += m[0].length
+      const close = scanTo(i, (c) => !/\s/.test(c))
+      if (close < 0 || css[close] !== '}') break
+      i = close + 1
       mediaDepth -= 1
     }
   }
@@ -128,6 +166,25 @@ describe('今日の運営 reskin layer — the append shape', () => {
     expect(selectors.length).toBeGreaterThan(40)
     expect(selectors.filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual([])
   })
+
+  it('the scanner cannot be desynchronised by a string, or fooled by a comma inside :not()', () => {
+    // ⚖ GREPTILE G-3, proved on decoys rather than asserted. Neither shape is in
+    // the layer today; both are one edit away.
+    // 1 · a `}` living inside a string used to close the block early, so the
+    //     shell selector after it was read as part of an outer rule and walked
+    //     past the fence.
+    const decoyString = [
+      '.biz .page-today .a::after { content: "}"; color: red; }',
+      '.topbar .brand { color: red; }',
+    ].join('\n')
+    expect(selectorsOf(decoyString)).toEqual(['.biz .page-today .a::after', '.topbar .brand'])
+    expect(selectorsOf(decoyString).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual(['.topbar .brand'])
+    // 2 · a comma inside `:not()` is not a selector boundary; splitting there
+    //     produced `.b)` and failed the fence on a rule that is perfectly fine.
+    const decoyNot = '.biz .page-today .x:not(.a, .b) { color: red; }'
+    expect(selectorsOf(decoyNot)).toEqual(['.biz .page-today .x:not(.a, .b)'])
+    expect(selectorsOf(decoyNot).filter((s) => !/^\.biz \.page(\.page-today|-today)(\s|$)/.test(s))).toEqual([])
+  })
 })
 
 describe('今日の運営 reskin layer — the seeds', () => {
@@ -152,17 +209,20 @@ describe('今日の運営 reskin layer — the seeds', () => {
     expect(INT).toContain('export const LABEL_MAX = 240')
   })
 
-  it('the page root declares the five tokens these PRs consume, and no others', () => {
+  it('the page root declares the four tokens slice ① consumes, and no others', () => {
     // ⚖ GREPTILE G-1 — three tokens (--control / --line / --line-2) were removed
     // from PR-1's block because nothing in PR-1 read them; leaving them in
     // repainted 22 toolbar/popover/dialog borders and both hairlines of the
     // ruled warn-face card. Nothing held them out, so a one-line re-insert put
     // the whole bug back and both gates stayed green (delta lens MAJOR-1, its
     // mutant MXa). This is the assertion that holds them out.
-    // ⚖ PR-2 — `--control` joins the ladder, in PR-2's OWN block, because PR-2
-    // is where its consumers live (the toolbar and the popovers). The layer is
-    // append-only, so it is a SECOND `.biz .page.page-today` rule rather than an
-    // edit to PR-1's: this pin therefore reads every such block there is.
+    // ⚖ GREPTILE G-2 (PR-2) — `--control` joined the ladder for one round and
+    // came straight back out, for the same reason it left PR-1: most of its
+    // page consumers are LATER slices' (the dialogs, the guard-pop's cancel, the
+    // tour) or a deliberate keep (the lock toggle), and a token is page-wide by
+    // construction. PR-4 declares it, with `--line`, and owns the map. The pin
+    // still reads EVERY `.biz .page.page-today` block, because the layer is
+    // append-only and a later slice adds a second one rather than editing this.
     const ROOT = '.biz .page.page-today {'
     const blocks: string[] = []
     for (let at = LAYER_CODE.indexOf(ROOT); at > -1; at = LAYER_CODE.indexOf(ROOT, at + 1)) {
@@ -170,14 +230,13 @@ describe('今日の運営 reskin layer — the seeds', () => {
     }
     expect(blocks.length).toBeGreaterThan(0)
     const declared = blocks.flatMap((b) => b.split(';').map((d) => d.split(':')[0].trim()).filter(Boolean))
-    expect([...new Set(declared.filter((d) => d.startsWith('--')))].sort()).toEqual(['--card', '--control', '--muted', '--row', '--section'])
+    expect([...new Set(declared.filter((d) => d.startsWith('--')))].sort()).toEqual(['--card', '--muted', '--row', '--section'])
     // The page root's non-token declarations, across every block including the
     // two inside media queries: the canvas, its gutters, and the 1760px cap.
     expect([...new Set(declared.filter((d) => !d.startsWith('--')))].sort()).toEqual(['background', 'margin', 'max-width', 'padding'])
     // …and nowhere else in the layer either — a page-scoped rule further down
     // would reach exactly the same descendants (the delta lens's MXb mutant).
-    expect(LAYER_CODE).not.toMatch(/--line(-2)?\s*:/)
-    expect(LAYER_CODE.match(/--control\s*:/g)).toHaveLength(1)
+    expect(LAYER_CODE).not.toMatch(/--(control|line|line-2)\s*:/)
   })
 
   it('the two tint calibrations keep their grammar and change only the paint', () => {
@@ -237,12 +296,13 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     after('.biz .page-today .lane-label > span.absent { color: var(--red-dark); }', '.biz .page-today .lane-label > span {')
   })
 
-  it('a guard-off band keeps the left rule colour its own state names', () => {
-    // ⚖ FIX ROUND 1 (L1 #3) — the name used to say 「canon gives it」, which was
-    // true only while no PR declared `--control`. PR-2's block does, so this
-    // resolves to #e4e7ec rather than the shell's #e4e4e9. The rule paints
-    // nothing either way (the width is 0); what it holds is the STATE keeping
-    // its own declaration instead of inheriting the `border-left: 0` above it.
+  it('a guard-off band keeps the left rule colour canon gives it', () => {
+    // The name said 「canon gives it」, then 「its own state names」 for the one
+    // round PR-2 declared `--control`, and now says the first thing again:
+    // Greptile's G-2 removed the declaration, so `var(--control)` is the
+    // shell's #e4e4e9 once more — exactly canon's value for this rule. The rule
+    // paints nothing either way (the width is 0); what it holds is the STATE
+    // keeping its own declaration instead of inheriting `border-left: 0`.
     after('.biz .page-today .guard-band.legend-only { border-left-color: var(--control); }', '  border-left: 0;')
   })
 
@@ -250,7 +310,7 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // Both 0,4,0. The hover would otherwise erase the dress that says the
     // 操作ヒント popover is open (canon :137 is 0,3,0 and cannot defend itself).
     after(
-      '.biz .page-today .help-toggle[aria-expanded="true"] { background: #eef2ff; color: #3f5be8; border-color: #c7d2fb; }',
+      '.biz .page-today .help-toggle[aria-expanded="true"] { background: var(--select-bg); color: var(--select-ink); border-color: var(--select-line); }',
       '.biz .page-today .help-toggle:hover {',
     )
   })
