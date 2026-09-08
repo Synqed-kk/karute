@@ -255,6 +255,83 @@ describe('R3 — 清掃 / 予定ブロック never move', () => {
 
 // ── R4 — LENS-1'S STEALING SCENE: A PLAIN SUBJECT NEVER STRANDS A 個室のみ ──
 
+/** ⚖ FIX ROUND 2 (F9), CODE-LENS-4's TWO SURVIVING MUTANTS — TURNED INTO PINS.
+ *
+ *  The breaker wrote fourteen fresh mutants; twelve died. These are the two that
+ *  lived, each written up here as the named test it was missing rather than left
+ *  as a bare survivor. */
+describe('F9a — a future day pins nobody, whatever the clock would have said', () => {
+  /** A day whose FIRST minutes are inside the lead floor, which is the only
+   *  place `now: null` and `now: 0` can be told apart. Real store hours put
+   *  every booking hundreds of minutes past `LEAD_FLOOR_MIN`, which is why the
+   *  battery could not see the difference (mutant b2 ran green). */
+  const EARLY = { open: 0, close: 540 }
+  const at = (over: Partial<BoardItem> & Pick<BoardItem, 'key' | 'caseId'>, start: number, end: number): BoardItem =>
+    ({ ...booking(over, 600, 660), ...place(start, end, EARLY) })
+
+  /** ベッド1 carries a booking that STARTS at minute 10 — inside `now + 15` if
+   *  the clock is 0, outside every floor if there is no clock at all. ベッド2 is
+   *  blocked 00:00〜00:05, so the subject cannot have it and the escapee can. */
+  const board = () => boardOf([
+    lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: [at({ key: 'e', caseId: 'apt-early', title: 'E' }, 10, 20)] }),
+    lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [{ ...at({ key: 'blk', caseId: null }, 0, 5), kind: 'block' as const, title: '設備点検' }] }),
+  ], 'SUBJECT')
+  const ask = { id: 'SUBJECT', currentBed: 'bed-01', stores: ['store-a'], requiresPrivate: false, start: 0, end: 30, cleanupMinutesByBed: NO_CLEANUP }
+
+  it('with no clock at all (a future day) the 00:10 booking is MOVABLE — nothing is time-pinned', () => {
+    const r = allocateBed(board(), { ...ask, pack: true, now: null })
+    expect(r.laneKey).toBe('bed-01')
+    expect(r.reseats).toEqual([{ id: 'apt-early', from: 'bed-01', to: 'bed-02' }])
+  })
+
+  it('with the clock at minute 0 the same booking is PINNED, and the day refuses', () => {
+    const r = allocateBed(board(), { ...ask, pack: true, now: 0 })
+    expect(r.laneKey).toBeNull()
+    expect(r.reseats).toEqual([])
+    // Today's own sentence, unchanged — a refusal is a refusal.
+    expect(r.refusal).toBe(allocateBed(board(), ask).refusal)
+  })
+})
+
+describe('F9b — the queue’s start-time order is a determinism aid, and it is pinned as one', () => {
+  /** Liam's own board, asked twice, and then asked again with ベッド1's cards
+   *  drawn in the opposite order. The ANSWER may not depend on the order the
+   *  board happened to draw them in — that is what the sort buys. It does NOT
+   *  buy equivalence: `PACK_BUDGET` counts claim placements and visitation order
+   *  decides which are spent (CODE-LENS-4 F3, mutant b4 survived). The ponytail
+   *  comment beside the sort says both halves; this pins the half that is true. */
+  const block = (key: string, start: number, end: number) =>
+    ({ ...booking({ key, caseId: null }, start, end), kind: 'block' as const, title: '設備点検' })
+  /** ベッド1 carries TWO cards inside the subject's hour, so the chain is two
+   *  moves deep and the queue really is a queue. ベッド2 is blocked for the whole
+   *  hour (nobody may have it); ベッド3 is blocked only from 13:40, so both
+   *  escapees fit there and the subject does not. */
+  const scene = (reversed: boolean) => {
+    const on = [
+      booking({ key: 'a', caseId: 'apt-a', title: 'A' }, 780, 800),
+      booking({ key: 'b', caseId: 'apt-b', title: 'B' }, 800, 820),
+    ]
+    return boardOf([
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: reversed ? [...on].reverse() : on }),
+      lane({ key: 'bed-02', group: 'beds', label: 'ベッド2', items: [block('blk2', 780, 840)] }),
+      lane({ key: 'bed-03', group: 'beds', label: 'ベッド3', items: [block('blk3', 820, 840)] }),
+    ], 'SUBJECT')
+  }
+  const answer = (reversed: boolean) =>
+    allocateBed(scene(reversed), packAsk({ currentBed: 'bed-01', start: 780, end: 840 })).reseats
+
+  it('the same scene twice is the same answer', () => {
+    expect(answer(false)).toEqual(answer(false))
+    // A real two-move chain, so the queue this sort orders is genuinely a queue.
+    expect(answer(false)).toHaveLength(2)
+  })
+
+  it('…and so is the same scene with the room’s cards drawn the other way round', () => {
+    expect([...answer(true)].sort((x, y) => x.id.localeCompare(y.id)))
+      .toEqual([...answer(false)].sort((x, y) => x.id.localeCompare(y.id)))
+  })
+})
+
 describe('R4 — the 個室 is never stolen out from under the booking that needs it', () => {
   /** One standard room and one private room. The private room holds a 個室のみ
    *  booking; the subject is plain and wants the standard room's window. The

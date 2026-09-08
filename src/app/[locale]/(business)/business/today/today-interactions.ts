@@ -3616,6 +3616,24 @@ function packSearch(
         toMove.push(o.booking)
       }
       if (dead) continue
+      /** ponytail: start-time order, and what it does and does not buy.
+       *
+       *  ⚖ FIX ROUND 2 (F9b, CODE-LENS-4 F3) — a fresh mutant deleted this line
+       *  and the whole battery stayed green, so it is written down rather than
+       *  left as a silent survivor. What it buys: the ANSWER does not depend on
+       *  the order the board happened to draw its cards in — a chain is explored
+       *  earliest-first whatever `occupantsOf` returned. What it does NOT buy:
+       *  equivalence. `PACK_BUDGET` counts claim placements, and visitation order
+       *  decides which ones are spent, so a scene sitting exactly at the ceiling
+       *  could in principle flip between 「found」 and 「exhausted, refused」 under a
+       *  different order. Completeness and minimality come from the iterative
+       *  deepening over `k`, never from this.
+       *
+       *  Pinned as determinism (the same scene twice, and with the room's cards
+       *  drawn in the opposite order) rather than by a budget-ceiling scene: the
+       *  ceiling is 16,000 nodes and the counter is module-private, so such a
+       *  scene would be a fragile artefact rather than a proof. Upgrade path: if
+       *  the budget is ever lowered enough to bite, build that scene then. */
       toMove.sort((a, b) => a.start - b.start)
       if (movedSet.size + toMove.length > k) continue
 
