@@ -1780,12 +1780,26 @@
 
 /* ── R-1 · Surface system — hierarchy through paper, not lines ───────────── */
 
-/* THE PAGE'S GREY LADDER — four tokens, page-scoped, never the shell. Each one
-   is redeclared because THIS PR repaints its consumers: --muted the greys of
-   the register cells, incident stats, facts and legend · --card the panel,
-   ops-strip and decision-rows borders · --section the lane-label, group-label,
-   inspector and section-head hairlines · --row the lane rows and the track's
-   gridlines. Semantic tokens (green / orange / red / guard / indigo) are
+/* THE PAGE'S GREY LADDER — four tokens, page-scoped, never the shell.
+   These are the LIVE consumers, measured: the surfaces where the token is what
+   actually paints, not the ones the layer goes on to restate with a literal.
+     --muted    register-cell labels · board-head span · legend · park-label
+                span · cal-legend · the 表示設定 popover's text · dialog labels
+                (the incident stats and the inspector facts read grey from
+                literals in this layer, not from the token)
+     --card     decision-rows · the 仮押さえ popover's border · the dialog
+                change-list (the panel and the ops-strip take a literal here)
+     --section  register-cell dividers · decision-card and decision-row
+                hairlines · spot-foot · the time-axis header · pop-divider ·
+                the legend's cat-legend rule · dialog hairlines (lane-label,
+                group-label, inspector and section-head are restated literally)
+     --row      the lane rows · the track's gridlines · the hour ruler's left
+                borders · the 60分配置 rail
+   Two of those lists reach past this PR's own surfaces — the popovers, the
+   time axis and the dialogs are later PRs' — which is the honest cost of a
+   token: it repaints wherever it is read. It is bounded to the page, and the
+   PR body says so.
+   Semantic tokens (green / orange / red / guard / indigo) are
    deliberately NOT redeclared: a colour's meaning may not move. --quiet stays
    at canon's #71717a — the packet's #9ca3af is named for a chevron and a
    header label, and is too light to become the room's text grey.
