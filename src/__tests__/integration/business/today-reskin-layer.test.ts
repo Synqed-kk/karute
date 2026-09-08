@@ -237,7 +237,12 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     after('.biz .page-today .lane-label > span.absent { color: var(--red-dark); }', '.biz .page-today .lane-label > span {')
   })
 
-  it('a guard-off band keeps the left rule colour canon gives it', () => {
+  it('a guard-off band keeps the left rule colour its own state names', () => {
+    // ⚖ FIX ROUND 1 (L1 #3) — the name used to say 「canon gives it」, which was
+    // true only while no PR declared `--control`. PR-2's block does, so this
+    // resolves to #e4e7ec rather than the shell's #e4e4e9. The rule paints
+    // nothing either way (the width is 0); what it holds is the STATE keeping
+    // its own declaration instead of inheriting the `border-left: 0` above it.
     after('.biz .page-today .guard-band.legend-only { border-left-color: var(--control); }', '  border-left: 0;')
   })
 
@@ -254,14 +259,21 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // At rest: the base rule is 0,3,1, exactly canon's `[aria-pressed="true"]`
     // (:227), and stands later — so the restatement has to come after it.
     after(
-      '.biz .page-today .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }',
-      '.biz .page-today .density-seg button {',
+      '.biz .page-today .fields-pop .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }',
+      '.biz .page-today .fields-pop .density-seg button {',
     )
     // Under the pointer: the same answer the lock toggle got. Pinned as a RULE,
     // not as one string — no hover on this control may reach the layer without
     // excluding the pressed state, however it is spelled.
-    expect(LAYER_CODE).toContain('.biz .page-today .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
+    expect(LAYER_CODE).toContain('.biz .page-today .fields-pop .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
     expect(LAYER_CODE).not.toMatch(/\.density-seg button(?!:not\(\[aria-pressed="true"\]\)):hover/)
+    // ⚖ FIX ROUND 1 (L1 #1) — and the family stays in the 表示設定 popover.
+    // Nine controls on this page wear `.density-seg`; six are dialog controls
+    // PR-4 owns, and the first version restyled all nine. Every rule the layer
+    // writes for this control must go through `.fields-pop`.
+    for (const m of LAYER_CODE.match(/[^\n]*\.density-seg[^\n]*/g) ?? []) {
+      expect(m).toContain('.fields-pop .density-seg')
+    }
   })
 
   it('the toolbar does not reach into the popovers it sits beside', () => {
@@ -273,7 +285,11 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // a point, and the five plain weekday labels change their grey. Both forms
     // are pinned as RULES: no descendant version may come back.
     expect(LAYER_CODE).toContain('.biz .page-today .bh-left > strong {')
-    expect(LAYER_CODE).toContain('.biz .page-today .bh-left > span {')
+    // ⚖ FIX ROUND 1 (L1 #7) — the `> span` half is GONE: no sub-line span
+    // exists under `.bh-left` in the product, so it painted nothing. The fence
+    // below stays exactly as it was — the descendant form of EITHER may not
+    // come back, whether or not this layer writes the narrow one.
+    expect(LAYER_CODE).not.toContain('.biz .page-today .bh-left > span')
     expect(LAYER_CODE).not.toMatch(/\.page-today \.board-head (strong|span)\s*[,{]/)
     expect(LAYER_CODE).toContain('.biz .page-today .time-nav > button,')
     expect(LAYER_CODE).toContain('.biz .page-today .time-nav > a {')
