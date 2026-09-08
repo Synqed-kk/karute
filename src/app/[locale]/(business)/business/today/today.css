@@ -2473,12 +2473,30 @@
 .biz .page-today .event.micro { padding: 0 2px; }
 .biz .page-today .event.micro > strong { font-size: 9.5px; }
 
-.biz .page-today button.event[data-cat]:hover { filter: none; box-shadow: 0 2px 8px rgba(16, 24, 40, .10); z-index: 5; }
-.biz .page-today button.event.confirmed:hover { border-color: #9fd0b5; }
-.biz .page-today button.event.attention:hover { border-color: #e6a09a; }
-.biz .page-today button.event.hold:hover { border-color: #e2b478; }
-.biz .page-today .event.block:hover,
-.biz .page-today .event.cleanup:hover { filter: none; box-shadow: inset 3px 0 0 #b6a795, 0 2px 8px rgba(16, 24, 40, .10); border-color: #cdc2b4; z-index: 5; }
+/* ⚖ STATE-CLASS LAW — THE HOVER LIFT NEVER TOUCHES A CARD IN A GESTURE.
+   Both gesture states are hovered while the gesture runs, so both need the
+   guard, and neither can be answered by a restatement:
+     · `.dragging` :439 (⚖ flag 19) is the husk a MOVE leaves behind —
+       `box-shadow: none` at .32 opacity IS the husk. The proxy the operator is
+       carrying is `pointer-events: none` (:471), so the element under the
+       pointer at drag start, and every time the pointer crosses home, is the
+       husk itself.
+     · `.resizing` :630 (⚖ flag 29) keeps canon's live lift `0 8px 22px`, and
+       the resize grips (`.event-resize-grip` :409, `position: absolute` with
+       the card as its containing block) sit INSIDE the card — so during an
+       edge drag the pointer is on the card that wears the state.
+   A restatement written AFTER these rules cannot win: `:hover` adds a
+   pseudo-class, so `.event.dragging` (0,4,0) still loses to a hover head at
+   0,4,1 / 0,5,0. The guard therefore goes ON the hover, exactly as slice ①
+   answered the same shape with `.lock-toggle:not([aria-pressed="true"]):hover`.
+   Canon's own hover (:594, `filter: brightness(.98); z-index: 5`) still reaches
+   both states, unchanged from main — canon's business, not this layer's. */
+.biz .page-today button.event[data-cat]:not(.dragging):not(.resizing):hover { filter: none; box-shadow: 0 2px 8px rgba(16, 24, 40, .10); z-index: 5; }
+.biz .page-today button.event.confirmed:not(.dragging):not(.resizing):hover { border-color: #9fd0b5; }
+.biz .page-today button.event.attention:not(.dragging):not(.resizing):hover { border-color: #e6a09a; }
+.biz .page-today button.event.hold:not(.dragging):not(.resizing):hover { border-color: #e2b478; }
+.biz .page-today .event.block:not(.dragging):not(.resizing):hover,
+.biz .page-today .event.cleanup:not(.dragging):not(.resizing):hover { filter: none; box-shadow: inset 3px 0 0 #b6a795, 0 2px 8px rgba(16, 24, 40, .10); border-color: #cdc2b4; z-index: 5; }
 
 /* the card in hand. ⚖ STATE-CLASS LAW — `.biz .drag-proxy.chip` (:490) is
    0,3,0 and the rule below ties it and stands later, so the CHIP proxy's own
