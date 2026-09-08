@@ -1624,17 +1624,39 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
       // and none of them is answered twice.
       expect({ at: seg.slice(0, 48), answers: answers.length }).toEqual({ at: seg.slice(0, 48), answers: 1 })
     }
-    // Ten gesture ENDS and two per-frame paints — counted over the whole file,
-    // so a thirteenth call cannot hide inside a segment.
-    expect((SCREEN.match(/\{ pack: true \}/g) ?? [])).toHaveLength(10)
-    expect((SCREEN.match(/\{ pack: false \}/g) ?? [])).toHaveLength(2)
-    // …and the two OFFs are the two live words, named. `paintProxyVerdict` is
-    // the card's, `paintChipVerdict` the shelf chip's; both are called from the
+    // Nine gesture ENDS and three OFF sites — counted over the whole file, so a
+    // thirteenth call cannot hide inside a segment.
+    //
+    // ⚖ FIX ROUND 3 (G1, DELTA-CODE-D1) — the third OFF site is
+    // `pendingGuardRow`'s own offer gate, not a fourth per-frame paint word.
+    // That `useMemo` depends on `boardLanes`, which gets a fresh identity on
+    // every RAF frame while the staged card is re-dragged (the one live drag
+    // reachable with a card pending, every other drag door refuses while
+    // `pending` is set) — so it used to run the packed search on every frame of
+    // that gesture. FIX ROUND 2's own count (ten ON, two OFF) missed it.
+    expect((SCREEN.match(/\{ pack: true \}/g) ?? [])).toHaveLength(9)
+    expect((SCREEN.match(/\{ pack: false \}/g) ?? [])).toHaveLength(3)
+    // …and the two per-frame paints are named OFF. `paintProxyVerdict` is the
+    // card's, `paintChipVerdict` the shelf chip's; both are called from the
     // coalesced pointer-move frame.
     for (const fn of ['function paintProxyVerdict(', 'function paintChipVerdict(']) {
       const body = SCREEN.slice(SCREEN.indexOf(fn), SCREEN.indexOf('\n  }\n', SCREEN.indexOf(fn)))
       expect({ fn, off: body.includes('{ pack: false }') }).toEqual({ fn, off: true })
       expect({ fn, on: body.includes('{ pack: true }') }).toEqual({ fn, on: false })
+    }
+    // …and `pendingGuardRow`'s own memo body is the third OFF site — the FIX
+    // ROUND 3 (G1) mutant: reverting its gate to `{ pack: true }` must fail
+    // this pin.
+    {
+      const start = SCREEN.indexOf('const pendingGuardRow = useMemo(')
+      const end = SCREEN.indexOf(
+        '}, [pending, pendingOffBoard, moves, bedMoves, boardLanes, hours, verdictAt, props.guard.bookingStepMin])',
+      )
+      expect(start).toBeGreaterThan(-1)
+      expect(end).toBeGreaterThan(start)
+      const body = SCREEN.slice(start, end)
+      expect({ fn: 'pendingGuardRow', off: body.includes('{ pack: false }') }).toEqual({ fn: 'pendingGuardRow', off: true })
+      expect({ fn: 'pendingGuardRow', on: body.includes('{ pack: true }') }).toEqual({ fn: 'pendingGuardRow', on: false })
     }
     // `solveBed`'s own keyword form is the ONE remaining spelling — the other
     // door design §3 allows, and the only `pack:` field written anywhere.
