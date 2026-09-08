@@ -1524,6 +1524,11 @@
       "grantedTooltip": "Granted on {date}"
     },
     "consent": {
+      "loading": "Loading your consent…",
+      "loadFailed": "Your consent could not be loaded. Please try again.",
+      "saveFailed": "Your decision could not be saved. Please try again.",
+      "policyChanged": "The policy changed. Please review it again before agreeing.",
+      "retry": "Retry",
       "bannerTitle": "Coaching consent required",
       "bannerBody": "AI analyzes your sessions to support your growth. Review what's shared with the owner before deciding.",
       "bannerCta": "Review",

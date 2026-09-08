@@ -29,10 +29,9 @@
 // -------------------------------------
 //   - Consent is append-only (INSERT into consent_log, never
 //     UPDATE) — see src/lib/coaching-consent/hooks.ts for the
-//     schema sketch + RLS policies
+//     authenticated Core API
 //   - Policy version locked at the time of insert
-//   - Owner reads only the rollup view (granted boolean +
-//     givenAt + policyVersion) — never the raw log
+//   - Managers read aggregate adoption counts only, never individual status/history
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
@@ -52,24 +51,27 @@ interface CoachingConsentDialogProps {
   onOpenChange: (open: boolean) => void
   /** Called after the user grants OR declines. The parent's
    *  mutations hook handles the actual write. */
-  onConsent: (granted: boolean) => void
+  onConsent: (granted: boolean) => Promise<boolean>
+  saving?: boolean
+  unavailable?: boolean
+  error?: string | null
 }
 
 export function CoachingConsentDialog({
   open,
   onOpenChange,
   onConsent,
+  saving = false,
+  unavailable = false,
+  error = null,
 }: CoachingConsentDialogProps) {
   const t = useTranslations('coaching.consent')
   const [checked, setChecked] = useState(false)
 
-  const handleAgree = () => {
-    onConsent(true)
-    onOpenChange(false)
-  }
-  const handleDecline = () => {
-    onConsent(false)
-    onOpenChange(false)
+  const handleDecision = async (granted: boolean) => {
+    const saved = await onConsent(granted)
+    setChecked(false)
+    if (saved) onOpenChange(false)
   }
 
   return (
@@ -78,6 +80,7 @@ export function CoachingConsentDialog({
       onOpenChange={(o) => {
         // Reset checkbox when reopened so a previous click doesn't
         // carry over.
+        if (saving) return
         if (!o) setChecked(false)
         onOpenChange(o)
       }}
@@ -178,6 +181,7 @@ export function CoachingConsentDialog({
             <input
               type="checkbox"
               checked={checked}
+              disabled={saving || unavailable}
               onChange={(e) => setChecked(e.target.checked)}
               className="sr-only"
             />
@@ -187,17 +191,19 @@ export function CoachingConsentDialog({
           </label>
         </div>
 
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <DialogFooter className="flex-col gap-2 pt-3 sm:flex-row sm:justify-end">
           <Button
             variant="outline"
-            onClick={handleDecline}
+            onClick={() => { void handleDecision(false) }}
+            disabled={saving || unavailable}
             className="h-12 w-full md:h-10 md:w-auto"
           >
             {t('decline')}
           </Button>
           <Button
-            onClick={handleAgree}
-            disabled={!checked}
+            onClick={() => { void handleDecision(true) }}
+            disabled={!checked || saving || unavailable}
             className="h-12 w-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 md:h-10 md:w-auto"
           >
             {t('agree')}
