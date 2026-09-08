@@ -1876,8 +1876,13 @@
    LABEL_DEFAULT follows this seed for the unresolved-property fallback only. */
 .biz .page-today .timeline { --label: 142px; }
 /* ⚖ accepted 9/6 — 134, not 128: at 128 the column gives 89px and テスト
-   さぶろう needs 95, so the one long name ellipsised at 1280. 134 gives 95. */
-@media (max-width: 1320px) { .biz .page-today .timeline { --label: 134px; } }
+   さぶろう needs 95, so the one long name ellipsised at 1280.
+   ⚖ FIX ROUND 1 — 136, not 134: the blind round measured テスト さぶろう at
+   94.7px inside the 95px box 134 gives, i.e. 0.3px of headroom on the one name
+   the whole number was chosen for. A font-stack shift or a rounding difference
+   on another machine ellipsises it. 136 gives 97px — 2.3px of room — and costs
+   2px of track. Every other name has ≥25px spare either way. */
+@media (max-width: 1320px) { .biz .page-today .timeline { --label: 136px; } }
 
 .biz .page-today .lane-label {
   display: grid;

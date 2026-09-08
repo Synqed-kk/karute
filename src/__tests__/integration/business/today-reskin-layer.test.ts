@@ -77,9 +77,11 @@ describe('今日の運営 reskin layer — the append shape', () => {
 })
 
 describe('今日の運営 reskin layer — the seeds', () => {
-  it('the name column is 142px, and 134px where the board is narrow', () => {
+  it('the name column is 142px, and 136px where the board is narrow', () => {
     expect(LAYER_CODE).toContain('.biz .page-today .timeline { --label: 142px; }')
-    expect(LAYER_CODE).toContain('@media (max-width: 1320px) { .biz .page-today .timeline { --label: 134px; } }')
+    // 136, not 134: at 134 the longest name (テスト さぶろう, 94.7px) had 0.3px
+    // of headroom in its 95px box — a rounding difference away from an ellipsis.
+    expect(LAYER_CODE).toContain('@media (max-width: 1320px) { .biz .page-today .timeline { --label: 136px; } }')
     // Canon's own two seeds are left exactly where they are — the layer beats
     // them on specificity (0,3,0 over 0,2,0), it does not edit them.
     expect(CSS).toContain('.biz .timeline { position: relative; min-width: 0; --label: 112px; }')
