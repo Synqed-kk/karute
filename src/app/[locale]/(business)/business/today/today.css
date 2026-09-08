@@ -2301,3 +2301,261 @@
 .biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
 .biz .page-today .sell-shelf button:hover { background: var(--indigo-soft); }
+
+/* ── R-2 · The money bar (本日の店舗状態) + 自分の1日 · REVERT = delete this block (lines A–B) ── */
+
+/* label over value: the number is what the eye is hunting, so it stops being
+   the second half of a sentence and becomes the thing on the tile.
+
+   ⚖ THIS RULE ALSO STACKS THE KPI STRIP'S CELLS, and that is the 9/8 ruling,
+   not a leak. `.register-cell` is ONE component and the product wears it in
+   three places (TodayScreen :6136–6156 the money bar · :6185–6190 自分の1日 ·
+   :6816–6818 the 指標 strip inside the 予約一覧 dialog). Slice ① already sized
+   the KPI strip's NUMBER (`.kpi-strip .register-cell b`, 18px/800 at 0,4,1,
+   which still beats the 16px below); the SHAPE was ruled to land here with the
+   bar it belongs to, so the same component does not read two ways on one page.
+   In the KPI strip `:last-of-type` below drops the last divider; there is no
+   `.ops-right` there, so `:nth-last-child(2)` never matches. */
+.biz .page-today .register-cell {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 10px 16px;
+  border-right: 1px solid #eef0f4;
+}
+.biz .page-today .register-cell span {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.biz .page-today .register-cell b {
+  font-size: 16px;
+  font-weight: 700;
+  color: #18181b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* 本日の予約総額 — the headline money. */
+.biz .page-today .ops-strip .register-cell:first-child b { font-size: 20px; font-weight: 800; }
+/* ⚖ STATE-CLASS LAW (PKT §1) — ORDER IS THE BEHAVIOUR, twice over. Canon's
+   `.biz .register-cell b.warn` (:65) is 0,3,1 and the `b` rule above is 0,3,1
+   too, so appended later it would have painted the 施術済み・精算待ち and 未解決
+   counts ink instead of red; and canon's `.biz .ops-decisions b` (:75) is only
+   0,2,1, so the same rule would have taken 次に決めること's orange with it.
+   Both are restated here, AFTER the rule that beats them. */
+.biz .page-today .register-cell b.warn { color: var(--red-dark); }
+.biz .page-today .ops-decisions b { color: var(--orange); }
+/* canon zeroes the border on the two entrance cells; R-2 gives the strip one
+   uniform divider instead, and the last cell before .ops-right drops it.
+   ⚖ STATE-CLASS LAW — this is also the restatement canon's `.register-cell.act`
+   (:70, 0,3,0) needs: the base rule above is 0,3,0 and stands later, so its
+   `border-right` would have drawn a divider canon deliberately removes AND
+   `border: 0` would have stopped resetting the button bevel. The whole canon
+   declaration comes back, with the divider added on purpose. */
+.biz .page-today .register-cell.act,
+.biz .page-today .ops-decisions {
+  border: 0;
+  border-right: 1px solid #eef0f4;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.biz .page-today .register-cell:last-of-type,
+.biz .page-today .ops-strip > .register-cell:nth-last-child(2) { border-right: 0; }
+.biz .page-today .register-cell.act:hover,
+.biz .page-today .ops-decisions:hover { background: #f8f9fb; }
+/* the existing ::after, rendered as a chevron glyph rather than a punctuation › */
+.biz .page-today .register-cell.act > b::after,
+.biz .page-today .ops-decisions > b::after {
+  content: "›";
+  margin-left: 7px;
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 600;
+}
+.biz .page-today .ops-right { padding: 10px 14px; gap: 6px; }
+/* ⚖ SCOPE, read at the source rather than assumed. `.chip` is canon's own pill
+   (:30) and the product writes it in seven places; `.ops-right .chip` reaches
+   exactly FIVE of them — the three status pills in the money bar (TodayScreen
+   :6161 :6162 :6172) and the two in 自分の1日 (:6192 :6193). It does NOT reach
+   #844's signpost (:6448, a `<Link className="chip">` inside `.fields-pop`,
+   which is slice ②'s `.fields-pop .chip`), nor the drag proxy's own
+   `.drag-proxy.chip` (:7525), nor `.session-chip` / `.online-chip`, which are
+   different classes entirely. */
+.biz .page-today .ops-right .chip {
+  min-height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: #f1f3f7;
+  color: #3f3f46;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — and these two are a SPECIFICITY restatement, not just an
+   ordering one: canon's `.biz .chip.ok` / `.chip.warn` (:41 / :42) are 0,3,0
+   and the rule above is 0,4,0, so it beats them outright. Restated at 0,5,0. */
+.biz .page-today .ops-right .chip.ok { background: #e7f5ee; color: #14532d; }
+.biz .page-today .ops-right .chip.warn { background: #fdf1e3; color: #92400e; }
+.biz .page-today .ops-right .btn { min-height: 32px; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+/* 自分の1日 wears the shell's own proof pair, so it reads as "mine". */
+.biz .page-today .ops-strip + .ops-strip { background: #f7f9ff; border-color: #dfe5fb; }
+.biz .page-today .ops-strip + .ops-strip .register-cell { border-right-color: #e2e8fb; }
+
+/* ── R-6 · Card faces (calibrated washes, ink text) + 仮置きエリア · REVERT = delete this block (lines A–B) ── */
+
+/* ⚖ STATE-CLASS LAW (PKT §1) — THE BASE RULE BELOW IS THE MOST DANGEROUS LINE
+   IN THIS SLICE. `.biz .page-today .event` is 0,3,0, which is EXACTLY the
+   specificity of every canon `.event.<state>` rule, and it is appended after
+   all of them — so at rest it wins every property the two share. Read against
+   canon rule by rule (today.css :576–631), the ties it creates and what
+   answers each of them:
+     · .confirmed :600 · .attention :601 · .hold :602 · .block :603
+       → border-color + background, RECALIBRATED below at 0,4,0 (the mock's
+         own washes). `color` and the 3px inset stripe are not declared here,
+         so canon still owns them.
+     · .cleanup :604 · .noshow :605 → the two hatches. NOTHING in the mock
+       recalibrates them and nothing should: 清掃 and 無断キャンセル keep their
+       beige weave. Restated verbatim, at 0,4,0, below.
+     · .micro :598 → `padding: 0 2px`. The base rule's padding shorthand would
+       give an 18px 準備 card a 10px left gutter and clip its own 9.5px name.
+       Restated below.
+     · .absence :606/:611 → already restated by slice ① at 0,4,0
+       (`.biz .page-today .event.absence`, the §0.1 tint), which BEATS this
+       rule. Nothing to do here, and it is named so the next reader does not
+       have to re-derive it.
+     · .selected :612 (outline) · .dragging :439 (opacity/cursor/box-shadow) ·
+       .pending :440 · .attempting :446 · .parked :447 (display) ·
+       .resizing :630 · .block/.cleanup :429 (overflow/touch-action)
+       → checked property by property: NOT ONE of them declares padding,
+         border, border-radius, background or transition, so there is no tie
+         to answer. They are listed because "I checked" has to be visible.
+     · [data-cat] :614 → `padding-left: 9px`, and this rule's `padding`
+       shorthand does tie it and win: a card with a category gets 10px instead
+       of 9. That is the mock's own number (the stripe is 4px wide, so 10px
+       leaves 6px of gutter beside it) and it is a RECALIBRATION, disclosed
+       here rather than left to be found. `box-shadow: none` is untouched, so
+       the category stripe still replaces the state's inset bar exactly as
+       canon has it. */
+.biz .page-today .event {
+  padding: 5px 6px 4px 10px;
+  border-radius: 8px;
+  border: 1px solid #c7d2fb;
+  background: #eef2ff;
+  transition: box-shadow 120ms ease-out, border-color 120ms ease-out, filter 100ms ease-out;
+}
+.biz .page-today .event.confirmed { border-color: #bfe1cd; background: #e7f5ee; }
+.biz .page-today .event.attention { border-color: #f2c0ba; background: #fdecea; }
+.biz .page-today .event.hold { border-color: #f0d2ae; background: #fdf1e3; }
+.biz .page-today .event.block { border-color: #dcd3c8; background: #f1ede8; }
+/* ⚖ STATE-CLASS LAW — the two hatches, restated VERBATIM from canon :604 /
+   :605. Without these two lines the base rule's indigo wash paints straight
+   over the beige weave and 清掃 / 無断キャンセル become ordinary bookings —
+   the packet's own 「the 清掃/noshow hatches (unchanged)」 ruling. `color:
+   var(--beige-dark)` is canon's and is not declared above, so it survives on
+   its own; only the two properties the base rule takes are given back. */
+.biz .page-today .event.cleanup { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); }
+.biz .page-today .event.noshow { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); }
+/* ink on the name — the wash, the border and the 4px stripe already carry the
+   state, and ink reads faster than a coloured name. Bookings only: a 休憩 and a
+   勤務不可 keep their own family colour, which IS their whole label. */
+.biz .page-today .event[data-book] > strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .event[data-book] > strong .tg { font-size: 10px; font-weight: 600; color: #52525b; opacity: 1; }
+.biz .page-today .event[data-book] > .e-time,
+.biz .page-today .event[data-book] > .e-tkt { font-size: 11.5px; color: #52525b; }
+/* ⚖ STATE-CLASS LAW — canon :598. A micro card is ~18px wide; the base rule's
+   `padding: 5px 6px 4px 10px` leaves it 2px of content box. Restated at 0,4,0.
+   `min-width: 0` is canon's other half and is not declared above, so it stays
+   canon's. */
+.biz .page-today .event.micro { padding: 0 2px; }
+.biz .page-today .event.micro > strong { font-size: 9.5px; }
+
+.biz .page-today button.event[data-cat]:hover { filter: none; box-shadow: 0 2px 8px rgba(16, 24, 40, .10); z-index: 5; }
+.biz .page-today button.event.confirmed:hover { border-color: #9fd0b5; }
+.biz .page-today button.event.attention:hover { border-color: #e6a09a; }
+.biz .page-today button.event.hold:hover { border-color: #e2b478; }
+.biz .page-today .event.block:hover,
+.biz .page-today .event.cleanup:hover { filter: none; box-shadow: inset 3px 0 0 #b6a795, 0 2px 8px rgba(16, 24, 40, .10); border-color: #cdc2b4; z-index: 5; }
+
+/* the card in hand. ⚖ STATE-CLASS LAW — `.biz .drag-proxy.chip` (:490) is
+   0,3,0 and the rule below ties it and stands later, so the CHIP proxy's own
+   lift is deliberately replaced; everything else canon gives it (its padding,
+   its orange border and fill, its box-sizing) is not declared here and stays.
+   The chip proxy never wears `.event` (TodayScreen :7525 writes either
+   `drag-proxy chip` or `drag-proxy event <state>`), so the base rule above
+   cannot reach it. */
+.biz .page-today .event.drag-proxy { box-shadow: inset 3px 0 0 currentColor, 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+.biz .page-today .event.drag-proxy[data-cat] { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+.biz .page-today .drag-proxy.chip { box-shadow: 0 12px 28px rgba(16, 24, 40, .22), 0 0 0 1px rgba(63, 91, 232, .25); }
+
+.biz .page-today .park-shelf { margin: 10px 12px 6px; border-radius: 10px; border-color: #d7dae2; background: #fbfcfe; }
+/* ⚖ STATE-CLASS LAW — THE SHELF LIGHTS UP AGAIN. Canon's `.biz .park-shelf.over`
+   (today.css :560 — the mock's comment cites :1254, which is the MOCK's own
+   line number) and the rule above are BOTH 0,3,0; this layer is appended after
+   canon, so on equal specificity the resting border/background won and the drop
+   target stopped glowing. Restated here, AFTER the rule that beat it, at 0,4,0 —
+   the product's own orange, the reskin's own radius and margin. */
+.biz .page-today .park-shelf.over { border-color: var(--orange); background: var(--orange-soft); }
+.biz .page-today .park-label strong { font-size: 12.5px; font-weight: 700; color: #18181b; }
+.biz .page-today .park-label span { color: #6b7280; font-size: 11.5px; }
+.biz .page-today .park-chip,
+.biz .page-today .placing-note { border-radius: 10px; font-size: 12px; }
+.biz .page-today .park-chip .park-x,
+.biz .page-today .placing-note .park-x { width: 22px; height: 22px; border-radius: 50%; }
+
+/* ── R-7 · Time axis + now · REVERT = delete this block (lines A–B) ── */
+
+/* V2-1 — THE RULER IS TWO BANDS. With the hour label sitting AT its gridline
+   (R-7), the 13:24 pill centred on the same line landed on 「13」 at every width
+   whose hour column is under ~150px (measured: 1280/1440/1512 all overlapped).
+   36px of ruler splits the problem instead of nudging it: the pill owns the
+   upper band, the labels are bottom-aligned in the lower one, and the two can
+   never share a row at ANY width. The dot still marks the exact minute — it
+   sits on the line at the ruler's bottom edge (centre y = 36px).
+   ⚖ STATE-CLASS LAW — checked and there is nothing to answer here: no canon
+   rule carrying a state token declares anything on `.time-head`, `.hours`,
+   `.elapsed-wash` or `.now-line`. `.biz.board-compact` (:1084–1087) touches
+   `.lane`, `small.e-tkt`, `.timeline-scroll` and `.group-label` and none of
+   these; the ruler keeps its 36px in コンパクト on purpose (the pill's clearance
+   is not a density question). */
+.biz .page-today .time-head { min-height: 36px; }
+.biz .page-today .time-head > span { font-size: 11.5px; color: #9ca3af; }
+.biz .page-today .hours span {
+  padding: 19px 0 0 6px;
+  text-align: left;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  border-left-color: #eceef3;
+}
+.biz .page-today .elapsed-wash { top: 36px; background: rgba(16, 24, 40, .045); }
+.biz .page-today .now-line { top: 36px; }
+/* the dot's centre sits ON the line at y = 36px — the ruler's bottom edge */
+.biz .page-today .now-line::before {
+  content: "";
+  position: absolute;
+  top: -4.5px;
+  left: 1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px #fff;
+  transform: translateX(-50%);
+}
+/* the pill in the upper band: y = 2 … 20 of the timeline. Horizontal centring
+   only — no vertical translate, so its row is fixed and cannot ride the label. */
+.biz .page-today .now-line span {
+  top: -34px;
+  left: 1px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
