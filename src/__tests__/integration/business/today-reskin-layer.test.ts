@@ -152,22 +152,32 @@ describe('今日の運営 reskin layer — the seeds', () => {
     expect(INT).toContain('export const LABEL_MAX = 240')
   })
 
-  it('the page-root block declares the four tokens this PR consumes, and no others', () => {
+  it('the page root declares the five tokens these PRs consume, and no others', () => {
     // ⚖ GREPTILE G-1 — three tokens (--control / --line / --line-2) were removed
-    // from this block because nothing in this PR reads them; leaving them in
+    // from PR-1's block because nothing in PR-1 read them; leaving them in
     // repainted 22 toolbar/popover/dialog borders and both hairlines of the
     // ruled warn-face card. Nothing held them out, so a one-line re-insert put
     // the whole bug back and both gates stayed green (delta lens MAJOR-1, its
     // mutant MXa). This is the assertion that holds them out.
-    const at = LAYER_CODE.indexOf('.biz .page.page-today {')
-    expect(at).toBeGreaterThan(-1)
-    const body = LAYER_CODE.slice(LAYER_CODE.indexOf('{', at) + 1, LAYER_CODE.indexOf('}', at))
-    const declared = body.split(';').map((d) => d.split(':')[0].trim()).filter(Boolean)
-    expect(declared.filter((d) => d.startsWith('--')).sort()).toEqual(['--card', '--muted', '--row', '--section'])
-    expect(declared.filter((d) => !d.startsWith('--')).sort()).toEqual(['background', 'padding'])
+    // ⚖ PR-2 — `--control` joins the ladder, in PR-2's OWN block, because PR-2
+    // is where its consumers live (the toolbar and the popovers). The layer is
+    // append-only, so it is a SECOND `.biz .page.page-today` rule rather than an
+    // edit to PR-1's: this pin therefore reads every such block there is.
+    const ROOT = '.biz .page.page-today {'
+    const blocks: string[] = []
+    for (let at = LAYER_CODE.indexOf(ROOT); at > -1; at = LAYER_CODE.indexOf(ROOT, at + 1)) {
+      blocks.push(LAYER_CODE.slice(LAYER_CODE.indexOf('{', at) + 1, LAYER_CODE.indexOf('}', at)))
+    }
+    expect(blocks.length).toBeGreaterThan(0)
+    const declared = blocks.flatMap((b) => b.split(';').map((d) => d.split(':')[0].trim()).filter(Boolean))
+    expect([...new Set(declared.filter((d) => d.startsWith('--')))].sort()).toEqual(['--card', '--control', '--muted', '--row', '--section'])
+    // The page root's non-token declarations, across every block including the
+    // two inside media queries: the canvas, its gutters, and the 1760px cap.
+    expect([...new Set(declared.filter((d) => !d.startsWith('--')))].sort()).toEqual(['background', 'margin', 'max-width', 'padding'])
     // …and nowhere else in the layer either — a page-scoped rule further down
-    // would reach exactly the same descendants.
-    expect(LAYER_CODE).not.toMatch(/--(?:control|line|line-2)\s*:/)
+    // would reach exactly the same descendants (the delta lens's MXb mutant).
+    expect(LAYER_CODE).not.toMatch(/--line(-2)?\s*:/)
+    expect(LAYER_CODE.match(/--control\s*:/g)).toHaveLength(1)
   })
 
   it('the two tint calibrations keep their grammar and change only the paint', () => {
@@ -229,5 +239,45 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
 
   it('a guard-off band keeps the left rule colour canon gives it', () => {
     after('.biz .page-today .guard-band.legend-only { border-left-color: var(--control); }', '  border-left: 0;')
+  })
+
+  it('the OPEN ? keeps its accent under the pointer', () => {
+    // Both 0,4,0. The hover would otherwise erase the dress that says the
+    // 操作ヒント popover is open (canon :137 is 0,3,0 and cannot defend itself).
+    after(
+      '.biz .page-today .help-toggle[aria-expanded="true"] { background: #eef2ff; color: #3f5be8; border-color: #c7d2fb; }',
+      '.biz .page-today .help-toggle:hover {',
+    )
+  })
+
+  it('a SELECTED 密度 option keeps its accent, at rest and under the pointer', () => {
+    // At rest: the base rule is 0,3,1, exactly canon's `[aria-pressed="true"]`
+    // (:227), and stands later — so the restatement has to come after it.
+    after(
+      '.biz .page-today .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }',
+      '.biz .page-today .density-seg button {',
+    )
+    // Under the pointer: the same answer the lock toggle got. Pinned as a RULE,
+    // not as one string — no hover on this control may reach the layer without
+    // excluding the pressed state, however it is spelled.
+    expect(LAYER_CODE).toContain('.biz .page-today .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
+    expect(LAYER_CODE).not.toMatch(/\.density-seg button(?!:not\(\[aria-pressed="true"\]\)):hover/)
+  })
+
+  it('the toolbar does not reach into the popovers it sits beside', () => {
+    // D-PR2-1 / D-PR2-2. Three popovers and the month calendar render INSIDE
+    // `.board-head`, and the calendar renders inside `.time-nav` itself, so the
+    // mock's descendant selectors would have taken the calendar's Sunday red,
+    // its 44px day cells and its green 空き wash. Both are pinned as rules: no
+    // descendant form of either may come back.
+    expect(LAYER_CODE).toContain('.biz .page-today .bh-left > strong {')
+    expect(LAYER_CODE).toContain('.biz .page-today .bh-left > span {')
+    expect(LAYER_CODE).not.toMatch(/\.page-today \.board-head (strong|span)\s*[,{]/)
+    expect(LAYER_CODE).toContain('.biz .page-today .time-nav > button,')
+    expect(LAYER_CODE).toContain('.biz .page-today .time-nav > a {')
+    expect(LAYER_CODE).not.toMatch(/\.page-today \.time-nav (button|a)[\s,{:.]/)
+    // …and the canon rules that would have lost are still canon's own.
+    expect(CSS).toContain('.biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }')
+    expect(CSS).toContain('.biz .cal-grid .wd.sun { color: var(--red-dark); }')
   })
 })
