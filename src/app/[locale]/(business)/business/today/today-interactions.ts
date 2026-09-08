@@ -3454,6 +3454,7 @@ export interface BedCompanion {
  *  path: change the number here if a store ever reports a re-seat that reached
  *  the floor; it is one constant with one reader. */
 const LEAD_FLOOR_MIN = 15
+// core seam (real-data connect): this floor assumes a live clock; the board's nowMinute is a per-request snapshot today — see QUEUE-RIDERS 2026-09-08.
 /** ponytail: four moved bookings, and a day that needs a fifth refuses honestly
  *  with today's sentence rather than shuffling half the board under the operator.
  *  Upgrade path: raise K — the search is iterative-deepening, so the extra depth
