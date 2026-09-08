@@ -70,6 +70,7 @@ import {
   type GuardRail,
   type SellDrop,
 } from '@/app/[locale]/(business)/business/today/today-interactions'
+import { bookingOptionsFor } from '@/app/[locale]/(business)/business/today/booking-options'
 import { type GapCell } from '@/business/lib/canon-logic/availability'
 import { createGapGuard, type GuardConfig, type GuardContext } from '@/business/lib/canon-logic/gap-guard'
 import { clampPriceInputs, SELL_SLOT_MIN } from '@/business/lib/canon-logic/pricing'
@@ -1170,7 +1171,7 @@ describe('5 — a 確保 window answers with the law', () => {
     // …and the renderer asks the very same question, once, by name.
     expect(screen).toContain('if (!laneRendered(lane)) return null')
     // …and the counter's own entry moved with ⚖ Q3's definition.
-    expect(screen).toContain('data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。')
+    expect(screen).toContain('data-guide="ボード上の配置案です。押すと種類ごとの時間・担当・参考価格を確認できます。予約できる選択肢は「予約候補」で確認してください。')
   })
 })
 
@@ -1668,7 +1669,7 @@ describe('7 — the fix round: the publication boundary', () => {
     // ⚖ Q3's one number is the board head's. This chip counts one of its four
     // kinds and now says which, in the board's own 案C word — the same word its
     // group wears in the press-open breakdown.
-    expect(screen).toContain('公開中の販売可能枠 {sellDrawn.staffBands.length}枠')
+    expect(screen).toContain('配置案の標準枠 {sellDrawn.staffBands.length}枠')
     expect(screen).not.toContain('>公開中 {')
     const w = fixtureWorld()
     const on = door(w, shipped(), maskOf(w, shipped()))
@@ -2391,6 +2392,7 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
       'false',
       'false',
       'heldBoard',
+      'heldCommitted', // CORE-9 booking choices use the same committed mask.
       'heldCommitted',
       'heldCommitted',
       'heldCommitted',
@@ -2450,5 +2452,93 @@ describe('9 — monotonicity: the surviving violations are exactly the set R5 ow
     // …and the one match IS the pinned sentence, not a second gate that happens
     // to sit beside it: same index, offset by the sentence's own prefix.
     expect(door.indexOf('return null')).toBe(door.indexOf(GATE) + 'if (!heldCommitted) '.length)
+  })
+})
+
+
+describe('CORE-9 — booking choices do not reserve beds', () => {
+  const key = (o: { laneKey: string; start: number; end: number }) => `${o.laneKey}/${o.start}/${o.end}`
+  it('preserves every bookable start and the freed therapist on fixture, tomorrow, synthetic and locked boards', () => {
+    let removals = 0
+    const fixture = fixtureWorld()
+    for (const w of [fixture, { ...fixture, now: null }, syntheticWorld()]) {
+      for (const locked of [[], [w.lanes.find(l => l.group === 'staff')!.key]]) {
+        for (const gridMin of [15, 30, 60]) for (const durationMin of [20, 30, 45, 60, 90]) {
+          const query = (world: World) => bookingOptionsFor({
+            lanes: world.lanes, storeIds: [...new Set(world.lanes.flatMap(l => l.stores ?? []))], hours: world.hours, now: world.now, locked,
+            cleanupMinutesByBed: world.cleanup, gridMin, durationMin,
+            minSellableMin: world.minSellableMin, held: maskOf(world, { ...shipped(), mode: 'standard' }),
+          })
+          const before = query(w)
+          for (const r of removableIn(w)) {
+            const removed = without(w, r.caseId)
+            // Cleanup generated from the cancelled booking disappears with it.
+            removed.lanes = removed.lanes.map(l => ({ ...l, items: l.items.filter(i => i.key !== `${r.caseId}-cleanup`) }))
+            const after = new Set(query(removed).map(key))
+            expect(before.every(o => after.has(key(o)))).toBe(true)
+            expect(before.filter(o => o.laneKey === r.laneKey).every(o => after.has(key(o)))).toBe(true)
+            removals++
+          }
+        }
+      }
+    }
+    expect(removals).toBeGreaterThan(900)
+  })
+  it('derives cleanup for a newly added or retargeted booking with no cleanup card', () => {
+    const hours = { open: 540, close: 780 }
+    const lanes = [lane({ key: 'staff', group: 'staff' }, hours), lane({ key: 'room', group: 'beds', items: [item({ key: 'added', kind: 'booking', startMin: 540, endMin: 600 })] }, hours)]
+    const options = bookingOptionsFor({ lanes, storeIds: ['store-a'], hours, locked: [], now: null, gridMin: 15, durationMin: 30,
+      minSellableMin: 0, cleanupMinutesByBed: { room: 15 } })
+    expect(options.some(o => o.start === 600)).toBe(false)
+    expect(options.some(o => o.start === 615)).toBe(true)
+  })
+  it('does not let another store’s rooms suppress a bedless store', () => {
+    const hours = { open: 540, close: 780 }
+    const lanes = [lane({ key: 'staff', group: 'staff', stores: ['bedless'] }, hours), lane({ key: 'foreign-room', group: 'beds', stores: ['other'] }, hours)]
+    const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
+      minSellableMin: 0, cleanupMinutesByBed: {} }
+    expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
+    expect(bookingOptionsFor(input).every(o => o.resourceKeys.length === 0)).toBe(true)
+    expect(bookingOptionsFor({ ...input, requiresPrivateRoom: true })).toEqual([])
+  })
+  it('evaluates a mixed-store therapist separately in each store before combining choices', () => {
+    const hours = { open: 540, close: 780 }
+    const lanes = [lane({ key: 'staff', group: 'staff', stores: ['full', 'bedless'] }, hours), lane({ key: 'room', group: 'beds', stores: ['full'], items: [item({ key: 'occupied', kind: 'booking', startMin: 540, endMin: 780 })] }, hours)]
+    const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
+      minSellableMin: 0, cleanupMinutesByBed: {} }
+    expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
+    expect(bookingOptionsFor(input).every(o => o.storeIds.join() === 'bedless')).toBe(true)
+    expect(bookingOptionsFor({ ...input, storeId: 'full' })).toEqual([])
+    expect(bookingOptionsFor({ ...input, storeId: 'bedless' })).toEqual(bookingOptionsFor(input))
+  })
+  it('uses the permitted store inventory for floating staff, including stores with no rooms', () => {
+    const hours = { open: 540, close: 780 }
+    const lanes = [lane({ key: 'staff', group: 'staff', stores: null }, hours), lane({ key: 'room', group: 'beds', stores: ['full'], items: [item({ key: 'occupied', kind: 'booking', startMin: 540, endMin: 780 })] }, hours)]
+    const input = { lanes, storeIds: ['full', 'bedless'], hours, locked: [], now: null, gridMin: 30, durationMin: 60,
+      minSellableMin: 0, cleanupMinutesByBed: {} }
+    expect(bookingOptionsFor(input).length).toBeGreaterThan(0)
+    expect(bookingOptionsFor(input).every(o => o.storeIds.join() === 'bedless')).toBe(true)
+    expect(bookingOptionsFor({ ...input, storeIds: ['full'] })).toEqual([])
+    expect(bookingOptionsFor({ ...input, lanes: lanes.map(l => l.group === 'staff' ? { ...l, stores: [] } : l) })).toEqual([])
+  })
+  it('keeps protected choices visible and explicitly limited to new clients', () => {
+    const hours = { open: 540, close: 780 }
+    const lanes = [lane({ key: 'staff', group: 'staff' }, hours), lane({ key: 'room', group: 'beds' }, hours)]
+    const input = { lanes, storeIds: [...new Set(lanes.flatMap(l => l.stores ?? []))], hours, locked: [], now: null, gridMin: 30, durationMin: 30,
+      minSellableMin: 0, cleanupMinutesByBed: {} }
+    const open = bookingOptionsFor(input)
+    const protectedChoices = bookingOptionsFor({ ...input, held: [{ laneKey: 'staff', protectedCount: 1, spans: [{ start: 600, end: 690, windowStart: 600 }] }] })
+    expect(protectedChoices.map(key)).toEqual(open.map(key))
+    expect(protectedChoices.find(o => o.start === 600)?.audience).toBe('new_client')
+    expect(protectedChoices.find(o => o.start === 690)?.audience).toBe('any')
+  })
+  it('reproduces the reported lost therapist as a still-bookable choice after cancellation', () => {
+    const w = syntheticWorld()
+    const input = { storeIds: ['store-a'], hours: w.hours, now: w.now, cleanupMinutesByBed: w.cleanup,
+      locked: [], gridMin: 30, durationMin: 30, minSellableMin: 0, held: [] }
+    const before = bookingOptionsFor({ ...input, lanes: w.lanes })
+    expect(before.some(o => o.laneKey === 'p-06' && o.start === 990)).toBe(true)
+    const after = bookingOptionsFor({ ...input, lanes: without(w, 'apt-06-0').lanes })
+    expect(after.some(o => o.laneKey === 'p-06' && o.start === 990)).toBe(true)
   })
 })

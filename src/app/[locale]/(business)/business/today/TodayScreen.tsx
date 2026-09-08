@@ -148,6 +148,7 @@ import {
   type WarnCardModel,
 } from './today-interactions'
 import { bedTruthViews, reservedOffersFor, type BedTruth, type DayFrame } from './capacity-ledger'
+import { bookingOptionsFor } from './booking-options'
 import { fallbackCellsFor, type FallbackResult } from './fallback-cells'
 import { heldCommittedFor } from './held-committed'
 import { reservedMaskFor, type ReleasedWindow, type ReservedSpan } from './reserved-mask'
@@ -358,6 +359,7 @@ export interface InspectorCase {
 export interface TodayProps {
   locale: string
   store: string | null
+  optionStores: Array<{ id: string; name: string }>
   lensLabel: string
   dayOffset: number
   dayLabel: string
@@ -855,7 +857,9 @@ export function TodayScreen(props: TodayProps) {
   const [density, setDensity] = useState<'std' | 'compact'>('std')
   const [collapsed, setCollapsed] = useState<string[]>([])
   const [locked, setLocked] = useState<string[]>([])
-  const [pop, setPop] = useState<'' | 'shelf' | 'help' | 'fields' | 'cal'>('')
+  const [pop, setPop] = useState<'' | 'booking-options' | 'shelf' | 'help' | 'fields' | 'cal'>('')
+  const [optionDuration, setOptionDuration] = useState(props.guard.standardSessionMin)
+  const [privateOptions, setPrivateOptions] = useState(false)
   const [showTime, setShowTime] = useState(true)
   const [showTicket, setShowTicket] = useState(true)
   const [showSlotPrice, setShowSlotPrice] = useState(true)
@@ -1043,6 +1047,8 @@ export function TodayScreen(props: TodayProps) {
   const shelfRef = useRef<HTMLDivElement>(null)
   const fieldsPopRef = useRef<HTMLDivElement>(null)
   const fieldsBtnRef = useRef<HTMLButtonElement>(null)
+  const optionsPopRef = useRef<HTMLDivElement>(null)
+  const optionsBtnRef = useRef<HTMLButtonElement>(null)
   const advicePopRef = useRef<HTMLDivElement>(null)
   const blockAdvicePopRef = useRef<HTMLDivElement>(null)
   const holdPopRef = useRef<HTMLDivElement>(null)
@@ -1224,13 +1230,13 @@ export function TodayScreen(props: TodayProps) {
   }, [advice])
 
   // canon `positionFieldsPop` (:5782) + its resize listener (:5820). 表示設定
-  // is viewport-pinned, not button-hung, so the whole panel is on screen with
-  // nothing to scroll. Before paint, so it never flashes at the CSS seed.
+  // and booking alternatives are viewport-pinned so their controls stay on
+  // screen. Before paint, so they never flash at the CSS seed.
   useLayoutEffect(() => {
-    if (pop !== 'fields') return
+    if (pop !== 'fields' && pop !== 'booking-options') return
     const place = () => {
-      const el = fieldsPopRef.current
-      const btn = fieldsBtnRef.current
+      const el = pop === 'fields' ? fieldsPopRef.current : optionsPopRef.current
+      const btn = pop === 'fields' ? fieldsBtnRef.current : optionsBtnRef.current
       if (!el || !btn) return
       const { top, left } = fieldsPopAnchor(
         btn.getBoundingClientRect(),
@@ -1244,7 +1250,7 @@ export function TodayScreen(props: TodayProps) {
     place()
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
-  }, [pop])
+  }, [pop, optionDuration, privateOptions])
 
   /** THE BOARD, twice. `boardLanes` is the truth every derivation reads — the
    *  dragged card is already on the lane it is heading for, which is what makes
@@ -1751,6 +1757,20 @@ export function TodayScreen(props: TodayProps) {
       }),
     [heldCommitted, sellDrawn, gapDrawn, heldDrawn, committedLanes, showSlotPrice],
   )
+
+  // CORE-9: the packing plan above is advisory. Published choices enumerate
+  // each therapist against committed occupancy, with no claims between choices.
+  const optionDurations = useMemo(() => [...new Set([
+    props.guard.standardSessionMin, ...props.guard.config.services.map(menu => menu.dur),
+  ])].filter(duration => duration >= (props.guard.minSellableMin ?? 0)).sort((a, b) => a - b), [props.guard])
+  const selectedOptionDuration = optionDurations.includes(optionDuration) ? optionDuration : (optionDurations[0] ?? props.guard.standardSessionMin)
+  const bookingOptions = useMemo(() => bookingOptionsFor({
+    lanes: committedLanes, storeId: props.store, storeIds: props.optionStores.map(store => store.id), hours, locked, now: props.sell.nowMinute,
+    gridMin: props.sell.gridMin, durationMin: selectedOptionDuration,
+    minSellableMin: props.guard.minSellableMin ?? 0,
+    cleanupMinutesByBed: props.bedCleanupMinutes,
+    held: heldCommitted, requiresPrivateRoom: privateOptions,
+  }), [committedLanes, props.store, props.optionStores, hours, locked, props.sell, selectedOptionDuration, props.guard.minSellableMin, props.bedCleanupMinutes, heldCommitted, privateOptions])
 
   /** The 配置ガイド. `guardOn` is the STORE's protection policy; `guideMode` is
    *  a personal display preference that can hide the painted rail and can never
@@ -6165,7 +6185,7 @@ export function TodayScreen(props: TodayProps) {
               gap, which is a second total in all but name. It is not a total:
               it is one KIND of the four, and it says so in the board's own 案C
               word. The number and its unit are untouched. */}
-          <span className="chip ok">公開中の販売可能枠 {sellDrawn.staffBands.length}枠</span>
+          <span className="chip ok">配置案の標準枠 {sellDrawn.staffBands.length}枠</span>
           <button className="btn" type="button" onClick={() => closingRef.current?.showModal()}>閉店準備を確認</button>
         </div>
       </header>
@@ -6195,27 +6215,47 @@ export function TodayScreen(props: TodayProps) {
         <section className="panel board" aria-labelledby="boardTitle">
           <div className="board-head">
             <div className="bh-left">
-              <strong id="boardTitle">本日の予約と販売可能枠</strong>
+              <strong id="boardTitle">本日の予約と配置案</strong>
+
+              <span className="fields-pop-wrap" data-pop="booking-options">
+                <button ref={optionsBtnRef} type="button" className="online-chip" aria-expanded={pop === 'booking-options'} onClick={() => setPop(p => p === 'booking-options' ? '' : 'booking-options')}>
+                  予約候補 {bookingOptions.length}件
+                </button>
+                {pop === 'booking-options' && (
+                  <div ref={optionsPopRef} className="fields-pop sell-shelf" aria-label="担当・時間の予約候補">
+                    <p>同じベッドを使う候補が含まれます。ベッドは予約確定時に割り当てます。</p>
+                    <label>施術時間<select value={selectedOptionDuration} onChange={e => setOptionDuration(Number(e.target.value))}>{optionDurations.map(duration => <option key={duration} value={duration}>{duration}分</option>)}</select></label>
+                    <label><input type="checkbox" checked={privateOptions} onChange={e => setPrivateOptions(e.target.checked)} />個室が必要</label>
+                    {bookingOptions.map(option => (
+                      <span key={`${option.laneKey}-${option.start}-${option.end}`}>
+                        {hhmm(option.start)}–{hhmm(option.end)} · {committedLanes.find(lane => lane.key === option.laneKey)?.label}{props.store === null ? ` · ${option.storeIds.map(id => props.optionStores.find(store => store.id === id)?.name).filter(Boolean).join('・')}` : ''}{option.audience === 'new_client' ? ' · 新規限定' : ''}
+                      </span>
+                    ))}
+                    {bookingOptions.length === 0 && <span>この条件で予約できる候補はありません</span>}
+                  </div>
+                )}
+              </span>
 
               <span className="fields-pop-wrap" data-pop="shelf">
                 <button
                   type="button"
                   className="online-chip"
                   aria-expanded={pop === 'shelf'}
-                  data-guide-title="オンライン販売中"
+                  data-guide-title="配置案"
                   // ⚖ RULED BY LIAM 8/30 (spec §13 Q3) — ONE NUMBER for
                   // everything on sale online, so the sentence had to move with
                   // the definition: it counted the 販売可能枠 layer alone while
                   // 詰め込み and スキマ枠 boxes sat on the board being just as
                   // buyable, and 新規用に確保 windows are on sale to a 新規.
-                  data-guide="いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。"
+                  data-guide="ボード上の配置案です。押すと種類ごとの時間・担当・参考価格を確認できます。予約できる選択肢は「予約候補」で確認してください。"
                   hidden={sellMode === 'off'}
                   onClick={() => setPop((p) => (p === 'shelf' ? '' : 'shelf'))}
                 >
-                  {shelf.label}
+                  {shelf.label.replace('オンライン販売中', '配置案')}
                 </button>
                 {pop === 'shelf' && (
                   <div className="fields-pop sell-shelf" aria-label="販売可能枠の一覧">
+                    <p>配置の提案です。予約できる担当・時間は「予約候補」で確認できます。</p>
                     {/* ⚖ Q3's breakdown — the same four words the boxes wear
                         (案C's name tags) and §9's 確保 wording, each group over
                         its own rows. A group with nothing in it is not drawn:
@@ -6735,7 +6775,7 @@ export function TodayScreen(props: TodayProps) {
               here made one count read as two facts about the same board. The
               chip's own words are the surviving name — no new vocabulary, and
               nothing about the number or its unit moves. */}
-          <div className="incident-stat"><span>公開中の販売可能枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
+          <div className="incident-stat"><span>配置案の標準枠</span><b>{sellDrawn.staffBands.length}枠</b></div>
           <div className="incident-action">
             <button className="btn" type="button" onClick={() => setSelected(props.incident!.caseId)}>影響を確認</button>
           </div>
