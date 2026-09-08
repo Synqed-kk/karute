@@ -2069,3 +2069,183 @@
 .biz .page-today .now-line span,
 .biz .page-today .cal-cell b,
 .biz .page-today .spot-foot .count { font-variant-numeric: tabular-nums; }
+
+/* ── R-3 · Board head → a toolbar ───────────────────────────────────────── */
+
+/* ⚖ GREPTILE G-1 (PR-1) — THE TOKEN THIS PR ACTUALLY READS. `--control` was in
+   PR-1's page ladder and was taken out again, because every one of its 22 canon
+   consumers is a control on THIS surface: help-toggle :129 · session-chip :146 ·
+   segmented :156 · time-nav :170 · fields-pop :191 · density-seg button :225 ·
+   cal-pop :254 · cal-tools button :262 · lock-toggle :360 · guard-pop's cancel
+   :1031 · nine dialog controls · the tour card and its footer. They are this
+   PR's, PR-4's dialogs, or the lock toggle whose look PR-1 kept as canon — so
+   the declaration belongs here and nowhere earlier. The value is the same
+   #e4e7ec the panels and cards already wear, which is the whole point: one
+   hairline grey for every edge on the page.
+   `--line` and `--line-2` stay undeclared by every PR — `--line-2`'s only two
+   consumers are inside the ruled H2 warn-face (:1271 / :1463), which stays to
+   the pixel. */
+.biz .page.page-today { --control: #e4e7ec; }
+
+.biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
+/* D-PR2-1 — the mock writes these as `.board-head strong` / `.board-head span`.
+   In the MOCK that is safe; in the product it is not. Three popovers and the
+   month calendar are rendered INSIDE `.board-head` (the shelf and 操作ヒント
+   hang off `.bh-left`, 表示設定 and the calendar off `.board-tools`), so the
+   descendant form at 0,3,1 reaches `.cal-head strong` (0,2,1), every
+   `.fields-pop strong`, and — beating it — `.cal-grid .wd.sun` / `.wd.sat`
+   (0,3,0), which would take the calendar's Sunday red and Saturday blue away.
+   The title and its sub-line are DIRECT children of `.bh-left`, so that is what
+   the selector says. Same specificity as the mock's, strictly less reach. */
+.biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
+.biz .page-today .bh-left > span { color: #6b7280; }
+
+.biz .page-today .online-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3f5be8;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.biz .page-today .online-chip:hover { background: #e3e9ff; }
+
+.biz .page-today .help-toggle {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #e4e7ec;
+  background: #fff;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+.biz .page-today .help-toggle:hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW (PKT §1) — the OPEN ? keeps its accent under the pointer.
+   The hover above is 0,4,0 and canon's `.biz .help-toggle[aria-expanded="true"]`
+   (:137) is 0,3,0, so without this line moving the pointer over the open
+   button would wipe the very dress that says it is open. Restated at 0,4,0
+   AFTER the hover, which is the order that decides it. */
+.biz .page-today .help-toggle[aria-expanded="true"] { background: #eef2ff; color: #3f5be8; border-color: #c7d2fb; }
+
+.biz .page-today .session-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 5px 3px 12px;
+  background: #e7f5ee;
+  color: #14532d;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.biz .page-today .session-chip i { width: 7px; height: 7px; }
+/* V2-2 — the pill wraps AS A PILL or not at all. At 1280 it was breaking inside
+   its own words (「精算待/ち」「次回予約を作/成」), which reads as damage. */
+.biz .page-today .session-chip { white-space: nowrap; }
+.biz .page-today .session-chip .btn.text { color: #3f5be8; font-weight: 700; white-space: nowrap; }
+.biz .page-today .session-chip .btn.text:hover { background: rgba(63, 91, 232, .08); }
+
+.biz .page-today .time-nav {
+  min-height: 32px;
+  padding: 0 2px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #fff;
+  align-items: center;
+}
+/* D-PR2-2 — the mock writes `.time-nav button` / `.time-nav a`. Canon makes
+   `.time-nav` the positioning parent of the month calendar (:170 `position:
+   relative`, the `.cal-pop` is its child), and in the PRODUCT every day cell is
+   a `<Link>` — an `<a>` — while the mock builds them as `<button>`. Either way
+   the descendant form reaches them: `.time-nav a` at 0,3,1 would beat
+   `.cal-cell.open` / `.full` / `.cur` (0,3,0) and grey out the calendar's
+   green, and `min-height: 30px` would beat `.cal-cell`'s own 44px (0,2,0) and
+   squash the whole grid. It would take `.cal-tools`' buttons too. The three
+   controls this rule is FOR — ‹ · the day label · › — are direct children, so
+   the child combinator says exactly that and nothing more. */
+.biz .page-today .time-nav > button,
+.biz .page-today .time-nav > a {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 8px;
+  color: #52525b;
+}
+.biz .page-today .time-nav > button:hover,
+.biz .page-today .time-nav > a:hover { background: #f1f3f7; }
+/* the day label wears a calendar glyph — decorative, generated, never in the
+   accessibility tree (a background image has no accessible name). */
+.biz .page-today .time-nav > button.day-label {
+  padding: 0 12px 0 30px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='1.9' stroke-linecap='round'%3E%3Crect x='3.6' y='5' width='16.8' height='15' rx='2.6'/%3E%3Cpath d='M8 3v4M16 3v4M3.6 10h16.8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+/* 表示設定 gains a sliders glyph, same technique, same law. */
+.biz .page-today [data-pop="fields"] > .btn.text {
+  padding-left: 30px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233f5be8' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M4 8h10M18 8h2M4 16h4M12 16h8'/%3E%3Ccircle cx='16' cy='8' r='2.1'/%3E%3Ccircle cx='10' cy='16' r='2.1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 10px 50%;
+  background-size: 14px 14px;
+}
+
+/* V2-2 — ≤1320 the head is two rows: [title · 販売中 · ? · ご来店中] over
+   [date nav · 表示設定 · 両方/スタッフ/設備], the tools right-aligned. Without
+   this the `?` fell onto a row of its own between the chip and the pill.
+   ≥1321 is untouched — 1440 and 1920 already sit on one row. */
+@media (max-width: 1320px) {
+  .biz .page-today .board-head { flex-wrap: wrap; row-gap: 8px; }
+  .biz .page-today .bh-left { flex: 1 1 auto; min-width: 0; }
+  .biz .page-today .board-tools { flex: 0 0 auto; margin-left: auto; }
+}
+
+/* 密度 / 販売可能枠の表示 / 配置ガイド — same family, no thumb: selected is a
+   wash with an accent border, exactly as today. (The segmented control's own
+   track and its sliding thumb are PR-4's.) */
+.biz .page-today .density-seg button {
+  min-height: 28px;
+  border-radius: 8px;
+  border-color: #e4e7ec;
+  color: #3f3f46;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+/* ⚖ STATE-CLASS LAW — D-PR2-3, the same answer PR-1 gave the lock toggle. A
+   plain `.density-seg button:hover` is 0,4,1 and canon's
+   `[aria-pressed="true"]` (:227) is 0,3,1, so hovering the SELECTED 密度 /
+   販売可能枠 / 配置ガイド option would wash its accent background away. Written
+   to exclude the pressed state, so the pressed button keeps canon's own hover
+   behaviour (canon's :226 hover loses to its own :227 by order). */
+.biz .page-today .density-seg button:not([aria-pressed="true"]):hover { background: #f1f3f7; }
+/* ⚖ STATE-CLASS LAW — and at REST the same pair ties: the base rule above is
+   0,3,1, exactly canon's `[aria-pressed="true"]` (:227), and stands later, so
+   the selected option lost its accent ink and its accent border. Restated after
+   it. `background` is NOT restated: the base rule never declares one, so
+   canon's `var(--select-bg)` wash was never in danger. */
+.biz .page-today .density-seg button[aria-pressed="true"] { color: var(--select-ink); border-color: var(--select-line); }
+
+/* popovers — one card, one edge, one shadow. `.sell-shelf` and `.help-pop`
+   share the `.fields-pop` base and come with it; `.store-pop` is the shell's
+   and is not this sheet's to touch. */
+.biz .page-today .fields-pop,
+.biz .page-today .cal-pop {
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .14);
+}
+.biz .page-today .fields-pop strong { color: #18181b; font-size: 12.5px; font-weight: 700; }
+.biz .page-today .fields-pop span { color: #6b7280; }
+/* #844's signpost is a `<Link>`, and a link in a pill should not also be
+   underlined — the pill already says it is one. Tailwind's preflight makes
+   `a { text-decoration: inherit }`, so on main it inherits rather than
+   underlines; this states it instead of relying on a reset. */
+.biz .page-today .fields-pop .chip { text-decoration: none; }
+.biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
+.biz .page-today .sell-shelf button:hover { background: #eef2ff; }
+.biz .page-today .sell-shelf button b { color: #3f5be8; }
