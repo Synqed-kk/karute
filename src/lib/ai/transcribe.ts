@@ -262,6 +262,31 @@ function detailNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+/** THE BILLED LENGTH, decided in ONE place. The provider's own measurement
+ *  first — the only number that is not a client's claim — then the row/payload
+ *  hint, then the floor. */
+function billedSeconds(result: Record<string, unknown>, hintSeconds?: number | null): number {
+  return (
+    positiveSeconds(result.durationSec) ??
+    positiveSeconds(hintSeconds) ??
+    UNKNOWN_DURATION_FLOOR_SECONDS
+  )
+}
+
+/** The two numbers the meter just debited, for the doors that file their OWN
+ *  receipt row (the two interactive routes). Same inputs, same rules, one home
+ *  — never a second estimate that could disagree with the ledger. */
+export function transcriptionCostDetail(
+  result: Record<string, unknown>,
+  hintSeconds?: number | null,
+): { duration_seconds: number; cost_cents: number } {
+  const durationSec = billedSeconds(result, hintSeconds)
+  return {
+    duration_seconds: Math.round(durationSec),
+    cost_cents: estimateTranscriptionCostCents(durationSec),
+  }
+}
+
 /** THE RECEIPT — ids and numbers only, never a word of the transcript. Private
  *  and unconditional so the emission walker can prove it (CP7); the CALLER
  *  decides whether this door files one (see runMeteredTranscription). */
@@ -339,12 +364,7 @@ export async function runMeteredTranscription(
 
   const result = await runTranscription(params)
 
-  // The provider's own measurement first — it is the only number that is not a
-  // client's claim. Then the row/payload hint, then the floor.
-  const durationSec =
-    positiveSeconds(result.durationSec) ??
-    positiveSeconds(meter.durationHintSeconds) ??
-    UNKNOWN_DURATION_FLOOR_SECONDS
+  const durationSec = billedSeconds(result, meter.durationHintSeconds)
   const costCents = estimateTranscriptionCostCents(durationSec)
   await reportTranscriptionUsageWithClient(meter.synqed, costCents)
 

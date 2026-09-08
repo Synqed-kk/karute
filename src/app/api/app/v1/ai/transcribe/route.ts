@@ -2,23 +2,24 @@
 // STORAGE PATH (never a URL): the server verifies `path` is exactly a key minted
 // for `identity.businessId` — a cross-tenant path → not_found — then mints
 // its OWN signed READ url, so the SSRF guard surface disappears by construction.
-// Runs the shared runTranscription core with the org diarization toggle + the
+// Runs the shared transcription core with the org diarization toggle + the
 // FACADE CALLER's OWN enrollment clip via selfStaffId (voice-isolation rule #401
-// on the Bearer path — extra-eyes MANDATORY). Plan gate BEFORE the rate-limit
-// consume (F-A1); WithClient rate-limit; ⚖ the object is READ and never deleted
-// (PR4). records.write; POST → revocation-sensitive (ai.transcribe).
+// on the Bearer path — extra-eyes MANDATORY). Plan gate FIRST (F-A1); the AI
+// ceiling is asked inside runMeteredTranscription, which also debits the minutes
+// on the provider's answer (the spend wall); ⚖ the object is READ and never
+// deleted (PR4). records.write; POST → revocation-sensitive (ai.transcribe).
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { orgSettingsWithClient } from '@/actions/org-settings'
-import { enforceAiRateLimitWithClient } from '@/lib/ai-rate-limit'
 import { featureAllowedForBusiness } from '@/lib/subscription/feature-gate'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { createServiceClient } from '@/lib/supabase/service'
 import {
-  runTranscription,
+  runMeteredTranscription,
+  transcriptionCostDetail,
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
@@ -62,7 +63,11 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   if (!(await featureAllowedForBusiness(ctx.identity.businessId, 'aiKaruteGeneration'))) {
     throw new AppApiError('forbidden', 'aiKaruteGeneration plan required')
   }
-  await enforceAiRateLimitWithClient(synqed, 'transcribe')
+  // ⚖ THE CEILING IS ASKED ONCE, INSIDE THE METER (the spend wall, 2026-09-08).
+  // This route used to consume('transcribe') on this line; the meter consumes at
+  // the provider call now, and two consumes per request would count the hourly
+  // cap twice. facadeHandler still maps the classified rate_limited it throws
+  // to the same 429 this line's refusal produced.
 
   const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
   const diarize = orgSettings?.speaker_diarization !== false
@@ -81,16 +86,23 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'could not read the recording')
   }
 
-  const result = await runTranscription({
-    audio: { url: signed.signedUrl },
-    locale: parsed.data.locale === 'en' ? 'en' : 'ja',
-    diarize,
-    reference,
-    mode,
-    // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
-    // route, from the identity-threaded org settings.
-    businessType: orgSettings?.business_type ?? null,
-  })
+  const result = await runMeteredTranscription(
+    { synqed, businessId: ctx.identity.businessId, door: 'app' },
+    {
+      audio: { url: signed.signedUrl },
+      locale: parsed.data.locale === 'en' ? 'en' : 'ja',
+      diarize,
+      reference,
+      mode,
+      // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
+      // route, from the identity-threaded org settings.
+      businessType: orgSettings?.business_type ?? null,
+    },
+  )
+  // The spend wall's two numbers ride the hook's OWN recording.transcribe row
+  // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
+  // meter: one call, one receipt. Two keys, well inside the hook's cap of 8.
+  ctx.auditDetail = transcriptionCostDetail(result)
   return ok(ctx, result)
 })
 
