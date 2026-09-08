@@ -4131,8 +4131,7 @@ export function companionRoomStillFree(
  *  `・`-joined run (:1686), wrong standing alone. If the ceiling is ever
  *  raised, how a long list reads is a design question for that round.
  *
- *  ⚠ PLACEHOLDER JAPANESE, awaiting the native pass — brief the writer with the
- *  sibling lines (`holdSummary` above). */
+ *  ⚖ FIX ROUND 3 (G2, DELTA-CODE-D3) — JAPANESE ACCEPTED AS FINAL, no correction. */
 export function companionLines(lanes: BoardLane[], companions: readonly BedCompanion[]): string[] {
   const labelOf = (key: string) => lanes.find((l) => l.key === key && l.group === 'beds')?.label ?? key
   return companions.map((c) => {
