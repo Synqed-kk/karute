@@ -4041,6 +4041,64 @@ export function vacateBeforeOccupy(companions: readonly BedCompanion[]): BedComp
   return out
 }
 
+/** ⚖ FIX ROUND 2 (F10, CODE-LENS-4 F1) — IS THIS CARD PART OF THE STAGED CHANGE?
+ *
+ *  The subject wears the 仮押さえ outline, and so does every card the board moved
+ *  to make room: a companion rendered as an ordinary undisturbed booking is the
+ *  one thing it is not.
+ *
+ *  It lives here rather than inside the render for the reason the breaker lens
+ *  named: the screen's own closures are proven by literal source-text pins, and
+ *  「a rewrite that preserves the pinned substring while changing behavior would
+ *  sail through all 10,559 green tests undetected」. This is a predicate; it can
+ *  be asked. */
+export function isStagedCard(
+  pending: { id: string; companions?: readonly BedCompanion[] } | null | undefined,
+  caseId: string | null | undefined,
+): boolean {
+  if (pending == null || caseId == null) return false
+  return pending.id === caseId || (pending.companions ?? []).some((c) => c.id === caseId)
+}
+
+/** ⚖ FIX ROUND 2 (F10, CODE-LENS-4 F1) — IS THIS COMPANION'S ROOM STILL FREE?
+ *
+ *  canon R11-7's re-check (「a lane locked after staging cannot be confirmed
+ *  through」) applied to the OTHER cards a change moved. The room is asked with
+ *  every other room filtered out, so a refusal is `fullRoomsRefusal`'s own
+ *  sentence about the one room that is no longer free — one composer, no second
+ *  wording.
+ *
+ *  `allocate` is injectable so the confirm's own decision can be driven in a
+ *  test without a renderer; every product caller takes the default.
+ *
+ *  ⚖ CODE-LENS-4 F6, recorded rather than fixed: without the room filter the
+ *  confirm still refuses correctly (the gate is `laneKey !== bedTo`), but
+ *  `refusal` comes back `null` when the allocator finds some OTHER free room —
+ *  so the filter buys the SENTENCE, not the decision. Which is why it is here,
+ *  in one place, rather than spelled at the call site. */
+export function companionRoomStillFree(
+  lanes: BoardLane[],
+  companion: BedCompanion,
+  /** The span the companion is staged at — its own drawing, never the subject's
+   *  (⚖ 51: a companion changes room, never clock). A `Move` satisfies it; only
+   *  the two percent numbers are read. */
+  span: { x: number; w: number },
+  hours: Hours,
+  allocate: typeof allocateBed = allocateBed,
+): { ok: true } | { ok: false; refusal: string | null } {
+  const staffLane = lanes.find((l) => l.group === 'staff' && l.items.some((i) => i.caseId === companion.id))
+  const held = lanes.flatMap((l) => l.items).find((i) => i.caseId === companion.id)
+  const room = allocate(lanes.filter((l) => l.group !== 'beds' || l.key === companion.bedTo), {
+    id: companion.id,
+    currentBed: companion.bedTo,
+    stores: staffLane?.stores ?? null,
+    requiresPrivate: held?.requiresPrivateRoom === true,
+    start: minuteOf(span.x, hours),
+    end: minuteOf(span.x + span.w, hours),
+  })
+  return room.laneKey === companion.bedTo ? { ok: true } : { ok: false, refusal: room.refusal }
+}
+
 /** ⚖ 9/8 PACKING — WHO ELSE THIS LANDING MOVED, one line each.
  *
  *  The 仮押さえ box's own summary is UNTOUCHED (it has a second caller and a
