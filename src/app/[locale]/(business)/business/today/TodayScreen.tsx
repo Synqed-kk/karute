@@ -3301,7 +3301,21 @@ export function TodayScreen(props: TodayProps) {
       if (!span) continue
       const room = companionRoomStillFree(boardLanes, c, span, hours)
       if (!room.ok) {
-        refuse(room.refusal ?? '状況が変わったため、この内容では確定できません')
+        // ⚖ FIX ROUND 2 (F5, CODE-LENS-3 F2) — AND IT SAYS WHOSE MOVE FAILED.
+        // The composed 満室 sentence is about the COMPANION's window and the
+        // COMPANION's room — 「a room and a clock window that match nothing the
+        // operator dragged」 — handed to a seven-second toast with no
+        // attribution, so an operator would reread their own drop looking for
+        // the mistake. This is the surface's own frame instead (sibling:
+        // 状況が変わったため、この内容では確定できません), naming the person the board
+        // moved. The name is read off the card, exactly as `companionLines`
+        // reads it, and where the board cannot say it the sibling sentence
+        // stands rather than a 「様」 about nobody (⚖ A3).
+        // ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
+        const title = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title
+        refuse(title
+          ? `${title}様の移動先を確保できなくなったため、この内容では確定できません`
+          : (room.refusal ?? '状況が変わったため、この内容では確定できません'))
         return
       }
     }
@@ -7548,7 +7562,15 @@ export function TodayScreen(props: TodayProps) {
           // face's 確定 is a tap at every store, dial on or off. Naming the face
           // scopes the promise to the control that actually asks for it.
           data-guide-title="仮押さえの確認"
-          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
+          // ⚖ FIX ROUND 2 (F7, CODE-LENS-3 NOTE 6 · ⚖ 8/23 guided-tour law: a new
+          // function declares itself the SAME round) — AND IT SAYS THAT THE BOARD
+          // CAN MOVE OTHER PEOPLE. The tour described a landing moving ONE
+          // booking; an operator who had only ever read it would not know this
+          // exists until it happened to them. The existing sentences are
+          // byte-identical; this is one more, in the same plain voice, sitting
+          // with the other 「what can happen here」 clause and before the 「what you
+          // do here」 one. ⚠ PLACEHOLDER JAPANESE, awaiting the native pass.
+          data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。入れ替えた方はここに表示されます。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}
         >
           <div className="hp-head">
             <span className={`status ${holdPop.tone}`}>{holdPop.status}</span>
@@ -7561,8 +7583,13 @@ export function TodayScreen(props: TodayProps) {
               own row inside that wrapping strip. */}
           {holdPop.companionLines && holdPop.companionLines.length > 0 && (
             <div className="holdbar-checks">
-              {holdPop.companionLines.map((line) => (
-                <span key={line} style={{ flexBasis: '100%' }}>{line}</span>
+              {/* ⚖ FIX ROUND 2 (F6, CODE-LENS-2/3) — keyed on the INDEX and the text.
+                  `key={line}` collapsed two identical lines into one: one
+                  customer with two bookings moving the same room → room, or two
+                  blank titles between the same pair, and the board would move
+                  two people while naming one. */}
+              {holdPop.companionLines.map((line, i) => (
+                <span key={`${i}-${line}`} style={{ flexBasis: '100%' }}>{line}</span>
               ))}
             </div>
           )}

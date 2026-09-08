@@ -1432,8 +1432,16 @@ describe('R8 — 確定 re-asks every companion’s room, and writes vacate-befo
     // the thin caller and the RULE is executed above rather than spelled here.
     expect(confirm).toContain('const room = companionRoomStillFree(boardLanes, c, span, hours)')
     expect(confirm).toContain('if (!room.ok) {')
-    expect(confirm).toContain("refuse(room.refusal ?? '状況が変わったため、この内容では確定できません')")
+    // ⚖ FIX ROUND 2 (F5) — and the refusal is ATTRIBUTED: the composed 満室
+    // sentence is about the companion's own window and room, which match nothing
+    // the operator dragged. The sibling sentence stands only where the board
+    // cannot name the person (⚖ A3 — omit what cannot be stated).
+    expect(confirm).toContain('const title = boardLanes.flatMap((l) => l.items).find((i) => i.caseId === c.id)?.title')
+    expect(confirm).toContain('? `${title}様の移動先を確保できなくなったため、この内容では確定できません`')
+    expect(confirm).toContain(": (room.refusal ?? '状況が変わったため、この内容では確定できません'))")
     expect(confirm).not.toContain('allocateBed(')
+    // ONE home for the sentence — the native pass rewrites it in one place.
+    expect((SCREEN.match(/様の移動先を確保できなくなったため/g) ?? [])).toHaveLength(1)
   })
 
   it('vacate-before-occupy: the card LEAVING a room is written before the card entering it', () => {
@@ -1667,7 +1675,10 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(SCREEN).toContain('companionLines?: readonly string[]')
     // One DOM line each — a `\n`-joined string would collapse into one run-on
     // sentence — and no new CSS rule for it.
-    expect(SCREEN).toContain('{holdPop.companionLines.map((line) => (')
+    // ⚖ FIX ROUND 2 (F6) — keyed on index AND text: `key={line}` collapsed two
+    // identical lines, so the board could move two people and name one.
+    expect(SCREEN).toContain('{holdPop.companionLines.map((line, i) => (')
+    expect(SCREEN).toContain('<span key={`${i}-${line}`} style={{ flexBasis: \'100%\' }}>{line}</span>')
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')).not.toContain('companion')
   })
 

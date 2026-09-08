@@ -5665,9 +5665,17 @@ describe('BATCH-7 — FLAGS 25c backlog: the three unregistered surfaces join th
     // it belongs to. Sitting bare after the confirm/undo sentence it read as a
     // rule for every 確定 on this surface, when the long press is the WARNING
     // face's commit alone; the clean face confirms on a tap at every store.
+    // ⚖ FIX ROUND 2 (F7, CODE-LENS-3 NOTE 6) — and the walk now says the board can
+    // move OTHER customers' rooms to make a landing fit. The ⚖ 8/23 law is that a
+    // new function declares itself the same round; the packing round shipped
+    // without it, so an operator who had only read the tour would meet the
+    // feature for the first time when it happened to them. Every existing
+    // sentence is byte-identical.
     expect(SRC).toContain(
       'data-guide={`動かした予約はまず仮押さえになります。移動先で新規のお客様の枠が減る場合は、'
-      + "警告のカードに変わります。ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
+      + '警告のカードに変わります。ベッドが埋まっているときは、ほかのお客様のベッドを入れ替えて収めることがあります。'
+      + '入れ替えた方はここに表示されます。'
+      + "ここで内容を確認して確定するか、元に戻せます。${props.holdToConfirm ? '警告のカードでは、確定は長押しです。' : ''}再読み込みでも元に戻ります。`}",
     )
     // …and the strip through a conditional spread, because it renders per lane
     // and only the first one may carry the pair (next test).
