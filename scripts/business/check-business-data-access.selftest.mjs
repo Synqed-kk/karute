@@ -5,7 +5,9 @@
 // proof that every rule catches what it claims. Cases 2–5 pin Liam's
 // play-phase ruling (core reach and writes banned everywhere, supabase reads
 // only in the two lock files); cases 9–12 pin the bypasses the blind review
-// round and Greptile found in the first cuts.
+// round and Greptile found in the first cuts. Case 13 pins the bed-packing
+// undo-log allowance against the DEFAULT ALLOW (Greptile P2, 2026-09-08 — the
+// budget entry combining two match strings under one count had no coverage).
 
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
@@ -135,8 +137,39 @@ const quoted = scanDataAccess(root)
 assert.equal(quoted.length, 1, 'violation after a string containing /* must still flag')
 assert.equal(quoted[0].line, 2)
 
-// 13. The REAL repo is green (and absent territory roots are not an error).
+// 13. Bed-packing undo-log allowance (Greptile P2): the entry combines TWO
+//    match strings under a SHARED budget of 2, and nothing above exercises
+//    it — every call here uses the DEFAULT ALLOW (no second arg), the real
+//    allowlist the guard ships.
+clear('src/business/screens') // case 12's fixture (Quoted.tsx) is still on disk
+const bedPackingPath = 'src/app/[locale]/(business)/business/today/today-interactions.ts'
+
+// 13a. Both pinned lines, exactly once each — clean.
+write(bedPackingPath, 'log.push(() => moves.delete(key))\nlog.push(() => movedSet.delete(id))\n')
+assert.deepEqual(scanDataAccess(root), [], 'both pinned undo-log lines must be exempt under the default ALLOW')
+
+// 13b. A third occurrence (repeats one pinned line) pushes the shared budget
+//     to 3 > 2 — fails CLOSED, one finding per matched use (same shape as
+//     case 7's over-budget assertion).
+write(
+  bedPackingPath,
+  'log.push(() => moves.delete(key))\nlog.push(() => movedSet.delete(id))\nlog.push(() => moves.delete(key))\n',
+)
+const bedPackingOverBudget = scanDataAccess(root)
+assert.equal(bedPackingOverBudget.length, 3, `expected 3 over-budget findings, got ${JSON.stringify(bedPackingOverBudget)}`)
+assert.ok(bedPackingOverBudget.every((f) => f.label === 'allowlist over budget (3 > 2 pinned)'))
+clear('src/app')
+
+// 13c. The SAME two lines at a DIFFERENT path: the allowance is path-exact,
+//     so both are ordinary findings, not exempt.
+write('src/business/lib/other-interactions.ts', 'log.push(() => moves.delete(key))\nlog.push(() => movedSet.delete(id))\n')
+const bedPackingWrongPath = scanDataAccess(root)
+assert.equal(bedPackingWrongPath.length, 2, `expected both lines flagged at the wrong path, got ${JSON.stringify(bedPackingWrongPath)}`)
+assert.ok(bedPackingWrongPath.every((f) => f.label === 'write call .delete('))
+clear('src/business/lib')
+
+// 14. The REAL repo is green (and absent territory roots are not an error).
 rmSync(root, { recursive: true, force: true })
 assert.deepEqual(scanDataAccess(repo), [])
 
-console.log('✓ business data-access guard selftest: 13 cases green')
+console.log('✓ business data-access guard selftest: 14 cases green')
