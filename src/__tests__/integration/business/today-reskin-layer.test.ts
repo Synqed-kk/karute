@@ -29,11 +29,17 @@ const SRC = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/busine
 const HEADER = '/* ═══ RESKIN LAYER (2026-09-08) — appended, never interleaved; one block per R-number; see PKT-RESKIN-BUILD ═══ */'
 /** Everything from the header on: the layer, and nothing but the layer. */
 const LAYER = CSS.slice(CSS.indexOf(HEADER))
+/** The layer with its prose removed. Every assertion about what the layer DOES
+ *  runs against this: the lock-toggle block explains its guard by quoting the
+ *  selector it forbids, and a pin that reads comments would fail on the
+ *  explanation of the very thing it checks. Ordering reads it too — a comment
+ *  naming a rule before the rule exists is not the rule. */
+const LAYER_CODE = LAYER.replace(/\/\*[\s\S]*?\*\//g, '')
 /** `a` must be written after `b`, or the cascade reverses. */
 const after = (a: string, b: string) => {
-  expect(LAYER.indexOf(a)).toBeGreaterThan(-1)
-  expect(LAYER.indexOf(b)).toBeGreaterThan(-1)
-  return expect(LAYER.indexOf(a)).toBeGreaterThan(LAYER.indexOf(b))
+  expect(LAYER_CODE.indexOf(a)).toBeGreaterThan(-1)
+  expect(LAYER_CODE.indexOf(b)).toBeGreaterThan(-1)
+  return expect(LAYER_CODE.indexOf(a)).toBeGreaterThan(LAYER_CODE.indexOf(b))
 }
 
 describe('今日の運営 reskin layer — the append shape', () => {
@@ -52,13 +58,19 @@ describe('今日の運営 reskin layer — the append shape', () => {
     // today.css is a ROUTE sheet that survives navigation (flag 69), so a shell
     // selector written here would repaint every other room by visit order.
     for (const shell of ['.nav a', '.rail-toggle', '.store-context', '.store-pop', '.sidebar', '.topbar']) {
-      expect(LAYER).not.toContain(shell)
+      expect(LAYER_CODE).not.toContain(shell)
     }
-    expect(LAYER).not.toContain('!important')
-    expect(LAYER).not.toContain(':has(')
-    expect(LAYER).not.toContain('html.freeze')
+    expect(LAYER_CODE).not.toContain('!important')
+    expect(LAYER_CODE).not.toContain(':has(')
+    expect(LAYER_CODE).not.toContain('html.freeze')
     // Every selector in the layer opens on the page, not on `.biz` alone.
-    const selectors = LAYER.split('\n').filter((l) => /^[.@]/.test(l))
+    // The line is TRIMMED first and a one-line `@media … {` prefix is peeled off:
+    // column-anchoring let a selector indented inside a media block, or written
+    // on the same line as its `@media`, walk straight past this fence.
+    const selectors = LAYER_CODE.split('\n')
+      .map((l) => l.trim())
+      .map((l) => (l.startsWith('@media') && l.includes('{') ? l.slice(l.indexOf('{') + 1).trim() : l))
+      .filter((l) => /^[.@]/.test(l))
     expect(selectors.length).toBeGreaterThan(40)
     expect(selectors.filter((l) => !/^(@media|\.biz \.page(\.page-today|-today) )/.test(l))).toEqual([])
   })
@@ -66,8 +78,8 @@ describe('今日の運営 reskin layer — the append shape', () => {
 
 describe('今日の運営 reskin layer — the seeds', () => {
   it('the name column is 142px, and 134px where the board is narrow', () => {
-    expect(LAYER).toContain('.biz .page-today .timeline { --label: 142px; }')
-    expect(LAYER).toContain('@media (max-width: 1320px) { .biz .page-today .timeline { --label: 134px; } }')
+    expect(LAYER_CODE).toContain('.biz .page-today .timeline { --label: 142px; }')
+    expect(LAYER_CODE).toContain('@media (max-width: 1320px) { .biz .page-today .timeline { --label: 134px; } }')
     // Canon's own two seeds are left exactly where they are — the layer beats
     // them on specificity (0,3,0 over 0,2,0), it does not edit them.
     expect(CSS).toContain('.biz .timeline { position: relative; min-width: 0; --label: 112px; }')
@@ -87,9 +99,9 @@ describe('今日の運営 reskin layer — the seeds', () => {
   it('the two tint calibrations keep their grammar and change only the paint', () => {
     // Same 135deg / 5px / 10px hatch as canon :606, one calibration quieter —
     // and canon keeps the red-dark text and the `cursor: not-allowed` it owns.
-    expect(LAYER).toContain('background: repeating-linear-gradient(135deg, #f6d3d0 0 5px, #fff7f6 5px 10px);')
-    expect(LAYER).not.toContain('.biz .page-today .event.absence { color:')
-    expect(LAYER).toContain('.biz .page-today .guard-rail-cell.blocked { border: 0; background: #f3f4f7; color: #a1a1aa; }')
+    expect(LAYER_CODE).toContain('background: repeating-linear-gradient(135deg, #f6d3d0 0 5px, #fff7f6 5px 10px);')
+    expect(LAYER_CODE).not.toContain('.biz .page-today .event.absence { color:')
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-rail-cell.blocked { border: 0; background: #f3f4f7; color: #a1a1aa; }')
   })
 })
 
@@ -111,8 +123,11 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
   it('a hovered lock toggle on a LOCKED lane keeps its accent wash', () => {
     // The fix is the selector, not a restatement: a bare `.page-today
     // .lock-toggle:hover` is 0,4,0 and beats canon's pressed dress at 0,3,0.
-    expect(LAYER).toContain('.biz .page-today .lock-toggle:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
-    expect(LAYER).not.toContain('.biz .page-today .lock-toggle:hover {')
+    expect(LAYER_CODE).toContain('.biz .page-today .lock-toggle:not([aria-pressed="true"]):hover { background: #f1f3f7; }')
+    // …and the guard is pinned as a RULE, not as one exact string: no hover on
+    // this control may reach the layer without excluding the pressed state,
+    // however it is spelled or whatever else it declares.
+    expect(LAYER_CODE).not.toMatch(/\.lock-toggle(?!:not\(\[aria-pressed="true"\]\)):hover/)
   })
 
   it('a refused 60分 chip still goes red while something is in hand', () => {
@@ -128,8 +143,8 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     // restatement has to bring the whole shorthand back — and it is written as
     // the COMBINATION so it cannot leak that border onto the chips canon draws
     // without one (the base cell :888 has a radius and no border).
-    expect(LAYER).toContain('.biz .page-today .guard-rail-cell.blocked.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }')
-    expect(LAYER).not.toContain('.biz .page-today .guard-rail-cell.inert {')
+    expect(LAYER_CODE).toContain('.biz .page-today .guard-rail-cell.blocked.inert { border: 1px solid #e6a09a; background: var(--red-soft); color: var(--red-dark); }')
+    expect(LAYER_CODE).not.toContain('.biz .page-today .guard-rail-cell.inert {')
   })
 
   it("an absent staff member's sub-line stays red", () => {
