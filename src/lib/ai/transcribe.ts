@@ -213,7 +213,9 @@ export async function runTranscription(params: {
 //   3. debits the minutes as cents on the PROVIDER'S ANSWER — never on the
 //      job's success, because every throw after this point (EMPTY_TRANSCRIPT,
 //      the extract/summarize leg, the write) is re-run by core's requeue and
-//      would re-spend the whole recording;
+//      would re-spend the whole recording. The LENGTH it bills is the
+//      provider's own measurement, or the named floor when it has none: a
+//      client-supplied duration never reaches the ledger (fix round 2);
 //   4. files the receipt (or, on a refusal, the refusal row).
 //
 // NO NEW COUNTER, NO NEW TABLE: the ledger core already keeps for the token
@@ -230,11 +232,18 @@ export async function runTranscription(params: {
  *  the words behind a reasoned discard. */
 export type TranscriptionDoor = 'job' | 'from_session' | 'web' | 'app' | 'discard'
 
-/** A provider answer whose metadata carried no duration (deepgram.ts's
- *  `?? 0`) and a payload that never had one (a rescued take's duration stays
- *  null by ruling) still cost real money: a real spend is never debited as
- *  zero. One hour is the recorder's own 2 h auto-stop halved — deliberately
- *  expensive, so the unknown case errs toward stopping early. */
+/** A provider answer whose metadata carried no duration (deepgram.ts's `?? 0`)
+ *  still cost real money: a real spend is never debited as zero. One hour is
+ *  the recorder's own 2 h auto-stop halved — deliberately expensive, so the
+ *  unknown case errs toward stopping early.
+ *
+ *  ⚖ AND IT IS THE ONLY FALLBACK (fix round 2, Greptile P1). The billed length
+ *  used to fall back to a caller-supplied duration hint before reaching here —
+ *  on two of the five doors that number is CLIENT-SUPPLIED (the job payload a
+ *  phone wrote, the discard action's own argument), so a caller could name any
+ *  small number and be billed for it while Deepgram billed us for the truth.
+ *  A client's claim never reaches the ledger now; an unmeasured minute costs
+ *  the floor. */
 const UNKNOWN_DURATION_FLOOR_SECONDS = 3600
 
 export interface TranscriptionMeter {
@@ -247,9 +256,6 @@ export interface TranscriptionMeter {
   /** The job's attempt number, so a repeating spend is visible in the log. */
   attempt?: number | null
   rescued?: boolean
-  /** The payload/row duration, used ONLY when the provider returned none —
-   *  never as a pre-spend check (it is client-supplied on two of the doors). */
-  durationHintSeconds?: number | null
   requestId?: string
 }
 
@@ -262,15 +268,11 @@ function detailNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-/** THE BILLED LENGTH, decided in ONE place. The provider's own measurement
- *  first — the only number that is not a client's claim — then the row/payload
- *  hint, then the floor. */
-function billedSeconds(result: Record<string, unknown>, hintSeconds?: number | null): number {
-  return (
-    positiveSeconds(result.durationSec) ??
-    positiveSeconds(hintSeconds) ??
-    UNKNOWN_DURATION_FLOOR_SECONDS
-  )
+/** THE BILLED LENGTH, decided in ONE place, out of exactly TWO numbers: the
+ *  PROVIDER'S own measurement — the only one that is not a client's claim —
+ *  and, when it has none, the floor. No hint, ever (see the floor's note). */
+function billedSeconds(result: Record<string, unknown>): number {
+  return positiveSeconds(result.durationSec) ?? UNKNOWN_DURATION_FLOOR_SECONDS
 }
 
 /** The two numbers the meter just debited, for the doors that file their OWN
@@ -278,9 +280,8 @@ function billedSeconds(result: Record<string, unknown>, hintSeconds?: number | n
  *  — never a second estimate that could disagree with the ledger. */
 export function transcriptionCostDetail(
   result: Record<string, unknown>,
-  hintSeconds?: number | null,
 ): { duration_seconds: number; cost_cents: number } {
-  const durationSec = billedSeconds(result, hintSeconds)
+  const durationSec = billedSeconds(result)
   return {
     duration_seconds: Math.round(durationSec),
     cost_cents: estimateTranscriptionCostCents(durationSec),
@@ -364,7 +365,7 @@ export async function runMeteredTranscription(
 
   const result = await runTranscription(params)
 
-  const durationSec = billedSeconds(result, meter.durationHintSeconds)
+  const durationSec = billedSeconds(result)
   const costCents = estimateTranscriptionCostCents(durationSec)
   await reportTranscriptionUsageWithClient(meter.synqed, costCents)
 

@@ -197,7 +197,6 @@ async function processJob(job: RecordingJob): Promise<string> {
         takeId: parsedKey && 'takeId' in parsedKey ? parsedKey.takeId : null,
         attempt: job.attempts,
         rescued,
-        durationHintSeconds: payload.duration_seconds ?? null,
         requestId: job.id,
       },
       {

@@ -475,7 +475,6 @@ export async function transcribeAndPersistDiscardWithClient(
         door: 'discard',
         recordingSessionId: input.recordingSessionId,
         takeId: parsedAudio && 'takeId' in parsedAudio ? parsedAudio.takeId : null,
-        durationHintSeconds: input.durationSeconds,
       },
       {
         audio: { url: signed.signedUrl },

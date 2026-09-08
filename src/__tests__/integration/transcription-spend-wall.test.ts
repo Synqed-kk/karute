@@ -20,9 +20,11 @@
  *      wrapper; the two routes carry the same two numbers on the row they
  *      already emit.
  *
- * The cents are pinned in both directions: the pure estimator, and the two
- * fallbacks a real spend can arrive with (the row's hint, then the named floor
- * — a real spend is never debited as zero).
+ * The cents are pinned in both directions: the pure estimator, and the ONE
+ * fallback a real spend can arrive with — the named floor, never a caller's
+ * own number (fix round 2, Greptile P1: a client-supplied duration hint used
+ * to win over it, so a phone could name 60 s for a 90-minute session and be
+ * billed a cent) and never zero.
  */
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-key'
@@ -318,9 +320,6 @@ describe('the cents (0.5 ¢/min, rounded up, never below one)', () => {
     [130, 2],
     [5400, 45],
     [3661, 31],
-    [600, 5],
-    [3600, 30],
-    [1, 1],
   ])('%i seconds → %i ¢', (seconds, cents) => {
     expect(estimateTranscriptionCostCents(seconds)).toBe(cents)
   })
@@ -410,12 +409,18 @@ describe('the job worker — the phone’s normal save path', () => {
     expect(rows('recording.transcribe_refused')).toHaveLength(0)
   })
 
-  it('t3 no duration from the provider → the row’s own hint is billed (600 s → 5 ¢)', async () => {
+  // ⚖ THE BILLED LENGTH NEVER COMES FROM A CLIENT (fix round 2, Greptile P1).
+  // `duration_seconds` on this payload is a number the PHONE wrote, and the
+  // wrapper used to prefer it over the floor whenever the provider returned
+  // none — so "600" here bought a 90-minute session for 5 ¢. baseJob still
+  // carries it, on purpose: the assertion is that it changes nothing.
+  it('t3 the provider returned no duration → the FLOOR is billed (3600 s → 30 ¢), even though the job payload says 600', async () => {
     deepgramResult.durationSec = 0
 
     await runOneJob()
 
-    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 5)
+    expect(baseJob.payload.duration_seconds).toBe(600)
+    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 30)
   })
 
   it('t3 no duration anywhere → the named floor is billed (3600 s → 30 ¢), never zero', async () => {

@@ -540,7 +540,6 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
         door: 'discard',
         recordingSessionId: 'rs-1',
         takeId: '11111111-2222-3333-4444-555555555555',
-        durationHintSeconds: 62,
       }),
       {
         audio: { url: 'https://storage/signed' },
@@ -591,7 +590,6 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
         door: 'discard',
         recordingSessionId: 'rs-1',
         takeId: '11111111-2222-3333-4444-555555555555',
-        durationHintSeconds: 62,
       }),
       {
         audio: { url: 'https://storage/signed' },
