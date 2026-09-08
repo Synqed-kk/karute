@@ -6853,7 +6853,7 @@ describe('BATCH-10 W3 — ROOT A: an ack-allowed guard refusal is 要確認', ()
     // ONE predicate, in the ONE home. (⚖ 9/1 fix round 2 D1 gave it a second
     // tier — see the matrix below; the ack-allowed arm here is untouched.)
     expect(INT).toContain("if (cell?.state === 'blocked' && !cell.ackAllowed) {")
-    expect(INT).toContain("if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks }")
+    expect(INT).toContain("if (cell && cell.state !== 'safe') return { kind: 'caution', floor: null, label: VERDICT_WORD.caution, reason: cell.sentence, cell, bedLane, checks, reseats }")
   })
 
   /** ⚖ 9/1 STRICT-SWITCH RULING (fix round 2 D1) — THE BOARD HALF, AS A MATRIX.
