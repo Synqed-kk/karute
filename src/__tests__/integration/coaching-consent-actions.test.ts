@@ -39,7 +39,17 @@ it('refuses forged subject fields and never calls Core without a session', async
 
 it('preserves policy conflicts and returns failures without leaking upstream details', async () => {
   fetchMock.mockRejectedValueOnce(new SynqedError(409, 'Policy changed'))
-  expect(await decideCoachingConsent({ status: 'granted', policy_version: 'old' })).toEqual({ ok: false, error: 'policyChanged' })
+  expect(await decideCoachingConsent({ status: 'granted', policy_version: 'v1.0-2026-05' })).toEqual({ ok: false, error: 'policyChanged' })
   fetchMock.mockRejectedValueOnce(new Error('Secret internal upstream detail'))
   expect(await getCoachingConsent()).toEqual({ ok: false, error: 'failed' })
+})
+
+it('rejects a direct grant for an undisplayed policy but forwards withdrawal', async () => {
+  expect(await decideCoachingConsent({ status: 'granted', policy_version: 'future-policy' })).toEqual({ ok: false, error: 'policyChanged' })
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect(getSynqedClient).not.toHaveBeenCalled()
+  expect((await decideCoachingConsent({ status: 'declined', policy_version: 'future-policy' })).ok).toBe(true)
+  expect(fetchMock).toHaveBeenCalledWith('/coaching-consent/me', expect.objectContaining({
+    body: JSON.stringify({ status: 'declined', policy_version: 'future-policy' }),
+  }))
 })

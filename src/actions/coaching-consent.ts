@@ -3,7 +3,7 @@
 import { SynqedError } from '@synqed-kk/client'
 import { z } from 'zod'
 import { getSynqedClient } from '@/lib/synqed/client'
-import type { CoachingConsentDecision, CoachingConsentState, ConsentResult } from '@/lib/coaching-consent/types'
+import { DISPLAYED_COACHING_POLICY_VERSION, type CoachingConsentDecision, type CoachingConsentState, type ConsentResult } from '@/lib/coaching-consent/types'
 
 // The existing cookie-scoped client forwards the verified human's access token.
 // Core resolves that subject's own card. No shared-device staff selection or
@@ -22,6 +22,8 @@ export async function decideCoachingConsent(input: {
 }): Promise<ConsentResult<CoachingConsentDecision>> {
   const parsed = z.object({ status: z.enum(['granted', 'declined']), policy_version: z.string().min(1).max(200) }).strict().safeParse(input)
   if (!parsed.success) return { ok: false, error: 'failed' }
+  if (parsed.data.status === 'granted' && parsed.data.policy_version !== DISPLAYED_COACHING_POLICY_VERSION)
+    return { ok: false, error: 'policyChanged' }
   try {
     const client = await getSynqedClient()
     return { ok: true, data: await client.fetch<CoachingConsentDecision>('/coaching-consent/me', {
