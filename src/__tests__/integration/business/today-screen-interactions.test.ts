@@ -9578,7 +9578,7 @@ describe('BATCH-14 ⚖ flag 92 — the warn card composes itself from the store�
     // face, so a locked-out operator now reads the same card, the same offers
     // and the same commit as anyone else. Three arms, one law, every level.
     expect(SRC).toContain('      cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {\n'
-      + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind\n'
+      + '        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: false }).kind\n'
       + "        if (cell?.alternativeKind === 'safe') return k === 'clean'\n"
       + "        if (k === 'blocked') return false\n"
       + '        if (cell?.alternatives.includes(s)) return true\n'

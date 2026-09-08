@@ -2700,10 +2700,25 @@ export function TodayScreen(props: TodayProps) {
       row: guardCheckRow(cell),
       // ⚖ FIX ROUND 2 (F1) — THE DRAW AND THE PRESS ARE ONE LAW (⚖ 92 fix round
       // 3 T6): the safe-start press packs, so the gate that decides which starts
-      // this card OFFERS has to pack too, or the card would withhold a start the
-      // press can reach. Once per render of a staged card, never per frame.
+      // this card OFFERS has to agree with what the press can reach.
+      //
+      // ⚖ FIX ROUND 3 (G1, DELTA-CODE-D1) — CORRECTED: the line above used to
+      // say "once per render of a staged card, never per frame," and that was
+      // false. This memo depends on `boardLanes`, which gets a fresh identity on
+      // every RAF frame while the staged card is re-dragged — the one live drag
+      // `pending` still allows (every other drag door refuses while a card is
+      // staged) — so packing here ran the full backtracking search on every
+      // frame of that gesture, the exact per-frame cost design §3/§6 forbid.
+      // Gate passes `pack: false` instead. Safe in the conservative
+      // direction: with no companions the packed and unpacked verdicts agree,
+      // and packing never refuses a start the plain search accepts, so the
+      // DRAWN offers stay a subset of what the PRESS (`placePendingAt`,
+      // `pack: true`) accepts — ⚖ 92 T6 (draw ≤ press) still holds. A start
+      // that only fits with a shuffle simply is not drawn from this row any
+      // more; closing that for real is the live-while-dragging round's own,
+      // not this fix's.
       cell: offerableCell(cell, props.guard.bookingStepMin, start, (s) => {
-        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: true }).kind
+        const k = verdictRef.current({ ...ask, span: place(s, s + dur, hours) }, { pack: false }).kind
         if (cell?.alternativeKind === 'safe') return k === 'clean'
         if (k === 'blocked') return false
         if (cell?.alternatives.includes(s)) return true
