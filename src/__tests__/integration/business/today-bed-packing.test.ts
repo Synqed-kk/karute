@@ -1030,7 +1030,6 @@ describe('the deep battery — 80,000 bigger days, checked for validity and nece
   }
 })
 
-
 // ── SCOPE B — THE WIRING ───────────────────────────────────────────────────
 
 /** This suite renders nothing (Business territory has no renderer — the import
@@ -1041,6 +1040,7 @@ describe('the deep battery — 80,000 bigger days, checked for validity and nece
  *  nothing, and a pinned call to a helper nobody tested proves nothing either. */
 const SCREEN = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/TodayScreen.tsx'), 'utf8')
 const EDITS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/BusinessSessionEdits.tsx'), 'utf8')
+const INTERACTIONS = readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today-interactions.ts'), 'utf8')
 
 describe('B — Liam’s scene, end to end through the wiring', () => {
   it('the solve, the companion record and the line the 仮押さえ box shows', async () => {
@@ -1705,22 +1705,33 @@ describe('B — the fence at the screen: only a gesture END packs', () => {
     expect(readFileSync(join(process.cwd(), 'src/app/[locale]/(business)/business/today/today.css'), 'utf8')).not.toContain('companion')
   })
 
-  it('the fold is the surface’s own, and the line is the one placeholder this round adds', () => {
-    const four: BedCompanion[] = ['a', 'b', 'c', 'd'].map((id) => ({ id, bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }))
+  /** ⚖ FIX ROUND 1 (F2) — EVERY COMPANION GETS ITS OWN LINE, AND THERE IS NO
+   *  FOLD. The ceiling is what makes that safe, so the ceiling is pinned here
+   *  beside the list: at `PACK_MAX_MOVES = 4` a landing can never carry a fifth
+   *  companion, so the 「、ほかN件」 tail was unreachable — and standing alone as
+   *  a LINE it opened with a 読点, which is only right inside
+   *  `protectedWindowsClause`'s `・`-joined run. Raise the ceiling and this test
+   *  fails, which is the design question landing on the round that raised it. */
+  it('every companion gets its own line — the ceiling is the reason, and it is pinned', () => {
+    expect(INTERACTIONS).toContain('const PACK_MAX_MOVES = 4')
+    // The ceiling in force, read from the source rather than assumed.
+    const ceiling = Number(/const PACK_MAX_MOVES = (\d+)/.exec(INTERACTIONS)![1])
+    expect(ceiling).toBeLessThanOrEqual(4)
+    // No fold left in the helper, and no line that opens with a 読点.
+    expect(INTERACTIONS.slice(INTERACTIONS.indexOf('export function companionLines('))).not.toContain('ほか')
+
     const board = boardOf([
-      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: ['a', 'b', 'c', 'd', 'e'].map((id) => booking({ key: id, caseId: id, title: id.toUpperCase() }, 780, 790)) }),
+      lane({ key: 'bed-01', group: 'beds', label: 'ベッド1', items: ['a', 'b', 'c', 'd'].map((id) => booking({ key: id, caseId: id, title: id.toUpperCase() }, 780, 790)) }),
       lane({ key: 'bed-02', group: 'beds', label: 'ベッド2' }),
     ])
-    expect(companionLines(board, four)).toEqual([
+    const full: BedCompanion[] = ['a', 'b', 'c', 'd'].slice(0, ceiling)
+      .map((id) => ({ id, bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }))
+    const lines = companionLines(board, full)
+    expect(lines).toHaveLength(ceiling)
+    expect(lines).toEqual([
       'A様 ベッド1 → ベッド2', 'B様 ベッド1 → ベッド2', 'C様 ベッド1 → ベッド2', 'D様 ベッド1 → ベッド2',
-    ])
-    // Five or more takes the board's own fold (today-interactions :1686): the
-    // first three, then the count. Unreachable while the ceiling is four moves,
-    // and here because raising that ceiling is the stated upgrade path.
-    const five = [...four, { id: 'e', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }]
-    expect(companionLines(board, five)).toEqual([
-      'A様 ベッド1 → ベッド2', 'B様 ベッド1 → ベッド2', 'C様 ベッド1 → ベッド2', '、ほか2件',
-    ])
+    ].slice(0, ceiling))
+    for (const line of lines) expect(line.startsWith('、')).toBe(false)
     // A name the board cannot show is OMITTED, never invented (⚖ A3's law).
     expect(companionLines(board, [{ id: 'nobody', bedOrigin: { laneKey: 'bed-01', x: 0, w: 1 }, bedTo: 'bed-02' }]))
       .toEqual(['ベッド1 → ベッド2'])
