@@ -100,7 +100,7 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
   )
   // The spend wall's numbers ride the hook's OWN recording.transcribe row
   // (FACADE_AUDIT_MAP['ai.transcribe']) rather than a second one from the
-  // meter: one call, one receipt. Three keys, well inside the hook's cap of 8.
+  // meter: one call, one receipt. Four keys, well inside the hook's cap of 8.
   // The receipt is server-side only — the client is answered with `result`,
   // the provider body, exactly as before.
   ctx.auditDetail = { ...receipt }

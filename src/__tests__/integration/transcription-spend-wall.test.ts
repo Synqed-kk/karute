@@ -774,6 +774,40 @@ describe('the web route (cookie door)', () => {
     expect(recordUsage).not.toHaveBeenCalled()
   })
 
+  // The refusal ROW on this door was never pinned (blind lens on f7ca09484,
+  // LOW 2): the wrapper files it for all five doors, but only the worker's and
+  // the discard door's were asserted, so 'web' could have gone missing — or
+  // arrived under another door's name — and the one severity-filtered "is the
+  // wall firing?" query would have been quietly short of this door.
+  it('t7 refused → the wrapper files the refusal row for THIS door, named web', async () => {
+    consume.mockResolvedValueOnce(REFUSED)
+
+    await webTranscribePOST(
+      post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }),
+    )
+
+    expect(rows('recording.transcribe')).toHaveLength(0)
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals).toHaveLength(1)
+    expect(refusals[0]).toMatchObject({
+      category: 'recording',
+      severity: 'warning',
+      actorType: 'system',
+      actorId: null,
+      businessId: 'business-1',
+      source: 'system',
+      detail: {
+        door: 'web',
+        reason: 'daily_cost',
+        cost_used_cents: 3000,
+        cost_cap_cents: 3000,
+      },
+    })
+    // This door carries no recording session, so the row names none rather
+    // than inventing one.
+    expect(refusals[0].targetId).toBeUndefined()
+  })
+
   it('t7 the route files ONE receipt, carrying the numbers the meter debited AND whether it landed', async () => {
     const res = await webTranscribePOST(post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }))
 
@@ -863,6 +897,55 @@ describe('the facade route (Bearer door)', () => {
     expect(res.status).toBe(429)
     expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
     expect(recordUsage).not.toHaveBeenCalled()
+  })
+
+  // The fifth door's refusal row (blind lens LOW 2) — same claim as the web
+  // twin above, and the door word is the half that matters: 'app', not 'web'.
+  it('t7 refused → the wrapper files the refusal row for THIS door, named app', async () => {
+    consume.mockResolvedValueOnce(REFUSED)
+
+    await facadeTranscribePOST(post(), noRoute)
+
+    expect(rows('recording.transcribe')).toHaveLength(0)
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals).toHaveLength(1)
+    expect(refusals[0]).toMatchObject({
+      category: 'recording',
+      severity: 'warning',
+      actorType: 'system',
+      actorId: null,
+      businessId: 'business-1',
+      source: 'system',
+      detail: {
+        door: 'app',
+        reason: 'daily_cost',
+        cost_used_cents: 3000,
+        cost_cap_cents: 3000,
+      },
+    })
+  })
+
+  it('the ledger will not take the reserve → 502, and the row says ledger_unavailable', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    const res = await facadeTranscribePOST(post(), noRoute)
+
+    expect(res.status).toBe(502)
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals).toHaveLength(1)
+    expect(refusals[0]).toMatchObject({
+      severity: 'warning',
+      detail: {
+        door: 'app',
+        reason: 'ledger_unavailable',
+        // The ledger never answered, so it named no numbers.
+        cost_used_cents: null,
+        cost_cap_cents: null,
+      },
+    })
+    errorLog.mockRestore()
   })
 
   it('t7 the hook’s row carries the numbers AND the debit outcome, and the wrapper files none of its own', async () => {
