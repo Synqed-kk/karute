@@ -642,12 +642,14 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
       'detail',
       'requestId',
     ])
-    // THREE detail keys since fix round 2: the debit is retried three times
-    // and a loss that survives them all is written down HERE, on the row, so a
-    // spend nobody counted is countable rather than merely mentioned in a log.
+    // FOUR detail keys since fix round 4: the ledger is written BEFORE the
+    // provider runs, so the row carries what was RESERVED as well as what the
+    // call actually cost — and `debit_recorded` still says whether the ledger
+    // ended up holding the whole of it.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
+      cents_reserved: expect.any(Number),
       debit_recorded: true,
     })
   })
@@ -679,12 +681,14 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
       'detail',
       'requestId',
     ])
-    // THREE detail keys since fix round 2: the debit is retried three times
-    // and a loss that survives them all is written down HERE, on the row, so a
-    // spend nobody counted is countable rather than merely mentioned in a log.
+    // FOUR detail keys since fix round 4: the ledger is written BEFORE the
+    // provider runs, so the row carries what was RESERVED as well as what the
+    // call actually cost — and `debit_recorded` still says whether the ledger
+    // ended up holding the whole of it.
     expect(auditWeb.mock.calls[0][0].detail).toEqual({
       duration_seconds: expect.any(Number),
       cost_cents: expect.any(Number),
+      cents_reserved: expect.any(Number),
       debit_recorded: true,
     })
   })
