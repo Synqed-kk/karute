@@ -1155,7 +1155,7 @@ describe('⚖ flag 77 — the store reserves no turnover time', () => {
         id: 'apt-12', currentBed: 'bed-01', stores, requiresPrivate: false,
         start: 10 * 60 + 30, end: 11 * 60 + 30,
       }),
-    ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [] })
+    ).toEqual({ laneKey: 'bed-01', refusal: null, blockers: [], reseats: [] })
     // …and someone ELSE'S tail is a genuine wall: the same span, without the
     // exclusion, is refused the room.
     expect(
