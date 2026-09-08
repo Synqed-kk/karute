@@ -385,6 +385,7 @@ describe('the fixture data door', () => {
         '@/business/lib/today-board',
       ],
       'src/app/[locale]/(business)/business/today/TodayScreen.tsx': [
+        './booking-options',
         '../../BusinessSessionEdits',
         '../../BusinessTopbar',
         // ⚖ R2 of the layer rebuild — the capacity book, read in SHADOW behind

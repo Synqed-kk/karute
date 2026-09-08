@@ -461,7 +461,7 @@ describe('§2 — reconciled before the layer is built, never in the renderer', 
     // counts the same bands; ⚖ Q3 made the board head a total over four kinds,
     // and an unqualified 公開中 beside it read as a second, disagreeing total.
     for (const surface of [
-      '公開中の販売可能枠 {sellDrawn.staffBands.length}枠',
+      '配置案の標準枠 {sellDrawn.staffBands.length}枠',
       '<b>{sellDrawn.staffBands.length}枠</b>',
       'priceButtonCaption(sellDrawn.staffBands.length',
       'sell: sellDrawn.staffBands,',

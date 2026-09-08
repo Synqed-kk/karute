@@ -196,11 +196,12 @@
 }
 /* canon :1553-1555 (`#fieldsPop`) — 表示設定は内容が長いため、ボタン親の座標では
    なく可視領域へ固定して全体を見せる。高さが足りない場合だけ内部スクロールへ戻す。
-   Scoped to the 表示設定 panel alone: the shelf and help popovers share the
-   `.fields-pop` base and stay button-anchored, exactly as canon leaves them.
+   Booking alternatives use the same viewport clamp. The packing shelf and
+   help popovers stay button-anchored, exactly as canon leaves them.
    `top`/`left` here are only the pre-measurement seed — `fieldsPopAnchor`
    writes the real ones before paint. */
-.biz [data-pop="fields"] > .fields-pop {
+.biz [data-pop="fields"] > .fields-pop,
+.biz [data-pop="booking-options"] > .fields-pop {
   position: fixed;
   right: auto;
   top: 12px;

@@ -2581,7 +2581,8 @@ describe('the crumbs of one leftover combine into one offer', () => {
     expect(SRC).toContain(
       '      minSellableMin: props.guard.minSellableMin,\n      dials: gapPackingDials(committedLanes, gapDials),',
     )
-    expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(2)
+    // CORE-9 also applies the floor to independently bookable choices.
+    expect(SRC.split('minSellableMin: props.guard.minSellableMin').length - 1).toBe(3)
     // ⚖ R6 — NOTHING on this layer wears a border at rest. The ring is the
     // drag's own signal and dies with it, which is the whole point: batch-4
     // proved the resting ring and the emphasis were the same picture.
@@ -3471,7 +3472,7 @@ describe('the guided tour builds itself out of what is on screen', () => {
       // sentence that teaches it had to move with the definition. Canon's own
       // `chipLabel` is untouched; what changed is which layers the board's own
       // counter composes (`onlineOffers`).
-      ['オンライン販売中', 'いまReserveで販売中の枠数。販売可能枠・詰め込み・スキマ枠・新規用に確保をまとめた数です。押すと種類ごとの一覧（時間・担当・価格）が開き、行を押すとボード上の場所を示します。'],
+      ['配置案', 'ボード上の配置案です。押すと種類ごとの時間・担当・参考価格を確認できます。予約できる選択肢は「予約候補」で確認してください。'],
       ['ご来店中', 'いま店内にいるお客様。ここから次回予約をその場で作成できます。'],
       ['日付の移動', '日付を押すと月カレンダーで空き状況を確認できます。'],
       ['表示設定', 'カード・販売可能枠・配置ガイドの見え方と、ボードの密度を調整します。'],
