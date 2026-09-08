@@ -24,7 +24,13 @@ import { testApiHandler } from 'next-test-api-route-handler'
 // ── Shared mocks (all four routes) ──────────────────────────────────────
 jest.mock('@/lib/audit-web', () => ({ auditWeb: jest.fn(async () => undefined) }))
 
+// The three TOKEN helpers stay stubbed (extract/summarize/chat are what this
+// file is about); everything else is the REAL module, because the transcribe
+// route's ceiling now runs through it — enforceAiRateLimitWithClient +
+// the transcription debit — against the fake client below (the spend wall,
+// 2026-09-08).
 jest.mock('@/lib/ai-rate-limit', () => ({
+  ...jest.requireActual('@/lib/ai-rate-limit'),
   enforceAiRateLimit: jest.fn(async () => null),
   reportAiUsage: jest.fn(async () => undefined),
   estimateCostCents: jest.fn(() => 1),
@@ -84,6 +90,7 @@ jest.mock('@/lib/ai-cache', () => ({
 // client and draining the Deepgram fetch mock's body).
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => null),
+  getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
 // ── chat-route mocks (Wave W2) ──────────────────────────────────────────
@@ -103,8 +110,23 @@ jest.mock('@/lib/auth/store-scope', () => ({
 // The lookup logic itself (sorting, cross-store naming, cache-guard) is
 // exercised for real in ai-outreach-next-booking.test.ts — this file only
 // needs the outreach path to resolve cleanly to "no booking found".
+/** The AI ledger the transcribe route's meter asks (the spend wall). Steerable
+ *  so the 429 case below is driven where it really lives now — core's own
+ *  consume — instead of through a route block that no longer exists. */
+const rateScenario = { allowed: true }
+const consume = jest.fn(async () => ({
+  allowed: rateScenario.allowed,
+  reason: rateScenario.allowed ? 'ok' : 'hourly_count',
+  cap: 100,
+  used: 100,
+  remaining: 0,
+  costCap: 3000,
+  costUsed: 120,
+  resetAt: '2026-09-09T00:00:00.000Z',
+}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
+    aiRateLimit: { consume, recordUsage: jest.fn(async () => {}) },
     appointments: { list: async () => ({ appointments: [] }) },
     stores: { get: async () => { throw new Error('unused') } },
   })),
@@ -591,6 +613,7 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     fetchMock.mockReset()
     global.fetch = fetchMock as unknown as typeof global.fetch
     authScenario.user = { id: 'user-1' }
+    rateScenario.allowed = true
     const { getOrgSettings } = jest.requireMock('@/actions/org-settings')
     ;(getOrgSettings as jest.Mock).mockResolvedValue({ speaker_diarization: true })
   })
@@ -610,7 +633,19 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
-    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
+    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts the two
+    // numbers it debited on this row rather than filing a second one — ids and
+    // numbers only, still nothing PII-shaped.
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
+      'action',
+      'category',
+      'detail',
+      'requestId',
+    ])
+    expect(auditWeb.mock.calls[0][0].detail).toEqual({
+      duration_seconds: expect.any(Number),
+      cost_cents: expect.any(Number),
+    })
   })
 
   it('mocked success (JSON audioUrl path): auditWeb called exactly once with recording.transcribe', async () => {
@@ -631,7 +666,19 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
-    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
+    // Closed shape, now FOUR keys: the spend wall (2026-09-08) puts the two
+    // numbers it debited on this row rather than filing a second one — ids and
+    // numbers only, still nothing PII-shaped.
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
+      'action',
+      'category',
+      'detail',
+      'requestId',
+    ])
+    expect(auditWeb.mock.calls[0][0].detail).toEqual({
+      duration_seconds: expect.any(Number),
+      cost_cents: expect.any(Number),
+    })
   })
 
   it('401 (anonymous, fail-fast auth guard): auditWeb never called', async () => {
@@ -650,13 +697,11 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
   })
 
   it('429 (rate limited): auditWeb never called', async () => {
-    const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
-    ;(enforceAiRateLimit as jest.Mock).mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'Hourly AI request cap reached' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json', 'Retry-After': '3600' },
-      }),
-    )
+    // The ceiling lives in the METER now (the spend wall, 2026-09-08): the
+    // route's own consume block is gone, so the refusal is driven at the
+    // ledger and comes back as the classified error the catch rebuilds into
+    // the same 429 + Retry-After this test always asserted.
+    rateScenario.allowed = false
     const formData = new FormData()
     formData.append('audio', new Blob(['fake-audio'], { type: 'audio/webm' }), 'audio.webm')
     await testApiHandler({

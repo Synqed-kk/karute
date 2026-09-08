@@ -43,8 +43,26 @@ jest.mock('@/lib/ai-rate-limit', () => ({
 
 const runTranscription = jest.fn(async () => ({ transcript: 'T', durationSec: 1, confidence: 0.9 }))
 const loadRef = jest.fn(async () => null)
+/** THE METER, as a stand-in (the spend wall, 2026-09-08). This suite is about
+ *  the route's ORDER — plan gate first, ZERO consume when locked, nothing
+ *  deleted on a refusal — so the door keeps asking the same `enforceRate` mock
+ *  it always did, one level down. The wall's own behaviour (the debit, the
+ *  receipt, the refusal row) is proven against the REAL wrapper in
+ *  transcription-spend-wall.test.ts. */
+const runMeteredTranscription = jest.fn(
+  async (meter: { synqed: unknown }, params: unknown) => {
+    await (enforceRate as unknown as (c: unknown, r: string) => Promise<void>)(
+      meter.synqed,
+      'transcribe',
+    )
+    void params
+    return runTranscription()
+  },
+)
 jest.mock('@/lib/ai/transcribe', () => ({
-  runTranscription: (...a: unknown[]) => runTranscription(...(a as [])),
+  runMeteredTranscription: (...a: unknown[]) =>
+    (runMeteredTranscription as (...x: unknown[]) => unknown)(...(a as [])),
+  transcriptionCostDetail: () => ({ duration_seconds: 1, cost_cents: 1 }),
   speakerIdMode: () => 'shadow',
   loadStaffReferenceForStaff: (...a: unknown[]) => loadRef(...(a as [])),
 }))

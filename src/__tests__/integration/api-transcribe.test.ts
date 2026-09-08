@@ -1,10 +1,25 @@
 import { testApiHandler } from 'next-test-api-route-handler'
 import * as appHandler from '@/app/api/ai/transcribe/route'
 
-// Rate limiter is exercised in its own test — keep the transcribe tests
-// focused on Deepgram wiring.
-jest.mock('@/lib/ai-rate-limit', () => ({
-  enforceAiRateLimit: jest.fn(async () => null),
+// The AI ceiling is exercised in its own test (transcription-spend-wall) —
+// keep the transcribe tests focused on Deepgram wiring. The route no longer
+// asks the ledger itself (the meter does, inside runMeteredTranscription), so
+// the boundary to stub is the CLIENT, not the rate-limit module: the real
+// module runs against this fake and answers "allowed" every time.
+const consume = jest.fn(async () => ({
+  allowed: true,
+  reason: 'ok',
+  cap: 100,
+  used: 1,
+  remaining: 99,
+  costCap: 3000,
+  costUsed: 0,
+  resetAt: '2026-09-09T00:00:00.000Z',
+}))
+const recordUsage = jest.fn(async () => {})
+jest.mock('@/lib/synqed/client', () => ({
+  getSynqedClient: async () => ({ aiRateLimit: { consume, recordUsage } }),
+  newSynqedClient: () => ({ aiRateLimit: { consume, recordUsage } }),
 }))
 
 // Mutable auth scenario for the fail-fast guard test below (declared before
@@ -52,6 +67,7 @@ jest.mock('@/actions/org-settings', () => ({
 // Stubbing the staff-id boundary closes that off at its source.
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => null),
+  getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
 // Deepgram is reached via global fetch in lib/deepgram.ts. Stub fetch so the

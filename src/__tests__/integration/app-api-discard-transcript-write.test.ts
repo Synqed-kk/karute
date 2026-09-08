@@ -22,7 +22,10 @@
 //   · both relay shapes run the SAME shared bodies the web actions run, and the
 //     answer comes back verbatim so the phone and the web page read one
 //     contract;
-//   · no audit row from either shape (the FACADE_AUDIT_MAP 'skip').
+//   · no audit row from either shape (the FACADE_AUDIT_MAP 'skip') — the
+//     ROUTE's own row, which is what that skip is about. The transcription
+//     RECEIPT the spend wall files (2026-09-08) comes from the meter one level
+//     down, which is stubbed here and pinned in transcription-spend-wall.
 import { createHmac } from 'node:crypto'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
@@ -72,8 +75,13 @@ const mockLoadReference = jest.fn(async (): Promise<unknown> => null)
 /** Steerable, because 'off' short-circuits the voice reference to null and a
  *  suite pinned only at 'off' can never see the reference leg at all. */
 let speakerMode = 'off'
+/** The door's provider call goes through the METER since the spend wall
+ *  (2026-09-08); this stand-in counts exactly what runTranscription used to.
+ *  The wall's own behaviour — the ceiling asked before the provider, the debit,
+ *  and the recording.transcribe RECEIPT it files for this door — is proven
+ *  against the real wrapper in transcription-spend-wall.test.ts. */
 jest.mock('@/lib/ai/transcribe', () => ({
-  runTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
+  runMeteredTranscription: (...a: unknown[]) => mockRunTranscription(...(a as [])),
   speakerIdMode: () => speakerMode,
   loadStaffReferenceForStaff: (...a: unknown[]) => mockLoadReference(...(a as [])),
 }))
@@ -523,14 +531,29 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
     // The FULL argument object, never objectContaining: this call is the whole
     // reason the staged door costs money, and objectContaining cannot see a
     // LEG THAT VANISHED. Every field is a decision the worker also makes.
-    expect(mockRunTranscription).toHaveBeenCalledWith({
-      audio: { url: 'https://storage/signed' },
-      locale: 'ja',
-      diarize: true,
-      reference: null,
-      mode: 'off',
-      businessType: null,
-    })
+    // The meter's half is asserted the same way, minus the client itself —
+    // that one is an identity check below, because the fake is an access-trap
+    // proxy and a deep compare would probe it.
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: 'business-1',
+        door: 'discard',
+        recordingSessionId: 'rs-1',
+        takeId: '11111111-2222-3333-4444-555555555555',
+        durationHintSeconds: 62,
+      }),
+      {
+        audio: { url: 'https://storage/signed' },
+        locale: 'ja',
+        diarize: true,
+        reference: null,
+        mode: 'off',
+        businessType: null,
+      },
+    )
+    expect(
+      (mockRunTranscription.mock.calls[0] as unknown as [{ synqed: unknown }])[0].synqed,
+    ).toBe(fakeClient)
     expect(upsertSegments).toHaveBeenCalledWith(
       'rs-1',
       [{ segment_index: 0, text: '本日はありがとうございます', start_time: 0, end_time: 62 }],
@@ -559,16 +582,28 @@ describe('POST … — the staged shape (nothing transcribed yet)', () => {
       { speaker_diarization: false, business_type: 'salon' },
       'card-auth-user-1',
     )
-    expect(mockRunTranscription).toHaveBeenCalledWith({
-      audio: { url: 'https://storage/signed' },
-      locale: 'ja',
-      // org said false, so this is a real value carried through — not a default
-      // that would look identical if the leg were dropped.
-      diarize: false,
-      reference,
-      mode: 'enforce',
-      businessType: 'salon',
-    })
+    expect(mockRunTranscription).toHaveBeenCalledWith(
+      // THE METER'S OWN half: which door is spending, whose money, and against
+      // which session — the fields the receipt and the refusal row are built
+      // out of.
+      expect.objectContaining({
+        businessId: 'business-1',
+        door: 'discard',
+        recordingSessionId: 'rs-1',
+        takeId: '11111111-2222-3333-4444-555555555555',
+        durationHintSeconds: 62,
+      }),
+      {
+        audio: { url: 'https://storage/signed' },
+        locale: 'ja',
+        // org said false, so this is a real value carried through — not a default
+        // that would look identical if the leg were dropped.
+        diarize: false,
+        reference,
+        mode: 'enforce',
+        businessType: 'salon',
+      },
+    )
   })
 
   it('a refusal past the tenant fence keeps the audio', async () => {
@@ -624,7 +659,7 @@ describe('POST … — write-once, and the ⛔ doctrine line', () => {
     )
   })
 
-  it('neither shape writes an audit row (the FACADE_AUDIT_MAP skip)', async () => {
+  it('neither shape writes an audit row OF ITS OWN (the FACADE_AUDIT_MAP skip)', async () => {
     const lines = await auditLines(async () => {
       await post(REVIEW_BODY)
       segments = []
