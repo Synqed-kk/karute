@@ -212,18 +212,35 @@ async function runTranscription(params: {
 // ── ⚖ THE TRANSCRIPTION SPEND WALL (2026-09-08) ─────────────────────────────
 //
 // Every door that spends a yen at the provider goes through the ONE wrapper
-// below, which does four things in this order:
+// below, which does five things in this order:
 //
 //   1. asks core's per-business AI ledger (`consume('transcribe')`) BEFORE the
 //      call — hourly request count + the ROLLING 24 h cost cap;
-//   2. runs the provider;
-//   3. debits the minutes as cents on the PROVIDER'S ANSWER — never on the
-//      job's success, because every throw after this point (EMPTY_TRANSCRIPT,
-//      the extract/summarize leg, the write) is re-run by core's requeue and
-//      would re-spend the whole recording. The LENGTH it bills is the
-//      provider's own measurement, or the named floor when it has none: a
-//      client-supplied duration never reaches the ledger (fix round 2);
-//   4. files the receipt (or, on a refusal, the refusal row).
+//   2. RESERVES an estimate of this recording's cost in that same ledger, and
+//      REFUSES when the ledger will not take it — no money moves through a
+//      ledger that did not answer;
+//   3. runs the provider;
+//   4. TRUES UP the difference on the PROVIDER'S ANSWER — never on the job's
+//      success, because every throw after this point (EMPTY_TRANSCRIPT, the
+//      extract/summarize leg, the write) is re-run by core's requeue and would
+//      re-spend the whole recording. The LENGTH it bills is the provider's own
+//      measurement, or the named floor when it has none: a client-supplied
+//      duration never reaches the ledger (fix round 2);
+//   5. files the receipt (or, on a refusal, the refusal row).
+//
+// ⚖ WHY THE RESERVE COMES FIRST (fix round 4, Greptile round 2 on PR #863).
+// While the debit came only AFTER the provider, a debit that failed all three
+// attempts was permanently absent from the ledger the cap is computed from:
+// the money was spent, and every later limit check admitted more spend on top
+// of it. Retrying harder cannot close that — ordering can. Every yen the
+// provider bills is now preceded by a ledger row of at least the estimate, so
+// the only way to reach the provider is THROUGH a ledger that answered.
+//
+// ⚖ AND THE RESERVE IS NEVER REFUNDED. Core has no refund call, and an
+// over-reservation errs toward stopping early — the same ruling the unknown
+// floor and the gpt-4o fallback already follow. A provider that answers
+// shorter than the estimate, or that throws after the reserve landed, leaves
+// the ledger holding MORE than the truth. On purpose.
 //
 // NO NEW COUNTER, NO NEW TABLE: the ledger core already keeps for the token
 // routes is the same ledger, and the unit is money. The cap VALUE is an env on
@@ -252,6 +269,47 @@ export type TranscriptionDoor = 'job' | 'from_session' | 'web' | 'app' | 'discar
  *  A client's claim never reaches the ledger now; an unmeasured minute costs
  *  the floor. */
 const UNKNOWN_DURATION_FLOOR_SECONDS = 3600
+
+/** The recorder's own bitrate — `global-recorder.ts:737 audioBitsPerSecond:
+ *  48_000` — as bytes per second. The audio's SIZE is therefore a measurement
+ *  of its LENGTH, and it is a server-side one: the buffer this process already
+ *  holds, or the storage server's own `content-length` for OUR object. Neither
+ *  is a client's claim about how long the recording was (fix round 2's rule,
+ *  kept: the reserve is a number nobody outside this server chose).
+ *
+ *  A file recorded LOWER than 48 kbps is longer than its bytes say, so the
+ *  estimate under-shoots and the true-up after the provider answers covers the
+ *  difference. Over-shooting is harmless — the reserve is never refunded. */
+const RECORDER_BYTES_PER_SECOND = 48_000 / 8
+
+function estimateSecondsFromBytes(bytes: number): number {
+  return bytes / RECORDER_BYTES_PER_SECOND
+}
+
+/** The reserve's HEAD is its own request, so a storage server that has stopped
+ *  answering costs the wall ten seconds, not the caller's whole timeout. */
+const RESERVE_HEAD_TIMEOUT_MS = 10_000
+
+/** The audio's size in bytes for the reserve: the buffer's own length, or a
+ *  HEAD on the signed URL. Unreadable — no content-length, zero, a throw, the
+ *  timeout — is null, and the caller reserves the floor instead.
+ *
+ *  runTranscription HEADs this same URL on the speaker-id path, but only when
+ *  a reference clip exists (transcribe.ts, `if (reference)`); the reserve must
+ *  happen on EVERY call, so this one is its own unconditional request. */
+async function audioBytes(audio: TranscriptionAudio): Promise<number | null> {
+  if ('buffer' in audio) return audio.buffer.length > 0 ? audio.buffer.length : null
+  try {
+    const head = await fetch(audio.url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(RESERVE_HEAD_TIMEOUT_MS),
+    })
+    const len = Number(head.headers.get('content-length') ?? '0')
+    return Number.isFinite(len) && len > 0 ? len : null
+  } catch {
+    return null
+  }
+}
 
 export interface TranscriptionMeter {
   /** The BUSINESS-scoped core client. The ledger is per business. */
@@ -289,7 +347,11 @@ function billedSeconds(result: Record<string, unknown>): number {
 export interface TranscriptionReceipt {
   duration_seconds: number
   cost_cents: number
-  /** false = the money was spent and the ledger never heard about it. */
+  /** What the ledger was told BEFORE the provider ran. `cost_cents` is the
+   *  truth; the ledger holds the GREATER of the two, because the reserve is
+   *  never refunded (fix round 4). */
+  cents_reserved: number
+  /** false = the money was spent and the ledger is short by the true-up. */
   debit_recorded: boolean
 }
 
@@ -363,6 +425,11 @@ function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError):
  * facade maps it to 429; the web route rewraps it; the worker renames it to its
  * own named reason word) — and the refusal row is filed before it leaves.
  *
+ * Throws `upstream_unavailable` when the LEDGER itself would not take the
+ * reserve (→ 502 on both routes; the worker lets it through unchanged, so the
+ * job requeues with nothing spent). That refusal files its own row too, with
+ * reason `ledger_unavailable`.
+ *
  * Returns the provider body under `result` (unchanged shape — it is what the
  * clients already receive) plus the meter's own `receipt`, which never leaves
  * the server: it is the audit row's detail on the two doors that file their own.
@@ -380,14 +447,41 @@ export async function runMeteredTranscription(
     throw err
   }
 
+  // ── THE RESERVE, BEFORE ANY MONEY MOVES ───────────────────────────────────
+  // The estimate is the audio's own size at the recorder's bitrate; a size we
+  // could not read reserves the floor, which is deliberately expensive for the
+  // same reason billedSeconds' floor is.
+  const bytes = await audioBytes(params.audio)
+  const reserveCents = estimateTranscriptionCostCents(
+    bytes == null ? UNKNOWN_DURATION_FLOOR_SECONDS : estimateSecondsFromBytes(bytes),
+  )
+  if (!(await reportTranscriptionUsageWithClient(meter.synqed, reserveCents))) {
+    // Three attempts failed: core cannot tell us the spend has been counted, so
+    // we do not spend. This is the consume's own law one line further down the
+    // path — "could not write it down" is never "go ahead".
+    const err = new AppApiError('upstream_unavailable', 'transcription ledger unavailable', {
+      reason: 'ledger_unavailable',
+    })
+    auditTranscriptionRefused(meter, err)
+    throw err
+  }
+
   const result = await runTranscription(params)
 
+  // ── THE TRUE-UP ───────────────────────────────────────────────────────────
+  // The ledger already holds the reserve. Only a provider answer LONGER than
+  // the estimate needs a second row; a shorter one leaves the over-reservation
+  // standing (no refund call exists, and erring toward stopping early is the
+  // ruling), so the debit is already recorded by definition.
   const durationSec = billedSeconds(result)
   const costCents = estimateTranscriptionCostCents(durationSec)
+  const delta = costCents - reserveCents
   const receipt: TranscriptionReceipt = {
     duration_seconds: Math.round(durationSec),
     cost_cents: costCents,
-    debit_recorded: await reportTranscriptionUsageWithClient(meter.synqed, costCents),
+    cents_reserved: reserveCents,
+    debit_recorded:
+      delta > 0 ? await reportTranscriptionUsageWithClient(meter.synqed, delta) : true,
   }
 
   // ONE receipt per call. The two interactive routes already emit their own

@@ -168,6 +168,13 @@ export async function POST(request: Request) {
         { status: 429, headers: { 'Retry-After': String(60 * 60) } },
       )
     }
+    // The LEDGER itself would not take the reserve (fix round 4) — an upstream
+    // outage, not this request's fault, and nothing was spent. A literal 502,
+    // the same status the facade twin's handler maps `upstream_unavailable` to
+    // (errors.ts), so both doors answer one word; literal for CP7's walker.
+    if (error instanceof AppApiError && error.code === 'upstream_unavailable') {
+      return NextResponse.json({ error: error.message }, { status: 502 })
+    }
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[/api/ai/transcribe]', message)
     return NextResponse.json(

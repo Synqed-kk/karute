@@ -20,6 +20,14 @@
  *      wrapper; the two routes carry the same two numbers on the row they
  *      already emit.
  *
+ *   6. THE LEDGER IS WRITTEN BEFORE THE MONEY MOVES (fix round 4). The wall
+ *      RESERVES an estimate — the audio's own byte count at the recorder's
+ *      bitrate, read from the buffer or from the storage server's
+ *      content-length — and REFUSES when the ledger will not take it. A debit
+ *      that used to be lost after three attempts left the money spent and
+ *      absent from the cap forever; now nothing is spent unless a ledger row
+ *      landed first, and only the smaller TRUE-UP can still go missing.
+ *
  * The cents are pinned in both directions: the pure estimator, and the ONE
  * fallback a real spend can arrive with — the named floor, never a caller's
  * own number (fix round 2, Greptile P1: a client-supplied duration hint used
@@ -119,10 +127,30 @@ const aiRateLimit = {
     return consume(route)
   },
   recordUsage: (...a: unknown[]) => {
-    order.push('recordUsage')
+    // reserve or true-up, decided by WHERE the call sits relative to the
+    // provider rather than by anything the wrapper says about itself — so a
+    // wall that reserved AFTER spending shows up in the pin as a delta in the
+    // wrong slot, which is exactly what m16 does.
+    order.push(order.includes('deepgram') ? 'recordUsage(delta)' : 'recordUsage(reserve)')
     return (recordUsage as (...x: unknown[]) => Promise<void>)(...a)
   },
 }
+
+// ── THE STORAGE SERVER'S ANSWER ABOUT OUR OBJECT (fix round 4) ──────────────
+// The reserve HEADs the signed URL and reads content-length. This is the ONLY
+// size the wall may believe for a URL audio: it is the storage server's own
+// statement about the object WE minted a url for, never a number a caller sent.
+// `null` = the HEAD fails (an outage, a missing header), which must reserve the
+// floor rather than hand out a free transcription.
+// 32,400,000 B ÷ 6,000 B/s = 5,400 s — the 90-minute session the whole suite
+// bills at 45 ¢, so the default keeps every existing cent pin exact.
+const headBytes: { current: number | null } = { current: 32_400_000 }
+const originalFetch = global.fetch
+const fetchMock = jest.fn(async (url: unknown, init?: { method?: string }) => {
+  if (init?.method !== 'HEAD') throw new Error(`unexpected non-HEAD fetch: ${String(url)}`)
+  if (headBytes.current == null) throw new Error('storage unreachable')
+  return { headers: new Headers({ 'content-length': String(headBytes.current) }) }
+})
 
 const audit = jest.fn()
 // Spread the REAL module: the facade's own audit hook reads FACADE_AUDIT_MAP
@@ -289,9 +317,15 @@ const baseJob = {
 const rows = (action: string) =>
   audit.mock.calls.map((c) => c[0] as Record<string, unknown>).filter((e) => e.action === action)
 
+afterAll(() => {
+  global.fetch = originalFetch
+})
+
 beforeEach(() => {
   jest.clearAllMocks()
   order.length = 0
+  headBytes.current = 32_400_000
+  global.fetch = fetchMock as unknown as typeof global.fetch
   // reset, not clear: a queued `...Once` that a test never reached would
   // otherwise leak into the next one.
   consume.mockReset()
@@ -381,8 +415,10 @@ describe('the job worker — the phone’s normal save path', () => {
 
     expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 45)
     expect(fail).toHaveBeenCalledWith('job-1', 'EMPTY_TRANSCRIPT')
-    // The order is the claim: ask → spend → debit, and only then the throw.
-    expect(order).toEqual(['consume', 'deepgram', 'recordUsage'])
+    // The order is the claim: ask → RESERVE → spend, and only then the throw.
+    // The provider's answer matches the estimate here (5,400 s both ways), so
+    // there is no true-up to make — the ledger already holds the 45 ¢.
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
   })
 
   it('t7 a billed job files ONE recording.transcribe receipt — ids and numbers only', async () => {
@@ -403,6 +439,7 @@ describe('the job worker — the phone’s normal save path', () => {
         door: 'job',
         duration_seconds: 5400,
         cost_cents: 45,
+        cents_reserved: 45,
         debit_recorded: true,
         recording_session_id: 'sess-1',
         attempt: 1,
@@ -426,15 +463,30 @@ describe('the job worker — the phone’s normal save path', () => {
     await runOneJob()
 
     expect(baseJob.payload.duration_seconds).toBe(600)
-    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 30)
+    // The receipt bills the floor, exactly as before — the provider gave no
+    // length, so a client's 600 is still not allowed to become one.
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({ cost_cents: 30 })
+    // …and the LEDGER holds the reserve, 45 ¢, because the object's own 32.4 MB
+    // says 90 minutes. That is MORE than the floor, so there is no true-up and
+    // the over-reservation stands (fix round 4 — it is never refunded).
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 45)
+    // 600 s would have been 5 ¢. The ledger never sees it.
+    expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, 5)
   })
 
   it('t3 no duration anywhere → the named floor is billed (3600 s → 30 ¢), never zero', async () => {
     deepgramResult.durationSec = 0
+    // No size either: the HEAD fails, so the RESERVE falls to the same floor.
+    headBytes.current = null
 
     await runOneJob({ ...baseJob, payload: { ...baseJob.payload, duration_seconds: undefined } })
 
     expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 30)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      cost_cents: 30,
+      cents_reserved: 30,
+    })
   })
 
   it('t4 an UNREADABLE ledger refuses: the job fails with that error, nothing is spent or debited', async () => {
@@ -550,27 +602,43 @@ describe('the debit — three attempts, and a lost one is written down', () => {
 
     await runOneJob()
 
+    // Three attempts, all of them the RESERVE — and the provider ran only
+    // after the third landed. The estimate matched, so no true-up followed.
     expect(recordUsage).toHaveBeenCalledTimes(3)
     expect(recordUsage).toHaveBeenLastCalledWith('transcribe', null, null, 45)
+    // All three attempts sit BEFORE the provider: the wall waited for the
+    // ledger rather than spending while core was unwell.
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'recordUsage(reserve)',
+      'recordUsage(reserve)',
+      'deepgram',
+    ])
     expect(rows('recording.transcribe')[0].detail).toMatchObject({ debit_recorded: true })
     expect(errorLog).not.toHaveBeenCalled()
     // ONE provider call — a retry of the DEBIT must never re-run the spend.
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
   })
 
-  it('t8 all three fail → the debit is LOST: one console.error, a warning receipt saying so, and the karute still saves', async () => {
-    recordUsage.mockRejectedValue(new Error('core down'))
+  it('t8 the TRUE-UP is lost → one console.error, a warning receipt saying so, and the karute still saves', async () => {
+    // The estimate under-shot (a 3 MB object = 500 s → 5 ¢) and the provider
+    // came back with 90 minutes, so a 40 ¢ true-up is owed — and core is down
+    // for all three of its attempts. The reserve itself landed first.
+    headBytes.current = 3_000_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
 
     await runOneJob()
 
-    expect(recordUsage).toHaveBeenCalledTimes(3)
+    expect(recordUsage).toHaveBeenCalledTimes(4) // 1 reserve + 3 true-up attempts
+    expect(recordUsage).toHaveBeenNthCalledWith(1, 'transcribe', null, null, 5)
     // The money was spent exactly once; only the report was retried.
     expect(transcribeUrlWithDeepgram).toHaveBeenCalledTimes(1)
 
     expect(errorLog).toHaveBeenCalledTimes(1)
     expect(errorLog).toHaveBeenCalledWith(
       '[ai-usage] transcription debit LOST after 3 attempts:',
-      expect.objectContaining({ costCents: 45 }),
+      expect.objectContaining({ costCents: 40 }),
     )
 
     // COUNTABLE: severity 'warning' is what the refusal row uses, so the one
@@ -583,8 +651,12 @@ describe('the debit — three attempts, and a lost one is written down', () => {
       door: 'job',
       duration_seconds: 5400,
       cost_cents: 45,
+      cents_reserved: 5,
       debit_recorded: false,
     })
+    // ⚖ AND THE UNDER-COUNT IS BOUNDED. The ledger is short by the true-up
+    // only — 40 ¢ of the 45 — never by the whole recording, which is what a
+    // lost debit used to cost before the reserve went first.
 
     // ⚖ AND IT NEVER THROWS. The money is already spent; failing the caller
     // here would send the whole recording back through Deepgram on the requeue
@@ -641,6 +713,7 @@ describe('the discard-words door', () => {
 
     expect(res).toEqual({ ok: true })
     expect(consume).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledTimes(1)
     expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 45)
     const receipts = rows('recording.transcribe')
     expect(receipts).toHaveLength(1)
@@ -648,6 +721,7 @@ describe('the discard-words door', () => {
       door: 'discard',
       duration_seconds: 5400,
       cost_cents: 45,
+      cents_reserved: 45,
       recording_session_id: 'sess-1',
     })
   })
@@ -698,7 +772,12 @@ describe('the web route (cookie door)', () => {
       expect.objectContaining({
         category: 'recording',
         action: 'recording.transcribe',
-        detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: true },
+        detail: {
+          duration_seconds: 5400,
+          cost_cents: 45,
+          cents_reserved: 45,
+          debit_recorded: true,
+        },
       }),
     )
     // A landed debit is an ordinary row — no severity key at all (fix round 3;
@@ -711,16 +790,23 @@ describe('the web route (cookie door)', () => {
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
   })
 
-  it('t8 the debit is lost → the route’s OWN row says so (debit_recorded false), and the caller still gets its words', async () => {
+  it('t8 the true-up is lost → the route’s OWN row says so (debit_recorded false), and the caller still gets its words', async () => {
     const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
-    recordUsage.mockRejectedValue(new Error('core down'))
+    // Reserve lands (5 ¢ from a 3 MB object), the 40 ¢ true-up does not.
+    headBytes.current = 3_000_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
 
     const res = await webTranscribePOST(post({ audioUrl: 'https://test-local.supabase.co/storage/audio.webm', locale: 'ja' }))
 
     expect(res.status).toBe(200)
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: { duration_seconds: 5400, cost_cents: 45, debit_recorded: false },
+        detail: {
+          duration_seconds: 5400,
+          cost_cents: 45,
+          cents_reserved: 5,
+          debit_recorded: false,
+        },
       }),
     )
     // ⚖ fix round 3, m13: a lost debit on THIS route's own row is severity
@@ -776,20 +862,23 @@ describe('the facade route (Bearer door)', () => {
     expect(receipts[0].detail).toMatchObject({
       duration_seconds: 5400,
       cost_cents: 45,
+      cents_reserved: 45,
       debit_recorded: true,
     })
-    // Three keys — well inside the hook's cap of 8 (handler.ts) — and none of
-    // them reaches the client: the body is the provider's own.
-    expect(Object.keys(receipts[0].detail as object)).toHaveLength(3)
+    // Four keys since fix round 4 — still well inside the hook's cap of 8
+    // (handler.ts) — and none of them reaches the client: the body is the
+    // provider's own.
+    expect(Object.keys(receipts[0].detail as object)).toHaveLength(4)
     expect(Object.keys(await res.json()).sort()).toEqual(['confidence', 'durationSec', 'transcript'])
     // A landed debit is an ordinary row (fix round 3 — same default as every
     // other route the hook serves).
     expect(receipts[0].severity).toBeUndefined()
   })
 
-  it('t8 the debit is lost → the hook’s OWN row is severity warning too (fix round 3)', async () => {
+  it('t8 the true-up is lost → the hook’s OWN row is severity warning too (fix round 3)', async () => {
     const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
-    recordUsage.mockRejectedValue(new Error('core down'))
+    headBytes.current = 3_000_000
+    recordUsage.mockResolvedValueOnce(undefined).mockRejectedValue(new Error('core down'))
 
     const res = await facadeTranscribePOST(post(), noRoute)
 
@@ -799,7 +888,194 @@ describe('the facade route (Bearer door)', () => {
     // m14: the route never sets ctx.auditSeverity → this stays undefined.
     // m15: the hook ignores ctx.auditSeverity → this stays undefined.
     expect(receipts[0].severity).toBe('warning')
-    expect(receipts[0].detail).toMatchObject({ debit_recorded: false })
+    expect(receipts[0].detail).toMatchObject({ cents_reserved: 5, debit_recorded: false })
     errorLog.mockRestore()
+  })
+})
+
+// ── fix round 4 — THE LEDGER IS WRITTEN BEFORE THE MONEY MOVES ──────────────
+//
+// Greptile round 2 on PR #863: "after the third failed recordUsage the debit is
+// permanently absent from the ledger that enforces the cap, so later limit
+// checks can admit spend beyond it." Three attempts cannot close that; the
+// ORDER can. These are the claims that hold it shut.
+describe('the reserve — a ledger row before any yen is spent', () => {
+  const runOneJob = async (job: Record<string, unknown> = baseJob) => {
+    claim.mockResolvedValueOnce(job).mockResolvedValueOnce(null)
+    await processRecordingJobs(10_000)
+  }
+  let errorLog: jest.SpyInstance
+
+  beforeEach(() => {
+    errorLog = jest.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    errorLog.mockRestore()
+  })
+
+  it('m16 the reserve is written BEFORE the provider runs — the estimate matched, so nothing follows it', async () => {
+    await runOneJob()
+
+    expect(order).toEqual(['consume', 'recordUsage(reserve)', 'deepgram'])
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 45)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      cost_cents: 45,
+      cents_reserved: 45,
+      debit_recorded: true,
+    })
+  })
+
+  it('m19 the estimate under-shot → the TRUE-UP follows the provider, for the difference only', async () => {
+    // 3 MB ÷ 6,000 B/s = 500 s → 5 ¢ reserved; the provider says 90 minutes.
+    headBytes.current = 3_000_000
+
+    await runOneJob()
+
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'deepgram',
+      'recordUsage(delta)',
+    ])
+    expect(recordUsage).toHaveBeenCalledTimes(2)
+    expect(recordUsage).toHaveBeenNthCalledWith(1, 'transcribe', null, null, 5)
+    // 40, not 45: the ledger already holds the 5 it reserved.
+    expect(recordUsage).toHaveBeenNthCalledWith(2, 'transcribe', null, null, 40)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      cost_cents: 45,
+      cents_reserved: 5,
+      debit_recorded: true,
+    })
+  })
+
+  it('m17 the ledger will not take the reserve → the provider is NEVER called and no karute is written', async () => {
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    await runOneJob()
+
+    expect(recordUsage).toHaveBeenCalledTimes(3) // the three attempts, then a refusal
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+    expect(transcribeWithDeepgram).not.toHaveBeenCalled()
+    expect(upsertSegments).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    // The job is REQUEUED, not spend-limited: nothing was spent, so this take
+    // must come back when core is well. Only a classified ceiling refusal earns
+    // the AI_SPEND_LIMIT word (t4's law, one door further up).
+    expect(fail).toHaveBeenCalledWith('job-1', 'transcription ledger unavailable')
+    expect(fail).not.toHaveBeenCalledWith('job-1', AI_SPEND_LIMIT)
+  })
+
+  it('the refusal files its own row — severity warning, reason ledger_unavailable', async () => {
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    await runOneJob()
+
+    expect(rows('recording.transcribe')).toHaveLength(0)
+    const refusals = rows('recording.transcribe_refused')
+    expect(refusals).toHaveLength(1)
+    expect(refusals[0]).toMatchObject({
+      severity: 'warning',
+      actorType: 'system',
+      businessId: 'biz-1',
+      targetId: 'sess-1',
+      detail: {
+        door: 'job',
+        reason: 'ledger_unavailable',
+        // The ledger never answered, so it named no numbers — and the row says
+        // that rather than inventing them.
+        cost_used_cents: null,
+        cost_cap_cents: null,
+      },
+    })
+  })
+
+  it('the size cannot be read → the FLOOR is reserved (30 ¢), and a short take still bills its own 3 ¢', async () => {
+    headBytes.current = null
+    deepgramResult.durationSec = 300
+
+    await runOneJob()
+
+    // Reserve = the floor; the provider then came back SHORTER than the
+    // estimate, so there is no true-up and the over-reservation stands.
+    expect(recordUsage).toHaveBeenCalledTimes(1)
+    expect(recordUsage).toHaveBeenCalledWith('transcribe', null, null, 30)
+    expect(rows('recording.transcribe')[0].detail).toMatchObject({
+      duration_seconds: 300,
+      cost_cents: 3,
+      cents_reserved: 30,
+      debit_recorded: true,
+    })
+  })
+
+  // ⚖ m18 — THE RESERVE IS NOT A CLIENT'S NUMBER EITHER (fix round 2's rule,
+  // extended to the estimate). The payload below says five seconds; the object
+  // is 32.4 MB, which is ninety minutes. A wall that reserved from the payload
+  // would put 1 ¢ on the ledger and then spend 45.
+  it('m18 the reserve comes from the object’s own bytes, never the job payload’s duration', async () => {
+    await runOneJob({ ...baseJob, payload: { ...baseJob.payload, duration_seconds: 5 } })
+
+    expect(recordUsage).toHaveBeenNthCalledWith(1, 'transcribe', null, null, 45)
+    expect(recordUsage).not.toHaveBeenCalledWith('transcribe', null, null, 1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://x/audio',
+      expect.objectContaining({ method: 'HEAD' }),
+    )
+  })
+
+  it('the two interactive doors answer 502 when the ledger will not take the reserve', async () => {
+    recordUsage.mockRejectedValue(new Error('core down'))
+
+    const webRes = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          audioUrl: 'https://test-local.supabase.co/storage/audio.webm',
+          locale: 'ja',
+        }),
+      }),
+    )
+
+    expect(webRes.status).toBe(502)
+    expect(await webRes.json()).toEqual({ error: 'transcription ledger unavailable' })
+    expect(transcribeUrlWithDeepgram).not.toHaveBeenCalled()
+  })
+})
+
+describe('the reserve on the buffer door (the web FormData path)', () => {
+  it('bytes come from the buffer itself — no HEAD, same rules', async () => {
+    const form = new FormData()
+    // 3,000,000 B ÷ 6,000 B/s = 500 s → 5 ¢ reserved; the provider says 5,400.
+    form.append(
+      'audio',
+      new File([new Uint8Array(3_000_000)], 'take.webm', { type: 'audio/webm' }),
+    )
+    form.append('locale', 'ja')
+
+    const res = await webTranscribePOST(
+      new Request('https://s/api/ai/transcribe', { method: 'POST', body: form }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(order).toEqual([
+      'consume',
+      'recordUsage(reserve)',
+      'deepgram',
+      'recordUsage(delta)',
+    ])
+    expect(recordUsage).toHaveBeenNthCalledWith(1, 'transcribe', null, null, 5)
+    expect(recordUsage).toHaveBeenNthCalledWith(2, 'transcribe', null, null, 40)
+    expect(auditWeb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: {
+          duration_seconds: 5400,
+          cost_cents: 45,
+          cents_reserved: 5,
+          debit_recorded: true,
+        },
+      }),
+    )
   })
 })

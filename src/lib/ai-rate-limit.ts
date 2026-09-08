@@ -112,12 +112,19 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * and a run of them is exactly the outage during which the wall stops holding.
  * A blip now costs 250 ms and then 750 ms instead of a spend nobody counted.
  *
- * NEVER THROWS, deliberately, even after the third failure: this is called
- * immediately AFTER the provider has answered, so the money is already spent.
- * Failing the caller here would send the whole recording back through Deepgram
- * on the next retry — paying twice to report once. ⚖ That is the ruling: a lost
- * debit is written down (the console line below, and `debit_recorded: false` on
- * the caller's audit row), never re-thrown.
+ * NEVER THROWS, deliberately, even after the third failure — and since fix
+ * round 4 the CALLER decides what a `false` means, because it is called twice
+ * now and the two moments are not the same:
+ *
+ *   BEFORE the provider (the reserve) — nothing has been spent yet, so a
+ *   `false` REFUSES: runMeteredTranscription throws `upstream_unavailable` and
+ *   the provider is never reached.
+ *
+ *   AFTER the provider (the true-up) — the money is already spent, so a
+ *   `false` is FLAGGED, never re-thrown: failing the caller here would send the
+ *   whole recording back through Deepgram on the next retry, paying twice to
+ *   report once. ⚖ That is the ruling: a lost debit is written down (the
+ *   console line below, and `debit_recorded: false` on the caller's audit row).
  */
 export async function reportTranscriptionUsageWithClient(
   synqed: RateLimitClient,
