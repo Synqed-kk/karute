@@ -267,9 +267,11 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
   it('the toolbar does not reach into the popovers it sits beside', () => {
     // D-PR2-1 / D-PR2-2. Three popovers and the month calendar render INSIDE
     // `.board-head`, and the calendar renders inside `.time-nav` itself, so the
-    // mock's descendant selectors would have taken the calendar's Sunday red,
-    // its 44px day cells and its green 空き wash. Both are pinned as rules: no
-    // descendant form of either may come back.
+    // mock's descendant selectors reach them. Measured by putting each form
+    // back and diffing every computed property (mutants P3/P4/P5): the day
+    // cells go 44px → 30px and the 空き green goes grey, the month header grows
+    // a point, and the five plain weekday labels change their grey. Both forms
+    // are pinned as RULES: no descendant version may come back.
     expect(LAYER_CODE).toContain('.biz .page-today .bh-left > strong {')
     expect(LAYER_CODE).toContain('.biz .page-today .bh-left > span {')
     expect(LAYER_CODE).not.toMatch(/\.page-today \.board-head (strong|span)\s*[,{]/)
@@ -278,6 +280,7 @@ describe('今日の運営 reskin layer — THE STATE-CLASS LAW (order is the beh
     expect(LAYER_CODE).not.toMatch(/\.page-today \.time-nav (button|a)[\s,{:.]/)
     // …and the canon rules that would have lost are still canon's own.
     expect(CSS).toContain('.biz .cal-cell.open { background: var(--green-soft); color: var(--green-dark); }')
-    expect(CSS).toContain('.biz .cal-grid .wd.sun { color: var(--red-dark); }')
+    expect(CSS).toContain('gap: 1px; min-height: 44px;')
+    expect(CSS).toContain('.biz .cal-head strong { font-size: 14px; }')
   })
 })

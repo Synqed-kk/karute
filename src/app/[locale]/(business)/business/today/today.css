@@ -2090,13 +2090,20 @@
 .biz .page-today .board-head { min-height: 54px; padding: 0 16px; }
 /* D-PR2-1 — the mock writes these as `.board-head strong` / `.board-head span`.
    In the MOCK that is safe; in the product it is not. Three popovers and the
-   month calendar are rendered INSIDE `.board-head` (the shelf and 操作ヒント
-   hang off `.bh-left`, 表示設定 and the calendar off `.board-tools`), so the
-   descendant form at 0,3,1 reaches `.cal-head strong` (0,2,1), every
-   `.fields-pop strong`, and — beating it — `.cal-grid .wd.sun` / `.wd.sat`
-   (0,3,0), which would take the calendar's Sunday red and Saturday blue away.
-   The title and its sub-line are DIRECT children of `.bh-left`, so that is what
-   the selector says. Same specificity as the mock's, strictly less reach. */
+   month calendar render INSIDE `.board-head` — the shelf and 操作ヒント hang
+   off `.bh-left`, 表示設定 and the calendar off `.board-tools` — so the
+   descendant form at 0,3,1 reaches furniture the toolbar has nothing to do
+   with. MEASURED, by putting the mock's own form back and diffing every
+   computed property on every element (build/pr2/redruns, mutants P4 and P5):
+     · `.board-head span`   → the five plain weekday labels 月火水木金 in the
+       month calendar leave canon's --quiet #71717a for #6b7280.
+     · `.board-head strong` → the calendar's month header 「2026年9月」 grows
+       from 14px to 15px (canon's `.cal-head strong`, 0,2,1).
+   The 日 and 土 labels survive either way: `.wd.sun` / `.wd.sat` are 0,4,0
+   compounds. A specificity read here said they would lose their red and blue;
+   the measurement said otherwise, and the measurement is what this comment
+   carries. The title and its sub-line are DIRECT children of `.bh-left`, so
+   that is what the selector says — same specificity as the mock's, less reach. */
 .biz .page-today .bh-left > strong { font-size: 15px; font-weight: 700; color: #18181b; }
 .biz .page-today .bh-left > span { color: #6b7280; }
 
@@ -2159,12 +2166,12 @@
    `.time-nav` the positioning parent of the month calendar (:170 `position:
    relative`, the `.cal-pop` is its child), and in the PRODUCT every day cell is
    a `<Link>` — an `<a>` — while the mock builds them as `<button>`. Either way
-   the descendant form reaches them: `.time-nav a` at 0,3,1 would beat
-   `.cal-cell.open` / `.full` / `.cur` (0,3,0) and grey out the calendar's
-   green, and `min-height: 30px` would beat `.cal-cell`'s own 44px (0,2,0) and
-   squash the whole grid. It would take `.cal-tools`' buttons too. The three
-   controls this rule is FOR — ‹ · the day label · › — are direct children, so
-   the child combinator says exactly that and nothing more. */
+   the descendant form reaches them. MEASURED on mutant P3 — 1537 computed
+   differences, the calendar alone: every day cell 44px → 30px, the grid
+   257px → 187px, 空き green #1d5c39 → #52525b, today's indigo #3f5be8 →
+   #52525b, and the 今日 link and 前の月/次の月 buttons repainted with it.
+   The three controls this rule is FOR — ‹ · the day label · › — are direct
+   children, so the child combinator says exactly that and nothing more. */
 .biz .page-today .time-nav > button,
 .biz .page-today .time-nav > a {
   min-width: 30px;
