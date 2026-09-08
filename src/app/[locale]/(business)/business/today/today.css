@@ -2461,11 +2461,36 @@
 .biz .page-today .event.noshow { border-color: #d9d0c7; background: repeating-linear-gradient(135deg, #ebe6e0 0 4px, #f4f1ec 4px 8px); }
 /* ink on the name — the wash, the border and the 4px stripe already carry the
    state, and ink reads faster than a coloured name. Bookings only: a 休憩 and a
-   勤務不可 keep their own family colour, which IS their whole label. */
-.biz .page-today .event[data-book] > strong { font-size: 13px; font-weight: 700; color: #18181b; }
-.biz .page-today .event[data-book] > strong .tg { font-size: 10px; font-weight: 600; color: #52525b; opacity: 1; }
+   勤務不可 keep their own family colour, which IS their whole label.
+
+   ⚖ R8 GAP-11 — AND THE CARD IN HAND WEARS THE SAME FACE. The drag proxy
+   renders the very same `cardFace()` children as the card on the board, but the
+   product writes it as a `<div>` with `data-cat` and NO `data-book`, so keyed on
+   `[data-book]` alone these four rules stopped at the board and the booking the
+   operator was carrying kept canon's 12.5px state-coloured name. Read at source
+   in TodayScreen's proxy element (the `className` template + its `data-cat`):
+     · a BOOKING's proxy (`kind: 'card'`) carries `data-cat` — a booking's
+       `category` is `BookingCategory`, never null;
+     · a BLOCK's proxy (`kind: 'block'`) carries none — every block/break/
+       absence/cleanup item is built with `category: null` — and it renders its
+       own face (title, optional time), with no ticket line;
+     · the CHIP proxy's class is `drag-proxy chip`, never `event`, so `.event`
+       keeps it out even though it can carry `data-cat`.
+   So `[data-cat]` on the proxy is the booking marker, the same way it is in the
+   hover language above. ⚖ STATE-CLASS LAW — nothing to restate: canon's
+   `.biz .event.drag-proxy` (:483) declares `box-sizing` + `box-shadow` only, and
+   `.biz .drag-proxy.chip strong` / `small` (:504 / :505) belong to the chip and
+   are not reached. The only canon rule declaring type on the proxy's `strong`
+   is `.biz .event strong` (:595, 0,2,1), which these rules already beat on the
+   board — the proxy simply joins the elements they beat it on. */
+.biz .page-today .event[data-book] > strong,
+.biz .page-today .event.drag-proxy[data-cat] > strong { font-size: 13px; font-weight: 700; color: #18181b; }
+.biz .page-today .event[data-book] > strong .tg,
+.biz .page-today .event.drag-proxy[data-cat] > strong .tg { font-size: 10px; font-weight: 600; color: #52525b; opacity: 1; }
 .biz .page-today .event[data-book] > .e-time,
-.biz .page-today .event[data-book] > .e-tkt { font-size: 11.5px; color: #52525b; }
+.biz .page-today .event[data-book] > .e-tkt,
+.biz .page-today .event.drag-proxy[data-cat] > .e-time,
+.biz .page-today .event.drag-proxy[data-cat] > .e-tkt { font-size: 11.5px; color: #52525b; }
 /* ⚖ STATE-CLASS LAW — canon :598. A micro card is ~18px wide; the base rule's
    `padding: 5px 6px 4px 10px` leaves it 2px of content box. Restated at 0,4,0.
    `min-width: 0` is canon's other half and is not declared above, so it stays
