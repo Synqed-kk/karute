@@ -2274,10 +2274,14 @@
 .biz .page-today .fields-pop .btn { border-color: #e4e7ec; }
 .biz .page-today .fields-pop strong { color: #18181b; font-size: 12.5px; font-weight: 700; }
 .biz .page-today .fields-pop span { color: #6b7280; }
-/* #844's signpost is a `<Link>`, and a link in a pill should not also be
-   underlined — the pill already says it is one. Tailwind's preflight makes
-   `a { text-decoration: inherit }`, so on main it inherits rather than
-   underlines; this states it instead of relying on a reset. */
+/* #844's signpost is a `<Link>` wearing canon's `.chip`, and a link inside a
+   pill should not also be underlined — the pill already says it is one.
+   MEASURED on both sheets, the same page (evidence/TOOLBAR-MEASURE): on main it
+   renders `text-decoration-line: underline`, and this rule takes it to `none`.
+   An earlier version of this comment said Tailwind's preflight already made it
+   inherit rather than underline, so the rule was only a belt. That was reasoned
+   from the reset and it was wrong; the page was read afterwards and it
+   disagreed. This is a fix, not a belt. */
 .biz .page-today .fields-pop .chip { text-decoration: none; color: #6b7280; }
 .biz .page-today .sell-shelf button { border-radius: 8px; font-size: 12px; }
 .biz .page-today .sell-shelf button:hover { background: #eef2ff; }
