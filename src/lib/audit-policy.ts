@@ -79,6 +79,7 @@ export const AUDIT_ACTIONS = [
   'recording.session_cleanup',
   'recording.take_named',
   'recording.transcribe',
+  'recording.transcribe_refused',
   'settings.menu_create',
   'settings.menu_reactivate',
   'settings.menu_retire',
@@ -155,6 +156,18 @@ export const AUDITED_CORES: {
   // real writer is provably covered, not left off as "not required."
   { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
+  // The transcription SPEND WALL (2026-09-08). Both emitters are PRIVATE
+  // helpers inside runMeteredTranscription's file, the same shape
+  // auditLockout above has: each emits unconditionally on its own single path,
+  // so the walker proves them, while the wrapper itself decides WHICH doors
+  // file a receipt (the two interactive routes emit their own row and would
+  // otherwise double-log one call). Registered so the real writers are
+  // provably covered, not left off as "not required" — registry-reality
+  // enumerates exported symbols only and would never ask for this entry.
+  {
+    file: 'src/lib/ai/transcribe.ts',
+    symbols: ['auditTranscriptionReceipt', 'auditTranscriptionRefused'],
+  },
   // Build F1 fix round 3 — the deliberate-discard orphan cleanup. Its
   // recordings.delete is the write; the audit() sits on the ONLY success path
   // (every refusal returns { error } before reaching it). INTERIM: P5's
@@ -640,9 +653,10 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-rate-limit.ts',
     call: 'aiRateLimit.recordUsage',
-    symbols: ['reportAiUsageWithClient'],
-    justification: 'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting.',
-    dated: '2026-07-27',
+    symbols: ['reportAiUsageWithClient', 'reportTranscriptionUsageWithClient'],
+    justification:
+      'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting. EXTENDED 2026-09-08 (the transcription spend wall): reportTranscriptionUsageWithClient reports the SAME ledger in cents-from-minutes for Deepgram, and is equally system-internal — the user-visible receipt for that spend is the recording.transcribe audit row the wrapper files (src/lib/ai/transcribe.ts, AUDITED_CORES).',
+    dated: '2026-09-08',
   },
   {
     file: 'src/lib/jobs/process-recording.ts',

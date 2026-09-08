@@ -36,6 +36,10 @@ const LITERAL_ONLY_CATEGORY = {
   // (facade key recordings.playbackUrl is a skip row — same doctrine as
   // karute.entry_edit above).
   'recording.play': 'recording',
+  // Choke emit: src/lib/ai/transcribe.ts#auditTranscriptionRefused (the
+  // transcription spend wall, 2026-09-08) — the refusal has no route of its
+  // own: every door reaches it through the one metered wrapper.
+  'recording.transcribe_refused': 'recording',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',
   'settings.permissions_change': 'settings',
