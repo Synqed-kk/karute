@@ -472,6 +472,41 @@ describe('今日の運営 reskin layer — slice ③ (money bar · card faces ·
     }
   })
 
+  it('a card in a gesture never takes the hover lift', () => {
+    // ⚖ FIX ROUND 1, F-2 / blind lens L1 MAJOR-1. Canon's two gesture states are
+    // BOTH hovered while the gesture runs — the proxy is `pointer-events: none`
+    // so the pointer sits on the `.dragging` husk, and the resize grips live
+    // inside the card so it sits on the `.resizing` card — and neither can be
+    // answered by a restatement, because `:hover` adds a pseudo-class the state
+    // rule cannot match. So the guard belongs on the hover head, and it is
+    // pinned as a RULE over every `.event` hover the layer writes, however it is
+    // spelled and whatever else it declares.
+    const hovers = selectorsOf(LAYER_CODE).filter((s) => /\.event(?![\w-])[^{]*:hover/.test(s))
+    expect(hovers.length).toBeGreaterThan(4)
+    for (const s of hovers) {
+      for (const guard of [':not(.dragging)', ':not(.resizing)']) {
+        expect(s).toContain(guard)
+        expect(s.indexOf(guard)).toBeLessThan(s.indexOf(':hover'))
+      }
+    }
+  })
+
+  it('the card in hand wears the same type as the card on the board', () => {
+    // ⚖ FIX ROUND 1, F-4 / blind lens L1 MAJOR-2, and ⚖ R8 GAP-11 in the
+    // product's own words: 「everything else is the face he grabbed, to the
+    // character」. The drag proxy renders the SAME cardFace() children, but the
+    // product writes it with `data-cat` and no `data-book` — so a type rule
+    // keyed on `[data-book]` alone stops at the board and the booking in hand
+    // keeps canon's 12.5px state-coloured name. Pinned as a RULE: every head
+    // that types a board booking must type the proxy with the same tail.
+    const sels = selectorsOf(LAYER_CODE)
+    const board = sels.filter((s) => s.includes('.event[data-book] >'))
+    expect(board.length).toBeGreaterThan(3)
+    for (const s of board) {
+      expect(sels).toContain(s.replace('.event[data-book]', '.event.drag-proxy[data-cat]'))
+    }
+  })
+
   it('the ruler is two bands and the now pill lives in the upper one (D-6)', () => {
     // V2-1. The 36px ruler is the whole fix for the pill landing on 「13」: the
     // pill owns y 2…20, the labels are pushed to y 19 in the lower band, and
