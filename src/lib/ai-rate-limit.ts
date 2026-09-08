@@ -81,13 +81,50 @@ export function estimateCostCents(
   return Math.max(1, Math.round(cents)) // round up to at least 1 cent so tiny calls still register
 }
 
+// ── Transcription (per-MINUTE) cost ─────────────────────────────────────────
+// Deepgram nova-3 ja is $0.0043/min pay-as-you-go with diarization included
+// (pricing page, read 2026-09-08) = 0.43 ¢/min. Rounded UP to 0.5, for the same
+// reason the token estimator falls back to gpt-4o pricing above: the cap must
+// err toward stopping early rather than overspending.
+export const DEEPGRAM_CENTS_PER_MINUTE = 0.5
+
+/** Cents for one transcription, from the audio's own length. Rounded up, and
+ *  never below 1 ¢ — the same "tiny calls still register" rule
+ *  estimateCostCents applies to tokens. */
+export function estimateTranscriptionCostCents(durationSec: number): number {
+  return Math.max(1, Math.ceil((durationSec / 60) * DEEPGRAM_CENTS_PER_MINUTE))
+}
+
+/**
+ * Report ONE transcription's minutes to synqed-core, as cents, against the same
+ * rolling daily $-cap consume() enforces (core's ai_request_log — a
+ * `transcribe:usage` row, no tokens).
+ *
+ * NEVER THROWS, deliberately: this is called immediately AFTER the provider has
+ * answered, so the money is already spent. Failing the caller here would send
+ * the whole recording back through Deepgram on the next retry — paying twice to
+ * report once. A failed debit is loud in the log and lost, which is the cheaper
+ * of the two errors.
+ */
+export async function reportTranscriptionUsageWithClient(
+  synqed: RateLimitClient,
+  costCents: number,
+): Promise<void> {
+  try {
+    await synqed.aiRateLimit.recordUsage('transcribe', null, null, costCents)
+  } catch (err) {
+    console.error('[ai-usage] transcription debit failed:', err)
+  }
+}
+
 /**
  * Fire-and-forget: report token usage to synqed-core for the daily $-cap.
  *
- * NOTE: transcription (Deepgram) is billed per-MINUTE, not per-token, so it
- * never calls this — the spend cap currently does NOT include Deepgram cost
- * (the dominant cost at 60–90 min sessions). Adding duration-based Deepgram
- * accounting is a synqed-core follow-up so the cap reflects true spend.
+ * Transcription (Deepgram) is billed per-MINUTE, not per-token, so it does not
+ * come through here — it reports through reportTranscriptionUsageWithClient
+ * above, into the SAME ledger, so the cap now DOES include Deepgram cost (the
+ * dominant cost at 60–90 min sessions). No core change was needed:
+ * recordUsage's tokens are nullable and its cents are the caller's own.
  */
 export async function reportAiUsageWithClient(
   synqed: RateLimitClient,

@@ -1,4 +1,5 @@
 import 'server-only'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   transcribeUrlWithDeepgram,
   transcribeWithDeepgram,
@@ -8,6 +9,13 @@ import { sttKeyterms } from '@/lib/stt-keyterms'
 import { createServiceClient } from '@/lib/supabase/service'
 import { identifyStaffSegments } from '@/lib/speaker-id/openai'
 import { mapStaffSpeaker } from '@/lib/speaker-id/align'
+import {
+  enforceAiRateLimitWithClient,
+  estimateTranscriptionCostCents,
+  reportTranscriptionUsageWithClient,
+} from '@/lib/ai-rate-limit'
+import { AppApiError } from '@/lib/app-api/errors'
+import { audit } from '@/lib/audit'
 import type { OrgSettings } from '@/actions/org-settings'
 
 /**
@@ -20,6 +28,11 @@ import type { OrgSettings } from '@/actions/org-settings'
  * reference to the caller's OWN enrollment clip on both paths) and injected here.
  * NO rate-limit / feature-gate / usage report: those stay with the caller so the
  * accounting path is shared, not duplicated.
+ *
+ * ⚖ AND THE SPEND WALL IS ONE DOOR ABOVE IT: runMeteredTranscription at the
+ * bottom of this file is what every caller actually calls — it asks the ceiling
+ * BEFORE this function and debits the minutes AFTER it. runTranscription itself
+ * stays the pure provider body so the meter has exactly one thing to wrap.
  */
 
 // ── Speaker-id pass (Stage 1, docs/diarization-stack.md) ────────────────────
@@ -187,4 +200,160 @@ export async function runTranscription(params: {
     ...serialize(result),
     ...(speakerId ? { speakerId } : {}),
   }
+}
+
+// ── ⚖ THE TRANSCRIPTION SPEND WALL (2026-09-08) ─────────────────────────────
+//
+// Every door that spends a yen at the provider goes through the ONE wrapper
+// below, which does four things in this order:
+//
+//   1. asks core's per-business AI ledger (`consume('transcribe')`) BEFORE the
+//      call — hourly request count + the ROLLING 24 h cost cap;
+//   2. runs the provider;
+//   3. debits the minutes as cents on the PROVIDER'S ANSWER — never on the
+//      job's success, because every throw after this point (EMPTY_TRANSCRIPT,
+//      the extract/summarize leg, the write) is re-run by core's requeue and
+//      would re-spend the whole recording;
+//   4. files the receipt (or, on a refusal, the refusal row).
+//
+// NO NEW COUNTER, NO NEW TABLE: the ledger core already keeps for the token
+// routes is the same ledger, and the unit is money. The cap VALUE is an env on
+// core's deployment (AI_DAILY_COST_CAP_CENTS) — never settable from here.
+//
+// NO `.catch` ON THE CONSUME, ever: an unreadable ledger REFUSES. That is the
+// worker's own law for the reads beside it — "could not check" is never "under
+// the ceiling" (process-recording.ts's assertNotDiscardedByStaff).
+
+/** Which door spent the money. 'job' = the phone's normal save through the
+ *  worker, 'from_session' = the same worker on a take the nightly assembler
+ *  rescued, 'web'/'app' = the two interactive transcribe routes, 'discard' =
+ *  the words behind a reasoned discard. */
+export type TranscriptionDoor = 'job' | 'from_session' | 'web' | 'app' | 'discard'
+
+/** A provider answer whose metadata carried no duration (deepgram.ts's
+ *  `?? 0`) and a payload that never had one (a rescued take's duration stays
+ *  null by ruling) still cost real money: a real spend is never debited as
+ *  zero. One hour is the recorder's own 2 h auto-stop halved — deliberately
+ *  expensive, so the unknown case errs toward stopping early. */
+const UNKNOWN_DURATION_FLOOR_SECONDS = 3600
+
+export interface TranscriptionMeter {
+  /** The BUSINESS-scoped core client. The ledger is per business. */
+  synqed: Pick<SynqedClient, 'aiRateLimit'>
+  businessId: string
+  door: TranscriptionDoor
+  recordingSessionId?: string | null
+  takeId?: string | null
+  /** The job's attempt number, so a repeating spend is visible in the log. */
+  attempt?: number | null
+  rescued?: boolean
+  /** The payload/row duration, used ONLY when the provider returned none —
+   *  never as a pre-spend check (it is client-supplied on two of the doors). */
+  durationHintSeconds?: number | null
+  requestId?: string
+}
+
+/** A duration is usable only when it is a real, positive number of seconds. */
+function positiveSeconds(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function detailNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** THE RECEIPT — ids and numbers only, never a word of the transcript. Private
+ *  and unconditional so the emission walker can prove it (CP7); the CALLER
+ *  decides whether this door files one (see runMeteredTranscription). */
+function auditTranscriptionReceipt(
+  meter: TranscriptionMeter,
+  durationSec: number,
+  costCents: number,
+): void {
+  audit({
+    category: 'recording',
+    action: 'recording.transcribe',
+    actorId: null,
+    actorType: 'system',
+    businessId: meter.businessId,
+    targetType: 'recording',
+    targetId: meter.recordingSessionId ?? undefined,
+    detail: {
+      door: meter.door,
+      duration_seconds: Math.round(durationSec),
+      cost_cents: costCents,
+      ...(meter.recordingSessionId ? { recording_session_id: meter.recordingSessionId } : {}),
+      ...(meter.takeId ? { take_id: meter.takeId } : {}),
+      ...(meter.attempt != null ? { attempt: meter.attempt } : {}),
+      ...(meter.rescued != null ? { rescued: meter.rescued } : {}),
+    },
+    requestId: meter.requestId,
+    source: 'system',
+  })
+}
+
+/** THE REFUSAL — severity 'warning' (→ core 'critical'), which no other
+ *  recording.* row uses, so "is the wall firing?" is ONE audit.list request
+ *  with no core change. */
+function auditTranscriptionRefused(meter: TranscriptionMeter, err: AppApiError): void {
+  audit({
+    category: 'recording',
+    action: 'recording.transcribe_refused',
+    severity: 'warning',
+    actorId: null,
+    actorType: 'system',
+    businessId: meter.businessId,
+    targetType: 'recording',
+    targetId: meter.recordingSessionId ?? undefined,
+    detail: {
+      door: meter.door,
+      reason: typeof err.detail?.reason === 'string' ? err.detail.reason : null,
+      cost_used_cents: detailNumber(err.detail?.cost_used_cents),
+      cost_cap_cents: detailNumber(err.detail?.cost_cap_cents),
+      ...(meter.recordingSessionId ? { recording_session_id: meter.recordingSessionId } : {}),
+    },
+    requestId: meter.requestId,
+    source: 'system',
+  })
+}
+
+/**
+ * runTranscription, metered. The ONLY way this app may reach the provider.
+ *
+ * Throws the classified `rate_limited` AppApiError unchanged on a refusal (the
+ * facade maps it to 429; the web route rewraps it; the worker renames it to its
+ * own named reason word) — and the refusal row is filed before it leaves.
+ */
+export async function runMeteredTranscription(
+  meter: TranscriptionMeter,
+  params: Parameters<typeof runTranscription>[0],
+): Promise<Record<string, unknown>> {
+  try {
+    await enforceAiRateLimitWithClient(meter.synqed, 'transcribe')
+  } catch (err) {
+    if (err instanceof AppApiError && err.code === 'rate_limited') {
+      auditTranscriptionRefused(meter, err)
+    }
+    throw err
+  }
+
+  const result = await runTranscription(params)
+
+  // The provider's own measurement first — it is the only number that is not a
+  // client's claim. Then the row/payload hint, then the floor.
+  const durationSec =
+    positiveSeconds(result.durationSec) ??
+    positiveSeconds(meter.durationHintSeconds) ??
+    UNKNOWN_DURATION_FLOOR_SECONDS
+  const costCents = estimateTranscriptionCostCents(durationSec)
+  await reportTranscriptionUsageWithClient(meter.synqed, costCents)
+
+  // ONE receipt per call. The two interactive routes already emit their own
+  // recording.transcribe row (web: auditWeb; facade: the hook map) and carry
+  // the same two numbers on it, so the wrapper stays silent for them — a door
+  // added later must declare itself HERE or it files nothing.
+  if (meter.door === 'job' || meter.door === 'from_session' || meter.door === 'discard') {
+    auditTranscriptionReceipt(meter, durationSec, costCents)
+  }
+  return result
 }
